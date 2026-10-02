@@ -193,4 +193,32 @@ func TestTeamInvite(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, oldInviteExists)
 	})
+
+	t.Run("ListAndLoadUsers", func(t *testing.T) {
+		user1 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+		user5 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+		user8 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 8})
+
+		invite5, err := organization.CreateTeamInviteForUser(t.Context(), user1, user5, team)
+		assert.NotNil(t, invite5)
+		require.NoError(t, err)
+		invite8, err := organization.CreateTeamInviteForUser(t.Context(), user1, user8, team)
+		assert.NotNil(t, invite8)
+		require.NoError(t, err)
+
+		invites, err := organization.GetTeamInvites(t.Context(), &organization.SearchInvitesOptions{TeamID: team.ID})
+		require.NoError(t, err)
+
+		err = organization.LoadUsers(t.Context(), invites)
+		require.NoError(t, err)
+
+		for _, invite := range invites {
+			if invite.InvitedID.Has() {
+				assert.NotNil(t, invite.InvitedUser)
+			} else {
+				assert.Nil(t, invite.InvitedUser)
+			}
+			assert.NotNil(t, invite.InviterUser)
+		}
+	})
 }

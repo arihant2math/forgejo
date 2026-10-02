@@ -6,10 +6,12 @@ package organization
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"forgejo.org/models/db"
 	user_model "forgejo.org/models/user"
+	"forgejo.org/modules/container"
 	"forgejo.org/modules/optional"
 	"forgejo.org/modules/setting"
 	"forgejo.org/modules/timeutil"
@@ -96,6 +98,7 @@ type TeamInvite struct {
 	ID          int64                               `xorm:"pk autoincr"`
 	Token       string                              `xorm:"UNIQUE(token) INDEX NOT NULL DEFAULT ''"`
 	InviterID   int64                               `xorm:"NOT NULL DEFAULT 0"`
+	InviterUser *user_model.User                    `xorm:"-"`
 	OrgID       int64                               `xorm:"INDEX NOT NULL DEFAULT 0"`
 	TeamID      int64                               `xorm:"UNIQUE(team_mail) INDEX NOT NULL DEFAULT 0"`
 	Email       string                              `xorm:"UNIQUE(team_mail) NOT NULL DEFAULT ''"`
@@ -223,6 +226,32 @@ func CreateTeamInviteForUser(ctx context.Context, doer, invited *user_model.User
 	return invite, db.Insert(ctx, invite)
 }
 
+// GetInviteForUserByID loads a team invite issued to a given user
+func GetInviteForUserByID(ctx context.Context, inviteID, userID int64) (*TeamInvite, error) {
+	invite := &TeamInvite{}
+	has, err := db.GetEngine(ctx).Where("id=? AND invited_id=?", inviteID, userID).Get(invite)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, ErrTeamInviteNotFound{}
+	}
+	return invite, nil
+}
+
+// GetInviteInTeamByID loads a team invite within a given team
+func GetInviteInTeamByID(ctx context.Context, inviteID, teamID int64) (*TeamInvite, error) {
+	invite := &TeamInvite{}
+	has, err := db.GetEngine(ctx).Where("id=? AND team_id=?", inviteID, teamID).Get(invite)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, ErrTeamInviteNotFound{}
+	}
+	return invite, nil
+}
+
 func RemoveInviteByID(ctx context.Context, inviteID, teamID int64) error {
 	_, err := db.DeleteByBean(ctx, &TeamInvite{
 		ID:     inviteID,
@@ -231,11 +260,40 @@ func RemoveInviteByID(ctx context.Context, inviteID, teamID int64) error {
 	return err
 }
 
+// SearchMembersOptions holds the search options
+type SearchInvitesOptions struct {
+	db.ListOptions
+	TeamID    int64
+	OrgID     int64
+	InvitedID int64
+}
+
+func (opts SearchInvitesOptions) ToConds() builder.Cond {
+	cond := builder.NewCond()
+	if opts.TeamID > 0 {
+		cond = cond.And(builder.Eq{"team_id": opts.TeamID})
+	}
+	if opts.OrgID > 0 {
+		cond = cond.And(builder.Eq{"org_id": opts.OrgID})
+	}
+	if opts.InvitedID > 0 {
+		cond = cond.And(builder.Eq{"invited_id": opts.InvitedID})
+	}
+	return cond
+}
+
+// GetTeamInvites returns all invites matching the specified criteria
+func GetTeamInvites(ctx context.Context, opts *SearchInvitesOptions) ([]*TeamInvite, error) {
+	return db.Find[TeamInvite](ctx, opts)
+}
+
+// CountTeamInvites returns the number of team invites matching the specified criteria
+func CountTeamInvites(ctx context.Context, opts *SearchInvitesOptions) (int64, error) {
+	return db.Count[TeamInvite](ctx, opts)
+}
+
 func GetInvitesByTeamID(ctx context.Context, teamID int64) ([]*TeamInvite, error) {
-	invites := make([]*TeamInvite, 0, 10)
-	return invites, db.GetEngine(ctx).
-		Where("team_id=?", teamID).
-		Find(&invites)
+	return GetTeamInvites(ctx, &SearchInvitesOptions{TeamID: teamID})
 }
 
 func GetInviteByToken(ctx context.Context, token string) (*TeamInvite, error) {
@@ -249,6 +307,48 @@ func GetInviteByToken(ctx context.Context, token string) (*TeamInvite, error) {
 		return nil, ErrTeamInviteNotFound{Token: token}
 	}
 	return invite, nil
+}
+
+// LoadUsers loads the inviter and invited users (if any)
+func (i *TeamInvite) LoadUsers(ctx context.Context) error {
+	err := i.LoadInviterUser(ctx)
+	if err != nil {
+		return err
+	}
+	return i.LoadInvitedUser(ctx)
+}
+
+func (i *TeamInvite) LoadInviterUser(ctx context.Context) error {
+	if i.InviterUser == nil {
+		user, err := user_model.GetUserByID(ctx, i.InviterID)
+		if err != nil {
+			return err
+		}
+		i.InviterUser = user
+	}
+	return nil
+}
+
+// LoadUsers in an array of team invites, performing less SQL queries than if loading them one by one
+func LoadUsers(ctx context.Context, invites []*TeamInvite) error {
+	invitedUserIDs := container.FilterSlice(invites, func(m *TeamInvite) (int64, bool) {
+		has, value := m.InvitedID.Get()
+		return value, has
+	})
+	inviterIDs := container.FilterSlice(invites, func(m *TeamInvite) (int64, bool) {
+		return m.InviterID, true
+	})
+	users, err := db.GetByIDs(ctx, "id", slices.Concat(invitedUserIDs, inviterIDs), &user_model.User{})
+	if err != nil {
+		return err
+	}
+	for _, invite := range invites {
+		if has, invitedID := invite.InvitedID.Get(); has {
+			invite.InvitedUser = users[invitedID]
+		}
+		invite.InviterUser = users[invite.InviterID]
+	}
+	return nil
 }
 
 // GetInviteByOrgAndUser finds any non-expired invite for this user to teams of the given org

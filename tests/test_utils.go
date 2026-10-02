@@ -36,6 +36,7 @@ import (
 	"forgejo.org/modules/testlogger"
 	"forgejo.org/modules/util"
 	"forgejo.org/routers"
+	"forgejo.org/tests/internaltest"
 
 	"github.com/stretchr/testify/require"
 
@@ -369,6 +370,7 @@ var inTestEnv atomic.Bool
 func PrepareTestEnv(t testing.TB, skip ...int) func() {
 	deferFn := PrepareTestEnvWithPackageData(t, skip...)
 	PrepareCleanPackageData(t)
+	internaltest.NewInternalTestServer(t, nil)
 
 	projectRoot := base.SetupProjectRoot()
 	setting.AppWorkPath = projectRoot

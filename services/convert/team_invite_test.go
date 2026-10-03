@@ -5,6 +5,7 @@ package convert
 
 import (
 	"testing"
+	"time"
 
 	"forgejo.org/models/db"
 	org_model "forgejo.org/models/organization"
@@ -32,7 +33,7 @@ func TestConvertInvitedUserWithExpiry(t *testing.T) {
 		OrgID:       3,
 		Email:       user5.Email,
 		CreatedUnix: timeutil.TimeStampNow(),
-		ExpiryUnix:  optional.Some(timeutil.TimeStampNow().AddDuration(1000)),
+		ExpiryUnix:  optional.Some(timeutil.TimeStampNow().AddDuration(1000 * time.Second)),
 	}
 	require.NoError(t, teamInvite.LoadUsers(db.DefaultContext))
 

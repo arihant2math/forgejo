@@ -12,6 +12,7 @@ import (
 
 	actions_model "forgejo.org/models/actions"
 	"forgejo.org/models/db"
+	"forgejo.org/modules/setting"
 	"forgejo.org/modules/util"
 	notify_service "forgejo.org/services/notify"
 
@@ -414,7 +415,8 @@ func InitiateNextRunAttempt(ctx context.Context, run *actions_model.ActionRun) e
 }
 
 // RefreshAndPropagateRunStatus refreshes the status of a run and notifies subscribers if the
-// status has changed — but only then.
+// status has changed — but only then.  Task versions for the run's owner & repo are
+// incremented if the run is changed to a completed status.
 func RefreshAndPropagateRunStatus(ctx context.Context, runID int64) error {
 	return db.WithTx(ctx, func(ctx context.Context) error {
 		run, err := actions_model.GetRunByID(ctx, runID)
@@ -436,6 +438,14 @@ func RefreshAndPropagateRunStatus(ctx context.Context, runID int64) error {
 
 		if err = actions_model.UpdateRun(ctx, run); err != nil {
 			return fmt.Errorf("could not update run %d: %w", run.ID, err)
+		}
+
+		if setting.Actions.ConcurrencyGroupQueueEnabled && !priorStatus.IsDone() && run.Status.IsDone() {
+			// Reaching a finalized result for a run can cause jobs in other runs, with the same concurrency group, to
+			// be available for execution; increasing task version allows runners to requery to the DB for that state.
+			if err := actions_model.IncreaseTaskVersion(ctx, run.OwnerID, run.RepoID); err != nil {
+				return fmt.Errorf("fail to increase task version: %w", err)
+			}
 		}
 
 		// Notifications expect an ActionRun with all its attributes loaded.

@@ -643,6 +643,52 @@ func TestRefreshAndPropagateRunStatus(t *testing.T) {
 			actions_model.StatusWaiting,
 		)
 	})
+
+	t.Run("Task version not incremented if run not completed", func(t *testing.T) {
+		require.NoError(t, unittest.PrepareTestDatabase())
+		unittest.AssertSuccessfulInsert(t, fixtures)
+
+		// Create and validate an initial version record
+		require.NoError(t, actions_model.IncreaseTaskVersion(t.Context(), 2, 62))
+		tv1 := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTasksVersion{RepoID: 62})
+
+		// Ensure run is still waiting by having a waiting job in it
+		job := &actions_model.ActionRunJob{
+			ID:      748211,
+			RunID:   535681,
+			RepoID:  62,
+			OwnerID: 2,
+			Status:  actions_model.StatusWaiting,
+		}
+		unittest.AssertSuccessfulInsert(t, job)
+		require.NoError(t, RefreshAndPropagateRunStatus(t.Context(), job.RunID))
+
+		tv2 := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTasksVersion{RepoID: 62})
+		assert.Equal(t, tv1.Version, tv2.Version)
+	})
+
+	t.Run("Task version increment on completion", func(t *testing.T) {
+		require.NoError(t, unittest.PrepareTestDatabase())
+		unittest.AssertSuccessfulInsert(t, fixtures)
+
+		// Create and validate an initial version record
+		require.NoError(t, actions_model.IncreaseTaskVersion(t.Context(), 2, 62))
+		tv1 := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTasksVersion{RepoID: 62})
+
+		// Finish the run
+		job := &actions_model.ActionRunJob{
+			ID:      748211,
+			RunID:   535681,
+			RepoID:  62,
+			OwnerID: 2,
+			Status:  actions_model.StatusSkipped,
+		}
+		unittest.AssertSuccessfulInsert(t, job)
+		require.NoError(t, RefreshAndPropagateRunStatus(t.Context(), job.RunID))
+
+		tv2 := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTasksVersion{RepoID: 62})
+		assert.Greater(t, tv2.Version, tv1.Version)
+	})
 }
 
 func TestFailRunPreExecutionError(t *testing.T) {

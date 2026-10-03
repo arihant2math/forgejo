@@ -5,7 +5,7 @@ package structs
 
 import "time"
 
-// BlockedUser represents a blocked user.
+// BlockedUser represents a blocked user
 type BlockedUser struct {
 	BlockID int64 `json:"block_id"`
 	// swagger:strfmt date-time

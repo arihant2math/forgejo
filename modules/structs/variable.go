@@ -3,7 +3,7 @@
 
 package structs
 
-// CreateVariableOption defines the properties of the variable to create.
+// CreateVariableOption defines the properties of the variable to create
 // swagger:model
 type CreateVariableOption struct {
 	// Value of the variable to create. Special characters will be retained. Line endings will be normalized to LF to
@@ -13,7 +13,7 @@ type CreateVariableOption struct {
 	Value string `json:"value" binding:"Required"`
 }
 
-// UpdateVariableOption defines the properties of the variable to update.
+// UpdateVariableOption defines the properties of the variable to update
 // swagger:model
 type UpdateVariableOption struct {
 	// New name for the variable. If the field is empty, the variable name won't be updated. Forgejo will convert it to

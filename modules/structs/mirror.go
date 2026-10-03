@@ -5,7 +5,7 @@ package structs
 
 import "time"
 
-// CreatePushMirrorOption represents need information to create a push mirror of a repository.
+// CreatePushMirrorOption represents need information to create a push mirror of a repository
 type CreatePushMirrorOption struct {
 	RemoteAddress  string `json:"remote_address"`
 	RemoteUsername string `json:"remote_username"`

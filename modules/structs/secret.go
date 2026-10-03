@@ -14,7 +14,7 @@ type Secret struct {
 	Created time.Time `json:"created_at"`
 }
 
-// CreateOrUpdateSecretOption defines the properties of the secret to create or update.
+// CreateOrUpdateSecretOption defines the properties of the secret to create or update
 // swagger:model
 type CreateOrUpdateSecretOption struct {
 	// Data of the secret. Special characters will be retained. Line endings will be normalized to LF to match the

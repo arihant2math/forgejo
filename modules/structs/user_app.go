@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// AccessToken represents an API access token.
+// AccessToken represents an API access token
 // swagger:response AccessToken
 type AccessToken struct {
 	ID             int64     `json:"id"`
@@ -43,7 +43,7 @@ type CreateOAuth2ApplicationOptions struct {
 	RedirectURIs       []string `json:"redirect_uris" binding:"Required"`
 }
 
-// OAuth2Application represents an OAuth2 application.
+// OAuth2Application represents an OAuth2 application
 // swagger:response OAuth2Application
 type OAuth2Application struct {
 	ID                 int64     `json:"id"`

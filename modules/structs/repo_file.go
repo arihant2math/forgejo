@@ -145,7 +145,7 @@ type ContentsResponse struct {
 	Links           *FileLinksResponse `json:"_links"`
 }
 
-// FileCommitResponse contains information generated from a Git commit for a repo's file.
+// FileCommitResponse contains information generated from a Git commit for a repo's file
 type FileCommitResponse struct {
 	CommitMeta
 	HTMLURL   string        `json:"html_url"`

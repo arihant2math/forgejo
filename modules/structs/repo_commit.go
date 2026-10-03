@@ -15,7 +15,7 @@ type Identity struct {
 	Email string `json:"email" binding:"MaxSize(254)"`
 }
 
-// CommitMeta contains meta information of a commit in terms of API.
+// CommitMeta contains meta information of a commit in terms of API
 type CommitMeta struct {
 	URL string `json:"url"`
 	SHA string `json:"sha"`
@@ -23,13 +23,13 @@ type CommitMeta struct {
 	Created time.Time `json:"created"`
 }
 
-// CommitUser contains information of a user in the context of a commit.
+// CommitUser contains information of a user in the context of a commit
 type CommitUser struct {
 	Identity
 	Date string `json:"date"`
 }
 
-// RepoCommit contains information of a commit in the context of a repository.
+// RepoCommit contains information of a commit in the context of a repository
 type RepoCommit struct {
 	URL          string                     `json:"url"`
 	Author       *CommitUser                `json:"author"`
@@ -46,7 +46,7 @@ type CommitStats struct {
 	Deletions int `json:"deletions"`
 }
 
-// Commit contains information generated from a Git commit.
+// Commit contains information generated from a Git commit
 type Commit struct {
 	*CommitMeta
 	HTMLURL    string                 `json:"html_url"`

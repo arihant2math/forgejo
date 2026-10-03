@@ -94,9 +94,10 @@ func CreateRepositoryByExample(ctx context.Context, doer, u *user_model.User, re
 				Type:   tp,
 				Config: &repo_model.PullRequestsConfig{
 					AllowMerge: true, AllowRebase: true, AllowRebaseMerge: true, AllowSquash: true, AllowFastForwardOnly: true,
-					DefaultMergeStyle:  repo_model.MergeStyle(setting.Repository.PullRequest.DefaultMergeStyle),
-					DefaultUpdateStyle: repo_model.UpdateStyle(setting.Repository.PullRequest.DefaultUpdateStyle),
-					AllowRebaseUpdate:  true,
+					DefaultMergeStyle:          repo_model.MergeStyle(setting.Repository.PullRequest.DefaultMergeStyle),
+					DefaultUpdateStyle:         repo_model.UpdateStyle(setting.Repository.PullRequest.DefaultUpdateStyle),
+					AllowRebaseUpdate:          true,
+					DefaultAllowMaintainerEdit: true,
 				},
 			})
 		default:

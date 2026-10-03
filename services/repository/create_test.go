@@ -11,6 +11,7 @@ import (
 	"forgejo.org/models/db"
 	"forgejo.org/models/organization"
 	"forgejo.org/models/perm"
+	"forgejo.org/models/unit"
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/structs"
@@ -156,4 +157,10 @@ func TestCreateRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r.Topics)
 	require.Empty(t, r.Topics)
+
+	// check that maintainer edits are allowed by default
+	unit, err := r.GetUnit(t.Context(), unit.TypePullRequests)
+	require.NoError(t, err)
+	config := unit.PullRequestsConfig()
+	assert.True(t, config.DefaultAllowMaintainerEdit)
 }

@@ -18,6 +18,7 @@ import (
 	"forgejo.org/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // getRepoEditOptionFromRepo gets the options for an existing repo exactly as is
@@ -411,4 +412,34 @@ func TestAPIRepoEditAccessTokenResources(t *testing.T) {
 		}).
 		AddTokenAuth(repo2OnlyToken)
 	MakeRequest(t, req, http.StatusForbidden)
+}
+
+// This test verifies that a when enabling the PR unit on repositories,
+// the "allow maintainer edits by default" option is enabled.
+func TestAPIRepoEditEnablePRUnitsEnablesAllowMaintainerEdits(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+
+	repo15 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 15})
+
+	// check that there is no PR unit yet on this repo
+	prUnit, err := repo15.GetUnit(t.Context(), unit_model.TypePullRequests)
+	require.Error(t, err)
+	assert.Nil(t, prUnit)
+
+	// enable PRs without supplying any specific settings
+	session := loginUser(t, "user2")
+	token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
+	bTrue := true
+	repoEditOption := &api.EditRepoOption{HasPullRequests: &bTrue}
+	req := NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/%s/%s", "user2", "repo15"), &repoEditOption).
+		AddTokenAuth(token)
+	MakeRequest(t, req, http.StatusOK)
+
+	// check that there is now a PR unit and maintainer edits are allowed by default
+	repo15 = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 15})
+	prUnit, err = repo15.GetUnit(t.Context(), unit_model.TypePullRequests)
+	require.NoError(t, err)
+	assert.NotNil(t, prUnit)
+	config := prUnit.PullRequestsConfig()
+	assert.True(t, config.DefaultAllowMaintainerEdit)
 }

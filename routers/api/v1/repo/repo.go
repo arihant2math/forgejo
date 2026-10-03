@@ -1003,7 +1003,7 @@ func updateRepoUnits(ctx *context.APIContext, owner string, repo *repo_model.Rep
 					DefaultDeleteBranchAfterMerge: false,
 					DefaultMergeStyle:             repo_model.MergeStyleMerge,
 					DefaultUpdateStyle:            repo_model.UpdateStyleMerge,
-					DefaultAllowMaintainerEdit:    false,
+					DefaultAllowMaintainerEdit:    true,
 				}
 			} else {
 				config = unit.PullRequestsConfig()

@@ -155,15 +155,16 @@ func EnableRepoUnits(t testing.TB, repo *repo_model.Repository, units ...unit_mo
 		var config convert.Conversion
 		if u == unit_model.TypePullRequests { // pull request config is needed (otherwise no merge allowed by default)
 			config = &repo_model.PullRequestsConfig{
-				AllowMerge:           true,
-				AllowRebase:          true,
-				AllowRebaseMerge:     true,
-				AllowSquash:          true,
-				AllowFastForwardOnly: true,
-				AllowManualMerge:     true,
-				AllowRebaseUpdate:    true,
-				DefaultMergeStyle:    repo_model.MergeStyleMerge,
-				DefaultUpdateStyle:   repo_model.UpdateStyleMerge,
+				AllowMerge:                 true,
+				AllowRebase:                true,
+				AllowRebaseMerge:           true,
+				AllowSquash:                true,
+				AllowFastForwardOnly:       true,
+				AllowManualMerge:           true,
+				AllowRebaseUpdate:          true,
+				DefaultMergeStyle:          repo_model.MergeStyleMerge,
+				DefaultUpdateStyle:         repo_model.UpdateStyleMerge,
+				DefaultAllowMaintainerEdit: true,
 			}
 		}
 		ru = append(ru, repo_model.RepoUnit{

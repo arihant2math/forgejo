@@ -220,10 +220,15 @@ func serveInstalled(_ context.Context, ctx *cli.Command) error {
 	// Set up Chi routes
 	webRoutes := routers.NormalRoutes()
 	err := listen(webRoutes, true)
+	if err != nil {
+		log.Critical("Unable to open listener for web server: %s", err.Error())
+		graceful.GetManager().DoGracefulShutdown()
+		return nil
+	}
 	<-graceful.GetManager().Done()
 	log.Info("PID: %d Forgejo Web Finished", os.Getpid())
 	log.GetManager().Close()
-	return err
+	return nil
 }
 
 func servePprof() {
@@ -328,12 +333,12 @@ func listen(m http.Handler, handleRedirector bool) error {
 	internalListenerFolder := path.Dir(setting.InternalListenerPath)
 	err := os.MkdirAll(internalListenerFolder, 0o700)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create directory for INTERNAL_LISTENER_PATH: %w", err)
 	}
 
 	err = os.Chmod(internalListenerFolder, 0o700)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to chmod directory for INTERNAL_LISTENER_PATH: %w", err)
 	}
 
 	var serverGroup errgroup.Group

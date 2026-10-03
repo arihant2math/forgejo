@@ -18,7 +18,7 @@
     "@codemirror/lang-javascript": "6.2.5",
     "@codemirror/lang-json": "6.0.2",
     "@codemirror/lang-less": "6.0.2",
-    "@codemirror/lang-liquid": "6.3.2",
+    "@codemirror/lang-liquid": "6.3.3",
     "@codemirror/lang-markdown": "6.5.2",
     "@codemirror/lang-php": "6.0.2",
     "@codemirror/lang-python": "6.2.1",

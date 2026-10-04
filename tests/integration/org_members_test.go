@@ -247,6 +247,40 @@ func TestOrgAddExistingMemberFails(t *testing.T) {
 	assert.False(t, isTeamMember)
 }
 
+func TestOrgAddNonExistentMemberFails(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+
+	actionUser := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	org := unittest.AssertExistsAndLoadBean(t, &organization.Organization{ID: 3})
+	team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 2})
+
+	// confirm that org and team are linked to each other.
+	orgTeams, err := org.LoadTeams(db.DefaultContext)
+	require.NoError(t, err)
+	assert.Contains(t, orgTeams, team)
+	assert.Equal(t, team.OrgID, org.ID)
+
+	// user adding the member is part of the org.
+	isOrgMember, err := org.IsOrgMember(db.DefaultContext, actionUser.ID)
+	require.NoError(t, err)
+	assert.True(t, isOrgMember)
+
+	session := loginUser(t, actionUser.LoginName)
+	teamURL := fmt.Sprintf("/org/%s/members", org.Name)
+	nonexistentLoginName := "non-existent-user"
+	unittest.AssertNotExistsBean(t, &user_model.User{LoginName: nonexistentLoginName})
+
+	req := NewRequestWithValues(t, "POST", teamURL+"/action/add", map[string]string{
+		"uid":                           fmt.Sprintf("%d", actionUser.ID),
+		"uname":                         nonexistentLoginName,
+		fmt.Sprintf("team_%d", team.ID): "on",
+	})
+	resp := session.MakeRequest(t, req, http.StatusSeeOther)
+	assert.Equal(t, teamURL, resp.Header().Get("Location"))
+	doc := NewHTMLParser(t, session.MakeRequest(t, NewRequest(t, "GET", teamURL), http.StatusOK).Body)
+	assert.Contains(t, strings.TrimSpace(doc.Find(".flash-error").Text()), "The user does not exist.")
+}
+
 func TestOrgAddMemberGeneratesAnInvite(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
 	defer test.MockVariableValue(&setting.Service.AddMembersByInvitations, true)()

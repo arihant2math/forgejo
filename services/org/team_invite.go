@@ -43,7 +43,7 @@ func InviteOrAddTeamMember(ctx context.Context, inviter, invited *user_model.Use
 		}
 		if isAlreadyOrgMember {
 			// the user has already consented to being part of the org: we add them to the team directly
-			return models.AddTeamMember(ctx, team, invited.ID)
+			return models.AddTeamMemberByCooptation(ctx, team, invited.ID, inviter.ID)
 		}
 		return CreateTeamInviteByUser(ctx, inviter, invited, team)
 	}

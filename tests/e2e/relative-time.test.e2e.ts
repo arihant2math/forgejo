@@ -3,13 +3,63 @@
 
 // @watch start
 // templates/admin/dashboard.tmpl
-// web_src/js/webcomponents/relative-time.js
+// templates/base/head_script.tmpl
+// web_src/js/webcomponents/relative-time.ts
 // @watch end
 
 import {expect} from '@playwright/test';
 import {test} from './utils_e2e.ts';
 
 test.use({user: 'user1'});
+
+// The <relative-time> tooltip shows the absolute datetime, formatted with the language
+// selected in Forgejo's settings (document.documentElement.lang), not the browser's language.
+const browserLang = 'en-US';
+
+for (const lang of ['en-US', 'es-ES', 'de-DE']) {
+  test(`Relative time tooltip is formatted in ${lang}`, async ({browser}) => {
+    const context = await browser.newContext({locale: browserLang});
+    await context.addCookies([{name: 'lang', value: lang, domain: 'localhost', path: '/'}]);
+
+    try {
+      const page = await context.newPage();
+      await page.goto('/user2/repo1');
+
+      const relativeTime = page.locator('relative-time').first();
+      await expect(relativeTime).toBeVisible();
+      await expect(relativeTime).toHaveAttribute('data-tooltip-content', /.+?/);
+
+      const expected = await relativeTime.evaluate(
+        (el: HTMLElement, l: string) =>
+          new Intl.DateTimeFormat(l, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short',
+          }).format(new Date(el.getAttribute('datetime')!)),
+        lang,
+      );
+
+      await expect(relativeTime).toHaveAttribute('data-tooltip-content', expected);
+
+      // tippy is created with `animation: false`, so `data-state` stays "hidden"
+      // only the `visibility` changes when shown
+      await relativeTime.scrollIntoViewIfNeeded();
+      await relativeTime.hover();
+      await relativeTime.dispatchEvent('mouseenter');
+      const tippyContent = page.locator('.tippy-box .tippy-content').filter({
+        hasText: expected,
+      });
+
+      await expect(tippyContent).toBeVisible();
+      await expect(tippyContent).toHaveText(expected);
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test('Relative time after htmx swap', async ({page}, workerInfo) => {
   test.skip(

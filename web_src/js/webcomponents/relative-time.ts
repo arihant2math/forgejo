@@ -1,5 +1,6 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
+import {getCurrentLocale} from '../utils.js';
 const {pageData} = window.config;
 
 dayjs.extend(utc);
@@ -9,7 +10,9 @@ export const ONE_MINUTE = 60 * 1000;
 export const ONE_HOUR = 60 * ONE_MINUTE;
 export const ONE_DAY = 24 * ONE_HOUR;
 
-const ABSOLUTE_DATETIME_FORMAT = new Intl.DateTimeFormat(navigator.language, {
+const lang = getCurrentLocale() || navigator.language;
+
+const ABSOLUTE_DATETIME_FORMAT = new Intl.DateTimeFormat(lang, {
   year: 'numeric',
   month: 'short',
   day: 'numeric',
@@ -17,7 +20,7 @@ const ABSOLUTE_DATETIME_FORMAT = new Intl.DateTimeFormat(navigator.language, {
   minute: '2-digit',
   timeZoneName: 'short',
 });
-const FALLBACK_DATETIME_FORMAT = new Intl.RelativeTimeFormat(navigator.language, {style: 'long'});
+const FALLBACK_DATETIME_FORMAT = new Intl.RelativeTimeFormat(lang, {style: 'long'});
 
 // Fallback formatter for duration units, used only when the corresponding
 // `relativetime.duration.*` string is untranslated. Localizes via the browser

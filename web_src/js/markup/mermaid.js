@@ -1,4 +1,4 @@
-import {isDarkTheme} from '../utils.js';
+import {isDarkTheme} from '../utils.ts';
 import {makeCodeCopyButton} from './codecopy.js';
 import {displayError} from './common.js';
 

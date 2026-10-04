@@ -1,5 +1,5 @@
 import {createApp} from 'vue';
-import {translateMonth, translateDay} from '../utils.js';
+import {translateMonth, translateDay} from '../utils.ts';
 
 export async function initHeatmap() {
   const el = document.getElementById('user-heatmap');

@@ -27,7 +27,7 @@ import {getComboMarkdownEditor, initComboMarkdownEditor} from './comp/ComboMarkd
 import {attachRefIssueContextPopup} from './contextpopup.js';
 import {POST} from '../modules/fetch.js';
 import {MarkdownQuote} from '@github/quote-selection';
-import {toAbsoluteUrl} from '../utils.js';
+import {toAbsoluteUrl} from '../utils.ts';
 import {initDropzone, initDisabledInputs} from './common-global.js';
 
 export function initRepoCommentForm() {

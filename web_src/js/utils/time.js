@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import {getCurrentLocale} from '../utils.js';
+import {getCurrentLocale} from '../utils.ts';
 
 dayjs.extend(utc);
 

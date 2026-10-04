@@ -5,7 +5,7 @@ import '@citation-js/plugin-software-formats';
 import '@citation-js/plugin-bibtex';
 import {Cite, plugins} from '@citation-js/core';
 
-import {getCurrentLocale} from '../utils.js';
+import {getCurrentLocale} from '../utils.ts';
 import {initTab} from '../modules/tab.ts';
 
 window.customElements.define(

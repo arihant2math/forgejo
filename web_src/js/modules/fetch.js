@@ -1,4 +1,4 @@
-import {isObject} from '../utils.js';
+import {isObject} from '../utils.ts';
 
 // fetch wrapper, use below method name functions and the `data` option to pass in data
 // which will automatically set an appropriate headers. For json content, only object

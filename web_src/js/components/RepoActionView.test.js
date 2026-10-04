@@ -1,5 +1,5 @@
 import {mount, flushPromises} from '@vue/test-utils';
-import {toAbsoluteUrl} from '../utils.js';
+import {toAbsoluteUrl} from '../utils.ts';
 import RepoActionView from './RepoActionView.vue';
 import {initMarkupContent} from '../markup/content.js';
 

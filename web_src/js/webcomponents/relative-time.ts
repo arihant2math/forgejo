@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import {getCurrentLocale} from '../utils.js';
-const {pageData} = window.config;
+import {getCurrentLocale} from '../utils.ts';
+const {pageData} = window.config; 
 
 dayjs.extend(utc);
 

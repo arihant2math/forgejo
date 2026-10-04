@@ -1,5 +1,5 @@
 import {createApp} from 'vue';
-import {parseIssueHref} from '../utils.js';
+import {parseIssueHref} from '../utils.ts';
 import {createTippy} from '../modules/tippy.js';
 
 export function initContextPopups() {

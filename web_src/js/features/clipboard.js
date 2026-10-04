@@ -1,5 +1,5 @@
 import {showTemporaryTooltip} from '../modules/tippy.js';
-import {toAbsoluteUrl} from '../utils.js';
+import {toAbsoluteUrl} from '../utils.ts';
 import {clippie} from 'clippie';
 
 const {copy_success, copy_error} = window.config.i18n;

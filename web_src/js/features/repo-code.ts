@@ -2,7 +2,7 @@ import {svg} from '../svg.js';
 import {invertFileFolding} from './file-fold.js';
 import {createTippy} from '../modules/tippy.js';
 import {clippie} from 'clippie';
-import {toAbsoluteUrl} from '../utils.js';
+import {toAbsoluteUrl} from '../utils.ts';
 
 export const singleAnchorRegex = /^#[Ln]([1-9][0-9]*)$/;
 export const rangeAnchorRegex = /^#[Ln]([1-9][0-9]*)-[Ln]?([1-9][0-9]*)$/;

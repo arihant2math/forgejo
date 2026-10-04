@@ -1,4 +1,4 @@
-import {isDarkTheme} from '../utils.js';
+import {isDarkTheme} from '../utils.ts';
 import {languages} from './codemirror-lang.ts';
 import type {LanguageDescription} from '@codemirror/language';
 import type {Compartment} from '@codemirror/state';

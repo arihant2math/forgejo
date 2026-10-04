@@ -1,11 +1,11 @@
-import {expect, test} from 'vitest';
+import {afterEach, expect, test} from 'vitest';
 import {
   basename, extname, isObject, stripTags, parseIssueHref,
   parseUrl, translateMonth, translateDay, blobToDataURI,
   toAbsoluteUrl, encodeURLEncodedBase64, decodeURLEncodedBase64,
   isDarkTheme, getCurrentLocale, parseDom, serializeXml, sleep,
   parseRepoOwnerPathInfo,
-} from './utils.js';
+} from './utils.ts';
 
 afterEach(() => {
   // Remove 'lang' and 'style' attributes of html tag

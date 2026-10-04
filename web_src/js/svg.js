@@ -1,5 +1,5 @@
 import {h} from 'vue';
-import {parseDom, serializeXml} from './utils.js';
+import {parseDom, serializeXml} from './utils.ts';
 import giteaDoubleChevronLeft from '../../public/assets/img/svg/gitea-double-chevron-left.svg';
 import giteaDoubleChevronRight from '../../public/assets/img/svg/gitea-double-chevron-right.svg';
 import giteaEmptyCheckbox from '../../public/assets/img/svg/gitea-empty-checkbox.svg';

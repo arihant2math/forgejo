@@ -3,7 +3,7 @@ import {emojiHTML, emojiString} from '../emoji.ts';
 import {getIssueIcon, getIssueColor} from '../issue.js';
 import {svg} from '../../svg.js';
 import {createElementFromHTML} from '../../utils/dom.js';
-import {parseIssueHref, parseRepoOwnerPathInfo} from '../../utils.js';
+import {parseIssueHref, parseRepoOwnerPathInfo} from '../../utils.ts';
 import {debounce} from 'throttle-debounce';
 
 const {customEmojis} = window.config;

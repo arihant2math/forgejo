@@ -1,4 +1,4 @@
-import {encodeURLEncodedBase64, decodeURLEncodedBase64} from '../utils.js';
+import {encodeURLEncodedBase64, decodeURLEncodedBase64} from '../utils.ts';
 import {showElem} from '../utils/dom.js';
 import {GET, POST} from '../modules/fetch.js';
 

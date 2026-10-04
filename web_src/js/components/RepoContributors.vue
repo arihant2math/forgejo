@@ -404,9 +404,9 @@ export default {
                   {{ contributor.total_commits.toLocaleString() }} {{ locale.contributionType.commits }}
                 </a>
               </strong>
-              <strong v-if="contributor.total_additions" class="text green">{{ contributor.total_additions.toLocaleString() }}++ </strong>
+              <strong v-if="contributor.total_additions" class="text green">{{ contributor.total_additions.toLocaleString() }}&plus;&plus; </strong>
               <strong v-if="contributor.total_deletions" class="text red">
-                {{ contributor.total_deletions.toLocaleString() }}--</strong>
+                {{ contributor.total_deletions.toLocaleString() }}&minus;&minus;</strong>
             </p>
           </div>
         </div>

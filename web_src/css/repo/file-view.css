@@ -37,3 +37,16 @@
   height: 100%;
   background: var(--color-highlight-fg);
 }
+
+.font-preview {
+  padding: 1rem;
+  font-family: preview-font, var(--fonts-regular), sans-serif;
+}
+
+.font-preview .font-viewer-sample {
+  font-size: 28px;
+}
+
+.font-preview .font-viewer-size {
+  color: var(--color-text-light-2);
+}

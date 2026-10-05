@@ -1,5 +1,5 @@
 <script>
-import {SvgIcon} from '../svg.js';
+import {SvgIcon} from '../svg.ts';
 import {GET} from '../modules/fetch.js';
 
 export default {

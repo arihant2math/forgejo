@@ -1,4 +1,4 @@
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 
 const addPrefix = (str) => `user-content-${str}`;
 const removePrefix = (str) => str.replace(/^user-content-/, '');

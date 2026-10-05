@@ -3,7 +3,7 @@
 
 import type {SearchQuery} from '@codemirror/search';
 import type {EditorView, Panel, ViewUpdate} from '@codemirror/view';
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 
 class SearchPanel implements Panel {
   searchField: HTMLInputElement;

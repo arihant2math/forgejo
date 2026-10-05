@@ -5,7 +5,7 @@ import {initAriaFormFieldPatch} from './fomantic/form.js';
 import {initAriaDropdownPatch} from './fomantic/dropdown.js';
 import {initAriaModalPatch} from './fomantic/modal.js';
 import {initFomanticTransition} from './fomantic/transition.js';
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 import {initDimmer} from './dimmer.ts';
 
 export const fomanticMobileScreen = window.matchMedia('only screen and (max-width: 767.98px)');

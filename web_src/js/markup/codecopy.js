@@ -1,4 +1,4 @@
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 
 export function makeCodeCopyButton() {
   const button = document.createElement('button');

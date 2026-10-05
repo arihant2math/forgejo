@@ -1,5 +1,5 @@
 <script>
-import {SvgIcon} from '../svg.js';
+import {SvgIcon} from '../svg.ts';
 import {toggleElem} from '../utils/dom.js';
 
 const {pageData} = window.config;

@@ -1,5 +1,5 @@
 <script>
-import {SvgIcon} from '../svg.js';
+import {SvgIcon} from '../svg.ts';
 import {diffTreeStore} from '../modules/stores.js';
 import {loadMoreFiles} from '../features/repo-diff.js';
 

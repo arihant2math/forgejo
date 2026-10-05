@@ -1,5 +1,5 @@
 import $ from 'jquery';
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 import {showErrorToast} from '../modules/toast.js';
 import {GET, POST} from '../modules/fetch.js';
 import {showElem} from '../utils/dom.js';

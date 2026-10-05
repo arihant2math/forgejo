@@ -1,4 +1,4 @@
-import {h} from 'vue';
+import {h, type Component} from 'vue';
 import {parseDom, serializeXml} from './utils.ts';
 import giteaDoubleChevronLeft from '../../public/assets/img/svg/gitea-double-chevron-left.svg';
 import giteaDoubleChevronRight from '../../public/assets/img/svg/gitea-double-chevron-right.svg';
@@ -154,19 +154,18 @@ const svgs = {
   'octicon-triangle-down': octiconTriangleDown,
   'octicon-x': octiconX,
   'octicon-x-circle-fill': octiconXCircleFill,
-};
+} as const;
 
 // TODO: use a more general approach to access SVG icons.
-//  At the moment, developers must check, pick and fill the names manually,
-//  most of the SVG icons in assets couldn't be used directly.
+//  Most of the SVG icons in assets couldn't be used directly.
 
-// retrieve an HTML string for given SVG icon name, size and additional classes
-export function svg(name, size = 16, className = '') {
+/** retrieve an HTML string for given SVG icon name, size and additional classes */
+export function svg(name: keyof typeof svgs, size: number = 16, className?: string): string {
   if (!(name in svgs)) throw new Error(`Unknown SVG icon: ${name}`);
   if (size === 16 && !className) return svgs[name];
 
   const document = parseDom(svgs[name], 'image/svg+xml');
-  const svgNode = document.firstChild;
+  const svgNode = document.firstElementChild;
   if (size !== 16) {
     svgNode.setAttribute('width', String(size));
     svgNode.setAttribute('height', String(size));
@@ -175,7 +174,12 @@ export function svg(name, size = 16, className = '') {
   return serializeXml(svgNode);
 }
 
-export function svgParseOuterInner(name) {
+export interface SvgOuterInner {
+  svgOuter: Element;
+  svgInnerHtml: string;
+}
+
+export function svgParseOuterInner(name: keyof typeof svgs): SvgOuterInner {
   const svgStr = svgs[name];
   if (!svgStr) throw new Error(`Unknown SVG icon: ${name}`);
 
@@ -189,11 +193,11 @@ export function svgParseOuterInner(name) {
   const svgInnerHtml = svgStr.slice(p1 + 1, p2);
   const svgOuterHtml = svgStr.slice(0, p1 + 1) + svgStr.slice(p2);
   const svgDoc = parseDom(svgOuterHtml, 'image/svg+xml');
-  const svgOuter = svgDoc.firstChild;
+  const svgOuter = svgDoc.firstElementChild;
   return {svgOuter, svgInnerHtml};
 }
 
-export const SvgIcon = {
+export const SvgIcon: Component = {
   name: 'SvgIcon',
   props: {
     name: {type: String, required: true},

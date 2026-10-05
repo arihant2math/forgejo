@@ -1,4 +1,4 @@
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 import {invertFileFolding} from './file-fold.js';
 import {createTippy} from '../modules/tippy.js';
 import {clippie} from 'clippie';

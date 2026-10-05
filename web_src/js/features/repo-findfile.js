@@ -1,4 +1,4 @@
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 import {toggleElem} from '../utils/dom.js';
 import {pathEscapeSegments} from '../utils/url.js';
 import {GET} from '../modules/fetch.js';

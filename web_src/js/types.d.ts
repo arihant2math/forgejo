@@ -37,6 +37,12 @@ declare module '*.vue' {
   export default Vue;
 }
 
+declare module '*.svg' {
+  // webpack imports SVG files source-wise as strings via `type: asset/source`
+  const svg: string;
+  export default svg;
+}
+
 // until the plugin defines its own types, or we finish removing jquery:
 declare module 'eslint-plugin-no-jquery' {
   import type {Plugin} from '@eslint/core';

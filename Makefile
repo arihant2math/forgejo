@@ -1033,7 +1033,7 @@ $(WEBPACK_DEST): $(WEBPACK_SOURCES) $(WEBPACK_CONFIGS) package-lock.json
 .PHONY: svg
 svg: node-check | node_modules
 	rm -rf $(SVG_DEST_DIR)
-	node tools/generate-svg.js
+	node tools/generate-svg.ts
 
 .PHONY: svg-check
 svg-check: svg

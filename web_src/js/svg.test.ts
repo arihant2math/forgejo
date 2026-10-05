@@ -1,4 +1,5 @@
-import {svg, SvgIcon, svgParseOuterInner} from './svg.js';
+import {expect, test} from 'vitest';
+import {svg, SvgIcon, svgParseOuterInner} from './svg.ts';
 import {createApp, h} from 'vue';
 
 test('svg', () => {
@@ -17,7 +18,7 @@ test('svgParseOuterInner', () => {
 test('SvgIcon', () => {
   const root = document.createElement('div');
   createApp({render: () => h(SvgIcon, {name: 'octicon-link', size: 24, class: 'base'})}).mount(root);
-  const node = root.firstChild;
+  const node = root.firstElementChild;
   expect(node.nodeName).toEqual('svg');
   expect(node.getAttribute('width')).toEqual('24');
   expect(node.getAttribute('height')).toEqual('24');

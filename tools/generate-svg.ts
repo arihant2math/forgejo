@@ -6,18 +6,23 @@ import {readFile, writeFile, mkdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {exit} from 'node:process';
 
-const glob = (pattern) => fastGlob.sync(pattern, {
+const glob = (pattern: string) => fastGlob.sync(pattern, {
   cwd: fileURLToPath(new URL('..', import.meta.url)),
   absolute: true,
 });
 
-function doExit(err) {
+function doExit(err: unknown): never {
   if (err) console.error(err);
   exit(err ? 1 : 0);
 }
 
-async function processFile(file, {prefix, fullName} = {}) {
-  let name;
+interface ProcessFileOptions {
+  prefix?: string;
+  fullName?: string;
+}
+
+async function processFile(file: string, {prefix, fullName}: ProcessFileOptions = {}) {
+  let name: string;
   if (fullName) {
     name = fullName;
   } else {
@@ -48,7 +53,7 @@ async function processFile(file, {prefix, fullName} = {}) {
   await writeFile(fileURLToPath(new URL(`../public/assets/img/svg/${name}.svg`, import.meta.url)), data);
 }
 
-function processFiles(pattern, opts) {
+function processFiles(pattern: string, opts?: ProcessFileOptions) {
   return glob(pattern).map((file) => processFile(file, opts));
 }
 

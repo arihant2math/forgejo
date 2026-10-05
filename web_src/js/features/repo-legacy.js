@@ -7,7 +7,7 @@ import {
   initRepoIssueAssignMe, reloadConfirmDraftComment,
 } from './repo-issue.js';
 import {initUnicodeEscapeButton} from './repo-unicode-escape.js';
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 import {htmlEscape} from 'escape-goat';
 import {initRepoBranchTagSelector} from './repo-branch-tag-selector.js';
 import {

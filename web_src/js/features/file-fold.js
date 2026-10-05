@@ -1,4 +1,4 @@
-import {svg} from '../svg.js';
+import {svg} from '../svg.ts';
 
 // Hides the file if newFold is true, and shows it otherwise. The actual hiding is performed using CSS.
 //

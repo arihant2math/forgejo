@@ -44,7 +44,7 @@ const (
 type ActionRun struct {
 	ID                   int64
 	Title                string
-	RepoID               int64                  `xorm:"index unique(repo_index) index(concurrency)"`
+	RepoID               int64                  `xorm:"index unique(repo_index) index(concurrency) index(sha)"`
 	Repo                 *repo_model.Repository `xorm:"-"`
 	OwnerID              int64                  `xorm:"index"`
 	WorkflowID           string                 `xorm:"index"`                                 // the name of workflow file
@@ -53,9 +53,9 @@ type ActionRun struct {
 	TriggerUserID        int64                  `xorm:"index"`
 	TriggerUser          *user_model.User       `xorm:"-"`
 	ScheduleID           int64
-	Ref                  string `xorm:"index"` // the commit/tag/… that caused the run
-	IsRefDeleted         bool   `xorm:"-"`
-	CommitSHA            string
+	Ref                  string                       `xorm:"index"` // the commit/tag/… that caused the run
+	IsRefDeleted         bool                         `xorm:"-"`
+	CommitSHA            string                       `xorm:"index(sha)"` // indexed for API ?commit_sha=... filtering
 	WorkflowSourceCommit optional.Option[string]      // typically NULL indicating equality w/ CommitSHA, except for `pull_request_target` where it indicates the base branch's commit at time of execution
 	Event                webhook_module.HookEventType // the webhook event that causes the workflow to run
 	EventPayload         string                       `xorm:"LONGTEXT"`

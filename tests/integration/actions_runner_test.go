@@ -251,7 +251,8 @@ type mockTaskOutcome struct {
 	// stepStates, when non-nil, is included in the final UpdateTask's
 	// TaskState.Steps. Lets tests exercise per-step LogIndex/LogLength
 	// (and other StepState fields) without reaching into the DB directly.
-	stepStates []*runnerv1.StepState
+	stepStates         []*runnerv1.StepState
+	sendEmptyUpdateLog bool
 }
 
 func (r *mockRunner) execTask(t *testing.T, task *runnerv1.Task, outcome *mockTaskOutcome) {
@@ -260,10 +261,20 @@ func (r *mockRunner) execTask(t *testing.T, task *runnerv1.Task, outcome *mockTa
 			TaskId: task.Id,
 			Index:  int64(idx),
 			Rows:   []*runnerv1.LogRow{lr},
-			NoMore: idx == len(outcome.logRows)-1,
+			NoMore: !outcome.sendEmptyUpdateLog && (idx == len(outcome.logRows)-1),
 		}))
 		require.NoError(t, err)
 		assert.EqualValues(t, idx+1, resp.Msg.AckIndex)
+	}
+	if outcome.sendEmptyUpdateLog {
+		resp, err := r.client.runnerServiceClient.UpdateLog(t.Context(), connect.NewRequest(&runnerv1.UpdateLogRequest{
+			TaskId: task.Id,
+			Index:  int64(len(outcome.logRows)),
+			Rows:   []*runnerv1.LogRow{},
+			NoMore: true,
+		}))
+		require.NoError(t, err)
+		assert.EqualValues(t, len(outcome.logRows), resp.Msg.AckIndex)
 	}
 	sentOutputKeys := make([]string, 0, len(outcome.outputs))
 	for outputKey, outputValue := range outcome.outputs {

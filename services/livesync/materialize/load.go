@@ -375,10 +375,17 @@ func (l *loader) commentChildPlace(issueID, commentID int64) (string, protocol.U
 // releasePlace is the group and unit of a release and its attachments. A
 // draft is shown by upstream to writers only (API v1 answers 404 and the
 // list leaves drafts out for readers), which a unit cannot express, so it
-// belongs to no group until it is published.
+// belongs to no group until it is published. A tag without a release
+// (is_tag) is not a release for upstream (API v1's release routes answer
+// 404 for it and the list leaves it out): it is a git tag, which API v1
+// serves to code readers (/tags), so it needs the code unit (B6: found by
+// the bootstrap differential test).
 func releasePlace(r *repo_model.Release) (string, protocol.Unit) {
-	if r == nil || r.IsDraft {
+	switch {
+	case r == nil || r.IsDraft:
 		return "", protocol.UnitNone
+	case r.IsTag:
+		return protocol.RepoGroup(r.RepoID), protocol.UnitCode
 	}
 	return protocol.RepoGroup(r.RepoID), protocol.UnitReleases
 }

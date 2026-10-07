@@ -12,6 +12,7 @@ import (
 
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
+	repo_model "forgejo.org/models/repo"
 	"forgejo.org/models/unittest"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/setting"
@@ -652,4 +653,24 @@ func TestUserAvatarWithoutSideEffects(t *testing.T) {
 	_, err := db.GetEngine(t.Context()).SQL("SELECT avatar FROM `user` WHERE id = 2").Get(&avatar)
 	require.NoError(t, err)
 	assert.Empty(t, avatar, "no avatar generated")
+}
+
+// A tag without a release is a git tag for upstream (API v1's /tags, code
+// readers), not a release.
+func TestReleasePlace(t *testing.T) {
+	for _, c := range []struct {
+		r     *repo_model.Release
+		group string
+		unit  protocol.Unit
+	}{
+		{&repo_model.Release{RepoID: 1}, "repo:1", protocol.UnitReleases},
+		{&repo_model.Release{RepoID: 1, IsTag: true}, "repo:1", protocol.UnitCode},
+		{&repo_model.Release{RepoID: 1, IsDraft: true}, "", protocol.UnitNone},
+		{nil, "", protocol.UnitNone},
+	} {
+		group, unit := releasePlace(c.r)
+		assert.Equal(t, c.group, group)
+		assert.Equal(t, c.unit, unit)
+	}
+	assert.EqualValues(t, 1, placementVersions["release"], "a placement change needs a version bump")
 }

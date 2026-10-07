@@ -34,11 +34,13 @@ const MetaPlacementPrefix = "materialized_placement."
 // trigger (re-bootstrap markers, repair backfill of the index), because
 // clients hold its entities in the old places and the index would route
 // deletes there. Version 1 of user, project and project_board (B4): the
-// public profiles moved from user:{id} to the profile groups.
+// public profiles moved from user:{id} to the profile groups. Version 1 of
+// release (B6): tags without a release need the code unit, not releases.
 var placementVersions = map[string]int64{
 	"user":          1,
 	"project":       1,
 	"project_board": 1,
+	"release":       1,
 }
 
 // MetaPermPrefix + table name is the livesync_meta entry holding the

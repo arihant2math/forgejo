@@ -360,7 +360,8 @@ export interface Branch {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * Release is a release or tag (group repo:{repo_id}, unit releases). Draft
+ * Release is a release (group repo:{repo_id}, unit releases) or a tag
+ * without a release (is_tag; unit code, like API v1's /tags). Draft
  * releases are in no group (upstream shows them to writers only): they
  * appear when published.
  */

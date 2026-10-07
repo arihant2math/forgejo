@@ -441,7 +441,7 @@ does) **and** MySQL 8.0 (binlog on).
     MySQL.
 
 #### B2 — Change capture
-- [ ] **Status**
+- [x] **Status** — done 2026-10-07 (final check: all `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on (privilege + STATEMENT-binlog tests run on MySQL); unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 closed, no open findings)
 - **Scope:** `services/livesync/catalog`: tracked tables (PLAN §4.3 list, tier, model
   name) + explicit ignore list; contract test that `db.GetTableNames()` ⊆ tracked ∪ ignored
   and that tracked tables have an `id` PK. `services/livesync/capture`: PG DDL (one

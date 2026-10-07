@@ -12,7 +12,7 @@ import (
 // them depends on who reads them (PLAN §4.4 viewer-independence rule).
 // Viewer-specific facts live in per-user entities of the user:{id} group
 // (Notification, Stopwatch, IssueWatch, Watch, Star, BlockedUser, Access,
-// ReviewState). Markdown is rendered once by Forgejo's markup service without
+// ReviewState), which only that user is granted. Markdown is rendered once by Forgejo's markup service without
 // a viewer (see services/livesync/materialize/render.go for what that means).
 
 // Repository is a repository (group repo:{id}, unit none).
@@ -43,9 +43,11 @@ type Repository struct {
 	ArchivedAt       *time.Time `json:"archived_at,omitempty"`
 }
 
-// User is the public profile of a user or organization (group user:{id}, or
-// org:{id} for an organization). Email addresses, admin/active/restricted
-// flags and settings are never included.
+// User is the public profile of a user or organization: group
+// profiles:public or profiles:limited for an individual user with that
+// visibility, profile:{id} for a private one, org:{id} for an organization
+// (unit none). Email addresses, admin/active/restricted flags and settings
+// are never included.
 type User struct {
 	ID          int64  `json:"id"`
 	Login       string `json:"login"`
@@ -176,7 +178,8 @@ type Milestone struct {
 }
 
 // Project is a project board of a repository (group repo:{repo_id}, unit
-// projects) or of a user/organization (group user:/org:{owner_id}).
+// projects), of an organization (group org:{owner_id}) or of a user (group
+// profile:{owner_id}).
 type Project struct {
 	ID           int64      `json:"id"`
 	Title        string     `json:"title"`

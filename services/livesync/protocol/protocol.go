@@ -134,24 +134,71 @@ const (
 	// entities of the model must re-bootstrap the groups they hold. Written
 	// to GroupAll with entity id 0.
 	OpRebootstrap Op = "B"
+	// OpPermission: who may read what may have changed (a permission
+	// epoch, PLAN §4.5). Written to GroupPermission with entity id 0 and a
+	// PermissionChange payload, before the entries of the same transaction.
+	// Never sent to clients: the hub recomputes the grants of the affected
+	// viewers and re-checks the affected groups' subscribers.
+	OpPermission Op = "P"
 )
 
 // RebootstrapMarker is the payload of an OpRebootstrap entry.
 type RebootstrapMarker struct {
-	// Table whose capture trigger was (re)installed.
+	// Table whose entities must be re-bootstrapped.
 	Table string `json:"table"`
 	// Epoch is the table's schema epoch after the repair.
 	Epoch int64 `json:"epoch"`
+	// Reason says why: RebootstrapTriggerRepaired (changes may have been
+	// lost) or RebootstrapPlacementChanged (a new livesync version places
+	// the table's entities in other groups or units).
+	Reason string `json:"reason"`
+}
+
+// Reasons of a RebootstrapMarker.
+
+const (
+	RebootstrapTriggerRepaired  = "trigger_repaired"
+	RebootstrapPlacementChanged = "placement_changed"
+)
+
+// PermissionChange is the payload of an OpPermission entry: the subjects
+// whose access may have changed. The hub recomputes the grants of Users,
+// re-checks the subscribers of the repo:{id} groups of Repos (and of the
+// issue:{id} groups of those repositories), and the subscribers of the
+// org:{id} and profile:{id} groups of Owners (a user or organization whose
+// visibility, or whose set of possible viewers, changed). All means
+// everything may have changed (writes to a permission table may have been
+// lost): recompute every grant and re-check every subscription.
+type PermissionChange struct {
+	Users  []int64 `json:"users,omitempty"`
+	Repos  []int64 `json:"repos,omitempty"`
+	Owners []int64 `json:"owners,omitempty"`
+	All    bool    `json:"all,omitempty"`
 }
 
 // Group prefixes. A sync group is "<prefix>:<id>"; every entity belongs to
 // exactly one group, and clients are granted groups (PLAN §4.4, §4.5).
 
 const (
-	GroupPrefixUser  = "user"
-	GroupPrefixOrg   = "org"
-	GroupPrefixRepo  = "repo"
-	GroupPrefixIssue = "issue"
+	GroupPrefixUser     = "user"
+	GroupPrefixOrg      = "org"
+	GroupPrefixRepo     = "repo"
+	GroupPrefixIssue    = "issue"
+	GroupPrefixProfile  = "profile"
+	GroupPrefixProfiles = "profiles"
+)
+
+// The shared profile directories: the User entities (profiles) of all
+// individual users with visibility public (GroupProfilesPublic, readable by
+// every signed-in viewer) or limited (GroupProfilesLimited, readable by
+// every signed-in viewer who is not restricted), so that a client gets the
+// names and avatars of the people it shows with one subscription and one
+// bootstrap each. A private user's profile is in their ProfileGroup
+// instead. Organizations' profiles are in their OrgGroup.
+
+const (
+	GroupProfilesPublic  = GroupPrefixProfiles + ":public"
+	GroupProfilesLimited = GroupPrefixProfiles + ":limited"
 )
 
 // GroupAll is the pseudo group of the entries that concern every client: the
@@ -160,11 +207,24 @@ const (
 // it (PLAN §4.5: nothing is broadcast instance-wide).
 const GroupAll = "*"
 
-// UserGroup is the group of a user: their public profile and public
-// entities (unit UnitNone), and their own viewer-specific entities (unit
-// UnitSelf: subscriptions, notifications, stopwatches, viewed files,
-// pending reviews, …), which only that user may receive.
+// GroupPermission is the pseudo group of the permission epochs
+// (OpPermission). No client is ever granted it and no group's readers
+// receive it; the hub reads it from the tailer.
+const GroupPermission = "!perm"
+
+// UserGroup is the group of a user's own, viewer-specific entities
+// (subscriptions, notifications, stopwatches, stars, blocks, viewed files,
+// pending reviews, access rows, …; unit UnitSelf). Only that user is
+// ever granted it: what others may see of a user is in the profile groups.
 func UserGroup(id int64) string { return GroupPrefixUser + ":" + strconv.FormatInt(id, 10) }
+
+// ProfileGroup is the group of what anyone who may see individual user
+// {id} reads (as API v1's GET /users/{name} decides: a private user is seen
+// by themselves and site administrators only, a limited one by signed-in
+// viewers who are not restricted): the projects the user owns and, for a
+// private user, the User entity itself (a public or limited user's is in
+// GroupProfilesPublic / GroupProfilesLimited).
+func ProfileGroup(id int64) string { return GroupPrefixProfile + ":" + strconv.FormatInt(id, 10) }
 
 // OrgGroup is the group of an organization: what anyone who may see the
 // organization reads (unit UnitNone: profile, labels, projects, public
@@ -184,10 +244,10 @@ func IssueGroup(id int64) string { return GroupPrefixIssue + ":" + strconv.Forma
 // checked with Permission.CanRead(unit) (PLAN §4.4); several alternatives are
 // separated by "|" (the entity is visible with any of them), and the same
 // names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
-// UnitNone (anyone who may see the user) or UnitSelf (that user only); in
+// UnitSelf (that user only; nobody else is granted the group anyway); in
 // org:{id} groups UnitNone (anyone who may see the organization) or
-// UnitMembers (its members only). UnitNone means any read access to the
-// group.
+// UnitMembers (its members only); in the profile groups UnitNone. UnitNone
+// means any read access to the group.
 type Unit string
 
 const (
@@ -208,3 +268,22 @@ const (
 	// UnitMembers: in org:{id}, only the organization's members.
 	UnitMembers Unit = "members"
 )
+
+// Grant is a group a viewer may read and the units they may read in it
+// (UnitNone entries of the group are readable whenever it is granted).
+type Grant struct {
+	Group string `json:"group"`
+	Units []Unit `json:"units"`
+}
+
+// Grants is the answer of GET /-/sync/grants: the groups granted to the
+// viewer without asking (their own user group and profile group, the
+// profile directories, the organizations they are a member of and the
+// repositories they own or were given access to). Other groups (public
+// repositories and organizations, other users' profiles, issues) are
+// checked on demand (GET /-/sync/grants?group=…, which answers one Grant).
+// Site administrators get no implicit groups.
+type Grants struct {
+	ViewerID int64   `json:"viewer_id"`
+	Grants   []Grant `json:"grants"`
+}

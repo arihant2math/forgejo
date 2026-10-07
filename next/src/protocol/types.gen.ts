@@ -38,9 +38,11 @@ export interface Repository {
   archived_at?: string /* RFC 3339, UTC */;
 }
 /**
- * User is the public profile of a user or organization (group user:{id}, or
- * org:{id} for an organization). Email addresses, admin/active/restricted
- * flags and settings are never included.
+ * User is the public profile of a user or organization: group
+ * profiles:public or profiles:limited for an individual user with that
+ * visibility, profile:{id} for a private one, org:{id} for an organization
+ * (unit none). Email addresses, admin/active/restricted flags and settings
+ * are never included.
  */
 export interface User {
   id: number /* int64 */;
@@ -186,7 +188,8 @@ export interface Milestone {
 }
 /**
  * Project is a project board of a repository (group repo:{repo_id}, unit
- * projects) or of a user/organization (group user:/org:{owner_id}).
+ * projects), of an organization (group org:{owner_id}) or of a user (group
+ * profile:{owner_id}).
  */
 export interface Project {
   id: number /* int64 */;
@@ -773,22 +776,58 @@ export const OpDelete: Op = "D";
  */
 export const OpRebootstrap: Op = "B";
 /**
+ * OpPermission: who may read what may have changed (a permission
+ * epoch, PLAN §4.5). Written to GroupPermission with entity id 0 and a
+ * PermissionChange payload, before the entries of the same transaction.
+ * Never sent to clients: the hub recomputes the grants of the affected
+ * viewers and re-checks the affected groups' subscribers.
+ */
+export const OpPermission: Op = "P";
+/**
  * RebootstrapMarker is the payload of an OpRebootstrap entry.
  */
 export interface RebootstrapMarker {
   /**
-   * Table whose capture trigger was (re)installed.
+   * Table whose entities must be re-bootstrapped.
    */
   table: string;
   /**
    * Epoch is the table's schema epoch after the repair.
    */
   epoch: number /* int64 */;
+  /**
+   * Reason says why: RebootstrapTriggerRepaired (changes may have been
+   * lost) or RebootstrapPlacementChanged (a new livesync version places
+   * the table's entities in other groups or units).
+   */
+  reason: string;
+}
+export const RebootstrapTriggerRepaired = "trigger_repaired";
+export const RebootstrapPlacementChanged = "placement_changed";
+/**
+ * PermissionChange is the payload of an OpPermission entry: the subjects
+ * whose access may have changed. The hub recomputes the grants of Users,
+ * re-checks the subscribers of the repo:{id} groups of Repos (and of the
+ * issue:{id} groups of those repositories), and the subscribers of the
+ * org:{id} and profile:{id} groups of Owners (a user or organization whose
+ * visibility, or whose set of possible viewers, changed). All means
+ * everything may have changed (writes to a permission table may have been
+ * lost): recompute every grant and re-check every subscription.
+ */
+export interface PermissionChange {
+  users?: number /* int64 */[];
+  repos?: number /* int64 */[];
+  owners?: number /* int64 */[];
+  all?: boolean;
 }
 export const GroupPrefixUser = "user";
 export const GroupPrefixOrg = "org";
 export const GroupPrefixRepo = "repo";
 export const GroupPrefixIssue = "issue";
+export const GroupPrefixProfile = "profile";
+export const GroupPrefixProfiles = "profiles";
+export const GroupProfilesPublic = GroupPrefixProfiles + ":public";
+export const GroupProfilesLimited = GroupPrefixProfiles + ":limited";
 /**
  * GroupAll is the pseudo group of the entries that concern every client: the
  * schema epoch markers (OpRebootstrap), which carry no entity data. Readers
@@ -797,15 +836,21 @@ export const GroupPrefixIssue = "issue";
  */
 export const GroupAll = "*";
 /**
+ * GroupPermission is the pseudo group of the permission epochs
+ * (OpPermission). No client is ever granted it and no group's readers
+ * receive it; the hub reads it from the tailer.
+ */
+export const GroupPermission = "!perm";
+/**
  * Unit is what a reader of a group needs (livesync_log.unit) to receive an
  * entity of it. In repo:{id} and issue:{id} groups it is a repository unit,
  * checked with Permission.CanRead(unit) (PLAN §4.4); several alternatives are
  * separated by "|" (the entity is visible with any of them), and the same
  * names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
- * UnitNone (anyone who may see the user) or UnitSelf (that user only); in
+ * UnitSelf (that user only; nobody else is granted the group anyway); in
  * org:{id} groups UnitNone (anyone who may see the organization) or
- * UnitMembers (its members only). UnitNone means any read access to the
- * group.
+ * UnitMembers (its members only); in the profile groups UnitNone. UnitNone
+ * means any read access to the group.
  */
 export type Unit = string;
 export const UnitNone: Unit = "";
@@ -828,3 +873,24 @@ export const UnitSelf: Unit = "self";
  * UnitMembers: in org:{id}, only the organization's members.
  */
 export const UnitMembers: Unit = "members";
+/**
+ * Grant is a group a viewer may read and the units they may read in it
+ * (UnitNone entries of the group are readable whenever it is granted).
+ */
+export interface Grant {
+  group: string;
+  units: Unit[];
+}
+/**
+ * Grants is the answer of GET /-/sync/grants: the groups granted to the
+ * viewer without asking (their own user group and profile group, the
+ * profile directories, the organizations they are a member of and the
+ * repositories they own or were given access to). Other groups (public
+ * repositories and organizations, other users' profiles, issues) are
+ * checked on demand (GET /-/sync/grants?group=…, which answers one Grant).
+ * Site administrators get no implicit groups.
+ */
+export interface Grants {
+  viewer_id: number /* int64 */;
+  grants: Grant[];
+}

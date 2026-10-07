@@ -248,23 +248,25 @@ func observeCommits(engine *xorm.Engine) {
 	}
 }
 
-// listenPostgres rings d whenever a NOTIFY for schema arrives on the
-// livesync channel, until ctx is done. It uses its own connection (not one of
-// the pool's), reconnects with backoff, and rings once after every
+// Listen calls ring whenever a NOTIFY with payload schema arrives on the
+// PostgreSQL channel, until ctx is done. It uses its own connection (not one
+// of the pool's), reconnects with backoff, and rings once after every
 // (re)connect to catch up with what it may have missed. Failures only cost
-// latency, polling still works, so they are logged as warnings.
-func listenPostgres(ctx context.Context, schema string, d *doorbell) {
+// latency (the callers also poll), so they are logged as warnings. The outbox
+// reader listens on the capture triggers' channel; the sync log tailer
+// (services/livesync/synclog) on the log's.
+func Listen(ctx context.Context, channel, schema string, ring func()) {
 	const maxBackoff = 30 * time.Second
 	backoff := time.Second
 	for {
-		connected, err := listenOnce(ctx, schema, d)
+		connected, err := listenOnce(ctx, channel, schema, ring)
 		if ctx.Err() != nil {
 			return
 		}
 		if connected {
 			backoff = time.Second
 		}
-		log.Warn("livesync: LISTEN %s: %v; polling only, retrying in %s", pgNotifyChannel, err, backoff)
+		log.Warn("livesync: LISTEN %s: %v; polling only, retrying in %s", channel, err, backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -274,7 +276,7 @@ func listenPostgres(ctx context.Context, schema string, d *doorbell) {
 	}
 }
 
-func listenOnce(ctx context.Context, schema string, d *doorbell) (connected bool, err error) {
+func listenOnce(ctx context.Context, channel, schema string, ring func()) (connected bool, err error) {
 	connStr, err := setting.DBMasterConnStr()
 	if err != nil {
 		return false, err
@@ -288,17 +290,17 @@ func listenOnce(ctx context.Context, schema string, d *doorbell) (connected bool
 		defer cancel()
 		_ = conn.Close(closeCtx)
 	}()
-	if _, err := conn.Exec(ctx, "LISTEN "+pgQuote(pgNotifyChannel)); err != nil {
+	if _, err := conn.Exec(ctx, "LISTEN "+pgQuote(channel)); err != nil {
 		return false, err
 	}
-	d.ring()
+	ring()
 	for {
 		n, err := conn.WaitForNotification(ctx)
 		if err != nil {
 			return true, err
 		}
 		if n.Payload == schema {
-			d.ring()
+			ring()
 		}
 	}
 }

@@ -6,6 +6,7 @@ package capture
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"sync/atomic"
@@ -79,6 +80,21 @@ type Batch struct {
 	Cursor int64
 
 	committed bool
+	deferred  map[int64]time.Time // change id -> not before
+}
+
+// Defer leaves the change with the given id in the outbox: Commit does not
+// delete it, and the reader delivers it again, in a later batch, once until
+// has passed (within its poll interval). The materializer uses it to
+// coalesce bursts of changes to one row of a hot table: it defers one change
+// of the (table, row) pair, which stands for all of them, and lets Commit
+// delete the others. Deferred rows stay in the outbox, so a restart does not
+// lose them (the reader's sweep finds them).
+func (b *Batch) Defer(id int64, until time.Time) {
+	if b.deferred == nil {
+		b.deferred = map[int64]time.Time{}
+	}
+	b.deferred[id] = until
 }
 
 // Commit deletes the batch's rows from the outbox and stores Cursor under
@@ -90,18 +106,20 @@ func (b *Batch) Commit(ctx context.Context) error {
 	if b.committed {
 		return nil
 	}
-	const chunk = 500
-	for start := 0; start < len(b.Changes); start += chunk {
-		end := min(start+chunk, len(b.Changes))
-		ids := make([]int64, 0, end-start)
-		for _, c := range b.Changes[start:end] {
+	ids := make([]int64, 0, len(b.Changes))
+	for _, c := range b.Changes {
+		if _, ok := b.deferred[c.ID]; !ok {
 			ids = append(ids, c.ID)
 		}
+	}
+	const chunk = 500
+	for start := 0; start < len(ids); start += chunk {
+		end := min(start+chunk, len(ids))
 		e, err := livesync_model.MasterEngine(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err := e.In("id", ids).Delete(&livesync_model.Change{}); err != nil {
+		if _, err := e.In("id", ids[start:end]).Delete(&livesync_model.Change{}); err != nil {
 			return fmt.Errorf("livesync: delete processed outbox rows: %w", err)
 		}
 	}
@@ -132,7 +150,12 @@ type Reader struct {
 	high      int64 // highest id seen
 	holes     holes // unseen ids in (cursor, high]
 	lastSweep time.Time
-	cycles    atomic.Int64 // cycles run (tests)
+	// deferred holds the rows the consumer deferred (Batch.Defer), with the
+	// time before which they must not be delivered again. They stay in the
+	// outbox, at or below high: the hole re-check (above the cursor) and the
+	// sweep (at or below it) skip them until they are due.
+	deferred map[int64]time.Time
+	cycles   atomic.Int64 // cycles run (tests)
 
 	done chan struct{}
 }
@@ -146,6 +169,7 @@ func Start(ctx context.Context, cfg Config, consumer Consumer) (*Reader, error) 
 		consumer:  consumer,
 		bell:      newDoorbell(),
 		lastSweep: time.Now(),
+		deferred:  map[int64]time.Time{},
 		done:      make(chan struct{}),
 	}
 	if err := r.loadCursor(ctx); err != nil {
@@ -162,12 +186,12 @@ func Start(ctx context.Context, cfg Config, consumer Consumer) (*Reader, error) 
 	}
 	subscribe(r.bell)
 	if setting.Database.Type.IsPostgreSQL() {
-		schema, err := currentSchema(ctx)
+		schema, err := CurrentSchema(ctx)
 		if err != nil {
 			unsubscribe(r.bell)
 			return nil, err
 		}
-		go listenPostgres(ctx, schema, r.bell)
+		go Listen(ctx, pgNotifyChannel, schema, r.bell.ring)
 	}
 	go r.run(ctx)
 	return r, nil
@@ -339,7 +363,7 @@ func (r *Reader) cycle(ctx context.Context) error {
 			break
 		}
 	}
-	if now.Sub(r.lastSweep) >= r.cfg.SweepInterval {
+	if now.Sub(r.lastSweep) >= r.cfg.SweepInterval || r.deferredDue(now) {
 		if err := r.sweep(ctx); err != nil {
 			return err
 		}
@@ -409,22 +433,30 @@ func (r *Reader) readNew(ctx context.Context, now time.Time) (int, error) {
 // before it advances, and the ids given up so far lie at or below the
 // cursor. So one indexed range scan finds them all, whatever the number of
 // holes.
+//
+// Rows the consumer deferred also lie in that range; they are skipped until
+// they are due, which is why the scan pages by id instead of re-reading from
+// the cursor.
 func (r *Reader) recheckHoles(ctx context.Context) error {
-	for r.cursor < r.high {
-		rows, err := r.find(ctx, builder.And(builder.Gt{"id": r.cursor}, builder.Lte{"id": r.high}))
+	for after := r.cursor; after < r.high; {
+		rows, err := r.find(ctx, builder.And(builder.Gt{"id": after}, builder.Lte{"id": r.high}))
 		if err != nil || len(rows) == 0 {
 			return err
 		}
-		next := r.holes.clone()
-		for _, c := range rows {
-			next.remove(c.ID)
+		after = rows[len(rows)-1].ID
+		full := len(rows) == r.cfg.BatchSize
+		if rows = r.due(rows, time.Now()); len(rows) > 0 {
+			next := r.holes.clone()
+			for _, c := range rows {
+				next.remove(c.ID)
+			}
+			cursor := r.cursorFor(&next, r.high)
+			if err := r.deliver(ctx, rows, cursor); err != nil {
+				return err
+			}
+			r.holes, r.cursor = next, cursor
 		}
-		cursor := r.cursorFor(&next, r.high)
-		if err := r.deliver(ctx, rows, cursor); err != nil {
-			return err
-		}
-		r.holes, r.cursor = next, cursor
-		if len(rows) < r.cfg.BatchSize {
+		if !full {
 			return nil
 		}
 	}
@@ -434,23 +466,50 @@ func (r *Reader) recheckHoles(ctx context.Context) error {
 // sweep delivers rows at or below the cursor: transactions that committed
 // after their hole was given up. Processed rows are deleted, so normally
 // there are none.
+//
+// It also delivers the deferred rows at or below the cursor that are due.
 func (r *Reader) sweep(ctx context.Context) error {
-	for {
-		rows, err := r.find(ctx, builder.Lte{"id": r.cursor})
-		if err != nil {
+	for after := int64(0); ; {
+		rows, err := r.find(ctx, builder.And(builder.Gt{"id": after}, builder.Lte{"id": r.cursor}))
+		if err != nil || len(rows) == 0 {
 			return err
 		}
-		if len(rows) == 0 {
-			return nil
+		after = rows[len(rows)-1].ID
+		full := len(rows) == r.cfg.BatchSize
+		if rows = r.due(rows, time.Now()); len(rows) > 0 {
+			log.Debug("livesync: outbox reader found %d late or deferred row(s) at or below its cursor %d", len(rows), r.cursor)
+			if err := r.deliver(ctx, rows, r.cursor); err != nil {
+				return err
+			}
 		}
-		log.Debug("livesync: outbox reader found %d late row(s) at or below its cursor %d", len(rows), r.cursor)
-		if err := r.deliver(ctx, rows, r.cursor); err != nil {
-			return err
-		}
-		if len(rows) < r.cfg.BatchSize {
+		if !full {
 			return nil
 		}
 	}
+}
+
+// due drops the rows that are deferred until after now.
+func (r *Reader) due(rows []livesync_model.Change, now time.Time) []livesync_model.Change {
+	if len(r.deferred) == 0 {
+		return rows
+	}
+	res := rows[:0:0]
+	for _, c := range rows {
+		if until, ok := r.deferred[c.ID]; !ok || !until.After(now) {
+			res = append(res, c)
+		}
+	}
+	return res
+}
+
+// deferredDue reports whether a deferred row is due.
+func (r *Reader) deferredDue(now time.Time) bool {
+	for _, until := range r.deferred {
+		if !until.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 // deliver hands rows to the consumer and commits the batch if the consumer
@@ -465,5 +524,9 @@ func (r *Reader) deliver(ctx context.Context, rows []livesync_model.Change, curs
 			return err
 		}
 	}
+	for _, c := range rows {
+		delete(r.deferred, c.ID)
+	}
+	maps.Copy(r.deferred, b.deferred)
 	return nil
 }

@@ -174,7 +174,8 @@ func TestReaderHoles(t *testing.T) {
 	b = c.next(t)
 	assert.Equal(t, []int64{6}, ids(b))
 	assert.EqualValues(t, 6, b.Cursor)
-	assert.Equal(t, "6", storedCursor(t))
+	// The reader commits after Consume returns.
+	assert.Eventually(t, func() bool { return storedCursor(t) == "6" }, 5*time.Second, time.Millisecond)
 
 	// ...unless it does commit after all: the sweep (due on the first wake-up
 	// SweepInterval after the previous one) still delivers it.
@@ -415,4 +416,66 @@ func TestWithQuietTx(t *testing.T) {
 			return nil
 		})
 	}))
+}
+
+// deferringConsumer defers the first delivery of every even id.
+type deferringConsumer struct {
+	batches chan *Batch
+	delay   time.Duration
+	seen    map[int64]bool
+}
+
+func (c *deferringConsumer) Consume(ctx context.Context, b *Batch) error {
+	for _, ch := range b.Changes {
+		if ch.ID%2 == 0 && !c.seen[ch.ID] {
+			b.Defer(ch.ID, time.Now().Add(c.delay))
+		}
+		c.seen[ch.ID] = true
+	}
+	if err := WithQuietTx(ctx, b.Commit); err != nil {
+		return err
+	}
+	c.batches <- b
+	return nil
+}
+
+func TestReaderDefer(t *testing.T) {
+	resetOutbox(t)
+	fc := &fakeConsumer{batches: make(chan *Batch, 16)}
+	c := &deferringConsumer{batches: fc.batches, delay: 300 * time.Millisecond, seen: map[int64]bool{}}
+	ctx, cancel := context.WithCancel(t.Context())
+	r, err := Start(ctx, Config{PollInterval: 20 * time.Millisecond, HoleTimeout: time.Hour, SweepInterval: time.Hour}, c)
+	require.NoError(t, err)
+	defer func() { cancel(); r.Wait(5 * time.Second) }()
+
+	// A deferred row at or below the cursor stays in the outbox and comes
+	// back once due (the sweep runs for it), not before.
+	start := time.Now()
+	insertChange(t, 1)
+	insertChange(t, 2)
+	var got []int64
+	for len(got) < 2 {
+		got = append(got, ids(fc.next(t))...)
+	}
+	assert.Equal(t, []int64{1, 2}, got)
+	assert.Equal(t, []int64{2}, outboxIDs(t), "deferred: not deleted")
+	insertChange(t, 3)
+	assert.Equal(t, []int64{3}, ids(fc.next(t)))
+	b := fc.next(t)
+	assert.Equal(t, []int64{2}, ids(b))
+	assert.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond)
+	assert.EqualValues(t, 3, b.Cursor)
+	assert.Empty(t, outboxIDs(t))
+
+	// A deferred row above the cursor (a hole below it) is skipped by the
+	// hole re-check until due.
+	insertChange(t, 6) // 4 and 5 are holes
+	assert.Equal(t, []int64{6}, ids(fc.next(t)))
+	insertChange(t, 5)
+	assert.Equal(t, []int64{5}, ids(fc.next(t)), "the filled hole, without the deferred row")
+	b = fc.next(t)
+	assert.Equal(t, []int64{6}, ids(b))
+	assert.EqualValues(t, 3, b.Cursor, "4 is still open")
+	fc.none(t, 100*time.Millisecond)
+	assert.Empty(t, outboxIDs(t))
 }

@@ -28,7 +28,9 @@ func Inspect(ctx context.Context) (*Status, error) {
 	}
 }
 
-func currentSchema(ctx context.Context) (string, error) {
+// CurrentSchema returns the PostgreSQL schema / MySQL database livesync's
+// tables and triggers live in (the NOTIFY payload on PostgreSQL).
+func CurrentSchema(ctx context.Context) (string, error) {
 	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
 		return "", err
@@ -65,7 +67,7 @@ type pgTriggerRow struct {
 }
 
 func inspectPostgres(ctx context.Context) (*Status, error) {
-	schema, err := currentSchema(ctx)
+	schema, err := CurrentSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +171,7 @@ type mysqlServerRow struct {
 }
 
 func inspectMySQL(ctx context.Context) (*Status, error) {
-	schema, err := currentSchema(ctx)
+	schema, err := CurrentSchema(ctx)
 	if err != nil {
 		return nil, err
 	}

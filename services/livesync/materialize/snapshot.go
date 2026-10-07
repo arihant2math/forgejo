@@ -5,6 +5,7 @@ package materialize
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -409,7 +410,9 @@ func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEnti
 	var page []int64
 	if req.Tier == protocol.TierClosed {
 		var err error
-		if page, res.Next, err = closedPage(ctx, req); err != nil {
+		if page, res.Next, err = closedPage(ctx, req); errors.Is(err, errNoClosedTier) {
+			return res, nil
+		} else if err != nil {
 			return res, err
 		}
 		if len(page) == 0 {
@@ -510,6 +513,9 @@ func candidates(ctx context.Context, src *source) ([]int64, error) {
 	return slices.Compact(res), nil
 }
 
+// errNoClosedTier: the viewer may read neither issues nor pull requests.
+var errNoClosedTier = errors.New("no closed tier")
+
 // closedPage returns the ids of the closed tier's page (newest first) and
 // the cursor of the next page. Only the issues, or only the pull requests,
 // when the viewer may read only those: the page and its cursor are built
@@ -528,7 +534,7 @@ func closedPage(ctx context.Context, req SnapshotRequest) ([]int64, *ClosedCurso
 	))
 	switch issues, pulls := req.Allows(protocol.UnitIssues), req.Allows(protocol.UnitPulls); {
 	case !issues && !pulls:
-		return nil, nil, nil
+		return nil, nil, errNoClosedTier
 	case !pulls:
 		cond = cond.And(builder.Eq{"is_pull": false})
 	case !issues:

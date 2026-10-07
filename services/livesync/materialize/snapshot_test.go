@@ -237,7 +237,7 @@ func TestSnapshotTiers(t *testing.T) {
 	assert.Contains(t, summary, "Repository 1")
 
 	// pages reads every page of the closed tier with one issue per page.
-	pages := func(allows func(protocol.Unit) bool) (paged, keys []string, cursors []string) {
+	pages := func(allows func(protocol.Unit) bool) (paged, keys, cursors []string) {
 		cur := ClosedCursor{Updated: cutoff.Unix()}
 		var lastUpdated int64 = 1 << 62
 		for n := 0; ; n++ {

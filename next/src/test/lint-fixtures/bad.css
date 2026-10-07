@@ -1,0 +1,43 @@
+/* Copyright 2026 The Forgejo Authors. All rights reserved.
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Lint fixture: every declaration below must be reported (lint/lint.test.ts).
+ * Excluded from `npm run lint:css` (package.json).
+ */
+
+.a {
+  transition: all 0.2s;
+}
+
+.b {
+  transition: width var(--speed-out), opacity var(--speed-out);
+}
+
+.c {
+  transition-property: margin-top;
+}
+
+.d {
+  color: #fff;
+  padding: 13px;
+}
+
+.e {
+  transition: 0.2s;
+  transition-duration: var(--speed-out);
+  outline-color: red;
+  animation: spin 1s linear infinite;
+}
+
+.f {
+  border: 3px solid var(--color-danger);
+  font: 15px/22px var(--font-sans);
+  width: 13px;
+  filter: brightness(1.3);
+}
+
+@keyframes grow {
+  to {
+    height: 100px;
+  }
+}

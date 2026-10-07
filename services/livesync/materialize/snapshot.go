@@ -133,10 +133,42 @@ type SnapshotResult struct {
 
 // source is a table read by a snapshot and the condition selecting the
 // candidate rows. Candidates may be a superset: only the entities the specs
-// place in the requested group are kept.
+// place in the requested group are kept. children are tables whose rows
+// hang off the source's rows: they are read per chunk of the source's rows
+// through an index of their parent column (an issue's labels, assignees,
+// project cards and pull request), instead of walking the whole child table
+// filtered by a subquery.
 type source struct {
+	table    string
+	cond     builder.Cond
+	children []child
+}
+
+// child is a table read for each chunk of a source's rows; cond selects the
+// child rows of the chunk's ids.
+type child struct {
 	table string
-	cond  builder.Cond
+	cond  func(ids []int64) builder.Cond
+}
+
+// issueChildren are the summary-tier rows that hang off an issue.
+var issueChildren = []child{
+	{"issue_label", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
+	{"issue_assignees", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
+	{"project_issue", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
+	{"pull_request", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
+	{"pull_auto_merge", func(ids []int64) builder.Cond {
+		return builder.In("pull_id", sel("pull_request", builder.In("issue_id", ids)))
+	}},
+}
+
+// tables returns the source's table and its children's.
+func (s *source) tables() []string {
+	res := []string{s.table}
+	for _, c := range s.children {
+		res = append(res, c.table)
+	}
+	return res
 }
 
 // sel is the subquery selecting the ids of table's rows matching cond.
@@ -163,39 +195,25 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 	switch prefix {
 	case protocol.GroupPrefixRepo:
 		if req.Tier == protocol.TierClosed {
-			issues := builder.In("id", page)
-			return []source{
-				{"issue", issues},
-				{"issue_label", builder.In("issue_id", page)},
-				{"issue_assignees", builder.In("issue_id", page)},
-				{"project_issue", builder.In("issue_id", page)},
-				{"pull_request", builder.In("issue_id", page)},
-				{"pull_auto_merge", builder.In("pull_id", sel("pull_request", builder.In("issue_id", page)))},
-			}, nil
+			return []source{{table: "issue", cond: builder.In("id", page), children: issueChildren}}, nil
 		}
 		repo := builder.Eq{"repo_id": id}
 		issues := builder.Eq{"repo_id": id}.And(builder.Or(builder.Eq{"is_closed": false}, recently("updated_unix")))
-		pulls := builder.Eq{"base_repo_id": id}.And(builder.In("issue_id", sel("issue", issues)))
 		return []source{
-			{"repository", builder.Eq{"id": id}},
-			{"repo_unit", repo},
-			{"collaboration", repo},
-			{"label", repo},
-			{"milestone", repo},
-			{"project", repo},
-			{"project_board", builder.In("project_id", sel("project", repo))},
-			{"branch", repo},
-			{"release", builder.Eq{"repo_id": id, "is_draft": false}},
-			{"attachment", builder.In("release_id", sel("release", repo))},
-			{"issue", issues},
-			{"issue_label", builder.In("issue_id", sel("issue", issues))},
-			{"issue_assignees", builder.In("issue_id", sel("issue", issues))},
-			{"project_issue", builder.In("issue_id", sel("issue", issues))},
-			{"pull_request", pulls},
-			{"pull_auto_merge", builder.In("pull_id", sel("pull_request", pulls))},
-			{"commit_status", repo.And(recently("updated_unix"))},
-			{"action_run", repo.And(recently("updated"))},
-			{"action_run_job", repo.And(recently("updated"))},
+			{table: "repository", cond: builder.Eq{"id": id}},
+			{table: "repo_unit", cond: repo},
+			{table: "collaboration", cond: repo},
+			{table: "label", cond: repo},
+			{table: "milestone", cond: repo},
+			{table: "project", cond: repo},
+			{table: "project_board", cond: builder.In("project_id", sel("project", repo))},
+			{table: "branch", cond: repo},
+			{table: "release", cond: builder.Eq{"repo_id": id, "is_draft": false}},
+			{table: "attachment", cond: builder.In("release_id", sel("release", repo))},
+			{table: "issue", cond: issues, children: issueChildren},
+			{table: "commit_status", cond: repo.And(recently("updated_unix"))},
+			{table: "action_run", cond: repo.And(recently("updated"))},
+			{table: "action_run_job", cond: repo.And(recently("updated"))},
 		}, nil
 	case protocol.GroupPrefixIssue:
 		issue := builder.Eq{"issue_id": id}
@@ -203,14 +221,14 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 		// their own issue_id says.
 		issueOrComment := builder.Or(issue, builder.In("comment_id", sel("comment", issue)))
 		return []source{
-			{"issue", builder.Eq{"id": id}},
-			{"comment", issue},
-			{"review", issue},
-			{"reaction", issueOrComment},
-			{"attachment", issueOrComment},
-			{"issue_dependency", issue},
-			{"tracked_time", issue},
-			{"issue_content_history", issueOrComment},
+			{table: "issue", cond: builder.Eq{"id": id}},
+			{table: "comment", cond: issue},
+			{table: "review", cond: issue},
+			{table: "reaction", cond: issueOrComment},
+			{table: "attachment", cond: issueOrComment},
+			{table: "issue_dependency", cond: issue},
+			{table: "tracked_time", cond: issue},
+			{table: "issue_content_history", cond: issueOrComment},
 		}, nil
 	case protocol.GroupPrefixUser:
 		user := builder.Eq{"user_id": id}
@@ -218,26 +236,26 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 		pendingComments := builder.In("review_id", sel("review", pending))
 		onPendingComments := builder.In("comment_id", sel("comment", pendingComments))
 		return []source{
-			{"access", user},
-			{"notification", user.And(builder.Or(builder.Neq{"status": activities_model.NotificationStatusRead}, recently("updated_unix")))},
-			{"stopwatch", user},
-			{"issue_watch", user},
-			{"watch", user},
-			{"star", builder.Eq{"uid": id}},
-			{"forgejo_blocked_user", user},
-			{"review_state", user},
-			{"review", pending},
-			{"comment", pendingComments},
-			{"reaction", onPendingComments},
-			{"attachment", onPendingComments},
-			{"issue_content_history", onPendingComments},
+			{table: "access", cond: user},
+			{table: "notification", cond: user.And(builder.Or(builder.Neq{"status": activities_model.NotificationStatusRead}, recently("updated_unix")))},
+			{table: "stopwatch", cond: user},
+			{table: "issue_watch", cond: user},
+			{table: "watch", cond: user},
+			{table: "star", cond: builder.Eq{"uid": id}},
+			{table: "forgejo_blocked_user", cond: user},
+			{table: "review_state", cond: user},
+			{table: "review", cond: pending},
+			{table: "comment", cond: pendingComments},
+			{table: "reaction", cond: onPendingComments},
+			{table: "attachment", cond: onPendingComments},
+			{table: "issue_content_history", cond: onPendingComments},
 		}, nil
 	case protocol.GroupPrefixProfile:
 		projects := builder.Eq{"owner_id": id, "repo_id": 0}
 		return []source{
-			{"user", builder.Eq{"id": id}},
-			{"project", projects},
-			{"project_board", builder.In("project_id", sel("project", projects))},
+			{table: "user", cond: builder.Eq{"id": id}},
+			{table: "project", cond: projects},
+			{table: "project_board", cond: builder.In("project_id", sel("project", projects))},
 		}, nil
 	case protocol.GroupPrefixProfiles:
 		vis := structs.VisibleTypePublic
@@ -245,21 +263,21 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			vis = structs.VisibleTypeLimited
 		}
 		return []source{
-			{"user", builder.Neq{"`type`": user_model.UserTypeOrganization}.And(builder.Eq{"visibility": vis})},
+			{table: "user", cond: builder.Neq{"`type`": user_model.UserTypeOrganization}.And(builder.Eq{"visibility": vis})},
 		}, nil
 	case protocol.GroupPrefixOrg:
 		org := builder.Eq{"org_id": id}
 		projects := builder.Eq{"owner_id": id, "repo_id": 0}
 		return []source{
-			{"user", builder.Eq{"id": id}},
-			{"org_user", org},
-			{"team", org},
-			{"team_user", org},
-			{"team_repo", org},
-			{"team_unit", org},
-			{"label", org},
-			{"project", projects},
-			{"project_board", builder.In("project_id", sel("project", projects))},
+			{table: "user", cond: builder.Eq{"id": id}},
+			{table: "org_user", cond: org},
+			{table: "team", cond: org},
+			{table: "team_user", cond: org},
+			{table: "team_repo", cond: org},
+			{table: "team_unit", cond: org},
+			{table: "label", cond: org},
+			{table: "project", cond: projects},
+			{table: "project_board", cond: builder.In("project_id", sel("project", projects))},
 		}, nil
 	}
 	return nil, fmt.Errorf("livesync: not a client group: %q", req.Group)
@@ -289,8 +307,10 @@ func SnapshotTables(req SnapshotRequest) ([]string, error) {
 	}
 	res := []string{"user"}
 	for _, s := range sources {
-		if wantedTable(s.table, req.Models) && !slices.Contains(res, s.table) {
-			res = append(res, s.table)
+		for _, table := range s.tables() {
+			if wantedTable(table, req.Models) && !slices.Contains(res, table) {
+				res = append(res, table)
+			}
 		}
 	}
 	return res, nil
@@ -304,9 +324,11 @@ func SnapshotModels(req SnapshotRequest) ([]protocol.Model, error) {
 	}
 	var res []protocol.Model
 	for _, s := range sources {
-		for _, m := range specs[s.table].models {
-			if (len(req.Models) == 0 || slices.Contains(req.Models, m)) && !slices.Contains(res, m) {
-				res = append(res, m)
+		for _, table := range s.tables() {
+			for _, m := range specs[table].models {
+				if (len(req.Models) == 0 || slices.Contains(req.Models, m)) && !slices.Contains(res, m) {
+					res = append(res, m)
+				}
 			}
 		}
 	}
@@ -375,7 +397,7 @@ func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEnti
 		return e.group == req.Group && (len(req.Models) == 0 || slices.Contains(req.Models, e.model)) && req.Allows(e.unit)
 	}
 	for _, src := range sources {
-		if !wantedTable(src.table, req.Models) {
+		if !slices.ContainsFunc(src.tables(), func(t string) bool { return wantedTable(t, req.Models) }) {
 			continue
 		}
 		n := snapshotChunk(src.table)
@@ -395,8 +417,29 @@ func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEnti
 					return nil
 				}
 				var err error
-				batch, err = snapshotRows(ctx, src.table, ids, keep)
-				return err
+				if wantedTable(src.table, req.Models) {
+					if batch, err = snapshotRows(ctx, src.table, ids, keep); err != nil {
+						return err
+					}
+				}
+				for _, c := range src.children {
+					if !wantedTable(c.table, req.Models) {
+						continue
+					}
+					var childIDs []int64
+					if err := db.GetEngine(ctx).Table(c.table).Cols("id").Where(c.cond(ids)).OrderBy("id").Find(&childIDs); err != nil {
+						return fmt.Errorf("livesync: snapshot of %s: %s rows: %w", req.Group, c.table, err)
+					}
+					if len(childIDs) == 0 {
+						continue
+					}
+					more, err := snapshotRows(ctx, c.table, childIDs, keep)
+					if err != nil {
+						return err
+					}
+					batch = append(batch, more...)
+				}
+				return nil
 			})
 			if err != nil {
 				return res, err

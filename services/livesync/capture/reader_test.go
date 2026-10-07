@@ -104,6 +104,19 @@ func resetOutbox(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.GetEngine(t.Context()).Exec("DELETE FROM livesync_meta")
 	require.NoError(t, err)
+	setOutboxCounter(t, 0)
+}
+
+// setOutboxCounter sets the outbox's AUTOINCREMENT counter (the last id it
+// assigned), as a recreated (0) or long-used outbox would have it.
+func setOutboxCounter(t *testing.T, last int64) {
+	t.Helper()
+	_, err := db.GetEngine(t.Context()).Exec("DELETE FROM sqlite_sequence WHERE name = 'livesync_change'")
+	require.NoError(t, err)
+	if last > 0 {
+		_, err = db.GetEngine(t.Context()).Exec("INSERT INTO sqlite_sequence (name, seq) VALUES ('livesync_change', ?)", last)
+		require.NoError(t, err)
+	}
 }
 
 func startReader(t *testing.T, c Consumer) *Reader {
@@ -177,6 +190,7 @@ func TestReaderHoles(t *testing.T) {
 func TestReaderRetryAndRestart(t *testing.T) {
 	resetOutbox(t)
 	require.NoError(t, livesync_model.SetMeta(t.Context(), MetaCursor, "9"))
+	setOutboxCounter(t, 9) // ids up to 9 were assigned (and processed)
 	c := &fakeConsumer{batches: make(chan *Batch, 16), inTx: true}
 	c.fail.Store(2)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -213,6 +227,66 @@ func TestReaderOutboxRecreated(t *testing.T) {
 	b := c.next(t)
 	assert.Equal(t, []int64{1, 2}, ids(b), "ids restarted below the stored cursor: read from the start")
 	assert.EqualValues(t, 2, b.Cursor)
+}
+
+// The common case of a recreated outbox: it is empty when the reader
+// starts, and its counter restarted. New rows must be read at once, not only
+// by the sweep (which runs every SweepInterval).
+func TestReaderOutboxRecreatedEmpty(t *testing.T) {
+	resetOutbox(t)
+	require.NoError(t, livesync_model.SetMeta(t.Context(), MetaCursor, "1000"))
+	c := &fakeConsumer{batches: make(chan *Batch, 16)}
+	ctx, cancel := context.WithCancel(t.Context())
+	r, err := Start(ctx, Config{PollInterval: time.Hour, SweepInterval: time.Hour}, c)
+	require.NoError(t, err)
+	defer func() { cancel(); r.Wait(5 * time.Second) }()
+	insertChange(t, 1)
+	b := c.next(t)
+	assert.Equal(t, []int64{1}, ids(b))
+	assert.EqualValues(t, 1, b.Cursor)
+
+	// A counter at the cursor (nothing restarted) keeps the cursor.
+	resetOutbox(t)
+	require.NoError(t, livesync_model.SetMeta(t.Context(), MetaCursor, "50"))
+	setOutboxCounter(t, 50)
+	r2 := &Reader{}
+	require.NoError(t, r2.loadCursor(t.Context()))
+	assert.EqualValues(t, 50, r2.cursor)
+	setOutboxCounter(t, 49)
+	require.NoError(t, r2.loadCursor(t.Context()))
+	assert.EqualValues(t, 0, r2.cursor)
+}
+
+// The reader runs one cycle per wake-up, never one for its own commit, and
+// merges rings that arrive within minCycleGap.
+func TestReaderWakeups(t *testing.T) {
+	resetOutbox(t)
+	c := &fakeConsumer{batches: make(chan *Batch, 16)}
+	r := startReader(t, c)
+	require.Eventually(t, func() bool { return r.cycles.Load() == 1 }, 5*time.Second, time.Millisecond, "the start-up cycle")
+
+	insertChange(t, 1) // its COMMIT rings once
+	assert.Equal(t, []int64{1}, ids(c.next(t)))
+	time.Sleep(100 * time.Millisecond)
+	assert.EqualValues(t, 2, r.cycles.Load(), "the reader's own commit of the batch must not wake it again")
+
+	// A burst of rings: the first wakes the reader at once, the others are
+	// merged into at most one more cycle.
+	for range 200 {
+		r.bell.ring()
+	}
+	time.Sleep(100 * time.Millisecond)
+	assert.LessOrEqual(t, r.cycles.Load(), int64(4))
+	assert.GreaterOrEqual(t, r.cycles.Load(), int64(3))
+
+	// Rings arriving back to back keep the reader at most one cycle per
+	// minCycleGap.
+	start, before := time.Now(), r.cycles.Load()
+	for time.Since(start) < 100*time.Millisecond {
+		r.bell.ring()
+		time.Sleep(100 * time.Microsecond)
+	}
+	assert.LessOrEqual(t, r.cycles.Load()-before, int64(100*time.Millisecond/minCycleGap)+2)
 }
 
 func TestReaderBatchSize(t *testing.T) {

@@ -11,27 +11,31 @@ import (
 	"time"
 
 	"forgejo.org/models/db"
+	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
 
 	"code.forgejo.org/xorm/xorm"
-	"code.forgejo.org/xorm/xorm/contexts"
+	xormlog "code.forgejo.org/xorm/xorm/log"
 	"github.com/jackc/pgx/v5"
 )
 
 // The doorbell wakes the outbox reader as soon as a change may have been
 // committed, so it does not have to wait for its next poll (PLAN §4.3):
 //
-//   - in process, a passive xorm hook on the master engine rings after every
-//     COMMIT and every successful INSERT/UPDATE/DELETE/REPLACE statement
-//     (which may be autocommitted: the hook cannot tell);
-//   - on PostgreSQL, LISTEN livesync rings when any instance commits a
-//     captured change (the trigger function calls pg_notify);
+//   - on PostgreSQL, LISTEN livesync rings when any instance, this one
+//     included, commits a captured change (the trigger function calls
+//     pg_notify; notifications are sent at commit, one per transaction);
+//   - on MySQL, which has no NOTIFY, a passive observer of the master
+//     engine's statements rings after every COMMIT and every successful
+//     INSERT/UPDATE/DELETE/REPLACE (which may be autocommitted: it cannot
+//     tell), except livesync's own (see withQuietTx);
 //   - polling (PollInterval) is the safety net and, on MySQL, the
 //     cross-instance mechanism.
 //
 // A ring is only a hint: the reader re-reads the outbox, which is cheap when
-// nothing is new.
+// nothing is new, and it runs at most one cycle per minCycleGap however
+// often the bell rings.
 
 // doorbell is a coalescing wake-up signal: any number of rings between two
 // reads wake the reader once.
@@ -97,28 +101,90 @@ func ringAll() {
 	}
 }
 
-// commitHook is the in-process doorbell, an xorm contexts.Hook.
+// commitObserver is the in-process doorbell on MySQL. It wraps the master
+// engine's xorm logger rather than being a contexts.Hook: xorm does not chain
+// hook contexts (the context returned by the LAST hook's BeforeProcess is
+// used for the query and handed to every AfterProcess), and Forgejo's
+// db.TracingHook, registered last, keeps its runtime/trace task in that
+// context. Any hook appended after it therefore either breaks TracingHook
+// (nil task) or has to start a second trace task, leaving TracingHook's own
+// one unended in every runtime trace. The logger sees the same statements,
+// with their error and context, and leaves the hook chain alone.
 //
-// xorm's hook chain does not pass the context returned by one hook's
-// BeforeProcess to the next one: the context of the LAST hook is used for
-// the query and handed to every AfterProcess. Forgejo's db.TracingHook
-// (registered last by db.InitEngine) stores its runtime/trace task in that
-// context and its AfterProcess requires it. A hook appended after it must
-// therefore return a context carrying a tracing task too, which is why
-// BeforeProcess delegates to db.TracingHook.
-type commitHook struct{}
-
-var _ contexts.Hook = commitHook{}
-
-func (commitHook) BeforeProcess(c *contexts.ContextHook) (context.Context, error) {
-	return db.TracingHook{}.BeforeProcess(c)
+// xorm calls the logger's BeforeSQL/AfterSQL only when IsShowSQL is true
+// (core.DB.NeedLogSQL), so the observer reports true and forwards
+// BeforeSQL/AfterSQL to the wrapped logger only when that one logs SQL; all
+// other methods are the wrapped logger's. A session forced quiet with
+// MustLogSQL(false) is not observed (Forgejo does not use it).
+type commitObserver struct {
+	xormlog.ContextLogger
 }
 
-func (commitHook) AfterProcess(c *contexts.ContextHook) error {
-	if c.Err == nil && pokes(c.SQL) {
+var _ xormlog.ContextLogger = commitObserver{}
+
+func (o commitObserver) logs(c xormlog.LogContext) bool {
+	if show, ok := c.Ctx.Value(xormlog.SessionShowSQLKey{}).(bool); ok {
+		return show
+	}
+	return o.ContextLogger.IsShowSQL()
+}
+
+func (o commitObserver) IsShowSQL() bool { return true }
+
+func (o commitObserver) BeforeSQL(c xormlog.LogContext) {
+	if o.logs(c) {
+		o.ContextLogger.BeforeSQL(c)
+	}
+}
+
+func (o commitObserver) AfterSQL(c xormlog.LogContext) {
+	if o.logs(c) {
+		o.ContextLogger.AfterSQL(c)
+	}
+	if c.Err == nil && pokes(c.SQL) && (c.Ctx == nil || c.Ctx.Value(quietKey{}) == nil) {
 		ringAll()
 	}
-	return nil
+}
+
+// quietKey marks the context of livesync's own transactions (withQuietTx):
+// their statements and COMMIT do not ring the in-process doorbell, otherwise
+// every delivered batch would wake the reader once more for nothing.
+type quietKey struct{}
+
+// txContext is a context whose database engine is the transaction session
+// sess (db.Engined), so db.GetEngine, db.InTransaction and
+// livesync_model.MasterEngine use it, like the context db.WithTx passes.
+type txContext struct {
+	context.Context
+	sess *xorm.Session
+}
+
+func (c txContext) Engine() db.Engine { return c.sess }
+
+// WithQuietTx runs fn in a transaction on the master database, like
+// db.WithTx, but its statements and COMMIT do not ring the in-process
+// doorbell (db.WithTx sessions run under the engine's default context, so
+// they cannot be told apart). The reader commits batches with it; a consumer
+// that commits a Batch in its own transaction (B3) can use it for the same
+// reason. Nested calls inside an existing transaction just run fn.
+func WithQuietTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	if db.InTransaction(ctx) {
+		return fn(ctx)
+	}
+	master, err := livesync_model.MasterXORMEngine()
+	if err != nil {
+		return err
+	}
+	sess := master.NewSession()
+	defer sess.Close()
+	sess.Context(context.WithValue(ctx, quietKey{}, true))
+	if err := sess.Begin(); err != nil {
+		return err
+	}
+	if err := fn(txContext{Context: ctx, sess: sess}); err != nil {
+		return err
+	}
+	return sess.Commit()
 }
 
 // pokes reports whether a successful statement may have committed a
@@ -144,14 +210,15 @@ func pokes(query string) bool {
 	return false
 }
 
-// hookedEngines remembers the engines the commit hook was added to: xorm
-// can add hooks but not remove them, so it is added once per engine and
-// stays (it is inert while no reader is subscribed).
-var hookedEngines sync.Map // *xorm.Engine -> struct{}
+// observedEngines remembers the engines whose logger was wrapped: it is
+// done once per engine and stays (the observer is inert while no reader is
+// subscribed). Wrapping is not synchronised with concurrent queries on that
+// engine; it runs once, at startup.
+var observedEngines sync.Map // *xorm.Engine -> struct{}
 
-func addCommitHook(engine *xorm.Engine) {
-	if _, loaded := hookedEngines.LoadOrStore(engine, struct{}{}); !loaded {
-		engine.AddHook(commitHook{})
+func observeCommits(engine *xorm.Engine) {
+	if _, loaded := observedEngines.LoadOrStore(engine, struct{}{}); !loaded {
+		engine.SetLogger(commitObserver{ContextLogger: engine.Logger()})
 	}
 }
 

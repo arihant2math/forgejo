@@ -142,6 +142,14 @@ func TestLivesyncCaptureMySQLPrivileges(t *testing.T) {
 	for table, e := range epochs {
 		assert.EqualValues(t, 1, e, table)
 	}
+	// The triggers run as the DBA's account, not Forgejo's: Inspect warns.
+	st, err = capture.Inspect(ctx)
+	require.NoError(t, err)
+	assert.True(t, st.Healthy())
+	require.Len(t, st.Warnings, 1)
+	assert.Contains(t, st.Warnings[0], "are defined by root@")
+	assert.Contains(t, st.Warnings[0], "not by Forgejo's account "+user+"@")
+	assert.Contains(t, st.Warnings[0], "error 1449")
 
 	// auto works too while nothing needs repair.
 	livesyncConfig(t, map[string]string{"INSTALL_MODE": "auto"})
@@ -156,4 +164,40 @@ func TestLivesyncCaptureMySQLPrivileges(t *testing.T) {
 	require.NoError(t, db.Insert(ctx, l))
 	assert.Contains(t, livesyncTakeOutbox(t), outboxEntry("label", l.ID, "I"))
 	restore()
+}
+
+// With statement-based binary logging the capture triggers' AUTO_INCREMENT
+// inserts are unsafe for replication: Inspect warns (it does not refuse).
+func TestLivesyncCaptureMySQLStatementBinlog(t *testing.T) {
+	if !setting.Database.Type.IsMySQL() {
+		t.Skip("MySQL only")
+	}
+	defer tests.PrepareTestEnv(t)()
+	var logBin int
+	_, err := livesyncMaster(t).SQL("SELECT @@log_bin").Get(&logBin)
+	require.NoError(t, err)
+	if logBin != 1 {
+		t.Skip("needs binary logging on")
+	}
+	livesyncInstallCapture(t)
+
+	st, err := capture.Inspect(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, st.Warnings, "ROW/MIXED and triggers defined by Forgejo's own account")
+
+	// An engine whose connections use binlog_format = STATEMENT (set by the
+	// driver on connect; needs a privileged user, like the test's).
+	dsn, err := setting.DBMasterConnStr()
+	require.NoError(t, err)
+	eng, err := xorm.NewEngine("mysql", dsn+"&binlog_format=%27STATEMENT%27")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = eng.Close() })
+	eng.SetMapper(names.GonicMapper{})
+	require.NoError(t, eng.Ping())
+	livesyncUseEngine(t, eng)
+	st, err = capture.Inspect(t.Context())
+	require.NoError(t, err)
+	assert.True(t, st.Healthy())
+	require.Len(t, st.Warnings, 1)
+	assert.Contains(t, st.Warnings[0], "binlog_format is STATEMENT")
 }

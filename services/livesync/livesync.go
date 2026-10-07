@@ -132,6 +132,9 @@ func ensureCapture(ctx context.Context, mode InstallMode) error {
 	if len(report.Dropped) > 0 {
 		log.Info("livesync: dropped capture triggers of untracked tables: %s", strings.Join(report.Dropped, ", "))
 	}
+	for _, w := range report.Status.Warnings {
+		log.Warn("livesync: %s", w)
+	}
 	if script := report.Status.Script(); script != "" {
 		// Only extra triggers are left (verify mode): harmless but wasteful.
 		log.Warn("livesync: capture triggers on untracked tables remain (INSTALL_MODE=verify); a DBA can drop them with:\n%s", script)

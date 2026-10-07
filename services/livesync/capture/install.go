@@ -5,17 +5,20 @@ package capture
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/catalog"
 
+	"code.forgejo.org/xorm/xorm"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -57,6 +60,11 @@ type Object struct {
 	Name   string // object name
 	State  State
 	Detail string // why the object is stale
+
+	// dropFirst marks a stale PostgreSQL function that CREATE OR REPLACE
+	// cannot fix (its return type differs): it is dropped first, with every
+	// trigger that uses it.
+	dropFirst bool
 }
 
 // Status is the result of comparing the catalog with the triggers that exist
@@ -66,6 +74,13 @@ type Status struct {
 	// Schema is the PostgreSQL schema / MySQL database the objects live in.
 	Schema  string
 	Objects []Object
+	// User is the account Forgejo connects as (MySQL CURRENT_USER(), as
+	// user@host); empty on PostgreSQL.
+	User string
+	// Warnings are problems that do not stop livesync from serving but
+	// that an operator should fix (MySQL: triggers defined by another
+	// account, statement-based binary logging).
+	Warnings []string
 }
 
 // Healthy reports whether every object livesync needs exists and is current.
@@ -134,13 +149,20 @@ func (s *Status) Statements() []string {
 	var stmts []string
 	switch s.Dialect {
 	case "postgres":
+		recreateAll := false
 		for _, o := range s.broken() {
 			if o.Kind == KindFunction {
+				if o.dropFirst {
+					// CASCADE drops every trigger that uses the function,
+					// so all of them are created again below.
+					stmts = append(stmts, pgDropFunction(s.Schema))
+					recreateAll = true
+				}
 				stmts = append(stmts, pgCreateFunction(s.Schema))
 			}
 		}
-		for _, o := range s.broken() {
-			if o.Kind == KindTrigger {
+		for _, o := range s.Objects {
+			if o.Kind == KindTrigger && (o.State == StateMissing || o.State == StateStale || recreateAll && o.State == StateOK) {
 				stmts = append(stmts, pgDropTrigger(s.Schema, o.Table), pgCreateTrigger(s.Schema, o.Table))
 			}
 		}
@@ -179,6 +201,16 @@ func (s *Status) Script() string {
 		fmt.Fprintf(&b, "-- Forgejo livesync capture triggers, MySQL database %s.\n", mysqlQuote(s.Schema))
 		b.WriteString("-- Run as a user with the TRIGGER privilege and, with binary logging on, SUPER\n")
 		b.WriteString("-- (or with log_bin_trust_function_creators = 1).\n")
+		b.WriteString("-- The triggers run with the privileges of the account that creates them (their\n")
+		b.WriteString("-- DEFINER): if that account is dropped later, every write to these tables fails\n")
+		b.WriteString("-- with error 1449, livesync enabled or not. Run this as a durable account, or make\n")
+		if s.User != "" {
+			fmt.Fprintf(&b, "-- Forgejo's account the definer (CREATE DEFINER = %s TRIGGER ..., needs SET_USER_ID\n", mysqlAccount(s.User))
+		} else {
+			b.WriteString("-- Forgejo's account the definer (CREATE DEFINER = <account> TRIGGER ..., needs SET_USER_ID\n")
+		}
+		b.WriteString("-- or SUPER). With binary logging on, use binlog_format ROW or MIXED: under STATEMENT\n")
+		b.WriteString("-- these triggers make every captured write unsafe for replication.\n")
 		fmt.Fprintf(&b, "USE %s;\n", mysqlQuote(s.Schema))
 	}
 	for _, stmt := range stmts {
@@ -186,6 +218,16 @@ func (s *Status) Script() string {
 		b.WriteString(";\n")
 	}
 	return b.String()
+}
+
+// mysqlAccount quotes a user@host account name (as CURRENT_USER() returns
+// it) for a DEFINER clause.
+func mysqlAccount(account string) string {
+	i := strings.LastIndex(account, "@")
+	if i < 0 {
+		return "'" + strings.ReplaceAll(account, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(account[:i], "'", "''") + "'@'" + strings.ReplaceAll(account[i+1:], "'", "''") + "'"
 }
 
 // summary lists the broken objects for error messages.
@@ -269,6 +311,13 @@ type Report struct {
 // remembers the broken tables (MetaPending) so that a later Ensure that finds
 // them healthy (repaired by a DBA) bumps their epochs. It runs
 // under the schema lock, so instances starting together take turns.
+//
+// The epoch bump is durable: the tables about to be repaired are recorded in
+// MetaPending before any DDL runs and removed only in the transaction that
+// bumps their epochs, so a crash or an error between the repair and the bump
+// leaves them pending for the next Ensure. On PostgreSQL the DDL, the bumps
+// and clearing MetaPending are one transaction. The DDL waits at most
+// DDLLockTimeout for table locks; a timeout is a *NotInstalledError too.
 func Ensure(ctx context.Context, repair bool) (*Report, error) {
 	var report *Report
 	err := livesync_model.WithSchemaLock(ctx, func(ctx context.Context) error {
@@ -279,54 +328,127 @@ func Ensure(ctx context.Context, repair bool) (*Report, error) {
 	return report, err
 }
 
+// DDLLockTimeout bounds how long each repair DDL statement waits for a lock
+// on a tracked table (PostgreSQL lock_timeout, MySQL lock_wait_timeout).
+// Without it, a long transaction that touched the table (a report, a dump,
+// another instance's long request) would block the repair and Init, and on
+// PostgreSQL every later query on the tables locked so far would queue
+// behind the waiting DDL. Tests shorten it.
+var DDLLockTimeout = 5 * time.Second
+
+// errStillBroken is the cause of a NotInstalledError when the repair DDL ran
+// but Inspect still finds broken objects.
+var errStillBroken = errors.New("still missing or stale after the repair")
+
+// ddlError marks a failure of the repair DDL itself (as opposed to the
+// bookkeeping around it), which is reported as a NotInstalledError.
+type ddlError struct{ err error }
+
+func (e *ddlError) Error() string { return e.err.Error() }
+func (e *ddlError) Unwrap() error { return e.err }
+
 func ensureLocked(ctx context.Context, repair bool) (*Report, error) {
 	st, err := Inspect(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// Tables found broken by an earlier start that could not repair them
-	// (verify mode, or a failed repair): someone has repaired them since, or
-	// this start will. Their changes in between were lost all the same, so
-	// their epochs are bumped once they are healthy.
+	// (verify mode, a failed repair, or a crash between a repair and its
+	// epoch bump): someone has repaired them since, or this start will.
+	// Their changes in between were lost all the same, so their epochs are
+	// bumped once they are healthy.
 	pending, err := pendingTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	extras := st.extras()
 	if !st.Healthy() && !repair {
 		return nil, notInstalled(ctx, st, pending, nil)
 	}
 
 	report := &Report{Status: st, Epochs: map[string]int64{}}
-	if !st.Healthy() || len(extras) > 0 && repair {
-		if err := execStatements(ctx, st.Statements()); err != nil {
-			return nil, notInstalled(ctx, st, pending, withPrivilegeHint(err))
-		}
+	extras := st.extras()
+	runDDL := !st.Healthy() || repair && len(extras) > 0
+	if !runDDL && len(pending) == 0 {
+		return report, nil
+	}
+	bump := pending
+	if runDDL {
 		report.Repaired = st.repairTables()
 		for _, o := range extras {
 			report.Dropped = append(report.Dropped, o.Name)
 		}
-		if report.Status, err = Inspect(ctx); err != nil {
-			return nil, err
-		}
-		if !report.Status.Healthy() {
-			return nil, notInstalled(ctx, report.Status, append(pending, report.Repaired...), errors.New("still missing or stale after the repair"))
+		bump = mergeTables(pending, report.Repaired)
+		// Record the tables before touching them: if anything fails (or
+		// the process dies) after the DDL took effect and before their
+		// epochs are bumped, the next Ensure still bumps them.
+		if len(bump) > len(pending) {
+			if err := livesync_model.SetMeta(ctx, MetaPending, strings.Join(bump, ",")); err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	for _, table := range mergeTables(report.Repaired, pending) {
-		epoch, err := bumpEpoch(ctx, table)
-		if err != nil {
-			return nil, err
+	// bumpAll bumps the epochs and clears MetaPending in the caller's
+	// transaction: both happen or neither does.
+	bumpAll := func(ctx context.Context) error {
+		for _, table := range bump {
+			epoch, err := bumpEpoch(ctx, table)
+			if err != nil {
+				return err
+			}
+			report.Epochs[table] = epoch
 		}
-		report.Epochs[table] = epoch
+		return livesync_model.SetMeta(ctx, MetaPending, "")
 	}
-	if len(pending) > 0 {
-		if err := livesync_model.SetMeta(ctx, MetaPending, ""); err != nil {
-			return nil, err
+	// repairDDL runs the DDL and checks the result.
+	repairDDL := func(ctx context.Context) error {
+		if err := execStatements(ctx, st.Statements()); err != nil {
+			return &ddlError{withHint(err)}
+		}
+		if report.Status, err = Inspect(ctx); err != nil {
+			return err
+		}
+		if !report.Status.Healthy() {
+			return fmt.Errorf("%w: %s", errStillBroken, report.Status.summary())
+		}
+		return nil
+	}
+
+	if setting.Database.Type.IsPostgreSQL() {
+		// DDL is transactional on PostgreSQL: repair, bump and clear
+		// atomically.
+		err = db.WithTx(ctx, func(ctx context.Context) error {
+			if runDDL {
+				if err := repairDDL(ctx); err != nil {
+					return err
+				}
+			}
+			return bumpAll(ctx)
+		})
+	} else {
+		// MySQL commits each DDL statement implicitly; MetaPending covers
+		// the gap between the DDL and the bump transaction.
+		if runDDL {
+			err = repairDDL(ctx)
+		}
+		if err == nil {
+			err = db.WithTx(ctx, bumpAll)
 		}
 	}
-	report.Repaired = mergeTables(report.Repaired, pending)
+	var ddlErr *ddlError
+	switch {
+	case errors.As(err, &ddlErr):
+		return nil, notInstalled(ctx, st, bump, ddlErr.err)
+	case errors.Is(err, errStillBroken):
+		if setting.Database.Type.IsPostgreSQL() {
+			// The repair was rolled back: the database is as found.
+			return nil, notInstalled(ctx, st, bump, err)
+		}
+		return nil, notInstalled(ctx, report.Status, bump, err)
+	case err != nil:
+		return nil, err
+	}
+	report.Repaired = bump
 	return report, nil
 }
 
@@ -369,26 +491,68 @@ func mergeTables(a, b []string) []string {
 	return res
 }
 
-// execStatements runs the repair DDL on the master database. PostgreSQL DDL
-// is transactional, so the repair is atomic there; MySQL commits each DDL
-// statement implicitly.
+// execStatements runs the repair DDL on the master database, each statement
+// waiting at most DDLLockTimeout for its locks. On PostgreSQL it runs in the
+// caller's transaction (DDL is transactional there) after SET LOCAL
+// lock_timeout. MySQL commits each DDL statement implicitly; there the
+// statements run on one pinned connection whose lock_wait_timeout is
+// lowered for the duration. Either way they bypass xorm's hooks: a failure
+// is returned (and reported by Init with the DDL), not logged as an SQL
+// error as well.
 func execStatements(ctx context.Context, stmts []string) error {
-	run := func(ctx context.Context) error {
-		for _, stmt := range stmts {
-			e, err := livesync_model.MasterEngine(ctx)
-			if err != nil {
-				return err
-			}
-			if _, err := e.Exec(stmt); err != nil {
-				return fmt.Errorf("%s: %w", firstLine(stmt), err)
-			}
-		}
+	if len(stmts) == 0 {
 		return nil
 	}
+	var exec func(ctx context.Context, query string) error
 	if setting.Database.Type.IsPostgreSQL() {
-		return db.WithTx(ctx, run)
+		e, err := livesync_model.MasterEngine(ctx)
+		if err != nil {
+			return err
+		}
+		sess, ok := e.(*xorm.Session)
+		if !ok || sess.Tx() == nil {
+			return errors.New("livesync: the PostgreSQL repair must run in a transaction")
+		}
+		tx := sess.Tx().Tx
+		exec = func(ctx context.Context, query string) error {
+			_, err := tx.ExecContext(ctx, query)
+			return err
+		}
+		if err := exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", max(DDLLockTimeout.Milliseconds(), 1))); err != nil {
+			return fmt.Errorf("set lock_timeout: %w", err)
+		}
+	} else {
+		master, err := livesync_model.MasterXORMEngine()
+		if err != nil {
+			return err
+		}
+		conn, err := master.DB().Conn(ctx)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		exec = func(ctx context.Context, query string) error {
+			_, err := conn.ExecContext(ctx, query)
+			return err
+		}
+		if err := exec(ctx, fmt.Sprintf("SET SESSION lock_wait_timeout = %d", max(int64(DDLLockTimeout/time.Second), 1))); err != nil {
+			return fmt.Errorf("set lock_wait_timeout: %w", err)
+		}
+		defer func() {
+			resetCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := exec(resetCtx, "SET SESSION lock_wait_timeout = DEFAULT"); err != nil {
+				// Do not return a connection with the short timeout to the pool.
+				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			}
+		}()
 	}
-	return run(ctx)
+	for _, stmt := range stmts {
+		if err := exec(ctx, stmt); err != nil {
+			return fmt.Errorf("%s: %w", firstLine(stmt), err)
+		}
+	}
+	return nil
 }
 
 func firstLine(s string) string {
@@ -396,18 +560,28 @@ func firstLine(s string) string {
 	return line
 }
 
-// withPrivilegeHint explains the usual reason why creating triggers fails.
-func withPrivilegeHint(err error) error {
+// withHint explains the usual reasons why the repair DDL fails: missing
+// privileges, or a lock it could not get within DDLLockTimeout.
+func withHint(err error) error {
+	const lockHint = "%w; a transaction on a tracked table held its lock for longer than %s (a long report, a dump, another instance's long request). " +
+		"Forgejo serves without livesync for now; restart it at a quieter time, or have a DBA run the DDL"
 	if myErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		switch myErr.Number {
 		case 1419, 1142, 1227: // binlog needs SUPER, TRIGGER denied, access denied
 			return fmt.Errorf("%w; the database user may not create triggers: MySQL needs the TRIGGER privilege and, with binary logging on, SUPER or log_bin_trust_function_creators = 1. "+
 				"Grant them, or set [livesync] INSTALL_MODE = verify and have a DBA run the DDL", err)
+		case 1205: // lock wait timeout exceeded
+			return fmt.Errorf(lockHint, err, DDLLockTimeout)
 		}
 	}
-	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "42501" { // insufficient_privilege
-		return fmt.Errorf("%w; triggers must be created by the owner of Forgejo's tables. "+
-			"Run Forgejo as the owner, or set [livesync] INSTALL_MODE = verify and have the owner run the DDL", err)
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+		switch pgErr.Code {
+		case "42501": // insufficient_privilege
+			return fmt.Errorf("%w; triggers must be created by the owner of Forgejo's tables. "+
+				"Run Forgejo as the owner, or set [livesync] INSTALL_MODE = verify and have the owner run the DDL", err)
+		case "55P03": // lock_not_available
+			return fmt.Errorf(lockHint, err, DDLLockTimeout)
+		}
 	}
 	return err
 }

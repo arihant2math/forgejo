@@ -4,6 +4,7 @@
 package capture
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"forgejo.org/services/livesync/catalog"
 
+	xormlog "code.forgejo.org/xorm/xorm/log"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
@@ -107,6 +109,21 @@ func TestStatusStatements(t *testing.T) {
 		assert.Equal(t, []Object{{Kind: KindTrigger, Table: "notice", Name: pgTriggerName, State: StateExtra}}, st.extras())
 	})
 
+	t.Run("postgres function with another return type", func(t *testing.T) {
+		// CREATE OR REPLACE cannot change a function's return type: it is
+		// dropped (with its triggers) and every trigger is created again.
+		st := statusAll("postgres", StateOK)
+		st.Objects[0].State, st.Objects[0].Detail, st.Objects[0].dropFirst = StateStale, "returns int4, not trigger", true
+		stmts := st.Statements()
+		require.Len(t, stmts, 2+2*n)
+		assert.Equal(t, `DROP FUNCTION IF EXISTS "db"."livesync_capture"() CASCADE`, stmts[0])
+		assert.Equal(t, pgCreateFunction("db"), stmts[1])
+		for i, tbl := range catalog.Tracked() {
+			assert.Equal(t, pgDropTrigger("db", tbl.Name), stmts[2+2*i])
+			assert.Equal(t, pgCreateTrigger("db", tbl.Name), stmts[3+2*i])
+		}
+	})
+
 	t.Run("mysql", func(t *testing.T) {
 		st := statusAll("mysql", StateOK)
 		for i := range st.Objects {
@@ -123,8 +140,12 @@ func TestStatusStatements(t *testing.T) {
 			"DROP TRIGGER IF EXISTS `livesync_notice_ai`",
 		}, st.Statements())
 		assert.Equal(t, []string{"issue"}, st.repairTables())
+		st.User = "forgejo@%"
 		script := st.Script()
 		assert.Contains(t, script, "USE `db`;\n")
+		assert.Contains(t, script, "error 1449")
+		assert.Contains(t, script, "CREATE DEFINER = 'forgejo'@'%' TRIGGER")
+		assert.Contains(t, script, "binlog_format ROW or MIXED")
 		assert.Contains(t, script, mysqlCreateTrigger("issue", mysqlEvents[1])+";\n")
 		assert.Contains(t, st.summary(), "1 stale: livesync_issue_au (different body)")
 
@@ -144,6 +165,13 @@ func TestStatusStatements(t *testing.T) {
 		st.Objects[1].State = StateMissing
 		assert.Equal(t, "1 missing: "+st.Objects[1].Table+".livesync_capture", st.summary())
 	})
+}
+
+func TestMySQLAccount(t *testing.T) {
+	assert.Equal(t, "'forgejo'@'%'", mysqlAccount("forgejo@%"))
+	assert.Equal(t, "'a@b'@'localhost'", mysqlAccount("a@b@localhost"))
+	assert.Equal(t, "'o''x'@'h'", mysqlAccount("o'x@h"))
+	assert.Equal(t, "'nohost'", mysqlAccount("nohost"))
 }
 
 func TestNotInstalledError(t *testing.T) {
@@ -166,18 +194,27 @@ func TestNotInstalledError(t *testing.T) {
 
 func TestPrivilegeHint(t *testing.T) {
 	myErr := &mysql.MySQLError{Number: 1419, Message: "You do not have the SUPER privilege and binary logging is enabled"}
-	err := withPrivilegeHint(fmt.Errorf("CREATE TRIGGER x: %w", myErr))
+	err := withHint(fmt.Errorf("CREATE TRIGGER x: %w", myErr))
 	require.ErrorIs(t, err, myErr)
 	assert.Contains(t, err.Error(), "log_bin_trust_function_creators = 1")
 	assert.Contains(t, err.Error(), "INSTALL_MODE = verify")
 
 	pgErr := &pgconn.PgError{Code: "42501", Message: "must be owner of table issue"}
-	err = withPrivilegeHint(pgErr)
+	err = withHint(pgErr)
 	require.ErrorIs(t, err, pgErr)
 	assert.Contains(t, err.Error(), "owner of Forgejo's tables")
 
+	lockErr := &pgconn.PgError{Code: "55P03", Message: "canceling statement due to lock timeout"}
+	err = withHint(fmt.Errorf("DROP TRIGGER x: %w", lockErr))
+	require.ErrorIs(t, err, lockErr)
+	assert.Contains(t, err.Error(), "held its lock for longer than")
+	myLockErr := &mysql.MySQLError{Number: 1205, Message: "Lock wait timeout exceeded; try restarting transaction"}
+	err = withHint(myLockErr)
+	require.ErrorIs(t, err, myLockErr)
+	assert.Contains(t, err.Error(), "held its lock for longer than")
+
 	other := errors.New("other")
-	assert.Same(t, other, withPrivilegeHint(other))
+	assert.Same(t, other, withHint(other))
 }
 
 func TestPokes(t *testing.T) {
@@ -229,4 +266,65 @@ func TestDoorbell(t *testing.T) {
 	assert.Nil(t, bells.Load())
 	ringAll() // no subscribers: no-op
 	unsubscribe(b)
+}
+
+// recordingLogger stands in for Forgejo's xorm logger.
+type recordingLogger struct {
+	xormlog.ContextLogger
+	show          bool
+	before, after int
+}
+
+func (l *recordingLogger) IsShowSQL() bool              { return l.show }
+func (l *recordingLogger) ShowSQL(show ...bool)         { l.show = len(show) == 0 || show[0] }
+func (l *recordingLogger) BeforeSQL(xormlog.LogContext) { l.before++ }
+func (l *recordingLogger) AfterSQL(xormlog.LogContext)  { l.after++ }
+
+func TestCommitObserver(t *testing.T) {
+	inner := &recordingLogger{ContextLogger: xormlog.NewLoggerAdapter(xormlog.DiscardLogger{})}
+	o := commitObserver{ContextLogger: inner}
+	assert.True(t, o.IsShowSQL(), "xorm only calls AfterSQL when the logger shows SQL")
+	d := newDoorbell()
+	subscribe(d)
+	defer unsubscribe(d)
+	rung := func() bool {
+		select {
+		case <-d.c:
+			return true
+		default:
+			return false
+		}
+	}
+	lc := func(ctx context.Context, sql string, err error) xormlog.LogContext {
+		return xormlog.LogContext{Ctx: ctx, SQL: sql, Err: err}
+	}
+	ctx := t.Context()
+
+	// SQL logging off: nothing is forwarded, writes and COMMIT ring.
+	o.BeforeSQL(lc(ctx, "COMMIT", nil))
+	o.AfterSQL(lc(ctx, "COMMIT", nil))
+	assert.Equal(t, 0, inner.before+inner.after)
+	assert.True(t, rung())
+	o.AfterSQL(lc(ctx, "INSERT INTO issue (id) VALUES (?)", nil))
+	assert.True(t, rung())
+	o.AfterSQL(lc(ctx, "SELECT 1", nil))
+	assert.False(t, rung())
+	o.AfterSQL(lc(ctx, "COMMIT", errors.New("failed")))
+	assert.False(t, rung())
+	// livesync's own transactions do not ring.
+	o.AfterSQL(lc(context.WithValue(ctx, quietKey{}, true), "COMMIT", nil))
+	assert.False(t, rung())
+
+	// SQL logging on (engine.ShowSQL forwards to the wrapped logger):
+	// forwarded, unless the session says otherwise.
+	o.ShowSQL(true)
+	assert.True(t, inner.show)
+	o.BeforeSQL(lc(ctx, "SELECT 1", nil))
+	o.AfterSQL(lc(ctx, "SELECT 1", nil))
+	assert.Equal(t, 1, inner.before)
+	assert.Equal(t, 1, inner.after)
+	quiet := context.WithValue(ctx, xormlog.SessionShowSQLKey{}, false)
+	o.BeforeSQL(lc(quiet, "SELECT 1", nil))
+	o.AfterSQL(lc(quiet, "SELECT 1", nil))
+	assert.Equal(t, 1, inner.before)
 }

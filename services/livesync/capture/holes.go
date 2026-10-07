@@ -74,8 +74,6 @@ func (h *holes) index(id int64) int {
 	return -1
 }
 
-func (h *holes) contains(id int64) bool { return h.index(id) >= 0 }
-
 // remove marks id as seen, splitting its range if needed.
 func (h *holes) remove(id int64) {
 	i := h.index(id)
@@ -110,13 +108,4 @@ func (h *holes) expire(deadline time.Time) int64 {
 	}
 	h.r = keep
 	return n
-}
-
-// ranges returns the hole ranges as [lo, hi] pairs, lowest first.
-func (h *holes) ranges() [][2]int64 {
-	res := make([][2]int64, len(h.r))
-	for i, r := range h.r {
-		res[i] = [2]int64{r.lo, r.hi}
-	}
-	return res
 }

@@ -43,7 +43,9 @@ func Wrap(inner http.Handler) http.Handler {
 			// An operational state rather than a crash: in INSTALL_MODE
 			// verify a DBA has to run the DDL; in auto mode the database
 			// user lacks the privileges. Either way the DDL is needed.
-			log.Warn("livesync: not serving, serving the classic UI only: %v", err)
+			// The triggers that are installed keep writing to the outbox,
+			// which nothing drains until livesync runs again.
+			log.Warn("livesync: not serving, serving the classic UI only: %v; the installed capture triggers keep filling livesync_change until livesync runs again", err)
 			log.Info("livesync: DDL that installs the capture triggers (run it as a privileged database user, then restart Forgejo):\n%s", notInstalled.Status.Script())
 		default:
 			log.Error("livesync: failed to start, serving the classic UI only: %v", err)

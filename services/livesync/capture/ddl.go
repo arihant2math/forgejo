@@ -22,8 +22,11 @@ import (
 // Forgejo instances that share the database under another schema.
 //
 // MySQL/MariaDB: three single-statement triggers per table, without an
-// explicit DEFINER, deterministic (no UUID()/NOW()), so they are safe under
-// both row and statement binlog formats.
+// explicit DEFINER (so the creating account becomes the definer; see
+// Status.Script), deterministic (no UUID()/NOW()). They insert into an
+// AUTO_INCREMENT column, which MySQL flags as unsafe for statement-based
+// replication (Note 1592): binlog_format must be ROW or MIXED (MIXED logs
+// these writes row-based). Inspect warns about STATEMENT.
 
 const (
 	// pgFunctionName and pgTriggerName name the PostgreSQL objects; the
@@ -65,6 +68,13 @@ END;
 func pgCreateFunction(schema string) string {
 	return "CREATE OR REPLACE FUNCTION " + pgQuote(schema) + "." + pgQuote(pgFunctionName) +
 		"() RETURNS trigger LANGUAGE plpgsql AS $livesync$" + pgFunctionBody(schema) + "$livesync$"
+}
+
+// pgDropFunction drops the capture function together with every trigger
+// that uses it: needed when CREATE OR REPLACE cannot replace it (another
+// return type).
+func pgDropFunction(schema string) string {
+	return "DROP FUNCTION IF EXISTS " + pgQuote(schema) + "." + pgQuote(pgFunctionName) + "() CASCADE"
 }
 
 func pgDropTrigger(schema, table string) string {

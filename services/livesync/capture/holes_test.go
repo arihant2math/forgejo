@@ -102,3 +102,16 @@ func TestHolesMatchesSet(t *testing.T) {
 		}
 	}
 }
+
+// Test helpers (the reader itself needs neither).
+
+func (h *holes) contains(id int64) bool { return h.index(id) >= 0 }
+
+// ranges returns the hole ranges as [lo, hi] pairs, lowest first.
+func (h *holes) ranges() [][2]int64 {
+	res := make([][2]int64, len(h.r))
+	for i, r := range h.r {
+		res[i] = [2]int64{r.lo, r.hi}
+	}
+	return res
+}

@@ -87,8 +87,11 @@ func inspectPostgres(ctx context.Context) (*Status, error) {
 	if len(fns) == 1 {
 		fn.State, fn.Detail = StateOK, ""
 		switch {
-		case fns[0].RetType != "trigger" || fns[0].Language != "plpgsql":
-			fn.State, fn.Detail = StateStale, "not a plpgsql trigger function"
+		case fns[0].RetType != "trigger":
+			// CREATE OR REPLACE cannot change the return type.
+			fn.State, fn.Detail, fn.dropFirst = StateStale, "returns "+fns[0].RetType+", not trigger", true
+		case fns[0].Language != "plpgsql":
+			fn.State, fn.Detail = StateStale, "language "+fns[0].Language+", not plpgsql"
 		case fns[0].Src != pgFunctionBody(schema):
 			fn.State, fn.Detail = StateStale, "different body"
 		}
@@ -156,6 +159,13 @@ type mysqlTriggerRow struct {
 	Timing      string `xorm:"'ttiming'"`
 	Orientation string `xorm:"'torient'"`
 	Statement   string `xorm:"'tstmt'"`
+	Definer     string `xorm:"'tdefiner'"`
+}
+
+type mysqlServerRow struct {
+	User         string `xorm:"'cur_user'"`
+	LogBin       int    `xorm:"'log_bin'"`
+	BinlogFormat string `xorm:"'binlog_format'"`
 }
 
 func inspectMySQL(ctx context.Context) (*Status, error) {
@@ -171,7 +181,7 @@ func inspectMySQL(ctx context.Context) (*Status, error) {
 	// has the TRIGGER privilege on.
 	var rows []mysqlTriggerRow
 	if err := e.SQL(`SELECT trigger_name AS tname, event_manipulation AS tevent, event_object_table AS ttable,
-			action_timing AS ttiming, action_orientation AS torient, action_statement AS tstmt
+			action_timing AS ttiming, action_orientation AS torient, action_statement AS tstmt, definer AS tdefiner
 		FROM information_schema.triggers
 		WHERE trigger_schema = DATABASE() AND trigger_name LIKE ? ESCAPE '!'`,
 		strings.ReplaceAll(mysqlTriggerPrefix, "_", "!_")+"%").Find(&rows); err != nil {
@@ -181,7 +191,31 @@ func inspectMySQL(ctx context.Context) (*Status, error) {
 	for _, r := range rows {
 		existing[r.Name] = r
 	}
-	st := &Status{Dialect: "mysql", Schema: schema}
+	e, err = livesync_model.MasterEngine(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var server mysqlServerRow
+	if _, err := e.SQL("SELECT CURRENT_USER() AS cur_user, @@log_bin AS log_bin, @@binlog_format AS binlog_format").Get(&server); err != nil {
+		return nil, fmt.Errorf("livesync: inspect server settings: %w", err)
+	}
+	st := &Status{Dialect: "mysql", Schema: schema, User: server.User}
+	if server.LogBin != 0 && strings.EqualFold(server.BinlogFormat, "STATEMENT") {
+		st.Warnings = append(st.Warnings, "binlog_format is STATEMENT: the capture triggers insert into an AUTO_INCREMENT column, "+
+			"which is unsafe for statement-based replication (replicas may assign other outbox ids, and every captured write logs Note 1592); "+
+			"use binlog_format ROW or MIXED")
+	}
+	foreign := map[string]int{} // definer -> triggers
+	for _, r := range rows {
+		if r.Definer != "" && r.Definer != server.User {
+			foreign[r.Definer]++
+		}
+	}
+	for _, definer := range sortedKeys(foreign) {
+		st.Warnings = append(st.Warnings, fmt.Sprintf("%d livesync trigger(s) are defined by %s, not by Forgejo's account %s: they run with that account's privileges, "+
+			"and every write to their tables fails (error 1449) if it is dropped; make sure it stays, or recreate them with CREATE DEFINER = %s TRIGGER",
+			foreign[definer], definer, server.User, mysqlAccount(server.User)))
+	}
 	for _, t := range catalog.Tracked() {
 		for _, ev := range mysqlEvents {
 			name := mysqlTriggerName(t.Name, ev)

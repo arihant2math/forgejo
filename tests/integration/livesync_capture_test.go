@@ -206,38 +206,114 @@ func TestLivesyncCaptureReader(t *testing.T) {
 	assert.Equal(t, fmt.Sprint(lastChange.ID), v)
 }
 
-// The doorbells: with polling effectively off, a write through Forgejo's
-// engine wakes the reader through the commit hook, and on PostgreSQL a write
-// from another connection (another instance) through LISTEN/NOTIFY. On MySQL
-// writes from elsewhere are found by polling.
+// The doorbells, each on its own, with polling effectively off:
+//   - PostgreSQL: LISTEN/NOTIFY is the only doorbell (no statement observer),
+//     for this instance's autocommitted writes and transactions alike, and for
+//     writes from another connection (another instance);
+//   - MySQL: the statement observer on the master engine rings for an
+//     autocommitted write and for a transaction's COMMIT; a write from another
+//     connection rings nothing and waits for the poll.
+//
+// Latencies are measured from just before the write to the delivery.
 func TestLivesyncCaptureDoorbell(t *testing.T) {
 	livesyncSkipSQLite(t)
 	defer tests.PrepareTestEnv(t)()
 	livesyncInstallCapture(t)
 	ctx := t.Context()
 
-	poll := time.Hour
-	if setting.Database.Type.IsMySQL() {
-		poll = 0 // the 100 ms default
-	}
 	batches := newLivesyncBatches()
-	livesyncStartReader(t, capture.Config{PollInterval: poll}, batches)
-	time.Sleep(300 * time.Millisecond) // let LISTEN start
+	livesyncStartReader(t, capture.Config{PollInterval: time.Hour, SweepInterval: time.Hour}, batches)
+	time.Sleep(300 * time.Millisecond) // let LISTEN start, and its initial ring pass
 
-	l := newProbeLabel("hook")
+	// An autocommitted write through Forgejo's engine.
+	l := newProbeLabel("autocommit")
+	start := time.Now()
 	require.NoError(t, db.Insert(ctx, l))
 	batches.waitFor(t, "label", l.ID, 3*time.Second)
+	t.Logf("autocommit write → reader: %s", time.Since(start))
 
-	// A write that bypasses xorm (and its hooks) entirely.
-	name := "elsewhere"
-	_, err := livesyncMaster(t).DB().DB.ExecContext(ctx, "INSERT INTO label (repo_id, name, color) VALUES (1, '"+name+"', '#000000')")
-	require.NoError(t, err)
-	var id int64
-	_, err = livesyncMaster(t).SQL("SELECT id FROM label WHERE name = ?", name).Get(&id)
-	require.NoError(t, err)
-	start := time.Now()
+	// A transaction: nothing before its COMMIT, delivered after it.
+	inTx := newProbeLabel("in tx")
+	start = time.Now()
+	require.NoError(t, db.WithTx(ctx, func(ctx context.Context) error {
+		if err := db.Insert(ctx, inTx); err != nil {
+			return err
+		}
+		// More statements in the same transaction, then a pause: the
+		// row must not be delivered before COMMIT.
+		if _, err := db.GetEngine(ctx).ID(inTx.ID).Cols("description").Update(&issues_model.Label{Description: "x"}); err != nil {
+			return err
+		}
+		batches.none(t, "label", inTx.ID, 200*time.Millisecond)
+		start = time.Now()
+		return nil
+	}))
+	batches.waitFor(t, "label", inTx.ID, 3*time.Second)
+	t.Logf("COMMIT → reader: %s", time.Since(start))
+
+	// A write that bypasses xorm entirely (another instance).
+	rawInsert := func(name string) int64 {
+		t.Helper()
+		_, err := livesyncMaster(t).DB().DB.ExecContext(ctx, "INSERT INTO label (repo_id, name, color) VALUES (1, '"+name+"', '#000000')")
+		require.NoError(t, err)
+		var id int64
+		_, err = livesyncMaster(t).SQL("SELECT id FROM label WHERE name = ?", name).Get(&id)
+		require.NoError(t, err)
+		return id
+	}
+	if setting.Database.Type.IsPostgreSQL() {
+		start = time.Now()
+		id := rawInsert("elsewhere")
+		batches.waitFor(t, "label", id, 3*time.Second)
+		t.Logf("write from another connection → reader (NOTIFY): %s", time.Since(start))
+		return
+	}
+	// MySQL: no doorbell for it (the SELECT above is not a write either)...
+	id := rawInsert("elsewhere")
+	batches.none(t, "label", id, 500*time.Millisecond)
+	// ...until the next write through the engine rings, or the poll.
+	l2 := newProbeLabel("next")
+	require.NoError(t, db.Insert(ctx, l2))
 	batches.waitFor(t, "label", id, 3*time.Second)
-	t.Logf("write from another connection → reader: %s", time.Since(start))
+
+	// With the default poll interval (100 ms), polling alone finds it.
+	batches2 := newLivesyncBatches()
+	livesyncStartReader(t, capture.Config{}, batches2)
+	// Past its start-up cycle, and half-way between two ticks.
+	time.Sleep(250 * time.Millisecond)
+	start = time.Now()
+	id = rawInsert("polled")
+	batches2.waitFor(t, "label", id, 3*time.Second)
+	t.Logf("write from another connection → reader (100 ms poll, written ≈50 ms before a tick): %s", time.Since(start))
+}
+
+// The outbox is recreated (or truncated) while livesync is stopped: it is
+// empty and its ids restart below the stored cursor. The next reader must
+// still deliver new rows at once, not only from its sweep.
+func TestLivesyncCaptureOutboxRecreated(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	livesyncInstallCapture(t)
+	ctx := t.Context()
+
+	// Many ids were used before; then the table is dropped and created
+	// again, which resets its sequence / AUTO_INCREMENT.
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaCursor, "1000000"))
+	master := livesyncMaster(t)
+	require.NoError(t, livesync_model.WithSchemaLock(ctx, func(ctx context.Context) error {
+		if err := master.DropTables(livesync_model.Change{}.TableName()); err != nil {
+			return err
+		}
+		return livesync_model.SyncTables(ctx)
+	}))
+
+	batches := newLivesyncBatches()
+	livesyncStartReader(t, capture.Config{PollInterval: time.Hour, SweepInterval: time.Hour}, batches)
+	l := newProbeLabel("after recreate")
+	require.NoError(t, db.Insert(ctx, l))
+	c, cursor := batches.waitFor(t, "label", l.ID, 3*time.Second)
+	assert.Less(t, c.ID, int64(1000), "the ids restarted")
+	assert.Equal(t, c.ID, cursor)
 }
 
 // Dropping a trigger (as an upstream table rebuild does) makes the next start
@@ -338,6 +414,17 @@ func TestLivesyncCaptureRepair(t *testing.T) {
 			all = append(all, tbl.Name)
 		}
 		restart(all...)
+
+		// A function CREATE OR REPLACE cannot fix (another return type;
+		// such a function can have no triggers).
+		_, err = master.Exec(`DROP FUNCTION livesync_capture() CASCADE`)
+		require.NoError(t, err)
+		_, err = master.Exec(`CREATE FUNCTION livesync_capture() RETURNS int LANGUAGE sql AS 'SELECT 1'`)
+		require.NoError(t, err)
+		st := inspect()
+		assert.Equal(t, capture.StateStale, st.Objects[0].State)
+		assert.Contains(t, st.Objects[0].Detail, "returns int4")
+		restart(all...)
 	}
 
 	// An extra livesync trigger on an untracked table is dropped.
@@ -361,6 +448,104 @@ func TestLivesyncCaptureRepair(t *testing.T) {
 	v, _, err := livesync_model.GetMeta(ctx, capture.MetaCursor)
 	require.NoError(t, err)
 	assert.NotEqual(t, "0", v)
+}
+
+// A repair's epoch bump survives a failure between the repair DDL and the
+// bump: the tables are recorded as pending before the DDL runs, so the next
+// Ensure bumps them although it finds the triggers healthy (MySQL, where the
+// DDL is committed), or repairs and bumps them (PostgreSQL, where the DDL is
+// rolled back with the failed bump).
+func TestLivesyncCaptureRepairDurableEpoch(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	livesyncInstallCapture(t)
+	ctx := t.Context()
+	master := livesyncMaster(t)
+	before := livesyncEpochs(t)
+
+	if setting.Database.Type.IsPostgreSQL() {
+		_, err := master.Exec(`DROP TRIGGER livesync_capture ON issue`)
+		require.NoError(t, err)
+	} else {
+		_, err := master.Exec("DROP TRIGGER livesync_issue_ai")
+		require.NoError(t, err)
+	}
+	// The bump fails after the DDL: the stored epoch is not a number.
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"issue", "garbage"))
+	_, err := capture.Ensure(ctx, true)
+	require.ErrorContains(t, err, "not a number")
+	require.NotErrorIs(t, err, capture.ErrNotInstalled)
+	pending, _, err := livesync_model.GetMeta(ctx, capture.MetaPending)
+	require.NoError(t, err)
+	assert.Equal(t, "issue", pending, "the repaired table stays pending")
+	st, err := capture.Inspect(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, setting.Database.Type.IsMySQL(), st.Healthy(), "MySQL commits DDL at once, PostgreSQL rolled it back")
+
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"issue", "5"))
+	report, err := capture.Ensure(ctx, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"issue"}, report.Repaired)
+	assert.Equal(t, map[string]int64{"issue": 6}, report.Epochs)
+	assert.True(t, report.Status.Healthy())
+	want := maps.Clone(before)
+	want["issue"] = 6
+	assert.Equal(t, want, livesyncEpochs(t))
+	pending, _, err = livesync_model.GetMeta(ctx, capture.MetaPending)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+
+	// Nothing left to do: no more bumps.
+	report, err = capture.Ensure(ctx, true)
+	require.NoError(t, err)
+	assert.Empty(t, report.Repaired)
+	assert.Equal(t, want, livesyncEpochs(t))
+}
+
+// The repair DDL does not wait for a table lock longer than DDLLockTimeout:
+// with a long transaction on the table, Ensure fails cleanly (livesync
+// would serve the classic UI) instead of hanging Init, and the next Ensure
+// repairs and bumps the table.
+func TestLivesyncCaptureRepairLockTimeout(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	livesyncInstallCapture(t)
+	defer test.MockVariableValue(&capture.DDLLockTimeout, time.Second)()
+	ctx := t.Context()
+	master := livesyncMaster(t)
+	before := livesyncEpochs(t)
+
+	if setting.Database.Type.IsPostgreSQL() {
+		_, err := master.Exec(`DROP TRIGGER livesync_capture ON label`)
+		require.NoError(t, err)
+	} else {
+		_, err := master.Exec("DROP TRIGGER livesync_label_ai")
+		require.NoError(t, err)
+	}
+	long := master.NewSession()
+	defer long.Close()
+	require.NoError(t, long.Begin())
+	_, err := long.Insert(newProbeLabel("holds a lock"))
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, err = capture.Ensure(ctx, true)
+	elapsed := time.Since(start)
+	require.ErrorIs(t, err, capture.ErrNotInstalled)
+	assert.Contains(t, err.Error(), "held its lock for longer than 1s")
+	assert.Less(t, elapsed, 10*time.Second)
+	t.Logf("Ensure gave up after %s", elapsed)
+	pending, _, err := livesync_model.GetMeta(ctx, capture.MetaPending)
+	require.NoError(t, err)
+	assert.Equal(t, "label", pending)
+
+	require.NoError(t, long.Rollback())
+	report, err := capture.Ensure(ctx, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"label"}, report.Repaired)
+	want := maps.Clone(before)
+	want["label"]++
+	assert.Equal(t, want, livesyncEpochs(t))
 }
 
 // INSTALL_MODE verify never changes triggers: with one missing, livesync does

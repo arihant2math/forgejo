@@ -6,10 +6,11 @@ package capture
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
+	"sync/atomic"
 	"time"
 
-	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
@@ -131,6 +132,7 @@ type Reader struct {
 	high      int64 // highest id seen
 	holes     holes // unseen ids in (cursor, high]
 	lastSweep time.Time
+	cycles    atomic.Int64 // cycles run (tests)
 
 	done chan struct{}
 }
@@ -149,11 +151,15 @@ func Start(ctx context.Context, cfg Config, consumer Consumer) (*Reader, error) 
 	if err := r.loadCursor(ctx); err != nil {
 		return nil, err
 	}
-	master, err := livesync_model.MasterXORMEngine()
-	if err != nil {
-		return nil, err
+	if !setting.Database.Type.IsPostgreSQL() {
+		// PostgreSQL rings through LISTEN/NOTIFY, for this instance's
+		// commits too; elsewhere the master engine is observed.
+		master, err := livesync_model.MasterXORMEngine()
+		if err != nil {
+			return nil, err
+		}
+		observeCommits(master)
 	}
-	addCommitHook(master)
 	subscribe(r.bell)
 	if setting.Database.Type.IsPostgreSQL() {
 		schema, err := currentSchema(ctx)
@@ -188,23 +194,83 @@ func (r *Reader) loadCursor(ctx context.Context) error {
 			return fmt.Errorf("livesync_meta %s is %q, not a number", MetaCursor, v)
 		}
 	}
-	// The outbox was recreated (its ids restarted) if it holds rows but none
-	// above the cursor; resume from its start instead of skipping them.
-	e, err := livesync_model.MasterEngine(ctx)
+	// The outbox was recreated or truncated (its ids restarted) if the last
+	// id it assigned is below the cursor: resume from its start, otherwise
+	// new rows (ids <= cursor) would only be found by the sweep. The
+	// sequence / AUTO_INCREMENT counter tells this even when the outbox is
+	// empty, which it normally is right after being recreated.
+	last, err := lastAssignedID(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("livesync: read the outbox id counter: %w", err)
 	}
-	var maxID int64
-	if _, err := e.SQL("SELECT COALESCE(MAX(id), 0) FROM " + livesync_model.Change{}.TableName()).Get(&maxID); err != nil {
-		return fmt.Errorf("livesync: read outbox high-water mark: %w", err)
-	}
-	if maxID > 0 && maxID < r.cursor {
-		log.Warn("livesync: outbox ids restarted (max id %d < cursor %d); reading it from the start", maxID, r.cursor)
+	if last < r.cursor {
+		log.Warn("livesync: outbox ids restarted (last assigned id %d < cursor %d); reading it from the start", last, r.cursor)
 		r.cursor = 0
 	}
 	r.high = r.cursor
 	return nil
 }
+
+// autoIncrementRe finds the counter in SHOW CREATE TABLE output.
+var autoIncrementRe = regexp.MustCompile(`(?i)\bAUTO_INCREMENT=(\d+)`)
+
+// lastAssignedID returns the highest id the outbox has handed out so far
+// (0 if none), from its id counter rather than from its rows, which are
+// deleted once processed.
+func lastAssignedID(ctx context.Context) (int64, error) {
+	e, err := livesync_model.MasterEngine(ctx)
+	if err != nil {
+		return 0, err
+	}
+	table := livesync_model.Change{}.TableName()
+	var last int64
+	switch {
+	case setting.Database.Type.IsPostgreSQL():
+		// The id column's sequence; last_value is the last id handed out
+		// once is_called, the next one before. Not transactional, which is
+		// what is wanted here.
+		var seq string
+		if _, err := e.SQL("SELECT COALESCE(pg_get_serial_sequence(?, 'id'), '')", table).Get(&seq); err != nil {
+			return 0, err
+		}
+		if seq == "" {
+			return 0, fmt.Errorf("%s.id has no sequence", table)
+		}
+		// seq is quoted and schema-qualified by pg_get_serial_sequence.
+		if _, err := e.SQL("SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM " + seq).Get(&last); err != nil {
+			return 0, err
+		}
+	case setting.Database.Type.IsMySQL():
+		// SHOW CREATE TABLE reports the live AUTO_INCREMENT counter (the
+		// next id; omitted while it is 1); information_schema.tables may
+		// serve a cached value (information_schema_stats_expiry).
+		var name, ddl string
+		if _, err := e.SQL("SHOW CREATE TABLE "+mysqlQuote(table)).Get(&name, &ddl); err != nil {
+			return 0, err
+		}
+		if m := autoIncrementRe.FindStringSubmatch(ddl); m != nil {
+			next, err := strconv.ParseInt(m[1], 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			last = next - 1
+		}
+	default:
+		// SQLite (unit tests): the AUTOINCREMENT counter if there is one,
+		// else the highest id present.
+		if _, err := e.SQL("SELECT MAX(COALESCE((SELECT seq FROM sqlite_sequence WHERE name = ?), 0), COALESCE((SELECT MAX(id) FROM "+table+"), 0))", table).Get(&last); err != nil {
+			return 0, err
+		}
+	}
+	return last, nil
+}
+
+// minCycleGap is the shortest time between the starts of two reader cycles.
+// Under write traffic the doorbell rings for every commit (on MySQL for
+// every DML statement); rings that arrive within the gap are merged into one
+// cycle, so the reader runs at most 1/minCycleGap cycles per second however
+// busy the database is, and an idle reader still reacts at once.
+const minCycleGap = 5 * time.Millisecond
 
 func (r *Reader) run(ctx context.Context) {
 	defer close(r.done)
@@ -213,7 +279,22 @@ func (r *Reader) run(ctx context.Context) {
 	defer ticker.Stop()
 	const minBackoff, maxBackoff = 100 * time.Millisecond, 10 * time.Second
 	backoff := minBackoff
+	var lastStart time.Time
 	for {
+		if wait := minCycleGap - time.Since(lastStart); wait > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			// This cycle covers every ring so far.
+			select {
+			case <-r.bell.c:
+			default:
+			}
+		}
+		lastStart = time.Now()
+		r.cycles.Add(1)
 		if err := r.cycle(ctx); err != nil {
 			if ctx.Err() != nil {
 				return
@@ -294,59 +375,57 @@ func (r *Reader) readNew(ctx context.Context, now time.Time) (int, error) {
 	if err != nil || len(rows) == 0 {
 		return 0, err
 	}
-	next := r.holes.clone()
+	// New holes all lie above the existing ones; they are added once the
+	// batch is delivered.
+	var gaps [][2]int64
 	high := r.high
 	for _, c := range rows {
-		next.add(high+1, c.ID-1, now)
+		if c.ID > high+1 {
+			gaps = append(gaps, [2]int64{high + 1, c.ID - 1})
+		}
 		high = c.ID
 	}
-	cursor := r.cursorFor(&next, high)
+	cursor := high
+	if lo, ok := r.holes.min(); ok {
+		cursor = lo - 1
+	} else if len(gaps) > 0 {
+		cursor = gaps[0][0] - 1
+	}
 	if err := r.deliver(ctx, rows, cursor); err != nil {
 		return 0, err
 	}
-	r.holes, r.high, r.cursor = next, high, cursor
+	for _, g := range gaps {
+		r.holes.add(g[0], g[1], now)
+	}
+	// add may have given up the oldest holes (maxHoleRanges): the cursor
+	// can only move up from the delivered one.
+	r.high = high
+	r.cursor = r.cursorFor(&r.holes, high)
 	return len(rows), nil
 }
 
-// recheckHoles delivers the rows of holes that have been filled since.
+// recheckHoles delivers the rows of holes that have been filled since. Every
+// row with cursor < id <= high is one: rows the reader delivered are deleted
+// before it advances, and the ids given up so far lie at or below the
+// cursor. So one indexed range scan finds them all, whatever the number of
+// holes.
 func (r *Reader) recheckHoles(ctx context.Context) error {
-	const rangesPerQuery = 64
-	all := r.holes.ranges()
-	for start := 0; start < len(all); start += rangesPerQuery {
-		chunk := all[start:min(start+rangesPerQuery, len(all))]
-		conds := make([]builder.Cond, 0, len(chunk))
-		for _, rg := range chunk {
-			conds = append(conds, builder.Between{Col: "id", LessVal: rg[0], MoreVal: rg[1]})
+	for r.cursor < r.high {
+		rows, err := r.find(ctx, builder.And(builder.Gt{"id": r.cursor}, builder.Lte{"id": r.high}))
+		if err != nil || len(rows) == 0 {
+			return err
 		}
-		inRanges := builder.Or(conds...)
-		after := int64(0)
-		for {
-			rows, err := r.find(ctx, builder.And(inRanges, builder.Gt{"id": after}))
-			if err != nil {
-				return err
-			}
-			if len(rows) == 0 {
-				break
-			}
-			after = rows[len(rows)-1].ID
-			next := r.holes.clone()
-			filled := rows[:0:0]
-			for _, c := range rows {
-				if next.contains(c.ID) {
-					next.remove(c.ID)
-					filled = append(filled, c)
-				}
-			}
-			if len(filled) > 0 {
-				cursor := r.cursorFor(&next, r.high)
-				if err := r.deliver(ctx, filled, cursor); err != nil {
-					return err
-				}
-				r.holes, r.cursor = next, cursor
-			}
-			if len(rows) < r.cfg.BatchSize {
-				break
-			}
+		next := r.holes.clone()
+		for _, c := range rows {
+			next.remove(c.ID)
+		}
+		cursor := r.cursorFor(&next, r.high)
+		if err := r.deliver(ctx, rows, cursor); err != nil {
+			return err
+		}
+		r.holes, r.cursor = next, cursor
+		if len(rows) < r.cfg.BatchSize {
+			return nil
 		}
 	}
 	return nil
@@ -382,7 +461,7 @@ func (r *Reader) deliver(ctx context.Context, rows []livesync_model.Change, curs
 		return fmt.Errorf("consume %d change(s): %w", len(rows), err)
 	}
 	if !b.committed {
-		if err := db.WithTx(ctx, b.Commit); err != nil {
+		if err := WithQuietTx(ctx, b.Commit); err != nil {
 			return err
 		}
 	}

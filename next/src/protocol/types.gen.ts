@@ -26,6 +26,173 @@ export type ErrorCode =
   | typeof ErrorTooManyConnections | typeof ErrorInternal;
 
 //////////
+// source: bootstrap.go
+
+/**
+ * TierFull: every entity of the group (every group but repo:{id}, and
+ * issue:{id} also through /-/sync/load).
+ */
+export const TierFull = "full";
+/**
+ * TierSummary: a repo:{id} group's summary tier: open issues and pull
+ * requests plus those updated since BootstrapHeader.ClosedBefore, with
+ * their labels, assignees, pull requests and project cards; commit
+ * statuses and action runs updated since then; and every other entity of
+ * the group (repository, units, labels, milestones, projects, branches,
+ * releases, collaborations).
+ */
+export const TierSummary = "summary";
+/**
+ * TierClosed: a page of a repo:{id} group's older closed issues and pull
+ * requests (closed, not updated since the summary's cutoff), newest
+ * first, with their labels, assignees, pull requests and project cards
+ * (GET /-/sync/load?group=repo:{id}&closedBefore=…).
+ */
+export const TierClosed = "closed";
+/**
+ * BootstrapHeader is the first line of a bootstrap or load response.
+ * Bootstraps and partial loads (PLAN §4.7): GET /-/sync/bootstrap?group=…
+ * and GET /-/sync/load?group=… stream NDJSON, one JSON object per line:
+ *  1. a BootstrapHeader (type "header");
+ *  2. the entities, each a Change with op U (exactly as a delta carries it;
+ *     every change's v is the header's watermark). The group's own entities
+ *     come first (g = the requested group); they may be followed by the
+ *     User entities (profiles) of other groups that the group's entities
+ *     refer to (see BootstrapEnd.Refs);
+ *  3. a BootstrapEnd (type "end"). A response without it is incomplete
+ *     (the server failed or the connection broke): discard it and retry.
+ * The watermark is the sync log head read before the snapshot. Subscribe the
+ * group with since = watermark (or keep the subscription you have): the
+ * stream replays everything after it, and changes apply only when their v is
+ * newer than what the client holds, so the overlap is harmless.
+ * A full or summary bootstrap (BootstrapHeader.Tier TierFull/TierSummary)
+ * replaces what the client holds of the group: once the end line arrived,
+ * drop every entity of the group (of the header's Models when it lists
+ * some) with a version at or below the watermark that the response did not
+ * contain. A closed page (TierClosed) only adds entities.
+ * The response is filtered by the viewer's units in the group, which the
+ * header states (Units, as in a Grant): keep them with the group and treat a
+ * later grant with other units as bootstrap_required{permission_changed}
+ * (the units rule, see GroupRequest).
+ */
+export interface BootstrapHeader {
+  type: 'header';
+  group: string;
+  /**
+   * Watermark is the sync log head read before the snapshot was taken.
+   */
+  watermark: number /* int64 */;
+  /**
+   * Units are the viewer's units in the group the response was filtered
+   * by (canonical order, as in a Grant).
+   */
+  units: Unit[];
+  /**
+   * Tier is TierFull, TierSummary or TierClosed.
+   */
+  tier: 'full' | 'summary' | 'closed';
+  /**
+   * Schemas are the schema versions of the models the response may
+   * contain.
+   */
+  schemas: { [key: Model]: number /* int */};
+  /**
+   * Models is set when the request asked for some models only (?model=);
+   * the response then replaces only those.
+   */
+  models?: Model[];
+  /**
+   * ClosedBefore (summary tier) is the recency cutoff, in Unix seconds:
+   * closed issues and pull requests not updated since are not in the
+   * summary; load them with /-/sync/load?group=…&closedBefore=<this>.
+   */
+  closed_before?: number /* int64 */;
+}
+/**
+ * BootstrapEnd is the last line of a complete bootstrap or load response.
+ */
+export interface BootstrapEnd {
+  type: 'end';
+  /**
+   * Count is the number of entities of the requested group sent.
+   */
+  count: number /* int */;
+  /**
+   * Refs are the groups holding the User entities (profiles) that the
+   * group's entities refer to (posters, assignees, owners, …) and that
+   * the viewer may read: the profile directories (profiles:public,
+   * profiles:limited), private users' profile:{id} and organizations'
+   * org:{id}. The profiles of profile:{id} and org:{id} groups were sent
+   * in this response (after the group's own entities); those of the
+   * directories were not: subscribe/bootstrap the directories (the
+   * workspace does). Subscribe any of them with since = watermark to keep
+   * the embedded profiles current.
+   */
+  refs: string[];
+  /**
+   * Next (closed tier) is the closedBefore value of the next page; absent
+   * on the last page.
+   */
+  next?: string;
+}
+/**
+ * Workspace answers GET /-/sync/workspace: the groups the client should keep
+ * subscribed and bootstrapped (available offline), PLAN §4.7: the viewer's
+ * own groups, the profile directories, their organizations and the
+ * repositories they own, were given access to or watch — the repositories
+ * ordered by recent activity and capped. Other groups (other public
+ * repositories, issues) are loaded on demand; a client may pin more itself.
+ */
+export interface Workspace {
+  viewer_id: number /* int64 */;
+  groups: WorkspaceGroup[];
+  /**
+   * Truncated says that repositories were left out because of the cap
+   * (MaxRepos, [livesync] WORKSPACE_MAX_REPOS).
+   */
+  truncated: boolean;
+  max_repos: number /* int */;
+}
+/**
+ * WorkspaceGroup is a group of the workspace, with the viewer's units in it
+ * (as in a Grant) and why it is there.
+ */
+export interface WorkspaceGroup {
+  group: string;
+  units: Unit[];
+  reason: 'self' | 'profile' | 'directory' | 'member' | 'owner' | 'access' | 'watch';
+}
+/**
+ * WorkspaceSelf: the viewer's own user:{id} group.
+ */
+export const WorkspaceSelf = "self";
+/**
+ * WorkspaceProfile: the viewer's own profile:{id} group.
+ */
+export const WorkspaceProfile = "profile";
+/**
+ * WorkspaceDirectory: a shared profile directory.
+ */
+export const WorkspaceDirectory = "directory";
+/**
+ * WorkspaceMember: an organization the viewer is a member of.
+ */
+export const WorkspaceMember = "member";
+/**
+ * WorkspaceOwner: a repository the viewer owns.
+ */
+export const WorkspaceOwner = "owner";
+/**
+ * WorkspaceAccess: a repository the viewer was given access to
+ * (collaboration, team, organization ownership).
+ */
+export const WorkspaceAccess = "access";
+/**
+ * WorkspaceWatch: a repository the viewer watches (and may read).
+ */
+export const WorkspaceWatch = "watch";
+
+//////////
 // source: entities.go
 
 /**

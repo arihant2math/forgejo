@@ -6,6 +6,7 @@ package bootstrap
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/structs"
+	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
@@ -343,6 +345,54 @@ func TestCrossReferences(t *testing.T) {
 	for _, ch := range res.changes {
 		assert.NotEqual(t, protocol.ModelComment, ch.M, "model filter")
 	}
+}
+
+// The watermark is read before the gate: a re-bootstrap marker and the
+// restart of its table's walk ("repair:0", one transaction) that land
+// between the two reads either are above the watermark (the client gets
+// bootstrap_required after this bootstrap) or make the gate refuse — here
+// both. Read in the other order, the gate would pass and the watermark
+// would include the marker: the client would never re-bootstrap.
+func TestPrepareOrder(t *testing.T) {
+	prepare(t)
+	ctx := t.Context()
+	w, err := synclog.AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	defer w.Release()
+	m := materialize.New(materialize.Config{}, w, func() {})
+	require.NoError(t, m.Prepare(ctx))
+	var marker int64
+	betweenReads = func(ctx context.Context) {
+		// The label table's trigger was repaired: HandleEpochs appends the
+		// Label marker and restarts the walk in one writer transaction.
+		require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"label", "2"))
+		require.NoError(t, m.HandleEpochs(ctx))
+		var err error
+		marker, err = synclog.Head(ctx)
+		require.NoError(t, err)
+	}
+	defer func() { betweenReads = nil }()
+	p, pending, err := Prepare(ctx, Request{Group: "repo:1", ViewerID: 2, Units: ^perm.UnitSet(0), Tier: protocol.TierSummary})
+	require.NoError(t, err)
+	require.Positive(t, marker)
+	assert.Equal(t, []string{"label"}, pending, "the gate sees the walk")
+	assert.Nil(t, p)
+	betweenReads = nil
+	_, pending, err = Prepare(ctx, Request{Group: "issue:1", ViewerID: 2, Units: ^perm.UnitSet(0), Tier: protocol.TierFull})
+	require.NoError(t, err)
+	require.Empty(t, pending)
+	// The watermark side, on a group the walk does not concern: read
+	// before the marker.
+	betweenReads = func(ctx context.Context) {
+		require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"label", "3"))
+		require.NoError(t, m.HandleEpochs(ctx))
+		marker, err = synclog.Head(ctx)
+		require.NoError(t, err)
+	}
+	p, pending, err = Prepare(ctx, Request{Group: "issue:1", ViewerID: 2, Units: ^perm.UnitSet(0), Tier: protocol.TierFull})
+	require.NoError(t, err)
+	require.Empty(t, pending)
+	assert.Less(t, p.watermark, marker, "the watermark predates the marker")
 }
 
 // An issue's load carries its dependencies as API v1 lists them: only when

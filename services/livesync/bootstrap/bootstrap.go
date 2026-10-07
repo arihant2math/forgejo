@@ -62,6 +62,10 @@ type Prepared struct {
 	watermark int64
 }
 
+// betweenReads, when set (tests only), runs in Prepare between the
+// watermark read and the gate read.
+var betweenReads func(ctx context.Context)
+
 // Prepare reads the watermark (the sync log head) and then checks B3's
 // bootstrap gate: it returns the tables the request reads whose entity
 // index backfill is not done, and no Prepared, when the bootstrap must not
@@ -76,6 +80,9 @@ func Prepare(ctx context.Context, req Request) (*Prepared, []string, error) {
 	watermark, err := synclog.Head(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("livesync: bootstrap: read the sync log head: %w", err)
+	}
+	if betweenReads != nil {
+		betweenReads(ctx)
 	}
 	tables, err := materialize.SnapshotTables(req.snapshot())
 	if err != nil {

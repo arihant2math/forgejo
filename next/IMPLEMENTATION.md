@@ -962,6 +962,127 @@ does) **and** MySQL 8.0 (binlog on).
   private / removing a collaborator / removing from team bumps the epoch and drops the
   grant.
 - **Notes/decisions:**
+  - **Files.** `services/livesync/perm/{units,grants,cache}.go` (+ SQLite unit tests `perm_test.go`, `main_test.go`);
+    `services/livesync/materialize/perm.go` (permission states / epochs) + changes in `materializer.go`, `specs.go`,
+    `specs_render.go`, `load.go`, `index.go`, `backfill.go`, `epochs.go` (+ `perm_test.go`); `services/livesync/perms.go`
+    (`permSink`, `Permissions()`), `settings.go` (`PERM_CACHE_TTL`), `livesync.go`, `writer.go`; `synclog/tailer.go`
+    (`Sink.Skipped`); `protocol/{protocol,entities}.go` (+ regenerated `next/src/protocol/types.gen.ts`);
+    `models/livesync/tables.go` (`livesync_entity.perm`); `routers/livesync/{auth,grants}.go` (+ `auth_test.go`),
+    `routes.go`; `tests/integration/livesync_perm_test.go`, helpers `livesyncServe`, `livesyncToken`,
+    `livesyncWaitBackfill` in `livesync_helpers_test.go`.
+  - **Public profiles (orchestrator note from B3) — decision: shared visibility directories + a per-user profile group;
+    `user:{id}` is granted to that user only.** New groups: **`profiles:public`** (the User entity of every individual user
+    with visibility public; granted to every signed-in viewer, restricted ones included, as upstream), **`profiles:limited`**
+    (visibility limited; every signed-in viewer who is not restricted) and **`profile:{id}`** (a *private* user's User entity,
+    plus the projects (and columns) any user owns; readable as API v1's `GET /users/{name}` decides). Organizations' User
+    entities stay in `org:{id}`. Changing a user's visibility moves the entity (`D` in the old group, `U` in the new one,
+    B3's move logic). `user:{id}` now holds only `self` entries (the `self` unit is kept as defence in depth). Why
+    directories and not one group per user: a client needs the names/avatars of hundreds of users; per-user groups would mean
+    one subscription and one bootstrap request per person (and per-connection hub memory O(people)), while the directories
+    are two subscriptions and two bootstraps, the payloads are viewer-independent and fan-out stays O(subscribers of that
+    group). They are not "broadcasts" in the §4.5 sense: only clients that subscribe get them, and the content is what every
+    signed-in viewer may see anyway. Cost: the directory bootstrap is ≈ 300 B × users (1k users ≈ 300 KB, fine at the §4.11
+    targets; at 100k users it should be partitioned or made lazy — protocol-compatible, group names are opaque). Profile
+    changes are rare (the DTO has no last-login field, the hash dedupe drops no-op updates).
+  - **Profile visibility = API v1, not the web page.** API v1's `individualPermsChecker` shows a private user's profile only
+    to themselves and site administrators (then `IsUserVisibleToViewer`: limited ⇒ not for restricted viewers); the web
+    profile page is more lenient (followers and organization co-members of a private user see it). Livesync takes the
+    stricter API rule (`perm.profileVisible`), found by the differential test. Consequence: follows and team co-membership
+    never decide profile visibility, so `follow` stays untracked. Blocked users: upstream blocking hides nothing from
+    reading; its effects on access (collaborations removed by `BlockUser`) are epochs of those rows, and a block itself is
+    an epoch for both users. **Known gap:** a restricted user whose own visibility is limited cannot read
+    `profiles:limited`, so their own User entity does not reach them (upstream shows it to them); B5 may put the viewer's
+    profile into `welcome`.
+  - **`services/livesync/perm` API (for B5/B6).** `perm.NewCache(ttl, size)`; one per running instance:
+    **`livesync_service.Permissions() *perm.Cache`** (nil when stopped). `Cache.Grants(ctx, viewerID) (*Grants, error)` —
+    implicit grants: `user:{me}` {self}, `profile:{me}`, `profiles:public`, `profiles:limited` (not restricted),
+    `org:{o}` {members} for every `org_user` membership, `repo:{r}` with its readable units for every repository the
+    viewer owns, collaborates on, has an `access` row for or reaches through a team (`team_repo` or an
+    includes-all-repositories team), each decided by `GetUserRepoPermission` (`HasAccess`, `CanRead` per unit). **Site
+    administrators get no implicit groups** beyond their own relations. `Grants.Units(group)`, `Grants.Wire()`
+    (`protocol.Grants`). `Cache.Check(ctx, viewerID, group) (Decision, ok, error)` — on-demand check of any group (public
+    repositories, visible organizations, profiles, `issue:{id}`; uses the cached grants when the group is one of them):
+    `repo:` = `GetUserRepoPermission`+`HasAccess`; `issue:` = the repository's check plus `issues`/`pulls` readable for that
+    issue; `org:` = `HasOrgOrUserVisible`, unit `members` for members **and site administrators** (API v1
+    `reqOrgMembership`); `profile:` = `profileVisible`; pseudo groups (`*`, `!perm`) and malformed names are never granted.
+    `Decision{Units, RepoID}` (`RepoID` = the repository a `repo:`/`issue:` decision came from, so the hub can index
+    subscriptions for re-checks). `perm.UnitSet` (bit mask; `Allows(entry unit)` handles `""`, `"a|b"`, unknown names ⇒
+    never), `perm.Mask`, `perm.UnitOf` (moved from materialize's `unitName`). Viewers who may not sign in (inactive, login
+    prohibited, organizations, missing) get nothing. The cache is keyed by viewer id, loads the viewer row itself, computes a
+    viewer at most once at a time (waiters share the result), is bounded (LRU, `DefaultCacheSize` 10 000) and expires entries
+    after `[livesync] PERM_CACHE_TTL` (default 10 min; safety net only). A computation that overlapped an invalidation
+    concerning it is returned but not cached. Cost of `Grants`: ≈ 5 queries per related repository (one
+    `GetUserRepoPermission` each); fine at the targets, batch it if users with thousands of repositories appear.
+  - **Permission epochs (the materializer hook point B3 left out).** Specs of the permission tables have a `perm` hook
+    returning the row's *permission state* = subjects + fingerprint of permission-relevant columns (`materialize/perm.go`):
+    `access` (u, repo+mode), `collaboration` (u, repo+mode), `team` (t = members, mode + includes_all), `team_user` (u),
+    `team_repo` (t, r), `team_unit` (t, type+mode), `org_user` (u), `repository` (r + u owner, private+owner),
+    `repo_unit` (r, type+default permissions), `user` (u + O = org:/profile: readers and every owned repository; visibility,
+    active, prohibit_login, admin, restricted, type), `forgejo_blocked_user` (u, u). The state of the last materialized
+    version is stored in the new **`livesync_entity.perm`** column (VARCHAR(255), added by Sync; `TablesVersion` stays 1),
+    written by upserts, repair backfill and the initial backfill, so deletes have it. When a row's state changes (incl.
+    appearing/going), the old and new subjects are collected; per transaction they are expanded (team members, owners'
+    repositories, read in the writer transaction) into one **`protocol.OpPermission` (`P`) entry in the pseudo group
+    `protocol.GroupPermission` (`"!perm"`, entity id 0, model `""`) with a `protocol.PermissionChange{users, repos,
+    owners, all}` payload, placed *before* the transaction's other entries** (a hub applying the log in order revokes
+    before delivering anything written in the same batch). A changed state without a visible DTO change (e.g. a user made
+    admin) writes the epoch alone and updates only the index's perm column. No epoch for changes that leave the state alone
+    (names, counters, `updated_unix`). The sync id of a `P` entry is the epoch. **Lost changes:** `HandleEpochs` writes
+    `P{all:true}` before the markers when a permission table's trigger was repaired, and a delete of a permission row the
+    index does not know yet (only possible before the table's backfill is done) also gives `P{all:true}`.
+  - **Event stream for the hub (B5).** The `P` entries *are* the stream: every instance's tailer reads them in order with the
+    deltas (`ReadSince(group)` never returns them to clients: their group is never granted and they are not in `*`).
+    `perm.DecodeChange(entry)` decodes one. `services/livesync.permSink` wraps the tailer's sink: it applies every epoch to
+    the instance's cache (`Cache.Invalidate`: drops the users, and every cached viewer granted `repo:{r}` of a repository or
+    `org:{o}`/`profile:{o}` of an owner — found through a group→viewers index, O(affected)) **before** passing the batch on,
+    and drops everything on `Skipped`. **B5:** replace `logSink` (keep `permSink` in front, or fold its loop into the hub);
+    on a `P` entry recompute the grants of `users` (re-check all their subscriptions, send `group_revoked`), re-check
+    subscribers of `repo:{r}` and of the `issue:` groups whose `Decision.RepoID` is in `repos`, and subscribers of
+    `org:{o}`/`profile:{o}` for `owners`; `all` ⇒ re-check everyone. `synclog.Sink` gained **`Skipped(ctx, from, floor)`**
+    (the tailer calls it when it jumps over trimmed entries; the hub must re-bootstrap its subscriptions then).
+  - **Placement versions** (`materialize.placementVersions`, meta `materialized_placement.<tbl>`): B4 changed the placement
+    of `user`, `project`, `project_board` (version 1). `HandleEpochs` treats a table whose recorded placement differs
+    (absent = 0) like a repaired trigger — `B` markers (new `RebootstrapMarker.reason` = `placement_changed`; repaired
+    triggers say `trigger_repaired`) and a repair backfill of its index — except on a fresh table (no handled epoch), which
+    is just recorded. So a database materialized by B3 re-places users/projects at the first B4 start. Bump a table's
+    version whenever its placement rules change.
+  - **HTTP: `GET /-/sync/grants`** (`routers/livesync/grants.go`): the viewer's implicit grants (`protocol.Grants`), or with
+    `?group=` one decision (`protocol.Grant`); a group that is not readable, does not exist or is not a client group is
+    always `404 {"message":"Not Found"}` (no existence leak); 401 without/with an invalid token, 403 for accounts that may
+    not sign in or tokens without full read access, 503 while stopped. It is the production caller of `perm` (deadcode) and
+    the surface of the differential test. **Auth for B5/B6** (`routers/livesync/auth.go` `authenticate(req)`): Forgejo's
+    `auth_method.OAuth2` + `auth_method.AccessToken{PermitBearer}` (Authorization `Bearer`/`token`, or the form, like API v1;
+    no sessions ⇒ no CSRF surface, no passwords), then API v1's account check (inactive / prohibited ⇒ 403), then
+    `checkTokenAccess`: the token must have `read:repository,issue,organization,user,notification` (or the write/all
+    equivalents), not `public-only`, and no repository restriction (only `authz.AllAccessAuthorizationReducer` or none).
+    B5's `hello` should call the same function (it takes an `*http.Request`; build one or split the token part out).
+    Filtering grants by narrower scopes is a possible later refinement.
+  - **Settings added:** `PERM_CACHE_TTL` (default 10m, > 0).
+  - **Tests.** Unit: `perm` — `TestUnitSet`, `TestParseGroup`, `TestCheckMatchesUpstream` (SQLite fixtures: every user ×
+    every repository / organization / user: `Check` = `GetUserRepoPermission` (`HasAccess`, `CanRead` per unit) /
+    `HasOrgOrUserVisible` + membership / API v1's profile rule; `user:{id}` only for that user), `TestGrants` (implicit set
+    incl. admin without implicit groups, restricted, inactive/prohibited/org/missing viewers, private profiles, pseudo
+    groups; every implicit grant = an on-demand check), `TestCheckIssue`, `TestCache` (invalidation by users / repositories /
+    owners / all, TTL, LRU + index consistency), `TestCacheInvalidatedWhileComputing`, `TestCacheConcurrent`,
+    `TestDecodeChange`; `materialize` — `TestPermSubjects`, `TestConsumePermissionEpochs` (collaboration mode/delete,
+    repository description (no epoch) vs. private, user made admin (epoch alone, stored), user made private (directory →
+    profile group + owned repositories), team membership, team mode, team_repo, several rows ⇒ one epoch first),
+    `TestConsumeUnindexedPermissionDelete`, `TestProfilePlacement`, `TestHandleEpochsPlacementAndPermissions`; B3 tests
+    updated (`P` entries, marker reason); `routers/livesync` — `TestCheckTokenAccess`, `TestAuthenticateWithoutToken`;
+    `synclog` — `TestTailer` checks `Skipped`. Integration (PG 16 `gtestschema` + MySQL 8.0): **`TestLivesyncPermDifferential`**
+    (every fixture user × every repository: `repo:{id}` via `/-/sync/grants?group=` ⇔ API v1 `GET /repos/{o}/{r}` 200; units
+    `code` ⇔ `/languages`, `issues` ⇔ `/issues/pinned`, `releases` ⇔ `/releases`, `issues`/`pulls` ⇔ `/issues/{n}` of one
+    issue and one pull request per repository, and `issue:{id}` ⇔ the same request; every organization: `org:` ⇔ `GET
+    /orgs/{org}`, `members` ⇔ `GET /orgs/{org}/teams`; every user's profile group ⇔ `GET /users/{name}`; every implicit
+    grant equals the on-demand check; the admin's implicit repositories are all related; inactive/prohibited users get 403
+    from both; > 100 readable pairs compared — ≈ 10 600 requests, 65 s PG / 85 s MySQL), **`TestLivesyncPermEpochs`**
+    (API v1: collaborator added to a private repo ⇒ epoch for the user, cached grants refreshed; removed ⇒ epoch, grant
+    gone, `?group=` 404; public repo made private ⇒ epoch naming the repo and owner, on-demand access gone, owner keeps it;
+    member removed from the team giving access to a private org repo ⇒ epoch, grant gone, `TeamUser` delete in `org:3`
+    members; user made private via the admin API ⇒ epoch with owner + repositories, profile moves `profiles:public` →
+    `profile:5`, not readable by others; no non-`self` entry in any `user:` group), `TestLivesyncPermLostChanges`
+    (collaboration trigger dropped, collaborator removed, re-Init ⇒ `P{all}` before the `Collaboration` marker),
+    `TestLivesyncPermAuth` (401/403/404 shapes, 503 when stopped). `TestLivesyncMaterializeEpoch` updated (marker reason).
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

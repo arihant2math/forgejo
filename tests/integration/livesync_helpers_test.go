@@ -8,6 +8,7 @@ package integration
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 	"forgejo.org/modules/web"
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/protocol"
+	"forgejo.org/services/livesync/synclog"
 
 	"code.forgejo.org/xorm/xorm"
 	chi "github.com/go-chi/chi/v5"
@@ -113,18 +116,20 @@ func livesyncTableSchemas(t *testing.T) map[string][]string {
 	return res
 }
 
-// livesyncResetCapture empties the outbox and forgets the capture state kept
-// in livesync_meta (reader cursor, schema epochs, pending repairs), creating
-// livesync's tables if needed.
+// livesyncResetCapture empties the outbox, the sync log and the entity index
+// and forgets every state kept in livesync_meta (reader cursor, schema
+// epochs, pending repairs, log head/writer/floor, handled epochs, backfill
+// progress) except the tables version, creating livesync's tables if needed.
 func livesyncResetCapture(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, livesync_service.EnsureTables(ctx))
 	master := livesyncMaster(t)
-	_, err := master.Exec("DELETE FROM livesync_change")
-	require.NoError(t, err)
-	_, err = master.Exec("DELETE FROM livesync_meta WHERE name = ? OR name = ? OR name LIKE ?",
-		capture.MetaCursor, capture.MetaPending, capture.MetaEpochPrefix+"%")
+	for _, table := range []string{"livesync_change", "livesync_log", "livesync_entity"} {
+		_, err := master.Exec("DELETE FROM " + table)
+		require.NoError(t, err)
+	}
+	_, err := master.Exec("DELETE FROM livesync_meta WHERE name <> ?", livesync_service.MetaTablesVersion)
 	require.NoError(t, err)
 
 	// Deleting rows does not reset the id sequence. Store the last assigned
@@ -279,4 +284,70 @@ func livesyncStartReader(t *testing.T, cfg capture.Config, consumer capture.Cons
 		cancel()
 		require.True(t, r.Wait(10*time.Second))
 	})
+}
+
+// livesyncStart runs livesync (Init: tables, capture triggers, tailer,
+// writer role with the materializer) for the duration of the test, on a
+// clean outbox / sync log / entity index, with extra [livesync] settings.
+// At the end livesync is shut down and the triggers are removed.
+func livesyncStart(t *testing.T, kv map[string]string) {
+	t.Helper()
+	livesyncResetCapture(t)
+	t.Cleanup(func() {
+		livesync_service.Shutdown()
+		livesyncUninstallTriggers(t)
+		livesyncResetCapture(t)
+	})
+	settings := map[string]string{"ENABLED": "true", "INSTALL_MODE": "auto"}
+	maps.Copy(settings, kv)
+	livesyncConfig(t, settings)
+	require.NoError(t, livesync_service.Init(context.Background()))
+	require.True(t, livesync_service.Running())
+}
+
+// livesyncLogHead returns the sync log head.
+func livesyncLogHead(t *testing.T) int64 {
+	t.Helper()
+	head, err := synclog.Head(context.Background())
+	require.NoError(t, err)
+	return head
+}
+
+// livesyncLogSince returns every sync log entry after cursor.
+func livesyncLogSince(t *testing.T, cursor int64) []livesync_model.LogEntry {
+	t.Helper()
+	var all []livesync_model.LogEntry
+	for {
+		entries, err := synclog.ReadSince(context.Background(), "", cursor, 1000)
+		require.NoError(t, err)
+		all = append(all, entries...)
+		if len(entries) < 1000 {
+			return all
+		}
+		cursor = entries[len(entries)-1].SyncID
+	}
+}
+
+// livesyncWaitLog waits until an entry after cursor matches, and returns it.
+func livesyncWaitLog(t *testing.T, cursor int64, timeout time.Duration, match func(e *livesync_model.LogEntry) bool) livesync_model.LogEntry {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		for _, e := range livesyncLogSince(t, cursor) {
+			if match(&e) {
+				return e
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no matching sync log entry after %d within %s", cursor, timeout)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// livesyncEntry matches a log entry by model, entity id and op.
+func livesyncEntry(model protocol.Model, id int64, op protocol.Op) func(e *livesync_model.LogEntry) bool {
+	return func(e *livesync_model.LogEntry) bool {
+		return e.Model == string(model) && e.EntityID == id && e.Op == string(op)
+	}
 }

@@ -1393,7 +1393,10 @@ does) **and** MySQL 8.0 (binlog on).
     {group}`, `barrier_ok {id, sync_id}`, `session_invalid {message}`, `notice {kind: new_build|shutdown}`, `pong {id?, sync_id}`,
     **`grants {grants}`** (new: implicit grants changed, e.g. made a collaborator — so the workspace learns about new groups),
     `resume_from_cursor {sync_id}`, **`error {code, message}`** (new: bad_message, hello_required, too_many_barriers,
-    too_many_connections, internal), **`session {session}`** (SSE only). `protocol.ProtocolVersion = 1`.
+    too_many_connections, internal), **`session {session}`** (SSE only). `protocol.ProtocolVersion = 1`. TypeScript: the
+    `ClientMessage`/`ServerMessage` unions and the literal unions `RefusalReason`, `BootstrapReason`, `NoticeKind`, `ErrorCode` (the
+    fields' `tstype`) are written in `tygo.yaml`'s frontmatter; **`protocol.TestTypeScriptUnions`** fails when a `Msg*` type, a message
+    struct or a reason/kind/code constant is missing from them (review round 1).
     - **Positions (client contract, documented in messages.go).** A group's position = the highest `v` received in it, raised to
       `delta.to`, `caught_up.sync_id`, `pong.sync_id`, `barrier_ok.sync_id`, `resume_from_cursor.sync_id` for every group that was
       caught up (a `caught_up` arrived after it was subscribed). Resume a group with `since` = its position. `since` absent = live
@@ -1402,28 +1405,47 @@ does) **and** MySQL 8.0 (binlog on).
     - **`bootstrap_required` never removes the subscription**: changes keep coming; the client drops what it holds of the group (or
       only of `model` when set — re-bootstrap markers) and loads it again (B6), the watermark makes the overlap harmless. Reasons:
       `trigger_repaired` / `placement_changed` (B3/B4 markers), `cursor_trimmed`, `cursor_unknown`, `replay_too_long` (more than
-      `MAX_REPLAY` changes to replay), `permission_changed` (the viewer's units in the group changed: what they hold no longer matches).
+      `MAX_REPLAY` log entries of the group to replay; sent before any of them), `permission_changed` (the viewer's units in the group
+      changed: what they hold no longer matches).
+    - **Replays give states, not history**: a replay sends each entity once, as it is at the hub's position (or a delete). A client
+      resuming from a position therefore never sees intermediate states it did not receive live (edited/redacted text, a profile before
+      it went private), whatever `since` it claims; what it can get is what a bootstrap would give it now. The ids of entities deleted
+      in the range are still sent (as deletes).
     - `group_revoked`: the subscription is gone; purge the group. Refusals never tell "forbidden" from "does not exist".
   - **Hub** (`services/livesync/hub`, PLAN §4.6/§4.11). The hub is the tailer's sink (`permSink{cache, next: hub}`): `permSink`
     applies epochs to the grant cache first, then `Hub.Deliver` handles the batch **in log order under one hub lock**:
     - **Fan-out** (entity entries): `byGroup[grp]` → live subscriptions whose units allow the entry (`perm.UnitSet.Allows`) and whose
       `liveFrom` is below it. O(subscribers of the group). `!perm` entries and any other `!…` group are never delivered.
-    - **Replay-then-live**: a subscription with `since` is `stateReplay`; the session's worker reads `synclog.ReadRange(group, cursor,
-      until = hub position)` (never past what the tailer delivered, so never past a permission epoch the hub has not applied) in
-      batches of 500, then under the hub lock goes live with `liveFrom = cursor` if `cursor ≥ hub position` (else reads on). No gap,
-      no duplicate (unit test interleaves deliveries with a replay). Replays wait for room in the send buffer (half full) instead of
-      overflowing; at most 16 replays/checks run at once (semaphore); `MAX_REPLAY` bounds one replay.
+    - **Replay-then-live**: a subscription with `since` is `stateReplay`; the session's worker reads the keys (no payloads) of the
+      range `synclog.ReadKeys(group, cursor, until = hub position)` (never past what the tailer delivered, so never past a permission
+      epoch the hub has not applied; `until` always bounds, 0 included), then the payloads of what it sends
+      (`synclog.ReadEntries(ids)`, 500 per query), then under the hub lock goes live with `liveFrom = cursor` if `cursor ≥ hub position`
+      (else reads on). **Only the newest entry of each entity (model, id) that the viewer's units allow is sent** (a delete stays a
+      delete; re-bootstrap markers are kept in place): a replay gives the state at `until`, never the intermediate states the log keeps
+      (review round 1). No gap, no duplicate (unit test interleaves deliveries with a replay). **Fast path:** a request whose `since` is
+      at or ahead of the hub's position goes live in `subscribeLocked` without any read; a session's queued replays are first checked
+      together (`skipIdle`: one `synclog.ReadGroups(min cursor, until)` = `MAX(sync_id) … GROUP BY grp` over at most 10 000 entries),
+      and the groups that missed nothing go live without a query of their own (a reconnect resumes up to 1 000 groups from one
+      position). Replays wait for room in the send buffer (half full) instead of overflowing; at most 16 database reads/checks run at
+      once (semaphore), **a slot is held for one read or check only, never while waiting for the client or a retry pause**;
+      `MAX_REPLAY` bounds the log entries scanned for one replay and is **decided before anything is sent** (the key read asks for
+      `MAX_REPLAY + 1`).
     - **Permission epochs** (`P` entries; `Skipped` = `P{all}`): the subscriptions an epoch may concern — all of a named user's
       sessions (and `revalidate`: token + account check, implicit grants re-sent if changed), `byGroup[repo:r]` ∪ `byRepo[r]` (the
       `issue:` groups decided by repository r), `byGroup[org:o]`/`byGroup[profile:o]` for owners, and for touches `byRow[(kind,id)]`
       whose `Decision.Basis.Stale(touch)` — are **suspended at the epoch's position** (`stateRecheck`, cursor = the epoch's sync id) and
-      re-checked with `perm.Cache.Check` by the worker; still granted ⇒ catch up from the epoch through the replay path (with the new
-      units; `bootstrap_required{permission_changed}` if they changed); not granted ⇒ removed + `group_revoked`. So nothing after the
-      epoch reaches a subscription before its re-check. While suspended, frames do not claim completeness past the suspension point
+      re-checked with `perm.Cache.Check` by the worker; meanwhile the fan-out **holds** their group's entries (and markers) in memory
+      (`sub.held`, unfiltered; at most `SEND_BUFFER` bytes per session, beyond it the subscription drops them and catches up from the
+      log instead; `Skipped` drops them too); still granted ⇒ the held entries are sent with the new units and it is live again, no log
+      read (review round 1; `bootstrap_required{permission_changed}` if the units changed); not granted ⇒ removed + `group_revoked`. So
+      nothing after the epoch reaches a subscription before its re-check. While suspended, frames do not claim completeness past the suspension point
       (`conn.holds`: `delta.to`/`pong` = min(hub position, holds)), so a client that drops the connection then cannot skip the
       entries that were held back. Checks that ran while an epoch arrived (hello/subscribe check → registration gap) are redone:
-      `permSeq` snapshot; if it moved, the new subscriptions start in replay from the snapshot position with `recheck` set
-      (`TestEpochDuringCheck`, verified to fail without it).
+      the hub keeps the last 64 epochs (`epochsSince`); a request is stale only if one of the epochs since the checkpoint concerns it
+      exactly as `permissionLocked` would (`epochConcerns`: everybody, the viewer, its repository / repo group, its org/profile owner, a
+      touch its decision's basis read in another state), or if the epochs are no longer kept; a stale request starts in replay from the
+      checkpoint position with `recheck` set (`TestEpochDuringCheck`, `TestEpochDuringCheckConcerns`). Touch-only epochs, which come with
+      nearly every write batch, no longer make every running check stale (review round 1).
     - **Re-bootstrap markers** (`B` in `*`): `bootstrap_required{group, reason, model}` to every live subscription whose group kind can
       hold the model (`hub/models.go` `modelKinds`, from the B3/B4 placement rules; unknown models ⇒ every group;
       `TestModelKindsCoverModels` checks it covers `materialize.Schemas()`); replaying subscriptions meet the marker in their replay.
@@ -1432,16 +1454,21 @@ does) **and** MySQL 8.0 (binlog on).
       held at `from`).
     - **Frames**: one `delta` per ≤ 16 ms (`FrameInterval`; the first change after a quiet period goes out at once), cut at 256 KiB of
       changes; payloads are embedded verbatim (no re-encoding). Control messages are ordered with the changes in one queue per session.
-    - **Backpressure**: per-session queue bounded by `SEND_BUFFER` bytes (live changes only; control messages always pass): overflow ⇒
-      the unsent queue is dropped, `resume_from_cursor{sync_id = the last frame's to written}` and close (WS 1013 Try Again Later).
-      Each write has a 10 s deadline (`WriteTimeout`); a stuck write closes the session.
+    - **Backpressure**: per-session queue bounded by `SEND_BUFFER` bytes, **live changes and control messages** (review round 1: pongs,
+      errors, …; control messages are encoded when queued, so their size is exact; one item larger than the buffer may enter an empty
+      queue, else it could never be sent); replays wait for room instead. Overflow ⇒ the unsent queue is dropped,
+      `resume_from_cursor{sync_id = the last frame's to written}` and close (WS 1013 Try Again Later). Each write has a 10 s deadline
+      (`WriteTimeout`); a stuck write closes the session. **Before the hello** anything but a hello gets one `error{hello_required}` and
+      the session is closed (WS 1008), so unauthenticated sockets cannot make the server queue answers; an unknown message type is
+      echoed cut to 64 bytes.
     - **Caps**: `MAX_SUBSCRIPTIONS` per user over all their sessions on the instance (refusal reason `limit`; requests beyond the room
       are not even checked), `MAX_CONNECTIONS_PER_USER` sessions (`error{too_many_connections}` + close). Per instance, not cluster-wide.
     - **Own profile (B4's restricted-limited gap): closed.** `welcome.profile` is the viewer's User entity (`materialize.Profile`, `v`
       = its `livesync_entity.last_sync_id`), and every later `User` entry with the viewer's id is sent to the viewer's sessions even
       without a subscription to its group (buffered until the welcome is queued, so nothing between the profile read and the welcome is
       lost).
-    - **Sessions**: hello within 10 s or close; the token is re-validated every `SESSION_CHECK_INTERVAL` (5 min) and on every epoch
+    - **Sessions**: hello within 10 s or close (`stop` waits for the session's worker, so nothing of a session runs after its handler
+      returned); the token is re-validated every `SESSION_CHECK_INTERVAL` (5 min) and on every epoch
       naming the viewer; failing ⇒ `session_invalid` + close (WS 1008). **OAuth2 access tokens expire (1 h by default): F2/F3 must
       reconnect with a refreshed token** (there is no in-session token refresh message; a possible addition). Keep-alive: WS ping /
       SSE comment every 25 s. Graceful shutdown: `notice{shutdown}` + close (1001) to every session before the instance stops (≤ 5 s).
@@ -1452,7 +1479,10 @@ does) **and** MySQL 8.0 (binlog on).
     the request host and `AppURL`'s host). **SSE fallback** `GET /-/sync/sse` (first event `session{session}`: a random 128-bit id) +
     `POST /-/sync/send` with header `X-Livesync-Session` (204; 404 unknown session; 413 > 256 KiB); the hello in the body
     authenticates exactly like over WS, no cookies (a cross-site page cannot set the header without a preflight), so `EventSource`
-    works natively. SSE is not compressed (a compressing writer would buffer). Both session endpoints are dispatched in
+    works natively. SSE is not compressed (a compressing writer would buffer). The SSE transport touches the `ResponseWriter` only under
+    its mutex between the headers and `close` (keep-alives come from the worker goroutine; review round 1: a keep-alive could run after
+    `ServeSSE` returned — a data race with net/http's `finishRequest` and a nil-pointer panic in a non-handler goroutine that killed the
+    process — or before the headers). Both session endpoints are dispatched in
     `handler.ServeHTTP` **before** livesync's router (raw `ResponseWriter`: hijack; `http.ResponseController` write deadlines and
     flushes — Forgejo's `context.Response` has no `Unwrap`), so they are not in the router/access log; `/-/sync/send` goes through the
     router. Max client message 256 KiB.
@@ -1460,7 +1490,11 @@ does) **and** MySQL 8.0 (binlog on).
     B4's `authenticate` (OAuth2 / personal access token, API v1's account checks, livesync's scope rule); 4xx ⇒ `session_invalid` with
     API v1's message, 5xx ⇒ `error{internal}` + close (the client keeps its token).
   - **APIs for later milestones.** `livesync_service.Hub() *hub.Hub` (nil when stopped); `hub.Hub.ServeWebSocket/ServeSSE(w, req,
-    auth)`, `Hub.Send(session, msg)`; `hub.Config` (all limits); `synclog.ReadRange(ctx, group, cursor, until, limit)`;
+    auth)`, `Hub.Send(session, msg)`; `hub.Config` (all limits); `synclog.ReadKeys(ctx, group, cursor, until, limit)` (entries without
+    payload; `until` always bounds), `synclog.ReadEntries(ctx, ids)` (`*TrimmedError` when one was trimmed meanwhile),
+    `synclog.ReadGroups(ctx, cursor, until)` (last sync id per group of a short range); `ReadSince(group)` now reads a group with two
+    range scans of `(grp, sync_id)` (the group's and `*`'s) merged in Go — `grp IN (g,'*') ORDER BY sync_id LIMIT n` was planned as a
+    primary-key walk filtering every group's rows (PG 16, 1M rows: 28 ms / 2 848 buffers vs 2.6 + 0.1 ms);
     **`synclog.StartTailer(ctx, cfg, from, sink)`** (start position is a parameter now: Init reads the head once for tailer and hub);
     `materialize.Profile(ctx, u) (*protocol.User, group)`, `materialize.Schemas()`; `perm.Basis.Rows()`. **Changed B4 behaviour:**
     a `Decision` taken from cached grants now carries only the basis rows that decided its group (viewer; repository + owner for
@@ -1475,8 +1509,8 @@ does) **and** MySQL 8.0 (binlog on).
     **For F2:** the client contract above (positions, `bootstrap_required` keeps the subscription, `grants` updates the workspace,
     `session_invalid` ⇒ refresh token + reconnect with backoff, `resume_from_cursor`/`notice{shutdown}` ⇒ reconnect and resume each
     group from its position, profile arrives in `welcome`).
-  - **Settings added:** `SEND_BUFFER` (4194304 bytes), `MAX_SUBSCRIPTIONS` (1000), `MAX_CONNECTIONS_PER_USER` (16), `MAX_REPLAY`
-    (10000), `SESSION_CHECK_INTERVAL` (5m); all > 0.
+  - **Settings added:** `SEND_BUFFER` (4194304 bytes, changes + control messages), `MAX_SUBSCRIPTIONS` (1000),
+    `MAX_CONNECTIONS_PER_USER` (16), `MAX_REPLAY` (10000 log entries scanned per replay), `SESSION_CHECK_INTERVAL` (5m); all > 0.
   - **Tests.** Unit (SQLite fixtures, real `synclog` + `perm.Cache`, fake transport, `Deliver` driven by the test; all with `-race`,
     repeated 8×): `TestHelloWelcome` (hello required, refusals incl. pseudo groups and missing groups, implicit grants, profile, index
     rows of a grants-derived subscription = repository + owner only, invalid token ⇒ session_invalid + 1008, `notice{new_build}`),
@@ -1485,10 +1519,11 @@ does) **and** MySQL 8.0 (binlog on).
     without subscription, others' not), `TestPermissionEpochRevokes` (collaboration removed + `P{users}` ⇒ `group_revoked`, nothing of
     the group after the epoch, the other subscription re-checked and caught up, `grants` message, indexes cleaned),
     `TestTouches` (touch in the recorded state ⇒ nothing; in another ⇒ re-check + catch-up), `TestRebootstrapMarker` (live and
-    replaying; `user:` groups not told about labels), `TestTrimmedAndUnknownCursor`, `TestReplayTooLong`, `TestSlowConsumer`
+    replaying; `user:` groups not told about labels), `TestTrimmedAndUnknownCursor`, `TestReplayTooLong`, round 1's tests in
+    `replay_test.go`/`session_test.go` (see *Review round 1*), `TestSlowConsumer`
     (blocked writer, overflow ⇒ `resume_from_cursor` + 1013, unsent changes dropped), `TestBarrierUnsubscribeLimits`, `TestShutdown`,
     `TestModelKindsCoverModels`, `TestEpochDuringCheck`; `routers/livesync` `TestHandlerRouting` (ws/sse/send dispatch, 503 when
-    stopped, 405); `synclog` `ReadRange`; settings. Integration (real listener via `onApplicationRun`, raw WS client with
+    stopped, 405); `synclog` `ReadKeys`/`ReadEntries`/`ReadGroups` (in `TestAppendAndReadSince`/`TestTrim`); settings. Integration (real listener via `onApplicationRun`, raw WS client with
     permessage-deflate negotiated, raw SSE client; **PG 16 `gtestschema` + MySQL 8.0**): **`TestLivesyncHub`** (`ws` and `sse`
     subtests, same scenario: invalid token ⇒ session_invalid + close (WS 1008); label created via API v1 before the session ⇒
     replayed from the cursor, then caught_up; **live delta after an API v1 write: ≈ 16–20 ms** measured from before the request on
@@ -1496,8 +1531,11 @@ does) **and** MySQL 8.0 (binlog on).
     `repo:2` ⇒ subscribe granted; collaborator removed via API ⇒ `group_revoked{repo:2}` and no later `repo:2` change; retention
     floor moved ⇒ `bootstrap_required{cursor_trimmed}` then caught_up; `schema_epoch.label` bumped ⇒ writer's marker ⇒
     `bootstrap_required{repo:1, trigger_repaired, Label}` and not for `user:2`; ping/pong; no `!`/`*` group in any change),
-    **`TestLivesyncHubSlowConsumer`** (`SEND_BUFFER = 4096`, 40 labels in one transaction ⇒ `resume_from_cursor` + close, WS 1013;
-    over SSE too).
+    **`TestLivesyncHubSlowConsumer`** (review round 1: the client stops reading (4 KiB socket receive buffer), `SEND_BUFFER = 65536`,
+    400 comments of 4 KB in `issue:1` ⇒ after reading again it got some comments, then `resume_from_cursor` at a position it was sent
+    (`caught_up` or a `delta.to`) below the log head, fewer comments than written, close WS 1013; over SSE too. A writer blocked by a
+    full socket is the unit test's case: the kernel autotunes the server's send buffer up to `net.ipv4.tcp_wmem`'s maximum (4 MiB
+    here), so a paced burst of 3.4 MB was absorbed completely in an experiment).
   - **Also fixed:** `TestLivesyncMaterializeDrafts` (B3) was flaky on PG (≈ 1 in 4 full runs here: the pending review's own later
     update landed after the submit cursor); it now waits for the log to settle (`livesyncSettle`) before taking the cursor.
   - **Commands run:** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...
@@ -1509,6 +1547,39 @@ does) **and** MySQL 8.0 (binlog on).
     `go.mod`, `go.sum`); dev binary smoke test on PG with `ENABLED = true` (SSE session: session → hello via POST → welcome with
     implicit grants → caught_up → ping/pong; `/-/sync/ws` without upgrade headers ⇒ 426), dev DB triggers removed afterwards.
     MariaDB not re-run (no trigger/DDL change).
+  - **Review round 1 (14 findings: 13 fixed, 1 fixed differently; details in the bullets above).** (1) the check semaphore is
+    taken per database read/check only (`conn.withSlot`), never while a replay waits for room or a retry pauses
+    (`TestReplaySlotsNotHeldWhileWaiting`: 20 gated sessions replaying 200 entries each, another user's one-entry replay arrives at
+    once; the reviewer's repro failed with "got nothing within 3s"); (2) SSE: the writer is used only under the transport mutex between
+    the headers and `close` (which now waits for a write in progress), keep-alives before the headers are skipped, and `stop` joins the
+    session's worker (`TestSSEWriterLifetime`: 160 streams with a 20 µs keep-alive through a writer wrapper that records any use
+    after the handler returned or before the headers — on the round-0 code it panics with the reported nil-pointer dereference in
+    `bufio.(*Writer).Flush` ← `keepAlive`); (3) replays send the newest state per entity (`TestReplayNewestState`,
+    `TestReplayUnitChange`: a reader of the old unit only gets the delete, a reader of both the new state); (4) control messages count
+    against `SEND_BUFFER`, nothing but a hello is answered before the hello (one error, then close), unknown types echoed cut
+    (`TestControlMessagesBounded`: 1000 pings without reading ⇒ queue ≤ the buffer, `resume_from_cursor`, 1013); (5) group reads as
+    two index range scans merged in Go (measured above); (6) fast path for `since ≥ hub position` + `skipIdle`
+    (`TestResumeAtPositionGoesLive`, `TestSkipIdle`); (7) `MAX_REPLAY` decided before streaming (`TestReplayTooLong` now expects no
+    change before `bootstrap_required`, and exactly `MAX_REPLAY` entries replay); (8) **fixed differently:** the reviewer's first
+    option ("suspend only the subscriptions whose decision may change") is not decidable for a user epoch — `u<id>` covers
+    deactivation, restriction and every relation, and on-demand decisions (public repositories, visible orgs) change with them — so
+    every subscription of the named user is still re-checked, but the grants are recomputed once per session before the re-checks
+    (implicit groups then hit the cache) and the entries held meanwhile are sent from memory instead of re-read (`TestHeldEntries`
+    delivers entries that are not in the log at all; `TestHeldEntriesOverflow`); (9) `until` always bounds a read and the hub replays
+    nothing at position 0 (`TestReplayAtPositionZero`, the reviewer's scenario: only the entry before the epoch, then
+    `group_revoked`); (10) the limit pre-check spends room on new groups only (`TestLimitCountsNewGroupsOnly`); (11) per-request
+    staleness from the recent epochs (`TestEpochDuringCheckConcerns`: touches of other rows or in the state read, other users,
+    repositories and owners are not stale; the viewer, the repository, a touch in another state, everybody, and lost epochs are); (12)
+    tests added for `Skipped` (`TestSkipped`), `permission_changed` (`TestPermissionChangedUnits`), owner epochs (`TestOwnerEpoch`),
+    `selfPending` (`TestSelfPending`), `HelloTimeout` (`TestHelloTimeout`), periodic and epoch-triggered re-validation ending in
+    `session_invalid` (`TestRevalidate`), and the integration slow-consumer test asserts a real resume position; (13)
+    `hub.ErrClosed` and `closeNormal` removed; (14) `TestTypeScriptUnions` + literal reason unions (a `switch` over `BootstrapReason`
+    with a `never` default type-checks under `tsc --strict`, an unknown literal does not). All seven regression tests that compile
+    against the round-0 code (3, 9, 1, 4, 2, 10 and the coalescing unit-change test) were run there and fail. Commands: gofumpt (clean),
+    golangci-lint on livesync packages + `tests/integration` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff
+    (clean), `go mod tidy -diff` (clean), livesync unit tests with `-race` (hub 8× repeated), `gen-protocol.sh --check` (up to date),
+    `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), no
+    testlogger "FATAL ERROR"; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
   - **Not done / known gaps.** No in-session token refresh (reconnect instead). Hello/subscribe checks run one `Check` per requested
     group (cached grants make implicit ones cheap; on-demand groups are one small read transaction each) — a batch check is a later
     optimisation. Cross-reference comments are still unpublished (B3's open issue; the hub has no second requirement per entry). No

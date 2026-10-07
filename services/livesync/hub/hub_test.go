@@ -191,6 +191,58 @@ func (x *harness) connect(tr *fakeTransport) *client {
 	return &client{t: x.t, c: c, tr: tr}
 }
 
+// connectEager connects a client whose writer takes the queue at every
+// chance it gets: each time a writer would be woken, right after the waker
+// released the queue's lock, while the hub may be between two steps. A
+// real writer runs there only now and then (it takes the queue lock, not
+// the hub's); frames that claim a wrong position there (delta.to) show up
+// every time instead of under load only.
+func (x *harness) connectEager() *client {
+	x.t.Helper()
+	tr := newFakeTransport()
+	c := x.h.newConn(tr, fakeAuth)
+	var mu sync.Mutex // one writer at a time
+	c.onWake = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, f := range c.take() {
+			if !c.write(f.data, f.pos) {
+				return
+			}
+		}
+	}
+	require.True(x.t, c.start())
+	x.t.Cleanup(c.stop)
+	return &client{t: x.t, c: c, tr: tr}
+}
+
+// connectManual connects a client whose writer never runs on its own: the
+// test takes the queue (take) where it wants to.
+func (x *harness) connectManual() *client {
+	x.t.Helper()
+	tr := newFakeTransport()
+	c := x.h.newConn(tr, fakeAuth)
+	c.onWake = func() {}
+	require.True(x.t, c.start())
+	x.t.Cleanup(c.stop)
+	return &client{t: x.t, c: c, tr: tr}
+}
+
+// take takes the client's queue as the writer would and decodes it.
+func (cl *client) take() []message {
+	cl.t.Helper()
+	var res []message
+	for _, f := range cl.c.take() {
+		var m message
+		require.NoError(cl.t, json.Unmarshal(f.data, &m))
+		require.True(cl.t, cl.c.write(f.data, f.pos))
+		<-cl.tr.msgs
+		<-cl.tr.raw
+		res = append(res, m)
+	}
+	return res
+}
+
 func (cl *client) send(v any) {
 	cl.t.Helper()
 	data, err := json.Marshal(v)
@@ -522,6 +574,82 @@ func TestTouches(t *testing.T) {
 	assert.EqualValues(t, 4, chs[0].V)
 	assert.EqualValues(t, 4, to)
 	cl.quiet(50 * time.Millisecond)
+}
+
+// A delivery's changes reach the session in a frame that claims the
+// delivery's position: the writers are woken once the hub's position was
+// stored, not when the changes (or a marker's bootstrap_required) were
+// queued. Woken before, a writer that took the queue at once claimed the
+// previous position, and nothing raised it while the session was quiet.
+func TestDeliverFrameTo(t *testing.T) {
+	x := newHarness(t, Config{})
+	cl := x.connectEager()
+	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
+	cl.expect(protocol.MsgCaughtUp)
+	v := x.append(label(1, "a"))
+	x.deliver()
+	chs, to := cl.changes(1)
+	assert.Equal(t, v, chs[0].V)
+	assert.Equal(t, v, to)
+
+	v = x.append(label(2, "b"), synclog.Entry{Group: protocol.GroupAll, Model: protocol.ModelLabel, Op: protocol.OpRebootstrap, Payload: `{"reason":"placement_changed"}`})
+	x.deliver()
+	chs, to = cl.changes(1)
+	assert.Equal(t, v, chs[0].V)
+	assert.Equal(t, v+1, to, "the marker's position too")
+	assert.Equal(t, "repo:1", cl.expect(protocol.MsgBootstrapRequired).Group)
+	cl.quiet(20 * time.Millisecond)
+}
+
+// A delta queued before group_revoked claims no more than the revoked
+// subscription's hold, even when the writer takes it after the hold went:
+// until group_revoked arrives, the client holds the group as caught up and
+// would resume it past the entries it never got.
+func TestRevokeCapsQueuedFrame(t *testing.T) {
+	x := newHarness(t, Config{})
+	ctx := t.Context()
+	// user4 collaborates on user5's repo4, made private here.
+	_, err := db.GetEngine(ctx).Exec("UPDATE repository SET is_private = ? WHERE id = 4", true)
+	require.NoError(t, err)
+	cl := x.connectManual()
+	cl.send(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u4", Groups: []protocol.GroupRequest{{Group: "repo:4"}, {Group: "repo:1"}}})
+	msgs := cl.take()
+	require.Len(t, msgs, 2)
+	require.Equal(t, protocol.MsgWelcome, msgs[0].Type)
+	require.Equal(t, []string{"repo:4", "repo:1"}, grantGroups(msgs[0].Granted))
+	require.Equal(t, protocol.MsgCaughtUp, msgs[1].Type)
+
+	_, err = db.GetEngine(ctx).Exec("DELETE FROM collaboration WHERE repo_id = 4 AND user_id = 4")
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).Exec("DELETE FROM access WHERE repo_id = 4 AND user_id = 4")
+	require.NoError(t, err)
+	epoch := protocol.PermissionChange{Repos: []int64{4}}
+	x.h.cfg.Perms.Invalidate(epoch) // permSink's job
+	payload, _ := json.Marshal(epoch)
+	p := x.append(synclog.Entry{Group: protocol.GroupPermission, Op: protocol.OpPermission, Payload: string(payload)},
+		upsert("repo:1", protocol.ModelLabel, 2, protocol.UnitIssuesOrPulls))
+	x.deliver()
+	// The worker checks repo:4 again and revokes it; the writer has not
+	// taken the queue (repo:1's change) yet.
+	require.Eventually(t, func() bool {
+		x.h.mu.Lock()
+		defer x.h.mu.Unlock()
+		return cl.c.subs["repo:4"] == nil
+	}, 5*time.Second, time.Millisecond)
+	msgs = cl.take()
+	require.Len(t, msgs, 2, "%+v", msgs)
+	require.Equal(t, protocol.MsgDelta, msgs[0].Type)
+	assert.Equal(t, []int64{p + 1}, versions(msgs[0].Changes))
+	assert.Equal(t, p, msgs[0].To, "no more than repo:4's hold (the epoch)")
+	assert.Equal(t, protocol.MsgGroupRevoked, msgs[1].Type)
+	assert.Equal(t, "repo:4", msgs[1].Group)
+
+	// After group_revoked, frames claim the hub's position again.
+	v := x.append(upsert("repo:1", protocol.ModelLabel, 3, protocol.UnitIssuesOrPulls))
+	x.deliver()
+	msgs = cl.take()
+	require.Len(t, msgs, 1)
+	assert.Equal(t, v, msgs[0].To)
 }
 
 // Re-bootstrap markers become bootstrap_required for the groups that can

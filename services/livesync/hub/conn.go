@@ -92,12 +92,14 @@ type heldItem struct {
 
 // outItem is one queued server message: an encoded control message
 // (data; pos is the position a caught_up claims), or (data nil) the
-// changes of a delta frame.
+// changes of a delta frame (maxTo, when not 0, caps its to: see
+// Hub.revokeLocked).
 type outItem struct {
 	data    []byte
 	pos     int64
 	changes []protocol.Change
 	size    int
+	maxTo   int64
 }
 
 type barrier struct {
@@ -152,11 +154,15 @@ type conn struct {
 	workNotify chan struct{}
 	workerDone chan struct{} // closed when workLoop returned
 
-	// The outgoing queue, guarded by mu.
+	// The outgoing queue, guarded by mu. Whatever one critical section of
+	// mu queues is taken by the writer as a whole (take).
 	mu     sync.Mutex
 	room   *sync.Cond // signalled when the queue was taken or the session ends
 	queue  []outItem
 	queued int // bytes
+	// wake: the current critical section of mu queued something or ended
+	// the session; unlock wakes the writer after releasing mu.
+	wake bool
 	// holds: the subscriptions in stateRecheck and the position up to
 	// which each is complete (frames claim no more than the lowest).
 	holds  map[*sub]int64
@@ -165,6 +171,12 @@ type conn struct {
 	code   int
 	reason string
 	notify chan struct{}
+	// onWake, when set (tests), runs instead of waking the writer: a
+	// writer that takes the queue at every chance it gets (right after
+	// mu was released).
+	onWake func()
+	// lastFrame: when the last delta was encoded (the writer's own).
+	lastFrame time.Time
 }
 
 func (h *Hub) newConn(t transport, auth Authenticator) *conn {
@@ -186,10 +198,26 @@ func (c *conn) kick() {
 	}
 }
 
+// wakeWriter wakes the session's writer (call without mu held).
 func (c *conn) wakeWriter() {
+	if c.onWake != nil {
+		c.onWake()
+		return
+	}
 	select {
 	case c.notify <- struct{}{}:
 	default:
+	}
+}
+
+// unlock releases mu and then wakes the writer if the critical section
+// queued something (or ended the session).
+func (c *conn) unlock() {
+	wake := c.wake
+	c.wake = false
+	c.mu.Unlock()
+	if wake {
+		c.wakeWriter()
 	}
 }
 
@@ -216,7 +244,18 @@ func (c *conn) send(msg any) {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
+	c.pushLocked(it)
+}
+
+// sendLocked is send with mu held.
+func (c *conn) sendLocked(msg any) {
+	if it, ok := encode(msg); ok {
+		c.pushLocked(it)
+	}
+}
+
+func (c *conn) pushLocked(it outItem) {
 	if c.ending {
 		return
 	}
@@ -229,7 +268,29 @@ func (c *conn) send(msg any) {
 // resume_from_cursor (replays wait for room instead, see waitRoom).
 func (c *conn) enqueueChange(ch protocol.Change, live bool) {
 	c.mu.Lock()
+	defer c.unlock()
+	c.enqueueChangeLocked(ch, live)
+}
+
+// enqueueDelivered and sendDelivered queue a live change or a control
+// message of a delivery without waking the writer: Hub.Deliver wakes it
+// once the hub's position includes the delivery, so that the frame
+// carrying its changes claims it (to).
+func (c *conn) enqueueDelivered(ch protocol.Change) {
+	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.enqueueChangeLocked(ch, true)
+	c.wake = false
+}
+
+func (c *conn) sendDelivered(msg any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sendLocked(msg)
+	c.wake = false
+}
+
+func (c *conn) enqueueChangeLocked(ch protocol.Change, live bool) {
 	if c.ending {
 		return
 	}
@@ -257,7 +318,7 @@ func (c *conn) addedLocked(size int, bounded bool) {
 		c.endLocked(closeTryAgain, "client too slow", &protocol.ResumeFromCursorMessage{Type: protocol.MsgResumeFromCursor, SyncID: c.lastTo})
 		return
 	}
-	c.wakeWriter()
+	c.wake = true
 }
 
 // waitRoom blocks a replay until the queue is at most half full; false
@@ -290,7 +351,7 @@ func (c *conn) clearHold(s *sub) {
 // were sent.
 func (c *conn) end(code int, reason string, final any) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	c.endLocked(code, reason, final)
 }
 
@@ -305,14 +366,13 @@ func (c *conn) endLocked(code int, reason string, final any) {
 		}
 	}
 	c.room.Broadcast()
-	c.wakeWriter()
+	c.wake = true
 }
 
 // writeLoop writes the queued messages, batching changes into frames of at
 // most FrameInterval, until the session ends. It closes the transport.
 func (c *conn) writeLoop() {
 	defer c.cancel()
-	var lastFrame time.Time
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -333,7 +393,7 @@ func (c *conn) writeLoop() {
 			}
 			var wait time.Duration
 			if !c.ending && onlyChanges(c.queue) {
-				wait = c.h.cfg.FrameInterval - time.Since(lastFrame)
+				wait = c.h.cfg.FrameInterval - time.Since(c.lastFrame)
 			}
 			c.mu.Unlock()
 			if wait > 0 {
@@ -346,48 +406,72 @@ func (c *conn) writeLoop() {
 				case <-timer.C:
 				}
 			}
-			// Load the position before taking the queue: everything up
-			// to it was queued before (see Hub.pos).
-			pos := c.h.pos.Load()
-			c.mu.Lock()
-			items := c.queue
-			c.queue, c.queued = nil, 0
-			prevTo := c.lastTo
-			to := pos
-			for _, hold := range c.holds {
-				to = min(to, hold)
-			}
-			to = max(to, prevTo)
-			c.room.Broadcast()
-			c.mu.Unlock()
-
-			lastDelta := -1
-			for i, it := range items {
-				if it.data == nil {
-					lastDelta = i
-				}
-			}
-			for i, it := range items {
-				data, pos := it.data, it.pos
-				if data == nil {
-					pos = prevTo
-					if i == lastDelta {
-						pos = to
-					}
-					var err error
-					if data, err = json.Marshal(&protocol.DeltaMessage{Type: protocol.MsgDelta, To: pos, Changes: it.changes}); err != nil {
-						log.Error("livesync: encode a delta: %v", err)
-						continue
-					}
-					lastFrame = time.Now()
-				}
-				if !c.write(data, pos) {
+			for _, f := range c.take() {
+				if !c.write(f.data, f.pos) {
 					c.t.close(closeInternal, "")
 					return
 				}
 			}
 		}
 	}
+}
+
+// frame is an encoded server message and the position it claims (0:
+// none; see write).
+type frame struct {
+	data []byte
+	pos  int64
+}
+
+// take takes the queued messages and encodes them, the writer's step: the
+// last delta frame claims the hub's position, capped by the holds (the
+// suspended subscriptions are complete up to their hold only) and its
+// maxTo, earlier ones the position of the last frame written. Write them
+// in order.
+func (c *conn) take() []frame {
+	// Load the position before taking the queue: everything up to it was
+	// queued before (see Hub.pos).
+	pos := c.h.pos.Load()
+	c.mu.Lock()
+	items := c.queue
+	c.queue, c.queued = nil, 0
+	prevTo := c.lastTo
+	to := pos
+	for _, hold := range c.holds {
+		to = min(to, hold)
+	}
+	to = max(to, prevTo)
+	c.room.Broadcast()
+	c.mu.Unlock()
+
+	lastDelta := -1
+	for i, it := range items {
+		if it.data == nil {
+			lastDelta = i
+		}
+	}
+	frames := make([]frame, 0, len(items))
+	for i, it := range items {
+		if it.data != nil {
+			frames = append(frames, frame{it.data, it.pos})
+			continue
+		}
+		at := prevTo
+		if i == lastDelta {
+			at = to
+			if it.maxTo > 0 {
+				at = max(min(at, it.maxTo), prevTo)
+			}
+		}
+		data, err := json.Marshal(&protocol.DeltaMessage{Type: protocol.MsgDelta, To: at, Changes: it.changes})
+		if err != nil {
+			log.Error("livesync: encode a delta: %v", err)
+			continue
+		}
+		c.lastFrame = time.Now()
+		frames = append(frames, frame{data, at})
+	}
+	return frames
 }
 
 func onlyChanges(items []outItem) bool {

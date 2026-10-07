@@ -1358,7 +1358,7 @@ does) **and** MySQL 8.0 (binlog on).
     diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
-- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; **one open item** (flaky hub unit tests under `-race` load, pre-existing, not a product bug), see *Open items*)
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; the final review's open item (flaky `TestHeldEntries`/`TestTouches`) fixed 2026-10-07 — a real, if mild, product bug, plus two siblings — see *Final-review open item*; no open items)
 - **Scope:** `services/livesync/protocol` message types (`hello`, `welcome`,
   `subscribe`/`unsubscribe`, `delta`, `caught_up`, `bootstrap_required`,
   `group_revoked`, `barrier`/`barrier_ok`, `session_invalid`, `notice`, `pong`,
@@ -1454,6 +1454,9 @@ does) **and** MySQL 8.0 (binlog on).
       held at `from`).
     - **Frames**: one `delta` per ≤ 16 ms (`FrameInterval`; the first change after a quiet period goes out at once), cut at 256 KiB of
       changes; payloads are embedded verbatim (no re-encoding). Control messages are ordered with the changes in one queue per session.
+      The writer computes a frame's `to` when it takes the queue (`conn.take`: hub position loaded first, then min over the holds under
+      `conn.mu`), so whatever changes what `to` may claim must change in the same `conn.mu` critical section that queues what the claim
+      depends on, or before the writer is woken — never after (see *Final-review open item*).
     - **Backpressure**: per-session queue bounded by `SEND_BUFFER` bytes, **live changes and control messages** (review round 1: pongs,
       errors, …; control messages are encoded when queued, so their size is exact; one item larger than the buffer may enter an empty
       queue, else it could never be sent); replays wait for room instead. Overflow ⇒ the unsent queue is dropped,
@@ -1600,18 +1603,54 @@ does) **and** MySQL 8.0 (binlog on).
     metrics yet (B8). Caps are per instance. The WS/SSE session requests do not appear in Forgejo's router log. Grants for narrower
     token scopes: still refused at hello (B4 rule).
 
-  - **Open items (from the final review; unresolved).**
-    - **major — `services/livesync/hub/hub.go:378`: `TestHeldEntries` and `TestTouches` are flaky under load** (pre-existing; round-1
-      code 50cf196 shows it too, not caused by the round-2 fix, which was verified correct: `TestStopDuringHello` `-race -count=30` green,
-      no deadlock, lock order `handleMu` → `h.mu`/`c.mu`). Hub package with `-race -count=5`: `TestHeldEntries` failed 1/4 runs (2/8 of
-      a prebuilt binary) at `replay_test.go:277` ("expected: 4, actual: 1"), `TestTouches` once at `hub_test.go:523` ("expected 4,
-      actual 3"); neither fails in isolation. Cause: `releaseHeldLocked` (hub.go:377-388) calls `enqueueChange` for the held entries,
-      which wakes the writer, *before* `goLiveLocked` → `c.clearHold(s)` removes the hold; the writer takes `c.mu`, not `h.mu`, so it can
-      drain the queue in between and compute `to = min(pos, holds)` with the stale hold (delta with `v = pos+4` says `to = pos+1`), and no
-      later frame raises `to` until the session gets another change. The protocol allows `to < v` (clients only replay a little extra on
-      reconnect), but the suite is not reliably green under `-race`. **Fix:** in `releaseHeldLocked` call `c.clearHold(s)` before
-      enqueueing the held entries (everything held is ≤ `h.pos` and the function runs under `h.mu`, so fan-out cannot interleave); or make
-      the tests wait for a frame with `to ≥` the expected position instead of asserting the first frame's `to`.
+  - **Final-review open item: flaky `TestHeldEntries` / `TestTouches` (fixed 2026-10-07).** Under load (`-race -count=5`) they
+    failed at `replay_test.go:277` ("expected 4, actual 1") / `hub_test.go:523` ("expected 4, actual 3"). Cause as diagnosed:
+    `releaseHeldLocked` queued the held entries (each `enqueueChange`/`send` its own `conn.mu` section, waking the writer) before
+    `goLiveLocked` → `clearHold`; the writer takes `conn.mu`, not `h.mu`, so it could take them in between and claim the stale hold.
+    - **Product impact: a real bug, but no loss.** The frame carrying the released entries said `to` = the epoch's position (< their
+      `v`) and nothing raised it until the session's next change. Per the position contract (a group's position = highest `v`
+      received, raised to `to`) the re-checked group was fine; the session's other caught-up groups kept an older position (they
+      resume a little early and replay extra — what a quiet session does anyway). `to` was never too high; nothing was lost, withheld
+      or stuck (the changes themselves went out in order, at once).
+    - **The suggested fix ("clear the hold before enqueueing") would have been a loss bug:** with the hold gone and the entries not
+      queued yet, a writer taking the queue (other groups' changes) claims `to` = hub position ≥ their `v`; a client that resumes from
+      that frame never gets them. **Fix:** `releaseHeldLocked` removes the hold and queues the held entries and markers in **one
+      `conn.mu` critical section** (`sendLocked`/`enqueueChangeLocked`); the writer only ever takes whole critical sections.
+    - **Same pattern elsewhere (scanned every place that queues and then changes what `to` depends on):** (a) **`Deliver`** queued
+      live changes and markers' `bootstrap_required` (waking the writer) before `h.pos.Store`: a writer taking the queue at once (the
+      first change after a quiet period is not batched) claimed the previous position, same staleness. Now `conn.enqueueDelivered` /
+      `sendDelivered` queue without waking and `Deliver` wakes the sessions it queued for (`Hub.delivered`) after storing the
+      position. (b) **`revokeLocked`** removed the hold (`removeSubLocked`) *before* queueing `group_revoked`; and even in that order,
+      a delta queued earlier but taken after the hold went claims the hub's position while the client still holds the revoked group as
+      caught up — resumed after a re-grant, it would miss `(hold, to]` (a real, narrow loss). Now the hold goes in the critical section
+      that queues `group_revoked`, and the last delta queued before it keeps the hold as a cap (`outItem.maxTo`, applied in `take`).
+      Checked and fine: `goLiveLocked` after a catch-up replay (the replayed changes are queued under the hold, before it goes —
+      conservative), `suspendLocked`/`setHold` (only lowers), `Skipped` (its control messages claim nothing; holds and position change
+      under `h.mu` before anything else is queued), `caught_up`/`barrier_ok` (position read under `h.mu` with `busy == 0`, i.e. no
+      holds), `pong` (`position()` reads the holds under `conn.mu`; queued after `group_revoked` now). **Residual, by design:** a writer
+      woken for another reason (frame timer, a pong) during `Deliver` can still take changes before the position store; `to` then lags
+      like a quiet session's (never too high).
+    - **Mechanics:** `conn.unlock()` wakes the writer after releasing `conn.mu` (`conn.wake` set by `addedLocked`/`endLocked`); the
+      writer's step is `conn.take()` (encoded frames + the position each claims), used by `writeLoop`; `conn.onWake` (tests only)
+      replaces the wake. Test harness: `connectEager` (a writer that takes the queue at every wake, right after the lock was
+      released — the worst case a real writer reaches only under load) and `connectManual` (the test calls `take`).
+    - **Regression tests (deterministic):** `TestHeldEntriesFrameTo` (eager; checks every frame never claims an entry not yet sent and
+      the last claims the released position), `TestDeliverFrameTo` (eager; a change, then a change + marker), `TestRevokeCapsQueuedFrame`
+      (manual; the delta queued before `group_revoked` claims the epoch, the next one the hub position). Each was run against the old
+      code paths reintroduced one at a time and fails: old release (last `to` 1, want 4), clear-first release ("a frame claims 4 before
+      it was sent"), writers woken during `Deliver` (`to` 0 for `v` 1), only the marker woken early (`to` 1, want 3), old revoke (the
+      delta before `group_revoked` claims 2, hold 1).
+    - **Integration test race fixed (pre-existing):** `TestLivesyncHub/ws` on MySQL failed now and then at `livesync_hub_test.go:437`
+      ("trigger_repaired" vs "cursor_trimmed"; old code 1/20, hub fix before this test change 5/26 — same path, timing-dependent, the
+      hub fix does not touch the tailer or the floor): the PATCH before the retention step creates
+      user2's avatar, whose entries can be materialized after the "after" barrier; the test then set the floor to the head while the
+      tailer was behind it, so the tailer skipped ahead (`Skipped` ⇒ `cursor_trimmed` to `cl`). The test now waits for a barrier on
+      `other` (hub delivered ≥ the floor) before setting the floor: 20/20 MySQL, 10/10 PG.
+    - **Commands:** hub package `-race -count=50` green (201 s), and again under 6 busy loops on 4 vCPU (286 s); livesync unit tests
+      `-race`; `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1
+      skip), no testlogger "FATAL ERROR"; gofumpt clean, golangci-lint on `services/livesync/...` + `tests/integration/...` (0
+      issues), `go vet`, deadcode diff clean, `gen-protocol.sh --check` up to date (wire format unchanged); fork diff unchanged
+      (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
 
 #### B6 — Bootstrap + partial load
 - [ ] **Status**

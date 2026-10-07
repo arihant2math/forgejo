@@ -415,7 +415,15 @@ func livesyncHubScenario(t *testing.T, u *url.URL, transport string) {
 	})
 
 	// A cursor older than the retention: bootstrap_required, then live.
+	// The hub must have delivered the new floor before it is set: a tailer
+	// behind it skips ahead (Skipped: cursor_trimmed for every live
+	// subscription, cl's too). Entries can follow the barrier above: the
+	// PATCH created user2's avatar, materialized a moment later.
 	floor := livesyncLogHead(t)
+	other.send(&protocol.BarrierMessage{Type: protocol.MsgBarrier, ID: "floor"})
+	other.waitFor("barrier_ok floor", func(m *livesyncMsg) bool {
+		return m.Type == protocol.MsgBarrierOK && m.ID == "floor"
+	})
 	require.NoError(t, livesync_model.SetMeta(ctx, synclog.MetaFloor, strconv.FormatInt(floor, 10)))
 	other.send(&protocol.SubscribeMessage{Type: protocol.MsgSubscribe, Groups: []protocol.GroupRequest{{Group: "repo:1", Since: livesyncSince(floor - 1)}}})
 	other.waitType(protocol.MsgSubscribed)

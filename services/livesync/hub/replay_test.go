@@ -281,6 +281,48 @@ func TestHeldEntries(t *testing.T) {
 	x.h.mu.Unlock()
 }
 
+// The frames that carry the entries held for a re-check claim the
+// position they reach, and never one past what was sent: the hold goes and
+// the held entries are queued in one critical section of the queue lock.
+// With the hold removed after queueing them, a writer that took the queue
+// in between claimed the stale hold (to = the epoch, until the session's
+// next change); removed before, it would claim the hub's position before
+// they were queued (a client resuming from there would miss them).
+func TestHeldEntriesFrameTo(t *testing.T) {
+	x := newHarness(t, Config{})
+	cl := x.connectEager()
+	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
+	cl.expect(protocol.MsgCaughtUp)
+	payload, _ := json.Marshal(protocol.PermissionChange{Users: []int64{2}})
+	pos := x.h.pos.Load()
+	x.h.Deliver(t.Context(), []livesync_model.LogEntry{
+		{SyncID: pos + 1, Grp: protocol.GroupPermission, Op: string(protocol.OpPermission), Payload: string(payload)},
+		{SyncID: pos + 2, Grp: "repo:1", Model: string(protocol.ModelLabel), EntityID: 1, Op: string(protocol.OpUpsert), Unit: string(protocol.UnitIssuesOrPulls), Payload: `{"id":1}`},
+		{SyncID: pos + 3, Grp: protocol.GroupAll, Model: string(protocol.ModelLabel), Op: string(protocol.OpRebootstrap), Payload: `{"reason":"placement_changed"}`},
+		{SyncID: pos + 4, Grp: "repo:1", Model: string(protocol.ModelMilestone), EntityID: 1, Op: string(protocol.OpUpsert), Unit: string(protocol.UnitCode), Payload: `{"id":1}`},
+	})
+	want := []int64{pos + 2, pos + 4}
+	got := []int64{}
+	var to int64
+	for len(got) < len(want) {
+		m := cl.next()
+		if m.Type != protocol.MsgDelta {
+			require.Equal(t, protocol.MsgBootstrapRequired, m.Type, "%+v", m)
+			continue
+		}
+		got = append(got, versions(m.Changes)...)
+		for _, v := range want {
+			if v <= m.To {
+				assert.Contains(t, got, v, "a frame claims %d before it was sent", m.To)
+			}
+		}
+		to = m.To
+	}
+	assert.Equal(t, want, got)
+	assert.Equal(t, pos+4, to)
+	cl.quiet(20 * time.Millisecond)
+}
+
 // Held entries beyond the session's share: the subscription catches up
 // from the log instead (and still gets everything).
 func TestHeldEntriesOverflow(t *testing.T) {

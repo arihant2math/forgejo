@@ -162,7 +162,8 @@ type Hub struct {
 	// pos is the last sync id delivered by the tailer. It only changes
 	// under mu; it is stored after the entries up to it were queued for
 	// every live subscription, so a frame built after loading it holds
-	// everything up to it.
+	// everything up to it. (Deliver wakes the writers only after storing
+	// it, so a delivery's frame claims the delivery's position.)
 	pos atomic.Int64
 
 	mu      sync.Mutex
@@ -178,6 +179,9 @@ type Hub struct {
 	subCount map[int64]int
 	// barriers are the sessions with pending barriers.
 	barriers map[*conn]struct{}
+	// delivered: the sessions the current Deliver queued messages for
+	// (their writers are woken when it is done).
+	delivered map[*conn]struct{}
 	// sessions are the fallback (SSE) sessions by id.
 	sessions map[string]*conn
 	// permSeq counts the permission epochs delivered; epochs are the last
@@ -203,7 +207,7 @@ func New(ctx context.Context, cfg Config, pos int64) *Hub {
 		conns: map[*conn]struct{}{}, byUser: map[int64]map[*conn]struct{}{},
 		byGroup: map[string]map[*sub]struct{}{}, byRepo: map[int64]map[*sub]struct{}{},
 		byRow: map[rowKey]map[*sub]struct{}{}, subCount: map[int64]int{},
-		barriers: map[*conn]struct{}{}, sessions: map[string]*conn{},
+		barriers: map[*conn]struct{}{}, delivered: map[*conn]struct{}{}, sessions: map[string]*conn{},
 		checks: make(chan struct{}, maxConcurrentChecks),
 	}
 	h.pos.Store(pos)
@@ -260,6 +264,13 @@ func (h *Hub) Deliver(_ context.Context, entries []livesync_model.LogEntry) {
 		}
 	}
 	h.pos.Store(entries[len(entries)-1].SyncID)
+	// Woken now, not when the changes were queued: a frame taken before
+	// the store would claim the previous position only (to < the
+	// changes' v), and nothing would raise it while the session is quiet.
+	for c := range h.delivered {
+		c.wakeWriter()
+	}
+	clear(h.delivered)
 	h.checkBarriersLocked()
 }
 
@@ -301,7 +312,7 @@ func (h *Hub) fanOutLocked(e *livesync_model.LogEntry) {
 			if ch == nil {
 				ch = change(e)
 			}
-			s.c.enqueueChange(*ch, true)
+			h.enqueueDeliveredLocked(s.c, ch)
 		case s.state == stateRecheck && s.holding && e.SyncID > s.cursor:
 			// Held unfiltered: the check may change the units.
 			if ch == nil {
@@ -324,9 +335,17 @@ func (h *Hub) fanOutLocked(e *livesync_model.LogEntry) {
 				c.selfPending = append(c.selfPending, *ch)
 				continue
 			}
-			c.enqueueChange(*ch, true)
+			h.enqueueDeliveredLocked(c, ch)
 		}
 	}
+}
+
+// enqueueDeliveredLocked queues a live change of the current Deliver for
+// session c (its writer is woken at the end of Deliver, see
+// conn.enqueueDelivered).
+func (h *Hub) enqueueDeliveredLocked(c *conn, ch *protocol.Change) {
+	c.enqueueDelivered(*ch)
+	h.delivered[c] = struct{}{}
 }
 
 // markerLocked turns a re-bootstrap marker into bootstrap_required for the
@@ -343,7 +362,8 @@ func (h *Hub) markerLocked(e *livesync_model.LogEntry) {
 			switch {
 			case !canHold(s.kind, model):
 			case s.state == stateLive && e.SyncID > s.liveFrom:
-				c.send(bootstrapFor(s.group, &marker, model))
+				c.sendDelivered(bootstrapFor(s.group, &marker, model))
+				h.delivered[c] = struct{}{}
 			case s.state == stateRecheck && s.holding && e.SyncID > s.cursor:
 				h.holdLocked(s, heldItem{marker: bootstrapFor(s.group, &marker, model)}, 128)
 			}
@@ -374,15 +394,28 @@ func (h *Hub) dropHeldLocked(s *sub) {
 // releaseHeldLocked sends what s held while it was checked again (with
 // the units just decided) and makes it live: everything of its group after
 // its cursor up to the hub's position was held.
+//
+// The hold is removed and the held entries are queued in one critical
+// section of the session's queue lock, which the writer takes too (not
+// the hub's): a frame taken before it still claims at most the hold, one
+// taken after it carries the held entries. Queueing them first would let
+// the writer send them under the stale hold (to < their v, not raised
+// until the session's next change); removing the hold first would let it
+// claim the hub's position (to ≥ their v) before they were queued, and a
+// client that resumed from that frame's to would never get them.
 func (h *Hub) releaseHeldLocked(s *sub) {
+	c := s.c
+	c.mu.Lock()
+	delete(c.holds, s)
 	for _, it := range s.held {
 		switch {
 		case it.marker != nil:
-			s.c.send(it.marker)
+			c.sendLocked(it.marker)
 		case s.units.Allows(it.unit):
-			s.c.enqueueChange(*it.ch, true)
+			c.enqueueChangeLocked(*it.ch, true)
 		}
 	}
+	c.unlock()
 	h.dropHeldLocked(s)
 	h.goLiveLocked(s, h.pos.Load())
 }

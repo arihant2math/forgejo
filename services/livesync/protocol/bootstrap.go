@@ -57,6 +57,12 @@ const (
 // header states (Units, as in a Grant): keep them with the group and treat a
 // later grant with other units as bootstrap_required{permission_changed}
 // (the units rule, see GroupRequest).
+//
+// An issue's load (issue:{id}) also carries the comments that refer to the
+// issue from other repositories and that the viewer may see (upstream shows
+// them only to readers of the referencing repository's issues or pull
+// requests). They are decided per viewer and are not in the sync log: no
+// delta changes them; the next load of the issue refreshes them.
 type BootstrapHeader struct {
 	Type  string `json:"type" tstype:"'header'"`
 	Group string `json:"group"`

@@ -302,23 +302,29 @@ func commentSpec() *spec {
 			{"attachment", "comment_id"}, {"reaction", "comment_id"}, {"issue_content_history", "comment_id"},
 		},
 		dto: func(_ context.Context, l *loader, r *issues_model.Comment) (any, error) {
-			res := &protocol.Comment{
-				ID: r.ID, IssueID: r.IssueID, Type: r.Type.String(), PosterID: r.PosterID,
-				OriginalAuthor: r.OriginalAuthor, OriginalAuthorID: r.OriginalAuthorID, Body: r.Content,
-				ContentVersion: r.ContentVersion, LabelID: r.LabelID, OldProjectID: r.OldProjectID, ProjectID: r.ProjectID,
-				OldMilestoneID: r.OldMilestoneID, MilestoneID: r.MilestoneID, TimeID: r.TimeID,
-				AssigneeID: r.AssigneeID, AssigneeTeamID: r.AssigneeTeamID, RemovedAssignee: r.RemovedAssignee,
-				ResolveDoerID: r.ResolveDoerID, OldTitle: r.OldTitle, NewTitle: r.NewTitle, OldRef: r.OldRef,
-				NewRef: r.NewRef, DependentIssueID: r.DependentIssueID, Line: r.Line, ExtraLinesCount: r.ExtraLinesCount,
-				TreePath: r.TreePath, Patch: r.Patch, CommitSHA: r.CommitSHA, ReviewID: r.ReviewID,
-				Invalidated: r.Invalidated, RefRepoID: r.RefRepoID, RefIssueID: r.RefIssueID,
-				RefCommentID: r.RefCommentID, RefAction: int(r.RefAction), RefIsPull: r.RefIsPull,
-				CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
-			}
-			l.markdown(l.issueRepo(r.IssueID), r.Content, &res.BodyHTML)
-			return res, nil
+			return commentDTO(l, r), nil
 		},
 	}.spec("comment")
+}
+
+// commentDTO is the Comment entity of a comment row (its markdown is asked
+// for with loader.markdown). Its issue and repository must be loaded.
+func commentDTO(l *loader, r *issues_model.Comment) *protocol.Comment {
+	res := &protocol.Comment{
+		ID: r.ID, IssueID: r.IssueID, Type: r.Type.String(), PosterID: r.PosterID,
+		OriginalAuthor: r.OriginalAuthor, OriginalAuthorID: r.OriginalAuthorID, Body: r.Content,
+		ContentVersion: r.ContentVersion, LabelID: r.LabelID, OldProjectID: r.OldProjectID, ProjectID: r.ProjectID,
+		OldMilestoneID: r.OldMilestoneID, MilestoneID: r.MilestoneID, TimeID: r.TimeID,
+		AssigneeID: r.AssigneeID, AssigneeTeamID: r.AssigneeTeamID, RemovedAssignee: r.RemovedAssignee,
+		ResolveDoerID: r.ResolveDoerID, OldTitle: r.OldTitle, NewTitle: r.NewTitle, OldRef: r.OldRef,
+		NewRef: r.NewRef, DependentIssueID: r.DependentIssueID, Line: r.Line, ExtraLinesCount: r.ExtraLinesCount,
+		TreePath: r.TreePath, Patch: r.Patch, CommitSHA: r.CommitSHA, ReviewID: r.ReviewID,
+		Invalidated: r.Invalidated, RefRepoID: r.RefRepoID, RefIssueID: r.RefIssueID,
+		RefCommentID: r.RefCommentID, RefAction: int(r.RefAction), RefIsPull: r.RefIsPull,
+		CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
+	}
+	l.markdown(l.issueRepo(r.IssueID), r.Content, &res.BodyHTML)
+	return res
 }
 
 // reviewState is API v1's name of a review type (convert.ToPullReview).

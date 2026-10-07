@@ -590,3 +590,70 @@ func Profiles(ctx context.Context, ids []int64) ([]SnapshotEntity, error) {
 	}
 	return res, nil
 }
+
+// CrossReference is a comment of an issue that refers to it from another
+// repository (an issue, pull request or comment of repository RefRepoID
+// mentioned the issue).
+type CrossReference struct {
+	SnapshotEntity
+	RefRepoID int64
+	RefIsPull bool
+}
+
+// maxCrossReferences bounds the cross-references of one issue a load
+// sends.
+const maxCrossReferences = 1000
+
+// CrossReferences returns the comments of issue that refer to it from
+// other repositories, in the issue's group, as the materializer would
+// build them. They are in no group (commentPlace: upstream shows such a
+// comment only to viewers who can read the issues or pulls of the
+// referencing repository too, which one group and unit cannot express), so
+// they are not in the sync log: an issue's load adds the ones its viewer
+// may see (bootstrap.Stream). Their attachments and reactions, if any, are
+// not included.
+func CrossReferences(ctx context.Context, issueID int64) ([]CrossReference, error) {
+	var res []CrossReference
+	err := capture.WithQuietTx(ctx, func(ctx context.Context) error {
+		l := newLoader()
+		defer l.close()
+		if err := issueRepos(ctx, l, []int64{issueID}); err != nil {
+			return err
+		}
+		issue := l.issues[issueID]
+		if issue == nil {
+			return nil
+		}
+		var comments []*issues_model.Comment
+		cond := builder.Eq{"issue_id": issueID}.
+			And(builder.In("`type`", issues_model.CommentTypeIssueRef, issues_model.CommentTypeCommentRef, issues_model.CommentTypePullRef)).
+			And(builder.Neq{"ref_repo_id": 0}).And(builder.Neq{"ref_repo_id": issue.RepoID})
+		if err := db.GetEngine(ctx).Where(cond).OrderBy("id").Limit(maxCrossReferences).Find(&comments); err != nil {
+			return err
+		}
+		group, unit := l.issuePlace(issueID)
+		for _, c := range comments {
+			if !issues_model.CommentTypeIsRef(c.Type) {
+				continue
+			}
+			e := entity{key: "comment", model: protocol.ModelComment, schema: protocol.SchemaComment, group: group, unit: unit, dto: commentDTO(l, c)}
+			e.renders = l.takeRenders()
+			if _, err := e.changeHash(ctx, l); err != nil {
+				return err
+			}
+			payload, err := e.payload(ctx, l)
+			if err != nil {
+				return err
+			}
+			res = append(res, CrossReference{
+				SnapshotEntity: SnapshotEntity{Group: group, Model: protocol.ModelComment, ID: c.ID, Payload: payload, UserRefs: userRefs(e.dto)},
+				RefRepoID:      c.RefRepoID, RefIsPull: c.RefIsPull,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("livesync: cross-references of issue %d: %w", issueID, err)
+	}
+	return res, nil
+}

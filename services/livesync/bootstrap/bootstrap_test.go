@@ -11,8 +11,12 @@ import (
 	"time"
 
 	"forgejo.org/models/db"
+	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
+	access_model "forgejo.org/models/perm/access"
+	repo_model "forgejo.org/models/repo"
 	"forgejo.org/models/unittest"
+	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/perm"
@@ -259,4 +263,51 @@ func TestAppendChange(t *testing.T) {
 	require.NoError(t, json.Unmarshal(line, &ch))
 	assert.Equal(t, protocol.Change{V: 7, G: "repo:1", M: "Label", ID: 3, Op: "U", D: map[string]any{"id": float64(3), "name": "<b>"}}, ch)
 	assert.Equal(t, `"a\"b"`, string(appendJSONString(nil, `a"b`)))
+}
+
+// An issue's load carries the cross-references from other repositories that
+// the viewer may see, decided like upstream's filterXRefComments.
+func TestCrossReferences(t *testing.T) {
+	perms := prepare(t)
+	ctx := t.Context()
+	// Repository 32 (org3) private: only org3's members see its references.
+	_, err := db.GetEngine(ctx).Exec("UPDATE repository SET is_private = ? WHERE id = 32", true)
+	require.NoError(t, err)
+	var xrefs []*issues_model.Comment
+	require.NoError(t, db.GetEngine(ctx).Where("issue_id = 1 AND ref_repo_id <> 0 AND ref_repo_id <> 1").Find(&xrefs))
+	require.NotEmpty(t, xrefs)
+	seen, hidden := 0, 0
+	for _, viewer := range []int64{1, 2, 4, 5, 12} {
+		u, err := user_model.GetUserByID(ctx, viewer)
+		require.NoError(t, err)
+		res := stream(t, perms, viewer, "issue:1", nil)
+		got := map[int64]bool{}
+		for _, ch := range res.changes {
+			if ch.G == "issue:1" && ch.M == protocol.ModelComment {
+				got[ch.ID] = true
+			}
+		}
+		for _, c := range xrefs {
+			if !issues_model.CommentTypeIsRef(c.Type) {
+				continue
+			}
+			repo, err := repo_model.GetRepositoryByID(ctx, c.RefRepoID)
+			require.NoError(t, err)
+			p, err := access_model.GetUserRepoPermission(ctx, repo, u)
+			require.NoError(t, err)
+			want := p.CanReadIssuesOrPulls(c.RefIsPull)
+			assert.Equal(t, want, got[c.ID], "viewer %d, comment %d from repo %d", viewer, c.ID, c.RefRepoID)
+			if want {
+				seen++
+			} else {
+				hidden++
+			}
+		}
+	}
+	assert.Positive(t, seen, "some cross-references are visible")
+	assert.Positive(t, hidden, "some are not")
+	res := stream(t, perms, 2, "issue:1", func(r *Request) { r.Models = []protocol.Model{protocol.ModelIssueBody} })
+	for _, ch := range res.changes {
+		assert.NotEqual(t, protocol.ModelComment, ch.M, "model filter")
+	}
 }

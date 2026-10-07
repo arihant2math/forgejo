@@ -133,6 +133,16 @@ func Stream(ctx context.Context, w io.Writer, flush func() error, perms *perm.Ca
 	if err != nil {
 		return err
 	}
+	if prefix, id, _ := protocol.ParseGroup(req.Group); prefix == protocol.GroupPrefixIssue && (len(req.Models) == 0 || slices.Contains(req.Models, protocol.ModelComment)) {
+		xrefs, err := crossReferences(ctx, perms, req.ViewerID, id)
+		if err != nil {
+			return err
+		}
+		res.Count += len(xrefs)
+		if err := writeEntities(xrefs); err != nil {
+			return err
+		}
+	}
 
 	end := protocol.BootstrapEnd{Type: "end", Count: res.Count, Refs: []string{}}
 	if res.Next != nil {
@@ -156,6 +166,42 @@ func Stream(ctx context.Context, w io.Writer, flush func() error, perms *perm.Ca
 		return err
 	}
 	return flushAll()
+}
+
+// crossReferences returns the comments of issue that refer to it from
+// other repositories and that viewer may see: upstream shows them to
+// viewers who can read the referencing repository's issues (or pull
+// requests, for a reference from a pull request) — routers/web/repo
+// filterXRefComments. They are not in the sync log (see
+// materialize.CrossReferences), so the load is their only source.
+func crossReferences(ctx context.Context, perms *perm.Cache, viewerID, issueID int64) ([]materialize.SnapshotEntity, error) {
+	xrefs, err := materialize.CrossReferences(ctx, issueID)
+	if err != nil || len(xrefs) == 0 {
+		return nil, err
+	}
+	units := map[int64]perm.UnitSet{}
+	var res []materialize.SnapshotEntity
+	for _, x := range xrefs {
+		u, ok := units[x.RefRepoID]
+		if !ok {
+			d, readable, err := perms.Check(ctx, viewerID, protocol.RepoGroup(x.RefRepoID))
+			if err != nil {
+				return nil, err
+			}
+			if readable {
+				u = d.Units
+			}
+			units[x.RefRepoID] = u
+		}
+		need := protocol.UnitIssues
+		if x.RefIsPull {
+			need = protocol.UnitPulls
+		}
+		if u.Allows(need) {
+			res = append(res, x.SnapshotEntity)
+		}
+	}
+	return res, nil
 }
 
 // profileRefs returns the groups holding the profiles of users that the

@@ -142,6 +142,11 @@ Caveats:
   hijack works; it calls `PrepareTestEnv` itself). Enable livesync with
   `livesyncConfig(t, map[string]string{"ENABLED": "true"})`, which also stops livesync
   in `t.Cleanup`.
+* **Capture triggers in tests (B2):** `livesyncInstallCapture(t)` installs them for one test
+  (clean outbox, cursor = last assigned id) and removes them in cleanup; tests that `Init`
+  livesync themselves must uninstall in cleanup too (`livesyncUninstallTriggers` +
+  `livesyncResetCapture`). `livesyncDropTables` uninstalls first: with triggers present and
+  `livesync_change` gone, every write to a tracked table fails.
 * `log.Error` during an integration test prints `testlogger.go:recordError() FATAL
   ERROR` (it does not fail the test, but keep tests free of expected errors: an
   unknown-handler 404/405 in the router log counts as one). `tests/e2e/e2e_test.go`
@@ -461,6 +466,126 @@ does) **and** MySQL 8.0 (binlog on).
   and reports, `verify` works after root installs DDL. Write-amplification micro-benchmark
   recorded in notes.
 - **Notes/decisions:**
+  - **Files.** `services/livesync/catalog/catalog.go` (+ test); `services/livesync/capture/{ddl,inspect,install,doorbell,holes,reader}.go`
+    (+ unit tests incl. a SQLite reader test with explicit ids); `services/livesync/catalog_check.go`;
+    Init/settings/Wrap wiring in `services/livesync/{livesync,settings}.go`, `routers/livesync/wrap.go`;
+    `tests/integration/livesync_{capture,privileges,bench}_test.go` + helpers in `livesync_helpers_test.go`;
+    `models/livesync`: `masterXORMEngine` exported as **`MasterXORMEngine()`**.
+  - **Catalog** (`catalog.Tracked() []Table{Name, Model, Tier, Hot}`, sorted by name; `catalog.Classify(registered)
+    (unclassified, vanished)`). 39 tracked tables exactly as PLAN §4.3; tiers `TierSummary`/`TierLazy`/`TierOnDemand`
+    (`issue_content_history`); `Hot` = `notification`, `commit_status`, `action_run_job`. Model names (for
+    `livesync_log.model`, B3 may rename before rows exist): PascalCase of the table except `project_board`→`ProjectColumn`,
+    `issue_assignees`→`IssueAssignee`, `pull_auto_merge`→`AutoMerge`, `forgejo_blocked_user`→`BlockedUser`,
+    `issue_content_history`→`ContentHistory`. Every other registered table is in the grouped ignore list (incl.
+    `forgejo_sem_ver`, found by the contract test). `livesync_service.CheckCatalog()` runs in Init: error if a tracked
+    table vanished or lacks an auto-increment `id` PK, warning for unclassified/vanished-ignored tables;
+    `TestLivesyncCatalogContract` (all DBs) fails on any of them. All tracked tables have an `id` PK today.
+  - **Trigger DDL** (`capture/ddl.go`). PG: `"<schema>"."livesync_capture"()` plpgsql, one `AFTER INSERT OR UPDATE OR
+    DELETE … FOR EACH ROW` trigger named `livesync_capture` per table, everything schema-qualified (schema =
+    `current_schema()`, which is `[database] SCHEMA` thanks to the `postgresschema` driver). The body has a version
+    marker; staleness = `prosrc` differs, or the trigger is disabled / wrong `tgtype` / calls another function / has
+    args, a column list or WHEN. **Deviation: `pg_notify('livesync', TG_TABLE_SCHEMA)`** instead of an empty payload,
+    so listeners ignore Forgejos sharing the database under another schema (still deduplicated per transaction).
+    MySQL/MariaDB: `livesync_<tbl>_ai|_au|_ad`, no DEFINER, single-statement bodies (no DELIMITER needed); staleness =
+    `information_schema.triggers` event/timing/orientation/table/`action_statement` differ. Extra livesync triggers
+    on untracked tables are state `extra`: dropped in auto mode, only warned about in verify mode (not fatal).
+  - **Installer API (for B8's admin page).** `capture.Inspect(ctx) (*Status, error)` (read-only);
+    `capture.Ensure(ctx, repair bool) (*Report, error)` under the B1 schema lock — repair = `INSTALL_MODE=auto`.
+    `Status{Dialect, Schema, Objects []Object{Kind, Table, Name, State ok|missing|stale|extra, Detail}}`,
+    `Status.Healthy()`, `Status.Statements()` (idempotent DDL from this status to healthy: drop-if-exists + create per
+    broken object, function first, then drops of extras; on an empty DB = full install), `Status.Script()` (same with a
+    header saying where/as whom to run it, works in psql and the mysql client). Errors: `*capture.NotInstalledError
+    {Status, Cause}` (`errors.Is(err, capture.ErrNotInstalled)`; `Cause` = DDL error in auto mode, wrapped with a
+    privilege hint for MySQL 1419/1142/1227 and PG 42501). PG repair runs in one transaction; MySQL DDL commits per
+    statement (a stale trigger is dropped and recreated: writes in that window are lost — covered by the epoch bump).
+  - **Schema epochs.** `livesync_meta` `schema_epoch.<tbl>` (`capture.MetaEpochPrefix`), bumped for every repaired
+    table (all tables when the PG function was broken; the first install sets them all to 1). `Report.Repaired`,
+    `Report.Epochs`. **Verify mode** can't repair, so a failed Ensure records the broken tables in
+    `capture_pending` (`capture.MetaPending`); the next Ensure that finds them healthy (a DBA ran the DDL) bumps their
+    epochs and clears it. The PLAN's "reconciliation scan over `updated_unix`" is **not** done in B2: consumers must
+    treat an epoch bump as "re-bootstrap/re-materialize this model" (B3/B5 decide; nothing reads epochs yet).
+  - **Init order now:** settings → enabled/DB → `EnsureTables` → `CheckCatalog` → `ensureCapture` (Ensure; logs
+    repaired/dropped) → `capture.Start` (reader under the instance context) → running. `Shutdown` cancels and waits
+    ≤ 10 s for the reader. Any capture failure ⇒ Init error ⇒ `Wrap` returns `inner`; for a `NotInstalledError` Wrap
+    logs **Warn** (operational state, not a crash; also keeps integration logs free of ERROR) plus the full DDL at Info.
+    **For B8:** in that state Wrap passes through, so `/-/sync/admin` is not served; B8 must either serve the admin
+    page in a degraded Wrap or keep the last `NotInstalledError` (Init returns it; `capture.Inspect` + `Script()` can be
+    called any time, they only need the DB).
+  - **Doorbell** (`capture/doorbell.go`). (1) xorm hook on the master engine (added once per engine; xorm can't remove
+    hooks, it is inert without a subscribed reader): rings after `COMMIT` and after any successful
+    INSERT/UPDATE/DELETE/REPLACE not mentioning `livesync_` (it can't tell autocommit from in-tx; an extra ring costs
+    one empty indexed read). See SURFACE.md for the **TracingHook context quirk** this hook has to work around.
+    `AddHook` is not synchronised with concurrent queries; it runs once at startup. (2) PG: `LISTEN livesync` on its own
+    pgx connection (`setting.DBMasterConnStr()`, outside the pool), reconnect with backoff, rings after every
+    (re)connect; failures are warnings (polling covers). (3) Polling `[livesync] POLL_INTERVAL` (default 0 = 250 ms PG /
+    100 ms MySQL). Measured on the test harness: commit→reader ≈ 1–2 ms via the hook; write from another connection
+    (no hook) → reader ≈ 0.3 ms via NOTIFY on PG.
+  - **Outbox reader** (`capture.Start(ctx, capture.Config{PollInterval, HoleTimeout, SweepInterval, BatchSize},
+    consumer) (*Reader, error)`, `Reader.Wait(timeout)`). Consumer interface: `Consume(ctx, *capture.Batch) error`;
+    `Batch{Changes []livesync_model.Change (ascending within the batch), Cursor}` and `Batch.Commit(ctx)` = delete the
+    batch's outbox rows + store `Cursor` in `livesync_meta` `capture_cursor` (`capture.MetaCursor`). **B3: call
+    `b.Commit(txCtx)` inside the materializer's transaction** (atomic log append + ack); if the consumer doesn't, the
+    reader commits after `Consume` returns nil. Error ⇒ same rows redelivered with backoff (100 ms … 10 s). Semantics:
+    reads `id > high` (batches of 1000), ids skipped become holes (sorted ranges with first-seen time, capped at 10k
+    ranges), holes are re-checked every cycle and given up after `[livesync] HOLE_TIMEOUT` (30 s); `Cursor` = lowest
+    open hole − 1 (or `high`): monotonic, everything at or below is processed or given up. Every `SweepInterval`
+    (5 s) it also delivers rows **at or below** the cursor, i.e. transactions that committed after their hole was given
+    up — nothing is lost, only late. Rows are **not** globally id-ordered across batches (a filled hole comes after
+    higher ids): the materializer must load current row state, not trust order. Restart resumes from `capture_cursor`;
+    if the outbox's max id is below the stored cursor (table recreated) it restarts from 0. After a restart, ids that
+    were delivered+deleted above the stored cursor look like holes for ≤ HOLE_TIMEOUT (harmless).
+    **B2 production consumer = `drainConsumer`** in `services/livesync/livesync.go` (acks every batch so the outbox
+    doesn't grow); **B3 replaces it** with the materializer. **B3 must also run the reader only under the materializer
+    lease**: today every instance runs its own reader (two instances would both drain).
+  - **Settings added:** `POLL_INTERVAL` (duration, default 0 = per-dialect), `HOLE_TIMEOUT` (default 30s, > 0).
+  - **Ops notes (for B8 docs/admin page).** (a) Setting `ENABLED=false` after livesync ran **leaves the triggers
+    installed** and the outbox grows with every tracked write, since disabled livesync never touches the DB (B1 rule).
+    To turn it off for good, drop the triggers (B8 should offer the uninstall DDL / a kill switch). (b) Never drop
+    `livesync_change` while triggers exist: every write to a tracked table would fail (tests' `livesyncDropTables`
+    uninstalls first). (c) MySQL `verify` mode needs the DB user to have `TRIGGER` on the tables, otherwise
+    `information_schema.triggers` hides them and they look missing. (d) PG: transactions that NOTIFY serialise at
+    commit on a cluster-wide lock; fine at the §4.11 targets (≤ 100 writes/s) but a candidate for a debounced/polling
+    mode at higher write rates.
+  - **Tests.** Unit (no DB/SQLite): catalog consistency/classify; DDL text, `Statements`/`Script`/`summary` for both
+    dialects, `NotInstalledError`, privilege hints, `pokes`, doorbell coalescing; hole ranges incl. a randomised check
+    against a set; reader on SQLite with explicit ids (holes, fill, timeout, late sweep, retry with in-tx Commit,
+    restart from cursor, recreated outbox, batch size); settings. Integration, **green on PG 16 (`gtestschema`),
+    MySQL 8.0 (binlog on) and MariaDB 11.8 (binlog on)**: `TestLivesyncCaptureOutbox` (I/U/D, multi-row update,
+    rollback ⇒ none, outbox row visible inside the tx, nested tx commit and inner-failure rollback, untracked table ⇒
+    none, API v1 label create ⇒ row), `TestLivesyncCaptureReader` (prompt delivery, long tx commits lower id after a
+    higher one ⇒ delivered and cursor catches up, never-committed id ⇒ cursor moves past it after HOLE_TIMEOUT, rows
+    deleted, cursor stored), `TestLivesyncCaptureDoorbell` (hook with polling off; PG NOTIFY from a hook-less
+    connection; MySQL polling), `TestLivesyncCaptureRepair` (dropped trigger / disabled or altered trigger / PG function
+    replaced / extra trigger ⇒ re-`Init` repairs, bumps exactly those epochs, drops the extra),
+    `TestLivesyncCaptureVerifyMode` (missing trigger ⇒ `NotInstalledError` with the DDL, `Wrap(h)==h`, `/-/sync/health`
+    404, nothing changed; DBA runs `Statements()` ⇒ verify starts and bumps that epoch), `TestLivesyncCaptureMySQLPrivileges`
+    (MySQL/MariaDB as the non-SUPER `forgejo` user with binlog on ⇒ auto fails with 1419 + hint, nothing created, Wrap
+    passes through; root runs the DDL ⇒ verify and auto start as `forgejo`; its writes are captured; override the user
+    with `TEST_MYSQL_UNPRIVILEGED_USER/PASSWORD`), `TestLivesyncCatalogContract`, `TestLivesyncCaptureNoCascades`
+    (information_schema FK rules of tracked tables). Tests install triggers themselves and remove them in cleanup;
+    `livesyncResetCapture` also stores the last assigned outbox id as cursor (deleting rows doesn't reset sequences).
+  - **MariaDB (open question 1):** 11.8.9 via `dev-db.sh start mariadb`, binlog on, `log_bin_trust_function_creators=0`:
+    all `TestLivesync*` green incl. the privilege test (same error 1419 for a non-SUPER user; needed
+    `CREATE USER forgejo` there by hand — dev-db.sh doesn't create it for MariaDB). Run it with a copy of
+    `tests/mysql.ini` generated with `TEST_MYSQL_HOST=127.0.0.1:3307`.
+  - **Write amplification** (`LIVESYNC_BENCH=2000 … -test.run TestLivesyncCaptureWriteAmplification -test.v`; 2000
+    rows on `label`, local sandbox, fsync on; µs/op without → with triggers):
+
+    | DB | autocommit INSERT | UPDATE | DELETE | INSERT ×2000 in 1 tx |
+    |---|---|---|---|---|
+    | PG 16.15 | 79.7 → 121.2 (+52%) | 85.0 → 126.3 (+49%) | 74.7 → 97.3 (+30%) | 68.4 → 80.9 (+18%) |
+    | MySQL 8.0.46 | 354 → 379 (+7%) | 411 → 497 (+21%) | 364 → 503 (+38%) | 235 → 291 (+24%) |
+    | MariaDB 11.8.9 (docker) | 749 → 770 (+3%) | 753 → 744 (~0) | 736 → 728 (~0) | 324 → 359 (+11%) |
+
+    i.e. ≈ 25–140 µs extra per captured row (PG: plpgsql + outbox insert + NOTIFY per tx). Negligible at the §4.11
+    targets; hot tables can later be filtered in the trigger if needed.
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./models/livesync/... ./services/livesync/...
+    ./routers/livesync/... ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff
+    (clean), `go mod tidy -diff` (clean), unit tests above, `./integrations.pgsql.test -test.run TestLivesync` with
+    `tests/pgsql.ini`, `tests/mysql.ini` and a MariaDB ini (all green, no leftover triggers afterwards), benchmark on all
+    three, fork-diff check (§2.2) unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`); dev binary
+    smoke test with `[livesync] ENABLED = true` on PG and MySQL (39 tables installed, API repo create ⇒ outbox drained,
+    cursor stored, SIGTERM stops the reader); dev DBs' triggers removed again afterwards.
 
 #### B3 — Materializer, sync log, protocol DTOs
 - [ ] **Status**
@@ -727,6 +852,6 @@ does) **and** MySQL 8.0 (binlog on).
 ## 4. Open questions carried from PLAN §11
 
 1. MariaDB in the matrix? `dev-db.sh start mariadb` makes it cheap to test; B2 should run
-   its trigger tests against it once and record the result.
+   its trigger tests against it once and record the result. **B2: done, all green on MariaDB 11.8 (see B2 notes).**
 2. MySQL privileges in deployment — B2 implements both modes either way.
 3. Offline PR creation stays online-only unless told otherwise.

@@ -46,12 +46,17 @@ eval "$(next/tools/dev-db.sh env)"    # exports TEST_PGSQL_* / TEST_MYSQL_* / TE
 
 ```sh
 next/tools/dev-forgejo.sh start pg      # http://127.0.0.1:3000/  (PG DB `forgejo`)
-next/tools/dev-forgejo.sh start mysql   # http://127.0.0.1:3001/  (MySQL DB `forgejo`)
+next/tools/dev-forgejo.sh start mysql   # http://127.0.0.1:3010/  (MySQL DB `forgejo`)
 next/tools/dev-forgejo.sh restart pg    # stop + rebuild + start
 next/tools/dev-forgejo.sh stop pg | status pg | logs pg
 NEXT_FORGEJO_EXTRA_INI=$'[livesync]\nENABLED = true' next/tools/dev-forgejo.sh restart pg
 ```
 
+(B1: the MySQL instance moved from 3001 to **3010** — the integration tests listen on
+3001 (mysql), 3002 (pgsql), 3003 (sqlite) and a running dev server made
+`onApplicationRun` fail with "address already in use". B1 also fixed the pidfile, which
+held a wrapper subshell's pid, so `stop`/`status` missed the real server and
+`start … | tail` never returned.)
 Builds `/var/tmp/forgejo-next-dev/forgejo` from this tree, writes an `app.ini` with
 `INSTALL_LOCK=true`, `STATIC_ROOT_PATH=<repo>` (the binary has no bindata, so
 templates/locales are read from the checkout), and creates site admin `dev/devdevdev1`.
@@ -130,8 +135,16 @@ Caveats:
   `t.Cleanup` so other tests in the same binary are unaffected, and (b) reset livesync
   state (truncate `livesync_*`, reset materializer cursor) after `PrepareTestEnv`.
 * Mount `Wrap` in a test with
-  `defer test.MockVariableValue(&testWebRoutes, livesync_router.Wrap(routers.NormalRoutes()))()`
-  and use `onGiteaRun` (real listener ⇒ WebSocket hijack works). `tests/e2e/e2e_test.go`
+  `defer test.MockVariableValue(&testWebRoutes, livesyncRoutes(livesync_router.Wrap(routers.NormalRoutes())))()`
+  (`testWebRoutes` is a `*web.Route`, `Wrap` returns `http.Handler`; the adapter
+  `livesyncRoutes` lives in `tests/integration/livesync_helpers_test.go`) and use
+  `onApplicationRun` (there is no `onGiteaRun` in this tree; real listener ⇒ WebSocket
+  hijack works; it calls `PrepareTestEnv` itself). Enable livesync with
+  `livesyncConfig(t, map[string]string{"ENABLED": "true"})`, which also stops livesync
+  in `t.Cleanup`.
+* `log.Error` during an integration test prints `testlogger.go:recordError() FATAL
+  ERROR` (it does not fail the test, but keep tests free of expected errors: an
+  unknown-handler 404/405 in the router log counts as one). `tests/e2e/e2e_test.go`
   shows how a Go test starts Forgejo and runs a Node process with the URL in an env var;
   B10/F8 copy that pattern.
 
@@ -224,8 +237,12 @@ next/conformance/            B10 headless suite        next/e2e/   F8 Playwright
   outbox reader, lease and anything correctness-critical must use the **master**
   (`db.GetMasterEngine`).
 * **No dead code**: `make lint-go` runs `deadcode -test` and fails on new unreachable
-  functions; updating `.deadcode-out` would be an upstream diff. Everything exported must
-  be used by the binary or a test.
+  functions; updating `.deadcode-out` would be an upstream diff. `-test forgejo.org`
+  only adds the *root* package's tests, so in practice **every function must be
+  reachable from the binary** — use in a package test or `tests/integration` does not
+  count (B1 hit this). Check with
+  `GOTOOLCHAIN=go1.27.1 go run golang.org/x/tools/cmd/deadcode@v0.50.0 -generated=false -f='{{println .Path}}{{range .Funcs}}{{printf "\t%s\n" .Name}}{{end}}{{println}}' -test forgejo.org | diff .deadcode-out -`
+  (needs the `GOTOOLCHAIN` prefix, ~10 s).
 * `[livesync]` keys are read in `services/livesync` (one `settings.go`; each milestone
   appends its own keys with defaults and a comment). `ENABLED` defaults to **false**.
 * Respect `setting.AppSubURL` (Forgejo may be served under a sub-path) in every route
@@ -307,6 +324,88 @@ does) **and** MySQL 8.0 (binlog on).
   SQLite passthrough. `make tidy-check` clean. Fork-diff check (§2.2) shows only allowed
   files.
 - **Notes/decisions:**
+  - **Files.** `models/livesync/{tables.go,sync.go}` (+ SQLite unit test);
+    `services/livesync/{livesync.go,settings.go,SURFACE.md}` (+ unit tests);
+    `routers/livesync/{wrap.go,routes.go,deps.go}` (+ unit tests);
+    `tests/integration/livesync_{helpers,wrap}_test.go`; `cmd/web.go` one-liner + import.
+  - **Tables** (`models/livesync`, created by `SyncTables` = master engine,
+    `StoreEngine("InnoDB").SyncWithOptions` like `db.SyncAllTables`; never registered,
+    so `db.GetTableNames()` and fixtures don't see them). Go types:
+    `Change`→`livesync_change(id pk autoincr, tbl varchar64, row_id, op char1)` with
+    `OpInsert/OpUpdate/OpDelete` = `I/U/D`; `LogEntry`→`livesync_log(grp, sync_id pk
+    (not autoincr), model, entity_id, op char1, payload LONGTEXT, schema_ver,
+    created_unix)` with index `IDX_livesync_log_grp_sync (grp, sync_id)` and
+    `created_unix`; `Entity`→`livesync_entity(tbl, row_id)` composite PK + `grp`,
+    `last_sync_id`; `Meta`→`livesync_meta(name pk varchar255, value TEXT)`;
+    `Idempotency`→`livesync_idempotency(id, user_id+idem_key UNIQUE "user_key", state
+    (IdempotencyInFlight=0/Completed=1), method, path varchar1024, request_hash
+    varchar64, status, headers TEXT(JSON), body LONGBLOB, sync_id, created_unix INDEX,
+    updated_unix)`. Later milestones extend these structs; `Sync` adds columns/indexes
+    but never changes a PK — get PKs right before adding rows.
+  - **Deviation: `livesync_meta(name, value)`, not `(key, value)`** — `KEY` is reserved
+    in MySQL and would need quoting in every raw query. Same reason for
+    `livesync_idempotency.idem_key`.
+  - **APIs for later milestones.** `livesync_model.MasterEngine(ctx)` (master engine,
+    or the tx session inside `db.WithTx` — use it for every correctness-critical read;
+    `db.GetEngine(ctx)` outside a tx returns a session that `db.GetMasterEngine`
+    can't unwrap), `GetMeta/SetMeta(ctx, name, value)` (upsert, race-tolerant),
+    `Tables()`, `SyncTables(ctx)`. `livesync_service.Init(ctx)` (returns
+    `ErrDisabled` / `ErrUnsupportedDatabase` (wrapped) / other errors),
+    `Context()` — the running instance's context, cancelled by `Shutdown`: **start every
+    background worker (reader, materializer, hub) under it**, `Running()`,
+    `Shutdown()`, `Setting` (parsed `Settings{Enabled, InstallMode}`; append new keys to
+    `Settings` + `loadSettings`), `TablesVersion`/`MetaTablesVersion` (Init refuses to
+    start if `livesync_meta.tables_version` > `TablesVersion`: downgrade guard; bump it
+    when a model change needs more than `Sync`).
+  - **Init order** (B2 inserts trigger install/verify after the tables step): load
+    settings → enabled? → PG/MySQL? → `SyncTables` → tables-version check/record →
+    instance started. Any error ⇒ `Wrap` logs (Info for disabled/SQLite, Error
+    otherwise) and returns `inner` itself (`Wrap(h) == h`).
+  - **Lifecycle / graceful shutdown.** `Wrap` passes `graceful.GetManager().HammerContext()`
+    to `Init` and registers `RunAtShutdown(livesync_service.Context(), Shutdown)`.
+    Not the ShutdownContext: graceful cancels it *before* running shutdown hooks, and
+    `RunAtShutdown` skips hooks whose ctx is done. Calling `Init` again (tests) shuts
+    the previous instance down, which also disarms its hook. Verified on the real
+    binary (PG and MySQL): SIGTERM logs `livesync: shutting down`.
+  - **Routing** (`routers/livesync/wrap.go`). `/-/sync`, `/-/sync/*`, `/-/next`,
+    `/-/next/*` go to livesync's router, everything else to `inner` untouched. A
+    request still carrying `setting.AppSubURL` is recognised and routed with the
+    sub-path stripped (normally the proxy strips it, as for upstream routes). The
+    router (`routes.go` `newRoutes`, **the single registration point**) is a
+    `&web.Route{R: chi.NewRouter()}` literal with `common.ProtocolMiddlewares()`; do not
+    use `web.NewRoute()` there (in tests it resets the API v1 permission bookkeeping
+    built by `NormalRoutes`). Unknown paths ⇒ JSON 404 `{"message":"Not Found"}`, wrong
+    method ⇒ JSON 405 (both named handlers, so the router log has no "unknown handler"
+    errors). `GET /-/sync/health` ⇒ 200 `{"status":"ok"}` / 503 `{"status":"stopped"}`,
+    `Cache-Control: no-store`, public. B5's `/-/sync/ws` must be dispatched in
+    `handler.ServeHTTP` *before* `own` (ProtocolMiddlewares hide `Hijack`).
+  - **WebSocket dependency: added now** (`go get github.com/coder/websocket@v1.8.15`,
+    `make tidy` ⇒ go.mod, go.sum, assets/go-licenses.json). Kept by a commented blank
+    import in `routers/livesync/deps.go`; **B5 deletes that file** when the hub imports
+    the package. `make tidy` prints `make[1]: [Makefile:671 …] Error 1 (ignored)` from
+    `go-licenses save`; that is upstream behaviour, the generated JSON is correct.
+  - **Tests.** Unit (SQLite / no DB): `routers/livesync` `TestWrapPassthrough` (disabled,
+    no section, SQLite, invalid INSTALL_MODE ⇒ inner, `/-/sync/health` falls through),
+    `TestWrapReturnsInnerIdentity`, `TestOwnPath`, `TestHandlerRouting`;
+    `services/livesync` `TestLoadSettings`, `TestInitWithoutDatabase`,
+    `TestCheckTablesVersion`; `models/livesync` `TestSyncTablesAndMeta` (tags valid on
+    SQLite, Sync idempotent, meta upsert incl. inside a tx). Integration:
+    `TestLivesyncWrapDisabled` (Wrap returns the same `*web.Route`, no tables created,
+    `/-/sync/health` 404 from upstream, `/api/v1/version` 200) and
+    `TestLivesyncWrapEnabled` (drops the tables, Wrap ⇒ tables exist in exactly the
+    configured schema — `gtestschema` on PG, the test DB on MySQL — tables_version
+    recorded, health 200 in-process and over a real listener, 404/405 JSON,
+    `/api/v1/version` 200, after `Shutdown` health 503, re-Init keeps data; on SQLite
+    asserts passthrough). Green on PG 16 and MySQL 8.0 (and SQLite).
+    Invalid-settings ⇒ passthrough is only unit-tested: in the integration harness the
+    expected `log.Error` would print a testlogger "FATAL ERROR".
+  - **Commands run:** gofumpt (clean), `golangci-lint run` on the touched packages +
+    `tests/integration` (0 issues), `go vet`, deadcode diff (clean), unit tests above,
+    `./integrations.pgsql.test -test.run 'TestLivesync|TestNodeinfo|TestVersion|TestAPIListIssues'`
+    with `tests/pgsql.ini` and `tests/mysql.ini`, `make tidy-check` (clean after
+    commit), fork-diff check (§2.2) lists only `assets/go-licenses.json`, `cmd/web.go`,
+    `go.mod`, `go.sum`; dev binary smoke test with `[livesync] ENABLED = true` on PG and
+    MySQL.
 
 #### B2 — Change capture
 - [ ] **Status**

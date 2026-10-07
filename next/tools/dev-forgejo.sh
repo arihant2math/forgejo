@@ -8,7 +8,7 @@
 # Usage: next/tools/dev-forgejo.sh {start|stop|status|build|logs} [pg|mysql]
 #
 #   pg    -> http://127.0.0.1:3000/  database `forgejo` on 127.0.0.1:5432
-#   mysql -> http://127.0.0.1:3001/  database `forgejo` on 127.0.0.1:3306
+#   mysql -> http://127.0.0.1:3010/  database `forgejo` on 127.0.0.1:3306
 #
 # A site admin `dev` / `devdevdev1` is created on first start.
 # Extra app.ini lines can be appended via NEXT_FORGEJO_EXTRA_INI (e.g. a
@@ -24,7 +24,7 @@ db="${2:-pg}"
 
 case "$db" in
 pg|postgres) db=pg; PORT="${NEXT_FORGEJO_PORT:-3000}" ;;
-mysql) PORT="${NEXT_FORGEJO_PORT:-3001}" ;;
+mysql) PORT="${NEXT_FORGEJO_PORT:-3010}" ;; # not 3001-3003: the integration tests listen there
 *) echo "unknown db '$db' (pg|mysql)" >&2; exit 1 ;;
 esac
 
@@ -100,7 +100,9 @@ start() {
   [ -x "$BIN" ] || build
   write_ini
   log "starting $URL (logs: $WORK/log, stdout: $WORK/web.out)"
-  (cd "$WORK" && nohup "$BIN" web -c "$INI" >"$WORK/web.out" 2>&1 & echo $! >"$PIDFILE")
+  # `cd && nohup … &` would background a subshell: $! would be that subshell
+  # (wrong pid) and it would keep the caller's stdout open (a pipe never closes).
+  (cd "$WORK" || exit 1; nohup "$BIN" web -c "$INI" </dev/null >"$WORK/web.out" 2>&1 & echo $! >"$PIDFILE")
   local i
   for i in $(seq 1 240); do
     curl -sf "${URL}api/v1/version" >/dev/null 2>&1 && break

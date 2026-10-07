@@ -324,10 +324,10 @@ does) **and** MySQL 8.0 (binlog on).
   SQLite passthrough. `make tidy-check` clean. Fork-diff check (§2.2) shows only allowed
   files.
 - **Notes/decisions:**
-  - **Files.** `models/livesync/{tables.go,sync.go}` (+ SQLite unit test);
+  - **Files.** `models/livesync/{tables.go,sync.go,lock.go}` (+ SQLite unit test);
     `services/livesync/{livesync.go,settings.go,SURFACE.md}` (+ unit tests);
     `routers/livesync/{wrap.go,routes.go,deps.go}` (+ unit tests);
-    `tests/integration/livesync_{helpers,wrap}_test.go`; `cmd/web.go` one-liner + import.
+    `tests/integration/livesync_{helpers,wrap,tables}_test.go`; `cmd/web.go` one-liner + import.
   - **Tables** (`models/livesync`, created by `SyncTables` = master engine,
     `StoreEngine("InnoDB").SyncWithOptions` like `db.SyncAllTables`; never registered,
     so `db.GetTableNames()` and fixtures don't see them). Go types:
@@ -348,8 +348,18 @@ does) **and** MySQL 8.0 (binlog on).
   - **APIs for later milestones.** `livesync_model.MasterEngine(ctx)` (master engine,
     or the tx session inside `db.WithTx` — use it for every correctness-critical read;
     `db.GetEngine(ctx)` outside a tx returns a session that `db.GetMasterEngine`
-    can't unwrap), `GetMeta/SetMeta(ctx, name, value)` (upsert, race-tolerant),
-    `Tables()`, `SyncTables(ctx)`. `livesync_service.Init(ctx)` (returns
+    can't unwrap), `GetMeta/SetMeta(ctx, name, value)` (`SetMeta` = one native
+    upsert statement, `ON CONFLICT DO UPDATE` / `ON DUPLICATE KEY UPDATE`: race-tolerant
+    inside and outside transactions, one round trip), `Tables()`, `SyncTables(ctx)`
+    (**not** concurrency-safe: xorm Sync is check-then-create; call it only under
+    `WithSchemaLock`), `MetaTableExists(ctx)`, `WithSchemaLock(ctx, fn)` (PG session
+    advisory lock keyed on `hashtext('livesync.schema.'||current_schema())` / MySQL
+    `GET_LOCK('livesync.schema.'||MD5(DATABASE()))`, held on a pinned pooled connection
+    while `fn` uses others, waits ≤ `SchemaLockTimeout` = 2 min, refuses
+    `MAX_OPEN_CONNS = 1`; no lock on SQLite). B3's lease can reuse `acquireLock`/
+    `releaseLock` in `models/livesync/lock.go` with its own name.
+    `livesync_service.EnsureTables(ctx)` (the whole schema step under the lock),
+    `livesync_service.Init(ctx)` (returns
     `ErrDisabled` / `ErrUnsupportedDatabase` (wrapped) / other errors),
     `Context()` — the running instance's context, cancelled by `Shutdown`: **start every
     background worker (reader, materializer, hub) under it**, `Running()`,
@@ -358,7 +368,9 @@ does) **and** MySQL 8.0 (binlog on).
     start if `livesync_meta.tables_version` > `TablesVersion`: downgrade guard; bump it
     when a model change needs more than `Sync`).
   - **Init order** (B2 inserts trigger install/verify after the tables step): load
-    settings → enabled? → PG/MySQL? → `SyncTables` → tables-version check/record →
+    settings → enabled? → PG/MySQL? → `EnsureTables` = under `WithSchemaLock`:
+    if `livesync_meta` exists, tables-version check (downgrade guard, **before** any
+    DDL) → `SyncTables` → slot for upgrade steps → record `tables_version` →
     instance started. Any error ⇒ `Wrap` logs (Info for disabled/SQLite, Error
     otherwise) and returns `inner` itself (`Wrap(h) == h`).
   - **Lifecycle / graceful shutdown.** `Wrap` passes `graceful.GetManager().HammerContext()`
@@ -370,7 +382,12 @@ does) **and** MySQL 8.0 (binlog on).
   - **Routing** (`routers/livesync/wrap.go`). `/-/sync`, `/-/sync/*`, `/-/next`,
     `/-/next/*` go to livesync's router, everything else to `inner` untouched. A
     request still carrying `setting.AppSubURL` is recognised and routed with the
-    sub-path stripped (normally the proxy strips it, as for upstream routes). The
+    sub-path stripped (normally the proxy strips it, as for upstream routes).
+    `ownPath` first collapses repeated `/` and trims trailing `/` exactly like
+    upstream's `stripSlashesMiddleware` (which runs only inside upstream's routers),
+    so `//-/sync/health`, `/-//sync/health` and `/-/sync/health/` are all livesync's;
+    requests for inner are passed with their original path. B5/B7/B8 matchers go
+    after this normalisation (match on `ownPath`'s result or the same helper). The
     router (`routes.go` `newRoutes`, **the single registration point**) is a
     `&web.Route{R: chi.NewRouter()}` literal with `common.ProtocolMiddlewares()`; do not
     use `web.NewRoute()` there (in tests it resets the API v1 permission bookkeeping
@@ -389,7 +406,16 @@ does) **and** MySQL 8.0 (binlog on).
     `TestWrapReturnsInnerIdentity`, `TestOwnPath`, `TestHandlerRouting`;
     `services/livesync` `TestLoadSettings`, `TestInitWithoutDatabase`,
     `TestCheckTablesVersion`; `models/livesync` `TestSyncTablesAndMeta` (tags valid on
-    SQLite, Sync idempotent, meta upsert incl. inside a tx). Integration:
+    SQLite, Sync idempotent, meta upsert incl. inside a tx). Integration
+    (`livesync_tables_test.go`, review round 1): `TestLivesyncTablesDowngradeGuard`
+    (drop livesync_log's indexes, store version+1 ⇒ `EnsureTables` and `Init` refuse
+    and the indexes stay dropped), `TestLivesyncTablesConcurrentEnsure` (3 rounds × 6
+    goroutines `EnsureTables` on dropped tables all succeed; the lock never has two
+    holders), `TestLivesyncSetMetaRace` (a competing tx inserts the row; `SetMeta`
+    inside `db.WithTx` and outside waits and wins). All three were verified to fail
+    against the round-0 code (PG: index re-created, `42P07 already exists`, `25P02
+    transaction is aborted`; MySQL: index re-created, `1061 Duplicate key name`;
+    the old SetMeta happened to pass in-tx on MySQL). Also:
     `TestLivesyncWrapDisabled` (Wrap returns the same `*web.Route`, no tables created,
     `/-/sync/health` 404 from upstream, `/api/v1/version` 200) and
     `TestLivesyncWrapEnabled` (drops the tables, Wrap ⇒ tables exist in exactly the
@@ -397,6 +423,8 @@ does) **and** MySQL 8.0 (binlog on).
     recorded, health 200 in-process and over a real listener, 404/405 JSON,
     `/api/v1/version` 200, after `Shutdown` health 503, re-Init keeps data; on SQLite
     asserts passthrough). Green on PG 16 and MySQL 8.0 (and SQLite).
+    `TestOwnPath`/`TestHandlerRouting` cover doubled/trailing slashes;
+    `TestHandlerInnerUntouched` checks inner gets the original path.
     Invalid-settings ⇒ passthrough is only unit-tested: in the integration harness the
     expected `log.Error` would print a testlogger "FATAL ERROR".
   - **Commands run:** gofumpt (clean), `golangci-lint run` on the touched packages +

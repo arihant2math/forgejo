@@ -19,16 +19,18 @@ integration-test helpers in `tests/integration/livesync_*_test.go`.
 
 | Upstream package | Symbols | Used by | Since |
 |---|---|---|---|
-| `forgejo.org/models/db` | `Engine`, `Engined`, `DefaultContext`, `GetEngine`, `GetMasterEngine`, `InTransaction`; transactions run on the master engine (`x`) | `models/livesync` (`MasterEngine`, `SyncTables`, meta) | B1 |
-| `code.forgejo.org/xorm/xorm` | `Session.StoreEngine`, `Session.SyncWithOptions`, `SyncOptions{WarnIfDatabaseColumnMissed, IgnoreDropIndices}` (same options as `db.SyncAllTables`), xorm struct tags | `models/livesync` | B1 |
+| `forgejo.org/models/db` | `Engine` (methods `Where`+`Get`, `Exec`, `IsTableExist`), `Engined`, `DefaultContext`, `GetEngine`, `GetMasterEngine` (returns `*xorm.Engine`), `InTransaction`; transactions run on the master engine (`x`) | `models/livesync` (`MasterEngine`, `SyncTables`, `MetaTableExists`, meta, schema lock) | B1 |
+| `forgejo.org/models/db` PostgreSQL driver `postgresschema` (`sql_postgres_with_schema.go`) | sets `search_path` to `[database] SCHEMA` on **every pooled connection**, so raw SQL may name livesync tables unqualified and `current_schema()` is the configured schema (raw upsert in `SetMeta`, advisory-lock key in `WithSchemaLock`) | `models/livesync` | B1 |
+| `code.forgejo.org/xorm/xorm` | `Engine.Context` (→ `*Session`), `Engine.DB` (`*core.DB` embedding `*sql.DB`: `Conn`, `Stats` — the schema lock's pinned connection), `Session.Close`, `Session.StoreEngine`, `Session.SyncWithOptions` (check-then-create: **not** safe for concurrent callers, hence `WithSchemaLock`), `SyncOptions{WarnIfDatabaseColumnMissed, IgnoreDropIndices}` (same options as `db.SyncAllTables`), `?` placeholder rewriting in `Exec` (→ `$n` on PostgreSQL), xorm struct tags | `models/livesync` | B1 |
 | `forgejo.org/modules/timeutil` | `TimeStamp` | `models/livesync` | B1 |
 | `forgejo.org/modules/setting` | `CfgProvider`, `ConfigProvider.Section`, `ConfigKey.MustBool/MustString`, `Database.Type` (`IsPostgreSQL`, `IsMySQL`), `AppSubURL` | `services/livesync`, `routers/livesync` | B1 |
-| `forgejo.org/modules/log` | `Info`, `Error` | all | B1 |
+| `forgejo.org/modules/log` | `Info`, `Warn`, `Error` | all | B1 |
 | `forgejo.org/modules/graceful` | `GetManager`, `Manager.HammerContext`, `Manager.RunAtShutdown` (hook skipped if its ctx is done; the shutdown context is cancelled *before* hooks run) | `routers/livesync.Wrap` | B1 |
 | `forgejo.org/modules/web` | `Route` built as a literal `&web.Route{R: chi.NewRouter()}` (exported field `R`) — **not** `web.NewRoute()`, which in tests resets the API v1 permission bookkeeping; `Route.Use`, `Route.Get`, `Route.NotFound`; handler signature `func(http.ResponseWriter, *http.Request)` | `routers/livesync/routes.go` | B1 |
 | `forgejo.org/modules/web/routing` | `GetFuncInfo`, `UpdateFuncInfo` (so the router log names our 405 handler instead of logging an "unknown handler" error) | `routers/livesync/routes.go` | B1 |
 | `forgejo.org/modules/json` | `NewEncoder` | `routers/livesync` | B1 |
 | `forgejo.org/routers/common` | `ProtocolMiddlewares()` (path normalisation, panic recovery, process manager, access/route log). Note: it wraps the `ResponseWriter` and hides `Hijack` | `routers/livesync/routes.go` | B1 |
+| `forgejo.org/routers/common` `stripSlashesMiddleware` (behaviour, not a symbol) | collapses repeated `/` and trims trailing `/` inside upstream's routers. `routers/livesync.normalizeSlashes` mirrors it so `Wrap` classifies paths exactly as upstream routes them — **re-check if upstream changes its path normalisation** | `routers/livesync/wrap.go` | B1 |
 | `github.com/go-chi/chi/v5` | `NewRouter`, `Router.MethodNotAllowed` | `routers/livesync/routes.go` | B1 |
 
 ## Test-only
@@ -36,6 +38,9 @@ integration-test helpers in `tests/integration/livesync_*_test.go`.
 | Upstream symbol | Used for | Since |
 |---|---|---|
 | `tests/integration`: `testWebRoutes` (`*web.Route`), `MakeRequest`, `NewRequest`, `onApplicationRun` (real listener) | `livesyncRoutes(h)` adapts `Wrap`'s `http.Handler` to `*web.Route` (a `chi.Router` whose `ServeHTTP` is `h`) | B1 |
+| `forgejo.org/routers`: `NormalRoutes` | the inner handler passed to `Wrap` in integration tests | B1 |
 | `forgejo.org/tests`: `PrepareTestEnv` | test setup | B1 |
 | `forgejo.org/models/unittest`: `MainTest`, `PrepareTestDatabase` | SQLite unit test of the table definitions | B1 |
-| `forgejo.org/modules/setting`: `NewConfigProviderFromData`; `forgejo.org/modules/test`: `MockVariableValue` | settings in unit tests | B1 |
+| `forgejo.org/models/db`: `TableName`, `GetTableNames`, `WithTx`, `GetEngine(ctx).IsTableExist/Count`, `Engine.SQL(…).Find/Get` | table names, "not a registered upstream model" check, meta inside a transaction, information_schema queries | B1 |
+| `code.forgejo.org/xorm/xorm`: `Engine.DropTables`, `Engine.DropIndexes`, `Engine.DBMetas` (`schemas.Table.Indexes`), `Engine.NewSession`, `Engine.Where(…).Delete`, `Session.Begin/Insert/Commit/Close` | dropping tables/indexes, listing indexes (downgrade guard), a competing transaction (meta upsert race) | B1 |
+| `forgejo.org/modules/setting`: `NewConfigProviderFromData`, `CfgProvider.Section`, `ConfigKey.String/SetValue`, `Database.Type.IsSQLite3`, `Database.Schema`, `DatabaseType`; `forgejo.org/modules/test`: `MockVariableValue` | settings in unit and integration tests | B1 |

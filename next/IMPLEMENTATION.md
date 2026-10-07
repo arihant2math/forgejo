@@ -1467,8 +1467,9 @@ does) **and** MySQL 8.0 (binlog on).
       = its `livesync_entity.last_sync_id`), and every later `User` entry with the viewer's id is sent to the viewer's sessions even
       without a subscription to its group (buffered until the welcome is queued, so nothing between the profile read and the welcome is
       lost).
-    - **Sessions**: hello within 10 s or close (`stop` waits for the session's worker, so nothing of a session runs after its handler
-      returned); the token is re-validated every `SESSION_CHECK_INTERVAL` (5 min) and on every epoch
+    - **Sessions**: hello within 10 s or close (`stop` waits for the session's worker and for a client message being handled — over SSE a
+      POST may run concurrently — and later messages are dropped, so nothing of a session runs or is registered after its handler
+      returned; review round 2); the token is re-validated every `SESSION_CHECK_INTERVAL` (5 min) and on every epoch
       naming the viewer; failing ⇒ `session_invalid` + close (WS 1008). **OAuth2 access tokens expire (1 h by default): F2/F3 must
       reconnect with a refreshed token** (there is no in-session token refresh message; a possible addition). Keep-alive: WS ping /
       SSE comment every 25 s. Graceful shutdown: `notice{shutdown}` + close (1001) to every session before the instance stops (≤ 5 s).
@@ -1580,6 +1581,19 @@ does) **and** MySQL 8.0 (binlog on).
     (clean), `go mod tidy -diff` (clean), livesync unit tests with `-race` (hub 8× repeated), `gen-protocol.sh --check` (up to date),
     `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), no
     testlogger "FATAL ERROR"; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+  - **Review round 2 (1 finding, fixed).** Over SSE a client message runs in `POST /-/sync/send` (`Hub.Send` → `conn.handle`)
+    concurrently with the stream handler's deferred `stop`; a hello (or subscribe) still being handled when the stream closed
+    registered the session in `byUser` and its subscriptions in `byGroup`/`subCount` after `stop` had cleaned up, for good (each leak
+    took one of `MAX_CONNECTIONS_PER_USER` and up to `MAX_SUBSCRIPTIONS` of the user's room until a restart; fan-out kept queueing
+    into the dead session). The cached grant/check paths do not look at the cancelled context, so the hello completed. Fix: `stop`
+    and `handle` exclude each other — `stop` cancels, then takes `handleMu` (waits for the message in progress) and sets
+    `conn.stopped`; `handle` returns at once when `stopped` or the context is cancelled (a `Send` that looked the session up before
+    `stop` removed it). WebSocket was not affected (its messages run in the handler's own read loop). `TestStopDuringHello`: warmed
+    grants, a hello blocked in the authenticator, `stop` as `ServeSSE`'s defer, then a late hello on a stopped session — on the
+    round-1 code `stop` returned during the hello and `byUser[2]`, `byGroup[repo:1]` held 3 sessions and `subCount[2]` was 3 (1
+    expected). Commands: gofumpt (clean), golangci-lint on livesync packages (0 issues), `go vet`, livesync unit tests with `-race`
+    (hub 8× repeated), `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 31 pass, 3 skips) and MySQL 8.0 (33 pass, 1 skip), no
+    testlogger "FATAL ERROR".
   - **Not done / known gaps.** No in-session token refresh (reconnect instead). Hello/subscribe checks run one `Check` per requested
     group (cached grants make implicit ones cheap; on-demand groups are one small read transaction each) — a batch check is a later
     optimisation. Cross-reference comments are still unpublished (B3's open issue; the hub has no second requirement per entry). No

@@ -70,6 +70,11 @@ export function applySplash(win: Window): void {
   }
 }
 
+/** Whether the splash carries the local DB marker (the same test applySplash makes). */
+export function hasUser(s: Splash): boolean {
+  return typeof s.user === 'string' && s.user !== '';
+}
+
 /** Reads localStorage.splash; never throws. */
 export function readSplash(): Splash {
   try {

@@ -12,7 +12,7 @@ export const PopoverClose = P.Close;
 
 const widths = {sm: 'w-64', md: 'w-80'} as const;
 
-export interface PopoverContentProps extends Omit<ComponentProps<typeof P.Content>, 'className'> {
+export interface PopoverContentProps extends Omit<ComponentProps<typeof P.Content>, 'className' | 'style'> {
   width?: keyof typeof widths;
 }
 

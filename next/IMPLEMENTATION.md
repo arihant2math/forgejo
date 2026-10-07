@@ -1697,7 +1697,7 @@ does) **and** MySQL 8.0 (binlog on).
 ### Frontend
 
 #### F1 — Toolchain, tokens, primitives, shell
-- [ ] **Status**
+- [x] **Status** — done 2026-10-07. `npm ci && npm run check` is green: lint, typecheck, 106 Vitest tests, build, and the budget at 81.8 KB br JS / 4.5 KB br CSS. All 13 Playwright tests pass. Three review rounds; the last found no remaining blocker or major.
 - **Scope:** extend `next/package.json` (keep `test:conformance` working): Vite 8
   (Rolldown), React 19, TS strict, Tailwind v4 with `@theme` mapped to
   `src/styles/tokens.css`, lightningcss, ESLint (flat, local config) incl. a ban on
@@ -1727,8 +1727,8 @@ does) **and** MySQL 8.0 (binlog on).
       and `e2e/gallery.spec.ts` against the dev server on :5173). In this sandbox run
       `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium npm run test:browser`: Playwright 1.63's own
       Chromium (build 1243) is not preinstalled any more, and the config passes this env var as
-      `executablePath`. Final run: lint/typecheck clean, 103 unit tests, 12 browser tests, boot JS
-      81.7 KB br / 150, CSS 4.5 KB br / 30.
+      `executablePath`. Final run: lint/typecheck clean, 106 unit tests, 13 browser tests, boot JS
+      81.8 KB br / 150, CSS 4.5 KB br / 30.
   * **Versions (exact pins):**
     * vite 8.3.3 (Rolldown), react/react-dom 19.3.0, typescript 6.0.3, tailwindcss + @tailwindcss/vite + @tailwindcss/node 4.3.3.
     * lightningcss 1.33.0, eslint 10.12.0 + typescript-eslint 8.71.1 (strictTypeChecked + stylisticTypeChecked) + react-hooks 7.1.1.
@@ -1808,10 +1808,10 @@ does) **and** MySQL 8.0 (binlog on).
     * **ESLint `tokens/no-restyle`:**
       * outside `src/ui`, a primitive's `className` may only place or size it (margins, w/h/size, flex/grid placement, position, `hidden`, `sr-only`, `truncate`);
       * `<Icon>` may also take a text colour;
-      * menu, popover and row contents take no `className` at all;
+      * menu items, menu/popover contents and rows take no `className` or `style` at all: the props are `Omit`ted, and a test asserts the type error;
       * size classes a primitive owns through its size prop are rejected (`h-*` and `size-*` on Button, Input, IconButton, Avatar and Icon);
       * a `className` that is not literal (or a same-file const of literals) is rejected;
-      * so are `style` on a primitive and spreads of `className`/`style`;
+      * so are `style` on a primitive, spreads of `className`/`style`, and any spread that is not an object literal;
       * namespace imports (`<UI.Button>`) are checked too;
       * bare lucide icons outside `src/ui` are rejected: render them through `<Icon icon={X}/>`.
     * **ESLint `no-restricted-imports`:** only `src/ui` imports Radix or `ui/recipes.ts`.
@@ -1827,6 +1827,7 @@ does) **and** MySQL 8.0 (binlog on).
       * `motion/keyframes-transform-opacity`: `@keyframes` may only animate transform and opacity.
     * **Tests:**
       * `src/styles/classes.test.ts` compiles every class used in `src/` against the theme, via `@tailwindcss/node` `__unstable__loadDesignSystem`; unknown classes fail.
+      * The same test runs Tailwind's own scanner (`@tailwindcss/oxide`) over app.css's `@source` set. Every candidate that becomes CSS must pass `classProblem()`, however the code produced it (helper functions, spreads, prose: a comment word "ring" really did ship `.ring`).
       * `src/test/conflicts.ts`, used in `App.test.tsx` and `ui.test.tsx`, fails when an element sets the same property twice (e.g. `text-fg text-danger`). It runs on the whole gallery, so on every primitive and variant.
       * `lint/lint.test.ts` runs the real configs on `src/test/lint-fixtures/` (`bg-[#fff]`, `transition: all`, …).
     * **Tailwind sources:** `app.css` uses `source(none)` and scans all of `src/` except `src/dev`, `src/test`, `src/protocol` and `*.test.*`. Future `src/data`, `src/sync`, … are covered, and fixtures, docs and the gallery cannot add CSS.
@@ -1876,7 +1877,10 @@ does) **and** MySQL 8.0 (binlog on).
     * The logged-out boot shell and React's first commit are identical, wrapper included.
       * Unit test: outerHTML equality.
       * Playwright: the bounding boxes of the button, title, text and icon with app JS blocked equal those after React mounts. A CLS sum would not work, because React inserts new nodes, which the layout-shift API ignores.
-    * If the route chunk fails to load (e.g. an old build was deleted after a deploy), `main.tsx` reloads once (`sessionStorage.bootRetry`). F5's service worker should make this rare.
+    * If the route chunk fails to load (e.g. an old build was deleted after a deploy), `main.tsx` reloads once (`sessionStorage.bootRetry`), then shows `BootFailed` (a Reload screen; tested in e2e).
+      * **B8: serve `index.html` with `Cache-Control: no-cache`**, so the reload fetches the current build.
+      * F5's service worker should make this rare.
+    * `hasUser()` (splash.ts) is the one "signed in on this device" test: applySplash's inline copy and the app agree.
     * The signed-in boot frame is still replaced by the `Home` placeholder until F3 renders the real shell, so a layout shift there is expected until F3.
   * **Build.** `vite.config.ts`:
     * base `/-/next/`; `target`/`cssTarget: 'esnext'`; lightningcss transformer and minifier; no modulepreload polyfill;
@@ -1942,6 +1946,10 @@ does) **and** MySQL 8.0 (binlog on).
     * the budget missing boot-chunk CSS, the absolute `outDir` crash, the dev server reuse in Playwright, and the gallery.css layer;
     * reload-once on a failed boot chunk.
     Ungrouping the Radix internals, as the reviewer suggested, produced the chunk cycle described above, so it was reverted and is now guarded.
+    Round 3 was one verification reviewer, who confirmed the round-2 guards fail on mutation. Its 2 majors are fixed:
+    * class strings from functions or spreads bypassed the lint (now the shipped-class scanner test, plus a ban on non-literal spreads);
+    * `className` on menu items replaced their recipe (now `Omit`ted).
+    Also fixed: `[data-active]` is instant-in (tested); the shared `hasUser`; the reload screen after a second boot failure.
 
 #### F2 — Data layer
 - [ ] **Status**

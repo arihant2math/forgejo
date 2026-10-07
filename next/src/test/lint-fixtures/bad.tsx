@@ -17,6 +17,7 @@ export const prose = ['Fixes #123', '- [ ] task', 'Error: [object Object]', 'tra
 
 const look = 'bg-danger rounded-full';
 const widths = ['w-64', 'w-[13px]'];
+const extra = {className: 'bg-danger'};
 
 export function Bad({dynamic}: {dynamic: string}) {
   return (
@@ -26,6 +27,7 @@ export function Bad({dynamic}: {dynamic: string}) {
       <Button className={look}>Via a const</Button>
       <Button className={dynamic}>Opaque</Button>
       <Button {...{className: 'bg-danger'}}>Spread</Button>
+      <Button {...extra}>Spread a variable</Button>
       <Button style={{order: 1}}>Styled</Button>
       <UI.Button className="rounded-full">Namespace</UI.Button>
       <Input className="inset-ring-2"/>

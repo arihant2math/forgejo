@@ -5,6 +5,7 @@ import './styles/app.css';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import {App} from './app/App.tsx';
+import {BootFailed} from './app/BootFailed.tsx';
 import {loadRoute} from './app/routes.ts';
 import {followSystemTheme} from './app/theme.ts';
 
@@ -26,15 +27,20 @@ if (root) {
     );
   }, (error: unknown) => {
     // A chunk of an older build (deleted after a deploy) or a network error:
-    // reload once to get the current index.html. F5's service worker makes this rare.
+    // reload once to get the current index.html (B8 must serve it with
+    // Cache-Control: no-cache). F5's service worker makes this rare.
     console.error('loading the route failed', error);
+    let retried = true;
     try {
-      if (!sessionStorage.getItem('bootRetry')) {
-        sessionStorage.setItem('bootRetry', '1');
-        location.reload();
-      }
+      retried = sessionStorage.getItem('bootRetry') !== null;
+      if (!retried) sessionStorage.setItem('bootRetry', '1');
     } catch {
-      // Storage blocked: stay on the boot shell rather than loop.
+      // Storage blocked: do not risk a reload loop.
+    }
+    if (retried) {
+      createRoot(root).render(<BootFailed/>);
+    } else {
+      location.reload();
     }
   });
 }

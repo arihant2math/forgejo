@@ -39,6 +39,7 @@
   &:focus-visible,
   &[data-highlighted],
   &[data-selected],
+  &[data-active],
   &[aria-selected="true"],
   &[aria-pressed="true"],
   &[data-state="open"],

@@ -32,6 +32,18 @@ describe('primitives', () => {
     expect(classConflicts(document.body)).toEqual([]);
   });
 
+  test('menu items and contents take no className or style (the recipe is the whole look)', () => {
+    const rejected = [
+      // @ts-expect-error className is not a MenuItem prop
+      <MenuItem key="a" className="w-full">x</MenuItem>,
+      // @ts-expect-error style is not a MenuItem prop
+      <MenuItem key="b" style={{}}>x</MenuItem>,
+      // @ts-expect-error className is not a ListRow prop
+      <ListRow key="c" role="option" className="p-1">x</ListRow>,
+    ];
+    expect(rejected).toHaveLength(3);
+  });
+
   test('Input: invalid state', () => {
     render(<Input invalid placeholder="x"/>);
     expect(screen.getByPlaceholderText('x').getAttribute('aria-invalid')).toBe('true');

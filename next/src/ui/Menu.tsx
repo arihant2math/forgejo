@@ -37,14 +37,14 @@ function ItemBody({icon, shortcut, children}: Omit<MenuItemProps, 'danger'>) {
 type Parts = Pick<typeof D, 'Item' | 'CheckboxItem' | 'RadioGroup' | 'RadioItem' | 'ItemIndicator' | 'Label' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal'>;
 
 function makeItems(P: Parts) {
-  function Item({icon, shortcut, danger, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children'>) {
+  function Item({icon, shortcut, danger, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children' | 'className' | 'style'>) {
     return (
       <P.Item className={cx(menuItem, danger ? 'text-danger' : 'text-fg')} {...rest}>
         <ItemBody icon={icon} shortcut={shortcut}>{children}</ItemBody>
       </P.Item>
     );
   }
-  function CheckboxItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.CheckboxItem>, 'children'>) {
+  function CheckboxItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.CheckboxItem>, 'children' | 'className' | 'style'>) {
     return (
       <P.CheckboxItem className={cx(menuItem, 'text-fg')} {...rest}>
         <span className={iconSlot}>
@@ -54,7 +54,7 @@ function makeItems(P: Parts) {
       </P.CheckboxItem>
     );
   }
-  function RadioItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.RadioItem>, 'children'>) {
+  function RadioItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.RadioItem>, 'children' | 'className' | 'style'>) {
     return (
       <P.RadioItem className={cx(menuItem, 'text-fg')} {...rest}>
         <span className={iconSlot}>
@@ -98,7 +98,7 @@ export const {
   Label: MenuLabel, Separator: MenuSeparator, Sub: MenuSub,
 } = dropdown;
 
-export function MenuContent({sideOffset = 4, align = 'start', ...rest}: Omit<ComponentProps<typeof D.Content>, 'className'>) {
+export function MenuContent({sideOffset = 4, align = 'start', ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style'>) {
   return (
     <D.Portal>
       <D.Content sideOffset={sideOffset} align={align} className={content} {...rest}/>
@@ -117,7 +117,7 @@ export const {
   RadioItem: ContextMenuRadioItem, Label: ContextMenuLabel, Separator: ContextMenuSeparator, Sub: ContextMenuSub,
 } = context;
 
-export function ContextMenuContent(props: Omit<ComponentProps<typeof C.Content>, 'className'>) {
+export function ContextMenuContent(props: Omit<ComponentProps<typeof C.Content>, 'className' | 'style'>) {
   return (
     <C.Portal>
       <C.Content className={content} {...props}/>

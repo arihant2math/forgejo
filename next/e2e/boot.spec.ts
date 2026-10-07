@@ -116,3 +116,16 @@ test('React replaces the logged-out boot shell without moving anything', async (
   expect(before.every(Boolean)).toBe(true);
   expect(await boxes(false)).toEqual(before);
 });
+
+test('a boot chunk that keeps failing: one reload, then a reload screen', async ({page}) => {
+  let attempts = 0;
+  await page.route('**/assets/Home-*.js', (route) => {
+    attempts++;
+    return route.abort();
+  });
+  page.on('console', () => undefined);
+  await page.goto('/-/next/');
+  await expect(page.getByRole('button', {name: 'Reload'})).toBeVisible();
+  await expect(page.getByText('Forgejo could not load')).toBeVisible();
+  expect(attempts).toBeGreaterThanOrEqual(2); // the first load and the automatic reload
+});

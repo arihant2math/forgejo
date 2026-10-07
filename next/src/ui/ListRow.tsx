@@ -4,7 +4,7 @@
 import type {HTMLAttributes, ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
 
-export interface ListRowProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role' | 'className'> {
+export interface ListRowProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role' | 'className' | 'style'> {
   /** The row's role in its list: option (listbox), row (grid; the slots become gridcells) or presentation (skeletons). */
   role: 'option' | 'row' | 'presentation';
   /** Part of the selection (multi-select, X). */
@@ -23,7 +23,7 @@ const slot = 'flex shrink-0 items-center gap-2';
 /**
  * One compact list row (issues, PRs, notifications). Fixed height and layout
  * containment, so virtualized lists can position rows without measuring. The
- * focus ring is drawn inside: rows are full width and sit edge to edge.
+ * focus outline is drawn inside: rows are full width and sit edge to edge.
  * Keyboard movement (roving tabindex, J/K) belongs to the list (F4).
  */
 export function ListRow({role, selected, active, leading, trailing, children, ...rest}: ListRowProps) {

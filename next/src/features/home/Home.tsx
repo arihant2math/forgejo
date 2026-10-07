@@ -5,11 +5,11 @@
 
 import {Rocket} from 'lucide-react';
 import {CenteredScreen, LoggedOut} from '../../app/LoggedOut.tsx';
-import {readSplash} from '../../app/splash.ts';
+import {hasUser, readSplash} from '../../app/splash.ts';
 import {EmptyState} from '../../ui/index.ts';
 
 export default function Home() {
-  if (!readSplash().user) return <LoggedOut/>;
+  if (!hasUser(readSplash())) return <LoggedOut/>;
   return (
     <CenteredScreen>
       <EmptyState icon={Rocket} title="Forgejo Next" description="The app shell arrives with milestone F3."/>

@@ -43,6 +43,7 @@ describe('eslint (eslint.config.ts)', () => {
     has(/no-restyle: "rounded-full" restyles <Button>/); // via const and via namespace import
     has(/no-restyle: className on <Button> must be literal/);
     has(/no-restyle: Spreading className\/style onto <Button>/);
+    has(/no-restyle: Spread props onto <Button> as an object literal/);
     has(/no-restyle: style on <Button>/);
     has(/no-restyle: "inset-ring-2" restyles <Input>/);
     has(/no-restyle: Render icons through <Icon icon=\{Trash2\}\/>/);

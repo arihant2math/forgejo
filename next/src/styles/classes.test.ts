@@ -9,7 +9,9 @@
 
 import {readFileSync, readdirSync} from 'node:fs';
 import {join, relative} from 'node:path';
-import {__unstable__loadDesignSystem} from '@tailwindcss/node';
+import {__unstable__loadDesignSystem, compile} from '@tailwindcss/node';
+import {Scanner} from '@tailwindcss/oxide';
+import {classProblem} from '../../lint/eslint-plugin-tokens.ts';
 import ts from 'typescript';
 import {describe, expect, test} from 'vitest';
 
@@ -114,6 +116,28 @@ describe('classes', () => {
     const css = ds.candidatesToCss(classes);
     const unknown = classes.filter((_, i) => css[i] === null).map((c) => `${c} (${used.get(c) ?? ''})`);
     expect(unknown).toEqual([]);
+  });
+
+  test('every class that ships obeys the lint policy, however the code produced it', async () => {
+    // Tailwind's own scanner over app.css's @source set finds every candidate that
+    // becomes CSS (from functions, spreads, prose, anything): none may be banned.
+    const css = readFileSync(join(src, 'styles/app.css'), 'utf8');
+    const base = join(src, 'styles');
+    const compiler = await compile(css, {base, onDependency: () => undefined});
+    const candidates = new Scanner({sources: compiler.sources}).scan();
+    const ds = await __unstable__loadDesignSystem(css, {base});
+    const out = ds.candidatesToCss(candidates);
+    const shipped = candidates.filter((_, i) => out[i] !== null);
+    expect(shipped.length).toBeGreaterThan(100);
+    expect(shipped.flatMap((c) => classProblem(c) ?? [])).toEqual([]);
+  });
+
+  test('interactive: every state primitives use appears instantly', async () => {
+    const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
+    const [css = ''] = ds.candidatesToCss(['interactive']);
+    for (const state of [':hover', ':focus-visible', '[data-highlighted]', '[data-selected]', '[data-active]', '[aria-pressed="true"]', '[data-state="open"]']) {
+      expect(css).toContain(`&${state}`);
+    }
   });
 
   test('unknown classes are detected', async () => {

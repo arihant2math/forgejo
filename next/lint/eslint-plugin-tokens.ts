@@ -278,8 +278,11 @@ const noRestyle: Rule.RuleModule = {
         if (!component) return;
         for (const attr of el.attributes) {
           if (attr.type === 'JSXSpreadAttribute') {
-            const props = attr.argument.type === 'ObjectExpression' ? attr.argument.properties : [];
-            if (props.some((p) => p.type === 'Property' && p.key.type === 'Identifier' && (p.key.name === 'className' || p.key.name === 'style'))) {
+            if (attr.argument.type !== 'ObjectExpression') {
+              context.report({node: attr.argument, message: `Spread props onto <${component}> as an object literal, so className/style can be checked`});
+              continue;
+            }
+            if (attr.argument.properties.some((p) => p.type === 'Property' && p.key.type === 'Identifier' && (p.key.name === 'className' || p.key.name === 'style'))) {
               context.report({node: attr.argument, message: `Spreading className/style onto <${component}> restyles it`});
             }
             continue;

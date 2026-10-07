@@ -14,6 +14,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/protocol"
 )
 
@@ -28,12 +29,28 @@ const (
 	DefaultCacheSize = 10000
 )
 
+// computeTimeout bounds one grants computation. It runs detached from the
+// context of the caller that started it (other callers may be waiting for
+// it, and a cancelled request must not fail them).
+const computeTimeout = time.Minute
+
+// maxCallChanges bounds the invalidations remembered per running
+// computation; a computation that overlaps more is not cached.
+const maxCallChanges = 64
+
 // Cache holds the grants of recently active viewers, shared by all of a
 // viewer's connections on this instance (PLAN §4.5). Every instance's
 // tailer passes the permission epochs of the sync log to Invalidate, so a
 // change committed on any instance drops the affected entries everywhere.
-// Its methods are safe for concurrent use; a viewer's grants are computed
-// at most once at a time.
+// Its methods are safe for concurrent use; callers asking for the same
+// viewer at the same time share one computation, unless an invalidation
+// that may concern it arrived in between (callers after it start a fresh
+// one).
+//
+// Grants and checks read the master database in one transaction
+// (readMaster): a read replica may not have replayed the change behind an
+// epoch yet, and a result computed from it would be cached until the next
+// epoch or the TTL. Do not call them inside a transaction of your own.
 type Cache struct {
 	ttl time.Duration
 	max int
@@ -45,13 +62,14 @@ type Cache struct {
 	// byGroup indexes the cached viewers by granted group, so that an
 	// epoch naming a repository or owner finds the entries to drop
 	// without scanning the cache.
-	byGroup  map[string]map[int64]struct{}
+	byGroup map[string]map[int64]struct{}
+	// inflight are the computations new callers may join, by viewer;
+	// running are all running computations (also those detached from
+	// inflight by an invalidation).
 	inflight map[int64]*call
-	// seq counts invalidations; recent keeps those that happened while a
-	// computation was running (cleared when none is), so that grants
-	// computed from data read before an invalidation are not cached.
-	seq    uint64
-	recent []recentChange
+	running  map[*call]struct{}
+	// load computes a viewer's entry (Cache.compute; tests replace it).
+	load func(ctx context.Context, viewerID int64) (*cacheEntry, error)
 }
 
 type cacheEntry struct {
@@ -64,13 +82,12 @@ type call struct {
 	done   chan struct{}
 	entry  *cacheEntry
 	err    error
-	start  uint64
 	viewer int64
-}
-
-type recentChange struct {
-	seq    uint64
-	change protocol.PermissionChange
+	// stale: an invalidation since the computation started concerns its
+	// result for sure (or too many may), so it is not cached. changes are
+	// the invalidations that may concern it, decided when it finishes.
+	stale   bool
+	changes []protocol.PermissionChange
 }
 
 // NewCache returns an empty cache; ttl and size <= 0 mean the defaults.
@@ -81,11 +98,13 @@ func NewCache(ttl time.Duration, size int) *Cache {
 	if size <= 0 {
 		size = DefaultCacheSize
 	}
-	return &Cache{
+	c := &Cache{
 		ttl: ttl, max: size, now: time.Now,
 		entries: map[int64]*list.Element{}, lru: list.New(),
-		byGroup: map[string]map[int64]struct{}{}, inflight: map[int64]*call{},
+		byGroup: map[string]map[int64]struct{}{}, inflight: map[int64]*call{}, running: map[*call]struct{}{},
 	}
+	c.load = c.compute
+	return c
 }
 
 // Grants returns the viewer's grants (empty when the viewer may not sign
@@ -102,86 +121,130 @@ func (c *Cache) Grants(ctx context.Context, viewerID int64) (*Grants, error) {
 // the cached grants when the group is one of them, else on demand (public
 // repositories and organizations, other users' profiles, issues). ok is
 // false for groups that are not readable, do not exist or are not client
-// groups — callers must not tell these cases apart in answers.
-func (c *Cache) Check(ctx context.Context, viewerID int64, group string) (Decision, bool, error) {
-	e, err := c.get(ctx, viewerID)
-	if err != nil || e.viewer == nil {
-		return Decision{}, false, err
-	}
-	if units, ok := e.grants.Units(group); ok {
-		d := Decision{Units: units}
-		if kind, id := parseGroup(group); kind == kindRepo {
-			d.RepoID = id
+// groups — callers must not tell these cases apart in answers. Without
+// cached grants it does not compute them: it loads the viewer and decides
+// the group alone (every implicit grant is also granted on demand).
+func (c *Cache) Check(ctx context.Context, viewerID int64, group string) (d Decision, ok bool, err error) {
+	if e := c.cached(viewerID); e != nil {
+		if e.viewer == nil {
+			return Decision{}, false, nil
 		}
-		return d, true, nil
+		if units, ok := e.grants.Units(group); ok {
+			d := Decision{Units: units}
+			if kind, id := parseGroup(group); kind == kindRepo {
+				d.RepoID = id
+			}
+			return d, true, nil
+		}
+		err = readMaster(ctx, func(ctx context.Context) (err error) {
+			d, ok, err = check(ctx, e.viewer, group)
+			return err
+		})
+		return d, ok, err
 	}
-	return check(ctx, e.viewer, group)
+	err = readMaster(ctx, func(ctx context.Context) error {
+		u, found, err := lookupUser(ctx, viewerID)
+		if err != nil || !found {
+			return err
+		}
+		d, ok, err = check(ctx, &u, group)
+		return err
+	})
+	return d, ok, err
+}
+
+// readMaster runs fn in a read transaction on the master database (quiet:
+// its COMMIT does not ring the outbox reader's doorbell on MySQL).
+func readMaster(ctx context.Context, fn func(ctx context.Context) error) error {
+	return capture.WithQuietTx(ctx, fn)
+}
+
+// cached returns the viewer's unexpired cache entry, or nil.
+func (c *Cache) cached(viewerID int64) *cacheEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el := c.entries[viewerID]
+	if el == nil {
+		return nil
+	}
+	e := el.Value.(*cacheEntry)
+	if !c.now().Before(e.expires) {
+		c.removeLocked(viewerID)
+		return nil
+	}
+	c.lru.MoveToFront(el)
+	return e
 }
 
 func (c *Cache) get(ctx context.Context, viewerID int64) (*cacheEntry, error) {
+	if e := c.cached(viewerID); e != nil {
+		return e, nil
+	}
 	c.mu.Lock()
-	if el := c.entries[viewerID]; el != nil {
-		e := el.Value.(*cacheEntry)
-		if c.now().Before(e.expires) {
-			c.lru.MoveToFront(el)
-			c.mu.Unlock()
-			return e, nil
-		}
-		c.removeLocked(viewerID)
+	cl := c.inflight[viewerID]
+	if cl == nil {
+		cl = &call{done: make(chan struct{}), viewer: viewerID}
+		c.inflight[viewerID] = cl
+		c.running[cl] = struct{}{}
+		go c.run(context.WithoutCancel(ctx), cl)
 	}
-	if cl := c.inflight[viewerID]; cl != nil {
-		c.mu.Unlock()
-		select {
-		case <-cl.done:
-			return cl.entry, cl.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	cl := &call{done: make(chan struct{}), start: c.seq, viewer: viewerID}
-	c.inflight[viewerID] = cl
 	c.mu.Unlock()
+	select {
+	case <-cl.done:
+		return cl.entry, cl.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
 
-	cl.entry, cl.err = c.compute(ctx, viewerID)
+// run computes cl's grants and caches them unless an invalidation since it
+// started concerns them.
+func (c *Cache) run(ctx context.Context, cl *call) {
+	ctx, cancel := context.WithTimeout(ctx, computeTimeout)
+	defer cancel()
+	entry, err := c.load(ctx, cl.viewer)
 
 	c.mu.Lock()
-	delete(c.inflight, viewerID)
-	if cl.err == nil && !c.invalidatedLocked(cl) {
-		c.storeLocked(viewerID, cl.entry)
+	cl.entry, cl.err = entry, err
+	delete(c.running, cl)
+	if c.inflight[cl.viewer] == cl {
+		delete(c.inflight, cl.viewer)
 	}
-	if len(c.inflight) == 0 {
-		c.recent = nil
+	if err == nil && !cl.stale && c.entries[cl.viewer] == nil && !anyAffects(cl.changes, cl.viewer, entry.grants) {
+		c.storeLocked(cl.viewer, entry)
 	}
 	c.mu.Unlock()
 	close(cl.done)
-	return cl.entry, cl.err
 }
 
-func (c *Cache) compute(ctx context.Context, viewerID int64) (*cacheEntry, error) {
-	u, found, err := lookupUser(ctx, viewerID)
-	if err != nil {
-		return nil, err
-	}
-	var viewer *user_model.User // nil when missing: no grants
-	if found {
-		viewer = &u
-	}
-	g, err := compute(ctx, viewer, viewerID)
-	if err != nil {
-		return nil, err
-	}
-	e := &cacheEntry{grants: g, expires: c.now().Add(c.ttl)}
-	if usable(viewer) {
-		e.viewer = viewer
-	}
-	return e, nil
+func (c *Cache) compute(ctx context.Context, viewerID int64) (e *cacheEntry, err error) {
+	err = readMaster(ctx, func(ctx context.Context) error {
+		u, found, err := lookupUser(ctx, viewerID)
+		if err != nil {
+			return err
+		}
+		var viewer *user_model.User // nil when missing: no grants
+		if found {
+			viewer = &u
+		}
+		g, err := compute(ctx, viewer, viewerID)
+		if err != nil {
+			return err
+		}
+		e = &cacheEntry{grants: g, expires: c.now().Add(c.ttl)}
+		if usable(viewer) {
+			e.viewer = viewer
+		}
+		return nil
+	})
+	return e, err
 }
 
-// invalidatedLocked reports whether an invalidation since cl started could
-// concern its result.
-func (c *Cache) invalidatedLocked(cl *call) bool {
-	for _, rc := range c.recent {
-		if rc.seq > cl.start && affects(rc.change, cl.viewer, cl.entry.grants) {
+// anyAffects reports whether one of changes may change the grants g of
+// viewer.
+func anyAffects(changes []protocol.PermissionChange, viewer int64, g *Grants) bool {
+	for _, ch := range changes {
+		if affects(ch, viewer, g) {
 			return true
 		}
 	}
@@ -253,13 +316,31 @@ func (c *Cache) removeLocked(viewerID int64) {
 
 // Invalidate drops the cached grants a permission epoch may have changed:
 // those of its users and of every viewer granted one of its repositories'
-// or owners' groups (all of them for ch.All). Cost: O(affected entries).
+// or owners' groups (all of them for ch.All). Running computations it may
+// concern are detached, so later callers do not get a result read before
+// the change, and are not cached if it does concern them. Cost:
+// O(affected entries + running computations).
 func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.seq++
-	if len(c.inflight) > 0 {
-		c.recent = append(c.recent, recentChange{seq: c.seq, change: ch})
+	for cl := range c.running {
+		switch {
+		case ch.All || slices.Contains(ch.Users, cl.viewer):
+			cl.stale = true
+		case len(ch.Repos) > 0 || len(ch.Owners) > 0:
+			// Whether it grants one of the groups is known only when it
+			// finishes.
+			if len(cl.changes) == maxCallChanges {
+				cl.stale = true
+			} else {
+				cl.changes = append(cl.changes, ch)
+			}
+		default:
+			continue
+		}
+		if c.inflight[cl.viewer] == cl {
+			delete(c.inflight, cl.viewer)
+		}
 	}
 	if ch.All {
 		c.entries = map[int64]*list.Element{}

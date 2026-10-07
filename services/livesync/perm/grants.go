@@ -32,8 +32,10 @@ import (
 	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
 	org_model "forgejo.org/models/organization"
+	perm_model "forgejo.org/models/perm"
 	access_model "forgejo.org/models/perm/access"
 	repo_model "forgejo.org/models/repo"
+	unit_model "forgejo.org/models/unit"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/structs"
 	"forgejo.org/services/livesync/protocol"
@@ -139,7 +141,10 @@ func lookupUser(ctx context.Context, id int64) (u user_model.User, ok bool, err 
 	return *found, true, nil
 }
 
-// compute builds the grants of viewer (nil or not usable: nothing).
+// compute builds the grants of viewer (nil or not usable: nothing). The
+// repositories are decided like access_model.GetUserRepoPermission decides
+// them (repoPermission), from inputs read with a fixed number of queries
+// (viewerInputs), not ≈ 5 queries per repository.
 func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Grants, error) {
 	g := &Grants{ViewerID: viewerID, groups: map[string]UnitSet{}}
 	if !usable(viewer) {
@@ -152,32 +157,36 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 		g.groups[protocol.GroupProfilesLimited] = unitBase
 	}
 
-	e := db.GetEngine(ctx)
-	var orgIDs []int64
-	if err := e.Table("org_user").Cols("org_id").Where("uid = ?", viewer.ID).Find(&orgIDs); err != nil {
-		return nil, fmt.Errorf("livesync: grants: organizations: %w", err)
-	}
-	for _, id := range orgIDs {
-		g.groups[protocol.OrgGroup(id)] = unitBase | unitMembers
-	}
-
-	repoIDs, err := relatedRepos(ctx, viewer.ID)
+	in, err := loadViewerInputs(ctx, viewer.ID)
 	if err != nil {
 		return nil, err
 	}
+	for id := range in.orgs {
+		g.groups[protocol.OrgGroup(id)] = unitBase | unitMembers
+	}
+	repoIDs, err := in.relatedRepos(ctx, viewer.ID)
+	if err != nil {
+		return nil, err
+	}
+	e := db.GetEngine(ctx)
 	for start := 0; start < len(repoIDs); start += inChunk {
+		chunk := repoIDs[start:min(start+inChunk, len(repoIDs))]
 		var repos []*repo_model.Repository
-		if err := e.In("id", repoIDs[start:min(start+inChunk, len(repoIDs))]).Find(&repos); err != nil {
+		if err := e.In("id", chunk).Find(&repos); err != nil {
 			return nil, fmt.Errorf("livesync: grants: repositories: %w", err)
 		}
 		if err := loadOwners(ctx, repos); err != nil {
 			return nil, err
 		}
+		units, err := loadRepoUnits(ctx, chunk)
+		if err != nil {
+			return nil, err
+		}
 		for _, repo := range repos {
-			p, err := access_model.GetUserRepoPermission(ctx, repo, viewer)
-			if err != nil {
-				return nil, fmt.Errorf("livesync: grants: permission on repository %d: %w", repo.ID, err)
+			if repo.Owner == nil {
+				continue // GetUserRepoPermission fails on such a repository: no grant
 			}
+			p := in.repoPermission(viewer, repo, units[repo.ID])
 			if p.HasAccess() {
 				g.groups[protocol.RepoGroup(repo.ID)] = repoUnits(&p)
 			}
@@ -189,35 +198,109 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 // inChunk bounds the ids of one IN (...) list.
 const inChunk = 500
 
+// viewerInputs are the rows that decide a viewer's repository permissions
+// besides the repositories themselves: memberships, collaborations, access
+// rows and teams.
+type viewerInputs struct {
+	orgs   map[int64]bool                  // organizations the viewer is a member of
+	collab map[int64]bool                  // repositories the viewer collaborates on
+	access map[int64]perm_model.AccessMode // access rows, by repository
+	teams  map[int64]*org_model.Team       // the viewer's teams, by id
+	// teamRepos are the viewer's teams per repository (team_repo rows).
+	teamRepos map[int64][]*org_model.Team
+	// teamUnits are the units of the viewer's teams, by team id.
+	teamUnits map[int64][]*org_model.TeamUnit
+}
+
+func loadViewerInputs(ctx context.Context, viewerID int64) (*viewerInputs, error) {
+	e := db.GetEngine(ctx)
+	in := &viewerInputs{
+		orgs: map[int64]bool{}, collab: map[int64]bool{}, access: map[int64]perm_model.AccessMode{},
+		teams: map[int64]*org_model.Team{}, teamRepos: map[int64][]*org_model.Team{}, teamUnits: map[int64][]*org_model.TeamUnit{},
+	}
+	var orgIDs []int64
+	if err := e.Table("org_user").Cols("org_id").Where("uid = ?", viewerID).Find(&orgIDs); err != nil {
+		return nil, fmt.Errorf("livesync: grants: organizations: %w", err)
+	}
+	for _, id := range orgIDs {
+		in.orgs[id] = true
+	}
+	var collabs []*repo_model.Collaboration
+	if err := e.Where("user_id = ?", viewerID).Find(&collabs); err != nil {
+		return nil, fmt.Errorf("livesync: grants: collaborations: %w", err)
+	}
+	for _, c := range collabs {
+		in.collab[c.RepoID] = true
+	}
+	var accesses []*access_model.Access
+	if err := e.Where("user_id = ?", viewerID).Find(&accesses); err != nil {
+		return nil, fmt.Errorf("livesync: grants: access: %w", err)
+	}
+	for _, a := range accesses {
+		in.access[a.RepoID] = a.Mode
+	}
+	var teams []*org_model.Team
+	if err := e.Table("team").Join("INNER", "team_user", "team_user.team_id = team.id").Where("team_user.uid = ?", viewerID).Find(&teams); err != nil {
+		return nil, fmt.Errorf("livesync: grants: teams: %w", err)
+	}
+	teamIDs := make([]int64, 0, len(teams))
+	for _, t := range teams {
+		if in.teams[t.ID] == nil {
+			in.teams[t.ID] = t
+			teamIDs = append(teamIDs, t.ID)
+		}
+	}
+	for start := 0; start < len(teamIDs); start += inChunk {
+		chunk := teamIDs[start:min(start+inChunk, len(teamIDs))]
+		var teamRepos []*org_model.TeamRepo
+		if err := e.In("team_id", chunk).Find(&teamRepos); err != nil {
+			return nil, fmt.Errorf("livesync: grants: team repositories: %w", err)
+		}
+		for _, tr := range teamRepos {
+			in.teamRepos[tr.RepoID] = append(in.teamRepos[tr.RepoID], in.teams[tr.TeamID])
+		}
+		var units []*org_model.TeamUnit
+		if err := e.In("team_id", chunk).OrderBy("id").Find(&units); err != nil {
+			return nil, fmt.Errorf("livesync: grants: team units: %w", err)
+		}
+		for _, u := range units {
+			in.teamUnits[u.TeamID] = append(in.teamUnits[u.TeamID], u)
+		}
+	}
+	return in, nil
+}
+
 // relatedRepos returns the ids of the repositories viewerID owns,
 // collaborates on, has an access row for, or reaches through a team
 // (sorted, deduplicated). Whether each is readable is decided by
-// GetUserRepoPermission; public repositories reached otherwise are checked
-// on demand.
-func relatedRepos(ctx context.Context, viewerID int64) ([]int64, error) {
+// repoPermission; public repositories reached otherwise are checked on
+// demand.
+func (in *viewerInputs) relatedRepos(ctx context.Context, viewerID int64) ([]int64, error) {
 	e := db.GetEngine(ctx)
-	var ids, more []int64
-	queries := []struct {
-		what  string
-		table string
-		col   string
-		cond  string
-	}{
-		{"owned", "repository", "id", "owner_id = ?"},
-		{"collaborations", "collaboration", "repo_id", "user_id = ?"},
-		{"access", "access", "repo_id", "user_id = ?"},
-		{"team repositories", "team_repo", "repo_id", "team_id IN (SELECT team_id FROM team_user WHERE uid = ?)"},
-		// Teams with access to all of their organization's repositories.
-		{"all-repository teams", "repository", "id", "owner_id IN (SELECT team.org_id FROM team JOIN team_user ON team_user.team_id = team.id WHERE team_user.uid = ? AND team.includes_all_repositories = ?)"},
+	var ids []int64
+	if err := e.Table("repository").Cols("id").Where("owner_id = ?", viewerID).Find(&ids); err != nil {
+		return nil, fmt.Errorf("livesync: grants: owned: %w", err)
 	}
-	for _, q := range queries {
-		more = more[:0]
-		args := []any{viewerID}
-		if strings.Count(q.cond, "?") == 2 {
-			args = append(args, true)
+	for id := range in.collab {
+		ids = append(ids, id)
+	}
+	for id := range in.access {
+		ids = append(ids, id)
+	}
+	for id := range in.teamRepos {
+		ids = append(ids, id)
+	}
+	// Teams with access to all of their organization's repositories.
+	var allOrgs []int64
+	for _, t := range in.teams {
+		if t.IncludesAllRepositories {
+			allOrgs = append(allOrgs, t.OrgID)
 		}
-		if err := e.Table(q.table).Cols(q.col).Where(q.cond, args...).Find(&more); err != nil {
-			return nil, fmt.Errorf("livesync: grants: %s: %w", q.what, err)
+	}
+	for start := 0; start < len(allOrgs); start += inChunk {
+		var more []int64
+		if err := e.Table("repository").Cols("id").In("owner_id", allOrgs[start:min(start+inChunk, len(allOrgs))]).Find(&more); err != nil {
+			return nil, fmt.Errorf("livesync: grants: all-repository teams: %w", err)
 		}
 		ids = append(ids, more...)
 	}
@@ -225,8 +308,123 @@ func relatedRepos(ctx context.Context, viewerID int64) ([]int64, error) {
 	return slices.Compact(ids), nil
 }
 
-// loadOwners sets the Owner of each repository with one query per batch
-// (GetUserRepoPermission would load them one by one).
+// loadRepoUnits returns the units of the repositories, without globally
+// disabled ones (as repo_model.Repository.LoadUnits).
+func loadRepoUnits(ctx context.Context, repoIDs []int64) (map[int64][]*repo_model.RepoUnit, error) {
+	var units []*repo_model.RepoUnit
+	if err := db.GetEngine(ctx).In("repo_id", repoIDs).OrderBy("id").Find(&units); err != nil {
+		return nil, fmt.Errorf("livesync: grants: repository units: %w", err)
+	}
+	res := make(map[int64][]*repo_model.RepoUnit, len(repoIDs))
+	for _, u := range units {
+		if !u.Type.UnitGlobalDisabled() {
+			res[u.RepoID] = append(res[u.RepoID], u)
+		}
+	}
+	return res, nil
+}
+
+// repoPermission is access_model.GetUserRepoPermission(repo, viewer) for a
+// signed-in viewer, computed from in instead of per-repository queries:
+// the same steps in the same order (repo.Owner must be loaded, units are
+// the repository's units). TestGrantsMatchUpstream compares the two for
+// every fixture user and repository; keep them in step when upstream's
+// changes (SURFACE.md).
+func (in *viewerInputs) repoPermission(viewer *user_model.User, repo *repo_model.Repository, units []*repo_model.RepoUnit) access_model.Permission {
+	var p access_model.Permission
+	isCollaborator := in.collab[repo.ID]
+	// organization.HasOrgOrUserVisible for a signed-in viewer.
+	visible := viewer.IsAdmin || repo.Owner.ID == viewer.ID ||
+		!((repo.Owner.Visibility == structs.VisibleTypePrivate || viewer.IsRestricted) && !in.orgs[repo.Owner.ID])
+	if !visible && !isCollaborator {
+		return p
+	}
+	if units == nil {
+		units = []*repo_model.RepoUnit{}
+	}
+	p.Units = units
+	if viewer.IsAdmin || viewer.ID == repo.OwnerID {
+		p.AccessMode = perm_model.AccessModeOwner
+		return p
+	}
+	// access_model.accessLevel (the owner case is above).
+	p.AccessMode = perm_model.AccessModeNone
+	if !viewer.IsRestricted && !repo.IsPrivate {
+		p.AccessMode = perm_model.AccessModeRead
+	}
+	if mode, ok := in.access[repo.ID]; ok {
+		p.AccessMode = mode
+	}
+	if !repo.Owner.IsOrganization() {
+		if !repo.IsPrivate && !viewer.IsRestricted && len(units) > 0 {
+			p.UnitsMode = make(map[unit_model.Type]perm_model.AccessMode)
+			for _, u := range units {
+				if _, ok := p.UnitsMode[u.Type]; !ok {
+					p.UnitsMode[u.Type] = u.DefaultPermissions.ToAccessMode(p.AccessMode)
+				}
+			}
+		}
+		return p
+	}
+	p.UnitsMode = make(map[unit_model.Type]perm_model.AccessMode)
+	if isCollaborator {
+		for _, u := range units {
+			p.UnitsMode[u.Type] = p.AccessMode
+		}
+	}
+	// organization.GetUserRepoTeams: the viewer's teams of the owner with
+	// a team_repo row for the repository.
+	var teams []*org_model.Team
+	for _, t := range in.teamRepos[repo.ID] {
+		if t.OrgID == repo.OwnerID {
+			teams = append(teams, t)
+		}
+	}
+	for _, t := range teams {
+		if t.AccessMode >= perm_model.AccessModeAdmin {
+			p.AccessMode = t.AccessMode
+			p.UnitsMode = nil
+			return p
+		}
+	}
+	for _, u := range units {
+		found := false
+		for _, t := range teams {
+			if teamMode := in.teamUnitMode(t.ID, u.Type); teamMode > perm_model.AccessModeNone {
+				if p.UnitsMode[u.Type] < teamMode {
+					p.UnitsMode[u.Type] = teamMode
+				}
+				found = true
+			}
+		}
+		if !found && !repo.IsPrivate && !viewer.IsRestricted {
+			if _, ok := p.UnitsMode[u.Type]; !ok {
+				p.UnitsMode[u.Type] = u.DefaultPermissions.ToAccessMode(perm_model.AccessModeRead)
+			}
+		}
+	}
+	p.Units = make([]*repo_model.RepoUnit, 0, len(units))
+	for t := range p.UnitsMode {
+		for _, u := range units {
+			if u.Type == t {
+				p.Units = append(p.Units, u)
+			}
+		}
+	}
+	return p
+}
+
+// teamUnitMode is organization.Team.UnitAccessMode.
+func (in *viewerInputs) teamUnitMode(teamID int64, t unit_model.Type) perm_model.AccessMode {
+	for _, u := range in.teamUnits[teamID] {
+		if u.Type == t {
+			return u.AccessMode
+		}
+	}
+	return perm_model.AccessModeNone
+}
+
+// loadOwners sets the Owner of each repository with one query per batch.
 func loadOwners(ctx context.Context, repos []*repo_model.Repository) error {
 	ownerIDs := make([]int64, 0, len(repos))
 	for _, r := range repos {

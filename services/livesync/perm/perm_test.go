@@ -6,6 +6,7 @@ package perm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -146,6 +147,55 @@ func TestCheckMatchesUpstream(t *testing.T) {
 			assert.Equal(t, viewer.ID == target.ID, ok, "user:%d only for that user", target.ID)
 		}
 	}
+}
+
+// The grant computation decides repositories from batched inputs
+// (viewerInputs.repoPermission) instead of calling GetUserRepoPermission per
+// repository: for every fixture user and every repository (related or not),
+// the two agree on access and on every unit, and the implicit grants are
+// exactly the related repositories upstream gives access to.
+func TestGrantsMatchUpstream(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	var users []*user_model.User
+	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&users))
+	var repos []*repo_model.Repository
+	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&repos))
+	require.NoError(t, loadOwners(ctx, repos))
+	ids := make([]int64, 0, len(repos))
+	for _, r := range repos {
+		ids = append(ids, r.ID)
+	}
+	units, err := loadRepoUnits(ctx, ids)
+	require.NoError(t, err)
+	compared := 0
+	for _, viewer := range users {
+		if !usable(viewer) {
+			continue
+		}
+		in, err := loadViewerInputs(ctx, viewer.ID)
+		require.NoError(t, err)
+		related, err := in.relatedRepos(ctx, viewer.ID)
+		require.NoError(t, err)
+		g, err := compute(ctx, viewer, viewer.ID)
+		require.NoError(t, err)
+		for _, repo := range repos {
+			if repo.Owner == nil {
+				continue
+			}
+			got := in.repoPermission(viewer, repo, units[repo.ID])
+			fresh := *repo
+			fresh.Owner, fresh.Units = nil, nil
+			want, err := access_model.GetUserRepoPermission(ctx, &fresh, viewer)
+			require.NoError(t, err)
+			require.Equal(t, want.HasAccess(), got.HasAccess(), "viewer %d repo %d", viewer.ID, repo.ID)
+			assert.Equal(t, repoUnits(&want), repoUnits(&got), "viewer %d repo %d", viewer.ID, repo.ID)
+			_, granted := g.Units(protocol.RepoGroup(repo.ID))
+			assert.Equal(t, want.HasAccess() && slices.Contains(related, repo.ID), granted, "viewer %d repo %d implicit", viewer.ID, repo.ID)
+			compared++
+		}
+	}
+	assert.Greater(t, compared, 1000)
 }
 
 func groupsOf(g *Grants) map[string][]protocol.Unit {
@@ -359,28 +409,147 @@ func TestCache(t *testing.T) {
 	}
 }
 
-// Grants computed from data read before an invalidation are not cached.
+// stubLoader makes a cache's computations wait for the test: every
+// computation sends its request and blocks until the test answers it.
+type stubLoad struct {
+	viewer int64
+	answer chan *Grants
+}
+
+func stubLoader(c *Cache) chan stubLoad {
+	requests := make(chan stubLoad)
+	c.load = func(ctx context.Context, viewerID int64) (*cacheEntry, error) {
+		req := stubLoad{viewer: viewerID, answer: make(chan *Grants)}
+		requests <- req
+		select {
+		case g := <-req.answer:
+			return &cacheEntry{grants: g, viewer: &user_model.User{ID: viewerID}, expires: c.now().Add(c.ttl)}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return requests
+}
+
+func grantsOf(viewer int64, groups ...string) *Grants {
+	g := &Grants{ViewerID: viewer, groups: map[string]UnitSet{}}
+	for _, group := range groups {
+		g.groups[group] = unitBase
+	}
+	return g
+}
+
+// asyncGrants calls Grants in a goroutine.
+func asyncGrants(ctx context.Context, c *Cache, viewer int64) chan *Grants {
+	res := make(chan *Grants, 1)
+	go func() {
+		g, err := c.Grants(ctx, viewer)
+		if err != nil {
+			g = nil
+		}
+		res <- g
+	}()
+	return res
+}
+
+// settled gives callers started just before time to reach their wait
+// (joining a computation or starting one).
+func settled() {
+	time.Sleep(50 * time.Millisecond)
+}
+
+// A computation that overlapped an invalidation concerning it is neither
+// cached nor joined by callers that came after the invalidation (they would
+// get a result read before the change, e.g. a hub re-checking a viewer
+// right after a revocation).
 func TestCacheInvalidatedWhileComputing(t *testing.T) {
-	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
-	c := NewCache(0, 0)
-	g, err := compute(ctx, unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2}), 2)
+	c := NewCache(time.Minute, 10)
+	requests := stubLoader(c)
+
+	// An epoch naming the viewer: later callers start afresh, the old
+	// result goes to its own waiters only and is not cached.
+	old := asyncGrants(ctx, c, 5)
+	first := <-requests
+	c.Invalidate(protocol.PermissionChange{Users: []int64{5}})
+	fresh := asyncGrants(ctx, c, 5)
+	second := <-requests
+	first.answer <- grantsOf(5, "repo:2")
+	assert.Contains(t, groupsOf(<-old), "repo:2")
+	second.answer <- grantsOf(5)
+	assert.NotContains(t, groupsOf(<-fresh), "repo:2", "joined a computation from before the invalidation")
+	g, err := c.Grants(ctx, 5)
 	require.NoError(t, err)
+	assert.NotContains(t, groupsOf(g), "repo:2", "the newer result is cached, not the stale one")
+	assert.Empty(t, c.running)
+	assert.Empty(t, c.inflight)
 
-	cl := &call{start: c.seq, viewer: 2, entry: &cacheEntry{grants: g}}
-	c.inflight[2] = cl
-	c.Invalidate(protocol.PermissionChange{Users: []int64{4}})
-	assert.False(t, c.invalidatedLocked(cl), "unrelated")
+	// An unrelated epoch: later callers join, the result is cached.
+	a := asyncGrants(ctx, c, 6)
+	req := <-requests
+	c.Invalidate(protocol.PermissionChange{Users: []int64{7}})
+	b := asyncGrants(ctx, c, 6)
+	settled()
+	req.answer <- grantsOf(6, "repo:1")
+	ga, gb := <-a, <-b
+	assert.Same(t, ga, gb, "joined")
+	g, _ = c.Grants(ctx, 6)
+	assert.Same(t, ga, g, "cached")
+
+	// A repository's epoch: decided when the computation finishes.
+	c.Invalidate(protocol.PermissionChange{All: true})
+	a = asyncGrants(ctx, c, 6)
+	req = <-requests
+	c.Invalidate(protocol.PermissionChange{Repos: []int64{3}})
+	req.answer <- grantsOf(6, "repo:1")
+	ga = <-a
+	g, _ = c.Grants(ctx, 6)
+	assert.Same(t, ga, g, "repo:3 is not granted: cached")
+	c.Invalidate(protocol.PermissionChange{All: true})
+	a = asyncGrants(ctx, c, 6)
+	req = <-requests
 	c.Invalidate(protocol.PermissionChange{Repos: []int64{1}})
-	assert.True(t, c.invalidatedLocked(cl), "a granted repository")
+	req.answer <- grantsOf(6, "repo:1")
+	<-a
+	assert.Nil(t, c.cached(6), "repo:1 is granted: not cached")
 
-	cl = &call{start: c.seq, viewer: 2, entry: &cacheEntry{grants: g}}
-	assert.False(t, c.invalidatedLocked(cl), "earlier invalidations do not count")
-	c.Invalidate(protocol.PermissionChange{Owners: []int64{3}})
-	assert.True(t, c.invalidatedLocked(cl), "a granted organization")
-	delete(c.inflight, 2)
-	c.Invalidate(protocol.PermissionChange{Users: []int64{2}})
-	assert.Len(t, c.recent, 3, "recorded while a computation runs only")
+	// Invalidations remembered per computation are bounded.
+	a = asyncGrants(ctx, c, 6)
+	req = <-requests
+	for i := range 3 * maxCallChanges {
+		c.Invalidate(protocol.PermissionChange{Repos: []int64{int64(1000 + i)}})
+	}
+	c.mu.Lock()
+	for cl := range c.running {
+		assert.LessOrEqual(t, len(cl.changes), maxCallChanges)
+		assert.True(t, cl.stale)
+	}
+	c.mu.Unlock()
+	req.answer <- grantsOf(6)
+	<-a
+	assert.Nil(t, c.cached(6))
+}
+
+// A caller whose context ends stops waiting; the computation it started
+// goes on for the others and is cached.
+func TestCacheCancelledCaller(t *testing.T) {
+	ctx := t.Context()
+	c := NewCache(time.Minute, 10)
+	requests := stubLoader(c)
+	cancelled, cancel := context.WithCancel(ctx)
+	leader := make(chan error, 1)
+	go func() {
+		_, err := c.Grants(cancelled, 5)
+		leader <- err
+	}()
+	req := <-requests
+	waiter := asyncGrants(ctx, c, 5)
+	settled()
+	cancel()
+	require.ErrorIs(t, <-leader, context.Canceled)
+	req.answer <- grantsOf(5, "repo:2")
+	assert.Contains(t, groupsOf(<-waiter), "repo:2")
+	assert.NotNil(t, c.cached(5))
 }
 
 func TestCacheConcurrent(t *testing.T) {
@@ -401,16 +570,7 @@ func TestCacheConcurrent(t *testing.T) {
 		assert.Equal(t, first.Wire(), g.Wire())
 	}
 	assert.Empty(t, c.inflight)
-	assert.Nil(t, c.recent)
-
-	// A waiter whose context ends stops waiting.
-	cl := &call{done: make(chan struct{})}
-	c.inflight[5] = cl
-	cancelled, cancel := context.WithCancel(ctx)
-	cancel()
-	_, err := c.Grants(cancelled, 5)
-	require.ErrorIs(t, err, context.Canceled)
-	delete(c.inflight, 5)
+	assert.Empty(t, c.running)
 }
 
 func TestDecodeChange(t *testing.T) {

@@ -8,6 +8,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net/http"
 	"strconv"
@@ -15,17 +16,25 @@ import (
 	"testing"
 	"time"
 
+	auth_model "forgejo.org/models/auth"
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
+	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/setting"
+	"forgejo.org/modules/test"
 	"forgejo.org/modules/web"
+	"forgejo.org/routers"
+	livesync_router "forgejo.org/routers/livesync"
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/catalog"
+	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/services/livesync/synclog"
 
 	"code.forgejo.org/xorm/xorm"
 	chi "github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -350,4 +359,48 @@ func livesyncEntry(model protocol.Model, id int64, op protocol.Op) func(e *lives
 	return func(e *livesync_model.LogEntry) bool {
 		return e.Model == string(model) && e.EntityID == id && e.Op == string(op)
 	}
+}
+
+// livesyncServe runs livesync through Wrap (Init: tables, triggers,
+// tailer, writer) for the duration of the test, on a clean outbox / sync log
+// / entity index, and serves MakeRequest through the wrapped handler.
+func livesyncServe(t *testing.T) {
+	t.Helper()
+	livesyncResetCapture(t)
+	t.Cleanup(func() {
+		livesync_service.Shutdown()
+		livesyncUninstallTriggers(t)
+		livesyncResetCapture(t)
+	})
+	livesyncConfig(t, map[string]string{"ENABLED": "true", "INSTALL_MODE": "auto"})
+	wrapped := livesync_router.Wrap(routers.NormalRoutes())
+	require.True(t, livesync_service.Running(), "livesync failed to start, see the log")
+	t.Cleanup(test.MockVariableValue(&testWebRoutes, livesyncRoutes(wrapped)))
+}
+
+// livesyncWaitBackfill waits until the entity index backfill of every
+// tracked table is done (deletes of rows it has not indexed yet are not
+// routed anywhere, see the B3 notes).
+func livesyncWaitBackfill(t *testing.T) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		var metas []livesync_model.Meta
+		require.NoError(t, db.GetEngine(t.Context()).Where("name LIKE ?", materialize.MetaBackfillPrefix+"%").Find(&metas))
+		done := 0
+		for _, m := range metas {
+			if m.Value == "done" {
+				done++
+			}
+		}
+		return done == len(catalog.Tracked())
+	}, livesyncWait, 20*time.Millisecond, "entity index backfill")
+}
+
+// livesyncToken creates an access token with every scope for user u
+// (directly in the database: fixture users cannot all sign in).
+func livesyncToken(t *testing.T, u *user_model.User) string {
+	t.Helper()
+	tok := &auth_model.AccessToken{UID: u.ID, Name: fmt.Sprintf("livesync-perm-%d", time.Now().UnixNano()), Scope: auth_model.AccessTokenScopeAll, ResourceAllRepos: true}
+	require.NoError(t, auth_model.NewAccessToken(t.Context(), tok))
+	return tok.Token
 }

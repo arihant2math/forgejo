@@ -946,7 +946,7 @@ does) **and** MySQL 8.0 (binlog on).
     empty, backfill done, writer token 1); dev DBs' triggers removed again afterwards.
 
 #### B4 — Permissions
-- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; round 3 (the open major item: MySQL permission-column triggers vs. upstream migrations) fixed — capture triggers reference only `id` again on every dialect, undone permission changes are caught by materializer touches, see *Review round 3*; round 4 (touches detached every running grant computation) fixed, see *Review round 4*; no open items)
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; round 3 (the open major item: MySQL permission-column triggers vs. upstream migrations) fixed — capture triggers reference only `id` again on every dialect, undone permission changes are caught by materializer touches, see *Review round 3*; round 4 (touches detached every running grant computation) fixed, see *Review round 4*; round 5 (per-call touch copies made `Invalidate` O(running × touched rows) under the cache mutex) fixed, see *Review round 5*; no open items)
 - **Scope:** `services/livesync/perm`: `Grants(ctx, user) → map[group]units` from
   `access_model.GetUserRepoPermission`, org/team membership, visibility; per-user cache
   shared across connections; permission epochs bumped by the materializer when it
@@ -962,7 +962,7 @@ does) **and** MySQL 8.0 (binlog on).
   private / removing a collaborator / removing from team bumps the epoch and drops the
   grant.
 - **Notes/decisions:**
-  - **Files.** `services/livesync/perm/{units,grants,cache,basis}.go` (+ SQLite unit tests `perm_test.go`, `basis_test.go`, `main_test.go`);
+  - **Files.** `services/livesync/perm/{units,grants,cache,basis,touches}.go` (+ SQLite unit tests `perm_test.go`, `basis_test.go`, `main_test.go`);
     `services/livesync/materialize/perm.go` (permission states / epochs) + changes in `materializer.go`, `specs.go`,
     `specs_render.go`, `load.go`, `index.go`, `backfill.go`, `epochs.go` (+ `perm_test.go`); `services/livesync/perms.go`
     (`permSink`, `Permissions()`), `settings.go` (`PERM_CACHE_TTL`), `livesync.go`, `writer.go`; `synclog/tailer.go`
@@ -1014,7 +1014,8 @@ does) **and** MySQL 8.0 (binlog on).
     running computations it may concern (users named; for repos/owners every running one, decided when it finishes), so a
     caller after the epoch (B5 re-checking a viewer) never joins a computation that read the data before the change; such a
     computation is cached only if none of the (≤ 64, else not cached) invalidations it overlapped concerns its result
-    (round 4: touches do not detach and are not counted, see *Review round 4* of B4). A
+    (round 4: touches do not detach and are not counted, see *Review round 4* of B4; round 5: they are kept once per cache
+    in a touch journal, see *Review round 5*). A
     computation runs in its own goroutine on `context.WithoutCancel` (≤ 1 min): a cancelled request stops waiting but does
     not fail the others. Grants and checks run in one quiet read transaction on the **master** (`capture.WithQuietTx`;
     replicas may lag behind an epoch). `Check` without cached grants loads the viewer and decides the one group (no full
@@ -1283,7 +1284,8 @@ does) **and** MySQL 8.0 (binlog on).
     epoch for **every** running computation: removed it from `inflight` (later callers for the same viewer started a
     duplicate computation) and appended the change to `call.changes`, so after 64 batches the result was never cached —
     single-flight was effectively off under the §4.11 write load and long computations were recomputed on every call.
-    *Fix (`perm/cache.go`):* a touch only **records** the touched rows' states on each running call (`call.touched`, a
+    *Fix (`perm/cache.go`; the per-call recording was replaced by one journal per cache in *Review round 5*, the rules
+    are unchanged):* a touch only **records** the touched rows' states on each running call (`call.touched`, a
     `Basis`: one entry per distinct row, `basisConflict` when one row is touched in two states — exactly equivalent to
     checking every touch on its own; bounded by `maxCallTouchedRows` = 65 536 rows, beyond which the call is stale and
     detached as before) and **does not detach** it nor count toward `maxCallChanges` (which now only counts repository /
@@ -1303,6 +1305,49 @@ does) **and** MySQL 8.0 (binlog on).
     the `continue` in `get`), one `touched` entry per row however often touched, a row touched in two states ⇒ stale,
     mixed epoch + touch (detached, touch recorded, not stored on the change), the row bound; `TestBasis` covers
     `staleAgainst` (conflict, symmetry, unread rows).
+    *Commands:* gofumpt (clean), golangci-lint `./services/livesync/...` (0 issues), `go vet`, deadcode diff (clean),
+    livesync unit tests with `-race`, `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 29 pass, 3 MySQL-only skips) and
+    MySQL 8.0 (31 pass, 1 skip), no testlogger "FATAL ERROR"; triggers untouched (no MariaDB run); protocol unchanged; fork
+    diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+
+  - **Review round 5 (orchestrator issue, fixed): one touch journal per cache instead of per-call copies.** *Problem:*
+    round 4 copied every touched row of a `P` entry into each running computation's own `call.touched` map (≤ 65 536 rows
+    each) while holding `c.mu`, so one entry cost running × touched rows map inserts and as much transient memory: a bulk
+    repository/user update (org rename `UPDATE repository SET owner_name=…`, `num_stars` recount — up to
+    `capture.DefaultBatchSize` = 1000 touches per entry, 500 entries per `Deliver`) during a reconnect storm stalled every
+    `Grants`/`Check` and the tailer's `permSink.Deliver` (fan-out) for seconds and allocated GBs — against PLAN §4.11
+    (per-delta cost must not scale with everything in flight). *Fix (`perm/touches.go`, `perm/cache.go`):* the cache keeps
+    one **`touchJournal`**: a seq per invalidation carrying touches, and per touched row one record `{last seq, last state,
+    seq of its last touch in another state}` in a map + a list ordered by last seq. A computation records only the seq at
+    its start (`call.since`); when it finishes, `journal.stale(basis, since)` decides per row it read: stale iff the row was
+    touched after `since` and (its last state differs from the one read, or it was touched in another state after `since`)
+    — exactly "some touch since the start had another state" (round 4's per-call `Basis` with `basisConflict`, now
+    `Basis.staleAgainst` is gone); iterates the smaller of basis and journal. Running computations sit in `Cache.tracking`
+    (ordered by `since`); when one finishes, records not touched after the oldest remaining `since` are trimmed from the
+    list front (amortised O(1) per touch), and the journal is dropped (fresh map: no spike memory kept) when nothing runs;
+    touches arriving while nothing runs only bump the seq. *Bound:* `maxTouchedRows` = 65 536 records for the whole cache
+    (was per call); beyond it every tracked computation loses its touches (`touchLost`: not cached, detached, callers that
+    joined after a touch compute again — the old per-call overflow rule) and the journal is cleared, O(running) but only
+    once per 65 536 distinct rows. `Invalidate` also loops over the running computations only for an epoch naming users /
+    repos / owners / all (`invalidateRunningLocked`), not for touch-only entries. Joining rule unchanged: a caller that
+    joins after any touch since the start (`journal.seq > since`) recomputes iff the result is touch-stale. *Cost now:*
+    `Invalidate` O(affected entries + entries that read a touched row + touched rows) for touches, whatever the number of
+    running computations; memory O(distinct rows touched since the oldest running computation started) ≤ 65 536 records.
+    *Measured* (scratch probe through `go test -overlay`, no repo file; HEAD~ = round 4 via a scratch worktree): 100
+    running + one 20k-row entry 3.6 ms / 9 MB (round 4: 351 ms / 318 MB); 1000 running, same 3.4 ms / 9 MB (3.28 s / 3.1
+    GB); 3000 running × 300 entries of 5 rows 0.46 ms total, max hold 44 µs (1.53 s, max 172 ms, 573 MB); 3000 running × 20
+    entries of 1000 rows 3.2 ms total / 6.7 MB (23.4 s, max 9.5 s, 9.4 GB). *Tests:* **`TestTouchJournal`** (unrelated
+    rows; state read once/twice; conflict basis; another state and back — stale for computations started before the other
+    state, not after; two states in one invalidation; journal-side iteration; trim order and floor; clear keeps the seq),
+    **`TestCacheTouchCostIndependentOfRunning`** (regression: `testing.AllocsPerRun` of `Invalidate` with 1000 fresh touched
+    rows is the same with 1 and 500 running computations, the journal holds one record per row for all of them, the viewer
+    whose read row was touched in another state is not cached and the 499 others are, journal and tracking empty
+    afterwards; verified to fail — 12 007 vs 2 028 allocs — with a per-call `Basis` copy put back into `touchLocked`),
+    `TestCacheTouchedWhileComputing` adapted (journal record counts, `reset` asserts nothing is kept when nothing runs;
+    the bound test: overflow ⇒ stale + `touchLost`, journal and tracking empty, the caller that joined after a touch does
+    not take the old result but joins the fresh computation); `TestBasis` lost its `staleAgainst` part (moved to
+    `TestTouchJournal`). *Not changed:* an epoch naming repositories/owners still appends to every running call's
+    `changes` (O(running), ≤ 64 per call, as since round 1; epochs are rare compared to touches).
     *Commands:* gofumpt (clean), golangci-lint `./services/livesync/...` (0 issues), `go vet`, deadcode diff (clean),
     livesync unit tests with `-race`, `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 29 pass, 3 MySQL-only skips) and
     MySQL 8.0 (31 pass, 1 skip), no testlogger "FATAL ERROR"; triggers untouched (no MariaDB run); protocol unchanged; fork

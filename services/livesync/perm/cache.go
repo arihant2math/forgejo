@@ -38,11 +38,6 @@ const computeTimeout = time.Minute
 // running computation; a computation that overlaps more is not cached.
 const maxCallChanges = 64
 
-// maxCallTouchedRows bounds the touched rows remembered per running
-// computation (one entry per distinct row, however often it is touched);
-// a computation that overlaps touches of more rows is not cached.
-const maxCallTouchedRows = 1 << 16
-
 // Cache holds the grants of recently active viewers, shared by all of a
 // viewer's connections on this instance (PLAN §4.5). Every instance's
 // tailer passes the permission epochs of the sync log to Invalidate, so a
@@ -79,6 +74,12 @@ type Cache struct {
 	// inflight by an invalidation).
 	inflight map[int64]*call
 	running  map[*call]struct{}
+	// touches remembers the touches since the oldest computation in
+	// tracking started, the running computations that still compare
+	// their result with them (by call.since, ascending: all but those
+	// that lost touches to the journal bound).
+	touches  touchJournal
+	tracking *list.List // of *call
 	// load computes a viewer's entry (Cache.compute; tests replace it).
 	load func(ctx context.Context, viewerID int64) (*cacheEntry, error)
 }
@@ -100,14 +101,16 @@ type call struct {
 	// touches), decided when it finishes.
 	stale   bool
 	changes []protocol.PermissionChange
-	// touched holds the state of every row touched since the computation
-	// started (basisConflict for a row touched in different states),
-	// compared with the result's basis when it finishes; touches counts
-	// the invalidations that carried touches. A caller that joins after a
-	// touch computes again when touchStale (the result's basis has another
-	// state of a touched row) instead of taking the result.
-	touched    Basis
-	touches    int
+	// since is the cache's touch seq when the computation started: the
+	// touches after it (in Cache.touches) are compared with the result's
+	// basis when it finishes. A caller that joins after a touch computes
+	// again when touchStale (the result's basis has another state of a row
+	// touched since) instead of taking the result. tracked is its element
+	// in Cache.tracking; nil once it lost touches (touchLost: the journal
+	// overflowed while it ran, so it counts as touchStale).
+	since      uint64
+	tracked    *list.Element
+	touchLost  bool
 	touchStale bool
 }
 
@@ -124,6 +127,7 @@ func NewCache(ttl time.Duration, size int) *Cache {
 		entries: map[int64]*list.Element{}, lru: list.New(),
 		byGroup: map[string]map[int64]struct{}{}, byRow: map[basisKey]map[int64]struct{}{},
 		inflight: map[int64]*call{}, running: map[*call]struct{}{},
+		touches: newTouchJournal(), tracking: list.New(),
 	}
 	c.load = c.compute
 	return c
@@ -206,13 +210,14 @@ func (c *Cache) get(ctx context.Context, viewerID int64) (*cacheEntry, error) {
 		c.mu.Lock()
 		cl := c.inflight[viewerID]
 		if cl == nil {
-			cl = &call{done: make(chan struct{}), viewer: viewerID}
+			cl = &call{done: make(chan struct{}), viewer: viewerID, since: c.touches.seq}
 			c.inflight[viewerID] = cl
 			c.running[cl] = struct{}{}
+			cl.tracked = c.tracking.PushBack(cl)
 			go c.run(context.WithoutCancel(ctx), cl)
 		}
 		// Joined after a touch: the result must not predate it.
-		afterTouch := cl.touches > 0
+		afterTouch := c.touches.seq > cl.since
 		c.mu.Unlock()
 		select {
 		case <-cl.done:
@@ -241,11 +246,12 @@ func (c *Cache) run(ctx context.Context, cl *call) {
 		delete(c.inflight, cl.viewer)
 	}
 	if err == nil {
-		cl.touchStale = entry.grants.basis.staleAgainst(cl.touched)
+		cl.touchStale = cl.touchLost || c.touches.stale(entry.grants.basis, cl.since)
 		if !cl.stale && !cl.touchStale && c.entries[cl.viewer] == nil && !anyAffects(cl.changes, cl.viewer, entry.grants) {
 			c.storeLocked(cl.viewer, entry)
 		}
 	}
+	c.untrackLocked(cl)
 	c.mu.Unlock()
 	close(cl.done)
 }
@@ -274,7 +280,7 @@ func (c *Cache) compute(ctx context.Context, viewerID int64) (e *cacheEntry, err
 }
 
 // anyAffects reports whether one of changes may change the grants g of
-// viewer (their touches are not looked at: see call.touched).
+// viewer (their touches are not looked at: see call.since).
 func anyAffects(changes []protocol.PermissionChange, viewer int64, g *Grants) bool {
 	for _, ch := range changes {
 		if affects(ch, viewer, g) {
@@ -372,40 +378,24 @@ func (c *Cache) removeLocked(viewerID int64) {
 // update, are kept). Running computations an epoch may concern (its
 // users' ones; all of them for repositories and owners) are detached, so
 // later callers do not get a result read before the change, and are not
-// cached if it does concern them. Touches only record the touched rows'
-// states on every running computation, without detaching it: they come
-// with almost every write batch, and detaching would defeat sharing
-// computations. The comparison with what it read is made when it
-// finishes: when it read another state, it is not cached and the callers
-// that joined after the touch compute again.
-// Cost: O(affected entries + entries that read a touched row + running
-// computations × touched rows).
+// cached if it does concern them. Touches are only recorded in the cache's
+// touch journal, without detaching running computations: they come with
+// almost every write batch, and detaching would defeat sharing
+// computations. A computation compares what it read with the touches since
+// it started when it finishes: when it read another state, it is not
+// cached and the callers that joined after a touch compute again.
+// Cost: O(affected entries + entries that read a touched row + touched
+// rows), plus O(running computations) for an epoch naming users,
+// repositories or owners (and when touches overflow the journal bound,
+// maxTouchedRows: then every running computation is not cached).
 func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for cl := range c.running {
-		detach := false
-		switch {
-		case ch.All || slices.Contains(ch.Users, cl.viewer):
-			cl.stale, detach = true, true
-		case len(ch.Repos) > 0 || len(ch.Owners) > 0:
-			// Whether it grants one of the groups is known only when it
-			// finishes.
-			if len(cl.changes) == maxCallChanges {
-				cl.stale = true
-			} else {
-				epoch := ch
-				epoch.Touched = nil // recorded below
-				cl.changes = append(cl.changes, epoch)
-			}
-			detach = true
-		}
-		if len(ch.Touched) > 0 && !cl.stale && !cl.touch(ch.Touched) {
-			cl.stale, detach = true, true
-		}
-		if detach && c.inflight[cl.viewer] == cl {
-			delete(c.inflight, cl.viewer)
-		}
+	if ch.All || len(ch.Users) > 0 || len(ch.Repos) > 0 || len(ch.Owners) > 0 {
+		c.invalidateRunningLocked(ch)
+	}
+	if len(ch.Touched) > 0 {
+		c.touchLocked(ch.Touched)
 	}
 	if ch.All {
 		c.entries = map[int64]*list.Element{}
@@ -432,20 +422,72 @@ func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 	}
 }
 
-// touch records touched rows' states on cl (see call.touched); false when
-// that would exceed maxCallTouchedRows.
-func (cl *call) touch(touched []protocol.PermissionTouch) bool {
-	if cl.touched == nil {
-		cl.touched = Basis{}
-	}
-	for _, t := range touched {
-		if _, ok := cl.touched[basisKey{t.Kind, t.ID}]; !ok && len(cl.touched) == maxCallTouchedRows {
-			return false
+// invalidateRunningLocked applies the epoch part of ch (not its touches)
+// to the running computations (see Invalidate).
+func (c *Cache) invalidateRunningLocked(ch protocol.PermissionChange) {
+	for cl := range c.running {
+		switch {
+		case ch.All || slices.Contains(ch.Users, cl.viewer):
+			cl.stale = true
+		case len(ch.Repos) > 0 || len(ch.Owners) > 0:
+			// Whether it grants one of the groups is known only when it
+			// finishes.
+			if len(cl.changes) == maxCallChanges {
+				cl.stale = true
+			} else {
+				epoch := ch
+				epoch.Touched = nil // in the touch journal
+				cl.changes = append(cl.changes, epoch)
+			}
+		default:
+			continue
 		}
-		cl.touched.add(t.Kind, t.ID, t.State)
+		c.detachLocked(cl)
 	}
-	cl.touches++
-	return true
+}
+
+// touchLocked records touched in the touch journal for the running
+// computations (see call.since). When that makes the journal exceed
+// maxTouchedRows, the computations it is kept for lose their touches: they
+// are not cached, are detached (like after an epoch that may concern
+// them), and their callers that joined after a touch compute again.
+func (c *Cache) touchLocked(touched []protocol.PermissionTouch) {
+	seq := c.touches.next()
+	if c.tracking.Len() == 0 {
+		return // nobody started before it
+	}
+	c.touches.record(seq, touched)
+	if len(c.touches.rows) <= maxTouchedRows {
+		return
+	}
+	for el := c.tracking.Front(); el != nil; el = c.tracking.Front() {
+		cl := el.Value.(*call)
+		cl.stale, cl.touchLost = true, true
+		c.detachLocked(cl)
+		c.untrackLocked(cl)
+	}
+}
+
+// detachLocked keeps later callers from joining cl.
+func (c *Cache) detachLocked(cl *call) {
+	if c.inflight[cl.viewer] == cl {
+		delete(c.inflight, cl.viewer)
+	}
+}
+
+// untrackLocked stops keeping touches for cl and forgets those that no
+// tracked computation needs any more.
+func (c *Cache) untrackLocked(cl *call) {
+	if cl.tracked == nil {
+		return
+	}
+	c.tracking.Remove(cl.tracked)
+	cl.tracked = nil
+	if front := c.tracking.Front(); front != nil {
+		c.touches.trim(front.Value.(*call).since)
+	} else {
+		c.touches.clear()
+	}
 }
 
 // DecodeChange returns the PermissionChange of a sync log entry; ok is false

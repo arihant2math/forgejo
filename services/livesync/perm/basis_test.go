@@ -4,6 +4,7 @@
 package perm
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -43,25 +44,6 @@ func TestBasis(t *testing.T) {
 	assert.True(t, b.Stale(touch(protocol.TouchRepository, 7, "true,3")))
 	assert.True(t, b.Stale(touch(protocol.TouchRepository, 7, "false,3")))
 	assert.False(t, Basis(nil).Stale(touch(protocol.TouchRepository, 7, "true,3")))
-
-	// staleAgainst: the touches recorded by a running computation.
-	read := Basis{{protocol.TouchRepository, 7}: "true,3", {protocol.TouchUser, 3}: "u"}
-	touched := Basis{}
-	assert.False(t, read.staleAgainst(nil))
-	assert.False(t, Basis(nil).staleAgainst(touched))
-	for i := range 10 {
-		touched.add(protocol.TouchRepository, int64(100+i), "false,1") // rows it did not read
-	}
-	assert.False(t, read.staleAgainst(touched))
-	touched.add(protocol.TouchRepository, 7, "true,3")
-	assert.False(t, read.staleAgainst(touched), "the state it read")
-	assert.False(t, touched.staleAgainst(read), "symmetric")
-	touched.add(protocol.TouchRepository, 7, "true,3")
-	assert.False(t, read.staleAgainst(touched), "touched twice in the state it read")
-	touched.add(protocol.TouchRepository, 7, "false,3")
-	assert.True(t, read.staleAgainst(touched), "touched in two states: one is not the state it read")
-	assert.True(t, Basis{{protocol.TouchRepository, 7}: basisConflict}.staleAgainst(touched), "conflict against conflict")
-	assert.True(t, read.staleAgainst(Basis{{protocol.TouchUser, 3}: "v"}), "another state")
 }
 
 func exec(t *testing.T, query string, args ...any) {
@@ -260,6 +242,8 @@ func TestCacheTouchedWhileComputing(t *testing.T) {
 		defer c.mu.Unlock()
 		assert.Empty(t, c.running)
 		assert.Empty(t, c.inflight)
+		assert.Zero(t, c.tracking.Len())
+		assert.Empty(t, c.touches.rows, "touches kept with no computation running")
 	}
 
 	// Stale against the touch: the caller before it gets the result, the
@@ -319,7 +303,7 @@ func TestCacheTouchedWhileComputing(t *testing.T) {
 	assert.Same(t, ga, <-alsoLater)
 	assert.Same(t, ga, c.cachedGrants(6), "not cached after unrelated touches")
 
-	// Recorded touches are one per row, however often it is touched.
+	// Touches are recorded once per row, however often it is touched.
 	reset()
 	a = asyncGrants(ctx, c, 6)
 	req = next()
@@ -330,9 +314,9 @@ func TestCacheTouchedWhileComputing(t *testing.T) {
 		}})
 	}
 	c.mu.Lock()
+	assert.Len(t, c.touches.rows, 2)
 	for cl := range c.running {
-		assert.Len(t, cl.touched, 2)
-		assert.Equal(t, 3, cl.touches)
+		assert.Equal(t, uint64(3), c.touches.seq-cl.since)
 		assert.False(t, cl.stale)
 	}
 	c.mu.Unlock()
@@ -369,8 +353,8 @@ func TestCacheTouchedWhileComputing(t *testing.T) {
 	for cl := range c.running {
 		require.Len(t, cl.changes, 1)
 		assert.Empty(t, cl.changes[0].Touched)
-		assert.Len(t, cl.touched, 1)
 	}
+	assert.Len(t, c.touches.rows, 1)
 	c.mu.Unlock()
 	later = asyncGrants(ctx, c, 6)
 	req2 = next() // detached by the epoch
@@ -381,29 +365,173 @@ func TestCacheTouchedWhileComputing(t *testing.T) {
 	<-later
 	assert.NotNil(t, c.cached(6))
 
-	// The touched rows remembered per computation are bounded.
+	// The touched rows remembered are bounded: beyond the bound, the
+	// running computations lose their touches (not cached, detached, and
+	// the callers that joined after a touch compute again).
 	reset()
 	a = asyncGrants(ctx, c, 6)
 	req = next()
+	c.Invalidate(touchOf(1, "false,2"))
+	joined := asyncGrants(ctx, c, 6)
+	noMore()
 	many := protocol.PermissionChange{}
-	for i := range maxCallTouchedRows + 1 {
+	for i := range maxTouchedRows + 1 {
 		many.Touched = append(many.Touched, protocol.PermissionTouch{Kind: protocol.TouchUser, ID: int64(1 + i), State: "u"})
 	}
 	c.Invalidate(many)
 	c.mu.Lock()
 	for cl := range c.running {
-		assert.LessOrEqual(t, len(cl.touched), maxCallTouchedRows)
 		assert.True(t, cl.stale)
+		assert.True(t, cl.touchLost)
 	}
+	assert.Empty(t, c.touches.rows)
+	assert.Zero(t, c.tracking.Len())
 	c.mu.Unlock()
 	later = asyncGrants(ctx, c, 6)
 	req2 = next() // detached
-	req.answer <- grantsOf(6)
-	<-a
+	req.answer <- grantsOf(6, "repo:9")
+	assert.Contains(t, groupsOf(<-a), "repo:9", "asked before the touches")
 	assert.Nil(t, c.cached(6))
+	noMore() // the caller that joined after a touch joins the fresh computation
 	req2.answer <- grantsOf(6)
-	<-later
-	assert.NotNil(t, c.cached(6))
+	gl := <-later
+	assert.Same(t, gl, <-joined, "joined after a touch: took a result read before it")
+	assert.Same(t, gl, c.cachedGrants(6))
+	noMore()
+}
+
+func TestTouchJournal(t *testing.T) {
+	j := newTouchJournal()
+	read := Basis{{protocol.TouchRepository, 7}: "true,3", {protocol.TouchUser, 3}: "u"}
+	touch := func(kind string, id int64, state string) protocol.PermissionTouch {
+		return protocol.PermissionTouch{Kind: kind, ID: id, State: state}
+	}
+	assert.False(t, j.stale(read, 0), "no touches")
+	assert.False(t, j.stale(nil, 0))
+
+	// Touches of rows it did not read.
+	s1 := j.next()
+	var unrelated []protocol.PermissionTouch
+	for i := range 10 {
+		unrelated = append(unrelated, touch(protocol.TouchRepository, int64(100+i), "false,1"))
+	}
+	j.record(s1, unrelated)
+	assert.False(t, j.stale(read, 0))
+	assert.False(t, j.stale(nil, 0))
+
+	// The state it read, once or more.
+	s2 := j.next()
+	j.record(s2, []protocol.PermissionTouch{touch(protocol.TouchRepository, 7, "true,3")})
+	assert.False(t, j.stale(read, 0), "the state it read")
+	s3 := j.next()
+	j.record(s3, []protocol.PermissionTouch{touch(protocol.TouchRepository, 7, "true,3")})
+	assert.False(t, j.stale(read, 0), "touched twice in the state it read")
+	assert.Len(t, j.rows, 11, "one record per row")
+	assert.True(t, j.stale(Basis{{protocol.TouchRepository, 7}: basisConflict}, 0), "read in two states: any touch")
+	assert.False(t, j.stale(Basis{{protocol.TouchRepository, 7}: basisConflict}, s3), "no touch since")
+
+	// Another state, then back: stale for computations that started
+	// before the other state's touch, not for those after it.
+	s4 := j.next()
+	j.record(s4, []protocol.PermissionTouch{touch(protocol.TouchRepository, 7, "false,3")})
+	assert.True(t, j.stale(read, 0))
+	assert.True(t, j.stale(read, s3))
+	s5 := j.next()
+	j.record(s5, []protocol.PermissionTouch{touch(protocol.TouchRepository, 7, "true,3")})
+	assert.True(t, j.stale(read, 0), "touched in two states since: one is not the state it read")
+	assert.True(t, j.stale(read, s3))
+	assert.False(t, j.stale(read, s4), "only the state it read since")
+	assert.True(t, j.stale(Basis{{protocol.TouchRepository, 7}: "false,3"}, s4), "another state since")
+	assert.False(t, j.stale(read, s5), "nothing since")
+
+	// Two states in one invalidation.
+	s6 := j.next()
+	j.record(s6, []protocol.PermissionTouch{touch(protocol.TouchUser, 3, "v"), touch(protocol.TouchUser, 3, "u")})
+	assert.True(t, j.stale(read, s5))
+	assert.False(t, j.stale(read, s6))
+
+	// The journal is iterated when it is the smaller side.
+	big := Basis{}
+	for i := range 100 {
+		big.add(protocol.TouchUser, int64(1000+i), "x")
+	}
+	big.add(protocol.TouchUser, 3, "u")
+	assert.True(t, j.stale(big, s5))
+	assert.False(t, j.stale(big, s6))
+
+	// Trimming keeps the rows touched after the floor, in order.
+	j.trim(s3)
+	assert.Len(t, j.rows, 2, "rows 7 (s5) and user 3 (s6)")
+	assert.True(t, j.stale(read, s3))
+	j.trim(s5)
+	assert.Len(t, j.rows, 1)
+	assert.Equal(t, basisKey{protocol.TouchUser, 3}, j.order.Front().Value.(*touchRecord).key)
+	assert.True(t, j.stale(read, s5))
+	j.clear()
+	assert.Empty(t, j.rows)
+	assert.Zero(t, j.order.Len())
+	assert.Equal(t, s6, j.seq, "the seq goes on")
+}
+
+// Regression (review round 5): recording touches costs the same whatever
+// the number of running computations (it used to copy every touched row
+// into each running computation, O(running × touched rows) under the
+// cache mutex), and the journal keeps a row once, for all of them, and
+// only while a computation that started before its touch runs.
+func TestCacheTouchCostIndependentOfRunning(t *testing.T) {
+	ctx := t.Context()
+	measure := func(running int) float64 {
+		c := NewCache(time.Minute, running+10)
+		gate := make(chan struct{})
+		c.load = func(ctx context.Context, viewerID int64) (*cacheEntry, error) {
+			<-gate
+			g := grantsOf(viewerID)
+			g.basis = Basis{{protocol.TouchRepository, viewerID}: "false,1"}
+			return &cacheEntry{grants: g, viewer: &user_model.User{ID: viewerID}, expires: c.now().Add(c.ttl)}, nil
+		}
+		results := make([]chan *Grants, running)
+		for i := range running {
+			results[i] = asyncGrants(ctx, c, int64(1+i))
+		}
+		require.Eventually(t, func() bool {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			return len(c.running) == running
+		}, 10*time.Second, time.Millisecond)
+
+		next := int64(1 << 20)
+		const rows = 1000
+		allocs := testing.AllocsPerRun(20, func() {
+			ch := protocol.PermissionChange{Touched: make([]protocol.PermissionTouch, 0, rows)}
+			for range rows {
+				next++
+				ch.Touched = append(ch.Touched, protocol.PermissionTouch{Kind: protocol.TouchRepository, ID: next, State: "true,1"})
+			}
+			c.Invalidate(ch)
+		})
+		c.mu.Lock()
+		assert.Len(t, c.touches.rows, 21*rows, "one record per touched row for all computations")
+		c.mu.Unlock()
+
+		// Viewer 1 read a row touched in another state: not cached; the
+		// others are; the journal is empty once nothing runs.
+		c.Invalidate(protocol.PermissionChange{Touched: []protocol.PermissionTouch{{Kind: protocol.TouchRepository, ID: 1, State: "true,1"}}})
+		close(gate)
+		for _, res := range results {
+			<-res
+		}
+		assert.Nil(t, c.cached(1))
+		for i := 2; i <= running; i++ {
+			assert.NotNil(t, c.cached(int64(i)))
+		}
+		c.mu.Lock()
+		assert.Empty(t, c.touches.rows)
+		assert.Zero(t, c.tracking.Len())
+		c.mu.Unlock()
+		return allocs
+	}
+	one, many := measure(1), measure(500)
+	assert.LessOrEqual(t, many, one+1, "allocations of Invalidate grow with the running computations")
 }
 
 // cachedGrants returns the viewer's cached grants, or nil.

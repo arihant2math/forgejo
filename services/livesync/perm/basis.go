@@ -92,23 +92,3 @@ func (b Basis) Stale(touched []protocol.PermissionTouch) bool {
 	}
 	return false
 }
-
-// staleAgainst is Stale for the touches recorded by a running computation
-// (call.touched): a row touched in different states (basisConflict) is
-// stale for any state b recorded.
-func (b Basis) staleAgainst(touched Basis) bool {
-	if len(touched) < len(b) {
-		for k, t := range touched {
-			if s, ok := b[k]; ok && (s != t || t == basisConflict) {
-				return true
-			}
-		}
-		return false
-	}
-	for k, s := range b {
-		if t, ok := touched[k]; ok && (s != t || t == basisConflict) {
-			return true
-		}
-	}
-	return false
-}

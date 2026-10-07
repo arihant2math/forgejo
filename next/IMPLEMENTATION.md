@@ -1360,8 +1360,8 @@ does) **and** MySQL 8.0 (binlog on).
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; the final review's open item (flaky `TestHeldEntries`/`TestTouches`) fixed 2026-10-07 — a real, if mild, product bug, plus two siblings — see *Final-review open item*; its re-review's item (a delta claimed a re-bootstrap marker's position before the marker's `bootstrap_required`) fixed 2026-10-07 for every `bootstrap_required` path — see *Final-review round 2*; its re-review's item (a missed
   `permission_changed` is not told again on resume, though the contract said so) fixed 2026-10-07 by correcting the client contract
-  — see *Final-review round 3*; **one open item** from its re-review (major: removing the `permission_changed` cap loses entities in
-  the "changed and undone" case) — see *Open item: round-3 re-review*)
+  — see *Final-review round 3*; its re-review's item (removing the `permission_changed` cap lost entities in the "changed and
+  undone" case) fixed 2026-10-07 by restoring the cap — see *Round-3 re-review*; no open items)
 - **Scope:** `services/livesync/protocol` message types (`hello`, `welcome`,
   `subscribe`/`unsubscribe`, `delta`, `caught_up`, `bootstrap_required`,
   `group_revoked`, `barrier`/`barrier_ok`, `session_invalid`, `notice`, `pong`,
@@ -1417,7 +1417,8 @@ does) **and** MySQL 8.0 (binlog on).
       `bootstrap_required{permission_changed}`. That message goes only to the subscriptions that saw the change; a new session cannot
       derive it (it does not know the units the client had), so a client that missed it learns it from the units of its next grant —
       whatever position it resumes from. Equal units need nothing even if they changed and changed back meanwhile: replays and live
-      changes are filtered by the current units (`TestPermissionChangedResume`).
+      changes are filtered by the current units, and no frame before `permission_changed` claims past the subscription's hold, so the
+      client's position never passes the held entries the new units dropped (`TestPermissionChangedResume`; round-3 re-review).
     - **Replays give states, not history**: a replay sends each entity once, as it is at the hub's position (or a delete). A client
       resuming from a position therefore never sees intermediate states it did not receive live (edited/redacted text, a profile before
       it went private), whatever `since` it claims; what it can get is what a bootstrap would give it now. The ids of entities deleted
@@ -1426,7 +1427,8 @@ does) **and** MySQL 8.0 (binlog on).
     - `bootstrap_required` and `group_revoked` carry no position; the server guarantees that no frame before them claims a
       position (`delta.to`) past what they are about (a marker's sync id − 1, a suspended subscription's hold, the position before
       a retention skip), so resuming from the last position received replays the reason again (final review round 2) — for every
-      reason except `permission_changed`, which the units rule covers instead (round 3).
+      reason except `permission_changed`, which the units rule covers instead (round 3); before `permission_changed` too no frame
+      claims past the hold, so that equal units after a change undone meanwhile leave no gap (round-3 re-review).
   - **Hub** (`services/livesync/hub`, PLAN §4.6/§4.11). The hub is the tailer's sink (`permSink{cache, next: hub}`): `permSink`
     applies epochs to the grant cache first, then `Hub.Deliver` handles the batch **in log order under one hub lock**:
     - **Fan-out** (entity entries): `byGroup[grp]` → live subscriptions whose units allow the entry (`perm.UnitSet.Allows`) and whose
@@ -1473,8 +1475,9 @@ does) **and** MySQL 8.0 (binlog on).
       `conn.mu`), so whatever changes what `to` may claim must change in the same `conn.mu` critical section that queues what the claim
       depends on, or before the writer is woken — never after (see *Final-review open item*). A message that tells the client a
       caught-up group is complete only up to some position (`bootstrap_required`, `group_revoked`) caps the last delta queued
-      before it (`conn.capLocked` → `outItem.maxTo`, applied in `take`; see *Final-review round 2*) — except
-      `permission_changed`, which a resume does not re-derive from any position (round 3).
+      before it (`conn.capLocked` → `outItem.maxTo`, applied in `take`; see *Final-review round 2*) — also
+      `permission_changed`, which a resume does not re-derive (round 3), so that the client's position never passes held entries the
+      new units drop (round-3 re-review).
     - **Backpressure**: per-session queue bounded by `SEND_BUFFER` bytes, **live changes and control messages** (review round 1: pongs,
       errors, …; control messages are encoded when queued, so their size is exact; one item larger than the buffer may enter an empty
       queue, else it could never be sent); replays wait for room instead. Overflow ⇒ the unsent queue is dropped,
@@ -1695,7 +1698,7 @@ does) **and** MySQL 8.0 (binlog on).
       legal: a marker at sync id 1) and is called in the critical section that queues the message: markers `limit = sync id − 1`
       (`sendDelivered(msg, limit)` in `markerLocked`; `heldItem.at` keeps the held marker's sync id for `releaseHeldLocked`; the replay
       uses `sendCapped`), `permission_changed`/`restartLive` at the subscription's hold (`sendAtHold`; nothing when it replays;
-      **round 3: wrong for `permission_changed`, the cap is gone — see below**),
+      round 3 removed it for `permission_changed`, the round-3 re-review restored it — see below),
       `Skipped` at `from`, `revokeLocked` at the hold (its inline loop replaced). Lowering `to` is always safe (positions are the highest
       `v` raised to `to`); the cost is a lagging position after a marker in a quiet session — a resume from it meets the marker once more
       (one extra `bootstrap_required`), never a loss.
@@ -1717,7 +1720,8 @@ does) **and** MySQL 8.0 (binlog on).
   - **Final-review round 3: a missed `permission_changed` is never told again on resume (major, fixed 2026-10-07).** Round 2 listed
     `permission_changed` as case (d) and capped the delta before it at the subscription's hold (`sendAtHold`), and wrote into the
     client contract (`messages.go`, Positions above) that a client resuming from its position after missing a `bootstrap_required`
-    "is told again". The cap restores nothing for this reason: a new session checks the group with the current units and replays
+    "is told again". The cap does not make a resume tell this reason (but see *Round-3 re-review*: it is still needed so the
+    position does not pass entries the client never got): a new session checks the group with the current units and replays
     `(since, now]` filtered by them; it does not know which units the client had, so it never produces `permission_changed`. The
     reviewer's overlay (user4 leaves org3 after a `repo:1` delta; frames `delta to=2`, `grants`, `bootstrap_required{org:3,
     permission_changed}`; a session resuming `org:3` from 2 got `welcome granted [{org:3 units:[]}]`, `caught_up`) showed it. A client
@@ -1733,8 +1737,8 @@ does) **and** MySQL 8.0 (binlog on).
       still not exact. The grant already carries the exact information: the units are what `check` compares, so the client-side
       comparison catches exactly the missed changes (the units rule above). `messages.go`: the Positions paragraph excludes
       `permission_changed`, `GroupRequest` documents the units rule, `BootstrapPermissionChanged` says it is not sent again on resume
-      (`types.gen.ts` regenerated: doc comments only). `check` now queues `permission_changed` with a plain `send` (the cap only made
-      positions lag); `sendAtHold` documents that it is for re-derived reasons only (`restartLive`).
+      (`types.gen.ts` regenerated: doc comments only). `check` queued `permission_changed` with a plain `send` (wrongly: "the cap
+      only made positions lag" — reverted in the round-3 re-review).
     - **Follow-ups for later milestones.** B6: the bootstrap response must state the units it was filtered by (header line next to
       `watermark`), since after a live `permission_changed` that is what the client's data is filtered by. B10/F2: the client keeps
       units per group and compares them with every grant (welcome, subscribed) before applying the replay.
@@ -1742,7 +1746,7 @@ does) **and** MySQL 8.0 (binlog on).
       `permission_changed` and resumes from the hub's position: grant units `[]` ≠ held `[members]`), `units grew` (none ⇒ members;
       grant `[members]`, and the older members-only entity is not in the replay — only a bootstrap brings it), `changed and undone`
       (members ⇒ none ⇒ members while away: same units, and the replay sends the members-only entity written meanwhile). The
-      `permission changed` subtest of `TestBootstrapCapsQueuedFrame` (it asserted the cap) is removed. The reviewer's overlay still
+      `permission changed` subtest of `TestBootstrapCapsQueuedFrame` (it asserted the cap) was removed (restored by the re-review). The reviewer's overlay still
       fails by design (it expects `bootstrap_required` on resume, which the contract no longer promises).
     - **Commands:** hub package `-race -count=5` green; the new/related tests `-race -count=40` green; livesync + `routers/livesync`
       unit tests `-race` (`capture` needs a real DB, not run on SQLite); `TestLivesync*|TestVersion` on PG 16 (`gtestschema`) and
@@ -1750,36 +1754,37 @@ does) **and** MySQL 8.0 (binlog on).
       (0 issues), `go vet`, deadcode diff clean, `gen-protocol.sh --check` up to date; fork diff unchanged (`assets/go-licenses.json`,
       `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
 
-  - **Open item: round-3 re-review — removing the `permission_changed` cap loses entities in the "changed and undone" case
-    (major, OPEN).** Commit 7123a93 made `check` (`services/livesync/hub/replay.go` ~258-263) queue
-    `bootstrap_required{permission_changed}` with a plain `c.send`, dropping `sendAtHold`, on the grounds that "the cap restored
-    nothing". Wrong: the units rule ("a change undone in between needs nothing: replays and live changes are filtered by the current
-    units", `protocol.GroupRequest`, `messages.go` ~79-87) holds only if the client's position never moves past entries it did not
-    get. Without the cap, the delta queued before `permission_changed` is taken after `releaseHeldLocked` removed the hold; as the
-    last delta of its batch, `take` lets it claim `to = h.pos`, past the hold.
-    - **Loss scenario.** (1) Held entries the new units drop are never sent (e.g. a members-only entity after the viewer leaves the
-      org). (2) The session breaks after that delta and before `bootstrap_required`: the client's position is past the dropped
-      entries. (3) The permission is restored before reconnect. (4) The resumed grant's units equal the held units, so the client does
-      nothing. (5) The replay starts after the dropped entries — the members-only entity is lost for good. With round 2's cap the frame
-      claimed at most the hold, and the replay from there included the entity (filtered by the restored units).
-    - **Evidence (reviewer's scratch overlay, no repo files changed).** `zz_undo_test.go` + `overlay.json` (scratchpad `ov3/`), run
-      `go test -tags 'sqlite sqlite_unlock_notify' -overlay .../ov3/overlay.json ./services/livesync/hub/ -run
-      TestZZPermChangedUndoneAfterBreak`: user4 subscribes `org:3` (units `[members]`) and `repo:1`; a `repo:1` delta is queued; user4
-      leaves org3; the epoch is delivered with `upsert(org:3, Team 9, UnitMembers)` at v=3; user4 rejoins; a new session resumes
-      `org:3` from the claimed position. At HEAD: frames `delta to=3`, `grants`, `bootstrap_required{org:3, permission_changed}`; the
-      resume from 3 gets `granted [{org:3 [members]}]` and `caught_up sync_id=4`, no delta — fails ("the org:3 entry at 3 ... is
-      lost"). With HEAD~1's `replay.go` (`overlay_old.json`): frame claims `to=2`, the resume replays Team 9 v=3, passes.
-      `TestPermissionChangedResume/changed and undone` misses this because it stops the client (`cl.c.stop()`) before the change, so
-      no frame can claim past the hold.
-    - **Fix to do.** Restore `c.sendAtHold(s, ...)` for `permission_changed` (the resume still does not re-derive the reason — the
-      units rule covers that; the cap is needed so an undone change leaves no gap in positions). Correct the `sendAtHold` comment in
-      `conn.go`, the `replay.go` comment, and the round-2/round-3 notes above ("the cap restores nothing" / "the cap is gone"). Add a
-      `TestPermissionChangedResume` case: change while connected, break after the frame before `bootstrap_required`, undo, resume,
-      expect the dropped entity in the replay.
-    - **Reviewer checks otherwise.** The rest of round 3 (option (b), contract wording, grants carrying the decision's units,
-      stale-check handling in `subscribeLocked`) is sound by inspection; hub `-race -count=2` ok; `TestPermissionChangedResume`,
-      `TestBootstrapCapsQueuedFrame`, `TestPermissionChangedUnits` `-race -count=30` ok; protocol and perm ok; `gen-protocol.sh
-      --check` up to date.
+  - **Round-3 re-review: removing the `permission_changed` cap lost entities in the "changed and undone" case (major, fixed
+    2026-10-07).** Round 3 made `check` (`replay.go`) queue `bootstrap_required{permission_changed}` with a plain `c.send` instead of
+    `c.sendAtHold`, reasoning that the cap restored nothing. But the units rule ("equal units need nothing even if they changed and
+    changed back") holds only if the client's position never passes entries it did not get. Without the cap, the delta queued before
+    `permission_changed` was taken after `releaseHeldLocked` removed the hold and, as the last delta of its batch, claimed
+    `to = h.pos`, past the hold.
+    - **Loss scenario.** Held entries the new units drop are never sent (a members-only entity after the viewer leaves the org);
+      the session breaks after that delta and before `bootstrap_required` — the client's position is past them; the permission is
+      restored before the reconnect; the resumed grant's units equal the held ones, so the client does nothing; the replay starts
+      after the dropped entries — lost for good. Reviewer's overlay (`TestZZPermChangedUndoneAfterBreak`): frames `delta to=3`,
+      `grants`, `bootstrap_required{org:3, permission_changed}`; the resume of `org:3` from 3 got `granted [members]`, `caught_up`,
+      no Team v=3.
+    - **Fix.** `check` queues `permission_changed` with `c.sendAtHold(s, …)` again: frames before it claim at most the hold; the
+      held entries the new units drop are not sent, and a resume from the hold after the change was undone replays them (filtered by
+      the restored units); if it was not undone the grant's units differ and the client bootstraps. The rest of round 3 stays (units
+      rule, contract wording, grants carrying units): the cap is not what tells a missed `permission_changed`, the grant is.
+      Comments corrected (`conn.sendAtHold`: re-derived reasons, and `permission_changed` for positions; `replay.go`). The original
+      ordering fix (*Final-review open item*: the hold changes in the `conn.mu` section that queues the held entries) is untouched:
+      `releaseHeldLocked` still deletes the hold and queues the held entries under one `conn.mu`.
+    - **Tests.** `TestPermissionChangedResume/changed while connected and undone` (user4 live on `org:3` (members) and `repo:1`; a
+      `repo:1` delta queued; user4 leaves org3, the epoch arrives with a members-only `org:3` Team entry, which is held and dropped by
+      the new units; the client's frames up to `bootstrap_required` are taken (manual writer) and the claimed `to` must be below the
+      Team entry; user4 rejoins; a resume from that `to` gets grant units `[members]` and the Team entry in the replay).
+      `TestBootstrapCapsQueuedFrame/permission changed` restored (claims the epoch, not the hub position). Both fail against
+      7123a93's `replay.go` (`to` 3 vs < 3; 3 vs 2); the reviewer's overlay passes.
+    - **Commands:** hub package `-race -count=50` green (235 s; the ordering fix of *Final-review open item* holds); livesync +
+      `routers/livesync` unit tests `-race` (`capture` needs a real DB); `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 31
+      pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), plus `TestLivesyncHub*` `-count=3` on both, no testlogger
+      "FATAL ERROR"; gofumpt clean, golangci-lint `services/livesync/...` + `routers/livesync/...` (0 issues), `go vet`, deadcode
+      diff clean, `gen-protocol.sh --check` up to date (no protocol change); fork diff unchanged (`assets/go-licenses.json`,
+      `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
 
 #### B6 — Bootstrap + partial load
 - [ ] **Status**

@@ -255,12 +255,17 @@ func (h *Hub) check(s *sub) {
 		h.revokeLocked(s)
 	default:
 		if d.Units != s.units {
-			// Not capped at the hold (conn.sendAtHold): a resume does not
-			// tell permission_changed again, whatever position it starts
-			// from (the server does not know the units the client had).
-			// The client compares the units of the resumed group's grant
-			// with those it holds instead (see protocol.GroupRequest).
-			c.send(&protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapPermissionChanged})
+			// A resume does not tell permission_changed again (the server
+			// does not know the units the client had): the client
+			// compares the units of the resumed group's grant with those
+			// it holds (see protocol.GroupRequest). Equal units need
+			// nothing only if its position is not past entries it never
+			// got, so frames queued before this one still claim no more
+			// than the hold (conn.sendAtHold): the held entries the new
+			// units drop are not sent, and when the change is undone
+			// before the client resumes, the replay from the hold brings
+			// them.
+			c.sendAtHold(s, &protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapPermissionChanged})
 		}
 		h.setDecisionLocked(s, d)
 		if s.state == stateRecheck && s.holding {

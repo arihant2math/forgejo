@@ -710,6 +710,25 @@ func TestBootstrapCapsQueuedFrame(t *testing.T) {
 		resumeGetsBootstrap(x, 2, "repo:1", to, protocol.RebootstrapPlacementChanged)
 	})
 
+	t.Run("permission changed", func(t *testing.T) {
+		// user4 leaves org3 (members ⇒ none); a delta of repo:1 queued
+		// before the epoch is taken after both re-checks. A resume does
+		// not tell permission_changed again (the grant's units do), but the
+		// position must not pass the entries held meanwhile (see
+		// TestPermissionChangedResume).
+		x := newHarness(t, Config{})
+		cl := helloManual(x, 4, "org:3", "repo:1")
+		x.append(label(1, "a"))
+		x.deliver()
+		_, err := db.GetEngine(t.Context()).Exec("DELETE FROM org_user WHERE org_id = 3 AND uid = 4")
+		require.NoError(t, err)
+		x.epoch(protocol.PermissionChange{Users: []int64{4}}, upsert("repo:2", protocol.ModelLabel, 1, protocol.UnitIssuesOrPulls))
+		p := x.h.pos.Load() - 1
+		waitLive(x, cl, "org:3", "repo:1")
+		msgs := cl.take()
+		assert.Equal(t, p, claimsBefore(t, msgs, "org:3"), "org:3's hold (the epoch), not the hub's position (%d)", p+1)
+	})
+
 	t.Run("trimmed", func(t *testing.T) {
 		// The tailer skips trimmed entries; nothing of repo:1 after them.
 		x := newHarness(t, Config{})

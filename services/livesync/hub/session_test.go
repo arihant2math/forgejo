@@ -322,10 +322,12 @@ func TestPermissionChangedUnits(t *testing.T) {
 // it (the client contract in protocol.GroupRequest): a change undone in
 // between needs nothing, the replay is filtered by the current units.
 func TestPermissionChangedResume(t *testing.T) {
-	leave := func(t *testing.T, x *harness) {
+	// leave: user4 leaves org3 (members ⇒ none); more is delivered with
+	// the epoch.
+	leave := func(t *testing.T, x *harness, more ...synclog.Entry) {
 		_, err := db.GetEngine(t.Context()).Exec("DELETE FROM org_user WHERE org_id = 3 AND uid = 4")
 		require.NoError(t, err)
-		x.epoch(protocol.PermissionChange{Users: []int64{4}})
+		x.epoch(protocol.PermissionChange{Users: []int64{4}}, more...)
 	}
 	join := func(t *testing.T, x *harness) {
 		_, err := db.GetEngine(t.Context()).Exec("INSERT INTO org_user (id, uid, org_id, is_public) VALUES (2, 4, 3, ?)", false)
@@ -408,6 +410,42 @@ func TestPermissionChangedResume(t *testing.T) {
 		units, chs := resume(t, x, pos)
 		assert.Equal(t, members, units, "same units: nothing to bootstrap")
 		assert.Equal(t, []int64{team}, versions(chs), "the replay sends what changed meanwhile")
+	})
+
+	t.Run("changed while connected and undone", func(t *testing.T) {
+		// The members-only entity delivered with the epoch is held during
+		// the re-check, then dropped by the new units. The session breaks
+		// after the repo:1 delta queued before the epoch (before
+		// bootstrap_required); user4 rejoins before the client resumes.
+		x := newHarness(t, Config{})
+		cl := x.connectManual()
+		cl.send(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u4", Groups: []protocol.GroupRequest{{Group: "org:3"}, {Group: "repo:1"}}})
+		msgs := cl.take()
+		require.Equal(t, protocol.MsgWelcome, msgs[0].Type)
+		require.Equal(t, []string{"org:3", "repo:1"}, grantGroups(msgs[0].Granted))
+		require.Equal(t, members, msgs[0].Granted[0].Units)
+		require.Equal(t, protocol.MsgCaughtUp, msgs[len(msgs)-1].Type)
+		x.append(label(1, "a"))
+		x.deliver()
+		leave(t, x, upsert("org:3", protocol.ModelTeam, 1, protocol.UnitMembers))
+		team := x.h.pos.Load()
+		require.Eventually(t, func() bool {
+			x.h.mu.Lock()
+			defer x.h.mu.Unlock()
+			for _, g := range []string{"org:3", "repo:1"} {
+				if s := cl.c.subs[g]; s == nil || s.state != stateLive {
+					return false
+				}
+			}
+			return true
+		}, 5*time.Second, time.Millisecond)
+		msgs = cl.take()
+		to := claimsBefore(t, msgs, "org:3")
+		require.Less(t, to, team, "no frame before bootstrap_required claims the dropped entity: %+v", msgs)
+		join(t, x)
+		units, chs := resume(t, x, to)
+		assert.Equal(t, members, units, "same units: nothing to bootstrap")
+		assert.Contains(t, versions(chs), team, "the entity the new units dropped comes with the replay")
 	})
 }
 

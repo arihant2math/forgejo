@@ -1817,16 +1817,18 @@ does) **and** MySQL 8.0 (binlog on).
     entity index walk of a table the response reads is not `done` (B3's gate; also after a re-bootstrap marker restarted it). 401/403 as
     `/-/sync/grants`.
   - **Format (client contract, documented on `protocol.BootstrapHeader`).** NDJSON: header `{type:"header", group, watermark, units,
-    tier: full|summary|closed, schemas, models?, closed_before?}`, then entity lines = `protocol.Change` (`op:"U"`, **`v` = watermark**),
+    tier: full|summary|closed, schemas, models?, closed_before?, before?}`, then entity lines = `protocol.Change` (`op:"U"`, **`v` = watermark**),
     the group's own entities first, then embedded profiles of other groups, then `{type:"end", count, refs, next?}`. **No end line ⇒
     incomplete** (an error after the headers only drops the end line and closes the encoder; the status is already 200). A full/summary
     response **replaces** what the client holds of the group (of `models` when filtered): drop the group's entities with `v ≤ watermark`
-    not in the response; closed pages and profile lines of other groups only add. Subscribe with `since = watermark` (B5: allowed to be
-    ahead of the hub). `units` = the viewer's units the response was filtered by (B5 units rule: compare with every later grant). The
+    not in the response; closed pages and profile lines of other groups only add. **(Review round 1: the replacement is limited to the
+    tier's scope, closed pages replace their range, embedded lines set no position — see *Review round 1*, items 3 and 4.)** Subscribe
+    with `since = watermark` (B5: allowed to be ahead of the hub). `units` = the viewer's units the response was filtered by (B5 units rule: compare with every later grant). The
     header's `schemas` lists the models the response may contain plus `User`.
   - **Consistency (decision: index-presence filter, no barrier).** The watermark W (`synclog.Head`) is read first, then the gate, then
     the snapshot. Each chunk (≤ 500 rows, 100 for comment/review/release) is read in its own short quiet read transaction on the master
-    (`capture.WithQuietTx`): candidate ids → `spec.load` (the materializer's loaders, placement and DTOs) → keep entities placed in the
+    (`capture.WithQuietTx`; review round 1: a source's candidate ids are read first, through its conditions' indexes, then chunked in
+    Go): candidate ids → `spec.load` (the materializer's loaders, placement and DTOs) → keep entities placed in the
     group, allowed by the units and the model filter → **keep only those with a `livesync_entity` row**. Why it converges: an indexed
     entity's later changes/moves/deletes are materialized after the chunk was read, i.e. after W, so they get sync ids > W (the log head
     row stays locked until a writer transaction commits); an unindexed one has a pending outbox change (it arrives as a delta > W) or
@@ -1844,18 +1846,21 @@ does) **and** MySQL 8.0 (binlog on).
     requests, auto-merges (read per chunk of issues through their `issue_id`/`pull_id` index: `source.children`), **commit statuses and
     action runs/jobs updated since the cutoff** (older ones are not loadable through livesync: online via API v1). `closed` tier: closed
     issues not updated since the cutoff + the same children. `issue:` body, comments, reviews, reactions/attachments/revisions (also by
-    `comment_id` of the issue's comments), dependencies, tracked times. `user:` access, notifications (**read ones only if updated since
-    the cutoff**), stopwatches, issue watches, watches, stars, blocks, viewed files, the user's pending reviews and their comments (+
+    `comment_id` of the issue's comments), ~~dependencies, tracked times~~ (review round 1: dependencies are conditional entities of the
+    load, tracked times are in `user:`). `user:` access, notifications (**read ones only if updated since the cutoff**), stopwatches,
+    issue watches, watches, stars, blocks, viewed files, tracked times (not deleted), the user's pending reviews and their comments (+
     reactions, attachments, revisions). `profile:` the private user + their projects/columns; directories: the users of that visibility;
     `org:` the org's profile, memberships, teams (+ users/repos/units), org labels, org projects/columns.
   - **Profiles a bootstrap refers to (orchestrator note B3/B4).** `materialize.userRefs` reads the DTO fields that name users
     (`poster_id`, `user_id`, `owner_id`, `assignee_id`, … — `TestUserRefFields` makes every integer `*_id` field of every DTO classified).
     At the end the groups of those users' User entities are decided (`ProfileGroups`) and checked for the viewer (cached grants first,
-    else `perm.Cache.Check`, at most 1000 checks per response): readable groups go to `end.refs`; the profiles in **per-user groups**
+    else `perm.Cache.Check`, at most 1000 checks per response — review round 1: one `perm.Cache.CheckGroups` batch, no cap): readable
+    groups go to `end.refs`; the profiles in **per-user groups**
     (`profile:{id}` private users — only the user themselves and admins, B4's API rule — and `org:{id}`) are **embedded** as change lines
     with their own `g`; the directories are only listed (the workspace subscribes and bootstraps them). The requested group itself is
     never listed. Unreadable referenced profiles (another user's private profile) are neither listed nor sent.
-  - **Cross-references (B3's open issue, partly resolved).** A load of `issue:{id}` adds the comments that reference the issue from
+  - **Cross-references (B3's open issue, partly resolved; review round 1: generalised to `materialize.Conditionals` /
+    `bootstrap.conditionals`, which also carry the issue's dependencies, decided with `CheckGroups`).** A load of `issue:{id}` adds the comments that reference the issue from
     other repositories that the viewer may see (`materialize.CrossReferences` + `bootstrap.crossReferences`: `perm.Cache.Check(repo:{ref})`
     must allow `issues`, or `pulls` for a PR reference — upstream's `filterXRefComments`; `TestCrossReferences` compares with
     `GetUserRepoPermission(...).CanReadIssuesOrPulls`). They are still **not in the sync log**: no delta adds/changes/removes them; the next
@@ -1867,7 +1872,8 @@ does) **and** MySQL 8.0 (binlog on).
   - **Workspace** (`bootstrap.Workspace`): the implicit grants' non-repository groups (reasons `self`, `profile`, `directory`, `member`),
     then repositories = implicit repo grants (`owner` if `owner_id` = viewer, else `access`) ∪ watched repositories
     (`repo_model.BuilderWatchAnything`, checked on demand, reason `watch`), sorted by `repository.updated_unix` desc, capped at
-    `WORKSPACE_MAX_REPOS` (`truncated`). Units are the grants'. Admins get only their own relations (B4 rule). Pins are client-side.
+    `WORKSPACE_MAX_REPOS` (`truncated`). Units are the grants'. Review round 1: the watched repositories are decided in one batch, and the
+    organizations owning the listed repositories that the viewer may see without being a member come before them (reason `repo_owner`). Admins get only their own relations (B4 rule). Pins are client-side.
   - **Transport.** `Content-Type: application/x-ndjson; charset=utf-8`, `Cache-Control: no-store`, `Vary: Accept-Encoding`, chunked;
     `Accept-Encoding` ⇒ `br` (quality 4, 256 KiB window) > `gzip` (default level) > identity; the encoder and the HTTP writer are
     flushed after the header and after every chunk; cancelled with the request context (checked between chunks, DB reads use it).
@@ -1921,6 +1927,108 @@ does) **and** MySQL 8.0 (binlog on).
     no `org_id`, so they are placed in `org:0`, which no client can name (B3 placement, harmless; skipped in the coverage test).
     `TestLivesyncHubSlowConsumer` (B5) failed once on MySQL in a full run under load ("frames were written until the socket was full")
     and passed 3/3 alone and in the next full run — watch it.
+  - **Review round 1 (16 findings: 15 fixed; finding 4's "org labels reachable" fixed for organizations the viewer may see, open for
+    the others — see item 4).** Commits `7078979` … `9da58e8` (+ these notes).
+    1. *(major) `issue:{id}` candidates as `issue_id = N OR comment_id IN (…)`.* Each source now has a list of conditions, each read on
+       its own (`from(table, conds…)`); the candidates are their union. Measured on a PG 16 scratch DB (3M issues, 1M comments over 20k
+       issues, 1M reactions; dropped afterwards): round-0 shape 158 ms (`reaction_pkey` walk, 999 950 rows removed); `issue_id = 7`
+       0.27 ms (bitmap scan), `comment_id IN (SELECT id FROM comment WHERE issue_id = 7)` 0.56 ms (nested loop over both indexes).
+    2. *(major) keyset paging walked the primary key.* `Snapshot` reads a source's candidate ids once, without `ORDER BY id … LIMIT`
+       (8 bytes each; e.g. 1M public users = 8 MB), and chunks them in Go. Reading them before the chunks is as consistent as per chunk: a
+       row that enters the candidates later changed after W (doc in `snapshot.go`). Scratch DB, a repository with 60k issues spread over
+       3M, 100 open: round 0 685 ms per chunk (`issue_pkey` walk, 2 999 900 rows removed); now 205 ms once (bitmap on `repo_id`; the
+       synthetic layout puts every row on its own heap block, so heap fetches dominate). Splitting `repo_id AND (open OR recent)` in two
+       did not help (lossy BitmapAnd). This covers commit statuses, action runs/jobs, notifications and every other source; the
+       cross-reference/dependency reads no longer page by id either. **`TestSnapshotQueries`** records the SQL of `repo:1`/`issue:1`/
+       `user:1`/`org:3` snapshots (an xorm logger on the master engine): no `ORDER BY … LIMIT`, no `OR` in reaction/attachment/revision
+       queries — fails on the round-0 code. **Not changed:** the closed page keeps `ORDER BY updated_unix DESC, id DESC LIMIT n+1`: PG
+       plans a top-N sort over the repository's rows via `repo_id` (scratch: 240 ms per page for 60k issues); without an upstream
+       `(repo_id, is_closed, updated_unix)` index a page costs O(issues of the repository). Acceptable for a lazy, user-driven load; noted.
+    3. *(major) contract: a summary re-bootstrap "replaced" the closed tier.* `protocol.BootstrapHeader` now defines the replacement
+       **scope**: everything in the group except what the tier leaves out — in a summary the closed tier (Issues held as closed with
+       `updated_at` < `closed_before` and what hangs off them: IssueLabel/IssueAssignee/ProjectIssue/PullRequest by `issue_id`, AutoMerge
+       by `pull_id`) and CommitStatus/ActionRun/ActionRunJob with `updated_at` < `closed_before`; in a `user:{id}` bootstrap (its header
+       now has `closed_before` too) the read Notifications older than it. Decided on the held entities after applying the response. Units
+       different from the held ones ⇒ the scope is the whole group (the closed tier goes too). A dropped Issue takes its `issue:{id}`
+       group with it. A closed page (new header field **`before`** = its `closedBefore`) replaces the closed tier in its range:
+       `(updated_at, id)` < `before` and ≥ `end.next` (or down to the oldest), plus what hangs off the page's issues. Kept closed-tier
+       entities may be stale after missed deltas until their pages are loaded again (documented). `TestSnapshotTiers` checks the page
+       ranges, `TestStream`/`TestLivesyncBootstrapAPI` the header fields. **For F2:** implement exactly this; the doc comment on
+       `BootstrapHeader` (and `types.gen.ts`) is the only definition.
+    4. *(major) referenced org groups left partial.* Contract: an embedded profile line only adds the entity — it is no bootstrap of its
+       group and does not set or raise that group's position (`messages.go`'s positions rule amended); to hold a referenced group,
+       bootstrap it and subscribe from that bootstrap's watermark (`end.refs` no longer says "subscribe with since = watermark").
+       Reachability: the workspace lists the organizations owning its repositories that the viewer may see (reason **`repo_owner`**,
+       units = the grant's), so their labels/projects/teams get bootstrapped. **Open:** an organization the viewer may not see (a private
+       organization's outside collaborator): its labels referenced by `IssueLabel` stay unreachable (upstream's issue JSON shows their
+       names and colours). Placing org labels where every repository reader sees them needs a second placement per label (one entity,
+       one group); left for a decision (options: a derived entity `label#repo:{id}` per using repository, or labels embedded in
+       summaries like profiles).
+    5. *(major) differential test.* `TestLivesyncBootstrapDifferential` now compares every served model with API v1 (units ⊆ `has_*`,
+       collaborators, issue labels/assignees via the issue JSON, pull requests via their issue's `pull_request`, branches, statuses by
+       sha, action runs/jobs, release assets, every comment type ⊆ `/timeline` (which applies the cross-reference filter), code
+       comments ⊆ their review's comments, reactions (user, content), issue/comment assets, dependencies, tracked times ⊆ `/user/times`,
+       notifications ⊆ `/notifications?all=true`, embedded profile lines ⇒ `/users|orgs/{name}`), creates the rows the fixtures lack
+       (issue/comment revisions, dependencies incl. one on a private repository's issue, dependencies enabled via API), and asserts each
+       model was compared (counts logged, e.g. Comment 1625, IssueDependency 29, ContentHistory 54, TrackedTime 7). Exceptions (no API
+       v1, or the web UI shows more), checked against the unit instead: projects/columns (projects), revisions (the issue's), deleted
+       branches (code: the web branch list shows them), code comments without a review (pulls: only the web files view lists them).
+       **Fixed what it found:** (a) `TrackedTime` → `user:{user_id}` `self` (like `/user/times`; an issue's list needs the time tracker
+       and shows non-writers only their own), deleted → no group; (b) `IssueDependency` → no group, sent by issue loads per viewer
+       (`Conditionals`: dependencies enabled, the dependency's repository readable with issues/pulls, as `GetIssueDependencies`); (c)
+       `Reaction` of a type not in `[ui] REACTIONS` → no group (upstream's `FindReactions` hides them everywhere); the allowed types are
+       hashed into the reaction table's placement version (`placementVersion`), so changing them re-places reactions at the next start.
+       Placement versions 1 of `tracked_time`, `issue_dependency`, `reaction` ⇒ `placement_changed` markers + repair walks once on
+       existing databases; `hub/models.go`: TrackedTime kinds `user` + `issue` (old placement). The test avoids `/pulls` (upstream's
+       `ToAPIPullRequest` logs errors for fixture PRs without git refs). Tests `TestTrackedTimePlace`, `TestReactionPlace`,
+       `TestDependencies` (vs `GetUserRepoPermission`).
+    6. *(major) convergence test did not exercise the index-presence filter.* `livesyncPauseMaterializer` holds the `log_head` row lock
+       (the materializer waits in `Append` after reading its batch; detected via `pg_stat_activity` / MySQL `processlist` — MySQL's
+       `innodb_trx` did not list the waiting transaction); while it is paused a comment and a label are created (asserted pending in the
+       outbox and absent from the bootstraps), bootstraps of `issue:1`/`repo:1` are taken and followed, the two are deleted, the
+       materializer resumes (asserted: no log entry for either); those replicas must equal fresh bootstraps at the end. The concurrent
+       writers also create-and-delete comments and labels. **Verified:** with the filter removed from `snapshotRows` the test fails on PG.
+    7. *(major) child tables reloaded the chunk's issues.* One loader per chunk transaction shared by the source and its children
+       (`snapshotRows(ctx, l, …)`); `pull_request`'s spec caches its rows for the auto-merges; the git repositories opened for rendering
+       are kept for the whole snapshot (`closeGitRepos`). `TestSnapshotQueries`: the summary chunk reads full issue rows once and pull
+       requests once (4 issue reads on round 0). No snapshot-wide parent cache (memory would grow with the group).
+    8. *(minor) up to 1000 sequential checks for refs.* `perm.Cache.CheckGroups(ctx, viewer, groups)`: cached grants first, then one read
+       transaction with a fixed number of queries (user rows; the viewer's `org_user` rows among the organizations; per 500 repositories
+       their rows, owners and units with B4's `repoPermission`); profiles are decided by `profileVisible` without queries; issue groups
+       one by one. **`TestCheckGroups`**: the same decisions (units, repository, basis) as `Check` for every fixture user × every group,
+       with and without cached grants. `profileRefs` uses it, no cap (**`TestProfileRefsMany`**: 1200 private profiles for the admin;
+       round 0 returned 1000).
+    9. *(minor) the gate waited for permission walks.* `BackfillPending` treats `perm:<id>` as done (a permission walk writes only the
+       perm column). That needs `perm:` to mean "index complete": `HandleEpochs` started a permission walk in place of an **unfinished
+       initial walk** (which then left the rows not yet reached unindexed); such a table now gets a repair walk instead (no markers).
+       `TestHandleEpochsIncompleteWalk` (fails on round 0), `TestBackfillPending`.
+    10. *(minor) closed page/cursor built from unreadable rows.* `closedPage` filters `is_pull` by the viewer's issues/pulls units
+        (neither ⇒ no page). `TestSnapshotTiers` (pull request 2 closed: an issues-only viewer gets issue 5 and no cursor; fails without
+        the filter).
+    11. *(minor) workspace N+1.* The watched repositories are decided with one `CheckGroups` batch before the cap (unreadable ones no
+        longer cost a full check each); `TestWorkspace` checks every group's units against `Check`, and the `repo_owner` reason.
+    12. *(minor) writers outliving a failed test.* `stopWriters := sync.OnceFunc(close + Wait)`, deferred right after the writers start.
+    13. *(minor) no regression test for ddb14e1.* `Prepare` calls a test-only hook (`betweenReads`) between the watermark and the gate;
+        **`TestPrepareOrder`** writes a marker + `repair:0` there (`HandleEpochs`) and asserts that the gate refuses and that the
+        watermark predates the marker. Fails with the two reads swapped.
+    14. *(minor) duplicated parsing/limits.* `protocol.ParseGroup` (moved to `protocol.go`) is the only parser: `perm.parseGroup` maps its
+        prefix to a kind, `hub.groupKind` returns it. `materialize.MaxClosedPage` is the router's limit too.
+    15. *(minor) closed pages' children untested.* `TestSnapshotTiers` asserts that every IssueLabel/IssueAssignee/ProjectIssue/
+        PullRequest of the closed issues is in their page and not in the summary.
+    16. *(minor) SURFACE.md.* 40 000 issues; rows for the mirrored reaction/tracked-time/dependency rules, `CheckGroups`, the new columns
+        and the API v1 endpoints the differential test uses.
+    - **Known gaps added:** dependencies are not live (like cross-references: the next load refreshes them); with `[attachment] ENABLED
+      = false` API v1 answers 404 for assets while livesync still sends attachment metadata (config-dependent like reactions; not
+      fixed); the closed-page cost (item 2); org labels of organizations the viewer may not see (item 4).
+    - **Commands run (round 1):** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...
+      ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), livesync unit tests with
+      `-race` (every package but `capture`, which needs a real DB), `next/tools/gen-protocol.sh --check` (regenerated: `before`,
+      `repo_owner`, doc comments), `TestLivesyncBootstrapConvergence` 5× PG / 3× MySQL, and `./integrations.pgsql.test -test.run
+      'TestLivesync|TestVersion'` on PG 16 (`gtestschema`: 35 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (37 pass, 1
+      skip), no testlogger "FATAL ERROR". No `go.mod` change; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`,
+      `go.sum`). The first full PG run failed once in the convergence test: a fixture reload resets id sequences, so the paused
+      phase's comment reused the id of a comment an earlier test created (its reload delete was in the log); the check now reads
+      the log from a cursor taken before the pause (`9da58e8`).
   - **Sandbox note:** the root filesystem reports little free space (≈ 0.3 GB at one point although only 39 GB of 252 GB were used:
     the host disk is shared). Leftover `/tmp/prepared-forgejo*` / `/tmp/appdata*` dirs of killed unit-test runs (≈ 2.4 GB) and MySQL
     binary logs (the large bootstrap test writes ≈ 0.7 GB per MySQL run) were the reclaimable part: `rm -rf /tmp/prepared-forgejo*`,

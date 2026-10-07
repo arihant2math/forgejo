@@ -23,6 +23,24 @@ import (
 // handled.
 const MetaHandledEpochPrefix = "materialized_epoch."
 
+// MetaPlacementPrefix + table name is the livesync_meta entry holding the
+// placement version (placementVersions) the table's index was built with.
+const MetaPlacementPrefix = "materialized_placement."
+
+// placementVersions are the versions of the placement rules (which group
+// and unit an entity goes to) of the tables whose rules changed since the
+// first release; absent tables are at version 0. Bump a table's version
+// whenever its rules change: HandleEpochs then treats it like a repaired
+// trigger (re-bootstrap markers, repair backfill of the index), because
+// clients hold its entities in the old places and the index would route
+// deletes there. Version 1 of user, project and project_board (B4): the
+// public profiles moved from user:{id} to the profile groups.
+var placementVersions = map[string]int64{
+	"user":          1,
+	"project":       1,
+	"project_board": 1,
+}
+
 // readMetaInts returns the numeric livesync_meta entries whose name starts
 // with prefix, keyed by the rest of the name.
 func readMetaInts(ctx context.Context, prefix string) (map[string]int64, error) {
@@ -63,6 +81,13 @@ func readMetaInts(ctx context.Context, prefix string) (map[string]int64, error) 
 // newly added to the catalog) is recorded without a marker: no client can
 // hold entities of it from the log, and bootstraps read the tables
 // directly.
+//
+// A table whose placement version (placementVersions) differs from the one
+// recorded is handled the same way (markers with reason
+// RebootstrapPlacementChanged, repair backfill). When a table with
+// permission states (spec.perm) gets markers for a repaired trigger, the
+// permission changes it lost are unknown, so a permission epoch for
+// everything (PermissionChange.All) goes first.
 func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -74,12 +99,19 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	placed, err := readMetaInts(ctx, MetaPlacementPrefix)
+	if err != nil {
+		return err
+	}
 	var entries []synclog.Entry
 	var record, reset []string
+	permLost := false
 	for _, t := range catalog.Tracked() {
 		epoch := current[t.Name]
 		done, ok := handled[t.Name]
-		if ok && done == epoch {
+		repaired := ok && done != epoch
+		moved := ok && placed[t.Name] != placementVersions[t.Name]
+		if ok && !repaired && !moved {
 			continue
 		}
 		record = append(record, t.Name)
@@ -87,7 +119,12 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			continue
 		}
 		reset = append(reset, t.Name)
-		payload, err := json.Marshal(protocol.RebootstrapMarker{Table: t.Name, Epoch: epoch})
+		marker := protocol.RebootstrapMarker{Table: t.Name, Epoch: epoch, Reason: protocol.RebootstrapPlacementChanged}
+		if repaired {
+			marker.Reason = protocol.RebootstrapTriggerRepaired
+			permLost = permLost || specs[t.Name].perm
+		}
+		payload, err := json.Marshal(marker)
 		if err != nil {
 			return err
 		}
@@ -102,12 +139,22 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	if len(record) == 0 {
 		return nil
 	}
+	if permLost {
+		e, err := permEntry(protocol.PermissionChange{All: true})
+		if err != nil {
+			return err
+		}
+		entries = append([]synclog.Entry{e}, entries...)
+	}
 	if err := m.inWriterTx(ctx, func(ctx context.Context) error {
 		if _, err := m.writer.Append(ctx, entries); err != nil {
 			return err
 		}
 		for _, table := range record {
 			if err := livesync_model.SetMeta(ctx, MetaHandledEpochPrefix+table, strconv.FormatInt(current[table], 10)); err != nil {
+				return err
+			}
+			if err := livesync_model.SetMeta(ctx, MetaPlacementPrefix+table, strconv.FormatInt(placementVersions[table], 10)); err != nil {
 				return err
 			}
 		}
@@ -125,7 +172,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 		m.repair[table] = true
 	}
 	if len(reset) > 0 {
-		log.Info("livesync: the capture triggers of %s were repaired; appended re-bootstrap markers for their models", strings.Join(reset, ", "))
+		log.Info("livesync: the capture triggers or placement rules of %s changed; appended re-bootstrap markers for their models", strings.Join(reset, ", "))
 	}
 	return nil
 }

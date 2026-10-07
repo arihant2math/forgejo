@@ -55,10 +55,12 @@ const (
 	// the entity (a row whose move is still in the outbox is in its old
 	// group until the materializer emits the move).
 	indexKeep
-	// indexRepair overwrites their group and unit and clears their hash,
-	// keeping last_sync_id: the backfill after a re-bootstrap marker, when
-	// the index may be stale (writes were lost) and every client rebuilds
-	// its state from a bootstrap (see HandleEpochs).
+	// indexRepair overwrites their group, unit and permission state and
+	// clears their hash, keeping last_sync_id: the backfill after a
+	// re-bootstrap marker, when the index may be stale (writes were lost)
+	// and every client rebuilds its state from a bootstrap (see
+	// HandleEpochs; lost permission changes are covered by the epoch for
+	// everyone it writes).
 	indexRepair
 )
 
@@ -73,13 +75,13 @@ func writeIndex(ctx context.Context, rows []livesync_model.Entity, mode indexWri
 	var conflict string
 	switch {
 	case mode == indexUpsert && mysql:
-		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash), last_sync_id = VALUES(last_sync_id)"
+		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash), last_sync_id = VALUES(last_sync_id), perm = VALUES(perm)"
 	case mode == indexUpsert:
-		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash, last_sync_id = excluded.last_sync_id"
+		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash, last_sync_id = excluded.last_sync_id, perm = excluded.perm"
 	case mode == indexRepair && mysql:
-		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash)"
+		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash), perm = VALUES(perm)"
 	case mode == indexRepair:
-		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash"
+		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash, perm = excluded.perm"
 	case mysql:
 		conflict = " ON DUPLICATE KEY UPDATE tbl = tbl"
 	default:
@@ -88,19 +90,38 @@ func writeIndex(ctx context.Context, rows []livesync_model.Entity, mode indexWri
 	for start := 0; start < len(rows); start += indexWriteChunk {
 		chunk := rows[start:min(start+indexWriteChunk, len(rows))]
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO livesync_entity (tbl, row_id, grp, unit, hash, last_sync_id) VALUES ")
-		args := make([]any, 0, 6*len(chunk)+1)
+		sb.WriteString("INSERT INTO livesync_entity (tbl, row_id, grp, unit, hash, last_sync_id, perm) VALUES ")
+		args := make([]any, 0, 7*len(chunk)+1)
 		for i, r := range chunk {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString("(?, ?, ?, ?, ?, ?)")
-			args = append(args, r.Tbl, r.RowID, r.Grp, r.Unit, r.Hash, r.LastSyncID)
+			sb.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+			args = append(args, r.Tbl, r.RowID, r.Grp, r.Unit, r.Hash, r.LastSyncID, r.Perm)
 		}
 		sb.WriteString(conflict)
 		args = append([]any{sb.String()}, args...)
 		if _, err := e.Exec(args...); err != nil {
 			return fmt.Errorf("livesync: write the entity index: %w", err)
+		}
+	}
+	return nil
+}
+
+// updateIndexPerm stores the permission state of index rows that otherwise
+// stay as they are (rare: a permission column changed but nothing the DTO
+// carries, e.g. a user made admin).
+func updateIndexPerm(ctx context.Context, rows []livesync_model.Entity) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	e, err := livesync_model.MasterEngine(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if _, err := e.Exec("UPDATE livesync_entity SET perm = ? WHERE tbl = ? AND row_id = ?", r.Perm, r.Tbl, r.RowID); err != nil {
+			return fmt.Errorf("livesync: update the entity index: %w", err)
 		}
 	}
 	return nil

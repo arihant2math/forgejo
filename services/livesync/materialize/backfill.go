@@ -31,9 +31,9 @@ const (
 // The entity index routes deletes: the capture triggers only know (table,
 // id), the deleted row is gone. Rows that existed before livesync was
 // installed have no index row until they change, so the materializer walks
-// every tracked table once and indexes them (group and unit only, no
-// payload hash: their first change is always emitted), leaving the rows the
-// materializer wrote alone (indexKeep).
+// every tracked table once and indexes them (group, unit and permission
+// state, no payload hash: their first change is always emitted), leaving
+// the rows the materializer wrote alone (indexKeep).
 //
 // A delete of a row that is not indexed is not emitted anywhere (sending it
 // to every client would broadcast ids of deleted private rows to everyone,
@@ -136,7 +136,7 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 		for _, id := range ids {
 			for _, e := range loaded[id] {
 				if e.group != "" {
-					rows = append(rows, livesync_model.Entity{Tbl: e.key, RowID: id, Grp: e.group, Unit: string(e.unit)})
+					rows = append(rows, livesync_model.Entity{Tbl: e.key, RowID: id, Grp: e.group, Unit: string(e.unit), Perm: e.perm})
 				}
 			}
 		}

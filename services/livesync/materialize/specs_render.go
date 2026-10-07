@@ -5,17 +5,17 @@ package materialize
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	activities_model "forgejo.org/models/activities"
 	"forgejo.org/models/avatars"
 	issues_model "forgejo.org/models/issues"
 	repo_model "forgejo.org/models/repo"
-	unit_model "forgejo.org/models/unit"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/setting"
+	"forgejo.org/modules/structs"
+	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 )
 
@@ -47,19 +47,19 @@ func repositorySpec() *spec {
 			}
 			return res, nil
 		},
+		// Visibility and owner decide who may read the repository; the
+		// owner's grants list the repositories they own.
+		perm: func(r *repo_model.Repository) string {
+			return permState(fingerprint(r.IsPrivate, r.OwnerID), subject('r', r.ID), subject('u', r.OwnerID))
+		},
 	}.spec("repository")
 }
 
 func userSpec() *spec {
 	return rowSpec[user_model.User]{
 		model: protocol.ModelUser, schema: protocol.SchemaUser,
-		id: func(r *user_model.User) int64 { return r.ID },
-		place: func(_ *loader, r *user_model.User) (string, protocol.Unit) {
-			if r.IsOrganization() {
-				return protocol.OrgGroup(r.ID), protocol.UnitNone
-			}
-			return protocol.UserGroup(r.ID), protocol.UnitNone
-		},
+		id:    func(r *user_model.User) int64 { return r.ID },
+		place: func(_ *loader, r *user_model.User) (string, protocol.Unit) { return userPlace(r) },
 		dto: func(ctx context.Context, _ *loader, r *user_model.User) (any, error) {
 			res := &protocol.User{
 				ID: r.ID, Login: r.Name, FullName: r.FullName, AvatarURL: userAvatarLink(ctx, r), Type: userType(r.Type),
@@ -71,7 +71,33 @@ func userSpec() *spec {
 			}
 			return res, nil
 		},
+		// The user's own grants depend on these columns (a viewer who may
+		// not sign in gets nothing, a restricted one less, …), and the
+		// visibility decides who may see the user's or organization's
+		// profile and repositories (organization.HasOrgOrUserVisible in
+		// GetUserRepoPermission).
+		perm: func(r *user_model.User) string {
+			return permState(fingerprint(int(r.Visibility), r.IsActive, r.ProhibitLogin, r.IsAdmin, r.IsRestricted, int(r.Type)),
+				subject('u', r.ID), subject('O', r.ID))
+		},
 	}.spec("user")
+}
+
+// userPlace is the group of a user's or organization's profile (the User
+// entity, unit none): the organization's group, the shared profile
+// directory of the user's visibility, or the private user's profile group.
+// Changing the visibility moves the entity (a delete in the old directory,
+// an upsert in the new place).
+func userPlace(u *user_model.User) (string, protocol.Unit) {
+	switch {
+	case u.IsOrganization():
+		return protocol.OrgGroup(u.ID), protocol.UnitNone
+	case u.Visibility == structs.VisibleTypePublic:
+		return protocol.GroupProfilesPublic, protocol.UnitNone
+	case u.Visibility == structs.VisibleTypeLimited:
+		return protocol.GroupProfilesLimited, protocol.UnitNone
+	}
+	return protocol.ProfileGroup(u.ID), protocol.UnitNone
 }
 
 // userAvatarLink is User.AvatarLink without its side effects. Upstream
@@ -123,33 +149,6 @@ func userType(t user_model.UserType) string {
 	return "reserved"
 }
 
-// unitName maps Forgejo's unit types to protocol unit names.
-func unitName(t unit_model.Type) protocol.Unit {
-	switch t {
-	case unit_model.TypeCode:
-		return protocol.UnitCode
-	case unit_model.TypeIssues:
-		return protocol.UnitIssues
-	case unit_model.TypePullRequests:
-		return protocol.UnitPulls
-	case unit_model.TypeReleases:
-		return protocol.UnitReleases
-	case unit_model.TypeWiki:
-		return protocol.UnitWiki
-	case unit_model.TypeExternalWiki:
-		return protocol.UnitExternalWiki
-	case unit_model.TypeExternalTracker:
-		return protocol.UnitExternalTracker
-	case unit_model.TypeProjects:
-		return protocol.UnitProjects
-	case unit_model.TypePackages:
-		return protocol.UnitPackages
-	case unit_model.TypeActions:
-		return protocol.UnitActions
-	}
-	return protocol.Unit(fmt.Sprintf("unknown_%d", int(t)))
-}
-
 func repoUnitSpec() *spec {
 	return rowSpec[repo_model.RepoUnit]{
 		model: protocol.ModelRepoUnit, schema: protocol.SchemaRepoUnit,
@@ -170,11 +169,16 @@ func repoUnitSpec() *spec {
 					}
 				}
 			}
-			res := &protocol.RepoUnit{ID: r.ID, RepoID: r.RepoID, Type: unitName(r.Type), Config: config, CreatedAt: ts(r.CreatedUnix)}
+			res := &protocol.RepoUnit{ID: r.ID, RepoID: r.RepoID, Type: perm.UnitOf(r.Type), Config: config, CreatedAt: ts(r.CreatedUnix)}
 			if r.DefaultPermissions == repo_model.UnitAccessModeWrite {
 				res.DefaultPermissions = "write"
 			}
 			return res, nil
+		},
+		// Enabled units and their default permissions decide what readers
+		// of the repository may read.
+		perm: func(r *repo_model.RepoUnit) string {
+			return permState(fingerprint(r.RepoID, int(r.Type), int(r.DefaultPermissions)), subject('r', r.RepoID))
 		},
 	}.spec("repo_unit")
 }

@@ -70,6 +70,13 @@ func (LogEntry) TableName() string { return "livesync_log" }
 // Tbl is the source table for a row's main entity; an additional entity
 // derived from the same row uses "<table>#<suffix>" (e.g. "issue#body" for
 // protocol.IssueBody), which can never collide with a table name.
+//
+// Perm is the permission state of the row's last materialized version, for
+// rows of the tables that decide who may read what (B4): the subjects whose
+// access the row affects plus a fingerprint of its permission-relevant
+// columns. When it changes (or the row appears or goes), the materializer
+// writes a permission epoch for the old and new subjects; keeping it here
+// lets it do that for deleted rows too.
 type Entity struct {
 	Tbl        string `xorm:"pk VARCHAR(64)"`
 	RowID      int64  `xorm:"pk"`
@@ -77,6 +84,7 @@ type Entity struct {
 	Unit       string `xorm:"VARCHAR(32) NOT NULL DEFAULT ''"`
 	Hash       string `xorm:"VARCHAR(16) NOT NULL DEFAULT ''"`
 	LastSyncID int64  `xorm:"NOT NULL DEFAULT 0"`
+	Perm       string `xorm:"VARCHAR(255) NOT NULL DEFAULT ''"`
 }
 
 // TableName implements xorm's TableName interface.

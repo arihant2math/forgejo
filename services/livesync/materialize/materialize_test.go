@@ -132,7 +132,7 @@ func TestLoadFixtures(t *testing.T) {
 					assert.Nil(t, e.dto)
 					continue
 				}
-				assert.Regexp(t, `^(user|org|repo|issue):\d+$`, e.group, "%s %d", tbl.Name, id)
+				assert.Regexp(t, `^((user|org|repo|issue|profile):\d+|profiles:(public|limited))$`, e.group, "%s %d", tbl.Name, id)
 				hash, err := e.changeHash(ctx, l)
 				require.NoError(t, err)
 				assert.NotEmpty(t, hash)
@@ -154,6 +154,7 @@ func TestLoadFixtures(t *testing.T) {
 				assert.Nil(t, e.dto)
 				assert.Equal(t, loaded[id][i].group, e.group)
 				assert.Equal(t, loaded[id][i].unit, e.unit)
+				assert.Equal(t, loaded[id][i].perm, e.perm)
 			}
 		}
 	}
@@ -392,7 +393,7 @@ func TestHandleEpochs(t *testing.T) {
 	}, rows)
 	var marker protocol.RebootstrapMarker
 	require.NoError(t, json.Unmarshal([]byte(entries[2].Payload), &marker))
-	assert.Equal(t, protocol.RebootstrapMarker{Table: "label", Epoch: 2}, marker)
+	assert.Equal(t, protocol.RebootstrapMarker{Table: "label", Epoch: 2, Reason: protocol.RebootstrapTriggerRepaired}, marker)
 	handled, err = readMetaInts(ctx, MetaHandledEpochPrefix)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, handled["label"])
@@ -485,6 +486,7 @@ func TestConsumePlacement(t *testing.T) {
 		change(13, "star", 1, "U"), change(14, "project_issue", 1, "U"))
 	rows, entries := takeLog(t, &cursor)
 	assert.Equal(t, []logRow{
+		{"!perm", "", "", "P", 0}, // org_user, team and team_repo rows
 		{"user:1", "self", "Review", "U", 4},
 		{"user:1", "self", "Comment", "U", 4},
 		{"user:1", "self", "Attachment", "U", 3},
@@ -500,7 +502,7 @@ func TestConsumePlacement(t *testing.T) {
 		{"repo:1", "issues", "ProjectIssue", "U", 1},
 	}, rows)
 	var review protocol.Review
-	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &review))
+	require.NoError(t, json.Unmarshal([]byte(entries[1].Payload), &review))
 	assert.Equal(t, "PENDING", review.State)
 
 	// Submitting the review changes the review row only: the review, its
@@ -628,9 +630,9 @@ func TestUserAvatarWithoutSideEffects(t *testing.T) {
 	var cursor int64
 	consume(t, m, change(1, "user", 2, "U"))
 	_, entries := takeLog(t, &cursor)
-	require.Len(t, entries, 1)
+	require.Len(t, entries, 2, "a permission epoch (first time the row is seen) and the profile")
 	var u protocol.User
-	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &u))
+	require.NoError(t, json.Unmarshal([]byte(entries[1].Payload), &u))
 	assert.Equal(t, setting.AppURL+"user/avatar/user2/0", u.AvatarURL)
 	var avatar string
 	_, err := db.GetEngine(t.Context()).SQL("SELECT avatar FROM `user` WHERE id = 2").Get(&avatar)

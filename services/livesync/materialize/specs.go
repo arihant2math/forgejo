@@ -20,6 +20,7 @@ import (
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/timeutil"
 	"forgejo.org/services/livesync/catalog"
+	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 )
 
@@ -42,6 +43,9 @@ type spec struct {
 	// materialized again in the same transaction (their own rows did not
 	// change, so nothing else would move them).
 	dependents []dependent
+	// perm: the table's rows have a permission state (entity.perm), whose
+	// changes are permission epochs (see perm.go).
+	perm bool
 }
 
 // dependent names the rows of table whose column refers to a row of
@@ -64,6 +68,9 @@ type rowSpec[T any] struct {
 	dto func(ctx context.Context, l *loader, r *T) (any, error)
 	// dependents: see spec.dependents.
 	dependents []dependent
+	// perm returns the row's permission state (permState), for the tables
+	// that decide who may read what (optional, see perm.go).
+	perm func(r *T) string
 }
 
 func (s rowSpec[T]) spec(table string) *spec {
@@ -73,6 +80,7 @@ func (s rowSpec[T]) spec(table string) *spec {
 		models:     []protocol.Model{s.model},
 		schemas:    []int{s.schema},
 		dependents: s.dependents,
+		perm:       s.perm != nil,
 		load: func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error) {
 			rows, err := findByIDs(ctx, ids, s.id)
 			if err != nil {
@@ -91,6 +99,9 @@ func (s rowSpec[T]) spec(table string) *spec {
 			for id, r := range rows {
 				e := entity{key: table, model: s.model, schema: s.schema}
 				e.group, e.unit = s.place(l, r)
+				if s.perm != nil {
+					e.perm = s.perm(r)
+				}
 				if full && e.group != "" {
 					if e.dto, err = s.dto(ctx, l, r); err != nil {
 						e.err = fmt.Errorf("build %s %d: %w", s.model, id, err)
@@ -176,6 +187,11 @@ var specs = func() map[string]*spec {
 			dto: func(_ context.Context, _ *loader, r *org_model.OrgUser) (any, error) {
 				return &protocol.OrgUser{ID: r.ID, OrgID: r.OrgID, UserID: r.UID, Public: r.IsPublic}, nil
 			},
+			// Membership: the member's organizations (and, for a private
+			// organization, whether they may see it).
+			perm: func(r *org_model.OrgUser) string {
+				return permState(fingerprint(r.OrgID), subject('u', r.UID))
+			},
 		}.spec("org_user"),
 		rowSpec[org_model.Team]{
 			model: protocol.ModelTeam, schema: protocol.SchemaTeam,
@@ -190,6 +206,11 @@ var specs = func() map[string]*spec {
 					CanCreateOrgRepo: r.CanCreateOrgRepo, NumMembers: r.NumMembers, NumRepos: r.NumRepos,
 				}, nil
 			},
+			// The team's access mode decides its members' access to its
+			// repositories.
+			perm: func(r *org_model.Team) string {
+				return permState(fingerprint(int(r.AccessMode), r.IncludesAllRepositories), subject('t', r.ID))
+			},
 		}.spec("team"),
 		rowSpec[org_model.TeamUser]{
 			model: protocol.ModelTeamUser, schema: protocol.SchemaTeamUser,
@@ -199,6 +220,10 @@ var specs = func() map[string]*spec {
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamUser) (any, error) {
 				return &protocol.TeamUser{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, UserID: r.UID}, nil
+			},
+			// The member's access through the team.
+			perm: func(r *org_model.TeamUser) string {
+				return permState(fingerprint(r.TeamID), subject('u', r.UID))
 			},
 		}.spec("team_user"),
 		rowSpec[org_model.TeamRepo]{
@@ -210,6 +235,9 @@ var specs = func() map[string]*spec {
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamRepo) (any, error) {
 				return &protocol.TeamRepo{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, RepoID: r.RepoID}, nil
 			},
+			perm: func(r *org_model.TeamRepo) string {
+				return permState(fingerprint(r.TeamID, r.RepoID), subject('t', r.TeamID), subject('r', r.RepoID))
+			},
 		}.spec("team_repo"),
 		rowSpec[org_model.TeamUnit]{
 			model: protocol.ModelTeamUnit, schema: protocol.SchemaTeamUnit,
@@ -218,7 +246,10 @@ var specs = func() map[string]*spec {
 				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamUnit) (any, error) {
-				return &protocol.TeamUnit{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, Type: unitName(r.Type), Permission: r.AccessMode.String()}, nil
+				return &protocol.TeamUnit{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, Type: perm.UnitOf(r.Type), Permission: r.AccessMode.String()}, nil
+			},
+			perm: func(r *org_model.TeamUnit) string {
+				return permState(fingerprint(int(r.Type), int(r.AccessMode)), subject('t', r.TeamID))
 			},
 		}.spec("team_unit"),
 		rowSpec[repo_model.Collaboration]{
@@ -233,6 +264,9 @@ var specs = func() map[string]*spec {
 					CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
 				}, nil
 			},
+			perm: func(r *repo_model.Collaboration) string {
+				return permState(fingerprint(r.RepoID, int(r.Mode)), subject('u', r.UserID))
+			},
 		}.spec("collaboration"),
 		rowSpec[access_model.Access]{
 			model: protocol.ModelAccess, schema: protocol.SchemaAccess,
@@ -242,6 +276,9 @@ var specs = func() map[string]*spec {
 			},
 			dto: func(_ context.Context, _ *loader, r *access_model.Access) (any, error) {
 				return &protocol.Access{ID: r.ID, UserID: r.UserID, RepoID: r.RepoID, Permission: r.Mode.String()}, nil
+			},
+			perm: func(r *access_model.Access) string {
+				return permState(fingerprint(r.RepoID, int(r.Mode)), subject('u', r.UserID))
 			},
 		}.spec("access"),
 		repoUnitSpec(),
@@ -536,6 +573,12 @@ var specs = func() map[string]*spec {
 			},
 			dto: func(_ context.Context, _ *loader, r *user_model.BlockedUser) (any, error) {
 				return &protocol.BlockedUser{ID: r.ID, UserID: r.UserID, BlockID: r.BlockID, CreatedAt: ts(r.CreatedUnix)}, nil
+			},
+			// Upstream's blocking does not hide anything from reading; its
+			// effects on access (removed collaborations) are epochs of
+			// those rows. Both users' grants are recomputed anyway.
+			perm: func(r *user_model.BlockedUser) string {
+				return permState("", subject('u', r.UserID), subject('u', r.BlockID))
 			},
 		}.spec("forgejo_blocked_user"),
 		commentSpec(),

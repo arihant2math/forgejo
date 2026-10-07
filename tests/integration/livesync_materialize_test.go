@@ -255,7 +255,7 @@ func TestLivesyncMaterializeEpoch(t *testing.T) {
 	})
 	assert.Equal(t, protocol.GroupAll, e.Grp)
 	assert.Equal(t, string(protocol.ModelLabel), e.Model)
-	assert.Equal(t, protocol.RebootstrapMarker{Table: "label", Epoch: 2}, livesyncPayload[protocol.RebootstrapMarker](t, e))
+	assert.Equal(t, protocol.RebootstrapMarker{Table: "label", Epoch: 2, Reason: protocol.RebootstrapTriggerRepaired}, livesyncPayload[protocol.RebootstrapMarker](t, e))
 	assert.Equal(t, "2", handled("label"))
 	for _, e := range livesyncLogSince(t, cursor) {
 		if e.Op == string(protocol.OpRebootstrap) {

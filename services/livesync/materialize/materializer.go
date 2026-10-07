@@ -127,6 +127,9 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 		if err != nil {
 			return err
 		}
+		if entries, err = plan.withPermissionEpoch(ctx, entries); err != nil {
+			return err
+		}
 		first, err := m.writer.Append(ctx, entries)
 		if err != nil {
 			return err
@@ -152,6 +155,11 @@ type indexPlan struct {
 	upserts []livesync_model.Entity
 	entry   []int // index into the entries of each upsert
 	deletes []indexKey
+	// permOnly are index rows whose permission state changed while
+	// nothing else did (no entry): only their perm column is updated.
+	permOnly []livesync_model.Entity
+	// perm collects the subjects of the permission states that changed.
+	perm permSubjects
 }
 
 func (p *indexPlan) apply(ctx context.Context, first int64) error {
@@ -161,7 +169,27 @@ func (p *indexPlan) apply(ctx context.Context, first int64) error {
 	if err := writeIndex(ctx, p.upserts, indexUpsert); err != nil {
 		return err
 	}
+	if err := updateIndexPerm(ctx, p.permOnly); err != nil {
+		return err
+	}
 	return deleteIndex(ctx, p.deletes)
+}
+
+// withPermissionEpoch puts the transaction's permission epoch, if any
+// permission state changed, in front of its entries (see perm.go).
+func (p *indexPlan) withPermissionEpoch(ctx context.Context, entries []synclog.Entry) ([]synclog.Entry, error) {
+	ch, ok, err := p.perm.change(ctx)
+	if err != nil || !ok {
+		return entries, err
+	}
+	e, err := permEntry(ch)
+	if err != nil {
+		return nil, err
+	}
+	for i := range p.entry {
+		p.entry[i]++
+	}
+	return append([]synclog.Entry{e}, entries...), nil
 }
 
 // maxDependentRounds bounds the dependents cascade of one batch (review →
@@ -279,6 +307,32 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 				cur = &ents[i]
 			}
 			o := old[indexKey{key, r.id}]
+			// The row's permission state (main entity of a permission
+			// table only): a change is a permission epoch for the old and
+			// the new subjects, whatever else happens to the entity.
+			var curPerm string
+			permChanged := false
+			if i == 0 && s.perm {
+				var oldPerm string
+				if o != nil {
+					oldPerm = o.Perm
+				}
+				if cur != nil {
+					curPerm = cur.perm
+				}
+				if oldPerm != curPerm {
+					permChanged = true
+					plan.perm.add(oldPerm)
+					plan.perm.add(curPerm)
+				}
+			}
+			// keepPerm records a changed state for an index row that is
+			// kept as it is otherwise.
+			keepPerm := func() {
+				if permChanged && o != nil {
+					plan.permOnly = append(plan.permOnly, livesync_model.Entity{Tbl: key, RowID: r.id, Perm: curPerm})
+				}
+			}
 			if i == 0 {
 				var oldGroup, curGroup string
 				if o != nil {
@@ -299,6 +353,12 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 				// that has it from a bootstrap made before the table's
 				// index backfill completed could; bootstraps must wait for
 				// it (B6, see the entity index backfill).
+				if i == 0 && s.perm && !m.backfillComplete(r.tbl) {
+					// A permission row deleted before the backfill
+					// recorded its state: whose access it gave is
+					// unknown.
+					plan.perm.all = true
+				}
 			case cur == nil:
 				*entries = append(*entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.id, Op: protocol.OpDelete})
 				plan.deletes = append(plan.deletes, indexKey{key, r.id})
@@ -309,14 +369,17 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 				}
 				if err != nil {
 					log.Error("livesync: skipping a change of %s %d: %v", r.tbl, r.id, err)
+					keepPerm()
 					continue
 				}
 				if o != nil && o.Grp == cur.group && o.Unit == string(cur.unit) && o.Hash == hash {
+					keepPerm()
 					continue // nothing visible changed
 				}
 				payload, err := cur.payload(ctx, l)
 				if err != nil {
 					log.Error("livesync: skipping a change of %s %d: %v", r.tbl, r.id, err)
+					keepPerm()
 					continue
 				}
 				if o != nil && (o.Grp != cur.group || o.Unit != string(cur.unit)) {
@@ -325,7 +388,7 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 					// the new one get the upsert right after).
 					*entries = append(*entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.id, Op: protocol.OpDelete})
 				}
-				plan.upserts = append(plan.upserts, livesync_model.Entity{Tbl: key, RowID: r.id, Grp: cur.group, Unit: string(cur.unit), Hash: hash})
+				plan.upserts = append(plan.upserts, livesync_model.Entity{Tbl: key, RowID: r.id, Grp: cur.group, Unit: string(cur.unit), Hash: hash, Perm: curPerm})
 				plan.entry = append(plan.entry, len(*entries))
 				*entries = append(*entries, synclog.Entry{
 					Group: cur.group, Unit: cur.unit, Model: cur.model, EntityID: r.id,

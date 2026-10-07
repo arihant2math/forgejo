@@ -32,6 +32,9 @@ type entity struct {
 	// release), which is handled like a deleted row.
 	group string
 	unit  protocol.Unit
+	// perm is the row's permission state (main entity of a spec with a
+	// perm hook only; see perm.go).
+	perm string
 	// dto is the payload, built only when the materializer emits (not for
 	// the entity index backfill). Its rendered markdown fields are filled
 	// only once the entity is emitted (renders).
@@ -296,8 +299,9 @@ func (l *loader) issueRepoPlace(issueID int64) (string, protocol.Unit) {
 }
 
 // projectPlace is the group and unit of a project and its columns: the
-// repository's (unit projects) for a repository project, else the owner's
-// public entities.
+// repository's (unit projects) for a repository project, the organization's
+// group for an organization's, the profile group of the user for a user's
+// (what anyone who may see the user reads).
 func (l *loader) projectPlace(projectID int64) (string, protocol.Unit) {
 	p := l.projects[projectID]
 	switch {
@@ -308,7 +312,7 @@ func (l *loader) projectPlace(projectID int64) (string, protocol.Unit) {
 	case p.Type == project_module.TypeOrganization:
 		return protocol.OrgGroup(p.OwnerID), protocol.UnitNone
 	case p.OwnerID != 0:
-		return protocol.UserGroup(p.OwnerID), protocol.UnitNone
+		return protocol.ProfileGroup(p.OwnerID), protocol.UnitNone
 	}
 	return "", protocol.UnitNone
 }

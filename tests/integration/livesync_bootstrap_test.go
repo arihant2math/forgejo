@@ -643,15 +643,16 @@ func TestLivesyncBootstrapConvergence(t *testing.T) {
 
 // TestLivesyncBootstrapLarge (B6 acceptance): a large group streams with
 // bounded memory: the server's live heap, sampled (after a GC) while the
-// client reads a bootstrap of ≈ 38 MB (60 000 issues), grows by a fraction
-// of the response (≈ 3.5 MB measured).
+// client reads a bootstrap of ≈ 25 MB (40 000 issues), grows by a fraction
+// of the response (2–4 MB measured; the bound is half the response, see
+// below). On MySQL the run writes ≈ 0.7 GB of binary log.
 func TestLivesyncBootstrapLarge(t *testing.T) {
 	livesyncSkipSQLite(t)
 	livesyncServe(t)
 	onApplicationRun(t, func(t *testing.T, u *url.URL) {
 		livesyncWaitBackfill(t)
 		livesyncSettle(t)
-		n := 60000
+		n := 40000
 		if s := os.Getenv("LIVESYNC_BOOTSTRAP_LARGE"); s != "" {
 			var err error
 			n, err = strconv.Atoi(s)
@@ -711,7 +712,7 @@ func TestLivesyncBootstrapLarge(t *testing.T) {
 		assert.GreaterOrEqual(t, issues, n)
 		growth := int64(peak) - int64(base)
 		t.Logf("response %d bytes, %d lines; live heap %d before, peak growth %d bytes while streaming", total, lines, base, growth)
-		assert.Greater(t, total, 32<<20, "a large response")
+		assert.Greater(t, total, 20<<20, "a large response")
 		// A buffered response would need more than the response itself;
 		// the bound leaves room for the rest of the server (materializer,
 		// queues) allocating meanwhile in this process (≈ 3–9 MB seen).

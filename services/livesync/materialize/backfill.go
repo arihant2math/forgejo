@@ -133,7 +133,11 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 	if table == "" {
 		return false, nil
 	}
-	after, mode := m.backfill[table], m.walk[table]
+	after := m.backfill[table]
+	mode, ok := m.walk[table]
+	if !ok {
+		mode = indexKeep // the initial backfill
+	}
 	var next int64
 	err := m.inWriterTx(ctx, func(ctx context.Context) error {
 		// Fencing only: an old writer must not keep indexing.

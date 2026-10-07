@@ -412,6 +412,14 @@ func TestBackfill(t *testing.T) {
 	resetLivesync(t)
 	ctx := t.Context()
 	m, _ := testMaterializer(t)
+	// A row the materializer emitted before the walk reached it keeps its
+	// index row (group, hash, sync id): the initial walk never overwrites.
+	var cursor int64
+	consume(t, m, change(1, "label", 1, "U"))
+	takeLog(t, &cursor)
+	emitted := *indexRow(t, "label", 1)
+	require.NotEmpty(t, emitted.Hash)
+	exec(t, "UPDATE label SET repo_id = 2 WHERE id = 1") // a move still in the outbox
 	steps := 0
 	for {
 		more, err := m.BackfillStep(ctx)
@@ -425,6 +433,7 @@ func TestBackfill(t *testing.T) {
 	for _, tbl := range catalog.Tracked() {
 		assert.True(t, m.backfillComplete(tbl.Name), tbl.Name)
 	}
+	assert.Equal(t, emitted, *indexRow(t, "label", 1), "kept")
 	issue := indexRow(t, "issue", 5)
 	require.NotNil(t, issue)
 	assert.Equal(t, livesync_model.Entity{Tbl: "issue", RowID: 5, Grp: "repo:1", Unit: "issues"}, *issue)
@@ -441,15 +450,14 @@ func TestBackfill(t *testing.T) {
 
 	// A backfilled row has no hash: its next change is emitted, and an
 	// unchanged delete is routed by the backfilled index.
-	var cursor int64
-	consume(t, m2, change(1, "issue", 5, "U"))
+	consume(t, m2, change(10, "issue", 5, "U"))
 	rows, _ := takeLog(t, &cursor)
 	assert.Len(t, rows, 2)
 	require.NoError(t, db.WithTx(ctx, func(ctx context.Context) error {
 		_, err := db.GetEngine(ctx).Exec("DELETE FROM label WHERE id = 2")
 		return err
 	}))
-	consume(t, m2, change(2, "label", 2, "D"))
+	consume(t, m2, change(11, "label", 2, "D"))
 	rows, _ = takeLog(t, &cursor)
 	assert.Equal(t, []logRow{{"repo:1", "issues|pulls", "Label", "D", 2}}, rows)
 }

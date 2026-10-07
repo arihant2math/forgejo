@@ -1801,6 +1801,130 @@ does) **and** MySQL 8.0 (binlog on).
   leaking existence; differential test: entities returned ⊆ what API v1 returns for that
   user; streaming verified with a large fixture (memory bounded).
 - **Notes/decisions:**
+  - **Files.** `services/livesync/protocol/bootstrap.go` (`BootstrapHeader`, `BootstrapEnd`, `Workspace`, `WorkspaceGroup`,
+    `Tier*`, `Workspace*` reasons, `ParseGroup`; regenerated `next/src/protocol/types.gen.ts`, also checked with `tsc --strict`);
+    `services/livesync/materialize/{snapshot,refs}.go` (+ `snapshot_test.go`; `commentDTO` extracted in `specs_render.go`);
+    `services/livesync/bootstrap/{bootstrap,workspace}.go` (+ SQLite unit tests); `routers/livesync/bootstrap.go` (+ `bootstrap_test.go`),
+    `routes.go`; `services/livesync/settings.go`; `tests/integration/livesync_bootstrap_test.go`; `go.mod` (`andybalholm/brotli`
+    indirect → direct; it was already compiled in, so `go.sum` / `go-licenses.json` unchanged, `make tidy-check` clean).
+  - **Endpoints** (all bearer-token authenticated with B4's `authenticate`, JSON errors like `/-/sync/grants`):
+    `GET /-/sync/bootstrap?group=G[&model=M,…]` — any client group; `repo:{id}` ⇒ summary tier, the others ⇒ everything (`full`).
+    `GET /-/sync/load?group=issue:{id}[&model=…]` — the lazy tier (same as its bootstrap). `GET /-/sync/load?group=repo:{id}&closedBefore=C[&limit=N]`
+    — a page of older closed issues/PRs (newest first; `C` = `<unix>` or `<unix>.<id>`, start with the summary header's `closed_before`;
+    `limit` default 500, max 2000; the end line's `next` is the next page's `closedBefore`). `GET /-/sync/workspace` (`protocol.Workspace`).
+    400 for a missing group, an unknown model, `closedBefore` on bootstrap, `load` of other kinds. **A group the viewer may not read or
+    that does not exist is always `404 {"message":"Not Found"}`** (never 403; same body for both). **503 + `Retry-After: 2`** while the
+    entity index walk of a table the response reads is not `done` (B3's gate; also after a re-bootstrap marker restarted it). 401/403 as
+    `/-/sync/grants`.
+  - **Format (client contract, documented on `protocol.BootstrapHeader`).** NDJSON: header `{type:"header", group, watermark, units,
+    tier: full|summary|closed, schemas, models?, closed_before?}`, then entity lines = `protocol.Change` (`op:"U"`, **`v` = watermark**),
+    the group's own entities first, then embedded profiles of other groups, then `{type:"end", count, refs, next?}`. **No end line ⇒
+    incomplete** (an error after the headers only drops the end line and closes the encoder; the status is already 200). A full/summary
+    response **replaces** what the client holds of the group (of `models` when filtered): drop the group's entities with `v ≤ watermark`
+    not in the response; closed pages and profile lines of other groups only add. Subscribe with `since = watermark` (B5: allowed to be
+    ahead of the hub). `units` = the viewer's units the response was filtered by (B5 units rule: compare with every later grant). The
+    header's `schemas` lists the models the response may contain plus `User`.
+  - **Consistency (decision: index-presence filter, no barrier).** The watermark W (`synclog.Head`) is read first, then the gate, then
+    the snapshot. Each chunk (≤ 500 rows, 100 for comment/review/release) is read in its own short quiet read transaction on the master
+    (`capture.WithQuietTx`): candidate ids → `spec.load` (the materializer's loaders, placement and DTOs) → keep entities placed in the
+    group, allowed by the units and the model filter → **keep only those with a `livesync_entity` row**. Why it converges: an indexed
+    entity's later changes/moves/deletes are materialized after the chunk was read, i.e. after W, so they get sync ids > W (the log head
+    row stays locked until a writer transaction commits); an unindexed one has a pending outbox change (it arrives as a delta > W) or
+    was inserted and deleted and coalesced (no delete is ever emitted — B3's "around the snapshot" case — so it must not be in a
+    bootstrap) or is not in the log at all (a later bootstrap leaves it out too). B3's suggested "wait until the capture cursor passes
+    the outbox ids committed before the snapshot" was **not** used: it does not cover a delete committed after the snapshot but coalesced
+    with the insert, and it would block bootstraps on long transactions / deferred hot rows. **The gate is read after W** (review of my
+    own first version): a marker and its `repair:0` restart are one transaction, so the marker is either above W (the client gets
+    `bootstrap_required` and loads again) or the gate sees the walk (503). Markdown of an entity whose index hash equals its current
+    change hash is taken from its last log entry (if not trimmed) instead of being rendered again.
+  - **Tiers / candidate rows** (`materialize/snapshot.go` `snapshotSources`; candidates may be a superset, placement decides; the
+    unit test `TestSnapshotCoversPlacement` checks that every fixture row of every tracked table is in its group's snapshot and nothing
+    else). `repo:` summary: repository, units, collaborations, labels, milestones, projects + columns, branches, published releases (+
+    their attachments), **issues/PRs open or updated since `now − SUMMARY_RECENCY`** with their labels, assignees, project cards, pull
+    requests, auto-merges (read per chunk of issues through their `issue_id`/`pull_id` index: `source.children`), **commit statuses and
+    action runs/jobs updated since the cutoff** (older ones are not loadable through livesync: online via API v1). `closed` tier: closed
+    issues not updated since the cutoff + the same children. `issue:` body, comments, reviews, reactions/attachments/revisions (also by
+    `comment_id` of the issue's comments), dependencies, tracked times. `user:` access, notifications (**read ones only if updated since
+    the cutoff**), stopwatches, issue watches, watches, stars, blocks, viewed files, the user's pending reviews and their comments (+
+    reactions, attachments, revisions). `profile:` the private user + their projects/columns; directories: the users of that visibility;
+    `org:` the org's profile, memberships, teams (+ users/repos/units), org labels, org projects/columns.
+  - **Profiles a bootstrap refers to (orchestrator note B3/B4).** `materialize.userRefs` reads the DTO fields that name users
+    (`poster_id`, `user_id`, `owner_id`, `assignee_id`, … — `TestUserRefFields` makes every integer `*_id` field of every DTO classified).
+    At the end the groups of those users' User entities are decided (`ProfileGroups`) and checked for the viewer (cached grants first,
+    else `perm.Cache.Check`, at most 1000 checks per response): readable groups go to `end.refs`; the profiles in **per-user groups**
+    (`profile:{id}` private users — only the user themselves and admins, B4's API rule — and `org:{id}`) are **embedded** as change lines
+    with their own `g`; the directories are only listed (the workspace subscribes and bootstraps them). The requested group itself is
+    never listed. Unreadable referenced profiles (another user's private profile) are neither listed nor sent.
+  - **Cross-references (B3's open issue, partly resolved).** A load of `issue:{id}` adds the comments that reference the issue from
+    other repositories that the viewer may see (`materialize.CrossReferences` + `bootstrap.crossReferences`: `perm.Cache.Check(repo:{ref})`
+    must allow `issues`, or `pulls` for a PR reference — upstream's `filterXRefComments`; `TestCrossReferences` compares with
+    `GetUserRepoPermission(...).CanReadIssuesOrPulls`). They are still **not in the sync log**: no delta adds/changes/removes them; the next
+    load refreshes them (documented in the protocol). Their attachments/reactions are not included. A live solution needs the "second
+    requirement per entry" design from the B3 notes.
+  - **B3 placement fix found by the differential test: tags without a release need the `code` unit** (were `releases`; API v1's release
+    routes 404 for `is_tag` rows and `/tags` needs code). `placementVersions["release"] = 1` ⇒ existing databases get `B` markers
+    (`placement_changed`) for Release and a repair walk once.
+  - **Workspace** (`bootstrap.Workspace`): the implicit grants' non-repository groups (reasons `self`, `profile`, `directory`, `member`),
+    then repositories = implicit repo grants (`owner` if `owner_id` = viewer, else `access`) ∪ watched repositories
+    (`repo_model.BuilderWatchAnything`, checked on demand, reason `watch`), sorted by `repository.updated_unix` desc, capped at
+    `WORKSPACE_MAX_REPOS` (`truncated`). Units are the grants'. Admins get only their own relations (B4 rule). Pins are client-side.
+  - **Transport.** `Content-Type: application/x-ndjson; charset=utf-8`, `Cache-Control: no-store`, `Vary: Accept-Encoding`, chunked;
+    `Accept-Encoding` ⇒ `br` (quality 4, 256 KiB window) > `gzip` (default level) > identity; the encoder and the HTTP writer are
+    flushed after the header and after every chunk; cancelled with the request context (checked between chunks, DB reads use it).
+    Served through livesync's router (Forgejo's `context.Response` implements `http.Flusher`).
+  - **Settings added:** `SUMMARY_RECENCY` (default 2160h = 90 days, > 0), `WORKSPACE_MAX_REPOS` (default 200, > 0).
+  - **APIs for later milestones.** `bootstrap.Prepare(ctx, Request) (*Prepared, pending []string, error)` + `Prepared.Stream(ctx, w,
+    flush, perms)`; `bootstrap.Workspace`; `materialize.Snapshot(ctx, SnapshotRequest, emit)`, `SnapshotTables`, `SnapshotModels`,
+    `BackfillPending`, `ProfileGroups`, `Profiles`, `CrossReferences`, `ClosedCursor`/`ParseClosedCursor`; `protocol.ParseGroup`. **For
+    F2:** the contract above; on `bootstrap_required{model}` reload with `?model=`; on 503 retry after `Retry-After`; keep `units` per
+    group. **For B7:** nothing (bootstraps are reads). **For B8:** metrics (bootstrap bytes/duration, 503s) are not added; there is no
+    per-instance limit on concurrent bootstraps yet (each holds one DB connection per chunk read, never across client writes).
+    Snapshots are viewer-independent except for the unit filter, the embedded profiles and the cross-references (PLAN §4.11 invariant 4:
+    a shared snapshot cache would cache the unfiltered group and filter per viewer).
+  - **Tests.** Unit (SQLite fixtures): `materialize` — `TestSnapshotCoversPlacement`, `TestSnapshotPayloads` (payloads = the log's;
+    unchanged markdown not rendered again; user refs), `TestSnapshotIndexFilter` (an unmaterialized insert is left out until consumed;
+    insert+delete coalesced ⇒ never in a snapshot and no delete in the log), `TestSnapshotTiers` (summary vs. closed pages of one,
+    newest first, children only with their issue, cursor round trip), `TestSnapshotFilters` (units, models, tables, models list),
+    `TestBackfillPending`, `TestProfiles`, `TestClosedCursor`, `TestUserRefFields`, `TestReleasePlace`; `bootstrap` — `TestStream`
+    (header, flushes, count, refs, embedded org profile, own private profile embedded / another's not, model filter, no units, closed
+    tier), `TestCrossReferences` (repo 32 made private; five viewers vs. upstream; verified to fail without the filter), `TestPrepareGate`,
+    `TestWorkspace`, `TestAppendChange`; `routers/livesync` — `TestNegotiateEncoding`, `TestCompress` (br/gzip/identity: flushed data
+    decodes before the end), routing cases; settings. Integration (**PG 16 `gtestschema` and MySQL 8.0 binlog on, all green, no
+    testlogger "FATAL ERROR"**): `TestLivesyncBootstrapAPI` (401, 400s, identical 404s for unreadable/missing/pseudo groups, the gate's
+    503 + Retry-After, header units = `/-/sync/grants?group=` units, tiers, closed page, lazy load, model filter, br/gzip/identity over
+    a real listener with the same entities and no Content-Length, workspace reasons and units = grants), **`TestLivesyncBootstrapDifferential`**
+    (every fixture user who may sign in × every repository: bootstrap 404 ⇔ grant 404; repository ⇒ `GET /repos/{o}/{r}` 200; issues ⊆
+    `/issues?state=all`, labels, milestones (`state=all`), releases ⊆ API v1 (tags: only with the code unit); up to 3 issue loads per
+    repository: body ⇒ `/issues/{n}` 200, comments ⊆ `/issues/{n}/comments`, reviews ⊆ `/pulls/{n}/reviews`; every organization: teams,
+    labels, members (`members`/`public_members` by unit; inactive members skipped, API v1 lists active ones) ⊆ API v1; own stars ⊆
+    `/user/starred`; directories ⇒ `/users/{name}` 200 for four viewers; 88 s PG / 123 s MySQL), **`TestLivesyncBootstrapConvergence`**
+    (3 writers over the real listener — issues created/closed, comments created/edited/deleted, labels created/attached/deleted, the
+    body edited; 3 rounds of bootstraps of `repo:1` and `issue:1` while they write, each followed by a WebSocket subscription from its
+    watermark; after a barrier, every replica = a fresh bootstrap, entity by entity; each writer has its own kinds of writes because
+    upstream deadlocks on MySQL (`Error 1213` in `CreateComment`'s `num_comments` subquery) when two comments are created on one issue
+    concurrently, livesync or not), **`TestLivesyncBootstrapLarge`** (40 000 issues bulk-inserted and materialized in ≈ 7 s; a 25 MB
+    bootstrap read over the real listener while the test samples the live heap after a GC every 2 000 lines: growth 2–6 MB, asserted
+    below half the response).
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...
+    ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), `go mod tidy -diff` and
+    `make tidy-check` (clean), unit tests of every livesync package, `next/tools/gen-protocol.sh --check` (up to date) + `tsc --strict` on
+    the generated file, `./integrations.pgsql.test -test.run 'TestLivesync|TestVersion'` with `tests/pgsql.ini` (35 pass, 3 skips) and
+    `tests/mysql.ini` (37 pass, 1 skip), fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum` — `go.mod`
+    gained only the brotli direct requirement); dev binary smoke test on PG with `ENABLED = true` (repository + issue via API ⇒ workspace,
+    `bootstrap?group=repo:N` with br, `load?group=issue:N` with rendered body and @mention, 401 without token; dev DB triggers dropped
+    afterwards). MariaDB not run (no trigger change). The F1 merge (pulled before the notes) does not touch `services/livesync`;
+    `next/` lint/typecheck were not run (no `next/node_modules`; only the generated file changed there).
+  - **Known gaps / for later.** No live sync of cross-references (above). Referenced private users' profiles are invisible to others
+    (B4's API rule; API v1 still shows such a poster's name in issue JSON). Older commit statuses / action runs and old read
+    notifications are not loadable through livesync. The summary header's `schemas` lists every model of the tables read (e.g. `Issue`
+    for an `issue:` load, which never contains one). No concurrent-bootstrap limit and no metrics (B8). Fixture quirk: team units have
+    no `org_id`, so they are placed in `org:0`, which no client can name (B3 placement, harmless; skipped in the coverage test).
+    `TestLivesyncHubSlowConsumer` (B5) failed once on MySQL in a full run under load ("frames were written until the socket was full")
+    and passed 3/3 alone and in the next full run — watch it.
+  - **Sandbox note:** the root filesystem reports little free space (≈ 0.3 GB at one point although only 39 GB of 252 GB were used:
+    the host disk is shared). Leftover `/tmp/prepared-forgejo*` / `/tmp/appdata*` dirs of killed unit-test runs (≈ 2.4 GB) and MySQL
+    binary logs (the large bootstrap test writes ≈ 0.7 GB per MySQL run) were the reclaimable part: `rm -rf /tmp/prepared-forgejo*`,
+    `FLUSH BINARY LOGS; PURGE BINARY LOGS TO '<newest>'`. A full disk shows up as `collect2: ld returned 1 exit status` / `[build failed]`.
 
 #### B7 — Idempotency layer for API v1
 - [ ] **Status**

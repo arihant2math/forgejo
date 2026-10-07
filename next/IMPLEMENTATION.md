@@ -946,7 +946,7 @@ does) **and** MySQL 8.0 (binlog on).
     empty, backfill done, writer token 1); dev DBs' triggers removed again afterwards.
 
 #### B4 — Permissions
-- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; **one open major item** (MySQL permission-column triggers vs. upstream migrations), see *Open items* in the notes)
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; round 3 (the open major item: MySQL permission-column triggers vs. upstream migrations) fixed — capture triggers reference only `id` again on every dialect, undone permission changes are caught by materializer touches, see *Review round 3*; no open items)
 - **Scope:** `services/livesync/perm`: `Grants(ctx, user) → map[group]units` from
   `access_model.GetUserRepoPermission`, org/team membership, visibility; per-user cache
   shared across connections; permission epochs bumped by the materializer when it
@@ -962,7 +962,7 @@ does) **and** MySQL 8.0 (binlog on).
   private / removing a collaborator / removing from team bumps the epoch and drops the
   grant.
 - **Notes/decisions:**
-  - **Files.** `services/livesync/perm/{units,grants,cache}.go` (+ SQLite unit tests `perm_test.go`, `main_test.go`);
+  - **Files.** `services/livesync/perm/{units,grants,cache,basis}.go` (+ SQLite unit tests `perm_test.go`, `basis_test.go`, `main_test.go`);
     `services/livesync/materialize/perm.go` (permission states / epochs) + changes in `materializer.go`, `specs.go`,
     `specs_render.go`, `load.go`, `index.go`, `backfill.go`, `epochs.go` (+ `perm_test.go`); `services/livesync/perms.go`
     (`permSink`, `Permissions()`), `settings.go` (`PERM_CACHE_TTL`), `livesync.go`, `writer.go`; `synclog/tailer.go`
@@ -1036,7 +1036,7 @@ does) **and** MySQL 8.0 (binlog on).
     owners, all}` payload, placed *before* the transaction's other entries** (a hub applying the log in order revokes
     before delivering anything written in the same batch). A changed state without a visible DTO change (e.g. a user made
     admin) writes the epoch alone and updates only the index's perm column. No epoch for changes that leave the state alone
-    (names, counters, `updated_unix`). The sync id of a `P` entry is the epoch. **Lost changes:** `HandleEpochs` writes
+    (names, counters, `updated_unix`) — **round 3:** since triggers do not say which columns an update changed, such an update of a repository/user row is a *touch* and of another permission table names its subjects, see *Review round 3*. The sync id of a `P` entry is the epoch. **Lost changes:** `HandleEpochs` writes
     `P{all:true}` before the markers when a permission table's trigger was repaired, and a delete of a permission row the
     index does not know yet (only possible before the table's backfill is done) also gives `P{all:true}`. **Review round 1
     (unknown states, `permSubjects.transition`):** a permission row *inserted and deleted again* between two materializations
@@ -1062,7 +1062,8 @@ does) **and** MySQL 8.0 (binlog on).
     and drops everything on `Skipped`. **B5:** replace `logSink` (keep `permSink` in front, or fold its loop into the hub);
     on a `P` entry recompute the grants of `users` (re-check all their subscriptions, send `group_revoked`), re-check
     subscribers of `repo:{r}` and of the `issue:` groups whose `Decision.RepoID` is in `repos`, and subscribers of
-    `org:{o}`/`profile:{o}` for `owners`; `all` ⇒ re-check everyone. `synclog.Sink` gained **`Skipped(ctx, from, floor)`**
+    `org:{o}`/`profile:{o}` for `owners`; `all` ⇒ re-check everyone; **round 3:** `touched` ⇒ re-check the subscriptions
+    whose `Decision.Basis.Stale(ch.Touched)`. `synclog.Sink` gained **`Skipped(ctx, from, floor)`**
     (the tailer calls it when it jumps over trimmed entries; the hub must re-bootstrap its subscriptions then).
   - **Placement versions** (`materialize.placementVersions`, meta `materialized_placement.<tbl>`): B4 changed the placement
     of `user`, `project`, `project_board` (version 1). `HandleEpochs` treats a table whose recorded placement differs
@@ -1149,7 +1150,8 @@ does) **and** MySQL 8.0 (binlog on).
     Commands: gofumpt (clean), golangci-lint (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean),
     unit tests with `-race`, `gen-protocol.sh --check` (unchanged), `TestLivesync*|TestVersion` on PG 16 (`gtestschema`) and
     MySQL 8.0: PG 28 pass + 3 MySQL-only skips, MySQL 30 pass + 1 skip, no testlogger "FATAL ERROR"; fork diff unchanged.
-  - **Review round 2 (1 finding, fixed): flip-flops of permission columns.** A permission row updated and changed back
+  - **Review round 2 (1 finding, fixed; its capture-level design was replaced in round 3 — the triggers no longer compare
+    columns, see *Review round 3*; kept as history): flip-flops of permission columns.** A permission row updated and changed back
     before the materializer read it (`repository.is_private` false→true→false, a user made admin and back, a collaborator's
     mode up and down) looked unchanged: no epoch, so a grant / B5 subscription obtained in between stayed. **Decision:
     capture-level flag.** The materializer cannot fix this alone: it only ever sees the stored and the current state, and
@@ -1201,31 +1203,79 @@ does) **and** MySQL 8.0 (binlog on).
     3 MySQL-only skips) and MySQL 8.0 (30 pass, 1 skip), plus `TestLivesyncCapture*|TestLivesyncMaterialize*|
     TestLivesyncPermEpochs|TestLivesyncPermLostChanges` on MariaDB 11.8.9 (all pass; the `CASE` trigger body round-trips
     through `information_schema.triggers` there too), no testlogger "FATAL ERROR"; protocol unchanged; fork diff unchanged.
-  - **Open items at close (unresolved, for the orchestrator).**
-    - **[major] MySQL/MariaDB capture triggers now name permission columns** (`services/livesync/capture/ddl.go` ~152,
-      review round 3). The `_au` trigger of each of the 11 permission tables reads `OLD.<col>`/`NEW.<col>` for 22 columns
-      (user `type, visibility, is_active, prohibit_login, is_admin, is_restricted`, repository `owner_id, is_private`, team
-      `authorize`, …). An upstream rename/drop of one of them makes **every UPDATE of that table fail** (reproduced on MySQL
-      8.0.46: `ERROR 1054 Unknown column 'is_private' in 'OLD'` after `RENAME COLUMN` or `DROP COLUMN`). This contradicts
-      PLAN §4.3 ("Trigger design (robust against upstream migrations)": the trigger "references only `id`"; livesync never
-      breaks plain Forgejo), and PLAN §4.3 was not updated. The round-2 caveat above ("the window is the migration run
-      itself … accepted") **understates** it: (1) *upgrade abort*: a later migration in the same run that updates the
-      renamed table (migrations touch `user`/`repository` routinely) fails, so Forgejo does not start at all, also in
-      `INSTALL_MODE=auto`, because livesync `Init` (which would replace the trigger) runs only after the migrations;
-      recovery needs a manual `DROP TRIGGER`; (2) *`INSTALL_MODE=verify`* (PLAN §4.3's mode for the common MySQL 8 case:
-      binlog on, no SUPER): `Ensure(ctx, false)` never replaces triggers (`services/livesync/livesync.go` ~131), so every
-      UPDATE of the table fails until a DBA runs the new DDL; for `user` that includes the `last_login_unix` update at
-      sign-in, i.e. the classic forge is down, not just livesync; (3) *`ENABLED=false` with triggers left installed*
-      (`routers/livesync/wrap.go` ~44–48 keeps them by design; no uninstall until B8): the same permanent breakage after
-      such an upgrade. Before round 2 none of these could break non-livesync writes. CI catches an upstream rename
-      (`CheckCatalog`/`TestLivesyncCatalogContract`/`TestPermColumns`), but that does not protect deployed databases whose
-      triggers predate the new binary. Verified correct otherwise: transition/coalesce logic, the epoch path through
-      `withPermissionEpoch` and `Cache.Invalidate`, PG function v2 + `tgargs` check, MySQL staleness, `PermColumns` ⇔ perm
-      funcs; tests green on PG 16 and MySQL 8.0. **Options:** (a) keep it, accept explicitly, update PLAN §4.3 and correct
-      the caveat to cover verify mode, disabled livesync and the migration abort; (b) mitigate, e.g. a pre-migration step
-      that drops livesync's `_au` triggers of permission tables on MySQL (Init reinstalls them with markers/epochs); (c) go
-      back to plain `U` triggers on MySQL with a bounded-staleness safeguard (e.g. a TTL on B5 subscriptions to repo/user
-      groups) instead of exact flagging. **B5/B8 must not build on (a) without that decision.**
+  - **Open items at close:** none. (The round-2 item "[major] MySQL/MariaDB capture triggers name permission columns" —
+    an upstream rename/drop of e.g. `repository.is_private` made every UPDATE of the table fail with `ERROR 1054`, also
+    during the upgrade's later migrations, in `INSTALL_MODE=verify` and with livesync disabled but triggers installed —
+    was resolved in round 3.)
+  - **Review round 3 (orchestrator issue, fixed): triggers reference only `id` again; undone permission changes are
+    caught in the materializer.** *Invariant restored:* the PG function is the B2 "v1" body again (no `to_jsonb`, no
+    trigger arguments; a v2 function / triggers with arguments are stale and repaired at the next start, which bumps the
+    epochs once — nothing is deployed), the MySQL/MariaDB `_au` triggers are plain `… VALUES ('<tbl>', NEW.id, 'U')`;
+    `catalog.Table.PermColumns`, `livesync_model.OpPermUpdate`, the `CheckCatalog` permission-column check and the
+    `tgargs` comparison are gone. PG kept the id-only design too although its `to_jsonb` lookup could not fail: symmetry,
+    and it was +40–60 µs per update of wide rows. PLAN §4.3 now states the invariant as a hard rule with the reasons, §4.5
+    the replacement mechanism. *Mechanism (decision):* the materializer cannot tell an undone change from a counter update
+    any more, so (`materialize/perm.go` `permSubjects.transition`, `rowChanges.updated` = any op other than I/D, legacy
+    `P` outbox rows included):
+    - **rarely updated permission tables** (`access`, `collaboration`, `team`, `team_user`, `team_repo`, `team_unit`,
+      `org_user`, `repo_unit`, `forgejo_blocked_user`): *any* update names the stored and current subjects outside netting
+      (the round-2 rule with "updated" instead of "flagged"). Their updates are permission changes or rare (org membership
+      visibility, unit config, team counters, which move with `team_user`/`team_repo` changes that name the team's members
+      anyway); cost accepted.
+    - **busy tables** (`repository`: issue/star/watch counters, pushes; `user`: sign-ins, counters): an update that leaves
+      the stored (known, verified) state alone is a **touch** `protocol.PermissionTouch{kind, id, state}` in the new
+      `PermissionChange.Touched` of the same `P` entry (spec `permTouch`; `P` entries may now carry only touches). `state`
+      is the fingerprint after the updates — `perm.RepositoryState` (`is_private,owner_id`) / `perm.UserState` (visibility,
+      active, prohibit_login, admin, restricted, type); the materializer's stored states are built from the same functions,
+      so stored states are unchanged (no permission walk). A real state change is still an epoch naming the subjects.
+    - **Decisions record what they read** (`perm.Basis`, `services/livesync/perm/basis.go`): cached `Grants` record the
+      viewer's row and every evaluated repository and its owner; `Decision.Basis` (on-demand checks: viewer, repository +
+      owner — `checkRepo` loads the owner itself so the recorded row is the one `GetUserRepoPermission` uses —, the
+      profile's user, the organization; from cached grants: the grants' basis). A row read in two states by one
+      computation (PG READ COMMITTED) is recorded as a conflict that any touch makes stale. `Cache.Invalidate` drops only
+      entries whose basis has *another* state of a touched row (new `byRow` index, O(entries that read the row)); running
+      computations decide at the end like for repository epochs. So a grant computed while repository 1 was public is
+      dropped by the touch `true,2`; every grant computed from the current state survives: **a counter update or sign-in
+      recomputes nothing** (one map lookup per cached viewer that read the row). Propagation: touches are in the sync log,
+      every instance's `permSink` applies them (unchanged code path).
+    - Why not the orchestrator's first suggestion (any update of a repository/user row ⇒ scoped invalidation of `r<id>` /
+      `u<id>`+`O<id>`): correct, but every issue created would drop (and, in B5, re-check) every viewer of the repository,
+      every sign-in every viewer of the user's repositories — the recompute storm. Tagging with outbox positions does not
+      work with commit-order holes. Basis comparison is exact for the rows that can be "busy" and costs nothing when the
+      state did not change.
+    - **Cost:** one extra small `P` log row per materializer batch that updated repository/user rows (not delivered to
+      clients; coalesced per batch). Detaching running grant computations on touches (as on repository epochs) can start a
+      second computation for a viewer who asks again meanwhile; harmless.
+    - **For B5:** on a `P` entry re-check a subscription when its `Decision.Basis.Stale(ch.Touched)` (besides users / repos
+      / owners as before); keep the `Decision` (with its `Basis`) per subscription. Do not modify a `Basis`.
+    - **Tests.** `TestTriggersReferenceOnlyID` (capture: every MySQL trigger statement and the PG function read only
+      `OLD.id`/`NEW.id`, no `to_jsonb`/`TG_ARGV`/`CASE`; the PG trigger passes no arguments — verified to fail on the
+      round-2 DDL), `TestPostgresTriggerState` (arguments ⇒ stale); materialize `TestConsumePermissionFlipFlop` rewritten
+      for `U` ops (repo private→public→private + counter ⇒ touch `{repository 2 "true,2"}` and no subjects; user 4 admin
+      and back over two batches ⇒ a touch each; collaboration mode up/down ⇒ epoch for the user; a real change ⇒ subjects
+      + another row's touch in the same entry; issue/label updates ⇒ nothing; verified to fail without the touch),
+      `TestConsumePermissionEpochs` / `TestConsumePlacement` adjusted (unchanged user row ⇒ touch, unchanged collaboration
+      / team / org_user update ⇒ subjects), `TestPermColumns` → **`TestPermStateColumns`** (column list now local to the
+      test; also asserts the repository/user state fingerprints equal `perm.RepositoryState`/`UserState`); perm
+      `TestBasis`, **`TestCacheTouches`** (repository 2's owner switched to user 4 and back: user 4's grants computed in
+      between are dropped by the touch, user 2's and user 5's kept; counter ⇒ nothing dropped; user 5 restricted and back;
+      owner-row touches; `byRow` index consistency), `TestDecisionBasis`, `TestCacheTouchedWhileComputing` (verified to fail
+      without the touch handling in `Invalidate`/`affects`), `TestDecodeChange` (touched). Integration:
+      **`TestLivesyncCaptureColumnRename`** (PG + MySQL + MariaDB: with triggers installed, each of the 30 permission-state
+      columns of the 11 permission tables is renamed (`ALTER TABLE … RENAME COLUMN`), the table updated through the renamed
+      column and `SET id = id` — both succeed and write `U` —, `Inspect` stays healthy, the column is restored (also in
+      `t.Cleanup` on failure); verified to fail with `Error 1054 (42S22): Unknown column 'is_private' in 'OLD'` on MySQL
+      8.0 with a round-2-style `CASE` trigger), `TestLivesyncCaptureOutbox/permission columns` (every update is `U`),
+      `TestLivesyncPermEpochs` (repo 1 public-and-private-again in one transaction ⇒ a `P` entry with the touch
+      `{repository 1 "true,2"}` and without `repos:[1]`).
+    - **Commands:** gofumpt (clean), golangci-lint on livesync packages + `tests/integration` (0 issues), `go vet` (+
+      integration with sqlite tags), deadcode diff (clean), unit tests with `-race` (all livesync packages),
+      `gen-protocol.sh` (types regenerated: `PermissionTouch`, `Touched`, `TouchRepository`/`TouchUser`; `--check` up to
+      date), `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 29 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (31
+      pass, 1 skip), `TestLivesyncCapture*|TestLivesyncMaterialize*|TestLivesyncPermEpochs|TestLivesyncPermLostChanges` on
+      MariaDB 11 (all pass; the privilege test skips without a `forgejo` account there), no testlogger "FATAL ERROR"; fork
+      diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). `SURFACE.md`: `checkRepo` relies on
+      `GetUserRepoPermission` keeping a loaded owner.
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

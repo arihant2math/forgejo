@@ -24,10 +24,11 @@ type rowChanges struct {
 	// exist before this batch (permission epochs need to know that a row
 	// that is gone now existed in between, see materializeRows).
 	inserted bool
-	// permUpdated: one of the changes is an update of a permission column
-	// (livesync_model.OpPermUpdate), so the row's permission state changed
-	// in between even if its current state equals the materialized one.
-	permUpdated bool
+	// updated: one of the changes is an update. The capture triggers
+	// reference only id (PLAN §4.3), so whether the update changed a
+	// permission column — and maybe a later one changed it back — is not
+	// known: see permSubjects.transition.
+	updated bool
 }
 
 // last is the newest outbox id of the row.
@@ -39,8 +40,10 @@ func (r rowChanges) last() int64 { return r.changeIDs[len(r.changeIDs)-1] }
 // state once, and a row that no longer exists is a delete whatever the
 // changes said (an insert followed by a delete in the same batch produces
 // no entry, if no client ever saw the row). Only whether the row was
-// inserted and whether a permission column was updated is kept
-// (rowChanges.inserted, rowChanges.permUpdated).
+// inserted and whether it was updated is kept (rowChanges.inserted,
+// rowChanges.updated). Every op other than insert and delete is an update
+// (also the 'P' that B4 review round 2's triggers wrote for updates of
+// permission columns, should a database still have such outbox rows).
 func coalesce(changes []livesync_model.Change) []rowChanges {
 	index := make(map[rowKey]int, len(changes))
 	res := make([]rowChanges, 0, len(changes))
@@ -56,8 +59,9 @@ func coalesce(changes []livesync_model.Change) []rowChanges {
 		switch c.Op {
 		case livesync_model.OpInsert:
 			res[i].inserted = true
-		case livesync_model.OpPermUpdate:
-			res[i].permUpdated = true
+		case livesync_model.OpDelete:
+		default:
+			res[i].updated = true
 		}
 	}
 	return res

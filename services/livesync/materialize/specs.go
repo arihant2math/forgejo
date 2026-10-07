@@ -48,6 +48,8 @@ type spec struct {
 	perm bool
 	// permDerived: see rowSpec.permDerived.
 	permDerived bool
+	// permTouch: see rowSpec.permTouch.
+	permTouch string
 }
 
 // dependent names the rows of table whose column refers to a row of
@@ -78,6 +80,12 @@ type rowSpec[T any] struct {
 	// between two materializations needs no epoch of its own (see the
 	// access spec).
 	permDerived bool
+	// permTouch is the protocol.PermissionTouch kind of a busy permission
+	// table (repository, user): an update that leaves the row's
+	// permission state as stored is a touch, not an epoch (see
+	// permSubjects.transition). The state's fingerprint must be the one
+	// the perm package records (perm.RepositoryState, perm.UserState).
+	permTouch string
 }
 
 func (s rowSpec[T]) spec(table string) *spec {
@@ -89,6 +97,7 @@ func (s rowSpec[T]) spec(table string) *spec {
 		dependents:  s.dependents,
 		perm:        s.perm != nil,
 		permDerived: s.permDerived,
+		permTouch:   s.permTouch,
 		load: func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error) {
 			rows, err := findByIDs(ctx, ids, s.id)
 			if err != nil {

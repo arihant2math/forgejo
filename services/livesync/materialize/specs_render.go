@@ -50,8 +50,11 @@ func repositorySpec() *spec {
 		// Visibility and owner decide who may read the repository; the
 		// owner's grants list the repositories they own.
 		perm: func(r *repo_model.Repository) string {
-			return permState(fingerprint(r.IsPrivate, r.OwnerID), subject('r', r.ID), subject('u', r.OwnerID))
+			return permState(perm.RepositoryState(r), subject('r', r.ID), subject('u', r.OwnerID))
 		},
+		// Counters change on every issue, star, watch, push: updates are
+		// touches unless the state changed.
+		permTouch: protocol.TouchRepository,
 	}.spec("repository")
 }
 
@@ -77,9 +80,10 @@ func userSpec() *spec {
 		// profile and repositories (organization.HasOrgOrUserVisible in
 		// GetUserRepoPermission).
 		perm: func(r *user_model.User) string {
-			return permState(fingerprint(int(r.Visibility), r.IsActive, r.ProhibitLogin, r.IsAdmin, r.IsRestricted, int(r.Type)),
-				subject('u', r.ID), subject('O', r.ID))
+			return permState(perm.UserState(r), subject('u', r.ID), subject('O', r.ID))
 		},
+		// Sign-ins, counters and settings update user rows all the time.
+		permTouch: protocol.TouchUser,
 	}.spec("user")
 }
 

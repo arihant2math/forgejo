@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -126,81 +127,13 @@ func TestLivesyncCaptureOutbox(t *testing.T) {
 		assert.Empty(t, livesyncTakeOutbox(t))
 	})
 
-	// Updates of a permission table that change one of its permission
-	// columns are flagged 'P' (so the materializer sees a change undone
-	// before it reads the row), other updates are 'U'.
+	// The triggers reference only id (PLAN §4.3): an update is 'U'
+	// whichever columns it changes, permission columns included (the
+	// materializer handles changes undone before it reads the row).
 	t.Run("permission columns", func(t *testing.T) {
 		x := livesyncMaster(t)
-		beans, err := db.NamesToBean()
-		require.NoError(t, err)
-		bools := map[string]bool{}
-		for _, bean := range beans {
-			info, err := db.TableInfo(bean)
-			require.NoError(t, err)
-			for _, col := range info.Columns() {
-				if col.SQLType.IsBool() {
-					bools[info.Name+"."+col.Name] = true
-				}
-			}
-		}
-		n := 0
-		for _, tbl := range catalog.Tracked() {
-			if len(tbl.PermColumns) == 0 {
-				continue
-			}
-			n++
-			var id int64
-			has, err := x.Table(tbl.Name).Cols("id").OrderBy("id").Get(&id)
-			require.NoError(t, err)
-			require.True(t, has, tbl.Name)
-			// A raw transaction, rolled back: a value that violates a
-			// constraint (foreign keys, unique indexes) is an error to try
-			// the next candidate with, not a logged SQL error.
-			update := func(set string) (string, error) {
-				t.Helper()
-				tx, err := x.DB().DB.BeginTx(ctx, nil)
-				require.NoError(t, err)
-				defer func() { require.NoError(t, tx.Rollback()) }()
-				if _, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET %s WHERE id = %d", x.Quote(tbl.Name), set, id)); err != nil {
-					return "", err
-				}
-				rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT tbl, row_id, op FROM %s", x.Quote("livesync_change")))
-				require.NoError(t, err)
-				defer rows.Close()
-				var outbox []string
-				for rows.Next() {
-					var c livesync_model.Change
-					require.NoError(t, rows.Scan(&c.Tbl, &c.RowID, &c.Op))
-					outbox = append(outbox, outboxEntry(c.Tbl, c.RowID, c.Op))
-				}
-				require.NoError(t, rows.Err())
-				require.Len(t, outbox, 1)
-				return outbox[0], nil
-			}
-			for _, col := range tbl.PermColumns {
-				q := x.Quote(col)
-				got, err := update(q + " = " + q)
-				require.NoError(t, err)
-				assert.Equal(t, outboxEntry(tbl.Name, id, "U"), got, "%s.%s unchanged", tbl.Name, col)
-				candidates := []string{q + " + 1000003", q + " + 1", q + " - 1", q + " + 2"}
-				if bools[tbl.Name+"."+col] {
-					candidates = []string{"NOT " + q}
-				}
-				var errs []error
-				for _, value := range candidates {
-					if got, err = update(q + " = " + value); err == nil {
-						break
-					}
-					errs = append(errs, err)
-				}
-				require.Less(t, len(errs), len(candidates), "%s.%s: %v", tbl.Name, col, errs)
-				assert.Equal(t, outboxEntry(tbl.Name, id, "P"), got, "%s.%s changed", tbl.Name, col)
-			}
-		}
-		assert.Equal(t, 11, n)
-		// Not a permission column.
 		var id int64
-		_, err = x.Table("repository").Cols("id").OrderBy("id").Get(&id)
+		_, err := x.Table("repository").Cols("id").OrderBy("id").Get(&id)
 		require.NoError(t, err)
 		_, err = x.Exec("UPDATE repository SET num_stars = num_stars + 1 WHERE id = ?", id)
 		require.NoError(t, err)
@@ -208,7 +141,14 @@ func TestLivesyncCaptureOutbox(t *testing.T) {
 		require.NoError(t, err)
 		_, err = x.Exec("UPDATE repository SET is_private = NOT is_private, num_stars = num_stars - 1 WHERE id = ?", id)
 		require.NoError(t, err)
-		assert.Equal(t, []string{outboxEntry("repository", id, "U"), outboxEntry("repository", id, "P"), outboxEntry("repository", id, "P")}, livesyncTakeOutbox(t))
+		_, err = x.Exec("UPDATE " + x.Quote("user") + " SET is_admin = NOT is_admin WHERE id = 1")
+		require.NoError(t, err)
+		_, err = x.Exec("UPDATE " + x.Quote("user") + " SET is_admin = NOT is_admin WHERE id = 1")
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			outboxEntry("repository", id, "U"), outboxEntry("repository", id, "U"), outboxEntry("repository", id, "U"),
+			outboxEntry("user", 1, "U"), outboxEntry("user", 1, "U"),
+		}, livesyncTakeOutbox(t))
 	})
 
 	t.Run("API v1 write", func(t *testing.T) {
@@ -220,6 +160,76 @@ func TestLivesyncCaptureOutbox(t *testing.T) {
 		DecodeJSON(t, resp, &created)
 		assert.Contains(t, livesyncTakeOutbox(t), outboxEntry("label", created.ID, "I"))
 	})
+}
+
+// livesyncPermStateColumns are the columns the materializer's permission
+// states read (materialize.permStateColumns), i.e. the ones B4 review round
+// 2's MySQL update triggers compared — and whose rename then broke every
+// update of their table (ERROR 1054).
+var livesyncPermStateColumns = map[string][]string{
+	"repository":           {"owner_id", "is_private"},
+	"user":                 {"type", "visibility", "is_active", "prohibit_login", "is_admin", "is_restricted"},
+	"org_user":             {"uid", "org_id"},
+	"team":                 {"authorize", "includes_all_repositories"},
+	"team_user":            {"uid", "team_id"},
+	"team_repo":            {"team_id", "repo_id"},
+	"team_unit":            {"team_id", "type", "access_mode"},
+	"collaboration":        {"user_id", "repo_id", "mode"},
+	"access":               {"user_id", "repo_id", "mode"},
+	"repo_unit":            {"repo_id", "type", "default_permissions"},
+	"forgejo_blocked_user": {"user_id", "block_id"},
+}
+
+// Livesync must never break an upstream write: an upstream migration may
+// rename (or drop) any column but id of a tracked table while the capture
+// triggers are installed — also triggers older than the binary, in
+// INSTALL_MODE=verify or with livesync disabled — and every later UPDATE of
+// the table must still succeed (PLAN §4.3: triggers reference only id).
+// Each permission column (the ones most tempting to compare in a trigger)
+// is renamed, the table updated through the renamed column and another
+// one, and the column restored; the triggers stay healthy throughout.
+func TestLivesyncCaptureColumnRename(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	livesyncInstallCapture(t)
+	ctx := t.Context()
+	x := livesyncMaster(t)
+	rename := func(tbl, from, to string) error {
+		_, err := x.Exec(fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s", x.Quote(tbl), x.Quote(from), x.Quote(to)))
+		return err
+	}
+	n := 0
+	for _, tbl := range slices.Sorted(maps.Keys(livesyncPermStateColumns)) {
+		var id int64
+		has, err := x.Table(tbl).Cols("id").OrderBy("id").Get(&id)
+		require.NoError(t, err)
+		require.True(t, has, "%s has fixtures", tbl)
+		for _, col := range livesyncPermStateColumns[tbl] {
+			renamed := col + "_livesync_renamed"
+			require.NoError(t, rename(tbl, col, renamed), "%s.%s", tbl, col)
+			restored := false
+			restore := func() {
+				if !restored {
+					restored = true
+					require.NoError(t, rename(tbl, renamed, col), "restore %s.%s", tbl, col)
+				}
+			}
+			t.Cleanup(restore) // also when an assertion below fails
+
+			q := x.Quote(renamed)
+			_, err := x.Exec(fmt.Sprintf("UPDATE %s SET %s = %s WHERE id = ?", x.Quote(tbl), q, q), id)
+			require.NoError(t, err, "updating %s after renaming %s", tbl, col)
+			_, err = x.Exec(fmt.Sprintf("UPDATE %s SET id = id WHERE id = ?", x.Quote(tbl)), id)
+			require.NoError(t, err, "updating %s after renaming %s", tbl, col)
+			st, err := capture.Inspect(ctx)
+			require.NoError(t, err)
+			assert.True(t, st.Healthy(), "%s.%s renamed: %+v", tbl, col, st.Objects)
+			restore()
+			assert.Equal(t, []string{outboxEntry(tbl, id, "U"), outboxEntry(tbl, id, "U")}, livesyncTakeOutbox(t), "%s.%s", tbl, col)
+			n++
+		}
+	}
+	assert.Equal(t, 30, n)
 }
 
 // livesyncOutboxInTx reads the outbox inside the caller's transaction.

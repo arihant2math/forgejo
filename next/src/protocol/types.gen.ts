@@ -813,13 +813,41 @@ export const RebootstrapPlacementChanged = "placement_changed";
  * visibility, or whose set of possible viewers, changed). All means
  * everything may have changed (writes to a permission table may have been
  * lost): recompute every grant and re-check every subscription.
+ * Touched are the rows of the busy permission tables (repository, user)
+ * that were updated without a visible change of their permission state —
+ * mostly counters and timestamps (an issue created, a sign-in), but the
+ * updates may also have changed the state and changed it back before the
+ * materializer read the row (a repository made public and private again).
+ * A grant or decision computed in between saw another state: the hub
+ * re-checks only the subscriptions whose decision recorded another state
+ * of a touched row (perm.Basis.Stale), the grant caches drop only such
+ * entries, so a counter update costs no recomputation.
  */
 export interface PermissionChange {
   users?: number /* int64 */[];
   repos?: number /* int64 */[];
   owners?: number /* int64 */[];
   all?: boolean;
+  touched?: PermissionTouch[];
 }
+/**
+ * PermissionTouch is a row of a busy permission table that was updated
+ * without a visible change of its permission state (PermissionChange.Touched).
+ */
+export interface PermissionTouch {
+  /**
+   * Kind is the row's table: TouchRepository or TouchUser.
+   */
+  kind: string;
+  id: number /* int64 */;
+  /**
+   * State is the fingerprint of the row's permission state after the
+   * updates (perm.RepositoryState, perm.UserState).
+   */
+  state: string;
+}
+export const TouchRepository = "repository";
+export const TouchUser = "user";
 export const GroupPrefixUser = "user";
 export const GroupPrefixOrg = "org";
 export const GroupPrefixRepo = "repo";

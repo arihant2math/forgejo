@@ -577,10 +577,13 @@ func TestDecodeChange(t *testing.T) {
 	_, ok, err := DecodeChange(&livesync_model.LogEntry{Op: "U", Payload: "{}"})
 	require.NoError(t, err)
 	assert.False(t, ok)
-	ch, ok, err := DecodeChange(&livesync_model.LogEntry{Op: "P", Payload: `{"users":[1,2],"repos":[3],"owners":[4]}`})
+	ch, ok, err := DecodeChange(&livesync_model.LogEntry{Op: "P", Payload: `{"users":[1,2],"repos":[3],"owners":[4],"touched":[{"kind":"repository","id":5,"state":"true,2"}]}`})
 	require.NoError(t, err)
 	assert.True(t, ok)
-	assert.Equal(t, protocol.PermissionChange{Users: []int64{1, 2}, Repos: []int64{3}, Owners: []int64{4}}, ch)
+	assert.Equal(t, protocol.PermissionChange{
+		Users: []int64{1, 2}, Repos: []int64{3}, Owners: []int64{4},
+		Touched: []protocol.PermissionTouch{{Kind: protocol.TouchRepository, ID: 5, State: "true,2"}},
+	}, ch)
 	_, ok, err = DecodeChange(&livesync_model.LogEntry{Op: "P", Payload: `nope`})
 	assert.True(t, ok)
 	assert.Error(t, err)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -22,18 +23,14 @@ import (
 func TestPostgresDDL(t *testing.T) {
 	body := pgFunctionBody(`my"schema`)
 	assert.Contains(t, body, `INSERT INTO "my""schema"."livesync_change" (tbl, row_id, op) VALUES (TG_TABLE_NAME, OLD.id, 'D');`)
-	assert.Contains(t, body, `VALUES (TG_TABLE_NAME, NEW.id, op);`)
-	assert.Contains(t, body, `op text := 'U';`)
-	assert.Contains(t, body, `IF o -> TG_ARGV[i] IS DISTINCT FROM n -> TG_ARGV[i] THEN
-					op := 'P';`)
+	assert.Contains(t, body, `VALUES (TG_TABLE_NAME, NEW.id, 'U');`)
 	assert.Contains(t, body, `VALUES (TG_TABLE_NAME, NEW.id, 'I');`)
 	assert.Contains(t, body, `PERFORM pg_notify('livesync', TG_TABLE_SCHEMA);`)
 	assert.NotContains(t, body, "$livesync$", "the body must not end the dollar quote")
 	assert.NotContains(t, body, "?", "xorm rewrites ? placeholders on PostgreSQL")
 
 	assert.Equal(t, `CREATE OR REPLACE FUNCTION "s"."livesync_capture"() RETURNS trigger LANGUAGE plpgsql AS $livesync$`+pgFunctionBody("s")+`$livesync$`, pgCreateFunction("s"))
-	assert.Equal(t, `CREATE TRIGGER "livesync_capture" AFTER INSERT OR UPDATE OR DELETE ON "s"."issue" FOR EACH ROW EXECUTE FUNCTION "s"."livesync_capture"()`, pgCreateTrigger("s", "issue"))
-	assert.Equal(t, `CREATE TRIGGER "livesync_capture" AFTER INSERT OR UPDATE OR DELETE ON "s"."repository" FOR EACH ROW EXECUTE FUNCTION "s"."livesync_capture"('owner_id', 'is_private')`, pgCreateTrigger("s", "repository"))
+	assert.Equal(t, `CREATE TRIGGER "livesync_capture" AFTER INSERT OR UPDATE OR DELETE ON "s"."user" FOR EACH ROW EXECUTE FUNCTION "s"."livesync_capture"()`, pgCreateTrigger("s", "user"))
 	assert.Equal(t, `DROP TRIGGER IF EXISTS "livesync_capture" ON "s"."user"`, pgDropTrigger("s", "user"))
 }
 
@@ -42,10 +39,6 @@ func TestMySQLDDL(t *testing.T) {
 	assert.Equal(t, "CREATE TRIGGER `livesync_issue_au` AFTER UPDATE ON `issue` FOR EACH ROW INSERT INTO `livesync_change` (tbl, row_id, op) VALUES ('issue', NEW.id, 'U')", mysqlCreateTrigger("issue", mysqlEvents[1]))
 	assert.Equal(t, "CREATE TRIGGER `livesync_issue_ad` AFTER DELETE ON `issue` FOR EACH ROW INSERT INTO `livesync_change` (tbl, row_id, op) VALUES ('issue', OLD.id, 'D')", mysqlCreateTrigger("issue", mysqlEvents[2]))
 	assert.Equal(t, "DROP TRIGGER IF EXISTS `livesync_issue_ad`", mysqlDropTrigger("livesync_issue_ad"))
-	// The update trigger of a permission table flags permission changes.
-	assert.Equal(t, "CREATE TRIGGER `livesync_repository_au` AFTER UPDATE ON `repository` FOR EACH ROW INSERT INTO `livesync_change` (tbl, row_id, op) VALUES ('repository', NEW.id, "+
-		"CASE WHEN NOT (OLD.`owner_id` <=> NEW.`owner_id`) OR NOT (OLD.`is_private` <=> NEW.`is_private`) THEN 'P' ELSE 'U' END)", mysqlCreateTrigger("repository", mysqlEvents[1]))
-	assert.Equal(t, "CREATE TRIGGER `livesync_repository_ai` AFTER INSERT ON `repository` FOR EACH ROW INSERT INTO `livesync_change` (tbl, row_id, op) VALUES ('repository', NEW.id, 'I')", mysqlCreateTrigger("repository", mysqlEvents[0]))
 	for _, tbl := range catalog.Tracked() {
 		for _, ev := range mysqlEvents {
 			got, ok := mysqlEventOf(tbl.Name, mysqlTriggerName(tbl.Name, ev))
@@ -337,31 +330,46 @@ func TestCommitObserver(t *testing.T) {
 	assert.Equal(t, 1, inner.before)
 }
 
+// TestTriggersReferenceOnlyID keeps the PLAN §4.3 invariant: a capture
+// trigger reads no column of its table but id, so an upstream migration
+// that renames or drops any other column can never make an upstream write
+// fail (B4 once compared permission columns in MySQL update triggers; an
+// upstream rename then broke every update of the table).
+func TestTriggersReferenceOnlyID(t *testing.T) {
+	rowRef := regexp.MustCompile(`(?i)\b(OLD|NEW)\b\s*(\.\s*[` + "`" + `"]?(\w+)|\))?`)
+	checkBody := func(t *testing.T, name, body string) {
+		t.Helper()
+		refs := rowRef.FindAllStringSubmatch(body, -1)
+		require.NotEmpty(t, refs, name)
+		for _, m := range refs {
+			assert.Equal(t, "id", m[3], "%s references %q of a row: triggers may read only id", name, m[0])
+		}
+		for _, banned := range []string{"to_jsonb", "row_to_json", "TG_ARGV", "TG_NARGS", "CASE", "IF("} {
+			assert.NotContains(t, body, banned, name)
+		}
+	}
+	checkBody(t, "postgres function", pgFunctionBody("s"))
+	for _, tbl := range catalog.Tracked() {
+		assert.True(t, strings.HasSuffix(pgCreateTrigger("s", tbl.Name), `"livesync_capture"()`), "%s: the PostgreSQL trigger passes no arguments", tbl.Name)
+		for _, ev := range mysqlEvents {
+			checkBody(t, mysqlTriggerName(tbl.Name, ev), mysqlTriggerStatement(tbl.Name, ev))
+		}
+	}
+}
+
 func TestPostgresTriggerState(t *testing.T) {
 	ok := pgTriggerRow{Table: "repository", Enabled: "O", Type: pgTriggerType, FuncSchema: "s", FuncName: pgFunctionName}
-	perm := []string{"owner_id", "is_private"}
-
-	r := ok
-	r.NArgs, r.Args = 2, []byte("owner_id\x00is_private\x00")
-	state, detail := pgTriggerState(r, "s", perm)
+	state, detail := pgTriggerState(ok, "s")
 	assert.Equal(t, StateOK, state, detail)
-	assert.Equal(t, []string{"owner_id", "is_private"}, pgTriggerArgs(r.Args, r.NArgs))
 
-	state, detail = pgTriggerState(ok, "s", perm)
-	assert.Equal(t, StateStale, state)
-	assert.Contains(t, detail, `arguments [], want ["owner_id" "is_private"]`)
-
-	r.NArgs, r.Args = 1, []byte("owner_id\x00")
-	state, _ = pgTriggerState(r, "s", perm)
-	assert.Equal(t, StateStale, state, "a column missing")
-
-	state, _ = pgTriggerState(ok, "s", nil)
-	assert.Equal(t, StateOK, state, "no arguments for other tables")
-	r.NArgs, r.Args = 1, []byte("x\x00")
-	state, _ = pgTriggerState(r, "s", nil)
+	// A trigger written by B4 review round 2 (permission columns as
+	// arguments) is stale and gets replaced.
+	r := ok
+	r.NArgs = 2
+	state, _ = pgTriggerState(r, "s")
 	assert.Equal(t, StateStale, state)
 	r = ok
 	r.HasWhen = true
-	state, _ = pgTriggerState(r, "s", nil)
+	state, _ = pgTriggerState(r, "s")
 	assert.Equal(t, StateStale, state)
 }

@@ -307,8 +307,10 @@ func TestLivesyncPermEpochs(t *testing.T) {
 	assert.True(t, livesyncPayload[protocol.Repository](t, e).Private)
 
 	// Made public and private again in one transaction (so in one
-	// materializer batch): the stored and the final state are equal, but
-	// the flagged updates are an epoch all the same.
+	// materializer batch): the stored and the final state are equal, and
+	// the triggers do not say which columns changed (PLAN §4.3), so the
+	// update is a touch with the current state: grants computed from
+	// another state of repository 1 are dropped, no one else's.
 	cursor = livesyncLogHead(t)
 	require.NoError(t, db.WithTx(t.Context(), func(ctx context.Context) error {
 		for _, private := range []bool{false, true} {
@@ -318,7 +320,9 @@ func TestLivesyncPermEpochs(t *testing.T) {
 		}
 		return nil
 	}))
-	livesyncPermEpoch(t, cursor, func(ch protocol.PermissionChange) bool { return slices.Contains(ch.Repos, 1) })
+	repo1 := protocol.PermissionTouch{Kind: protocol.TouchRepository, ID: 1, State: "true,2"}
+	ch = livesyncPermEpoch(t, cursor, func(ch protocol.PermissionChange) bool { return slices.Contains(ch.Touched, repo1) })
+	assert.NotContains(t, ch.Repos, int64(1), "a touch, not an epoch for every reader")
 
 	// user4 removed from org3's team1 (the team that gives access to the
 	// private repo3): the epoch names user4, the grant drops.

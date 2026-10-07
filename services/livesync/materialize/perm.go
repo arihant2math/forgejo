@@ -4,6 +4,7 @@
 package materialize
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -31,11 +32,14 @@ import (
 // *before* the transaction's other entries, so a hub that applies the log in
 // order revokes access before delivering anything written after the
 // change in the same batch. Changes that leave the state alone (an
-// updated_unix, a counter, a name) produce no epoch. A change undone before
-// the materializer reads the row is still an epoch: the capture triggers
-// flag updates of permission columns (catalog.Table.PermColumns,
-// livesync_model.OpPermUpdate; see permSubjects.transition), and inserted
-// rows that are gone again are unknown states.
+// updated_unix, a counter, a name) name no subjects. A change undone before
+// the materializer reads the row is not lost, although the capture
+// triggers reference only id and so cannot say which columns an update
+// changed (PLAN §4.3): any update of a row of the rarely updated
+// permission tables names its subjects, an update of a repository or user
+// row that leaves its state as stored is a touch (perm.Basis), and inserted
+// rows that are gone again are unknown states (see
+// permSubjects.transition).
 //
 // Subjects, as tokens of the state:
 //
@@ -92,6 +96,9 @@ type permSubjects struct {
 	// the materializer or an index walk recorded it), so its subjects are
 	// too.
 	all bool
+	// touched are the touches (protocol.PermissionChange.Touched) by kind
+	// and row id: their current state's fingerprint.
+	touched map[rowKey]string
 }
 
 // permFlags describes what the changes of a batch say about a row of a
@@ -99,9 +106,12 @@ type permSubjects struct {
 type permFlags struct {
 	// inserted: the row was inserted in this batch.
 	inserted bool
-	// updated: an update in this batch changed one of the row's
-	// permission columns (livesync_model.OpPermUpdate).
+	// updated: the row was updated in this batch (which columns changed
+	// is not known).
 	updated bool
+	// touch: the protocol.PermissionTouch kind of a busy table (spec
+	// permTouch), "" for the others.
+	touch string
 	// derived: the table's rows are derived from other permission rows in
 	// the same transaction (spec.permDerived: access).
 	derived bool
@@ -136,17 +146,39 @@ type permFlags struct {
 // permission columns changed and changed back before it was materialized
 // (a repository made public and private again; the changes may even be
 // split across batches, the first batch already reading the restored row)
-// looks unchanged. The capture trigger flags such updates (updated), and
-// then the stored and the current subjects are named whatever the states
-// are, outside netting: the intermediate state had the same subjects (the
-// id columns Forgejo never updates, except a repository's owner, whose
-// intermediate owner's access is the repository's, r<id>).
-func (p *permSubjects) transition(table string, o *livesync_model.Entity, cur string, f permFlags) bool {
+// looks unchanged, and the capture triggers reference only id, so an
+// update does not say which columns it changed (PLAN §4.3: an upstream
+// migration must never be able to break a trigger). So an updated row
+// (updated) whose state may have been different in between is handled
+// conservatively:
+//
+//   - Rows of the busy tables (touch: repository, user — counters,
+//     sign-ins) whose state is as stored become a touch carrying the
+//     state's fingerprint: grant caches and the hub drop or re-check only
+//     the grants and decisions that recorded another state of the row
+//     (perm.Basis), i.e. those computed while it was different. An update
+//     that changed nothing permission-relevant costs one comparison per
+//     cached grant that read the row.
+//   - Rows of the other permission tables (updated only when a permission
+//     really changes, or rarely) name the stored and the current subjects
+//     directly, outside netting, whatever the states are.
+//
+// Either way the intermediate state had the same subjects (the id columns
+// Forgejo never updates, except a repository's owner, whose intermediate
+// owner's access is the repository's, r<id>).
+func (p *permSubjects) transition(r rowKey, o *livesync_model.Entity, cur string, f permFlags) bool {
+	table := r.tbl
 	if f.updated {
-		if o != nil {
-			p.add(o.Perm)
+		switch {
+		case f.touch == "":
+			if o != nil {
+				p.add(o.Perm)
+			}
+			p.add(cur)
+		case o != nil && cur != "" && o.Perm == cur:
+			p.touch(f.touch, r.id, cur)
+			return false
 		}
-		p.add(cur)
 	}
 	switch {
 	case o == nil && cur == "":
@@ -178,6 +210,15 @@ func (p *permSubjects) transition(table string, o *livesync_model.Entity, cur st
 		p.count(&p.added, table, cur)
 	}
 	return true
+}
+
+// touch records a touch of row id of kind in state.
+func (p *permSubjects) touch(kind string, id int64, state string) {
+	if p.touched == nil {
+		p.touched = map[rowKey]string{}
+	}
+	_, fp, _ := strings.Cut(state, "#")
+	p.touched[rowKey{kind, id}] = fp
 }
 
 func (p *permSubjects) count(m *map[permKey]int, table, state string) {
@@ -242,7 +283,7 @@ func (p *permSubjects) change(ctx context.Context) (ch protocol.PermissionChange
 		return protocol.PermissionChange{All: true}, true, nil
 	}
 	p.net()
-	if len(p.ids) == 0 {
+	if len(p.ids) == 0 && len(p.touched) == 0 {
 		return ch, false, nil
 	}
 	users := p.list('u')
@@ -267,7 +308,19 @@ func (p *permSubjects) change(ctx context.Context) (ch protocol.PermissionChange
 			repos = append(repos, owned...)
 		}
 	}
-	return protocol.PermissionChange{Users: sortedUnique(users), Repos: sortedUnique(repos), Owners: sortedUnique(owners)}, true, nil
+	touched := make([]protocol.PermissionTouch, 0, len(p.touched))
+	for k, state := range p.touched {
+		touched = append(touched, protocol.PermissionTouch{Kind: k.tbl, ID: k.id, State: state})
+	}
+	slices.SortFunc(touched, func(a, b protocol.PermissionTouch) int {
+		return cmp.Or(strings.Compare(a.Kind, b.Kind), cmp.Compare(a.ID, b.ID))
+	})
+	if len(touched) == 0 {
+		touched = nil
+	}
+	return protocol.PermissionChange{
+		Users: sortedUnique(users), Repos: sortedUnique(repos), Owners: sortedUnique(owners), Touched: touched,
+	}, true, nil
 }
 
 func sortedUnique(ids []int64) []int64 {

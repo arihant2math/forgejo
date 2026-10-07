@@ -4,10 +4,8 @@
 package capture
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -64,7 +62,6 @@ type pgTriggerRow struct {
 	FuncSchema string `xorm:"'fschema'"`
 	FuncName   string `xorm:"'fname'"`
 	NArgs      int    `xorm:"'nargs'"`
-	Args       []byte `xorm:"'args'"`
 	NCols      int    `xorm:"'ncols'"`
 	HasWhen    bool   `xorm:"'has_when'"`
 }
@@ -109,7 +106,7 @@ func inspectPostgres(ctx context.Context) (*Status, error) {
 	}
 	var rows []pgTriggerRow
 	if err := e.SQL(`SELECT c.relname AS tbl, t.tgenabled::text AS enabled, t.tgtype::int AS ttype,
-			fn.nspname AS fschema, p.proname AS fname, t.tgnargs::int AS nargs, t.tgargs AS args,
+			fn.nspname AS fschema, p.proname AS fname, t.tgnargs::int AS nargs,
 			COALESCE(array_length(t.tgattr::int2[], 1), 0) AS ncols, (t.tgqual IS NOT NULL) AS has_when
 		FROM pg_trigger t
 		JOIN pg_class c ON c.oid = t.tgrelid
@@ -126,7 +123,7 @@ func inspectPostgres(ctx context.Context) (*Status, error) {
 	for _, t := range catalog.Tracked() {
 		o := Object{Kind: KindTrigger, Table: t.Name, Name: pgTriggerName, State: StateMissing}
 		if r, ok := existing[t.Name]; ok {
-			o.State, o.Detail = pgTriggerState(r, schema, t.PermColumns)
+			o.State, o.Detail = pgTriggerState(r, schema)
 			delete(existing, t.Name)
 		}
 		st.Objects = append(st.Objects, o)
@@ -137,18 +134,7 @@ func inspectPostgres(ctx context.Context) (*Status, error) {
 	return st, nil
 }
 
-// pgTriggerArgs decodes pg_trigger.tgargs (each argument ends with a NUL).
-func pgTriggerArgs(raw []byte, n int) []string {
-	args := make([]string, 0, n)
-	for len(raw) > 0 {
-		arg, rest, _ := bytes.Cut(raw, []byte{0})
-		args = append(args, string(arg))
-		raw = rest
-	}
-	return args
-}
-
-func pgTriggerState(r pgTriggerRow, schema string, args []string) (State, string) {
+func pgTriggerState(r pgTriggerRow, schema string) (State, string) {
 	var why []string
 	if r.Enabled != "O" && r.Enabled != "A" { // origin (default) or always
 		why = append(why, "disabled")
@@ -159,11 +145,8 @@ func pgTriggerState(r pgTriggerRow, schema string, args []string) (State, string
 	if r.FuncSchema != schema || r.FuncName != pgFunctionName {
 		why = append(why, "calls "+r.FuncSchema+"."+r.FuncName)
 	}
-	if got := pgTriggerArgs(r.Args, r.NArgs); r.NArgs != len(args) || !slices.Equal(got, args) {
-		why = append(why, fmt.Sprintf("arguments %q, want %q", got, args))
-	}
-	if r.NCols != 0 || r.HasWhen {
-		why = append(why, "has a column list or a WHEN condition")
+	if r.NArgs != 0 || r.NCols != 0 || r.HasWhen {
+		why = append(why, "has arguments, a column list or a WHEN condition")
 	}
 	if len(why) > 0 {
 		return StateStale, strings.Join(why, ", ")

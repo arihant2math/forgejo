@@ -45,6 +45,9 @@ import (
 type Grants struct {
 	ViewerID int64
 	groups   map[string]UnitSet
+	// basis: the states of the repository and user rows the grants were
+	// computed from (see Basis).
+	basis Basis
 }
 
 // Units returns the viewer's units in group, if it is granted.
@@ -70,6 +73,11 @@ type Decision struct {
 	// issue:{id} group (0 for other groups): the hub re-checks such
 	// subscriptions when a permission epoch names the repository.
 	RepoID int64
+	// Basis are the states of the repository and user rows the decision
+	// was computed from: the hub re-checks a subscription when
+	// Basis.Stale(epoch.Touched). Shared with the cached grants it may come
+	// from: do not modify.
+	Basis Basis
 }
 
 // Wire returns the decision as sent to clients.
@@ -146,7 +154,8 @@ func lookupUser(ctx context.Context, id int64) (u user_model.User, ok bool, err 
 // them (repoPermission), from inputs read with a fixed number of queries
 // (viewerInputs), not ≈ 5 queries per repository.
 func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Grants, error) {
-	g := &Grants{ViewerID: viewerID, groups: map[string]UnitSet{}}
+	g := &Grants{ViewerID: viewerID, groups: map[string]UnitSet{}, basis: Basis{}}
+	g.basis.addUser(viewer)
 	if !usable(viewer) {
 		return g, nil
 	}
@@ -183,9 +192,11 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 			return nil, err
 		}
 		for _, repo := range repos {
+			g.basis.addRepo(repo)
 			if repo.Owner == nil {
 				continue // GetUserRepoPermission fails on such a repository: no grant
 			}
+			g.basis.addUser(repo.Owner)
 			p := in.repoPermission(viewer, repo, units[repo.ID])
 			if p.HasAccess() {
 				g.groups[protocol.RepoGroup(repo.ID)] = repoUnits(&p)
@@ -452,6 +463,17 @@ func check(ctx context.Context, viewer *user_model.User, group string) (d Decisi
 	if !usable(viewer) {
 		return d, false, nil
 	}
+	d, ok, err = checkGroup(ctx, viewer, group)
+	if d.Basis == nil {
+		d.Basis = Basis{}
+	}
+	d.Basis.addUser(viewer)
+	return d, ok, err
+}
+
+// checkGroup is check for a usable viewer; the decision's basis has the
+// rows it read besides the viewer's.
+func checkGroup(ctx context.Context, viewer *user_model.User, group string) (d Decision, ok bool, err error) {
 	kind, id := parseGroup(group)
 	switch kind {
 	case kindUser:
@@ -465,7 +487,9 @@ func check(ctx context.Context, viewer *user_model.User, group string) (d Decisi
 		if err != nil || !ok || u.IsOrganization() {
 			return d, false, err
 		}
-		return Decision{Units: unitBase}, profileVisible(ctx, &u, viewer), nil
+		basis := Basis{}
+		basis.addUser(&u)
+		return Decision{Units: unitBase, Basis: basis}, profileVisible(ctx, &u, viewer), nil
 	case kindOrg:
 		return checkOrg(ctx, viewer, id)
 	case kindRepo:
@@ -522,10 +546,11 @@ func checkOrg(ctx context.Context, viewer *user_model.User, id int64) (Decision,
 	if err != nil || !ok || !org.IsOrganization() {
 		return Decision{}, false, err
 	}
+	d := Decision{Units: unitBase, Basis: Basis{}}
+	d.Basis.addUser(&org)
 	if !org_model.HasOrgOrUserVisible(ctx, &org, viewer) {
-		return Decision{}, false, nil
+		return d, false, nil
 	}
-	d := Decision{Units: unitBase}
 	// API v1's reqOrgMembership: members and site administrators.
 	member := viewer.IsAdmin
 	if !member {
@@ -540,12 +565,21 @@ func checkOrg(ctx context.Context, viewer *user_model.User, id int64) (Decision,
 }
 
 func checkRepo(ctx context.Context, viewer *user_model.User, repo *repo_model.Repository) (Decision, bool, error) {
+	// The owner is loaded here (GetUserRepoPermission keeps a loaded one),
+	// so that the basis records the owner row the decision used.
+	if err := repo.LoadOwner(ctx); err != nil {
+		return Decision{}, false, fmt.Errorf("livesync: check repo:%d: %w", repo.ID, err)
+	}
+	d := Decision{RepoID: repo.ID, Basis: Basis{}}
+	d.Basis.addRepo(repo)
+	d.Basis.addUser(repo.Owner)
 	p, err := access_model.GetUserRepoPermission(ctx, repo, viewer)
 	if err != nil {
 		return Decision{}, false, fmt.Errorf("livesync: check repo:%d: %w", repo.ID, err)
 	}
 	if !p.HasAccess() {
-		return Decision{}, false, nil
+		return d, false, nil
 	}
-	return Decision{Units: repoUnits(&p), RepoID: repo.ID}, true, nil
+	d.Units = repoUnits(&p)
+	return d, true, nil
 }

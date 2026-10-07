@@ -7,14 +7,18 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
+	repo_model "forgejo.org/models/repo"
 	"forgejo.org/models/unittest"
+	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/catalog"
+	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 
 	"code.forgejo.org/xorm/xorm/schemas"
@@ -65,20 +69,28 @@ func TestConsumePermissionEpochs(t *testing.T) {
 			break
 		}
 	}
-	// The backfill recorded the permission states: an unchanged row is
-	// not an epoch.
+	// The backfill recorded the permission states. Updates that leave
+	// them alone may still have changed them and changed them back (the
+	// triggers do not say which columns changed): a row of the busy tables
+	// is a touch with its recorded state (a user row with an unknown
+	// state would name its subjects), the others name their subjects.
 	consume(t, m, change(1, "collaboration", 1, "U"), change(2, "user", 4, "U"), change(3, "team", 1, "U"))
-	rows, _ := takeLog(t, &cursor)
-	for _, r := range rows {
-		assert.NotEqual(t, "P", r.Op)
-	}
+	rows, entries := takeLog(t, &cursor)
+	ch, rest := permChange(t, rows, entries)
+	assert.Contains(t, ch.Users, int64(2), "collaboration 1's user")
+	assert.NotContains(t, ch.Users, int64(4), "user 4 is a touch")
+	assert.Empty(t, ch.Repos)
+	assert.Empty(t, ch.Owners)
+	user4 := protocol.PermissionTouch{Kind: protocol.TouchUser, ID: 4, State: touchedState(t, "user", 4)}
+	assert.Equal(t, []protocol.PermissionTouch{user4}, ch.Touched)
+	noEpoch(t, rest)
 	require.NotEmpty(t, indexRow(t, "collaboration", 1).Perm)
 
 	// A collaboration's mode (repo 3, user 2): epoch for user 2.
 	exec(t, "UPDATE collaboration SET mode = 1 WHERE id = 1")
 	consume(t, m, change(10, "collaboration", 1, "U"))
-	rows, entries := takeLog(t, &cursor)
-	ch, rest := permChange(t, rows, entries)
+	rows, entries = takeLog(t, &cursor)
+	ch, rest = permChange(t, rows, entries)
 	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}}, ch)
 	assert.Equal(t, []logRow{{"repo:3", "", "Collaboration", "U", 1}}, rest)
 
@@ -90,12 +102,14 @@ func TestConsumePermissionEpochs(t *testing.T) {
 	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}}, ch)
 	assert.Equal(t, []logRow{{"repo:3", "", "Collaboration", "D", 1}}, rest)
 
-	// A repository's description: no epoch; made private: epoch for the
-	// repository's readers and its owner.
+	// A repository's description: a touch only (no subjects); made
+	// private: epoch for the repository's readers and its owner.
 	exec(t, "UPDATE repository SET description = 'changed' WHERE id = 1")
 	consume(t, m, change(12, "repository", 1, "U"))
-	rows, _ = takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"repo:1", "", "Repository", "U", 1}}, rows)
+	rows, entries = takeLog(t, &cursor)
+	ch, rest = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Touched: []protocol.PermissionTouch{{Kind: protocol.TouchRepository, ID: 1, State: "false,2"}}}, ch)
+	assert.Equal(t, []logRow{{"repo:1", "", "Repository", "U", 1}}, rest)
 	exec(t, "UPDATE repository SET is_private = ? WHERE id = 1", true)
 	consume(t, m, change(13, "repository", 1, "U"))
 	rows, entries = takeLog(t, &cursor)
@@ -111,10 +125,14 @@ func TestConsumePermissionEpochs(t *testing.T) {
 	ch, rest = permChange(t, rows, entries)
 	assert.Equal(t, []int64{4}, ch.Users)
 	assert.Equal(t, []int64{4}, ch.Owners)
+	assert.Empty(t, ch.Touched)
 	assert.Empty(t, rest)
 	consume(t, m, change(15, "user", 4, "U"))
-	rows, _ = takeLog(t, &cursor)
-	assert.Empty(t, rows)
+	rows, entries = takeLog(t, &cursor)
+	ch, rest = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Touched: []protocol.PermissionTouch{{Kind: protocol.TouchUser, ID: 4, State: touchedState(t, "user", 4)}}}, ch,
+		"stored: the next update is a touch")
+	assert.Empty(t, rest)
 
 	// A user made private: their profile moves from the public directory
 	// to their own profile group; the epoch names the readers of
@@ -288,13 +306,30 @@ func TestConsumePermissionNetting(t *testing.T) {
 	assert.Equal(t, protocol.PermissionChange{Users: []int64{5}}, ch)
 }
 
+// touchedState is the fingerprint perm records for a repository or user row
+// (the part of its permission state after "#").
+func touchedState(t *testing.T, tbl string, id int64) string {
+	t.Helper()
+	l := newLoader()
+	defer l.close()
+	loaded, err := specs[tbl].load(t.Context(), l, []int64{id}, false)
+	require.NoError(t, err)
+	require.Contains(t, loaded, id)
+	_, fp, ok := strings.Cut(loaded[id][0].perm, "#")
+	require.True(t, ok)
+	return fp
+}
+
 // A permission column changed and changed back before the materializer
 // read the row: the stored and the current state are equal, but a grant
 // computed in between may have seen the other one. The capture triggers
-// flag such updates (OpPermUpdate), so they are epochs anyway — also when
-// the two updates fall into different batches and the first batch already
-// reads the restored row. Updates of other columns of the same rows are
-// not (OpUpdate).
+// reference only id (PLAN §4.3), so the materializer does not know which
+// columns an update changed: an update of a repository or user row that
+// leaves the state as stored is a touch carrying the current state (grant
+// caches drop what was computed from another state; also when the two
+// updates fall into different batches and the first batch already reads
+// the restored row), an update of a row of another permission table names
+// its subjects.
 func TestConsumePermissionFlipFlop(t *testing.T) {
 	resetLivesync(t)
 	m, _ := testMaterializer(t)
@@ -306,48 +341,78 @@ func TestConsumePermissionFlipFlop(t *testing.T) {
 	exec(t, "UPDATE repository SET is_private = ? WHERE id = 2", false)
 	exec(t, "UPDATE repository SET is_private = ? WHERE id = 2", true)
 	exec(t, "UPDATE repository SET num_stars = num_stars + 1 WHERE id = 2")
-	consume(t, m, change(1, "repository", 2, "P"), change(2, "repository", 2, "P"), change(3, "repository", 2, "U"))
+	consume(t, m, change(1, "repository", 2, "U"), change(2, "repository", 2, "U"), change(3, "repository", 2, "U"))
 	rows, entries := takeLog(t, &cursor)
 	ch, rest := permChange(t, rows, entries)
-	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}, Repos: []int64{2}}, ch)
+	assert.Equal(t, "true,2", touchedState(t, "repository", 2))
+	assert.Equal(t, protocol.PermissionChange{Touched: []protocol.PermissionTouch{{Kind: protocol.TouchRepository, ID: 2, State: "true,2"}}}, ch,
+		"a touch, not the repository's readers")
 	assert.Equal(t, []logRow{{"repo:2", "", "Repository", "U", 2}}, rest, "the counter changed the DTO")
 
 	// User 4 made site administrator and back, split across two batches.
 	exec(t, "UPDATE `user` SET is_admin = ? WHERE id = 4", true)
 	exec(t, "UPDATE `user` SET is_admin = ? WHERE id = 4", false)
+	user4 := protocol.PermissionTouch{Kind: protocol.TouchUser, ID: 4, State: touchedState(t, "user", 4)}
+	assert.Contains(t, user4.State, ",false,false,") // not an administrator, not restricted
 	for _, id := range []int64{4, 5} {
-		consume(t, m, change(id, "user", 4, "P"))
+		consume(t, m, change(id, "user", 4, "U"))
 		rows, entries = takeLog(t, &cursor)
 		ch, rest = permChange(t, rows, entries)
-		assert.Equal(t, []int64{4}, ch.Users)
-		assert.Equal(t, []int64{4}, ch.Owners)
-		assert.False(t, ch.All)
+		assert.Equal(t, protocol.PermissionChange{Touched: []protocol.PermissionTouch{user4}}, ch)
 		noEpoch(t, rest)
 	}
 
 	// A collaboration's mode up and down (collaboration 1: user 2 on
 	// repository 3), in a batch that also replaces an access row with an
-	// identical one (netted): the flagged row is named all the same.
+	// identical one (netted): the updated row is named all the same.
 	exec(t, "UPDATE collaboration SET mode = 3 WHERE id = 1")
 	exec(t, "UPDATE collaboration SET mode = 2 WHERE id = 1")
 	exec(t, "DELETE FROM access WHERE id = 5")
 	exec(t, "INSERT INTO access (id, user_id, repo_id, mode) VALUES (500, 4, 3, 2)")
-	consume(t, m, change(6, "collaboration", 1, "P"), change(7, "collaboration", 1, "P"), change(8, "access", 5, "D"), change(9, "access", 500, "I"))
+	consume(t, m, change(6, "collaboration", 1, "U"), change(7, "collaboration", 1, "U"), change(8, "access", 5, "D"), change(9, "access", 500, "I"))
 	rows, entries = takeLog(t, &cursor)
 	ch, _ = permChange(t, rows, entries)
 	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}}, ch)
 
-	// Plain updates of the same rows: no epoch.
-	consume(t, m, change(10, "repository", 2, "U"), change(11, "user", 4, "U"), change(12, "collaboration", 1, "U"))
+	// A real change of a busy row is an epoch for its subjects (no touch),
+	// and a touch of another row goes into the same epoch.
+	exec(t, "UPDATE repository SET is_private = ? WHERE id = 2", false)
+	consume(t, m, change(10, "repository", 2, "U"), change(11, "user", 4, "U"))
+	rows, entries = takeLog(t, &cursor)
+	ch, _ = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}, Repos: []int64{2}, Touched: []protocol.PermissionTouch{user4}}, ch)
+
+	// Inserts and deletes are never touches; rows of other tables never
+	// produce one.
+	consume(t, m, change(12, "issue", 1, "U"), change(13, "label", 1, "U"))
 	rows, _ = takeLog(t, &cursor)
 	noEpoch(t, rows)
 }
 
-// The permission columns the capture triggers compare
-// (catalog.Table.PermColumns) are exactly the columns a row's permission
-// state depends on: changing any other column of a fixture row leaves the
-// state alone, changing one of them changes it.
-func TestPermColumns(t *testing.T) {
+// permStateColumns are the columns each permission table's state (spec
+// perm) depends on — documentation for reviewers, checked by
+// TestPermStateColumns. The capture triggers do not reference them (PLAN
+// §4.3); for repository and user they are the columns of
+// perm.RepositoryState and perm.UserState, which grants record (perm.Basis).
+var permStateColumns = map[string][]string{
+	"repository":           {"owner_id", "is_private"},
+	"user":                 {"type", "visibility", "is_active", "prohibit_login", "is_admin", "is_restricted"},
+	"org_user":             {"uid", "org_id"},
+	"team":                 {"authorize", "includes_all_repositories"},
+	"team_user":            {"uid", "team_id"},
+	"team_repo":            {"team_id", "repo_id"},
+	"team_unit":            {"team_id", "type", "access_mode"},
+	"collaboration":        {"user_id", "repo_id", "mode"},
+	"access":               {"user_id", "repo_id", "mode"},
+	"repo_unit":            {"repo_id", "type", "default_permissions"},
+	"forgejo_blocked_user": {"user_id", "block_id"},
+}
+
+// A row's permission state depends exactly on permStateColumns: changing
+// any other column of a fixture row leaves the state alone, changing one
+// of them changes it. For the busy tables (spec permTouch) the state's
+// fingerprint is the one the perm package records for the row.
+func TestPermStateColumns(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
 	errRollback := errors.New("rollback")
@@ -370,11 +435,13 @@ func TestPermColumns(t *testing.T) {
 	}
 	n := 0
 	for _, tbl := range catalog.Tracked() {
+		cols := permStateColumns[tbl.Name]
 		if !specs[tbl.Name].perm {
-			assert.Empty(t, tbl.PermColumns, tbl.Name)
+			assert.Empty(t, cols, tbl.Name)
+			assert.Empty(t, specs[tbl.Name].permTouch, tbl.Name)
 			continue
 		}
-		require.NotEmpty(t, tbl.PermColumns, tbl.Name)
+		require.NotEmpty(t, cols, tbl.Name)
 		info := tables[tbl.Name]
 		require.NotNil(t, info, tbl.Name)
 		var id int64
@@ -383,6 +450,22 @@ func TestPermColumns(t *testing.T) {
 		require.True(t, has, "%s has fixtures", tbl.Name)
 		before := state(tbl.Name, id)
 		require.NotEmpty(t, before)
+		switch tbl.Name {
+		case "repository":
+			r := &repo_model.Repository{}
+			_, err := db.GetEngine(ctx).ID(id).Get(r)
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(before, "#"+perm.RepositoryState(r)), before)
+			assert.Equal(t, protocol.TouchRepository, specs[tbl.Name].permTouch)
+		case "user":
+			u := &user_model.User{}
+			_, err := db.GetEngine(ctx).ID(id).Get(u)
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(before, "#"+perm.UserState(u)), before)
+			assert.Equal(t, protocol.TouchUser, specs[tbl.Name].permTouch)
+		default:
+			assert.Empty(t, specs[tbl.Name].permTouch, tbl.Name)
+		}
 		checked := map[string]bool{}
 		quoted := "`" + tbl.Name + "`"
 		for _, col := range info.Columns() {
@@ -411,7 +494,7 @@ func TestPermColumns(t *testing.T) {
 				l := newLoader()
 				defer l.close()
 				loaded, err := specs[tbl.Name].load(ctx, l, []int64{id}, false)
-				if err != nil && !slices.Contains(tbl.PermColumns, col.Name) {
+				if err != nil && !slices.Contains(cols, col.Name) {
 					// Not a valid value of a structured column (JSON):
 					// the row cannot be read, so it has no state.
 					t.Logf("%s.%s: %v", tbl.Name, col.Name, err)
@@ -420,10 +503,10 @@ func TestPermColumns(t *testing.T) {
 					return err
 				}
 				after := loaded[id][0].perm
-				if slices.Contains(tbl.PermColumns, col.Name) {
-					assert.NotEqual(t, before, after, "%s.%s is a permission column: the state must depend on it", tbl.Name, col.Name)
+				if slices.Contains(cols, col.Name) {
+					assert.NotEqual(t, before, after, "%s.%s is listed: the state must depend on it", tbl.Name, col.Name)
 				} else {
-					assert.Equal(t, before, after, "%s.%s changes the permission state: add it to catalog.Table.PermColumns", tbl.Name, col.Name)
+					assert.Equal(t, before, after, "%s.%s changes the permission state: list it in permStateColumns", tbl.Name, col.Name)
 				}
 				checked[col.Name] = true
 				n++
@@ -432,7 +515,7 @@ func TestPermColumns(t *testing.T) {
 			require.ErrorIs(t, err, errRollback, tbl.Name+"."+col.Name)
 		}
 		assert.Equal(t, before, state(tbl.Name, id), "rolled back")
-		for _, col := range tbl.PermColumns {
+		for _, col := range cols {
 			assert.True(t, checked[col], "%s.%s checked", tbl.Name, col)
 		}
 	}

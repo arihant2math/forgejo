@@ -41,15 +41,15 @@ func TestCoalesce(t *testing.T) {
 		change(4, "label", 7, "U"),
 		change(5, "issue", 7, "D"),
 		change(6, "comment", 4, "I"),
-		change(7, "repository", 2, "P"),
+		change(7, "repository", 2, "P"), // B4 round 2's flagged update: an update
 		change(8, "repository", 2, "U"),
 	})
 	assert.Equal(t, []rowChanges{
-		{key: rowKey{"issue", 7}, changeIDs: []int64{1, 3, 5}, inserted: true},
+		{key: rowKey{"issue", 7}, changeIDs: []int64{1, 3, 5}, inserted: true, updated: true},
 		{key: rowKey{"comment", 3}, changeIDs: []int64{2}, inserted: true},
-		{key: rowKey{"label", 7}, changeIDs: []int64{4}},
+		{key: rowKey{"label", 7}, changeIDs: []int64{4}, updated: true},
 		{key: rowKey{"comment", 4}, changeIDs: []int64{6}, inserted: true},
-		{key: rowKey{"repository", 2}, changeIDs: []int64{7, 8}, permUpdated: true},
+		{key: rowKey{"repository", 2}, changeIDs: []int64{7, 8}, updated: true},
 	}, got)
 	assert.EqualValues(t, 5, got[0].last())
 	assert.Empty(t, coalesce(nil))
@@ -540,10 +540,13 @@ func TestConsumePlacement(t *testing.T) {
 	}, rows)
 
 	// Concealing a membership: gone for non-members, kept for members.
+	// (Any update of a membership row is a permission epoch for its user:
+	// the capture triggers do not say which columns changed.)
 	exec(t, "UPDATE org_user SET is_public = ? WHERE id = 1", false)
 	consume(t, m, change(22, "org_user", 1, "U"))
 	rows, _ = takeLog(t, &cursor)
 	assert.Equal(t, []logRow{
+		{protocol.GroupPermission, "", "", "P", 0},
 		{"org:3", "", "OrgUser", "D", 1},
 		{"org:3", "members", "OrgUser", "U", 1},
 	}, rows)

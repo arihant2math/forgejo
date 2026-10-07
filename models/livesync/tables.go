@@ -22,7 +22,7 @@ type Change struct {
 	ID    int64  `xorm:"pk autoincr"`
 	Tbl   string `xorm:"VARCHAR(64) NOT NULL"`
 	RowID int64  `xorm:"NOT NULL"`
-	// Op is 'I', 'U', 'P' or 'D'.
+	// Op is 'I', 'U' or 'D'.
 	Op string `xorm:"CHAR(1) NOT NULL"`
 }
 
@@ -34,9 +34,6 @@ const (
 	OpInsert = "I"
 	OpUpdate = "U"
 	OpDelete = "D"
-	// OpPermUpdate is an update that changed one of the table's permission
-	// columns (catalog.Table.PermColumns); other updates are OpUpdate.
-	OpPermUpdate = "P"
 )
 
 // LogEntry is one entry of the gap-free sync log. SyncID is assigned by the

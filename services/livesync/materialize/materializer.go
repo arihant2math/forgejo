@@ -213,7 +213,7 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 	changed := map[rowKey]rowChanges{}
 	for _, r := range rows {
 		keys = append(keys, r.key)
-		if r.inserted || r.permUpdated {
+		if r.inserted || r.updated {
 			changed[r.key] = r
 		}
 	}
@@ -273,7 +273,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // materializeRows appends the entries and index changes for rows (in
 // order) and returns the rows whose main entity changed group (including
 // appearing in or leaving every group), by table. changed has the rows with
-// an insert or a permission column update among their changes.
+// an insert or an update among their changes.
 func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []rowKey, changed map[rowKey]rowChanges, entries *[]synclog.Entry, plan *indexPlan) (map[string][]int64, error) {
 	// Group the rows by table, keeping the batch order of tables.
 	byTable := map[string][]int64{}
@@ -326,8 +326,8 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 					curPerm = cur.perm
 				}
 				c := changed[r]
-				permChanged = plan.perm.transition(r.tbl, o, curPerm, permFlags{
-					inserted: c.inserted, updated: c.permUpdated,
+				permChanged = plan.perm.transition(r, o, curPerm, permFlags{
+					inserted: c.inserted, updated: c.updated, touch: s.permTouch,
 					derived: s.permDerived, backfilled: m.backfillComplete(r.tbl),
 				})
 			}

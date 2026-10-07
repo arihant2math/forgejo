@@ -169,12 +169,41 @@ const (
 // visibility, or whose set of possible viewers, changed). All means
 // everything may have changed (writes to a permission table may have been
 // lost): recompute every grant and re-check every subscription.
+//
+// Touched are the rows of the busy permission tables (repository, user)
+// that were updated without a visible change of their permission state —
+// mostly counters and timestamps (an issue created, a sign-in), but the
+// updates may also have changed the state and changed it back before the
+// materializer read the row (a repository made public and private again).
+// A grant or decision computed in between saw another state: the hub
+// re-checks only the subscriptions whose decision recorded another state
+// of a touched row (perm.Basis.Stale), the grant caches drop only such
+// entries, so a counter update costs no recomputation.
 type PermissionChange struct {
-	Users  []int64 `json:"users,omitempty"`
-	Repos  []int64 `json:"repos,omitempty"`
-	Owners []int64 `json:"owners,omitempty"`
-	All    bool    `json:"all,omitempty"`
+	Users   []int64           `json:"users,omitempty"`
+	Repos   []int64           `json:"repos,omitempty"`
+	Owners  []int64           `json:"owners,omitempty"`
+	All     bool              `json:"all,omitempty"`
+	Touched []PermissionTouch `json:"touched,omitempty"`
 }
+
+// PermissionTouch is a row of a busy permission table that was updated
+// without a visible change of its permission state (PermissionChange.Touched).
+type PermissionTouch struct {
+	// Kind is the row's table: TouchRepository or TouchUser.
+	Kind string `json:"kind"`
+	ID   int64  `json:"id"`
+	// State is the fingerprint of the row's permission state after the
+	// updates (perm.RepositoryState, perm.UserState).
+	State string `json:"state"`
+}
+
+// Kinds of a PermissionTouch.
+
+const (
+	TouchRepository = "repository"
+	TouchUser       = "user"
+)
 
 // Group prefixes. A sync group is "<prefix>:<id>"; every entity belongs to
 // exactly one group, and clients are granted groups (PLAN §4.4, §4.5).

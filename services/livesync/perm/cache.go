@@ -63,6 +63,10 @@ type Cache struct {
 	// epoch naming a repository or owner finds the entries to drop
 	// without scanning the cache.
 	byGroup map[string]map[int64]struct{}
+	// byRow indexes the cached viewers by the repository and user rows
+	// their grants were computed from (Grants.basis), so that a touch
+	// (PermissionChange.Touched) finds the entries to compare.
+	byRow map[basisKey]map[int64]struct{}
 	// inflight are the computations new callers may join, by viewer;
 	// running are all running computations (also those detached from
 	// inflight by an invalidation).
@@ -101,7 +105,8 @@ func NewCache(ttl time.Duration, size int) *Cache {
 	c := &Cache{
 		ttl: ttl, max: size, now: time.Now,
 		entries: map[int64]*list.Element{}, lru: list.New(),
-		byGroup: map[string]map[int64]struct{}{}, inflight: map[int64]*call{}, running: map[*call]struct{}{},
+		byGroup: map[string]map[int64]struct{}{}, byRow: map[basisKey]map[int64]struct{}{},
+		inflight: map[int64]*call{}, running: map[*call]struct{}{},
 	}
 	c.load = c.compute
 	return c
@@ -130,7 +135,7 @@ func (c *Cache) Check(ctx context.Context, viewerID int64, group string) (d Deci
 			return Decision{}, false, nil
 		}
 		if units, ok := e.grants.Units(group); ok {
-			d := Decision{Units: units}
+			d := Decision{Units: units, Basis: e.grants.basis}
 			if kind, id := parseGroup(group); kind == kindRepo {
 				d.RepoID = id
 			}
@@ -264,7 +269,7 @@ func affects(ch protocol.PermissionChange, viewer int64, g *Grants) bool {
 			return true
 		}
 	}
-	return false
+	return g.basis.Stale(ch.Touched)
 }
 
 // changedGroups are the groups whose readers ch names (besides its users).
@@ -290,6 +295,14 @@ func (c *Cache) storeLocked(viewerID int64, e *cacheEntry) {
 		}
 		set[viewerID] = struct{}{}
 	}
+	for k := range e.grants.basis {
+		set := c.byRow[k]
+		if set == nil {
+			set = map[int64]struct{}{}
+			c.byRow[k] = set
+		}
+		set[viewerID] = struct{}{}
+	}
 	for c.lru.Len() > c.max {
 		oldest := c.lru.Back().Value.(*cacheEntry)
 		c.removeLocked(oldest.grants.ViewerID)
@@ -312,14 +325,25 @@ func (c *Cache) removeLocked(viewerID int64) {
 			}
 		}
 	}
+	for k := range e.grants.basis {
+		if set := c.byRow[k]; set != nil {
+			delete(set, viewerID)
+			if len(set) == 0 {
+				delete(c.byRow, k)
+			}
+		}
+	}
 }
 
 // Invalidate drops the cached grants a permission epoch may have changed:
-// those of its users and of every viewer granted one of its repositories'
-// or owners' groups (all of them for ch.All). Running computations it may
-// concern are detached, so later callers do not get a result read before
-// the change, and are not cached if it does concern them. Cost:
-// O(affected entries + running computations).
+// those of its users, of every viewer granted one of its repositories' or
+// owners' groups (all of them for ch.All), and of every viewer whose
+// grants were computed from another state of a touched row (ch.Touched;
+// entries that saw the touched rows' current state, e.g. after a counter
+// update, are kept). Running computations it may concern are detached, so
+// later callers do not get a result read before the change, and are not
+// cached if it does concern them. Cost: O(affected entries + entries that
+// read a touched row + running computations).
 func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -327,9 +351,9 @@ func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 		switch {
 		case ch.All || slices.Contains(ch.Users, cl.viewer):
 			cl.stale = true
-		case len(ch.Repos) > 0 || len(ch.Owners) > 0:
-			// Whether it grants one of the groups is known only when it
-			// finishes.
+		case len(ch.Repos) > 0 || len(ch.Owners) > 0 || len(ch.Touched) > 0:
+			// Whether it grants one of the groups, or which states of the
+			// touched rows it read, is known only when it finishes.
 			if len(cl.changes) == maxCallChanges {
 				cl.stale = true
 			} else {
@@ -346,6 +370,7 @@ func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 		c.entries = map[int64]*list.Element{}
 		c.lru.Init()
 		c.byGroup = map[string]map[int64]struct{}{}
+		c.byRow = map[basisKey]map[int64]struct{}{}
 		return
 	}
 	for _, id := range ch.Users {
@@ -354,6 +379,14 @@ func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 	for _, group := range changedGroups(ch) {
 		for id := range c.byGroup[group] {
 			c.removeLocked(id)
+		}
+	}
+	for _, t := range ch.Touched {
+		k := basisKey{t.Kind, t.ID}
+		for id := range c.byRow[k] {
+			if c.entries[id].Value.(*cacheEntry).grants.basis[k] != t.State {
+				c.removeLocked(id)
+			}
 		}
 	}
 }

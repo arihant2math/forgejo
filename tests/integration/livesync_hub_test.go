@@ -7,7 +7,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -63,10 +65,54 @@ type livesyncSyncClient struct {
 	close  func()
 	mu     sync.Mutex
 	closed int // the WebSocket close status (-1: closed without one)
+	// paused: when not nil, the reader stops before its next read until
+	// it is closed (the client does not read: its socket fills up).
+	paused chan struct{}
+}
+
+// pause makes the client stop reading; resume reads on.
+func (cl *livesyncSyncClient) pause() {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.paused = make(chan struct{})
+}
+
+func (cl *livesyncSyncClient) resume() {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	close(cl.paused)
+	cl.paused = nil
+}
+
+func (cl *livesyncSyncClient) waitIfPaused() {
+	cl.mu.Lock()
+	p := cl.paused
+	cl.mu.Unlock()
+	if p != nil {
+		<-p
+	}
+}
+
+// livesyncSmallBuffers is an HTTP client whose connections have a small
+// socket receive buffer, so that a client that stops reading blocks the
+// server's writes soon.
+func livesyncSmallBuffers() *http.Client {
+	return &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err == nil {
+			_ = conn.(*net.TCPConn).SetReadBuffer(4096)
+		}
+		return conn, err
+	}}}
 }
 
 // livesyncDial opens a sync session over transport "ws" or "sse".
 func livesyncDial(t *testing.T, u *url.URL, transport string) *livesyncSyncClient {
+	t.Helper()
+	return livesyncDialWith(t, u, transport, http.DefaultClient)
+}
+
+func livesyncDialWith(t *testing.T, u *url.URL, transport string, httpClient *http.Client) *livesyncSyncClient {
 	t.Helper()
 	cl := &livesyncSyncClient{t: t, msgs: make(chan livesyncMsg, 10000)}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,13 +127,14 @@ func livesyncDial(t *testing.T, u *url.URL, transport string) *livesyncSyncClien
 	}
 	switch transport {
 	case "ws":
-		ws, resp, err := websocket.Dial(ctx, "ws://"+u.Host+"/-/sync/ws", &websocket.DialOptions{CompressionMode: websocket.CompressionNoContextTakeover})
+		ws, resp, err := websocket.Dial(ctx, "ws://"+u.Host+"/-/sync/ws", &websocket.DialOptions{CompressionMode: websocket.CompressionNoContextTakeover, HTTPClient: httpClient})
 		require.NoError(t, err)
 		assert.Contains(t, resp.Header.Get("Sec-WebSocket-Extensions"), "permessage-deflate")
 		ws.SetReadLimit(64 << 20)
 		go func() {
 			defer close(cl.msgs)
 			for {
+				cl.waitIfPaused()
 				_, data, err := ws.Read(ctx)
 				if err != nil {
 					cl.mu.Lock()
@@ -107,7 +154,7 @@ func livesyncDial(t *testing.T, u *url.URL, transport string) *livesyncSyncClien
 	case "sse":
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+u.Host+"/-/sync/sse", nil)
 		require.NoError(t, err)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpClient.Do(req)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
@@ -118,7 +165,13 @@ func livesyncDial(t *testing.T, u *url.URL, transport string) *livesyncSyncClien
 			sc := bufio.NewScanner(resp.Body)
 			sc.Buffer(make([]byte, 64<<10), 64<<20)
 			first := true
-			for sc.Scan() {
+			for {
+				if !first {
+					cl.waitIfPaused()
+				}
+				if !sc.Scan() {
+					break
+				}
 				line := sc.Bytes()
 				data, ok := bytes.CutPrefix(line, []byte("data: "))
 				if !ok {
@@ -392,30 +445,63 @@ func livesyncHubScenario(t *testing.T, u *url.URL, transport string) {
 }
 
 // A client that does not keep up with its live changes is disconnected
-// with resume_from_cursor (send buffer of 4 KiB, 40 labels written in one
-// transaction, i.e. delivered in one batch).
+// with resume_from_cursor: it stops reading, 400 comments of 4 KB arrive in
+// a few materializer batches, each far beyond the send buffer (64 KiB)
+// while the frame before it is being written. When the client reads again
+// it gets what was written before the overflow, then resume_from_cursor at
+// a position it was sent (its resume point), then the session is closed
+// (WS 1013); the rest was dropped. (A writer blocked by a full socket is
+// TestSlowConsumer's case: here the kernel would first buffer up to
+// net.ipv4.tcp_wmem's maximum, 4 MiB by default, per connection.)
 func TestLivesyncHubSlowConsumer(t *testing.T) {
 	livesyncSkipSQLite(t)
-	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "4096"})
+	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "65536"})
 	onApplicationRun(t, func(t *testing.T, u *url.URL) {
 		livesyncWaitBackfill(t)
-		assert.Eventually(t, func() bool { return len(livesyncOutbox(t)) == 0 }, livesyncWait, 20*time.Millisecond)
+		livesyncSettle(t)
+		const comments = 400
 		for _, transport := range []string{"ws", "sse"} {
 			t.Run(transport, func(t *testing.T) {
-				cl := livesyncDial(t, u, transport)
-				cl.send(livesyncHello(livesyncToken(t, &user_model.User{ID: 2}), protocol.GroupRequest{Group: "repo:1"}))
+				cl := livesyncDialWith(t, u, transport, livesyncSmallBuffers())
+				cl.send(livesyncHello(livesyncToken(t, &user_model.User{ID: 2}), protocol.GroupRequest{Group: "issue:1"}))
 				cl.waitType(protocol.MsgWelcome)
-				cl.waitType(protocol.MsgCaughtUp)
-				require.NoError(t, db.WithTx(t.Context(), func(ctx context.Context) error {
-					for i := range 40 {
-						if err := db.Insert(ctx, &issues_model.Label{RepoID: 1, Name: fmt.Sprintf("slow-%s-%d-%s", transport, i, strings.Repeat("x", 100)), Color: "#123456"}); err != nil {
-							return err
+				caughtUp := cl.waitType(protocol.MsgCaughtUp)
+				cl.pause()
+				random := make([]byte, 2<<10)
+				for i := range comments {
+					_, _ = rand.Read(random)
+					content := fmt.Sprintf("slow %s %d %x", transport, i, random) // hardly compressible
+					require.NoError(t, db.Insert(t.Context(), &issues_model.Comment{Type: issues_model.CommentTypeComment, IssueID: 1, PosterID: 2, Content: content}))
+				}
+				livesyncSettle(t)
+				last := livesyncLogHead(t)
+				time.Sleep(200 * time.Millisecond) // delivered by the hub
+				cl.resume()
+
+				positions := map[int64]bool{caughtUp.SyncID: true}
+				received := 0
+				var resume livesyncMsg
+				for resume.Type == "" {
+					m := cl.waitFor("resume_from_cursor", func(*livesyncMsg) bool { return true })
+					switch m.Type {
+					case protocol.MsgDelta:
+						positions[m.To] = true
+						for _, ch := range m.Changes {
+							if ch.M == protocol.ModelComment {
+								received++
+							}
 						}
+					case protocol.MsgResumeFromCursor:
+						resume = m
+					default:
+						t.Fatalf("unexpected %+v", m)
 					}
-					return nil
-				}))
-				m := cl.waitType(protocol.MsgResumeFromCursor)
-				assert.GreaterOrEqual(t, m.SyncID, int64(0))
+				}
+				t.Logf("%s: %d of %d comments received before resume_from_cursor %d", transport, received, comments, resume.SyncID)
+				assert.Positive(t, received, "frames were written until the socket was full")
+				assert.Less(t, received, comments, "the unsent changes were dropped")
+				assert.True(t, positions[resume.SyncID], "resume_from_cursor names a position the client was sent")
+				assert.Less(t, resume.SyncID, last)
 				status := cl.waitClosed()
 				if transport == "ws" {
 					assert.Equal(t, int(websocket.StatusTryAgainLater), status)

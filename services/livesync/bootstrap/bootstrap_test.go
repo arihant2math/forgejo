@@ -170,7 +170,7 @@ func TestStream(t *testing.T) {
 	// A model filter, and a viewer without units.
 	res = stream(t, perms, 2, "repo:1", func(r *Request) { r.Models = []protocol.Model{protocol.ModelMilestone} })
 	assert.Equal(t, []protocol.Model{protocol.ModelMilestone}, res.header.Models)
-	assert.Equal(t, map[protocol.Model]int{protocol.ModelMilestone: protocol.SchemaMilestone}, res.header.Schemas)
+	assert.Equal(t, map[protocol.Model]int{protocol.ModelMilestone: protocol.SchemaMilestone, protocol.ModelUser: protocol.SchemaUser}, res.header.Schemas)
 	for _, ch := range res.changes {
 		if ch.G == "repo:1" {
 			assert.Equal(t, protocol.ModelMilestone, ch.M)

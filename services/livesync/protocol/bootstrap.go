@@ -51,7 +51,8 @@ const (
 // replaces what the client holds of the group: once the end line arrived,
 // drop every entity of the group (of the header's Models when it lists
 // some) with a version at or below the watermark that the response did not
-// contain. A closed page (TierClosed) only adds entities.
+// contain. A closed page (TierClosed) only adds entities, and so do the
+// profile lines of other groups (they are not a bootstrap of those groups).
 //
 // The response is filtered by the viewer's units in the group, which the
 // header states (Units, as in a Grant): keep them with the group and treat a
@@ -74,7 +75,7 @@ type BootstrapHeader struct {
 	// Tier is TierFull, TierSummary or TierClosed.
 	Tier string `json:"tier" tstype:"'full' | 'summary' | 'closed'"`
 	// Schemas are the schema versions of the models the response may
-	// contain.
+	// contain (User included: profiles may follow the entities).
 	Schemas map[Model]int `json:"schemas"`
 	// Models is set when the request asked for some models only (?model=);
 	// the response then replaces only those.

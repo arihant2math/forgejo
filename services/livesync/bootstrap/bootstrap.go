@@ -115,6 +115,8 @@ func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, 
 	for _, m := range models {
 		header.Schemas[m] = all[m]
 	}
+	// The profiles the entities refer to may follow them.
+	header.Schemas[protocol.ModelUser] = all[protocol.ModelUser]
 	if req.Tier == protocol.TierSummary {
 		header.ClosedBefore = new(req.Recent.Unix())
 	}

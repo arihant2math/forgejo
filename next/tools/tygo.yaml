@@ -24,3 +24,15 @@ packages:
         | WelcomeMessage | SubscribedMessage | DeltaMessage | CaughtUpMessage | BootstrapRequiredMessage
         | GroupRevokedMessage | BarrierOKMessage | SessionInvalidMessage | NoticeMessage | PongMessage
         | GrantsMessage | ResumeFromCursorMessage | ErrorMessage | SessionMessage;
+      /** Why a requested group was refused (Refusal.reason). */
+      export type RefusalReason = typeof RefusedForbidden | typeof RefusedLimit;
+      /** Why a group must be loaded again (BootstrapRequiredMessage.reason). */
+      export type BootstrapReason =
+        | typeof BootstrapCursorTrimmed | typeof BootstrapReplayTooLong | typeof BootstrapPermissionChanged
+        | typeof BootstrapCursorUnknown | typeof RebootstrapTriggerRepaired | typeof RebootstrapPlacementChanged;
+      /** NoticeMessage.kind. */
+      export type NoticeKind = typeof NoticeNewBuild | typeof NoticeShutdown;
+      /** ErrorMessage.code. */
+      export type ErrorCode =
+        | typeof ErrorBadMessage | typeof ErrorHelloRequired | typeof ErrorTooManyBarriers
+        | typeof ErrorTooManyConnections | typeof ErrorInternal;

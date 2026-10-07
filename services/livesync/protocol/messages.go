@@ -32,7 +32,9 @@ const ProtocolVersion = 1
 // MessageType is the "type" of a protocol message.
 type MessageType string
 
-// Client → server messages.
+// Client → server messages (each has its message type below, and the
+// TypeScript union ClientMessage in next/tools/tygo.yaml lists them;
+// TestTypeScriptUnions checks both).
 
 const (
 	MsgHello       MessageType = "hello"
@@ -42,7 +44,7 @@ const (
 	MsgPing        MessageType = "ping"
 )
 
-// Server → client messages.
+// Server → client messages (the TypeScript union ServerMessage).
 
 const (
 	MsgWelcome           MessageType = "welcome"
@@ -72,7 +74,10 @@ type GroupRequest struct {
 	Since *int64 `json:"since,omitempty"`
 }
 
-// HelloMessage opens a session. It must be the first message.
+// HelloMessage opens a session. It must be the first message: anything
+// else first is answered by ErrorMessage{code: ErrorHelloRequired} and the
+// session is closed. Over the fallback transport, wait for the hello's
+// POST to complete before sending more.
 type HelloMessage struct {
 	Type MessageType `json:"type" tstype:"'hello'"`
 	// Token is an OAuth2 access token or a personal access token, validated
@@ -124,10 +129,11 @@ type PingMessage struct {
 // subscription limit is reached).
 type Refusal struct {
 	Group  string `json:"group"`
-	Reason string `json:"reason"`
+	Reason string `json:"reason" tstype:"RefusalReason"`
 }
 
-// Reasons of a Refusal.
+// Reasons of a Refusal (the TypeScript union RefusalReason in
+// next/tools/tygo.yaml; TestTypeScriptUnions keeps it complete).
 
 const (
 	RefusedForbidden = "forbidden"
@@ -204,21 +210,22 @@ type CaughtUpMessage struct {
 type BootstrapRequiredMessage struct {
 	Type   MessageType `json:"type" tstype:"'bootstrap_required'"`
 	Group  string      `json:"group"`
-	Reason string      `json:"reason"`
+	Reason string      `json:"reason" tstype:"BootstrapReason"`
 	// Model is set when only the entities of this model are concerned
 	// (a re-bootstrap marker in the sync log).
 	Model Model `json:"model,omitempty"`
 }
 
 // Reasons of a BootstrapRequiredMessage besides the RebootstrapMarker
-// reasons (RebootstrapTriggerRepaired, RebootstrapPlacementChanged).
+// reasons (RebootstrapTriggerRepaired, RebootstrapPlacementChanged); all of
+// them make the TypeScript union BootstrapReason.
 
 const (
 	// BootstrapCursorTrimmed: the group's position is older than the sync
 	// log retention.
 	BootstrapCursorTrimmed = "cursor_trimmed"
-	// BootstrapReplayTooLong: replaying the group would send more changes
-	// than a bootstrap.
+	// BootstrapReplayTooLong: the group has more entries to replay than the
+	// server's limit ([livesync] MAX_REPLAY): a bootstrap is cheaper.
 	BootstrapReplayTooLong = "replay_too_long"
 	// BootstrapPermissionChanged: the viewer's units in the group changed;
 	// what they may read of it is no longer what they hold.
@@ -254,10 +261,10 @@ type SessionInvalidMessage struct {
 // NoticeMessage informs the client about the server.
 type NoticeMessage struct {
 	Type MessageType `json:"type" tstype:"'notice'"`
-	Kind string      `json:"kind"`
+	Kind string      `json:"kind" tstype:"NoticeKind"`
 }
 
-// Kinds of a NoticeMessage.
+// Kinds of a NoticeMessage (the TypeScript union NoticeKind).
 
 const (
 	// NoticeNewBuild: the server runs another build than the client's
@@ -297,11 +304,11 @@ type ResumeFromCursorMessage struct {
 // goes on unless the server closes it).
 type ErrorMessage struct {
 	Type    MessageType `json:"type" tstype:"'error'"`
-	Code    string      `json:"code"`
+	Code    string      `json:"code" tstype:"ErrorCode"`
 	Message string      `json:"message"`
 }
 
-// Codes of an ErrorMessage.
+// Codes of an ErrorMessage (the TypeScript union ErrorCode).
 
 const (
 	ErrorBadMessage         = "bad_message"

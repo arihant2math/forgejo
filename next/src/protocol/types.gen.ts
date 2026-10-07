@@ -12,6 +12,18 @@ export type ServerMessage =
   | WelcomeMessage | SubscribedMessage | DeltaMessage | CaughtUpMessage | BootstrapRequiredMessage
   | GroupRevokedMessage | BarrierOKMessage | SessionInvalidMessage | NoticeMessage | PongMessage
   | GrantsMessage | ResumeFromCursorMessage | ErrorMessage | SessionMessage;
+/** Why a requested group was refused (Refusal.reason). */
+export type RefusalReason = typeof RefusedForbidden | typeof RefusedLimit;
+/** Why a group must be loaded again (BootstrapRequiredMessage.reason). */
+export type BootstrapReason =
+  | typeof BootstrapCursorTrimmed | typeof BootstrapReplayTooLong | typeof BootstrapPermissionChanged
+  | typeof BootstrapCursorUnknown | typeof RebootstrapTriggerRepaired | typeof RebootstrapPlacementChanged;
+/** NoticeMessage.kind. */
+export type NoticeKind = typeof NoticeNewBuild | typeof NoticeShutdown;
+/** ErrorMessage.code. */
+export type ErrorCode =
+  | typeof ErrorBadMessage | typeof ErrorHelloRequired | typeof ErrorTooManyBarriers
+  | typeof ErrorTooManyConnections | typeof ErrorInternal;
 
 //////////
 // source: entities.go
@@ -706,7 +718,10 @@ export interface GroupRequest {
   since?: number /* int64 */;
 }
 /**
- * HelloMessage opens a session. It must be the first message.
+ * HelloMessage opens a session. It must be the first message: anything
+ * else first is answered by ErrorMessage{code: ErrorHelloRequired} and the
+ * session is closed. Over the fallback transport, wait for the hello's
+ * POST to complete before sending more.
  */
 export interface HelloMessage {
   type: 'hello';
@@ -772,7 +787,7 @@ export interface PingMessage {
  */
 export interface Refusal {
   group: string;
-  reason: string;
+  reason: RefusalReason;
 }
 export const RefusedForbidden = "forbidden";
 export const RefusedLimit = "limit";
@@ -871,7 +886,7 @@ export interface CaughtUpMessage {
 export interface BootstrapRequiredMessage {
   type: 'bootstrap_required';
   group: string;
-  reason: string;
+  reason: BootstrapReason;
   /**
    * Model is set when only the entities of this model are concerned
    * (a re-bootstrap marker in the sync log).
@@ -884,8 +899,8 @@ export interface BootstrapRequiredMessage {
  */
 export const BootstrapCursorTrimmed = "cursor_trimmed";
 /**
- * BootstrapReplayTooLong: replaying the group would send more changes
- * than a bootstrap.
+ * BootstrapReplayTooLong: the group has more entries to replay than the
+ * server's limit ([livesync] MAX_REPLAY): a bootstrap is cheaper.
  */
 export const BootstrapReplayTooLong = "replay_too_long";
 /**
@@ -929,7 +944,7 @@ export interface SessionInvalidMessage {
  */
 export interface NoticeMessage {
   type: 'notice';
-  kind: string;
+  kind: NoticeKind;
 }
 /**
  * NoticeNewBuild: the server runs another build than the client's
@@ -975,7 +990,7 @@ export interface ResumeFromCursorMessage {
  */
 export interface ErrorMessage {
   type: 'error';
-  code: string;
+  code: ErrorCode;
   message: string;
 }
 export const ErrorBadMessage = "bad_message";

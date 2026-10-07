@@ -12,14 +12,18 @@
 //     loops over all sessions except re-bootstrap markers, permission
 //     epochs naming everybody and retention skips, which concern all).
 //   - A subscription first replays the group from the client's position
-//     (synclog.ReadRange, up to what the tailer has delivered) and then goes
+//     (synclog.ReadKeys, up to what the tailer has delivered) and then goes
 //     live under the hub lock, so nothing is lost or reordered between
 //     replay and live stream.
+//   - A replay sends only the newest state of each entity in the range
+//     (a delete stays a delete), never the intermediate states the log
+//     keeps: a reader gets what a bootstrap would give, not the history.
 //   - Permission epochs (protocol.OpPermission entries, never sent to
 //     clients) suspend the subscriptions they may concern at their position
 //     in the log; each is checked again (perm.Cache.Check, after permSink
-//     applied the epoch to the cache) and then catches up from where it was
-//     suspended, or is revoked (group_revoked). Re-bootstrap markers
+//     applied the epoch to the cache), and the entries held for it meanwhile
+//     are sent (or it catches up from the log), or it is revoked
+//     (group_revoked). Re-bootstrap markers
 //     (protocol.OpRebootstrap) become bootstrap_required for the subscribed
 //     groups that can hold the marker's model.
 //   - Outgoing changes are batched into frames of at most FrameInterval
@@ -29,7 +33,7 @@ package hub
 
 import (
 	"context"
-	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,9 +70,18 @@ const (
 	replayBatch = 500
 	// maxBarriers bounds the pending barriers of a session.
 	maxBarriers = 16
-	// maxConcurrentChecks bounds the replays and permission checks that
-	// run at the same time (reconnect storms must not swamp the database).
+	// maxConcurrentChecks bounds the database reads of replays and the
+	// permission checks that run at the same time (reconnect storms must
+	// not swamp the database). A slot is held for one read or check only,
+	// never while waiting for a client.
 	maxConcurrentChecks = 16
+	// maxIdleScan: a session's queued replays are first checked for
+	// missed entries with one read of the log range (Hub.skipIdle) when the
+	// range has at most this many entries.
+	maxIdleScan = 10000
+	// maxEpochLog is the number of recent permission epochs kept to decide
+	// whether a check that ran while they were delivered is stale.
+	maxEpochLog = 64
 	// retryPause is the pause before a failed replay read or check is
 	// retried.
 	retryPause = time.Second
@@ -85,16 +98,18 @@ type Config struct {
 	BuildID string
 	// Schemas are the models' schema versions (WelcomeMessage.Schemas).
 	Schemas map[protocol.Model]int
-	// SendBuffer bounds the bytes queued for a session; a session whose
-	// live changes exceed it is closed with resume_from_cursor.
+	// SendBuffer bounds the bytes queued for a session (changes and
+	// control messages); a session that exceeds it is closed with
+	// resume_from_cursor. Replays wait for room instead.
 	SendBuffer int
 	// MaxSubscriptions bounds the subscriptions of one viewer (all of the
 	// viewer's sessions on this instance).
 	MaxSubscriptions int
 	// MaxConnections bounds the sessions of one viewer on this instance.
 	MaxConnections int
-	// MaxReplay bounds the entries replayed for one subscription; beyond
-	// it the client gets bootstrap_required (replay_too_long).
+	// MaxReplay bounds the log entries of a group scanned for one
+	// subscription's replay; beyond it the client gets bootstrap_required
+	// (replay_too_long), decided before anything is sent.
 	MaxReplay int
 	// FrameInterval is the longest a change waits to be batched with
 	// others into one frame.
@@ -139,9 +154,6 @@ func (cfg *Config) setDefaults() {
 // the client to drop its token).
 type Authenticator func(ctx context.Context, token string) (viewerID int64, invalid string, err error)
 
-// ErrClosed is returned for sessions of a hub that is shut down.
-var ErrClosed = errors.New("livesync: the sync hub is shut down")
-
 // Hub holds this instance's sessions and subscriptions (see the package
 // documentation).
 type Hub struct {
@@ -168,8 +180,10 @@ type Hub struct {
 	barriers map[*conn]struct{}
 	// sessions are the fallback (SSE) sessions by id.
 	sessions map[string]*conn
-	// permSeq counts the permission epochs delivered (see subscribeLocked).
+	// permSeq counts the permission epochs delivered; epochs are the last
+	// (at most maxEpochLog) of them (see subscribeLocked).
 	permSeq uint64
+	epochs  []protocol.PermissionChange
 
 	checks chan struct{} // semaphore: replays and checks running
 	wg     sync.WaitGroup
@@ -265,6 +279,13 @@ func (h *Hub) Skipped(_ context.Context, from, floor int64) {
 		}
 	}
 	h.permissionLocked(protocol.PermissionChange{All: true}, floor, from)
+	for c := range h.conns {
+		for _, s := range c.subs {
+			// What they held misses the skipped entries: they read from
+			// their cursor (and are told if it was trimmed).
+			h.dropHeldLocked(s)
+		}
+	}
 	h.pos.Store(floor)
 	h.checkBarriersLocked()
 }
@@ -275,13 +296,19 @@ func (h *Hub) fanOutLocked(e *livesync_model.LogEntry) {
 	var ch *protocol.Change
 	unit := protocol.Unit(e.Unit)
 	for s := range h.byGroup[e.Grp] {
-		if s.state != stateLive || e.SyncID <= s.liveFrom || !s.units.Allows(unit) {
-			continue
+		switch {
+		case s.state == stateLive && e.SyncID > s.liveFrom && s.units.Allows(unit):
+			if ch == nil {
+				ch = change(e)
+			}
+			s.c.enqueueChange(*ch, true)
+		case s.state == stateRecheck && s.holding && e.SyncID > s.cursor:
+			// Held unfiltered: the check may change the units.
+			if ch == nil {
+				ch = change(e)
+			}
+			h.holdLocked(s, heldItem{ch: ch, unit: unit}, changeSize(ch))
 		}
-		if ch == nil {
-			ch = change(e)
-		}
-		s.c.enqueueChange(*ch, true)
 	}
 	if protocol.Model(e.Model) == protocol.ModelUser {
 		// A viewer always gets their own profile (WelcomeMessage.Profile).
@@ -313,11 +340,51 @@ func (h *Hub) markerLocked(e *livesync_model.LogEntry) {
 	model := protocol.Model(e.Model)
 	for c := range h.conns {
 		for _, s := range c.subs {
-			if s.state == stateLive && e.SyncID > s.liveFrom && canHold(s.kind, model) {
+			switch {
+			case !canHold(s.kind, model):
+			case s.state == stateLive && e.SyncID > s.liveFrom:
 				c.send(bootstrapFor(s.group, &marker, model))
+			case s.state == stateRecheck && s.holding && e.SyncID > s.cursor:
+				h.holdLocked(s, heldItem{marker: bootstrapFor(s.group, &marker, model)}, 128)
 			}
 		}
 	}
+}
+
+// holdLocked keeps an entry for s while its permission is checked again.
+// When the session's held entries would exceed the send buffer, s drops
+// what it holds and catches up from the log after the check.
+func (h *Hub) holdLocked(s *sub, it heldItem, size int) {
+	if s.c.heldBytes+size > h.cfg.SendBuffer {
+		h.dropHeldLocked(s)
+		return
+	}
+	s.held = append(s.held, it)
+	s.heldSize += size
+	s.c.heldBytes += size
+}
+
+// dropHeldLocked forgets what s holds (it catches up from the log if it
+// is still suspended).
+func (h *Hub) dropHeldLocked(s *sub) {
+	s.c.heldBytes -= s.heldSize
+	s.held, s.heldSize, s.holding = nil, 0, false
+}
+
+// releaseHeldLocked sends what s held while it was checked again (with
+// the units just decided) and makes it live: everything of its group after
+// its cursor up to the hub's position was held.
+func (h *Hub) releaseHeldLocked(s *sub) {
+	for _, it := range s.held {
+		switch {
+		case it.marker != nil:
+			s.c.send(it.marker)
+		case s.units.Allows(it.unit):
+			s.c.enqueueChange(*it.ch, true)
+		}
+	}
+	h.dropHeldLocked(s)
+	h.goLiveLocked(s, h.pos.Load())
 }
 
 func bootstrapFor(group string, marker *protocol.RebootstrapMarker, model protocol.Model) *protocol.BootstrapRequiredMessage {
@@ -335,6 +402,10 @@ func bootstrapFor(group string, marker *protocol.RebootstrapMarker, model protoc
 // retention skip).
 func (h *Hub) permissionLocked(ch protocol.PermissionChange, p, hold int64) {
 	h.permSeq++
+	if len(h.epochs) == maxEpochLog {
+		h.epochs = slices.Delete(h.epochs, 0, 1)
+	}
+	h.epochs = append(h.epochs, ch)
 	affected := map[*sub]struct{}{}
 	addAll := func(set map[*sub]struct{}) {
 		for s := range set {
@@ -384,11 +455,32 @@ func (h *Hub) suspendLocked(s *sub, p, hold int64) {
 	if s.state == stateLive {
 		s.state = stateRecheck
 		s.cursor = p
+		s.holding = true
 		s.c.busy++
 		s.c.setHold(s, hold)
 	}
 	s.recheck = true
 	h.queueLocked(s)
+}
+
+// epochConcerns reports whether permission epoch ch could change the
+// decision dec of viewer for group (the subscriptions permissionLocked
+// would suspend).
+func epochConcerns(ch *protocol.PermissionChange, viewer int64, group string, dec *perm.Decision) bool {
+	if ch.All || slices.Contains(ch.Users, viewer) {
+		return true
+	}
+	for _, r := range ch.Repos {
+		if r == dec.RepoID || group == protocol.RepoGroup(r) {
+			return true
+		}
+	}
+	for _, o := range ch.Owners {
+		if group == protocol.OrgGroup(o) || group == protocol.ProfileGroup(o) {
+			return true
+		}
+	}
+	return len(ch.Touched) > 0 && dec.Basis.Stale(ch.Touched)
 }
 
 // queueLocked hands s to its session's worker (replay / check).

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -259,11 +260,19 @@ func TestHelloWelcome(t *testing.T) {
 	x := newHarness(t, Config{BuildID: "b1", Schemas: map[protocol.Model]int{protocol.ModelIssue: 1}, Profile: func(_ context.Context, id int64) (*protocol.Change, error) {
 		return &protocol.Change{V: 7, G: protocol.GroupProfilesPublic, M: protocol.ModelUser, ID: id, Op: protocol.OpUpsert}, nil
 	}})
-	cl := x.connect(nil)
-	// Anything before hello is refused.
-	cl.send(&protocol.PingMessage{Type: protocol.MsgPing})
-	assert.Equal(t, protocol.ErrorHelloRequired, cl.expect(protocol.MsgError).Code)
+	// Anything before hello closes the session (after one error).
+	early := x.connect(nil)
+	early.send(&protocol.PingMessage{Type: protocol.MsgPing})
+	early.send(&protocol.PingMessage{Type: protocol.MsgPing})
+	assert.Equal(t, protocol.ErrorHelloRequired, early.expect(protocol.MsgError).Code)
+	assert.Eventually(t, func() bool { return early.tr.closeCode() == closePolicy }, 5*time.Second, time.Millisecond)
+	early.quiet(20 * time.Millisecond)
+	garbage := x.connect(nil)
+	garbage.c.handle([]byte("nonsense"))
+	assert.Equal(t, protocol.ErrorHelloRequired, garbage.expect(protocol.MsgError).Code)
+	assert.Eventually(t, func() bool { return garbage.tr.closeCode() == closePolicy }, 5*time.Second, time.Millisecond)
 
+	cl := x.connect(nil)
 	// user2 owns repo1 (public) and repo2 (private); user5 may read
 	// neither repo2 nor user2's own group; "!perm" and "*" are no groups.
 	w := cl.hello(2, protocol.GroupRequest{Group: "repo:1"}, protocol.GroupRequest{Group: "repo:2"}, protocol.GroupRequest{Group: "user:5"},
@@ -294,6 +303,10 @@ func TestHelloWelcome(t *testing.T) {
 	assert.Equal(t, protocol.ErrorBadMessage, cl.expect(protocol.MsgError).Code)
 	cl.c.handle([]byte("nonsense"))
 	assert.Equal(t, protocol.ErrorBadMessage, cl.expect(protocol.MsgError).Code)
+	cl.c.handle([]byte(`{"type":"` + strings.Repeat("x", 1000) + `"}`))
+	m := cl.expect(protocol.MsgError)
+	assert.Equal(t, protocol.ErrorBadMessage, m.Code)
+	assert.Less(t, len(m.Message), 100, "an unknown type is not echoed in full")
 
 	// An invalid token: session_invalid, then the session is closed.
 	bad := x.connect(nil)
@@ -344,7 +357,8 @@ func TestReplayThenLive(t *testing.T) {
 	assert.EqualValues(t, 12, to)
 
 	// Entries written while a second subscription replays are delivered
-	// once, in order.
+	// once, in order (other entities each: a replay sends an entity's
+	// newest entry only, see TestReplayNewestState).
 	for i := range 20 {
 		x.append(upsert("repo:1", protocol.ModelLabel, int64(100+i), protocol.UnitIssuesOrPulls))
 	}
@@ -352,9 +366,9 @@ func TestReplayThenLive(t *testing.T) {
 	cl2.hello(2, protocol.GroupRequest{Group: "repo:1", Since: since(0)})
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		for range 5 {
+		for i := range 5 {
 			x.deliver()
-			x.append(upsert("repo:1", protocol.ModelLabel, 200, protocol.UnitIssuesOrPulls))
+			x.append(upsert("repo:1", protocol.ModelLabel, int64(200+i), protocol.UnitIssuesOrPulls))
 		}
 		x.deliver()
 	})
@@ -558,7 +572,8 @@ func TestTrimmedAndUnknownCursor(t *testing.T) {
 	assert.EqualValues(t, 5, chs[0].V)
 }
 
-// A replay longer than MaxReplay: bootstrap_required, then live.
+// A replay longer than MaxReplay: bootstrap_required before anything was
+// sent, then live.
 func TestReplayTooLong(t *testing.T) {
 	x := newHarness(t, Config{MaxReplay: 3})
 	for i := range 6 {
@@ -578,8 +593,15 @@ func TestReplayTooLong(t *testing.T) {
 		assert.Equal(t, protocol.BootstrapReplayTooLong, m.Reason)
 		break
 	}
-	assert.Equal(t, 6, n, "one replay batch was sent")
+	assert.Zero(t, n, "decided before streaming")
 	cl.expect(protocol.MsgCaughtUp)
+
+	// Exactly MaxReplay entries are replayed.
+	cl2 := x.connect(nil)
+	cl2.hello(2, protocol.GroupRequest{Group: "repo:1", Since: since(3)})
+	chs, _ := cl2.changes(3)
+	assert.Equal(t, []int64{4, 5, 6}, versions(chs))
+	cl2.expect(protocol.MsgCaughtUp)
 }
 
 // A session that does not read is closed with resume_from_cursor once its

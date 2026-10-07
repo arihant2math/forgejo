@@ -34,22 +34,30 @@ var (
 // MaxMessageSize is the size limit of a client message.
 const MaxMessageSize = maxMessageSize
 
-// sseTransport is a session over a Server-Sent Events stream.
+// sseTransport is a session over a Server-Sent Events stream. The
+// ResponseWriter is only used under mu, between ServeSSE's headers (ready)
+// and close: the session's worker sends keep-alives from its own
+// goroutine, which must never touch the writer before the headers or after
+// the handler returned (net/http then recycles it).
 type sseTransport struct {
-	mu   sync.Mutex
-	w    http.ResponseWriter
-	rc   *http.ResponseController
-	once sync.Once
-	done chan struct{} // closed by close
+	mu     sync.Mutex
+	w      http.ResponseWriter
+	rc     *http.ResponseController
+	ready  bool // the headers were written
+	closed bool
 }
 
-func (t *sseTransport) writeRaw(ctx context.Context, chunks ...[]byte) error {
+func (t *sseTransport) writeRaw(ctx context.Context, keepAlive bool, chunks ...[]byte) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	select {
-	case <-t.done:
+	switch {
+	case t.closed:
 		return http.ErrHandlerTimeout
-	default:
+	case !t.ready:
+		if keepAlive {
+			return nil // nothing to keep alive yet
+		}
+		return http.ErrHandlerTimeout
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = t.rc.SetWriteDeadline(deadline) // not supported by every writer
@@ -70,22 +78,38 @@ var (
 )
 
 func (t *sseTransport) write(ctx context.Context, msg []byte) error {
-	return t.writeRaw(ctx, sseData, msg, sseEnd)
+	return t.writeRaw(ctx, false, sseData, msg, sseEnd)
 }
 
 func (t *sseTransport) keepAlive(ctx context.Context) error {
-	return t.writeRaw(ctx, sseKeepAlive)
+	return t.writeRaw(ctx, true, sseKeepAlive)
 }
 
+// close waits for a write in progress; later writes fail. The session's
+// writer calls it before ServeSSE returns.
 func (t *sseTransport) close(int, string) {
-	t.once.Do(func() { close(t.done) })
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.closed = true
+}
+
+// start writes the stream's headers.
+func (t *sseTransport) start() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	hdr := t.w.Header()
+	hdr.Set("Content-Type", "text/event-stream")
+	hdr.Set("Cache-Control", "no-store")
+	hdr.Set("X-Accel-Buffering", "no") // nginx: do not buffer the stream
+	t.w.WriteHeader(http.StatusOK)
+	t.ready = true
 }
 
 // ServeSSE runs a fallback session (GET /-/sync/sse) until the client goes
 // away or the session ends. Like ServeWebSocket it wants the server's own
 // ResponseWriter (write deadlines, no buffering).
 func (h *Hub) ServeSSE(w http.ResponseWriter, req *http.Request, auth Authenticator) {
-	t := &sseTransport{w: w, rc: http.NewResponseController(w), done: make(chan struct{})}
+	t := &sseTransport{w: w, rc: http.NewResponseController(w)}
 	c := h.newConn(t, auth)
 	if !c.start() {
 		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
@@ -100,16 +124,12 @@ func (h *Hub) ServeSSE(w http.ResponseWriter, req *http.Request, auth Authentica
 	c.session = id
 	h.mu.Unlock()
 
-	hdr := w.Header()
-	hdr.Set("Content-Type", "text/event-stream")
-	hdr.Set("Cache-Control", "no-store")
-	hdr.Set("X-Accel-Buffering", "no") // nginx: do not buffer the stream
-	w.WriteHeader(http.StatusOK)
+	t.start()
 	c.send(&protocol.SessionMessage{Type: protocol.MsgSession, Session: id})
 
 	stop := context.AfterFunc(req.Context(), c.cancel)
 	defer stop()
-	c.writeLoop()
+	c.writeLoop() // closes t: nothing writes to w after it returned
 }
 
 // Send handles a client message of fallback session id (POST

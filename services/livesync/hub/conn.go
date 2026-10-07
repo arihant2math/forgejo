@@ -17,7 +17,6 @@ import (
 // Close codes (WebSocket status codes; the SSE transport just ends the
 // stream).
 const (
-	closeNormal    = 1000
 	closeGoingAway = 1001
 	closePolicy    = 1008
 	closeInternal  = 1011
@@ -72,12 +71,31 @@ type sub struct {
 	// The index entries of dec (byRepo, byRow).
 	repo int64
 	rows []rowKey
+	// holding (stateRecheck): the group's entries after cursor are kept in
+	// held (heldSize bytes) until the check decides; then they are sent
+	// (with the units decided) and the subscription is live again, without
+	// reading the log. False when they exceeded the session's share
+	// (conn.heldBytes): the subscription then catches up from the log.
+	holding  bool
+	held     []heldItem
+	heldSize int
 }
 
-// outItem is one queued server message: a control message, or (msg nil)
-// the changes of a delta frame.
+// heldItem is an entry kept for a subscription while its permission is
+// checked again: a change (and its unit) or a re-bootstrap marker's
+// bootstrap_required.
+type heldItem struct {
+	ch     *protocol.Change
+	unit   protocol.Unit
+	marker *protocol.BootstrapRequiredMessage
+}
+
+// outItem is one queued server message: an encoded control message
+// (data; pos is the position a caught_up claims), or (data nil) the
+// changes of a delta frame.
 type outItem struct {
-	msg     any
+	data    []byte
+	pos     int64
 	changes []protocol.Change
 	size    int
 }
@@ -125,8 +143,12 @@ type conn struct {
 	revalidate bool
 	barriers   []barrier
 	grants     []protocol.Grant // the implicit grants last sent
+	// heldBytes: the bytes held by the session's subscriptions (sub.held),
+	// bounded by the send buffer.
+	heldBytes int
 
 	workNotify chan struct{}
+	workerDone chan struct{} // closed when workLoop returned
 
 	// The outgoing queue, guarded by mu.
 	mu     sync.Mutex
@@ -148,7 +170,7 @@ func (h *Hub) newConn(t transport, auth Authenticator) *conn {
 	c := &conn{
 		h: h, t: t, auth: auth, ctx: ctx, cancel: cancel,
 		subs: map[string]*sub{}, holds: map[*sub]int64{},
-		workNotify: make(chan struct{}, 1), notify: make(chan struct{}, 1),
+		workNotify: make(chan struct{}, 1), notify: make(chan struct{}, 1), workerDone: make(chan struct{}),
 	}
 	c.room = sync.NewCond(&c.mu)
 	return c
@@ -169,15 +191,35 @@ func (c *conn) wakeWriter() {
 	}
 }
 
-// send queues a control message.
+// encode encodes a control message for the queue.
+func encode(msg any) (outItem, bool) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Error("livesync: encode %T: %v", msg, err)
+		return outItem{}, false
+	}
+	it := outItem{data: data, size: len(data)}
+	if m, ok := msg.(*protocol.CaughtUpMessage); ok {
+		it.pos = m.SyncID
+	}
+	return it, true
+}
+
+// send queues a control message. Control messages count against the send
+// buffer like live changes: a client that sends messages (pings, garbage)
+// without reading the answers is closed like a slow one.
 func (c *conn) send(msg any) {
+	it, ok := encode(msg)
+	if !ok {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ending {
 		return
 	}
-	c.queue = append(c.queue, outItem{msg: msg})
-	c.wakeWriter()
+	c.queue = append(c.queue, it)
+	c.addedLocked(it.size, true)
 }
 
 // enqueueChange queues a change for the next delta frame. A live change
@@ -190,15 +232,23 @@ func (c *conn) enqueueChange(ch protocol.Change, live bool) {
 		return
 	}
 	size := changeSize(&ch)
-	if n := len(c.queue); n > 0 && c.queue[n-1].msg == nil && c.queue[n-1].size+size <= maxFrameBytes {
+	if n := len(c.queue); n > 0 && c.queue[n-1].data == nil && c.queue[n-1].size+size <= maxFrameBytes {
 		last := &c.queue[n-1]
 		last.changes = append(last.changes, ch)
 		last.size += size
 	} else {
 		c.queue = append(c.queue, outItem{changes: []protocol.Change{ch}, size: size})
 	}
+	c.addedLocked(size, live)
+}
+
+// addedLocked accounts for size bytes just queued; bounded: end the
+// session if the queue now exceeds the send buffer. One item larger than
+// the buffer is allowed into an empty queue (it could never be sent
+// otherwise).
+func (c *conn) addedLocked(size int, bounded bool) {
 	c.queued += size
-	if live && c.queued > c.h.cfg.SendBuffer {
+	if bounded && c.queued > c.h.cfg.SendBuffer && c.queued > size {
 		// Too slow: drop what was not sent; the client resumes from the
 		// last frame it got.
 		c.queue, c.queued = nil, 0
@@ -248,7 +298,9 @@ func (c *conn) endLocked(code int, reason string, final any) {
 	}
 	c.ending, c.code, c.reason = true, code, reason
 	if final != nil {
-		c.queue = append(c.queue, outItem{msg: final})
+		if it, ok := encode(final); ok {
+			c.queue = append(c.queue, it)
+		}
 	}
 	c.room.Broadcast()
 	c.wakeWriter()
@@ -309,21 +361,25 @@ func (c *conn) writeLoop() {
 
 			lastDelta := -1
 			for i, it := range items {
-				if it.msg == nil {
+				if it.data == nil {
 					lastDelta = i
 				}
 			}
 			for i, it := range items {
-				msg := it.msg
-				if msg == nil {
-					frameTo := prevTo
+				data, pos := it.data, it.pos
+				if data == nil {
+					pos = prevTo
 					if i == lastDelta {
-						frameTo = to
+						pos = to
 					}
-					msg = &protocol.DeltaMessage{Type: protocol.MsgDelta, To: frameTo, Changes: it.changes}
+					var err error
+					if data, err = json.Marshal(&protocol.DeltaMessage{Type: protocol.MsgDelta, To: pos, Changes: it.changes}); err != nil {
+						log.Error("livesync: encode a delta: %v", err)
+						continue
+					}
 					lastFrame = time.Now()
 				}
-				if !c.write(msg) {
+				if !c.write(data, pos) {
 					c.t.close(closeInternal, "")
 					return
 				}
@@ -334,37 +390,27 @@ func (c *conn) writeLoop() {
 
 func onlyChanges(items []outItem) bool {
 	for _, it := range items {
-		if it.msg != nil {
+		if it.data != nil {
 			return false
 		}
 	}
 	return true
 }
 
-// write encodes and sends one message; false when the session is broken.
-func (c *conn) write(msg any) bool {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		log.Error("livesync: encode %T: %v", msg, err)
-		return true
-	}
+// write sends one encoded message that makes the client's caught-up
+// groups complete up to pos (0: a message without a position); false when
+// the session is broken.
+func (c *conn) write(data []byte, pos int64) bool {
 	ctx, cancel := context.WithTimeout(c.ctx, c.h.cfg.WriteTimeout)
 	defer cancel()
 	if err := c.t.write(ctx, data); err != nil {
 		log.Debug("livesync: sync session of user %d: write: %v", c.viewer, err)
 		return false
 	}
-	var pos int64
-	switch m := msg.(type) {
-	case *protocol.DeltaMessage:
-		pos = m.To
-	case *protocol.CaughtUpMessage:
-		pos = m.SyncID
-	default:
-		return true
+	if pos > 0 {
+		c.mu.Lock()
+		c.lastTo = max(c.lastTo, pos)
+		c.mu.Unlock()
 	}
-	c.mu.Lock()
-	c.lastTo = max(c.lastTo, pos)
-	c.mu.Unlock()
 	return true
 }

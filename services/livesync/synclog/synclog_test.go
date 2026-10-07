@@ -84,12 +84,39 @@ func TestAppendAndReadSince(t *testing.T) {
 	repo1, err = ReadSince(ctx, "repo:1", 1, 1)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{3}, syncIDs(repo1))
-	repo1, err = ReadRange(ctx, "repo:1", 0, 3, 100)
+	repo1, err = ReadSince(ctx, "repo:1", 0, 2)
 	require.NoError(t, err)
-	assert.Equal(t, []int64{1, 3}, syncIDs(repo1), "up to until")
-	all, err = ReadRange(ctx, "", 1, 3, 100)
+	assert.Equal(t, []int64{1, 3}, syncIDs(repo1), "the group's and GroupAll's entries merged, then limited")
+
+	// Keys: up to until (0 is a position like any other, not "no limit"),
+	// without payloads.
+	keys, err := ReadKeys(ctx, "repo:1", 0, 3, 100)
 	require.NoError(t, err)
-	assert.Equal(t, []int64{2, 3}, syncIDs(all))
+	assert.Equal(t, []int64{1, 3}, syncIDs(keys), "up to until")
+	assert.Empty(t, keys[0].Payload)
+	assert.Equal(t, "repo:1", keys[0].Grp)
+	assert.Equal(t, protocol.ModelLabel, protocol.Model(keys[0].Model))
+	assert.EqualValues(t, 10, keys[0].EntityID)
+	assert.Equal(t, string(protocol.OpUpsert), keys[0].Op)
+	assert.Equal(t, string(protocol.UnitIssuesOrPulls), keys[0].Unit)
+	keys, err = ReadKeys(ctx, "repo:1", 0, 0, 100)
+	require.NoError(t, err)
+	assert.Empty(t, keys, "until 0 bounds the range")
+	keys, err = ReadKeys(ctx, "", 1, 3, 100)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{2, 3}, syncIDs(keys))
+
+	full, err := ReadEntries(ctx, []int64{4, 1})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 4}, syncIDs(full))
+	assert.Equal(t, "{}", full[0].Payload)
+	_, err = ReadEntries(ctx, []int64{4, 99})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrTrimmed, "missing above the floor: not a trimmed cursor")
+
+	last, err := ReadGroups(ctx, 1, 4)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int64{"repo:2": 2, protocol.GroupAll: 3, "repo:1": 4}, last)
 
 	// A rolled back transaction leaves no gap.
 	require.Error(t, db.WithTx(ctx, func(ctx context.Context) error {
@@ -157,6 +184,13 @@ func TestTrim(t *testing.T) {
 	require.ErrorAs(t, err, &trimmed)
 	assert.EqualValues(t, 3, trimmed.Floor)
 	require.ErrorIs(t, err, ErrTrimmed)
+	_, err = ReadKeys(ctx, "repo:1", 2, 10, 100)
+	require.ErrorIs(t, err, ErrTrimmed)
+	_, err = ReadGroups(ctx, 2, 10)
+	require.ErrorIs(t, err, ErrTrimmed)
+	_, err = ReadEntries(ctx, []int64{2, 5})
+	require.ErrorAs(t, err, &trimmed, "an entry trimmed after its key was read")
+	assert.EqualValues(t, 1, trimmed.Cursor)
 
 	// Keep the newest 4.
 	floor, err = w.Trim(ctx, 0, 4)

@@ -5,6 +5,7 @@ package hub
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,12 +40,14 @@ func (c *conn) start() bool {
 	return true
 }
 
-// stop unregisters the session (its subscriptions are dropped).
+// stop unregisters the session (its subscriptions are dropped) once its
+// worker returned.
 func (c *conn) stop() {
 	c.cancel()
 	c.mu.Lock()
 	c.room.Broadcast()
 	c.mu.Unlock()
+	<-c.workerDone
 	h := c.h
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -77,25 +80,30 @@ func (c *conn) handle(data []byte) {
 	var env struct {
 		Type protocol.MessageType `json:"type"`
 	}
-	if err := json.Unmarshal(data, &env); err != nil {
+	err := json.Unmarshal(data, &env)
+	if !c.helloDone {
+		// Nothing but a hello is answered before one: a client that sends
+		// anything else is closed, so unauthenticated sessions cannot make
+		// the server queue answers.
+		var m protocol.HelloMessage
+		if err == nil && env.Type == protocol.MsgHello {
+			err = json.Unmarshal(data, &m)
+		}
+		if err != nil || env.Type != protocol.MsgHello {
+			c.end(closePolicy, "hello required", &protocol.ErrorMessage{Type: protocol.MsgError, Code: protocol.ErrorHelloRequired, Message: "the first message must be a hello"})
+			return
+		}
+		c.hello(&m)
+		return
+	}
+	if err != nil {
 		c.sendError(protocol.ErrorBadMessage, "not a JSON message")
 		return
 	}
-	if !c.helloDone && env.Type != protocol.MsgHello {
-		c.sendError(protocol.ErrorHelloRequired, "the first message must be a hello")
-		return
-	}
-	var err error
 	switch env.Type {
 	case protocol.MsgHello:
-		var m protocol.HelloMessage
-		if err = json.Unmarshal(data, &m); err == nil {
-			if c.helloDone {
-				c.sendError(protocol.ErrorBadMessage, "hello was already sent")
-				return
-			}
-			c.hello(&m)
-		}
+		c.sendError(protocol.ErrorBadMessage, "hello was already sent")
+		return
 	case protocol.MsgSubscribe:
 		var m protocol.SubscribeMessage
 		if err = json.Unmarshal(data, &m); err == nil {
@@ -117,12 +125,21 @@ func (c *conn) handle(data []byte) {
 			c.send(&protocol.PongMessage{Type: protocol.MsgPong, ID: m.ID, SyncID: c.position()})
 		}
 	default:
-		c.sendError(protocol.ErrorBadMessage, "unknown message type "+string(env.Type))
+		c.sendError(protocol.ErrorBadMessage, "unknown message type "+quoteType(env.Type))
 		return
 	}
 	if err != nil {
 		c.sendError(protocol.ErrorBadMessage, "malformed "+string(env.Type)+" message")
 	}
+}
+
+// quoteType quotes a message type a client sent, cut to a short prefix.
+func quoteType(t protocol.MessageType) string {
+	const maxLen = 64
+	if len(t) > maxLen {
+		return strconv.Quote(string(t[:maxLen])) + "…"
+	}
+	return strconv.Quote(string(t))
 }
 
 func (c *conn) sendError(code, message string) {
@@ -173,10 +190,13 @@ func (c *conn) check(groups []protocol.GroupRequest, defaultSince *int64) ([]req
 		if r.since == nil {
 			r.since = defaultSince
 		}
-		if room <= 0 && c.subscribed(g.Group) == nil {
+		isNew := c.subscribed(g.Group) == nil
+		if room <= 0 && isNew {
 			r.limit = true
 		} else if !strings.HasPrefix(g.Group, "!") && g.Group != protocol.GroupAll {
-			room--
+			if isNew {
+				room-- // a group already subscribed takes no new slot
+			}
 			var err error
 			r.dec, r.ok, err = c.h.cfg.Perms.Check(c.ctx, c.viewer, g.Group)
 			if err != nil {
@@ -216,12 +236,12 @@ func (c *conn) subscribed(group string) *sub {
 
 // subscribeLocked registers the checked requests and returns the answer
 // and the messages to send after it. at is the hub state when the checks
-// started: a permission epoch delivered since may not be reflected in
-// them, so the new subscriptions are then checked again before they go
-// live (from at.pos).
+// started: a permission epoch delivered since that concerns a request may
+// not be reflected in its check, so that subscription is then checked
+// again before it goes live (from at.pos).
 func (h *Hub) subscribeLocked(c *conn, reqs []request, at checkpoint) (granted []protocol.Grant, refused []protocol.Refusal, after []any) {
 	granted, refused = []protocol.Grant{}, []protocol.Refusal{}
-	stale := h.permSeq != at.permSeq
+	epochs, lost := h.epochsSince(at.permSeq)
 	for _, r := range reqs {
 		s := c.subs[r.group]
 		switch {
@@ -247,7 +267,11 @@ func (h *Hub) subscribeLocked(c *conn, reqs []request, at checkpoint) (granted [
 			granted = append(granted, s.dec.Wire(r.group))
 			continue
 		}
-		if s == nil {
+		stale := lost || slices.ContainsFunc(epochs, func(ch protocol.PermissionChange) bool {
+			return epochConcerns(&ch, c.viewer, r.group, &r.dec)
+		})
+		isNew := s == nil
+		if isNew {
 			s = &sub{c: c, group: r.group, kind: groupKind(r.group), state: stateLive, liveFrom: h.pos.Load()}
 			c.subs[r.group] = s
 			set := h.byGroup[r.group]
@@ -266,12 +290,19 @@ func (h *Hub) subscribeLocked(c *conn, reqs []request, at checkpoint) (granted [
 				since = &at.pos
 			}
 		}
-		if since != nil {
+		switch {
+		case since == nil:
+		case !stale && (isNew || s.state == stateLive) && *since >= h.pos.Load():
+			// Nothing to replay: live from since (entries after the hub's
+			// position up to since are the client's already).
+			s.liveFrom = *since
+		default:
 			// (Re)start the replay from since.
 			if s.state == stateLive {
 				s.state = stateReplay
 				c.busy++
 			}
+			h.dropHeldLocked(s) // held entries start after the old cursor
 			s.cursor = *since
 			s.gen++
 			h.queueLocked(s)
@@ -279,6 +310,16 @@ func (h *Hub) subscribeLocked(c *conn, reqs []request, at checkpoint) (granted [
 		granted = append(granted, r.dec.Wire(r.group))
 	}
 	return granted, refused, after
+}
+
+// epochsSince returns the permission epochs delivered after the seq-th
+// (lost: some of them are no longer kept).
+func (h *Hub) epochsSince(seq uint64) (epochs []protocol.PermissionChange, lost bool) {
+	n := h.permSeq - seq
+	if n > uint64(len(h.epochs)) {
+		return nil, true
+	}
+	return h.epochs[len(h.epochs)-int(n):], false
 }
 
 // checkpoint is the hub state when a session's checks started.
@@ -498,6 +539,7 @@ func (h *Hub) removeSubLocked(s *sub) {
 	delete(c.subs, s.group)
 	removeFrom(h.byGroup, s.group, s)
 	h.unindexLocked(s)
+	h.dropHeldLocked(s)
 	if h.subCount[c.viewer]--; h.subCount[c.viewer] <= 0 {
 		delete(h.subCount, c.viewer)
 	}
@@ -526,6 +568,7 @@ func (h *Hub) goLiveLocked(s *sub, from int64) {
 	}
 	s.state = stateLive
 	s.liveFrom = from
+	h.dropHeldLocked(s)
 	s.c.busy--
 	s.c.clearHold(s)
 	h.caughtUpLocked(s.c)

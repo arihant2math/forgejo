@@ -60,8 +60,8 @@ type Settings struct {
 	// tracked table (B4).
 	PermCacheTTL time.Duration
 	// SEND_BUFFER (default 4194304 = 4 MiB): the bytes queued for one sync
-	// session at most; a client that does not read its changes fast
-	// enough is disconnected with resume_from_cursor (B5).
+	// session at most (changes and control messages); a client that does
+	// not read fast enough is disconnected with resume_from_cursor (B5).
 	SendBuffer int
 	// MAX_SUBSCRIPTIONS (default 1000): the groups one user may subscribe
 	// at once on an instance, over all of their sessions (B5).
@@ -69,8 +69,9 @@ type Settings struct {
 	// MAX_CONNECTIONS_PER_USER (default 16): the sync sessions one user
 	// may have open on an instance (B5).
 	MaxConnections int
-	// MAX_REPLAY (default 10000): the changes replayed at most for one
-	// subscription; a client further behind gets bootstrap_required (B5).
+	// MAX_REPLAY (default 10000): the log entries of a group replayed at
+	// most for one subscription; a client further behind gets
+	// bootstrap_required, before anything is replayed (B5).
 	MaxReplay int
 	// SESSION_CHECK_INTERVAL (default 5m): how often a sync session's
 	// token and account are checked again (B5).

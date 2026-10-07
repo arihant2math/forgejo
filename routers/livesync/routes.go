@@ -40,6 +40,7 @@ func newRoutes() http.Handler {
 	})
 
 	r.Get(syncPrefix+"/health", health)
+	r.Get(syncPrefix+"/grants", grants)
 
 	return r
 }

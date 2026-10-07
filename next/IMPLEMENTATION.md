@@ -700,7 +700,7 @@ does) **and** MySQL 8.0 (binlog on).
     fork-diff check unchanged.
 
 #### B3 — Materializer, sync log, protocol DTOs
-- [ ] **Status**
+- [x] **Status** — done 2026-10-07 (final check: all `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (23 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (25 pass, 1 skip), incl. the 7 B3 materialize/synclog tests; unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review round 1 closed, no open findings — the cross-reference placement is an open design issue handed to B5/B6, see notes)
 - **Scope:** `services/livesync/protocol`: entity DTO structs (normalized, IDs for refs,
   API v1 field names) for every tracked model + group naming (`user:`, `org:`, `repo:`,
   `issue:`) + required unit. TS generation: `next/tools/gen-protocol.sh` running

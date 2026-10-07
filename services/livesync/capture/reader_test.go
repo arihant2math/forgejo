@@ -13,7 +13,9 @@ import (
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/models/unittest"
+	"forgejo.org/modules/cache"
 
+	"code.forgejo.org/xorm/xorm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -308,4 +310,109 @@ func TestReaderBatchSize(t *testing.T) {
 	assert.Len(t, got, 25)
 	assert.EqualValues(t, 1, got[0])
 	assert.EqualValues(t, 25, got[24])
+}
+
+// WithQuietTx hands fn a real db transaction context: contexts derived from
+// it (as Forgejo code derives them: cache.WithCacheContext, timeouts, values)
+// stay in the transaction and stay quiet, so a consumer's writes, Batch.Commit
+// and the cursor are atomic however the context is wrapped.
+func TestWithQuietTx(t *testing.T) {
+	resetOutbox(t)
+	master, err := livesync_model.MasterXORMEngine()
+	require.NoError(t, err)
+	observeCommits(master) // as Start does on MySQL (and SQLite)
+	d := newDoorbell()
+	subscribe(d)
+	defer unsubscribe(d)
+	rung := func() bool {
+		select {
+		case <-d.c:
+			return true
+		default:
+			return false
+		}
+	}
+	type key struct{}
+	wrap := func(ctx context.Context) context.Context {
+		ctx, cancel := context.WithTimeout(cache.WithCacheContext(context.WithValue(ctx, key{}, 1)), time.Minute)
+		t.Cleanup(cancel)
+		return ctx
+	}
+	// Any table but livesync's own (whose writes never ring).
+	_, err = db.GetEngine(t.Context()).Exec("CREATE TABLE IF NOT EXISTS quiet_tx_test (id INTEGER PRIMARY KEY, name TEXT)")
+	require.NoError(t, err)
+	_, err = db.GetEngine(t.Context()).Exec("DELETE FROM quiet_tx_test")
+	require.NoError(t, err)
+	assert.True(t, rung(), "the DELETE rang")
+	setName := func(ctx context.Context, name string) {
+		t.Helper()
+		_, err := db.GetEngine(ctx).Exec("REPLACE INTO quiet_tx_test (id, name) VALUES (1, ?)", name)
+		require.NoError(t, err)
+	}
+
+	// Commit: every derived context uses the transaction's session, and
+	// neither its statements nor its COMMIT ring.
+	var hookRan bool
+	require.NoError(t, WithQuietTx(t.Context(), func(ctx context.Context) error {
+		sess := db.GetEngine(ctx)
+		for _, c := range []context.Context{wrap(ctx), cache.WithCacheContext(ctx), context.WithValue(ctx, key{}, 2)} {
+			// require: outside the transaction, the writes below would
+			// block on its locks.
+			require.True(t, db.InTransaction(c))
+			require.Same(t, sess, db.GetEngine(c))
+			e, err := livesync_model.MasterEngine(c)
+			require.NoError(t, err)
+			require.Same(t, sess, e)
+			assert.NotNil(t, c.Value(quietKey{}))
+		}
+		setName(wrap(ctx), "quiet")
+		db.AfterTx(ctx, func() {
+			hookRan = true
+			assert.False(t, db.GetEngine(ctx).(*xorm.Session).IsInTx(), "AfterTx hooks run after the commit")
+		})
+		assert.False(t, hookRan)
+		return livesync_model.SetMeta(wrap(ctx), MetaCursor, "7")
+	}))
+	assert.True(t, hookRan)
+	assert.False(t, rung(), "a quiet transaction must not ring")
+	assert.Equal(t, "7", storedCursor(t))
+	setName(t.Context(), "loud")
+	assert.True(t, rung(), "an ordinary write rings")
+
+	// Rollback: writes made through derived contexts are rolled back with
+	// the transaction.
+	injected := errors.New("injected")
+	require.ErrorIs(t, WithQuietTx(t.Context(), func(ctx context.Context) error {
+		require.NoError(t, livesync_model.SetMeta(wrap(ctx), MetaCursor, "8"))
+		setName(wrap(ctx), "rolled back")
+		db.AfterTx(ctx, func() { t.Error("AfterTx hook of a rolled back transaction ran") })
+		return injected
+	}), injected)
+	assert.Equal(t, "7", storedCursor(t))
+	var name string
+	_, err = db.GetEngine(t.Context()).SQL("SELECT name FROM quiet_tx_test WHERE id = 1").Get(&name)
+	require.NoError(t, err)
+	assert.Equal(t, "loud", name)
+
+	// Nested in an existing transaction: runs in that one, and so do
+	// transactions nested in it.
+	hookRan = false
+	require.NoError(t, db.WithTx(t.Context(), func(outer context.Context) error {
+		require.NoError(t, WithQuietTx(wrap(outer), func(ctx context.Context) error {
+			assert.Same(t, db.GetEngine(outer), db.GetEngine(ctx))
+			return nil
+		}))
+		return WithQuietTx(outer, func(ctx context.Context) error {
+			assert.Same(t, db.GetEngine(outer), db.GetEngine(ctx))
+			db.AfterTx(ctx, func() { hookRan = true })
+			return nil
+		})
+	}))
+	assert.True(t, hookRan)
+	require.NoError(t, WithQuietTx(t.Context(), func(ctx context.Context) error {
+		return db.WithTx(wrap(ctx), func(inner context.Context) error {
+			assert.Same(t, db.GetEngine(ctx), db.GetEngine(inner))
+			return nil
+		})
+	}))
 }

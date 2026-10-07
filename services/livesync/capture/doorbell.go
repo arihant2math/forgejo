@@ -151,40 +151,66 @@ func (o commitObserver) AfterSQL(c xormlog.LogContext) {
 // every delivered batch would wake the reader once more for nothing.
 type quietKey struct{}
 
-// txContext is a context whose database engine is the transaction session
-// sess (db.Engined), so db.GetEngine, db.InTransaction and
-// livesync_model.MasterEngine use it, like the context db.WithTx passes.
-type txContext struct {
+// sessionContext only seeds db.TxContext in WithQuietTx: as a db.Engined
+// whose engine is a session in a transaction, it makes db.TxContext reuse
+// that transaction. It is not handed to fn: its engine is found only by a
+// type assertion on the context itself, not through Value like *db.Context's,
+// so any context derived from it would run outside the transaction.
+type sessionContext struct {
 	context.Context
 	sess *xorm.Session
 }
 
-func (c txContext) Engine() db.Engine { return c.sess }
+func (c sessionContext) Engine() db.Engine { return c.sess }
 
 // WithQuietTx runs fn in a transaction on the master database, like
 // db.WithTx, but its statements and COMMIT do not ring the in-process
 // doorbell (db.WithTx sessions run under the engine's default context, so
 // they cannot be told apart). The reader commits batches with it; a consumer
 // that commits a Batch in its own transaction (B3) can use it for the same
-// reason. Nested calls inside an existing transaction just run fn.
+// reason. fn gets a real db transaction context (*db.Context), as with
+// db.WithTx: contexts derived from it (cache.WithCacheContext, timeouts,
+// values) stay in the transaction, and db.AfterTx hooks registered on it run
+// after the commit and are dropped on rollback. Nested calls inside an
+// existing transaction run fn in that one (db.WithTx), which is quiet only if
+// the outer one is.
 func WithQuietTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	if db.InTransaction(ctx) {
-		return fn(ctx)
+		return db.WithTx(ctx, fn)
 	}
 	master, err := livesync_model.MasterXORMEngine()
 	if err != nil {
 		return err
 	}
+	// The marker must be on the session's context before BEGIN: the COMMIT
+	// runs under the context the transaction began with. It is on fn's
+	// context too, so a session fn derives from that is quiet as well.
+	quiet := context.WithValue(ctx, quietKey{}, true)
 	sess := master.NewSession()
 	defer sess.Close()
-	sess.Context(context.WithValue(ctx, quietKey{}, true))
+	sess.Context(quiet)
 	if err := sess.Begin(); err != nil {
 		return err
 	}
-	if err := fn(txContext{Context: ctx, sess: sess}); err != nil {
+	// db.WithTx and db.TxContext only begin transactions on the default
+	// engine's own sessions (and models/db is upstream code, PLAN §4.2), but
+	// db.TxContext reuses a transaction it finds in its parent context: it
+	// returns a *db.Context over sess and a committer whose Commit does not
+	// commit but hands the AfterTx hooks registered on txCtx to the parent,
+	// which is no db transaction context, so they run at once; its Close
+	// without Commit rolls sess back.
+	txCtx, hooks, err := db.TxContext(sessionContext{Context: quiet, sess: sess})
+	if err != nil {
 		return err
 	}
-	return sess.Commit()
+	defer hooks.Close()
+	if err := fn(txCtx); err != nil {
+		return err
+	}
+	if err := sess.Commit(); err != nil {
+		return err
+	}
+	return hooks.Commit() // runs the AfterTx hooks, now that sess committed
 }
 
 // pokes reports whether a successful statement may have committed a

@@ -18,6 +18,7 @@ import (
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
 	system_model "forgejo.org/models/system"
+	"forgejo.org/modules/cache"
 	"forgejo.org/modules/setting"
 	"forgejo.org/modules/test"
 	"forgejo.org/routers"
@@ -667,4 +668,52 @@ func TestLivesyncCaptureNoCascades(t *testing.T) {
 			assert.Contains(t, []string{"NO ACTION", "RESTRICT"}, strings.ToUpper(rule), "foreign key %s on tracked table %s", f.Name, f.Table)
 		}
 	}
+}
+
+// capture.WithQuietTx on a real database: writes made through contexts
+// derived from fn's (as Forgejo code derives them) belong to the transaction
+// (invisible to other connections until the commit, rolled back with it),
+// and AfterTx hooks run once the commit is visible.
+func TestLivesyncCaptureQuietTx(t *testing.T) {
+	livesyncSkipSQLite(t)
+	require.NoError(t, livesync_service.EnsureTables(t.Context()))
+	const name = "quiet_tx_probe"
+	_, err := livesyncMaster(t).Where("name = ?", name).Delete(&livesync_model.Meta{})
+	require.NoError(t, err)
+	derived := func(ctx context.Context) context.Context {
+		ctx, cancel := context.WithTimeout(cache.WithCacheContext(ctx), time.Minute)
+		t.Cleanup(cancel)
+		return ctx
+	}
+	// outside reads the probe on another connection, without locking.
+	outside := func() string {
+		t.Helper()
+		var m livesync_model.Meta
+		has, err := livesyncMaster(t).Where("name = ?", name).Get(&m)
+		require.NoError(t, err)
+		if !has {
+			return ""
+		}
+		return m.Value
+	}
+
+	injected := errors.New("injected")
+	require.ErrorIs(t, capture.WithQuietTx(t.Context(), func(ctx context.Context) error {
+		require.True(t, db.InTransaction(derived(ctx)))
+		require.NoError(t, livesync_model.SetMeta(derived(ctx), name, "rolled back"))
+		assert.Empty(t, outside(), "uncommitted")
+		db.AfterTx(ctx, func() { t.Error("AfterTx hook of a rolled back transaction ran") })
+		return injected
+	}), injected)
+	assert.Empty(t, outside(), "rolled back")
+
+	var hookSaw string
+	require.NoError(t, capture.WithQuietTx(t.Context(), func(ctx context.Context) error {
+		require.NoError(t, livesync_model.SetMeta(derived(ctx), name, "committed"))
+		assert.Empty(t, outside(), "uncommitted")
+		db.AfterTx(ctx, func() { hookSaw = outside() })
+		return nil
+	}))
+	assert.Equal(t, "committed", outside())
+	assert.Equal(t, "committed", hookSaw, "AfterTx hooks run after the commit")
 }

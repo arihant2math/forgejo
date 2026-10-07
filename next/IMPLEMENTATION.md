@@ -543,7 +543,7 @@ does) **and** MySQL 8.0 (binlog on).
     task unended (corrupting every runtime trace once a reader started); any hook appended after TracingHook has that
     problem, so there is no hook now — details and re-check triggers in SURFACE.md. The reader's own batch commits run
     in `capture.WithQuietTx` (a tx whose session context carries a marker the observer skips; B3 can use it for its
-    transaction too). (3) Polling `[livesync] POLL_INTERVAL` (default 0 = 250 ms PG / 100 ms MySQL). (4) The reader
+    transaction too; fn gets a real `*db.Context`, so derived contexts stay in the tx — review round 2). (3) Polling `[livesync] POLL_INTERVAL` (default 0 = 250 ms PG / 100 ms MySQL). (4) The reader
     runs at most one cycle per `minCycleGap` (5 ms): rings that arrive meanwhile are merged, an idle reader still reacts
     at once. Measured by `TestLivesyncCaptureDoorbell` (timer started before the write, one mechanism at a time,
     polling off): PG NOTIFY only: autocommit ≈ 2 ms, COMMIT ≈ 1.2 ms, another connection ≈ 2–6 ms (incl. the test's
@@ -672,6 +672,26 @@ does) **and** MySQL 8.0 (binlog on).
     (0 issues), `go vet`, deadcode diff (clean; `holes.contains/ranges` moved to the test file), unit tests,
     `TestLivesync*` green on PG 16 (`gtestschema`), MySQL 8.0 (binlog on) and MariaDB 11.8 (binlog on), benchmark on PG
     and MySQL.
+  - **Review round 2 (1 finding, fixed).** `WithQuietTx` handed fn a home-made `txContext` that was a `db.Engined`
+    only by type assertion on the context itself; `*db.Context` also answers `Value(enginedContextKey)`, so any
+    context derived from fn's (`cache.WithCacheContext`, `WithTimeout`, `WithValue`) silently fell back to the default
+    engine, outside the tx (writes on other connections, not atomic with `Batch.Commit`/cursor; on MySQL blocking on
+    the tx's row locks), and `db.AfterTx` ran hooks at once, before the commit. The reviewer's suggested fix (a helper
+    in `models/db` returning `newContext(ctx, sess, true)`) was built first and then reverted: `models/db` is upstream
+    code and §2.2 forbids editing it. Instead, using only public API: `WithQuietTx` begins the tx on its own quiet
+    session (the marker must be on the session context before BEGIN, the COMMIT runs under it), then calls
+    `db.TxContext(sessionContext{quiet, sess})`, which reuses the transaction it finds in its parent and returns a real
+    `*db.Context` over `sess` plus a half committer; fn runs with that context, then `sess.Commit()`, then the half
+    committer's `Commit()`, which hands the AfterTx hooks to the (non-tx) parent, i.e. runs them after the commit; on
+    error its `Close()` rolls back and the hooks are dropped. This leans on `TxContext`'s documented reuse/half-commit
+    behaviour; `TestWithQuietTx` (SQLite unit: derived contexts incl. `cache.WithCacheContext`/timeout/value see
+    `InTransaction`, the same session and `MasterEngine`, stay quiet, roll back, AfterTx after commit / dropped on
+    rollback, nesting both ways) and `TestLivesyncCaptureQuietTx` (PG + MySQL: writes through derived contexts invisible
+    to other connections until commit, rolled back on error, AfterTx sees the committed row) pin it; both fail on the
+    round-1 code. Caveat that stays (upstream behaviour, same as `db.WithTx`): `db.AfterTx` only recognises the
+    `*db.Context` itself, so register hooks on the ctx fn receives, not on a derived one. Commands: gofumpt,
+    golangci-lint (0 issues), `go vet`, unit tests, `TestLivesync*` green on PG 16 (`gtestschema`) and MySQL 8.0;
+    fork-diff check unchanged.
 
 #### B3 — Materializer, sync log, protocol DTOs
 - [ ] **Status**
@@ -688,7 +708,8 @@ does) **and** MySQL 8.0 (binlog on).
   re-materializes that table's entities (reconciliation scan, e.g. over `updated_unix` where the table has it, else
   all rows of the affected groups) or appends a per-model "re-bootstrap" marker to the log that B5 turns into
   `bootstrap_required`; record which. Run its transaction with `capture.WithQuietTx` so its COMMIT does not wake the
-  reader again on MySQL. `synclog`: single
+  reader again on MySQL (its ctx is a real `*db.Context`: derived contexts stay in the tx; register `db.AfterTx`
+  hooks on the ctx it passes, not on a derived one). `synclog`: single
   writer assigns gap-free `sync_id`, append, `ReadSince(group, cursor, limit)`, retention
   (days / max rows) with "oldest available" watermark, lease (PG advisory lock / MySQL
   `GET_LOCK`), tailer interface that the hub will consume. Delete processed outbox rows.

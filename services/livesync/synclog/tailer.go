@@ -49,9 +49,9 @@ type Tailer struct {
 	done chan struct{}
 }
 
-// StartTailer starts following the log from its current head (earlier
-// entries are served by ReadSince replays) until ctx is done.
-func StartTailer(ctx context.Context, cfg TailerConfig, sink Sink) (*Tailer, error) {
+// StartTailer starts following the log after from (usually the current
+// Head; earlier entries are served by ReadSince replays) until ctx is done.
+func StartTailer(ctx context.Context, cfg TailerConfig, from int64, sink Sink) (*Tailer, error) {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = capture.DefaultPollIntervalMySQL
 		if setting.Database.Type.IsPostgreSQL() {
@@ -61,11 +61,7 @@ func StartTailer(ctx context.Context, cfg TailerConfig, sink Sink) (*Tailer, err
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 500
 	}
-	head, err := Head(ctx)
-	if err != nil {
-		return nil, err
-	}
-	t := &Tailer{cfg: cfg, sink: sink, wake: make(chan struct{}, 1), pos: head, done: make(chan struct{})}
+	t := &Tailer{cfg: cfg, sink: sink, wake: make(chan struct{}, 1), pos: from, done: make(chan struct{})}
 	if setting.Database.Type.IsPostgreSQL() {
 		schema, err := capture.CurrentSchema(ctx)
 		if err != nil {

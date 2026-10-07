@@ -4,6 +4,7 @@
 package perm
 
 import (
+	"iter"
 	"strconv"
 
 	repo_model "forgejo.org/models/repo"
@@ -91,4 +92,17 @@ func (b Basis) Stale(touched []protocol.PermissionTouch) bool {
 		}
 	}
 	return false
+}
+
+// Rows yields the kind (protocol.TouchRepository, protocol.TouchUser) and
+// id of every row b recorded: the hub indexes subscriptions by them, so a
+// touch finds the decisions to compare without scanning all of them.
+func (b Basis) Rows() iter.Seq2[string, int64] {
+	return func(yield func(string, int64) bool) {
+		for k := range b {
+			if !yield(k.kind, k.id) {
+				return
+			}
+		}
+	}
 }

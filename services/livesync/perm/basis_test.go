@@ -190,14 +190,27 @@ func TestDecisionBasis(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, d.Basis.Stale(touch(protocol.TouchUser, 4, "restricted now")))
 
-	// From cached grants: the grants' basis.
+	// From cached grants: the part of the grants' basis that decided the
+	// group (the repository, its owner, the viewer).
 	g, err := c.Grants(ctx, 2)
 	require.NoError(t, err)
 	d, ok, err = c.Check(ctx, 2, "repo:2")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, g.basis, d.Basis)
-	assert.Equal(t, "true,2", d.Basis[basisKey{protocol.TouchRepository, 2}])
+	assert.Equal(t, Basis{{protocol.TouchRepository, 2}: "true,2", {protocol.TouchUser, 2}: UserState(u2)}, d.Basis)
+	assert.Greater(t, len(g.basis), len(d.Basis), "the grants read more rows")
+	g, err = c.Grants(ctx, 4)
+	require.NoError(t, err)
+	d, ok, err = c.Check(ctx, 4, "repo:3") // org3's, through a team
+	require.NoError(t, err)
+	require.True(t, ok)
+	u3, err := user_model.GetUserByID(ctx, 3)
+	require.NoError(t, err)
+	assert.Equal(t, Basis{{protocol.TouchRepository, 3}: g.basis[basisKey{protocol.TouchRepository, 3}], {protocol.TouchUser, 3}: UserState(u3), {protocol.TouchUser, 4}: UserState(u4)}, d.Basis)
+	d, ok, err = c.Check(ctx, 4, protocol.UserGroup(4))
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, Basis{{protocol.TouchUser, 4}: UserState(u4)}, d.Basis, "the viewer's row only")
 }
 
 // A touch that arrives while a computation runs is decided when it

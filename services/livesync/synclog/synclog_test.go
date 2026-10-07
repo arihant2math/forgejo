@@ -84,6 +84,12 @@ func TestAppendAndReadSince(t *testing.T) {
 	repo1, err = ReadSince(ctx, "repo:1", 1, 1)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{3}, syncIDs(repo1))
+	repo1, err = ReadRange(ctx, "repo:1", 0, 3, 100)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 3}, syncIDs(repo1), "up to until")
+	all, err = ReadRange(ctx, "", 1, 3, 100)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{2, 3}, syncIDs(all))
 
 	// A rolled back transaction leaves no gap.
 	require.Error(t, db.WithTx(ctx, func(ctx context.Context) error {
@@ -244,7 +250,9 @@ func TestTailer(t *testing.T) {
 	require.NoError(t, err)
 	appendEntries(t, w, entry("repo:1", 1)) // before the tailer: not delivered
 
-	tailer, err = StartTailer(ctx, TailerConfig{PollInterval: time.Hour, BatchSize: 2}, sink)
+	head, err := Head(ctx)
+	require.NoError(t, err)
+	tailer, err = StartTailer(ctx, TailerConfig{PollInterval: time.Hour, BatchSize: 2}, head, sink)
 	require.NoError(t, err)
 	appendEntries(t, w, entry("repo:1", 2), entry("repo:2", 3), entry("repo:1", 4))
 	assert.Eventually(t, func() bool { return len(sink.ids()) == 3 }, 5*time.Second, 5*time.Millisecond)

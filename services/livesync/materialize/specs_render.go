@@ -64,15 +64,7 @@ func userSpec() *spec {
 		id:    func(r *user_model.User) int64 { return r.ID },
 		place: func(_ *loader, r *user_model.User) (string, protocol.Unit) { return userPlace(r) },
 		dto: func(ctx context.Context, _ *loader, r *user_model.User) (any, error) {
-			res := &protocol.User{
-				ID: r.ID, Login: r.Name, FullName: r.FullName, AvatarURL: userAvatarLink(ctx, r), Type: userType(r.Type),
-				Visibility: r.Visibility.String(), Description: r.Description, Website: r.Website,
-				Location: r.Location, CreatedAt: ts(r.CreatedUnix),
-			}
-			if !r.KeepPronounsPrivate {
-				res.Pronouns = r.Pronouns
-			}
-			return res, nil
+			return userDTO(ctx, r), nil
 		},
 		// The user's own grants depend on these columns (a viewer who may
 		// not sign in gets nothing, a restricted one less, …), and the
@@ -85,6 +77,28 @@ func userSpec() *spec {
 		// Sign-ins, counters and settings update user rows all the time.
 		permTouch: protocol.TouchUser,
 	}.spec("user")
+}
+
+// userDTO is the User entity (the profile) of a user or organization.
+func userDTO(ctx context.Context, r *user_model.User) *protocol.User {
+	res := &protocol.User{
+		ID: r.ID, Login: r.Name, FullName: r.FullName, AvatarURL: userAvatarLink(ctx, r), Type: userType(r.Type),
+		Visibility: r.Visibility.String(), Description: r.Description, Website: r.Website,
+		Location: r.Location, CreatedAt: ts(r.CreatedUnix),
+	}
+	if !r.KeepPronounsPrivate {
+		res.Pronouns = r.Pronouns
+	}
+	return res
+}
+
+// Profile returns u's User entity exactly as the materializer writes it,
+// and the group it is placed in. The hub sends a viewer their own profile
+// in the welcome message (a restricted user with visibility limited cannot
+// read the group that holds it).
+func Profile(ctx context.Context, u *user_model.User) (*protocol.User, string) {
+	group, _ := userPlace(u)
+	return userDTO(ctx, u), group
 }
 
 // userPlace is the group of a user's or organization's profile (the User

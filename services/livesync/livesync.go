@@ -110,9 +110,13 @@ func Init(ctx context.Context) error {
 		return err
 	}
 
+	head, err := synclog.Head(ctx)
+	if err != nil {
+		return fmt.Errorf("livesync: read the sync log head: %w", err)
+	}
 	instCtx, cancel := context.WithCancel(ctx)
 	perms := perm.NewCache(s.PermCacheTTL, 0)
-	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, permSink{cache: perms, next: logSink{}})
+	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, head, permSink{cache: perms, next: logSink{}})
 	if err != nil {
 		cancel()
 		return fmt.Errorf("livesync: start the sync log tailer: %w", err)

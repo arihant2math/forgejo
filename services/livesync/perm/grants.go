@@ -48,6 +48,34 @@ type Grants struct {
 	// basis: the states of the repository and user rows the grants were
 	// computed from (see Basis).
 	basis Basis
+	// owners: the owner of every repository the grants evaluated.
+	owners map[int64]int64
+}
+
+// basisFor is the part of the grants' basis that decided group: the
+// viewer's row and, for a repository, its row and its owner's; for an
+// organization or profile, that user's row if the grants read it. The
+// other rows decided other groups, so a decision taken from cached grants
+// (and a hub subscription indexed by it) is not concerned by touches of
+// them.
+func (g *Grants) basisFor(group string) Basis {
+	b := Basis{}
+	take := func(kind string, id int64) {
+		if s, ok := g.basis[basisKey{kind, id}]; ok {
+			b[basisKey{kind, id}] = s
+		}
+	}
+	take(protocol.TouchUser, g.ViewerID)
+	switch kind, id := parseGroup(group); kind {
+	case kindRepo:
+		take(protocol.TouchRepository, id)
+		if owner, ok := g.owners[id]; ok {
+			take(protocol.TouchUser, owner)
+		}
+	case kindOrg, kindProfile:
+		take(protocol.TouchUser, id)
+	}
+	return b
 }
 
 // Units returns the viewer's units in group, if it is granted.
@@ -75,8 +103,9 @@ type Decision struct {
 	RepoID int64
 	// Basis are the states of the repository and user rows the decision
 	// was computed from: the hub re-checks a subscription when
-	// Basis.Stale(epoch.Touched). Shared with the cached grants it may come
-	// from: do not modify.
+	// Basis.Stale(epoch.Touched). Read-only. A decision taken from cached
+	// grants has the part of their basis that decided the group
+	// (Grants.basisFor), not all of it.
 	Basis Basis
 }
 
@@ -154,7 +183,7 @@ func lookupUser(ctx context.Context, id int64) (u user_model.User, ok bool, err 
 // them (repoPermission), from inputs read with a fixed number of queries
 // (viewerInputs), not ≈ 5 queries per repository.
 func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Grants, error) {
-	g := &Grants{ViewerID: viewerID, groups: map[string]UnitSet{}, basis: Basis{}}
+	g := &Grants{ViewerID: viewerID, groups: map[string]UnitSet{}, basis: Basis{}, owners: map[int64]int64{}}
 	g.basis.addUser(viewer)
 	if !usable(viewer) {
 		return g, nil
@@ -193,6 +222,7 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 		}
 		for _, repo := range repos {
 			g.basis.addRepo(repo)
+			g.owners[repo.ID] = repo.OwnerID
 			if repo.Owner == nil {
 				continue // GetUserRepoPermission fails on such a repository: no grant
 			}

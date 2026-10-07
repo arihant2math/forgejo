@@ -156,7 +156,7 @@ func (c *Cache) Check(ctx context.Context, viewerID int64, group string) (d Deci
 			return Decision{}, false, nil
 		}
 		if units, ok := e.grants.Units(group); ok {
-			d := Decision{Units: units, Basis: e.grants.basis}
+			d := Decision{Units: units, Basis: e.grants.basisFor(group)}
 			if kind, id := parseGroup(group); kind == kindRepo {
 				d.RepoID = id
 			}

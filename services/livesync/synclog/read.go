@@ -50,15 +50,26 @@ func Floor(ctx context.Context) (int64, error) {
 // empty. It returns a *TrimmedError if entries after cursor may have been
 // trimmed.
 func ReadSince(ctx context.Context, group string, cursor int64, limit int) ([]livesync_model.LogEntry, error) {
+	return ReadRange(ctx, group, cursor, 0, limit)
+}
+
+// ReadRange is ReadSince limited to the entries up to until (0: no limit).
+// The hub replays a group up to the position its tailer has delivered, so
+// that it never sends an entry before the permission epochs that precede
+// it were applied.
+func ReadRange(ctx context.Context, group string, cursor, until int64, limit int) ([]livesync_model.LogEntry, error) {
 	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cond := builder.Gt{"sync_id": cursor}
-	sess := e.Where(cond)
-	if group != "" {
-		sess = e.Where(builder.And(cond, builder.In("grp", group, protocol.GroupAll)))
+	var cond builder.Cond = builder.Gt{"sync_id": cursor}
+	if until > 0 {
+		cond = cond.And(builder.Lte{"sync_id": until})
 	}
+	if group != "" {
+		cond = cond.And(builder.In("grp", group, protocol.GroupAll))
+	}
+	sess := e.Where(cond)
 	entries := make([]livesync_model.LogEntry, 0, min(limit, 256))
 	if err := sess.OrderBy("sync_id").Limit(limit).Find(&entries); err != nil {
 		return nil, fmt.Errorf("livesync: read the sync log: %w", err)

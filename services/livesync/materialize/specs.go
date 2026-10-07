@@ -733,3 +733,15 @@ var hotTables = func() map[string]bool {
 	}
 	return m
 }()
+
+// Schemas returns the schema version of every model the materializer
+// writes (protocol.Schema*), as the hub announces them to clients.
+func Schemas() map[protocol.Model]int {
+	res := map[protocol.Model]int{}
+	for _, s := range specs {
+		for i, m := range s.models {
+			res[m] = s.schemas[i]
+		}
+	}
+	return res
+}

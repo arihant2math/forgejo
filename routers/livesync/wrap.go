@@ -72,6 +72,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if p != req.URL.Path {
 		req = withPath(req, p)
 	}
+	// The sync sessions need the server's own ResponseWriter (WebSocket
+	// hijack, SSE write deadlines and unbuffered flushes), which the
+	// router's middlewares wrap: they are served before it.
+	switch p {
+	case syncPrefix + "/ws":
+		serveWebSocket(w, req)
+		return
+	case syncPrefix + "/sse":
+		serveSSE(w, req)
+		return
+	}
 	h.own.ServeHTTP(w, req)
 }
 

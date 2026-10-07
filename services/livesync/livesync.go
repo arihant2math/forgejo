@@ -22,6 +22,8 @@ import (
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/hub"
+	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/synclog"
 )
@@ -53,11 +55,16 @@ type instance struct {
 	tailer *synclog.Tailer
 	writer chan struct{} // closed when the writer role has stopped
 	perms  *perm.Cache
+	hub    *hub.Hub
 }
 
 // readerStopTimeout bounds how long Shutdown waits for the outbox reader
 // (and the writer role around it) and for the tailer.
 const readerStopTimeout = 10 * time.Second
+
+// hubStopTimeout bounds how long Shutdown waits for the sync sessions to
+// close.
+const hubStopTimeout = 5 * time.Second
 
 var (
 	mu      sync.Mutex
@@ -116,14 +123,21 @@ func Init(ctx context.Context) error {
 	}
 	instCtx, cancel := context.WithCancel(ctx)
 	perms := perm.NewCache(s.PermCacheTTL, 0)
-	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, head, permSink{cache: perms, next: logSink{}})
+	hb := hub.New(instCtx, hub.Config{
+		Perms: perms, Profile: ownProfile, BuildID: setting.AppVer, Schemas: materialize.Schemas(),
+		SendBuffer: s.SendBuffer, MaxSubscriptions: s.MaxSubscriptions, MaxConnections: s.MaxConnections,
+		MaxReplay: s.MaxReplay, RevalidateInterval: s.SessionCheckInterval,
+	}, head)
+	// The hub and the tailer start at the same position: the hub's
+	// subscriptions go live at the position the tailer delivered.
+	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, head, permSink{cache: perms, next: hb})
 	if err != nil {
 		cancel()
 		return fmt.Errorf("livesync: start the sync log tailer: %w", err)
 	}
 	writer := make(chan struct{})
 	go runWriter(instCtx, s, tailer, writer)
-	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms}
+	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms, hub: hb}
 	log.Info("livesync: started (db=%s, install mode=%s)", setting.Database.Type, s.InstallMode)
 	return nil
 }
@@ -236,6 +250,8 @@ func shutdownLocked() {
 	if current == nil {
 		return
 	}
+	// Tell the clients first (notice shutdown), while the instance runs.
+	current.hub.Shutdown(hubStopTimeout)
 	current.cancel()
 	select {
 	case <-current.writer:

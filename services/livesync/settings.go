@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"forgejo.org/modules/setting"
+	"forgejo.org/services/livesync/hub"
 	"forgejo.org/services/livesync/perm"
 )
 
@@ -58,6 +59,22 @@ type Settings struct {
 	// a safety net for permission changes that do not pass through a
 	// tracked table (B4).
 	PermCacheTTL time.Duration
+	// SEND_BUFFER (default 4194304 = 4 MiB): the bytes queued for one sync
+	// session at most; a client that does not read its changes fast
+	// enough is disconnected with resume_from_cursor (B5).
+	SendBuffer int
+	// MAX_SUBSCRIPTIONS (default 1000): the groups one user may subscribe
+	// at once on an instance, over all of their sessions (B5).
+	MaxSubscriptions int
+	// MAX_CONNECTIONS_PER_USER (default 16): the sync sessions one user
+	// may have open on an instance (B5).
+	MaxConnections int
+	// MAX_REPLAY (default 10000): the changes replayed at most for one
+	// subscription; a client further behind gets bootstrap_required (B5).
+	MaxReplay int
+	// SESSION_CHECK_INTERVAL (default 5m): how often a sync session's
+	// token and account are checked again (B5).
+	SessionCheckInterval time.Duration
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -94,6 +111,17 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	}
 	if s.PermCacheTTL <= 0 {
 		return s, fmt.Errorf("invalid [livesync] PERM_CACHE_TTL %s (want > 0)", s.PermCacheTTL)
+	}
+	s.SendBuffer = sec.Key("SEND_BUFFER").MustInt(hub.DefaultSendBuffer)
+	s.MaxSubscriptions = sec.Key("MAX_SUBSCRIPTIONS").MustInt(hub.DefaultMaxSubscriptions)
+	s.MaxConnections = sec.Key("MAX_CONNECTIONS_PER_USER").MustInt(hub.DefaultMaxConnections)
+	s.MaxReplay = sec.Key("MAX_REPLAY").MustInt(hub.DefaultMaxReplay)
+	if s.SessionCheckInterval, err = sec.Key("SESSION_CHECK_INTERVAL").MustDuration(hub.DefaultRevalidateInterval); err != nil {
+		return s, fmt.Errorf("invalid [livesync] SESSION_CHECK_INTERVAL: %w", err)
+	}
+	if s.SendBuffer <= 0 || s.MaxSubscriptions <= 0 || s.MaxConnections <= 0 || s.MaxReplay <= 0 || s.SessionCheckInterval <= 0 {
+		return s, fmt.Errorf("invalid [livesync] SEND_BUFFER %d / MAX_SUBSCRIPTIONS %d / MAX_CONNECTIONS_PER_USER %d / MAX_REPLAY %d / SESSION_CHECK_INTERVAL %s (want > 0)",
+			s.SendBuffer, s.MaxSubscriptions, s.MaxConnections, s.MaxReplay, s.SessionCheckInterval)
 	}
 	if s.LogRetention < 0 || s.LogMaxRows < 0 || s.HotCoalesce < 0 {
 		return s, fmt.Errorf("invalid [livesync] LOG_RETENTION %s / LOG_MAX_ROWS %d / HOT_COALESCE %s (want >= 0)", s.LogRetention, s.LogMaxRows, s.HotCoalesce)

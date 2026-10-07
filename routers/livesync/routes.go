@@ -21,9 +21,10 @@ import (
 // milestones add theirs here. Routes are registered with their full path
 // (including the /-/sync or /-/next prefix), relative to the application root.
 //
-// The WebSocket endpoint (B5) must NOT be registered here: the middlewares
-// below wrap the ResponseWriter and hide Hijack, so it is dispatched in
-// handler.ServeHTTP before this router.
+// The sync session endpoints GET /-/sync/ws and GET /-/sync/sse are NOT
+// registered here: the middlewares below wrap the ResponseWriter (hiding
+// Hijack and write deadlines), so they are dispatched in handler.ServeHTTP
+// before this router (sync.go).
 func newRoutes() http.Handler {
 	// A web.Route literal instead of web.NewRoute(): in tests NewRoute resets
 	// the API v1 permission bookkeeping collected by routers.NormalRoutes().
@@ -41,6 +42,7 @@ func newRoutes() http.Handler {
 
 	r.Get(syncPrefix+"/health", health)
 	r.Get(syncPrefix+"/grants", grants)
+	r.Post(syncPrefix+"/send", sendMessage)
 
 	return r
 }

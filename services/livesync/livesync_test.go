@@ -24,6 +24,8 @@ func TestLoadSettings(t *testing.T) {
 			InstallMode: InstallModeAuto, HoleTimeout: hole,
 			LogRetention: 30 * 24 * time.Hour, LogMaxRows: 1_000_000, HotCoalesce: time.Second,
 			PermCacheTTL: 10 * time.Minute,
+			SendBuffer:   4 << 20, MaxSubscriptions: 1000, MaxConnections: 16, MaxReplay: 10000,
+			SessionCheckInterval: 5 * time.Minute,
 		}
 		fn(&s)
 		return s
@@ -53,6 +55,12 @@ func TestLoadSettings(t *testing.T) {
 		{"[livesync]\nHOT_COALESCE = -1s\n", Settings{}, true},
 		{"[livesync]\nPERM_CACHE_TTL = 30s\n", def(func(s *Settings) { s.PermCacheTTL = 30 * time.Second }), false},
 		{"[livesync]\nPERM_CACHE_TTL = 0\n", Settings{}, true},
+		{"[livesync]\nSEND_BUFFER = 65536\nMAX_SUBSCRIPTIONS = 10\nMAX_CONNECTIONS_PER_USER = 2\nMAX_REPLAY = 50\nSESSION_CHECK_INTERVAL = 1m\n", def(func(s *Settings) {
+			s.SendBuffer, s.MaxSubscriptions, s.MaxConnections, s.MaxReplay, s.SessionCheckInterval = 65536, 10, 2, 50, time.Minute
+		}), false},
+		{"[livesync]\nSEND_BUFFER = 0\n", Settings{}, true},
+		{"[livesync]\nMAX_SUBSCRIPTIONS = -1\n", Settings{}, true},
+		{"[livesync]\nSESSION_CHECK_INTERVAL = never\n", Settings{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.ini, func(t *testing.T) {

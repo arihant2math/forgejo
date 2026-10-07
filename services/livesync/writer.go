@@ -8,7 +8,6 @@ import (
 	"errors"
 	"time"
 
-	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/materialize"
@@ -133,12 +132,3 @@ func lead(ctx context.Context, s Settings, tailer *synclog.Tailer) error {
 		}
 	}
 }
-
-// logSink is the tailer's sink until the WebSocket hub (B5) replaces it.
-type logSink struct{}
-
-func (logSink) Deliver(_ context.Context, entries []livesync_model.LogEntry) {
-	log.Trace("livesync: sync log tailer: %d new entr(y/ies), up to %d", len(entries), entries[len(entries)-1].SyncID)
-}
-
-func (logSink) Skipped(context.Context, int64, int64) {}

@@ -210,6 +210,13 @@ func TestTrimFencing(t *testing.T) {
 type recordingSink struct {
 	mu      sync.Mutex
 	entries []livesync_model.LogEntry
+	skipped [][2]int64
+}
+
+func (s *recordingSink) Skipped(_ context.Context, from, floor int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.skipped = append(s.skipped, [2]int64{from, floor})
 }
 
 func (s *recordingSink) Deliver(_ context.Context, entries []livesync_model.LogEntry) {
@@ -254,4 +261,5 @@ func TestTailer(t *testing.T) {
 	stale := &Tailer{cfg: TailerConfig{BatchSize: 10}, sink: behind, pos: 3}
 	require.NoError(t, stale.read(t.Context()))
 	assert.Equal(t, []int64{6}, behind.ids())
+	assert.Equal(t, [][2]int64{{3, 5}}, behind.skipped, "the sink is told")
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"forgejo.org/modules/setting"
+	"forgejo.org/services/livesync/perm"
 )
 
 // InstallMode decides what livesync does about its database triggers at start
@@ -52,6 +53,11 @@ type Settings struct {
 	// commit_status, action_run_job) is materialized at most once per this
 	// interval, with its latest state; 0 disables the coalescing (B3).
 	HotCoalesce time.Duration
+	// PERM_CACHE_TTL (default 10m): how long a viewer's cached grants are
+	// used at most. Permission epochs invalidate them at once; the TTL is
+	// a safety net for permission changes that do not pass through a
+	// tracked table (B4).
+	PermCacheTTL time.Duration
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -82,6 +88,12 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	s.LogMaxRows = sec.Key("LOG_MAX_ROWS").MustInt64(1_000_000)
 	if s.HotCoalesce, err = sec.Key("HOT_COALESCE").MustDuration(time.Second); err != nil {
 		return s, fmt.Errorf("invalid [livesync] HOT_COALESCE: %w", err)
+	}
+	if s.PermCacheTTL, err = sec.Key("PERM_CACHE_TTL").MustDuration(perm.DefaultCacheTTL); err != nil {
+		return s, fmt.Errorf("invalid [livesync] PERM_CACHE_TTL: %w", err)
+	}
+	if s.PermCacheTTL <= 0 {
+		return s, fmt.Errorf("invalid [livesync] PERM_CACHE_TTL %s (want > 0)", s.PermCacheTTL)
 	}
 	if s.LogRetention < 0 || s.LogMaxRows < 0 || s.HotCoalesce < 0 {
 		return s, fmt.Errorf("invalid [livesync] LOG_RETENTION %s / LOG_MAX_ROWS %d / HOT_COALESCE %s (want >= 0)", s.LogRetention, s.LogMaxRows, s.HotCoalesce)

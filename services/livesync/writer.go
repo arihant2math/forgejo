@@ -140,3 +140,5 @@ type logSink struct{}
 func (logSink) Deliver(_ context.Context, entries []livesync_model.LogEntry) {
 	log.Trace("livesync: sync log tailer: %d new entr(y/ies), up to %d", len(entries), entries[len(entries)-1].SyncID)
 }
+
+func (logSink) Skipped(context.Context, int64, int64) {}

@@ -15,11 +15,16 @@ import (
 )
 
 // Sink receives the entries a Tailer reads, in sync id order and without
-// gaps (except after a jump over trimmed entries, see Tailer). The WebSocket
-// hub (B5) is the real one. Deliver runs on the tailer's goroutine; it must
-// not block for long.
+// gaps (except after a jump over trimmed entries, see Skipped). The
+// WebSocket hub (B5) is the real one. Its methods run on the tailer's
+// goroutine; they must not block for long.
 type Sink interface {
 	Deliver(ctx context.Context, entries []livesync_model.LogEntry)
+	// Skipped says that the entries after `from` up to `floor` were
+	// trimmed before this instance read them (it fell behind the whole
+	// retention window): anything derived from them (subscriptions,
+	// cached permissions) must be rebuilt.
+	Skipped(ctx context.Context, from, floor int64)
 }
 
 // TailerConfig configures a Tailer. Zero values mean the defaults.
@@ -116,6 +121,7 @@ func (t *Tailer) read(ctx context.Context) error {
 			// Only possible if this instance fell behind by the whole
 			// retention window; its subscribers re-bootstrap (B5).
 			log.Warn("livesync: sync log tailer fell behind the retention floor (at %d, floor %d); skipping ahead", t.pos, trimmed.Floor)
+			t.sink.Skipped(ctx, t.pos, trimmed.Floor)
 			t.pos = trimmed.Floor
 			continue
 		}

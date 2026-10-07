@@ -22,6 +22,7 @@ import (
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/synclog"
 )
 
@@ -51,6 +52,7 @@ type instance struct {
 	cancel context.CancelFunc
 	tailer *synclog.Tailer
 	writer chan struct{} // closed when the writer role has stopped
+	perms  *perm.Cache
 }
 
 // readerStopTimeout bounds how long Shutdown waits for the outbox reader
@@ -109,14 +111,15 @@ func Init(ctx context.Context) error {
 	}
 
 	instCtx, cancel := context.WithCancel(ctx)
-	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, logSink{})
+	perms := perm.NewCache(s.PermCacheTTL, 0)
+	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, permSink{cache: perms, next: logSink{}})
 	if err != nil {
 		cancel()
 		return fmt.Errorf("livesync: start the sync log tailer: %w", err)
 	}
 	writer := make(chan struct{})
 	go runWriter(instCtx, s, tailer, writer)
-	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer}
+	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms}
 	log.Info("livesync: started (db=%s, install mode=%s)", setting.Database.Type, s.InstallMode)
 	return nil
 }

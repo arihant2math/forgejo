@@ -23,6 +23,7 @@ func TestLoadSettings(t *testing.T) {
 		s := Settings{
 			InstallMode: InstallModeAuto, HoleTimeout: hole,
 			LogRetention: 30 * 24 * time.Hour, LogMaxRows: 1_000_000, HotCoalesce: time.Second,
+			PermCacheTTL: 10 * time.Minute,
 		}
 		fn(&s)
 		return s
@@ -50,6 +51,8 @@ func TestLoadSettings(t *testing.T) {
 		{"[livesync]\nLOG_RETENTION = forever\n", Settings{}, true},
 		{"[livesync]\nLOG_MAX_ROWS = -1\n", Settings{}, true},
 		{"[livesync]\nHOT_COALESCE = -1s\n", Settings{}, true},
+		{"[livesync]\nPERM_CACHE_TTL = 30s\n", def(func(s *Settings) { s.PermCacheTTL = 30 * time.Second }), false},
+		{"[livesync]\nPERM_CACHE_TTL = 0\n", Settings{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.ini, func(t *testing.T) {

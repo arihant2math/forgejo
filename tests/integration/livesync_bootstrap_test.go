@@ -25,6 +25,7 @@ import (
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/tests"
@@ -751,12 +752,59 @@ func (r *livesyncReplica) apply(ch protocol.Change) {
 	}
 }
 
+// livesyncPauseMaterializer holds the lock of the sync log head row, so
+// that the materializer's next writer transaction waits in its Append
+// (after it read its batch) and nothing more is consumed: the outbox keeps
+// every later change, and an entity inserted and deleted meanwhile is
+// coalesced away when the materializer resumes (no entry at all). poke makes
+// a change, so that a batch starts and waits; livesyncPauseMaterializer
+// returns once a transaction waits for the lock. Bootstraps keep working
+// (they read the head without locking). Resume (the returned function, also
+// run at cleanup) releases the lock.
+func livesyncPauseMaterializer(t *testing.T, poke func()) (resume func()) {
+	t.Helper()
+	master := livesyncMaster(t)
+	sess := master.NewSession()
+	require.NoError(t, sess.Begin())
+	resume = sync.OnceFunc(func() {
+		_ = sess.Rollback()
+		sess.Close()
+	})
+	t.Cleanup(resume)
+	var heads []string
+	require.NoError(t, sess.SQL("SELECT value FROM livesync_meta WHERE name = 'log_head' FOR UPDATE").Find(&heads))
+	require.Len(t, heads, 1)
+	poke()
+	// A writer transaction waiting in lockMeta (Append), not any other
+	// lock wait (an API request's, the notification queue's).
+	waiting := "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%livesync_meta%FOR UPDATE%'"
+	if setting.Database.Type.IsMySQL() {
+		// (information_schema.innodb_trx does not list it as waiting.)
+		waiting = "SELECT COUNT(*) FROM information_schema.processlist WHERE id <> CONNECTION_ID() AND info LIKE '%livesync_meta%FOR UPDATE%'"
+	}
+	require.Eventually(t, func() bool {
+		var n int64
+		_, err := master.SQL(waiting).Get(&n)
+		require.NoError(t, err)
+		return n > 0
+	}, livesyncWait, 10*time.Millisecond, "the materializer waits for the log head")
+	return resume
+}
+
 // TestLivesyncBootstrapConvergence (B6 acceptance): a bootstrap taken while
 // writers change the group, plus the deltas after its watermark, equals a
 // fresh bootstrap taken once the writes are done — for a repository's
 // summary (issues created, closed, labelled, labels created and deleted)
 // and an issue's lazy tier (comments created, edited, deleted; the body
 // edited), with bootstraps taken at several moments.
+//
+// It starts with bootstraps taken while the materializer is paused, so that
+// the outbox holds a comment and a label that are then deleted before it
+// resumes: their inserts and deletes are coalesced (no log entry), so a
+// bootstrap that sent them (they are in the tables when it reads them)
+// would leave them in its replica for good. That is the case the
+// bootstrap's index-presence filter exists for (materialize/snapshot.go);
+// the concurrent writers create and delete such entities too.
 func TestLivesyncBootstrapConvergence(t *testing.T) {
 	livesyncSkipSQLite(t)
 	livesyncServeWith(t, map[string]string{"SUMMARY_RECENCY": "438000h"}) // the whole summary
@@ -766,14 +814,76 @@ func TestLivesyncBootstrapConvergence(t *testing.T) {
 		token := livesyncToken(t, &user_model.User{ID: 2})
 		const repo = "/api/v1/repos/user2/repo1"
 
+		type client struct {
+			replica *livesyncReplica
+			cl      *livesyncSyncClient
+		}
+		var clients []client
+		// subscribe follows a bootstrap's group from its watermark.
+		subscribe := func(s *livesyncSnapshot) {
+			cl := livesyncDial(t, u, "ws")
+			cl.send(livesyncHello(token, protocol.GroupRequest{Group: s.header.Group, Since: livesyncSince(s.header.Watermark)}))
+			welcome := cl.waitType(protocol.MsgWelcome)
+			require.Len(t, welcome.Granted, 1)
+			assert.Equal(t, s.header.Units, welcome.Granted[0].Units, "the bootstrap's units are the grant's")
+			clients = append(clients, client{newLivesyncReplica(s), cl})
+		}
+		bootstrap := func(group string) *livesyncSnapshot {
+			path := "/-/sync/bootstrap?group=" + group
+			if strings.HasPrefix(group, protocol.GroupPrefixIssue+":") {
+				path = "/-/sync/load?group=" + group
+			}
+			return livesyncBootstrap(t, token, path)
+		}
+
+		// Pending outbox rows: the materializer paused, a comment and a
+		// label created, bootstraps taken, the two deleted, resumed.
+		var obj struct {
+			ID int64 `json:"id"`
+		}
+		resume := livesyncPauseMaterializer(t, func() {
+			livesyncHTTP(t, u, token, "PATCH", repo+"/labels/1", map[string]any{"description": "paused"}, nil)
+		})
+		require.Equal(t, http.StatusCreated, livesyncHTTP(t, u, token, "POST", repo+"/issues/1/comments", map[string]any{"body": "short-lived"}, &obj))
+		comment := obj.ID
+		require.Equal(t, http.StatusCreated, livesyncHTTP(t, u, token, "POST", repo+"/labels", map[string]any{"name": "short-lived", "color": "#aabbcc"}, &obj))
+		label := obj.ID
+		pending := map[string]bool{}
+		for _, ch := range livesyncOutbox(t) {
+			pending[fmt.Sprintf("%s:%d", ch.Tbl, ch.RowID)] = true
+		}
+		require.True(t, pending[fmt.Sprintf("comment:%d", comment)], "the comment's insert is pending")
+		require.True(t, pending[fmt.Sprintf("label:%d", label)], "the label's insert is pending")
+		issueSnap, repoSnap := bootstrap("issue:1"), bootstrap("repo:1")
+		assert.NotContains(t, issueSnap.of("issue:1"), fmt.Sprintf("Comment %d", comment), "not materialized: left out")
+		assert.NotContains(t, repoSnap.of("repo:1"), fmt.Sprintf("Label %d", label), "not materialized: left out")
+		subscribe(issueSnap)
+		subscribe(repoSnap)
+		require.Equal(t, http.StatusNoContent, livesyncHTTP(t, u, token, "DELETE", fmt.Sprintf("%s/issues/comments/%d", repo, comment), nil, nil))
+		require.Equal(t, http.StatusNoContent, livesyncHTTP(t, u, token, "DELETE", fmt.Sprintf("%s/labels/%d", repo, label), nil, nil))
+		resume()
+		livesyncSettle(t)
+		for _, e := range livesyncLogSince(t, 0) {
+			assert.False(t, e.Model == string(protocol.ModelComment) && e.EntityID == comment, "the comment is in no log entry (coalesced)")
+			assert.False(t, e.Model == string(protocol.ModelLabel) && e.EntityID == label, "the label is in no log entry (coalesced)")
+		}
+
 		stop := make(chan struct{})
 		var wg sync.WaitGroup
+		// The writers stop when the test ends, whatever way: a failed
+		// require in this goroutine must not leave them calling t.Errorf
+		// after the test completed (which panics the test binary).
+		stopWriters := sync.OnceFunc(func() {
+			close(stop)
+			wg.Wait()
+		})
+		defer stopWriters()
 		writes := atomic.Int64{}
 		// Each writer has its own kinds of writes: upstream deadlocks on
 		// MySQL when two comments are created on one issue concurrently
 		// (CreateComment's num_comments subquery), with or without
-		// livesync.
-		ops := [][]int{{1, 2, 3, 4, 8}, {0, 7, 0}, {0, 5, 6, 6, 9}}
+		// livesync. Ops 10 and 11 create an entity and delete it at once.
+		ops := [][]int{{1, 2, 3, 4, 8, 10}, {0, 7, 0}, {0, 5, 6, 6, 9, 11}}
 		for w := range 3 {
 			wg.Go(func() {
 				var comments, labels, issues []int64
@@ -828,35 +938,27 @@ func TestLivesyncBootstrapConvergence(t *testing.T) {
 							livesyncHTTP(t, u, token, "DELETE", fmt.Sprintf("%s/labels/%d", repo, labels[0]), nil, nil)
 							labels = labels[1:]
 						}
+					case 10:
+						if livesyncHTTP(t, u, token, "POST", repo+"/issues/1/comments", map[string]any{"body": fmt.Sprintf("short %d-%d", w, i)}, &obj) == http.StatusCreated {
+							livesyncHTTP(t, u, token, "DELETE", fmt.Sprintf("%s/issues/comments/%d", repo, obj.ID), nil, nil)
+						}
+					case 11:
+						if livesyncHTTP(t, u, token, "POST", repo+"/labels", map[string]any{"name": fmt.Sprintf("short-%d-%d", w, i), "color": "#aabbcc"}, &obj) == http.StatusCreated {
+							livesyncHTTP(t, u, token, "DELETE", fmt.Sprintf("%s/labels/%d", repo, obj.ID), nil, nil)
+						}
 					}
 					writes.Add(1)
 				}
 			})
 		}
 
-		type client struct {
-			replica *livesyncReplica
-			cl      *livesyncSyncClient
-		}
-		var clients []client
 		for round := range 3 {
 			time.Sleep(time.Duration(150+100*round) * time.Millisecond)
 			for _, group := range []string{"repo:1", "issue:1"} {
-				path := "/-/sync/bootstrap?group=" + group
-				if group == "issue:1" {
-					path = "/-/sync/load?group=" + group
-				}
-				s := livesyncBootstrap(t, token, path)
-				cl := livesyncDial(t, u, "ws")
-				cl.send(livesyncHello(token, protocol.GroupRequest{Group: group, Since: livesyncSince(s.header.Watermark)}))
-				welcome := cl.waitType(protocol.MsgWelcome)
-				require.Len(t, welcome.Granted, 1)
-				assert.Equal(t, s.header.Units, welcome.Granted[0].Units, "the bootstrap's units are the grant's")
-				clients = append(clients, client{newLivesyncReplica(s), cl})
+				subscribe(bootstrap(group))
 			}
 		}
-		close(stop)
-		wg.Wait()
+		stopWriters()
 		require.Greater(t, writes.Load(), int64(30), "concurrent writes")
 		livesyncSettle(t)
 
@@ -870,8 +972,7 @@ func TestLivesyncBootstrapConvergence(t *testing.T) {
 				}
 				return m.Type == protocol.MsgBarrierOK
 			})
-			path := "/-/sync/bootstrap?group=" + c.replica.group
-			fresh := livesyncBootstrap(t, token, path)
+			fresh := bootstrap(c.replica.group)
 			want := map[string]any{}
 			for k, ch := range fresh.of(c.replica.group) {
 				want[k] = ch.D

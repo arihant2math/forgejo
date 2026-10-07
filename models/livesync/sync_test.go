@@ -23,8 +23,16 @@ func TestSyncTablesAndMeta(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
 
-	require.NoError(t, livesync_model.SyncTables(ctx))
+	exists, err := livesync_model.MetaTableExists(ctx)
+	require.NoError(t, err)
+	assert.False(t, exists)
+	// No database lock on SQLite: WithSchemaLock just runs fn (the lock is
+	// covered on PG/MySQL by tests/integration/livesync_tables_test.go).
+	require.NoError(t, livesync_model.WithSchemaLock(ctx, livesync_model.SyncTables))
 	require.NoError(t, livesync_model.SyncTables(ctx), "SyncTables must be idempotent")
+	exists, err = livesync_model.MetaTableExists(ctx)
+	require.NoError(t, err)
+	assert.True(t, exists)
 
 	var names []string
 	for _, bean := range livesync_model.Tables() {

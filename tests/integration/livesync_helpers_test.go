@@ -16,6 +16,7 @@ import (
 	"forgejo.org/modules/web"
 	livesync_service "forgejo.org/services/livesync"
 
+	"code.forgejo.org/xorm/xorm"
 	chi "github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 )
@@ -71,11 +72,18 @@ func livesyncTableNames() []string {
 // that Init creates them.
 func livesyncDropTables(t *testing.T) {
 	t.Helper()
-	master, err := db.GetMasterEngine(db.DefaultContext.(db.Engined).Engine())
-	require.NoError(t, err)
+	master := livesyncMaster(t)
 	for _, name := range livesyncTableNames() {
 		require.NoError(t, master.DropTables(name))
 	}
+}
+
+// livesyncMaster returns the master xorm engine.
+func livesyncMaster(t *testing.T) *xorm.Engine {
+	t.Helper()
+	master, err := db.GetMasterEngine(db.DefaultContext.(db.Engined).Engine())
+	require.NoError(t, err)
+	return master
 }
 
 // livesyncTableSchemas returns, for each livesync table, the schemas of the

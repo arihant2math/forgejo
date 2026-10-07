@@ -23,7 +23,9 @@ import (
 
 // TablesVersion is the version of livesync's own table layout, recorded in
 // livesync_meta under MetaTablesVersion each time Init syncs the tables. Bump
-// it when a change to models/livesync needs more than Engine.Sync can do.
+// it when a change to models/livesync needs more than Engine.Sync can do (and
+// add the upgrade step to EnsureTables), or when older binaries must refuse
+// to run against the new layout.
 const TablesVersion = 1
 
 // MetaTablesVersion is the livesync_meta name holding TablesVersion.
@@ -80,17 +82,7 @@ func Init(ctx context.Context) error {
 		return fmt.Errorf("%w (DB_TYPE is %q)", ErrUnsupportedDatabase, setting.Database.Type)
 	}
 
-	if err := livesync_model.SyncTables(ctx); err != nil {
-		return err
-	}
-	stored, ok, err := livesync_model.GetMeta(ctx, MetaTablesVersion)
-	if err != nil {
-		return err
-	}
-	if err := checkTablesVersion(stored, ok); err != nil {
-		return err
-	}
-	if err := livesync_model.SetMeta(ctx, MetaTablesVersion, strconv.Itoa(TablesVersion)); err != nil {
+	if err := EnsureTables(ctx); err != nil {
 		return err
 	}
 
@@ -98,6 +90,37 @@ func Init(ctx context.Context) error {
 	current = &instance{ctx: instCtx, cancel: cancel}
 	log.Info("livesync: started (db=%s, install mode=%s)", setting.Database.Type, s.InstallMode)
 	return nil
+}
+
+// EnsureTables creates or upgrades livesync's tables and records
+// TablesVersion. It runs under the database schema lock, so instances starting
+// together on one database take turns, and it checks the stored version
+// before touching anything: a binary older than the tables refuses to start
+// without changing them (xorm's Sync adds columns and indexes and may alter
+// column types, so it must not run against a newer layout).
+func EnsureTables(ctx context.Context) error {
+	return livesync_model.WithSchemaLock(ctx, func(ctx context.Context) error {
+		exists, err := livesync_model.MetaTableExists(ctx)
+		if err != nil {
+			return err
+		}
+		if exists {
+			stored, ok, err := livesync_model.GetMeta(ctx, MetaTablesVersion)
+			if err != nil {
+				return err
+			}
+			if err := checkTablesVersion(stored, ok); err != nil {
+				return err
+			}
+		}
+		if err := livesync_model.SyncTables(ctx); err != nil {
+			return err
+		}
+		// Upgrade steps that need more than Sync (data migrations, PK
+		// changes) go here, keyed on the stored version, before the new
+		// version is recorded.
+		return livesync_model.SetMeta(ctx, MetaTablesVersion, strconv.Itoa(TablesVersion))
+	})
 }
 
 // checkTablesVersion refuses to run against tables written by a newer

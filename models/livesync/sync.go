@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"forgejo.org/models/db"
+	"forgejo.org/modules/setting"
 
 	"code.forgejo.org/xorm/xorm"
 )
@@ -23,28 +24,21 @@ func MasterEngine(ctx context.Context) (db.Engine, error) {
 	if db.InTransaction(ctx) {
 		return db.GetEngine(ctx), nil
 	}
-	engined, ok := db.DefaultContext.(db.Engined)
-	if !ok {
-		return nil, fmt.Errorf("livesync: db.DefaultContext (%T) has no engine", db.DefaultContext)
-	}
-	master, err := db.GetMasterEngine(engined.Engine())
+	master, err := masterXORMEngine()
 	if err != nil {
-		return nil, fmt.Errorf("livesync: master engine: %w", err)
+		return nil, err
 	}
 	return master.Context(ctx), nil
 }
 
 // SyncTables creates or extends livesync's tables with Engine.Sync on the
-// master database. It never drops columns or indexes, so it is safe to run at
-// every start and on every instance.
+// master database. It never drops columns or indexes. xorm's Sync is not safe
+// against concurrent callers (check-then-create), so call it only under
+// WithSchemaLock (services/livesync.EnsureTables does).
 func SyncTables(ctx context.Context) error {
-	engined, ok := db.DefaultContext.(db.Engined)
-	if !ok {
-		return fmt.Errorf("livesync: db.DefaultContext (%T) has no engine", db.DefaultContext)
-	}
-	master, err := db.GetMasterEngine(engined.Engine())
+	master, err := masterXORMEngine()
 	if err != nil {
-		return fmt.Errorf("livesync: master engine: %w", err)
+		return err
 	}
 	sess := master.Context(ctx)
 	defer sess.Close()
@@ -55,6 +49,20 @@ func SyncTables(ctx context.Context) error {
 		return fmt.Errorf("livesync: sync tables: %w", err)
 	}
 	return nil
+}
+
+// MetaTableExists reports whether livesync_meta exists on the master database,
+// i.e. whether livesync has ever created its tables there.
+func MetaTableExists(ctx context.Context) (bool, error) {
+	e, err := MasterEngine(ctx)
+	if err != nil {
+		return false, err
+	}
+	has, err := e.IsTableExist(&Meta{})
+	if err != nil {
+		return false, fmt.Errorf("livesync: check table livesync_meta: %w", err)
+	}
+	return has, nil
 }
 
 // GetMeta returns the value stored under name in livesync_meta, read from the
@@ -72,35 +80,24 @@ func GetMeta(ctx context.Context, name string) (value string, ok bool, err error
 	return m.Value, has, nil
 }
 
-// SetMeta stores value under name in livesync_meta (insert or update) on the
-// master database. Concurrent first writers (several instances starting on a
-// fresh database) are tolerated: the loser of the insert race updates instead.
+// SetMeta stores value under name in livesync_meta on the master database
+// with one native upsert statement (INSERT … ON CONFLICT DO UPDATE on
+// PostgreSQL and SQLite, INSERT … ON DUPLICATE KEY UPDATE on MySQL/MariaDB).
+// Concurrent writers of the same name, inside or outside a transaction, wait
+// for each other and the last one wins; none fails because of the other.
 func SetMeta(ctx context.Context, name, value string) error {
 	e, err := MasterEngine(ctx)
 	if err != nil {
 		return err
 	}
-	update := func() (bool, error) {
-		if _, err := e.Where("name = ?", name).Cols("value").Update(&Meta{Value: value}); err != nil {
-			return false, fmt.Errorf("livesync: update meta %q: %w", name, err)
-		}
-		// MySQL reports 0 affected rows when the value is unchanged, so
-		// existence is checked separately instead of trusting the count.
-		has, err := e.Where("name = ?", name).Exist(&Meta{})
-		if err != nil {
-			return false, fmt.Errorf("livesync: check meta %q: %w", name, err)
-		}
-		return has, nil
+	query := "INSERT INTO livesync_meta (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value"
+	if setting.Database.Type.IsMySQL() {
+		// VALUES(col) is deprecated in MySQL 8.0.20+ in favour of a row
+		// alias, which MariaDB does not support; it still works on both.
+		query = "INSERT INTO livesync_meta (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)"
 	}
-	if done, err := update(); err != nil || done {
-		return err
-	}
-	if _, insertErr := e.Insert(&Meta{Name: name, Value: value}); insertErr != nil {
-		// Lost an insert race? Then the row exists now and an update wins.
-		if done, err := update(); err != nil || done {
-			return err
-		}
-		return fmt.Errorf("livesync: insert meta %q: %w", name, insertErr)
+	if _, err := e.Exec(query, name, value); err != nil {
+		return fmt.Errorf("livesync: set meta %q: %w", name, err)
 	}
 	return nil
 }

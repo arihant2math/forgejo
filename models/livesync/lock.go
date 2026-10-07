@@ -119,3 +119,73 @@ func MasterXORMEngine() (*xorm.Engine, error) {
 	}
 	return master, nil
 }
+
+// Lease is a database-wide lock (PostgreSQL session advisory lock / MySQL
+// GET_LOCK, scoped like WithSchemaLock's) held on a pinned pooled connection
+// until Release. The lock lives as long as that connection: if the
+// connection dies, the database releases it and another instance can take
+// it, so holders must Check it regularly and stop acting on its behalf as
+// soon as Check fails (and fence their writes, see services/livesync/synclog).
+type Lease struct {
+	conn *sql.Conn // nil on SQLite (unit tests): no locking
+	name string
+}
+
+// ErrLeaseHeld is returned by TryLease when another session holds the lock.
+var ErrLeaseHeld = errors.New("livesync: the lock is held by another session")
+
+// TryLease takes the lock name without waiting. It returns ErrLeaseHeld when
+// another session holds it. On SQLite every call succeeds (no locking).
+func TryLease(ctx context.Context, name string) (*Lease, error) {
+	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {
+		return &Lease{name: name}, nil
+	}
+	master, err := MasterXORMEngine()
+	if err != nil {
+		return nil, err
+	}
+	if n := master.DB().Stats().MaxOpenConnections; n == 1 {
+		return nil, errors.New("livesync: needs at least 2 database connections ([database] MAX_OPEN_CONNS = 1)")
+	}
+	conn, err := master.DB().Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("livesync: lease connection: %w", err)
+	}
+	query := "SELECT GET_LOCK(CONCAT(?, '.', MD5(DATABASE())), 0)"
+	if setting.Database.Type.IsPostgreSQL() {
+		query = "SELECT CASE WHEN pg_try_advisory_lock(hashtext($1::text || '.' || current_schema())) THEN 1 ELSE 0 END"
+	}
+	var got sql.NullInt64
+	if err := conn.QueryRowContext(ctx, query, name).Scan(&got); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("livesync: try lock %q: %w", name, err)
+	}
+	if !got.Valid || got.Int64 != 1 {
+		conn.Close()
+		return nil, ErrLeaseHeld
+	}
+	return &Lease{conn: conn, name: name}, nil
+}
+
+// Check verifies that the lease's connection is still alive (and so the
+// lock still held).
+func (l *Lease) Check(ctx context.Context) error {
+	if l.conn == nil {
+		return nil
+	}
+	if err := l.conn.PingContext(ctx); err != nil {
+		return fmt.Errorf("livesync: lease %q lost: %w", l.name, err)
+	}
+	return nil
+}
+
+// Release releases the lock and returns the connection to the pool (or
+// discards it if the release fails). It is idempotent.
+func (l *Lease) Release() {
+	if l.conn == nil {
+		return
+	}
+	releaseLock(l.conn, l.name)
+	l.conn.Close()
+	l.conn = nil
+}

@@ -101,3 +101,21 @@ func SetMeta(ctx context.Context, name, value string) error {
 	}
 	return nil
 }
+
+// InsertMetaIfAbsent stores value under name in livesync_meta unless the
+// name exists already (then nothing changes). It never fails because a
+// concurrent writer inserted the name first.
+func InsertMetaIfAbsent(ctx context.Context, name, value string) error {
+	e, err := MasterEngine(ctx)
+	if err != nil {
+		return err
+	}
+	query := "INSERT INTO livesync_meta (name, value) VALUES (?, ?) ON CONFLICT (name) DO NOTHING"
+	if setting.Database.Type.IsMySQL() {
+		query = "INSERT INTO livesync_meta (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = name"
+	}
+	if _, err := e.Exec(query, name, value); err != nil {
+		return fmt.Errorf("livesync: insert meta %q: %w", name, err)
+	}
+	return nil
+}

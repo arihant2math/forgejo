@@ -38,7 +38,11 @@ const (
 
 // LogEntry is one entry of the gap-free sync log. SyncID is assigned by the
 // single-writer materializer (it is not an auto-increment column so that it can
-// be gap-free). Grp is the sync group ("user:1", "repo:2", "issue:3", ...).
+// be gap-free). Grp is the sync group ("user:1", "repo:2", "issue:3", ...,
+// or "*" for entries every reader gets). Unit is the repository unit a reader
+// needs to receive the entry ("" = any access to the group; see
+// services/livesync/protocol.Unit). Op is protocol.Op: 'U' upsert (Payload is
+// the entity's JSON), 'D' delete, 'B' re-bootstrap marker.
 //
 // Grp is declared before SyncID so that the composite index is (grp, sync_id),
 // which is what "read group G since cursor C" needs.
@@ -48,6 +52,7 @@ type LogEntry struct {
 	Model       string             `xorm:"VARCHAR(64) NOT NULL"`
 	EntityID    int64              `xorm:"NOT NULL"`
 	Op          string             `xorm:"CHAR(1) NOT NULL"`
+	Unit        string             `xorm:"VARCHAR(32) NOT NULL DEFAULT ''"`
 	Payload     string             `xorm:"LONGTEXT"`
 	SchemaVer   int                `xorm:"NOT NULL DEFAULT 0"`
 	CreatedUnix timeutil.TimeStamp `xorm:"INDEX NOT NULL"`
@@ -56,13 +61,21 @@ type LogEntry struct {
 // TableName implements xorm's TableName interface.
 func (LogEntry) TableName() string { return "livesync_log" }
 
-// Entity remembers, for every materialized row, which sync group it belongs
-// to and the last sync id emitted for it. Deletes are routed with it: the
-// triggers only know (table, id), the row itself is gone by then.
+// Entity remembers, for every materialized row, which sync group (and unit)
+// it belongs to, a hash of the payload last emitted for it and the sync id of
+// that entry. Deletes are routed with it: the triggers only know (table, id),
+// the row itself is gone by then. The materializer also backfills it for rows
+// that existed before livesync was installed (Hash empty, LastSyncID 0).
+//
+// Tbl is the source table for a row's main entity; an additional entity
+// derived from the same row uses "<table>#<suffix>" (e.g. "issue#body" for
+// protocol.IssueBody), which can never collide with a table name.
 type Entity struct {
 	Tbl        string `xorm:"pk VARCHAR(64)"`
 	RowID      int64  `xorm:"pk"`
 	Grp        string `xorm:"VARCHAR(64) NOT NULL"`
+	Unit       string `xorm:"VARCHAR(32) NOT NULL DEFAULT ''"`
+	Hash       string `xorm:"VARCHAR(16) NOT NULL DEFAULT ''"`
 	LastSyncID int64  `xorm:"NOT NULL DEFAULT 0"`
 }
 

@@ -116,7 +116,7 @@ type conn struct {
 	// selfPending: changes of the viewer's profile delivered between the
 	// registration and the welcome (sent right after it).
 	selfPending []protocol.Change
-	subs       map[string]*sub
+	subs        map[string]*sub
 	// busy counts the subscriptions that are not live (replay, recheck).
 	busy int
 	// catchUp: send caught_up when busy drops to 0.

@@ -6,6 +6,7 @@ package livesync
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"forgejo.org/modules/setting"
@@ -136,6 +137,13 @@ func TestHandlerRouting(t *testing.T) {
 		{"", http.MethodGet, "/-/sync/health/", http.StatusServiceUnavailable},
 		{"", http.MethodGet, "//-//next//nope/", http.StatusNotFound},
 		{"", http.MethodGet, "//api/v1/version", 299},
+		// The sync session endpoints (served before the router).
+		{"", http.MethodGet, "/-/sync/ws", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-/sync/sse", http.StatusServiceUnavailable},
+		{"", http.MethodPost, "/-/sync/sse", http.StatusMethodNotAllowed},
+		{"", http.MethodPost, "/-/sync/send", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-/sync/send", http.StatusMethodNotAllowed},
+		{"/forge", http.MethodGet, "/forge/-/sync//ws/", http.StatusServiceUnavailable},
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.sub+c.path, func(t *testing.T) {
@@ -143,7 +151,7 @@ func TestHandlerRouting(t *testing.T) {
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
 			assert.Equal(t, c.want, rec.Code)
-			if c.want == http.StatusServiceUnavailable {
+			if c.want == http.StatusServiceUnavailable && strings.Contains(c.path, "health") {
 				assert.JSONEq(t, `{"status":"stopped"}`, rec.Body.String())
 				assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 			}

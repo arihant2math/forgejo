@@ -712,6 +712,15 @@ export const MsgSession: MessageType = "session";
  * holds in it (the server replays the entries after it, then streams live
  * ones); without it the subscription starts live at the server's current
  * position (e.g. right after a bootstrap whose watermark is at least that).
+ * The answer's Grant carries the viewer's units in the group now. The
+ * client keeps with each group the units what it holds was filtered by
+ * (those of the grant or the bootstrap that loaded it) and treats a grant
+ * whose units differ as BootstrapRequiredMessage{reason:
+ * BootstrapPermissionChanged}: that message goes only to the subscriptions
+ * that saw the change happen, so a client that missed it learns it from
+ * the units of its next grant. The units are what the server compares
+ * to send it (a change undone in between needs nothing: replays and live
+ * changes are filtered by the current units).
  */
 export interface GroupRequest {
   group: string;
@@ -905,7 +914,8 @@ export const BootstrapCursorTrimmed = "cursor_trimmed";
 export const BootstrapReplayTooLong = "replay_too_long";
 /**
  * BootstrapPermissionChanged: the viewer's units in the group changed;
- * what they may read of it is no longer what they hold.
+ * what they may read of it is no longer what they hold. Not sent again
+ * on resume: see GroupRequest.
  */
 export const BootstrapPermissionChanged = "permission_changed";
 /**

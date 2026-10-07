@@ -1358,7 +1358,9 @@ does) **and** MySQL 8.0 (binlog on).
     diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
-- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; the final review's open item (flaky `TestHeldEntries`/`TestTouches`) fixed 2026-10-07 — a real, if mild, product bug, plus two siblings — see *Final-review open item*; its re-review's item (a delta claimed a re-bootstrap marker's position before the marker's `bootstrap_required`) fixed 2026-10-07 for every `bootstrap_required` path — see *Final-review round 2*; no open items)
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; the final review's open item (flaky `TestHeldEntries`/`TestTouches`) fixed 2026-10-07 — a real, if mild, product bug, plus two siblings — see *Final-review open item*; its re-review's item (a delta claimed a re-bootstrap marker's position before the marker's `bootstrap_required`) fixed 2026-10-07 for every `bootstrap_required` path — see *Final-review round 2*; its re-review's item (a missed
+  `permission_changed` is not told again on resume, though the contract said so) fixed 2026-10-07 by correcting the client contract
+  — see *Final-review round 3*; no open items)
 - **Scope:** `services/livesync/protocol` message types (`hello`, `welcome`,
   `subscribe`/`unsubscribe`, `delta`, `caught_up`, `bootstrap_required`,
   `group_revoked`, `barrier`/`barrier_ok`, `session_invalid`, `notice`, `pong`,
@@ -1406,7 +1408,15 @@ does) **and** MySQL 8.0 (binlog on).
       only of `model` when set — re-bootstrap markers) and loads it again (B6), the watermark makes the overlap harmless. Reasons:
       `trigger_repaired` / `placement_changed` (B3/B4 markers), `cursor_trimmed`, `cursor_unknown`, `replay_too_long` (more than
       `MAX_REPLAY` log entries of the group to replay; sent before any of them), `permission_changed` (the viewer's units in the group
-      changed: what they hold no longer matches).
+      changed: what they hold no longer matches; **not sent again on resume** — see the units rule below).
+    - **Units rule (client contract, `protocol.GroupRequest`; final review round 3).** Every grant (`welcome.granted`,
+      `subscribed.granted`) carries the viewer's units in the group (canonical order: `UnitSet.Units()`; a granted set is base + named
+      bits only, so equal lists ⇔ equal sets). The client keeps with each group the units what it holds was filtered by (those of the
+      grant, or of the bootstrap that loaded it — **B6 must state them**) and treats a grant whose units differ as
+      `bootstrap_required{permission_changed}`. That message goes only to the subscriptions that saw the change; a new session cannot
+      derive it (it does not know the units the client had), so a client that missed it learns it from the units of its next grant —
+      whatever position it resumes from. Equal units need nothing even if they changed and changed back meanwhile: replays and live
+      changes are filtered by the current units (`TestPermissionChangedResume`).
     - **Replays give states, not history**: a replay sends each entity once, as it is at the hub's position (or a delete). A client
       resuming from a position therefore never sees intermediate states it did not receive live (edited/redacted text, a profile before
       it went private), whatever `since` it claims; what it can get is what a bootstrap would give it now. The ids of entities deleted
@@ -1414,7 +1424,8 @@ does) **and** MySQL 8.0 (binlog on).
     - `group_revoked`: the subscription is gone; purge the group. Refusals never tell "forbidden" from "does not exist".
     - `bootstrap_required` and `group_revoked` carry no position; the server guarantees that no frame before them claims a
       position (`delta.to`) past what they are about (a marker's sync id − 1, a suspended subscription's hold, the position before
-      a retention skip), so resuming from the last position received always replays the reason again (final review round 2).
+      a retention skip), so resuming from the last position received replays the reason again (final review round 2) — for every
+      reason except `permission_changed`, which the units rule covers instead (round 3).
   - **Hub** (`services/livesync/hub`, PLAN §4.6/§4.11). The hub is the tailer's sink (`permSink{cache, next: hub}`): `permSink`
     applies epochs to the grant cache first, then `Hub.Deliver` handles the batch **in log order under one hub lock**:
     - **Fan-out** (entity entries): `byGroup[grp]` → live subscriptions whose units allow the entry (`perm.UnitSet.Allows`) and whose
@@ -1461,7 +1472,8 @@ does) **and** MySQL 8.0 (binlog on).
       `conn.mu`), so whatever changes what `to` may claim must change in the same `conn.mu` critical section that queues what the claim
       depends on, or before the writer is woken — never after (see *Final-review open item*). A message that tells the client a
       caught-up group is complete only up to some position (`bootstrap_required`, `group_revoked`) caps the last delta queued
-      before it (`conn.capLocked` → `outItem.maxTo`, applied in `take`; see *Final-review round 2*).
+      before it (`conn.capLocked` → `outItem.maxTo`, applied in `take`; see *Final-review round 2*) — except
+      `permission_changed`, which a resume does not re-derive from any position (round 3).
     - **Backpressure**: per-session queue bounded by `SEND_BUFFER` bytes, **live changes and control messages** (review round 1: pongs,
       errors, …; control messages are encoded when queued, so their size is exact; one item larger than the buffer may enter an empty
       queue, else it could never be sent); replays wait for room instead. Overflow ⇒ the unsent queue is dropped,
@@ -1681,7 +1693,8 @@ does) **and** MySQL 8.0 (binlog on).
     - **Fix.** `conn.capLocked(limit)` caps the last delta queued so far (`outItem.capped`/`maxTo`; `capped` because a cap of 0 is
       legal: a marker at sync id 1) and is called in the critical section that queues the message: markers `limit = sync id − 1`
       (`sendDelivered(msg, limit)` in `markerLocked`; `heldItem.at` keeps the held marker's sync id for `releaseHeldLocked`; the replay
-      uses `sendCapped`), `permission_changed`/`restartLive` at the subscription's hold (`sendAtHold`; nothing when it replays),
+      uses `sendCapped`), `permission_changed`/`restartLive` at the subscription's hold (`sendAtHold`; nothing when it replays;
+      **round 3: wrong for `permission_changed`, the cap is gone — see below**),
       `Skipped` at `from`, `revokeLocked` at the hold (its inline loop replaced). Lowering `to` is always safe (positions are the highest
       `v` raised to `to`); the cost is a lagging position after a marker in a quiet session — a resume from it meets the marker once more
       (one extra `bootstrap_required`), never a loss.
@@ -1700,6 +1713,42 @@ does) **and** MySQL 8.0 (binlog on).
       clean, golangci-lint `services/livesync/...` + `routers/livesync/...` (0 issues), `go vet`, deadcode diff clean; fork diff unchanged
       (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). Wire format unchanged. MariaDB not run (no trigger change).
 
+  - **Final-review round 3: a missed `permission_changed` is never told again on resume (major, fixed 2026-10-07).** Round 2 listed
+    `permission_changed` as case (d) and capped the delta before it at the subscription's hold (`sendAtHold`), and wrote into the
+    client contract (`messages.go`, Positions above) that a client resuming from its position after missing a `bootstrap_required`
+    "is told again". The cap restores nothing for this reason: a new session checks the group with the current units and replays
+    `(since, now]` filtered by them; it does not know which units the client had, so it never produces `permission_changed`. The
+    reviewer's overlay (user4 leaves org3 after a `repo:1` delta; frames `delta to=2`, `grants`, `bootstrap_required{org:3,
+    permission_changed}`; a session resuming `org:3` from 2 got `welcome granted [{org:3 units:[]}]`, `caught_up`) showed it. A client
+    trusting the contract keeps a lost unit's entities forever (units shrank) or never gets the older entities of a new unit (grew).
+    The gap predates round 2; round 2 claimed to close it.
+    - **Root cause.** `permission_changed` is not in the log: it is the difference between two decisions of one subscription
+      (`check`: `d.Units != s.units`). Only reasons a resume re-derives (markers, `cursor_trimmed`, `replay_too_long`, revoke) are
+      protected by positions.
+    - **Fix: option (b), correct the contract (no wire change).** Option (a) (send `permission_changed` on resume whenever an epoch
+      in `(since, now]` concerns the viewer or group) was rejected: epochs concern every subscriber of a repository on any
+      collaborator/team change, touch epochs come with nearly every write batch, and a `since` older than the 64-epoch window would
+      have to count as concerned, so nearly every reconnect after a while would re-bootstrap — bad for an offline-first client and
+      still not exact. The grant already carries the exact information: the units are what `check` compares, so the client-side
+      comparison catches exactly the missed changes (the units rule above). `messages.go`: the Positions paragraph excludes
+      `permission_changed`, `GroupRequest` documents the units rule, `BootstrapPermissionChanged` says it is not sent again on resume
+      (`types.gen.ts` regenerated: doc comments only). `check` now queues `permission_changed` with a plain `send` (the cap only made
+      positions lag); `sendAtHold` documents that it is for re-derived reasons only (`restartLive`).
+    - **Follow-ups for later milestones.** B6: the bootstrap response must state the units it was filtered by (header line next to
+      `watermark`), since after a live `permission_changed` that is what the client's data is filtered by. B10/F2: the client keeps
+      units per group and compares them with every grant (welcome, subscribed) before applying the replay.
+    - **Tests.** `TestPermissionChangedResume` (session_test.go): `units shrank` (members ⇒ none; the client misses
+      `permission_changed` and resumes from the hub's position: grant units `[]` ≠ held `[members]`), `units grew` (none ⇒ members;
+      grant `[members]`, and the older members-only entity is not in the replay — only a bootstrap brings it), `changed and undone`
+      (members ⇒ none ⇒ members while away: same units, and the replay sends the members-only entity written meanwhile). The
+      `permission changed` subtest of `TestBootstrapCapsQueuedFrame` (it asserted the cap) is removed. The reviewer's overlay still
+      fails by design (it expects `bootstrap_required` on resume, which the contract no longer promises).
+    - **Commands:** hub package `-race -count=5` green; the new/related tests `-race -count=40` green; livesync + `routers/livesync`
+      unit tests `-race` (`capture` needs a real DB, not run on SQLite); `TestLivesync*|TestVersion` on PG 16 (`gtestschema`) and
+      MySQL 8.0 binlog on: PG 31 pass, 3 MySQL-only skips; MySQL 33 pass, 1 skip; no testlogger "FATAL ERROR"; gofumpt clean, golangci-lint `services/livesync/...` + `routers/livesync/...`
+      (0 issues), `go vet`, deadcode diff clean, `gen-protocol.sh --check` up to date; fork diff unchanged (`assets/go-licenses.json`,
+      `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
+
 #### B6 — Bootstrap + partial load
 - [ ] **Status**
 - **Scope:** `GET /-/sync/bootstrap?group=` (NDJSON, first line `{watermark, schema}`,
@@ -1707,7 +1756,8 @@ does) **and** MySQL 8.0 (binlog on).
   `SUMMARY_RECENCY` key), `GET /-/sync/load?group=issue:N` (lazy tier),
   `GET /-/sync/load?group=repo:N&closedBefore=…` for older closed items, workspace listing
   `GET /-/sync/workspace` (groups to keep hot, capped). Permission-checked via B4.
-  Watermark read **before** the snapshot.
+  Watermark read **before** the snapshot. The header line also states the viewer's units the bootstrap was filtered by
+  (`units`, as in a Grant): the client compares them with its grants (B5 *units rule*, final review round 3).
 - **Depends on:** B5
 - **Acceptance (both DBs):** bootstrap ∪ deltas since watermark equals a fresh bootstrap
   later (convergence test with concurrent writes); unauthorized group ⇒ 403/404 without

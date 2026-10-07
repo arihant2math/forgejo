@@ -25,7 +25,10 @@ package protocol
 // holds, so replaying overlaps is harmless. bootstrap_required and
 // group_revoked carry no position: no message before them claims a
 // position past what they are about, so a client that resumes from its
-// position after missing one of them is told again.
+// position after missing one of them is told again — except
+// bootstrap_required{permission_changed}, which a resume cannot derive
+// again (the server does not know the units the client had): the client
+// detects it from the grant's units instead (see GroupRequest).
 
 // ProtocolVersion is the version of the sync protocol (WelcomeMessage.Protocol).
 // It changes only when a message changes incompatibly; entity DTO changes are
@@ -72,6 +75,16 @@ const (
 // holds in it (the server replays the entries after it, then streams live
 // ones); without it the subscription starts live at the server's current
 // position (e.g. right after a bootstrap whose watermark is at least that).
+//
+// The answer's Grant carries the viewer's units in the group now. The
+// client keeps with each group the units what it holds was filtered by
+// (those of the grant or the bootstrap that loaded it) and treats a grant
+// whose units differ as BootstrapRequiredMessage{reason:
+// BootstrapPermissionChanged}: that message goes only to the subscriptions
+// that saw the change happen, so a client that missed it learns it from
+// the units of its next grant. The units are what the server compares
+// to send it (a change undone in between needs nothing: replays and live
+// changes are filtered by the current units).
 type GroupRequest struct {
 	Group string `json:"group"`
 	Since *int64 `json:"since,omitempty"`
@@ -231,7 +244,8 @@ const (
 	// server's limit ([livesync] MAX_REPLAY): a bootstrap is cheaper.
 	BootstrapReplayTooLong = "replay_too_long"
 	// BootstrapPermissionChanged: the viewer's units in the group changed;
-	// what they may read of it is no longer what they hold.
+	// what they may read of it is no longer what they hold. Not sent again
+	// on resume: see GroupRequest.
 	BootstrapPermissionChanged = "permission_changed"
 	// BootstrapCursorUnknown: the group's position is ahead of the sync
 	// log (it comes from another database, e.g. before a restore).

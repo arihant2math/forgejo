@@ -315,6 +315,102 @@ func TestPermissionChangedUnits(t *testing.T) {
 	x.h.mu.Unlock()
 }
 
+// A client that missed bootstrap_required{permission_changed} is not told
+// again when it resumes the group, from whatever position: the server does
+// not know the units it had. The resumed grant carries the units, and they
+// differ from the ones the client holds exactly when the change concerns
+// it (the client contract in protocol.GroupRequest): a change undone in
+// between needs nothing, the replay is filtered by the current units.
+func TestPermissionChangedResume(t *testing.T) {
+	leave := func(t *testing.T, x *harness) {
+		_, err := db.GetEngine(t.Context()).Exec("DELETE FROM org_user WHERE org_id = 3 AND uid = 4")
+		require.NoError(t, err)
+		x.epoch(protocol.PermissionChange{Users: []int64{4}})
+	}
+	join := func(t *testing.T, x *harness) {
+		_, err := db.GetEngine(t.Context()).Exec("INSERT INTO org_user (id, uid, org_id, is_public) VALUES (2, 4, 3, ?)", false)
+		require.NoError(t, err)
+		x.epoch(protocol.PermissionChange{Users: []int64{4}})
+	}
+	// missed reads cl's messages up to bootstrap_required{permission_changed}
+	// for org:3, which the client then misses (the session breaks).
+	missed := func(t *testing.T, cl *client) {
+		for {
+			m := cl.next()
+			if m.Type == protocol.MsgBootstrapRequired {
+				require.Equal(t, "org:3", m.Group)
+				require.Equal(t, protocol.BootstrapPermissionChanged, m.Reason)
+				return
+			}
+		}
+	}
+	// resume resumes org:3 from pos in a new session and returns the
+	// grant's units; the replay has nothing to say about the change.
+	resume := func(t *testing.T, x *harness, pos int64) ([]protocol.Unit, []protocol.Change) {
+		cl := x.connect(nil)
+		w := cl.hello(4, protocol.GroupRequest{Group: "org:3", Since: since(pos)})
+		require.Equal(t, []string{"org:3"}, grantGroups(w.Granted))
+		var chs []protocol.Change
+		for {
+			m := cl.next()
+			switch m.Type {
+			case protocol.MsgCaughtUp:
+				return w.Granted[0].Units, chs
+			case protocol.MsgDelta:
+				chs = append(chs, m.Changes...)
+			default:
+				require.Failf(t, "unexpected message", "%+v", m)
+			}
+		}
+	}
+	members := []protocol.Unit{protocol.UnitMembers}
+
+	t.Run("units shrank", func(t *testing.T) {
+		x := newHarness(t, Config{})
+		cl := x.connect(nil)
+		w := cl.hello(4, protocol.GroupRequest{Group: "org:3"})
+		require.Equal(t, members, w.Granted[0].Units)
+		cl.expect(protocol.MsgCaughtUp)
+		leave(t, x)
+		missed(t, cl)
+		units, _ := resume(t, x, x.h.pos.Load())
+		assert.Empty(t, units, "the client holds members: it must bootstrap")
+	})
+
+	t.Run("units grew", func(t *testing.T) {
+		x := newHarness(t, Config{})
+		leave(t, x)
+		team := x.append(upsert("org:3", protocol.ModelTeam, 1, protocol.UnitMembers))
+		x.deliver()
+		cl := x.connect(nil)
+		w := cl.hello(4, protocol.GroupRequest{Group: "org:3"})
+		require.Empty(t, w.Granted[0].Units)
+		cl.expect(protocol.MsgCaughtUp)
+		join(t, x)
+		missed(t, cl)
+		units, chs := resume(t, x, x.h.pos.Load())
+		assert.Equal(t, members, units, "the client holds none: it must bootstrap")
+		assert.NotContains(t, versions(chs), team, "older members-only entities come only with a bootstrap")
+	})
+
+	t.Run("changed and undone", func(t *testing.T) {
+		x := newHarness(t, Config{})
+		cl := x.connect(nil)
+		w := cl.hello(4, protocol.GroupRequest{Group: "org:3"})
+		require.Equal(t, members, w.Granted[0].Units)
+		cl.expect(protocol.MsgCaughtUp)
+		pos := x.h.pos.Load()
+		cl.c.stop() // the client goes away
+		leave(t, x)
+		team := x.append(upsert("org:3", protocol.ModelTeam, 1, protocol.UnitMembers))
+		x.deliver()
+		join(t, x)
+		units, chs := resume(t, x, pos)
+		assert.Equal(t, members, units, "same units: nothing to bootstrap")
+		assert.Equal(t, []int64{team}, versions(chs), "the replay sends what changed meanwhile")
+	})
+}
+
 // An epoch naming an owner re-checks the subscriptions of its org:{id}
 // and profile:{id} groups only.
 func TestOwnerEpoch(t *testing.T) {

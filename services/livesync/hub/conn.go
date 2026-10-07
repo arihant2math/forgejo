@@ -312,7 +312,9 @@ func (c *conn) sendCapped(msg any, limit int64) {
 // tells the client its position in s's group is not to be trusted: when s
 // is suspended, frames queued before it claim no more than s's hold (see
 // capLocked). A subscription that replays is not caught up for the client
-// (to does not raise its position): nothing to cap.
+// (to does not raise its position): nothing to cap. Only for reasons that
+// a resume from the hold derives again (replay_too_long, cursor_trimmed);
+// permission_changed is not one of them.
 func (c *conn) sendAtHold(s *sub, msg any) {
 	it, ok := encode(msg)
 	if !ok {

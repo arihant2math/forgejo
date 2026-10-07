@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func stream(t *testing.T, perms *perm.Cache, viewer int64, group string, edit fu
 	d, ok, err := perms.Check(ctx, viewer, group)
 	require.NoError(t, err)
 	require.True(t, ok, "user %d may read %s", viewer, group)
-	req := Request{Group: group, ViewerID: viewer, Units: d.Units, Tier: protocol.TierFull}
+	req := Request{Group: group, ViewerID: viewer, Units: d.Units, Tier: protocol.TierFull, Recent: time.Now().Add(-90 * 24 * time.Hour)}
 	if strings.HasPrefix(group, "repo:") {
 		req.Tier = protocol.TierSummary
 	}
@@ -187,6 +188,7 @@ func TestStream(t *testing.T) {
 	})
 	assert.Equal(t, protocol.TierClosed, res.header.Tier)
 	assert.Nil(t, res.header.ClosedBefore)
+	assert.Equal(t, strconv.FormatInt(time.Now().Unix()+3600, 10), res.header.Before, "the page's cursor")
 	closed, err := db.GetEngine(t.Context()).Table("issue").Where("repo_id = 1 AND is_closed = ?", true).Count()
 	require.NoError(t, err)
 	require.Positive(t, closed)
@@ -198,6 +200,15 @@ func TestStream(t *testing.T) {
 	}
 	assert.Equal(t, 1, issues, "a page of one")
 	assert.Equal(t, closed > 1, res.end.Next != "")
+
+	// The cutoff of a user:{id} bootstrap (read notifications); none in
+	// the other full groups.
+	res = stream(t, perms, 2, "user:2", nil)
+	require.NotNil(t, res.header.ClosedBefore)
+	assert.InDelta(t, time.Now().Add(-90*24*time.Hour).Unix(), *res.header.ClosedBefore, 60)
+	assert.Empty(t, res.header.Before)
+	res = stream(t, perms, 2, "issue:1", nil)
+	assert.Nil(t, res.header.ClosedBefore)
 }
 
 func TestWorkspace(t *testing.T) {

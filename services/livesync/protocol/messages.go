@@ -17,7 +17,10 @@ package protocol
 // SubscribeMessage / UnsubscribeMessage change the set of groups.
 //
 // Positions: every change carries its sync id v; a group's position is the
-// highest v the client received in it, raised to the "to" of a delta frame,
+// highest v the client received in it — from the group's subscription, or
+// the watermark of a bootstrap of the group itself; lines of the group
+// embedded in a bootstrap or load of another group (BootstrapEnd.Refs) do
+// not count —, raised to the "to" of a delta frame,
 // the sync_id of caught_up, pong, barrier_ok and resume_from_cursor for
 // every group that was live (caught up) when that message was sent. A
 // client resumes a group from its position (GroupRequest.Since); deltas

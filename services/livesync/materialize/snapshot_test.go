@@ -245,11 +245,21 @@ func TestSnapshotTiers(t *testing.T) {
 			got, res, ents := snapshotKeys(t, SnapshotRequest{Group: "repo:1", Tier: protocol.TierClosed, ClosedBefore: cur, Limit: 1, Allows: allows})
 			issues := issuesOf(got)
 			require.Len(t, issues, 1, "a page of one, never empty")
+			// The documented range of a page (protocol.BootstrapHeader):
+			// (updated_at, id) below its cursor, at or above its next.
+			below := func(updated, id int64, c ClosedCursor) bool {
+				return updated < c.Updated || (updated == c.Updated && c.ID != 0 && id < c.ID)
+			}
 			for _, e := range ents {
 				if e.Model == protocol.ModelIssue {
 					var dto protocol.Issue
 					require.NoError(t, json.Unmarshal([]byte(e.Payload), &dto))
 					assert.Equal(t, "closed", dto.State)
+					assert.Less(t, dto.UpdatedAt.Unix(), cutoff.Unix(), "older than the summary's cutoff")
+					assert.True(t, below(dto.UpdatedAt.Unix(), dto.ID, cur), "below the page's cursor")
+					if res.Next != nil {
+						assert.False(t, below(dto.UpdatedAt.Unix(), dto.ID, *res.Next), "at or above the next page's")
+					}
 					assert.LessOrEqual(t, dto.UpdatedAt.Unix(), lastUpdated, "newest first")
 					lastUpdated = dto.UpdatedAt.Unix()
 				}

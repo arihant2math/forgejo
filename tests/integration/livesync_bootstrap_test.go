@@ -213,6 +213,7 @@ func TestLivesyncBootstrapAPI(t *testing.T) {
 		assert.Empty(t, closedIssue)
 		page := livesyncBootstrap(t, user5, fmt.Sprintf("/-/sync/load?group=repo:1&closedBefore=%d&limit=1", *s.header.ClosedBefore))
 		assert.Equal(t, protocol.TierClosed, page.header.Tier)
+		assert.Equal(t, strconv.FormatInt(*s.header.ClosedBefore, 10), page.header.Before)
 		assert.Len(t, page.ids("repo:1", protocol.ModelIssue, nil), 1)
 		lazy := livesyncBootstrap(t, user5, "/-/sync/load?group=issue:1")
 		assert.Equal(t, protocol.TierFull, lazy.header.Tier)

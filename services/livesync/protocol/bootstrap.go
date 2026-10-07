@@ -42,12 +42,46 @@ const (
 // stream replays everything after it, and changes apply only when their v is
 // newer than what the client holds, so the overlap is harmless.
 //
-// A full or summary bootstrap (BootstrapHeader.Tier TierFull/TierSummary)
-// replaces what the client holds of the group: once the end line arrived,
-// drop every entity of the group (of the header's Models when it lists
-// some) with a version at or below the watermark that the response did not
-// contain. A closed page (TierClosed) only adds entities, and so do the
-// profile lines of other groups (they are not a bootstrap of those groups).
+// Replacement. Once the end line arrived, a full or summary response
+// replaces what the client holds of the group within the response's scope
+// (only the header's Models when it lists some): drop every entity of the
+// group in the scope with v at or below the watermark that the response did
+// not contain. Decide on the entities as held after applying the response's
+// lines (an entity changed by a delta newer than the watermark is kept as
+// the delta left it). When an Issue is dropped (here, by a closed page or by
+// a delete), drop its issue:{id} group as well (unsubscribe it). The scope
+// is everything in the group except what the response's tier leaves out
+// and cannot send again:
+//
+//   - summary (repo:{id}): the closed tier — an Issue held as closed (state
+//     "closed") with updated_at before ClosedBefore, and what hangs off it:
+//     its IssueLabel, IssueAssignee, ProjectIssue and PullRequest entities
+//     (issue_id) and the AutoMerge of such a PullRequest (pull_id); and the
+//     CommitStatus, ActionRun and ActionRunJob entities with updated_at
+//     before ClosedBefore (no response sends them again; they stay as the
+//     deltas left them);
+//   - user:{id} (ClosedBefore is set too): the Notifications held as read
+//     with updated_at before ClosedBefore.
+//
+// Those kept entities are as of the response or delta that brought them: if
+// the client missed deltas (it re-bootstraps after bootstrap_required) they
+// may be stale until the closed pages that hold them are loaded again. And
+// when the header's Units differ from the units the client held the group
+// with (a re-bootstrap after permission_changed, see the units rule below),
+// the scope is the whole group: drop the closed tier too.
+//
+// A closed page (TierClosed) replaces the closed tier between its cursors:
+// the Issues held as closed with updated_at before the summary's
+// ClosedBefore whose (updated_at in Unix seconds, id) is below the page's
+// Before and at or above BootstrapEnd.Next (any, when the page has no
+// Next), with what hangs off them, and what hangs off the page's own
+// Issues: drop those with v at or below the page's watermark that the page
+// did not contain. Pages cover the closed tier without gaps or overlaps
+// (each page starts at the previous one's Next), newest first.
+//
+// Lines of other groups (the profiles of BootstrapEnd.Refs) only add
+// entities: they are not a bootstrap of those groups, replace nothing there,
+// and do not set or raise those groups' positions (see BootstrapEnd.Refs).
 //
 // The response is filtered by the viewer's units in the group, which the
 // header states (Units, as in a Grant): keep them with the group and treat a
@@ -75,10 +109,18 @@ type BootstrapHeader struct {
 	// Models is set when the request asked for some models only (?model=);
 	// the response then replaces only those.
 	Models []Model `json:"models,omitempty"`
-	// ClosedBefore (summary tier) is the recency cutoff, in Unix seconds:
-	// closed issues and pull requests not updated since are not in the
-	// summary; load them with /-/sync/load?group=…&closedBefore=<this>.
+	// ClosedBefore is the recency cutoff, in Unix seconds, of a summary
+	// (repo:{id}) or a user:{id} bootstrap: closed issues and pull requests,
+	// commit statuses, action runs and jobs (summary) and read notifications
+	// (user:{id}) not updated since are not in the response, and its
+	// replacement leaves them alone. Load the closed tier with
+	// /-/sync/load?group=repo:{id}&closedBefore=<this>.
 	ClosedBefore *int64 `json:"closed_before,omitempty"`
+	// Before (closed tier) is the closedBefore cursor the page starts at
+	// (exclusive; "<unix>" or "<unix>.<id>"): the page holds the closed
+	// issues and pull requests ordered (updated_at, id) below it, down to
+	// BootstrapEnd.Next (included) or the oldest.
+	Before string `json:"before,omitempty"`
 }
 
 // BootstrapEnd is the last line of a complete bootstrap or load response.
@@ -91,10 +133,16 @@ type BootstrapEnd struct {
 	// the viewer may read: the profile directories (profiles:public,
 	// profiles:limited), private users' profile:{id} and organizations'
 	// org:{id}. The profiles of profile:{id} and org:{id} groups were sent
-	// in this response (after the group's own entities); those of the
-	// directories were not: subscribe/bootstrap the directories (the
-	// workspace does). Subscribe any of them with since = watermark to keep
-	// the embedded profiles current.
+	// in this response (after the group's own entities, v = the watermark);
+	// those of the directories were not. Such a line only adds the one
+	// entity: it is not a bootstrap of its group (an organization's group
+	// also holds its labels, projects, teams and members, which issues of
+	// its repositories refer to), and it does not set or raise that group's
+	// position. To hold a referenced group, bootstrap it, then subscribe it
+	// with since = that bootstrap's watermark — never with this response's
+	// watermark, which would skip the group's entities the client never got.
+	// The workspace lists the groups to hold (the directories, the viewer's
+	// organizations and those owning the workspace's repositories).
 	Refs []string `json:"refs"`
 	// Next (closed tier) is the closedBefore value of the next page; absent
 	// on the last page.

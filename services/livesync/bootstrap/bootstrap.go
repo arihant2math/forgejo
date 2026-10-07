@@ -112,8 +112,15 @@ func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, 
 	}
 	// The profiles the entities refer to may follow them.
 	header.Schemas[protocol.ModelUser] = all[protocol.ModelUser]
-	if req.Tier == protocol.TierSummary {
-		header.ClosedBefore = new(req.Recent.Unix())
+	// The tiers' cutoffs (protocol.BootstrapHeader: what the replacement
+	// leaves alone).
+	switch prefix, _, _ := protocol.ParseGroup(req.Group); {
+	case req.Tier == protocol.TierClosed:
+		header.Before = req.ClosedBefore.String()
+	case req.Tier == protocol.TierSummary, prefix == protocol.GroupPrefixUser:
+		if !req.Recent.IsZero() {
+			header.ClosedBefore = new(req.Recent.Unix())
+		}
 	}
 
 	bw := bufio.NewWriterSize(w, 32<<10)

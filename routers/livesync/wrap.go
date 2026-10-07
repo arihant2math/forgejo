@@ -14,6 +14,7 @@ import (
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
 	livesync_service "forgejo.org/services/livesync"
+	"forgejo.org/services/livesync/capture"
 )
 
 // Path prefixes owned by livesync. Requests below them never reach the
@@ -25,16 +26,26 @@ const (
 
 // Wrap runs livesync.Init and returns the handler the web server must serve.
 //
-// When livesync is disabled, the database is not supported (SQLite) or Init
-// fails, it logs why and returns inner itself, unchanged: Forgejo then behaves
+// When livesync is disabled, the database is not supported (SQLite), the
+// capture triggers are missing or stale (logged with the DDL that installs
+// them) or Init fails otherwise, it logs why and returns inner itself,
+// unchanged: Forgejo then behaves
 // exactly as upstream. Otherwise it registers livesync's graceful-shutdown hook
 // and returns a handler that serves /-/sync/* and /-/next/* itself and passes
 // every other request to inner untouched.
 func Wrap(inner http.Handler) http.Handler {
 	if err := livesync_service.Init(graceful.GetManager().HammerContext()); err != nil {
-		if errors.Is(err, livesync_service.ErrDisabled) || errors.Is(err, livesync_service.ErrUnsupportedDatabase) {
+		var notInstalled *capture.NotInstalledError
+		switch {
+		case errors.Is(err, livesync_service.ErrDisabled) || errors.Is(err, livesync_service.ErrUnsupportedDatabase):
 			log.Info("livesync: not serving: %v; serving the classic UI only", err)
-		} else {
+		case errors.As(err, &notInstalled):
+			// An operational state rather than a crash: in INSTALL_MODE
+			// verify a DBA has to run the DDL; in auto mode the database
+			// user lacks the privileges. Either way the DDL is needed.
+			log.Warn("livesync: not serving, serving the classic UI only: %v", err)
+			log.Info("livesync: DDL that installs the capture triggers (run it as a privileged database user, then restart Forgejo):\n%s", notInstalled.Status.Script())
+		default:
 			log.Error("livesync: failed to start, serving the classic UI only: %v", err)
 		}
 		return inner

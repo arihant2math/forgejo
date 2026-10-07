@@ -14,11 +14,14 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
+	"forgejo.org/services/livesync/capture"
 )
 
 // TablesVersion is the version of livesync's own table layout, recorded in
@@ -45,7 +48,11 @@ var (
 type instance struct {
 	ctx    context.Context
 	cancel context.CancelFunc
+	reader *capture.Reader
 }
+
+// readerStopTimeout bounds how long Shutdown waits for the outbox reader.
+const readerStopTimeout = 10 * time.Second
 
 var (
 	mu      sync.Mutex
@@ -53,9 +60,13 @@ var (
 )
 
 // Init loads the [livesync] settings and, when livesync is enabled on a
-// supported database, creates or updates livesync's tables and marks livesync
-// as running. It returns ErrDisabled or ErrUnsupportedDatabase (wrapped) when
+// supported database, creates or updates livesync's tables, checks the table
+// catalog, verifies (INSTALL_MODE verify) or installs and repairs
+// (INSTALL_MODE auto) the capture triggers, starts the outbox reader and
+// marks livesync as running. It returns ErrDisabled or ErrUnsupportedDatabase (wrapped) when
 // livesync must not run; any other error means livesync could not start.
+// A *capture.NotInstalledError (errors.Is capture.ErrNotInstalled) means the
+// triggers are missing or stale; its Status.Script is the DDL for a DBA.
 // In every error case livesync is left stopped and the caller must serve
 // plain Forgejo.
 //
@@ -85,10 +96,56 @@ func Init(ctx context.Context) error {
 	if err := EnsureTables(ctx); err != nil {
 		return err
 	}
+	if _, err := CheckCatalog(); err != nil {
+		return err
+	}
+	if err := ensureCapture(ctx, s.InstallMode); err != nil {
+		return err
+	}
 
 	instCtx, cancel := context.WithCancel(ctx)
-	current = &instance{ctx: instCtx, cancel: cancel}
+	reader, err := capture.Start(instCtx, capture.Config{
+		PollInterval: s.PollInterval,
+		HoleTimeout:  s.HoleTimeout,
+	}, drainConsumer{})
+	if err != nil {
+		cancel()
+		return fmt.Errorf("livesync: start the outbox reader: %w", err)
+	}
+	current = &instance{ctx: instCtx, cancel: cancel, reader: reader}
 	log.Info("livesync: started (db=%s, install mode=%s)", setting.Database.Type, s.InstallMode)
+	return nil
+}
+
+// ensureCapture checks the capture triggers and, in INSTALL_MODE auto,
+// repairs them. Livesync refuses to start (returns a
+// *capture.NotInstalledError) when they are missing or stale at the end.
+func ensureCapture(ctx context.Context, mode InstallMode) error {
+	report, err := capture.Ensure(ctx, mode == InstallModeAuto)
+	if err != nil {
+		return err
+	}
+	if len(report.Repaired) > 0 {
+		log.Info("livesync: (re)installed the capture triggers of %d table(s) and bumped their schema epochs: %s",
+			len(report.Repaired), strings.Join(report.Repaired, ", "))
+	}
+	if len(report.Dropped) > 0 {
+		log.Info("livesync: dropped capture triggers of untracked tables: %s", strings.Join(report.Dropped, ", "))
+	}
+	if script := report.Status.Script(); script != "" {
+		// Only extra triggers are left (verify mode): harmless but wasteful.
+		log.Warn("livesync: capture triggers on untracked tables remain (INSTALL_MODE=verify); a DBA can drop them with:\n%s", script)
+	}
+	return nil
+}
+
+// drainConsumer is the outbox consumer until the materializer (B3) replaces
+// it: it acknowledges every batch, so the outbox does not grow while nothing
+// consumes the changes yet.
+type drainConsumer struct{}
+
+func (drainConsumer) Consume(_ context.Context, b *capture.Batch) error {
+	log.Trace("livesync: drained %d outbox change(s), cursor %d", len(b.Changes), b.Cursor)
 	return nil
 }
 
@@ -176,5 +233,8 @@ func shutdownLocked() {
 		return
 	}
 	current.cancel()
+	if current.reader != nil && !current.reader.Wait(readerStopTimeout) {
+		log.Warn("livesync: the outbox reader did not stop within %s", readerStopTimeout)
+	}
 	current = nil
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 
 	"forgejo.org/modules/setting"
 	"forgejo.org/modules/test"
@@ -16,17 +17,22 @@ import (
 )
 
 func TestLoadSettings(t *testing.T) {
+	const hole = 30 * time.Second
 	cases := []struct {
 		ini     string
 		want    Settings
 		wantErr bool
 	}{
-		{"", Settings{Enabled: false, InstallMode: InstallModeAuto}, false},
-		{"[livesync]\nENABLED = true\n", Settings{Enabled: true, InstallMode: InstallModeAuto}, false},
-		{"[livesync]\nENABLED = true\nINSTALL_MODE = verify\n", Settings{Enabled: true, InstallMode: InstallModeVerify}, false},
-		{"[livesync]\nINSTALL_MODE = \" Verify \"\n", Settings{InstallMode: InstallModeVerify}, false},
-		{"[livesync]\nINSTALL_MODE = AUTO\n", Settings{InstallMode: InstallModeAuto}, false},
+		{"", Settings{Enabled: false, InstallMode: InstallModeAuto, HoleTimeout: hole}, false},
+		{"[livesync]\nENABLED = true\n", Settings{Enabled: true, InstallMode: InstallModeAuto, HoleTimeout: hole}, false},
+		{"[livesync]\nENABLED = true\nINSTALL_MODE = verify\n", Settings{Enabled: true, InstallMode: InstallModeVerify, HoleTimeout: hole}, false},
+		{"[livesync]\nINSTALL_MODE = \" Verify \"\n", Settings{InstallMode: InstallModeVerify, HoleTimeout: hole}, false},
+		{"[livesync]\nINSTALL_MODE = AUTO\n", Settings{InstallMode: InstallModeAuto, HoleTimeout: hole}, false},
 		{"[livesync]\nINSTALL_MODE = manual\n", Settings{}, true},
+		{"[livesync]\nPOLL_INTERVAL = 50ms\nHOLE_TIMEOUT = 2s\n", Settings{InstallMode: InstallModeAuto, PollInterval: 50 * time.Millisecond, HoleTimeout: 2 * time.Second}, false},
+		{"[livesync]\nPOLL_INTERVAL = soon\n", Settings{}, true},
+		{"[livesync]\nPOLL_INTERVAL = -1s\n", Settings{}, true},
+		{"[livesync]\nHOLE_TIMEOUT = 0\n", Settings{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.ini, func(t *testing.T) {

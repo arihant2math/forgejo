@@ -6,6 +6,7 @@ package livesync
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"forgejo.org/modules/setting"
 )
@@ -33,6 +34,13 @@ type Settings struct {
 	Enabled bool
 	// INSTALL_MODE (default auto): auto | verify, see InstallMode.
 	InstallMode InstallMode
+	// POLL_INTERVAL (default 0 = 250ms on PostgreSQL, 100ms on MySQL): how
+	// often the outbox reader polls when no doorbell rang (B2).
+	PollInterval time.Duration
+	// HOLE_TIMEOUT (default 30s): how long the outbox reader waits for an
+	// outbox id below its high-water mark (an uncommitted transaction) before
+	// giving it up as rolled back (B2).
+	HoleTimeout time.Duration
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -49,6 +57,16 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	case InstallModeAuto, InstallModeVerify:
 	default:
 		return s, fmt.Errorf("invalid [livesync] INSTALL_MODE %q (want %q or %q)", s.InstallMode, InstallModeAuto, InstallModeVerify)
+	}
+	var err error
+	if s.PollInterval, err = sec.Key("POLL_INTERVAL").MustDuration(0); err != nil {
+		return s, fmt.Errorf("invalid [livesync] POLL_INTERVAL: %w", err)
+	}
+	if s.HoleTimeout, err = sec.Key("HOLE_TIMEOUT").MustDuration(30 * time.Second); err != nil {
+		return s, fmt.Errorf("invalid [livesync] HOLE_TIMEOUT: %w", err)
+	}
+	if s.PollInterval < 0 || s.HoleTimeout <= 0 {
+		return s, fmt.Errorf("invalid [livesync] POLL_INTERVAL %s / HOLE_TIMEOUT %s (want >= 0 / > 0)", s.PollInterval, s.HoleTimeout)
 	}
 	return s, nil
 }

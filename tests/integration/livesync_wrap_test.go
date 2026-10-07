@@ -66,6 +66,11 @@ func TestLivesyncWrapEnabled(t *testing.T) {
 	}
 
 	livesyncDropTables(t)
+	t.Cleanup(func() {
+		livesync_service.Shutdown()
+		livesyncUninstallTriggers(t)
+		livesyncResetCapture(t)
+	})
 	wrapped := livesync_router.Wrap(routers.NormalRoutes())
 	require.True(t, livesync_service.Running(), "livesync failed to start, see the log")
 	defer test.MockVariableValue(&testWebRoutes, livesyncRoutes(wrapped))()

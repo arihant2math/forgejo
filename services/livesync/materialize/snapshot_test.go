@@ -435,6 +435,58 @@ func TestBackfillPending(t *testing.T) {
 	pending, err = BackfillPending(ctx, []string{"issue", "label"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"label"}, pending)
+	exec(t, "UPDATE livesync_meta SET value = '1000' WHERE name = ?", MetaBackfillPrefix+"label")
+	pending, err = BackfillPending(ctx, []string{"issue", "label"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"label"}, pending, "initial walk")
+
+	// A permission walk (only ever started on a complete index) writes
+	// nothing a snapshot reads: no waiting. Before this, every bootstrap
+	// answered 503 while the user table's walk ran after an upgrade.
+	exec(t, "UPDATE livesync_meta SET value = 'perm:0' WHERE name = ?", MetaBackfillPrefix+"user")
+	exec(t, "UPDATE livesync_meta SET value = 'perm:1234' WHERE name = ?", MetaBackfillPrefix+"collaboration")
+	pending, err = BackfillPending(ctx, []string{"user", "collaboration", "issue"})
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+}
+
+// A permission table whose permission states are stale while its initial
+// index walk has not finished gets a repair walk (indexes every row and
+// records the states), not a permission walk, which bootstraps would take
+// for a complete index; no markers.
+func TestHandleEpochsIncompleteWalk(t *testing.T) {
+	resetLivesync(t)
+	ctx := t.Context()
+	m, _ := testMaterializer(t)
+	backfillAll(t, m)
+	var cursor int64
+	takeLog(t, &cursor)
+	// collaboration: initial walk half way; team: done.
+	require.NoError(t, livesync_model.SetMeta(ctx, MetaBackfillPrefix+"collaboration", "2"))
+	_, err := db.GetEngine(ctx).Exec("DELETE FROM livesync_entity WHERE tbl = 'collaboration' AND row_id > 2")
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).Exec("DELETE FROM livesync_meta WHERE name IN (?, ?)", MetaPermPrefix+"collaboration", MetaPermPrefix+"team")
+	require.NoError(t, err)
+	require.NoError(t, m.loadBackfill(ctx))
+
+	require.NoError(t, m.HandleEpochs(ctx))
+	rows, _ := takeLog(t, &cursor)
+	assert.Empty(t, rows, "no markers")
+	for table, want := range map[string]string{"collaboration": "repair:0", "team": "perm:0"} {
+		v, _, err := livesync_model.GetMeta(ctx, MetaBackfillPrefix+table)
+		require.NoError(t, err)
+		assert.Equal(t, want, v, table)
+	}
+	pending, err := BackfillPending(ctx, []string{"collaboration", "team"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"collaboration"}, pending)
+	backfillAll(t, m)
+	var n int64
+	n, err = db.GetEngine(ctx).Table("livesync_entity").Where("tbl = 'collaboration'").Count()
+	require.NoError(t, err)
+	total, err := db.GetEngine(ctx).Table("collaboration").Count()
+	require.NoError(t, err)
+	assert.Equal(t, total, n, "every row indexed")
 }
 
 // Profiles and their groups.

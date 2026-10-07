@@ -6,6 +6,7 @@ package materialize
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -126,7 +127,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 		return err
 	}
 	var entries []synclog.Entry
-	var record, reset, permWalk []string
+	var record, reset, permWalk, repairWalk []string
 	permLost := false
 	for _, t := range catalog.Tracked() {
 		epoch := current[t.Name]
@@ -142,8 +143,21 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			continue
 		}
 		if !repaired && !moved {
-			if m.walk[t.Name] != indexRepair || m.backfillComplete(t.Name) {
+			switch mode := m.walk[t.Name]; {
+			case m.backfillComplete(t.Name) || mode == indexPerm:
 				permWalk = append(permWalk, t.Name)
+			case mode == indexRepair:
+				// The repair walk records the states too.
+			default:
+				// The initial walk has not passed every row yet. A
+				// permission walk from the start would take its place
+				// and leave the rows it has not reached unindexed, while
+				// bootstraps take a table in a permission walk for
+				// indexed (BackfillPending). A repair walk indexes every
+				// row and records the states; no markers: no client can
+				// hold the table's entities before its first walk is
+				// done.
+				repairWalk = append(repairWalk, t.Name)
 			}
 			continue
 		}
@@ -192,7 +206,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 				}
 			}
 		}
-		for _, table := range reset {
+		for _, table := range slices.Concat(reset, repairWalk) {
 			if err := livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(0, indexRepair)); err != nil {
 				return err
 			}
@@ -206,7 +220,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	for _, table := range reset {
+	for _, table := range slices.Concat(reset, repairWalk) {
 		m.backfill[table] = 0
 		m.walk[table] = indexRepair
 	}

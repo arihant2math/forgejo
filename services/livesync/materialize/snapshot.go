@@ -349,8 +349,12 @@ func SnapshotModels(req SnapshotRequest) ([]protocol.Model, error) {
 }
 
 // BackfillPending returns the tables among tables whose entity index
-// backfill (or repair / permission walk) is not done: a snapshot reading
-// them must wait (see the entity index backfill in backfill.go).
+// backfill or repair walk is not done: a snapshot reading them must wait
+// (see the entity index backfill in backfill.go). A permission walk
+// ("perm:<id>") does not make them wait: it runs only on a table whose
+// index was complete (HandleEpochs) and writes nothing but the index rows'
+// permission states, which snapshots do not read (their presence, group,
+// unit and hash stay).
 func BackfillPending(ctx context.Context, tables []string) ([]string, error) {
 	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
@@ -362,7 +366,7 @@ func BackfillPending(ctx context.Context, tables []string) ([]string, error) {
 	}
 	done := map[string]bool{}
 	for _, m := range metas {
-		done[m.Name[len(MetaBackfillPrefix):]] = m.Value == backfillDoneValue
+		done[m.Name[len(MetaBackfillPrefix):]] = m.Value == backfillDoneValue || strings.HasPrefix(m.Value, backfillPermPrefix)
 	}
 	var res []string
 	for _, t := range tables {

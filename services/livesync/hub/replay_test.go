@@ -287,7 +287,8 @@ func TestHeldEntries(t *testing.T) {
 // With the hold removed after queueing them, a writer that took the queue
 // in between claimed the stale hold (to = the epoch, until the session's
 // next change); removed before, it would claim the hub's position before
-// they were queued (a client resuming from there would miss them).
+// they were queued (a client resuming from there would miss them). The
+// same holds for the held marker's bootstrap_required.
 func TestHeldEntriesFrameTo(t *testing.T) {
 	x := newHarness(t, Config{})
 	cl := x.connectEager()
@@ -304,10 +305,12 @@ func TestHeldEntriesFrameTo(t *testing.T) {
 	want := []int64{pos + 2, pos + 4}
 	got := []int64{}
 	var to int64
+	var bootstrap bool
 	for len(got) < len(want) {
 		m := cl.next()
 		if m.Type != protocol.MsgDelta {
 			require.Equal(t, protocol.MsgBootstrapRequired, m.Type, "%+v", m)
+			bootstrap = true
 			continue
 		}
 		got = append(got, versions(m.Changes)...)
@@ -315,6 +318,9 @@ func TestHeldEntriesFrameTo(t *testing.T) {
 			if v <= m.To {
 				assert.Contains(t, got, v, "a frame claims %d before it was sent", m.To)
 			}
+		}
+		if m.To >= pos+3 {
+			assert.True(t, bootstrap, "a frame claims %d before the marker's bootstrap_required", m.To)
 		}
 		to = m.To
 	}

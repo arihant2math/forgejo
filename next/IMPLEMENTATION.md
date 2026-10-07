@@ -1358,7 +1358,7 @@ does) **and** MySQL 8.0 (binlog on).
     diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
-- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; the final review's open item (flaky `TestHeldEntries`/`TestTouches`) fixed 2026-10-07 — a real, if mild, product bug, plus two siblings — see *Final-review open item*; no open items)
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; the final review's open item (flaky `TestHeldEntries`/`TestTouches`) fixed 2026-10-07 — a real, if mild, product bug, plus two siblings — see *Final-review open item*; its re-review's item (a delta claimed a re-bootstrap marker's position before the marker's `bootstrap_required`) fixed 2026-10-07 for every `bootstrap_required` path — see *Final-review round 2*; no open items)
 - **Scope:** `services/livesync/protocol` message types (`hello`, `welcome`,
   `subscribe`/`unsubscribe`, `delta`, `caught_up`, `bootstrap_required`,
   `group_revoked`, `barrier`/`barrier_ok`, `session_invalid`, `notice`, `pong`,
@@ -1412,6 +1412,9 @@ does) **and** MySQL 8.0 (binlog on).
       it went private), whatever `since` it claims; what it can get is what a bootstrap would give it now. The ids of entities deleted
       in the range are still sent (as deletes).
     - `group_revoked`: the subscription is gone; purge the group. Refusals never tell "forbidden" from "does not exist".
+    - `bootstrap_required` and `group_revoked` carry no position; the server guarantees that no frame before them claims a
+      position (`delta.to`) past what they are about (a marker's sync id − 1, a suspended subscription's hold, the position before
+      a retention skip), so resuming from the last position received always replays the reason again (final review round 2).
   - **Hub** (`services/livesync/hub`, PLAN §4.6/§4.11). The hub is the tailer's sink (`permSink{cache, next: hub}`): `permSink`
     applies epochs to the grant cache first, then `Hub.Deliver` handles the batch **in log order under one hub lock**:
     - **Fan-out** (entity entries): `byGroup[grp]` → live subscriptions whose units allow the entry (`perm.UnitSet.Allows`) and whose
@@ -1456,7 +1459,9 @@ does) **and** MySQL 8.0 (binlog on).
       changes; payloads are embedded verbatim (no re-encoding). Control messages are ordered with the changes in one queue per session.
       The writer computes a frame's `to` when it takes the queue (`conn.take`: hub position loaded first, then min over the holds under
       `conn.mu`), so whatever changes what `to` may claim must change in the same `conn.mu` critical section that queues what the claim
-      depends on, or before the writer is woken — never after (see *Final-review open item*).
+      depends on, or before the writer is woken — never after (see *Final-review open item*). A message that tells the client a
+      caught-up group is complete only up to some position (`bootstrap_required`, `group_revoked`) caps the last delta queued
+      before it (`conn.capLocked` → `outItem.maxTo`, applied in `take`; see *Final-review round 2*).
     - **Backpressure**: per-session queue bounded by `SEND_BUFFER` bytes, **live changes and control messages** (review round 1: pongs,
       errors, …; control messages are encoded when queued, so their size is exact; one item larger than the buffer may enter an empty
       queue, else it could never be sent); replays wait for room instead. Overflow ⇒ the unsent queue is dropped,
@@ -1639,7 +1644,8 @@ does) **and** MySQL 8.0 (binlog on).
       (manual; the delta queued before `group_revoked` claims the epoch, the next one the hub position). Each was run against the old
       code paths reintroduced one at a time and fails: old release (last `to` 1, want 4), clear-first release ("a frame claims 4 before
       it was sent"), writers woken during `Deliver` (`to` 0 for `v` 1), only the marker woken early (`to` 1, want 3), old revoke (the
-      delta before `group_revoked` claims 2, hold 1).
+      delta before `group_revoked` claims 2, hold 1). (`TestDeliverFrameTo`'s second step asserted `to` = the marker's position; that
+      was the hazard of round 2 below and now asserts the change's.)
     - **Integration test race fixed (pre-existing):** `TestLivesyncHub/ws` on MySQL failed now and then at `livesync_hub_test.go:437`
       ("trigger_repaired" vs "cursor_trimmed"; old code 1/20, hub fix before this test change 5/26 — same path, timing-dependent, the
       hub fix does not touch the tailer or the floor): the PATCH before the retention step creates
@@ -1651,6 +1657,48 @@ does) **and** MySQL 8.0 (binlog on).
       skip), no testlogger "FATAL ERROR"; gofumpt clean, golangci-lint on `services/livesync/...` + `tests/integration/...` (0
       issues), `go vet`, deadcode diff clean, `gen-protocol.sh --check` up to date (wire format unchanged); fork diff unchanged
       (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
+
+  - **Final-review round 2: a delta claimed a re-bootstrap marker's position before its `bootstrap_required` (major, fixed
+    2026-10-07).** `take` gives the last delta of a batch `to` = hub position (capped by the holds and `maxTo` only), also when a
+    `bootstrap_required` queued after it depends on that position. `bootstrap_required` carries no position, so a session that broke
+    between the two writes (write timeout, reset, SSE cut) resumed the group from `to` ≥ the marker and the replay `(to, …]` never
+    included it: the client kept stale data of that model for good. Deterministic since the wake-after-store change whenever one
+    `Deliver` brought a change and then a marker for a session (frames `delta to=2 (marker at 2)`, `bootstrap_required`; a client
+    resuming `repo:1` from 2 got `caught_up`), and on release (`releaseHeldLocked` queues held `[change, marker]`; `delta to=3`
+    (marker 3)). `TestDeliverFrameTo` asserted the hazard (`to == v+1`, "the marker's position too").
+    - **Root cause / scope.** The round-1 rule ("no frame before `group_revoked` may claim more than the hold") applies to every
+      message that tells the client a group it holds as caught up is complete only up to some position and carries none itself.
+      Scanned every `bootstrap_required`: besides the two reported, the same loss existed for (c) markers met by a **catch-up replay**
+      (a re-checked subscription whose held entries overflowed: the replay queues `[change, marker]` under the hold, `goLiveLocked`
+      removes it, the delta then claims the hub position), (d) **`permission_changed`** (`check` queues it while the hold is there; with
+      nothing held, the release queues nothing after it and the earlier delta claims the hub position — the client resumed past the unit
+      change and kept/lacked data), (e) **`restartLive`** (`replay_too_long`/`cursor_trimmed` of a catch-up: same, at the hold) and (f)
+      **`Skipped`** (`cursor_trimmed` queued before `h.pos` jumps to the floor; the subscriptions' holds are at `from`, but once the
+      re-check went live with nothing to replay the earlier delta claimed the floor). Not affected: `cursor_unknown` at subscribe (the
+      group was not caught up for the client), replays of `stateReplay` subscriptions (not caught up; `to` does not raise their
+      position — capped anyway, harmless), position-bearing control messages (`caught_up`/`pong`/`barrier_ok` read the position under
+      `h.mu`/the holds before the marker is applied or after it is queued).
+    - **Fix.** `conn.capLocked(limit)` caps the last delta queued so far (`outItem.capped`/`maxTo`; `capped` because a cap of 0 is
+      legal: a marker at sync id 1) and is called in the critical section that queues the message: markers `limit = sync id − 1`
+      (`sendDelivered(msg, limit)` in `markerLocked`; `heldItem.at` keeps the held marker's sync id for `releaseHeldLocked`; the replay
+      uses `sendCapped`), `permission_changed`/`restartLive` at the subscription's hold (`sendAtHold`; nothing when it replays),
+      `Skipped` at `from`, `revokeLocked` at the hold (its inline loop replaced). Lowering `to` is always safe (positions are the highest
+      `v` raised to `to`); the cost is a lagging position after a marker in a quiet session — a resume from it meets the marker once more
+      (one extra `bootstrap_required`), never a loss.
+    - **Tests.** `TestBootstrapCapsQueuedFrame` (manual writer; subtests `live marker`, `held marker`, `replayed marker` (catch-up
+      after held overflow, `SEND_BUFFER` 2000), `permission changed` (user4 leaves org3, a `repo:1` delta queued before the epoch, an
+      unrelated entry after it), `trimmed` (`Skipped` with nothing of the group after the floor)); the three marker subtests also resume
+      the group in a new session from the claimed `to` and require `bootstrap_required` (`resumeGetsBootstrap`). `TestDeliverFrameTo`
+      now expects `to` = the change and a resume that gets `bootstrap_required`; `TestHeldEntriesFrameTo` also checks no frame claims the
+      marker before its `bootstrap_required`. Against the round-1 code every subtest fails (`to` 2/3/6/3/4 vs 1/2/5/2/1; resumed clients
+      get `caught_up`); the reviewer's overlay repro passes now.
+    - **Commands:** hub package `-race -count=20` green (92 s); livesync + `routers/livesync` unit tests `-race`; `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 31 pass, 3
+      MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and
+      `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; `gen-protocol.sh --check` up to date (only a doc comment in
+      `messages.go`: the Positions contract now says `bootstrap_required`/`group_revoked` carry no position and nothing before them
+      claims past what they are about); gofumpt
+      clean, golangci-lint `services/livesync/...` + `routers/livesync/...` (0 issues), `go vet`, deadcode diff clean; fork diff unchanged
+      (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). Wire format unchanged. MariaDB not run (no trigger change).
 
 #### B6 — Bootstrap + partial load
 - [ ] **Status**

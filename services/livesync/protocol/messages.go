@@ -22,7 +22,10 @@ package protocol
 // every group that was live (caught up) when that message was sent. A
 // client resumes a group from its position (GroupRequest.Since); deltas
 // are full entity states, applied only when v is newer than what the client
-// holds, so replaying overlaps is harmless.
+// holds, so replaying overlaps is harmless. bootstrap_required and
+// group_revoked carry no position: no message before them claims a
+// position past what they are about, so a client that resumes from its
+// position after missing one of them is told again.
 
 // ProtocolVersion is the version of the sync protocol (WelcomeMessage.Protocol).
 // It changes only when a message changes incompatibly; entity DTO changes are

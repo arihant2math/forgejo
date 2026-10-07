@@ -285,7 +285,8 @@ func (h *Hub) Skipped(_ context.Context, from, floor int64) {
 			if s.state == stateLive {
 				// Replaying ones are told by their replay (their position
 				// is below the floor).
-				c.send(&protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapCursorTrimmed})
+				// Complete up to from only (see conn.capLocked).
+				c.sendCapped(&protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapCursorTrimmed}, from)
 			}
 		}
 	}
@@ -350,7 +351,9 @@ func (h *Hub) enqueueDeliveredLocked(c *conn, ch *protocol.Change) {
 
 // markerLocked turns a re-bootstrap marker into bootstrap_required for the
 // live subscriptions whose group can hold the marker's model. Subscriptions
-// that are replaying meet the marker in their replay.
+// that are replaying meet the marker in their replay. A frame queued
+// before bootstrap_required claims no more than the position before the
+// marker (conn.capLocked): a client resuming from there replays it.
 func (h *Hub) markerLocked(e *livesync_model.LogEntry) {
 	var marker protocol.RebootstrapMarker
 	if err := json.Unmarshal([]byte(e.Payload), &marker); err != nil {
@@ -362,10 +365,10 @@ func (h *Hub) markerLocked(e *livesync_model.LogEntry) {
 			switch {
 			case !canHold(s.kind, model):
 			case s.state == stateLive && e.SyncID > s.liveFrom:
-				c.sendDelivered(bootstrapFor(s.group, &marker, model))
+				c.sendDelivered(bootstrapFor(s.group, &marker, model), e.SyncID-1)
 				h.delivered[c] = struct{}{}
 			case s.state == stateRecheck && s.holding && e.SyncID > s.cursor:
-				h.holdLocked(s, heldItem{marker: bootstrapFor(s.group, &marker, model)}, 128)
+				h.holdLocked(s, heldItem{marker: bootstrapFor(s.group, &marker, model), at: e.SyncID}, 128)
 			}
 		}
 	}
@@ -402,7 +405,9 @@ func (h *Hub) dropHeldLocked(s *sub) {
 // the writer send them under the stale hold (to < their v, not raised
 // until the session's next change); removing the hold first would let it
 // claim the hub's position (to ≥ their v) before they were queued, and a
-// client that resumed from that frame's to would never get them.
+// client that resumed from that frame's to would never get them. A
+// marker's bootstrap_required caps the frame queued before it, as live
+// (markerLocked).
 func (h *Hub) releaseHeldLocked(s *sub) {
 	c := s.c
 	c.mu.Lock()
@@ -410,6 +415,7 @@ func (h *Hub) releaseHeldLocked(s *sub) {
 	for _, it := range s.held {
 		switch {
 		case it.marker != nil:
+			c.capLocked(it.at - 1)
 			c.sendLocked(it.marker)
 		case s.units.Allows(it.unit):
 			c.enqueueChangeLocked(*it.ch, true)

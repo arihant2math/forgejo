@@ -255,7 +255,7 @@ func (h *Hub) check(s *sub) {
 		h.revokeLocked(s)
 	default:
 		if d.Units != s.units {
-			c.send(&protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapPermissionChanged})
+			c.sendAtHold(s, &protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapPermissionChanged})
 		}
 		h.setDecisionLocked(s, d)
 		if s.state == stateRecheck && s.holding {
@@ -323,7 +323,10 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 			if e.Grp == protocol.GroupAll {
 				var marker protocol.RebootstrapMarker
 				_ = json.Unmarshal([]byte(e.Payload), &marker)
-				c.send(bootstrapFor(s.group, &marker, protocol.Model(e.Model)))
+				// A catching-up subscription is caught up for the
+				// client: frames before it claim no more than the
+				// position before the marker (conn.capLocked).
+				c.sendCapped(bootstrapFor(s.group, &marker, protocol.Model(e.Model)), e.SyncID-1)
 			} else {
 				c.enqueueChange(*change(e), false)
 			}
@@ -385,7 +388,7 @@ func (h *Hub) restartLive(s *sub, gen uint64, reason string) {
 	if s.removed || s.gen != gen {
 		return
 	}
-	s.c.send(&protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: reason})
+	s.c.sendAtHold(s, &protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: reason})
 	s.cursor = h.pos.Load()
 	if !s.recheck {
 		h.goLiveLocked(s, s.cursor)

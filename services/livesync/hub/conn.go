@@ -83,22 +83,24 @@ type sub struct {
 
 // heldItem is an entry kept for a subscription while its permission is
 // checked again: a change (and its unit) or a re-bootstrap marker's
-// bootstrap_required.
+// bootstrap_required (and the marker's sync id).
 type heldItem struct {
 	ch     *protocol.Change
 	unit   protocol.Unit
 	marker *protocol.BootstrapRequiredMessage
+	at     int64
 }
 
 // outItem is one queued server message: an encoded control message
 // (data; pos is the position a caught_up claims), or (data nil) the
-// changes of a delta frame (maxTo, when not 0, caps its to: see
-// Hub.revokeLocked).
+// changes of a delta frame (when capped, its to is at most maxTo: see
+// conn.capLocked).
 type outItem struct {
 	data    []byte
 	pos     int64
 	changes []protocol.Change
 	size    int
+	capped  bool
 	maxTo   int64
 }
 
@@ -283,11 +285,68 @@ func (c *conn) enqueueDelivered(ch protocol.Change) {
 	c.wake = false
 }
 
-func (c *conn) sendDelivered(msg any) {
+// sendDelivered queues a control message of a delivery after which the
+// client's caught-up groups are complete up to limit only (see capLocked).
+func (c *conn) sendDelivered(msg any, limit int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.capLocked(limit)
 	c.sendLocked(msg)
 	c.wake = false
+}
+
+// sendCapped queues a control message after which the client's caught-up
+// groups are complete up to limit only (see capLocked).
+func (c *conn) sendCapped(msg any, limit int64) {
+	it, ok := encode(msg)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	c.capLocked(limit)
+	c.pushLocked(it)
+}
+
+// sendAtHold queues a control message about s (bootstrap_required) that
+// tells the client its position in s's group is not to be trusted: when s
+// is suspended, frames queued before it claim no more than s's hold (see
+// capLocked). A subscription that replays is not caught up for the client
+// (to does not raise its position): nothing to cap.
+func (c *conn) sendAtHold(s *sub, msg any) {
+	it, ok := encode(msg)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	if hold, ok := c.holds[s]; ok {
+		c.capLocked(hold)
+	}
+	c.pushLocked(it)
+}
+
+// capLocked caps the to of the last delta frame queued so far at limit,
+// called right before queueing a message that tells the client that one of
+// the groups it holds as caught up is complete only up to limit
+// (bootstrap_required: entries after it must be loaded again;
+// group_revoked). Neither carries a position, so until it arrives no frame
+// may claim more: a client whose session broke after that frame resumes
+// the group from the frame's to, and the replay from there would not
+// include what the message was about (a re-bootstrap marker, the entries
+// a suspended subscription never got). take computes to when it takes the
+// frame, possibly after the hold or the hub position that kept it low has
+// moved on, hence the cap travels with the frame. Frames queued after the
+// message are not capped.
+func (c *conn) capLocked(limit int64) {
+	for i := len(c.queue) - 1; i >= 0; i-- {
+		if it := &c.queue[i]; it.data == nil {
+			if !it.capped || limit < it.maxTo {
+				it.capped, it.maxTo = true, limit
+			}
+			return
+		}
+	}
 }
 
 func (c *conn) enqueueChangeLocked(ch protocol.Change, live bool) {
@@ -426,8 +485,9 @@ type frame struct {
 // take takes the queued messages and encodes them, the writer's step: the
 // last delta frame claims the hub's position, capped by the holds (the
 // suspended subscriptions are complete up to their hold only) and its
-// maxTo, earlier ones the position of the last frame written. Write them
-// in order.
+// maxTo (a message after it that the client must get first, see
+// capLocked), earlier ones the position of the last frame written. Write
+// them in order.
 func (c *conn) take() []frame {
 	// Load the position before taking the queue: everything up to it was
 	// queued before (see Hub.pos).
@@ -459,7 +519,7 @@ func (c *conn) take() []frame {
 		at := prevTo
 		if i == lastDelta {
 			at = to
-			if it.maxTo > 0 {
+			if it.capped {
 				at = max(min(at, it.maxTo), prevTo)
 			}
 		}

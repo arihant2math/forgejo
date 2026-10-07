@@ -592,13 +592,160 @@ func TestDeliverFrameTo(t *testing.T) {
 	assert.Equal(t, v, chs[0].V)
 	assert.Equal(t, v, to)
 
+	// A marker after the change: its bootstrap_required carries no
+	// position, so the frame before it claims no more than the change.
 	v = x.append(label(2, "b"), synclog.Entry{Group: protocol.GroupAll, Model: protocol.ModelLabel, Op: protocol.OpRebootstrap, Payload: `{"reason":"placement_changed"}`})
 	x.deliver()
 	chs, to = cl.changes(1)
 	assert.Equal(t, v, chs[0].V)
-	assert.Equal(t, v+1, to, "the marker's position too")
+	assert.Equal(t, v, to, "not the marker's position")
 	assert.Equal(t, "repo:1", cl.expect(protocol.MsgBootstrapRequired).Group)
 	cl.quiet(20 * time.Millisecond)
+	resumeGetsBootstrap(x, 2, "repo:1", to, protocol.RebootstrapPlacementChanged)
+}
+
+// resumeGetsBootstrap resumes group from pos in a new session, as a client
+// whose session broke right after a frame claiming pos would: the replay
+// must tell it to bootstrap (reason).
+func resumeGetsBootstrap(x *harness, viewer int64, group string, pos int64, reason string) {
+	x.t.Helper()
+	cl := x.connect(nil)
+	cl.hello(viewer, protocol.GroupRequest{Group: group, Since: since(pos)})
+	m := cl.next()
+	require.Equal(x.t, protocol.MsgBootstrapRequired, m.Type, "resumed from %d: %+v", pos, m)
+	assert.Equal(x.t, group, m.Group)
+	assert.Equal(x.t, reason, m.Reason)
+}
+
+// claimsBefore returns the highest to of the deltas in msgs before the
+// first bootstrap_required for group (which must be there).
+func claimsBefore(t *testing.T, msgs []message, group string) int64 {
+	t.Helper()
+	var to int64
+	for _, m := range msgs {
+		switch {
+		case m.Type == protocol.MsgBootstrapRequired && m.Group == group:
+			return to
+		case m.Type == protocol.MsgDelta:
+			to = max(to, m.To)
+		}
+	}
+	require.Failf(t, "no bootstrap_required", "for %s in %+v", group, msgs)
+	return 0
+}
+
+// A delta queued before a bootstrap_required claims no more than the
+// position the message is about, even when the writer takes it after
+// whatever kept its to low (the hub's position before the delivery, a
+// hold) has moved on. bootstrap_required carries no position: a client
+// whose session broke right after the delta resumes the group from the
+// delta's to, and the replay from there must still tell it.
+func TestBootstrapCapsQueuedFrame(t *testing.T) {
+	marker := synclog.Entry{Group: protocol.GroupAll, Model: protocol.ModelLabel, Op: protocol.OpRebootstrap, Payload: `{"reason":"placement_changed"}`}
+	helloManual := func(x *harness, viewer int64, groups ...string) *client {
+		cl := x.connectManual()
+		reqs := []protocol.GroupRequest{}
+		for _, g := range groups {
+			reqs = append(reqs, protocol.GroupRequest{Group: g})
+		}
+		cl.send(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u" + strconv.FormatInt(viewer, 10), Groups: reqs})
+		msgs := cl.take()
+		require.Equal(t, protocol.MsgWelcome, msgs[0].Type)
+		require.Equal(t, protocol.MsgCaughtUp, msgs[len(msgs)-1].Type)
+		return cl
+	}
+	waitLive := func(x *harness, cl *client, groups ...string) {
+		require.Eventually(t, func() bool {
+			x.h.mu.Lock()
+			defer x.h.mu.Unlock()
+			for _, g := range groups {
+				if s := cl.c.subs[g]; s == nil || s.state != stateLive {
+					return false
+				}
+			}
+			return true
+		}, 5*time.Second, time.Millisecond)
+	}
+
+	t.Run("live marker", func(t *testing.T) {
+		// One delivery: a change, then a marker.
+		x := newHarness(t, Config{})
+		cl := helloManual(x, 2, "repo:1")
+		v := x.append(label(1, "a"), marker)
+		x.deliver()
+		msgs := cl.take()
+		require.Len(t, msgs, 2, "%+v", msgs)
+		assert.Equal(t, []int64{v}, versions(msgs[0].Changes))
+		assert.Equal(t, v, msgs[0].To, "not the marker's position (%d)", v+1)
+		assert.Equal(t, protocol.MsgBootstrapRequired, msgs[1].Type)
+		resumeGetsBootstrap(x, 2, "repo:1", msgs[0].To, protocol.RebootstrapPlacementChanged)
+	})
+
+	t.Run("held marker", func(t *testing.T) {
+		// Held during a re-check, released together.
+		x := newHarness(t, Config{})
+		cl := helloManual(x, 2, "repo:1")
+		x.epoch(protocol.PermissionChange{Users: []int64{2}}, label(1, "a"), marker)
+		p := x.h.pos.Load() - 2
+		waitLive(x, cl, "repo:1")
+		msgs := cl.take()
+		to := claimsBefore(t, msgs, "repo:1")
+		assert.Equal(t, p+1, to, "the held change, not the marker (%d)", p+2)
+		resumeGetsBootstrap(x, 2, "repo:1", to, protocol.RebootstrapPlacementChanged)
+	})
+
+	t.Run("replayed marker", func(t *testing.T) {
+		// More than the session may hold during a re-check: it catches up
+		// from the log, whose last entry is the marker.
+		x := newHarness(t, Config{SendBuffer: 2000})
+		cl := helloManual(x, 2, "repo:1")
+		big := strings.Repeat("x", 600)
+		x.epoch(protocol.PermissionChange{Users: []int64{2}}, label(1, big), label(1, big), label(1, big), label(1, big), marker)
+		p := x.h.pos.Load() - 5
+		waitLive(x, cl, "repo:1")
+		msgs := cl.take()
+		to := claimsBefore(t, msgs, "repo:1")
+		assert.Equal(t, p+4, to, "the replayed change, not the marker (%d)", p+5)
+		assert.Equal(t, []int64{p + 4}, versions(msgs[0].Changes), "%+v", msgs)
+		resumeGetsBootstrap(x, 2, "repo:1", to, protocol.RebootstrapPlacementChanged)
+	})
+
+	t.Run("permission changed", func(t *testing.T) {
+		// user4 leaves org3 (members ⇒ none); a delta of repo:1 queued
+		// before the epoch is taken after both re-checks.
+		x := newHarness(t, Config{})
+		cl := helloManual(x, 4, "org:3", "repo:1")
+		x.append(label(1, "a"))
+		x.deliver()
+		_, err := db.GetEngine(t.Context()).Exec("DELETE FROM org_user WHERE org_id = 3 AND uid = 4")
+		require.NoError(t, err)
+		x.epoch(protocol.PermissionChange{Users: []int64{4}}, upsert("repo:2", protocol.ModelLabel, 1, protocol.UnitIssuesOrPulls))
+		p := x.h.pos.Load() - 1
+		waitLive(x, cl, "org:3", "repo:1")
+		msgs := cl.take()
+		assert.Equal(t, p, claimsBefore(t, msgs, "org:3"), "org:3's hold (the epoch), not the hub's position (%d)", p+1)
+	})
+
+	t.Run("trimmed", func(t *testing.T) {
+		// The tailer skips trimmed entries; nothing of repo:1 after them.
+		x := newHarness(t, Config{})
+		ctx := t.Context()
+		cl := helloManual(x, 2, "repo:1")
+		v := x.append(label(1, "a"))
+		x.deliver()
+		for i := range 3 {
+			x.append(upsert("repo:2", protocol.ModelLabel, int64(i+1), protocol.UnitIssuesOrPulls))
+		}
+		floor, err := x.w.Trim(ctx, 0, 1)
+		require.NoError(t, err)
+		require.Equal(t, v+2, floor)
+		x.h.cfg.Perms.Invalidate(protocol.PermissionChange{All: true}) // permSink's job
+		x.h.Skipped(ctx, v, floor)
+		x.deliver()
+		waitLive(x, cl, "repo:1")
+		msgs := cl.take()
+		assert.Equal(t, v, claimsBefore(t, msgs, "repo:1"), "the position before the skip, not the hub's (%d)", x.h.pos.Load())
+	})
 }
 
 // A delta queued before group_revoked claims no more than the revoked

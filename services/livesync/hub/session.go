@@ -574,20 +574,12 @@ func (h *Hub) removeSubLocked(s *sub) {
 // never got), or a client that resumed the group from there (it may be
 // readable again by then) would miss them. So s's hold goes in the same
 // critical section of the queue lock that queues group_revoked, and the
-// last delta queued before it keeps the hold as its cap (the writer
-// computes to when it takes the frame, which may be after the hold went).
+// last delta queued before it keeps the hold as its cap (conn.capLocked).
 func (h *Hub) revokeLocked(s *sub) {
 	c := s.c
 	c.mu.Lock()
 	if hold, ok := c.holds[s]; ok {
-		for i := len(c.queue) - 1; i >= 0; i-- {
-			if it := &c.queue[i]; it.data == nil {
-				if it.maxTo == 0 || hold < it.maxTo {
-					it.maxTo = hold
-				}
-				break
-			}
-		}
+		c.capLocked(hold)
 		delete(c.holds, s)
 	}
 	c.sendLocked(&protocol.GroupRevokedMessage{Type: protocol.MsgGroupRevoked, Group: s.group})

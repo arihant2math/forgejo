@@ -45,8 +45,8 @@ func Floor(ctx context.Context) (int64, error) {
 }
 
 // ReadSince returns up to limit entries with a sync id above cursor, in
-// sync id order: the entries of group plus the GroupAll entries (markers,
-// deletes of unknown group), or the entries of every group when group is
+// sync id order: the entries of group plus the GroupAll entries
+// (re-bootstrap markers), or the entries of every group when group is
 // empty. It returns a *TrimmedError if entries after cursor may have been
 // trimmed.
 func ReadSince(ctx context.Context, group string, cursor int64, limit int) ([]livesync_model.LogEntry, error) {
@@ -63,9 +63,10 @@ func ReadSince(ctx context.Context, group string, cursor int64, limit int) ([]li
 	if err := sess.OrderBy("sync_id").Limit(limit).Find(&entries); err != nil {
 		return nil, fmt.Errorf("livesync: read the sync log: %w", err)
 	}
-	// The floor is read after the entries: it only grows, and it is moved
-	// in the transaction that trims, so if any entry above cursor was gone
-	// when they were read, the floor read now is above cursor.
+	// The floor is read after the entries: it only grows (Trim moves it
+	// under a row lock, never down, fenced by the writer token), and it is
+	// moved in the transaction that trims, so if any entry above cursor was
+	// gone when they were read, the floor read now is above cursor.
 	floor, err := Floor(ctx)
 	if err != nil {
 		return nil, err

@@ -187,7 +187,7 @@ func TestLivesyncSyncLogRetention(t *testing.T) {
 	_, err = livesyncMaster(t).Exec("UPDATE livesync_log SET created_unix = ? WHERE sync_id <= 4", time.Now().Add(-40*24*time.Hour).Unix())
 	require.NoError(t, err)
 
-	floor, err := synclog.Trim(ctx, 30*24*time.Hour, 0)
+	floor, err := w.Trim(ctx, 30*24*time.Hour, 0)
 	require.NoError(t, err)
 	assert.EqualValues(t, 4, floor)
 	got, err := synclog.Floor(ctx)
@@ -199,7 +199,7 @@ func TestLivesyncSyncLogRetention(t *testing.T) {
 	require.ErrorAs(t, err, &trimmed)
 	assert.EqualValues(t, 4, trimmed.Floor)
 
-	floor, err = synclog.Trim(ctx, 30*24*time.Hour, 3)
+	floor, err = w.Trim(ctx, 30*24*time.Hour, 3)
 	require.NoError(t, err)
 	assert.EqualValues(t, 7, floor)
 	assert.Len(t, livesyncLogSince(t, 7), 3)

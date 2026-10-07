@@ -139,7 +139,7 @@ func TestTrim(t *testing.T) {
 	_, err = db.GetEngine(ctx).Exec("UPDATE livesync_log SET created_unix = ? WHERE sync_id <= 3", time.Now().Add(-48*time.Hour).Unix())
 	require.NoError(t, err)
 
-	floor, err := Trim(ctx, 24*time.Hour, 0)
+	floor, err := w.Trim(ctx, 24*time.Hour, 0)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, floor)
 	all, err := ReadSince(ctx, "", 3, 100)
@@ -153,7 +153,7 @@ func TestTrim(t *testing.T) {
 	require.ErrorIs(t, err, ErrTrimmed)
 
 	// Keep the newest 4.
-	floor, err = Trim(ctx, 0, 4)
+	floor, err = w.Trim(ctx, 0, 4)
 	require.NoError(t, err)
 	assert.EqualValues(t, 6, floor)
 	got, err := Floor(ctx)
@@ -164,9 +164,47 @@ func TestTrim(t *testing.T) {
 	assert.Equal(t, []int64{7, 8, 9, 10}, syncIDs(all))
 
 	// Nothing to do: the floor stays.
-	floor, err = Trim(ctx, 24*time.Hour, 4)
+	floor, err = w.Trim(ctx, 24*time.Hour, 4)
 	require.NoError(t, err)
 	assert.EqualValues(t, 6, floor)
+}
+
+// Trimming is writer work: a writer that lost its lease cannot trim, and
+// the floor never moves down (an old writer's trim interleaving with the new
+// writer's would otherwise hide a gap from ReadSince).
+func TestTrimFencing(t *testing.T) {
+	resetLog(t)
+	ctx := t.Context()
+	old, err := AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	for i := range 10 {
+		appendEntries(t, old, entry("repo:1", int64(i)))
+	}
+	// Another instance takes over (on SQLite the lease is not exclusive).
+	cur, err := AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+
+	_, err = old.Trim(ctx, 0, 2)
+	require.ErrorIs(t, err, ErrNotWriter)
+	floor, err := Floor(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, floor, "nothing trimmed")
+
+	floor, err = cur.Trim(ctx, 0, 2)
+	require.NoError(t, err)
+	assert.EqualValues(t, 8, floor)
+
+	// A chunk computed from an older floor (a concurrent trim moved it
+	// meanwhile) leaves the higher floor alone.
+	floor, err = cur.trimTo(ctx, 5)
+	require.NoError(t, err)
+	assert.EqualValues(t, 8, floor)
+	got, err := Floor(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 8, got)
+	all, err := ReadSince(ctx, "", 8, 100)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{9, 10}, syncIDs(all))
 }
 
 type recordingSink struct {
@@ -210,7 +248,7 @@ func TestTailer(t *testing.T) {
 
 	// A tailer that fell behind the retention floor skips ahead.
 	appendEntries(t, w, entry("repo:1", 5), entry("repo:1", 6))
-	_, err = Trim(t.Context(), 0, 1)
+	_, err = w.Trim(t.Context(), 0, 1)
 	require.NoError(t, err)
 	behind := &recordingSink{}
 	stale := &Tailer{cfg: TailerConfig{BatchSize: 10}, sink: behind, pos: 3}

@@ -111,8 +111,10 @@ func lead(ctx context.Context, s Settings, tailer *synclog.Tailer) error {
 			// A handled epoch may have restarted a table's backfill.
 			backfill.Reset(0)
 		case <-retention.C:
-			if floor, err := synclog.Trim(leadCtx, s.LogRetention, s.LogMaxRows); err != nil {
-				if leadCtx.Err() == nil {
+			if floor, err := w.Trim(leadCtx, s.LogRetention, s.LogMaxRows); err != nil {
+				if errors.Is(err, synclog.ErrNotWriter) {
+					stop() // another instance is the writer: step down
+				} else if leadCtx.Err() == nil {
 					log.Error("livesync: sync log retention: %v", err)
 				}
 			} else {

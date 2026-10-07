@@ -1083,6 +1083,18 @@ does) **and** MySQL 8.0 (binlog on).
     `profile:5`, not readable by others; no non-`self` entry in any `user:` group), `TestLivesyncPermLostChanges`
     (collaboration trigger dropped, collaborator removed, re-Init ⇒ `P{all}` before the `Collaboration` marker),
     `TestLivesyncPermAuth` (401/403/404 shapes, 503 when stopped). `TestLivesyncMaterializeEpoch` updated (marker reason).
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./models/livesync/... ./services/livesync/... ./routers/livesync/...
+    ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), unit tests
+    (`-race` for all livesync packages), `next/tools/gen-protocol.sh --check` (up to date), `./integrations.pgsql.test
+    -test.run 'TestLivesync|TestVersion'` with `tests/pgsql.ini` (28 pass, 3 MySQL-only skips) and `tests/mysql.ini` (30 pass,
+    1 skip), no testlogger "FATAL ERROR"; fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`,
+    `go.sum`); dev binary smoke test on PG with `ENABLED = true` (B3-era dev database: every epoch handled, `P{all}` +
+    markers, users re-placed to `profiles:public`; `/-/sync/grants` 200 with a personal token, 404 for a missing repository,
+    401 without; creating a private repository wrote `P{users:[1],repos:[3]}`); dev DB triggers removed afterwards.
+  - **Not done / for later.** No `group_revoked` yet (B5 consumes the epochs). Grants ignore narrower token scopes (such
+    tokens are refused instead). The restricted-user own-profile gap above. `Grants` cost is per related repository (no
+    batching of `GetUserRepoPermission`). PLAN §4.4's group list (`user:`, `org:`, `repo:`, `issue:`) now also has the
+    profile groups; PLAN text not edited.
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

@@ -308,7 +308,9 @@ tests wrap it themselves.
   permission fingerprint. Every cached grant and every decision records the
   fingerprints of the repository/user rows it was computed from; a touch drops or
   re-checks only those that recorded another fingerprint (i.e. were computed in the
-  undone state), so a counter update costs no recomputation. Touches travel in the
+  undone state), so a counter update costs no recomputation (a running grant
+  computation is not split or discarded by a touch either: it is compared with the
+  touched states when it finishes). Touches travel in the
   same `P` log entries as epochs, so every instance applies them.
 * Public repos you're not a member of are subscribed only on demand. Nothing is
   broadcast instance-wide. Admins get no implicit "see everything" subscription.

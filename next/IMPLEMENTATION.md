@@ -946,7 +946,7 @@ does) **and** MySQL 8.0 (binlog on).
     empty, backfill done, writer token 1); dev DBs' triggers removed again afterwards.
 
 #### B4 — Permissions
-- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; round 3 (the open major item: MySQL permission-column triggers vs. upstream migrations) fixed — capture triggers reference only `id` again on every dialect, undone permission changes are caught by materializer touches, see *Review round 3*; no open items)
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; round 3 (the open major item: MySQL permission-column triggers vs. upstream migrations) fixed — capture triggers reference only `id` again on every dialect, undone permission changes are caught by materializer touches, see *Review round 3*; round 4 (touches detached every running grant computation) fixed, see *Review round 4*; no open items)
 - **Scope:** `services/livesync/perm`: `Grants(ctx, user) → map[group]units` from
   `access_model.GetUserRepoPermission`, org/team membership, visibility; per-user cache
   shared across connections; permission epochs bumped by the materializer when it
@@ -1013,7 +1013,8 @@ does) **and** MySQL 8.0 (binlog on).
     after `[livesync] PERM_CACHE_TTL` (default 10 min; safety net only). **Review round 1:** an invalidation *detaches* the
     running computations it may concern (users named; for repos/owners every running one, decided when it finishes), so a
     caller after the epoch (B5 re-checking a viewer) never joins a computation that read the data before the change; such a
-    computation is cached only if none of the (≤ 64, else not cached) invalidations it overlapped concerns its result. A
+    computation is cached only if none of the (≤ 64, else not cached) invalidations it overlapped concerns its result
+    (round 4: touches do not detach and are not counted, see *Review round 4* of B4). A
     computation runs in its own goroutine on `context.WithoutCancel` (≤ 1 min): a cancelled request stops waiting but does
     not fail the others. Grants and checks run in one quiet read transaction on the **master** (`capture.WithQuietTx`;
     replicas may lag behind an epoch). `Check` without cached grants loads the viewer and decides the one group (no full
@@ -1244,8 +1245,8 @@ does) **and** MySQL 8.0 (binlog on).
       work with commit-order holes. Basis comparison is exact for the rows that can be "busy" and costs nothing when the
       state did not change.
     - **Cost:** one extra small `P` log row per materializer batch that updated repository/user rows (not delivered to
-      clients; coalesced per batch). Detaching running grant computations on touches (as on repository epochs) can start a
-      second computation for a viewer who asks again meanwhile; harmless.
+      clients; coalesced per batch). ~~Detaching running grant computations on touches (as on repository epochs) can start a
+      second computation for a viewer who asks again meanwhile; harmless.~~ Wrong — touches come with almost every batch; see *Review round 4*.
     - **For B5:** on a `P` entry re-check a subscription when its `Decision.Basis.Stale(ch.Touched)` (besides users / repos
       / owners as before); keep the `Decision` (with its `Basis`) per subscription. Do not modify a `Basis`.
     - **Tests.** `TestTriggersReferenceOnlyID` (capture: every MySQL trigger statement and the PG function read only
@@ -1276,6 +1277,36 @@ does) **and** MySQL 8.0 (binlog on).
       MariaDB 11 (all pass; the privilege test skips without a `forgejo` account there), no testlogger "FATAL ERROR"; fork
       diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). `SURFACE.md`: `checkRepo` relies on
       `GetUserRepoPermission` keeping a loaded owner.
+  - **Review round 4 (orchestrator issue, fixed): touches no longer detach running grant computations.** *Problem:* since
+    round 3 the materializer writes a touch-only `P` entry for nearly every batch (issue create/close →
+    `UpdateRepoIssueNumbers`, stars, pushes, sign-ins), and `Cache.Invalidate` treated any `Touched` like a repository
+    epoch for **every** running computation: removed it from `inflight` (later callers for the same viewer started a
+    duplicate computation) and appended the change to `call.changes`, so after 64 batches the result was never cached —
+    single-flight was effectively off under the §4.11 write load and long computations were recomputed on every call.
+    *Fix (`perm/cache.go`):* a touch only **records** the touched rows' states on each running call (`call.touched`, a
+    `Basis`: one entry per distinct row, `basisConflict` when one row is touched in two states — exactly equivalent to
+    checking every touch on its own; bounded by `maxCallTouchedRows` = 65 536 rows, beyond which the call is stale and
+    detached as before) and **does not detach** it nor count toward `maxCallChanges` (which now only counts repository /
+    owner epochs; a mixed entry's epoch part is stored without its touches). When the computation finishes,
+    `Basis.staleAgainst(call.touched)` decides: not stale ⇒ cached and handed to everybody; stale ⇒ not cached, the
+    callers that joined **before** the first touch get the result (as before: they asked before the change was known),
+    those that joined **after** a touch (`call.touches > 0` at join time) loop in `get` and compute again (joining one
+    fresh computation among themselves), so nobody who asked after a touch gets a result read in the undone state.
+    Conservative simplification: a caller that joined after an unrelated touch but before the relevant one also
+    recomputes (only when the result is stale, i.e. a real undone permission change of a row the viewer read). `affects`
+    no longer looks at `ch.Touched` (changes carry none). Users / `All` epochs and repository / owner epochs are unchanged.
+    *Tests:* `TestCacheTouchedWhileComputing` rewritten — stale against the touch (early caller gets the result, the
+    joined later caller computes again, only the fresh result cached), row not read / read in the touched state (joined,
+    cached), **regression: 1 + 128 touches of unrelated rows ⇒ later callers join and the result is cached** (the
+    reviewer's probe; verified to fail with touches detaching — "unexpected computation" — and with touches counting
+    toward `maxCallChanges` — "not cached after unrelated touches"; the late-joiner recompute verified to fail without
+    the `continue` in `get`), one `touched` entry per row however often touched, a row touched in two states ⇒ stale,
+    mixed epoch + touch (detached, touch recorded, not stored on the change), the row bound; `TestBasis` covers
+    `staleAgainst` (conflict, symmetry, unread rows).
+    *Commands:* gofumpt (clean), golangci-lint `./services/livesync/...` (0 issues), `go vet`, deadcode diff (clean),
+    livesync unit tests with `-race`, `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 29 pass, 3 MySQL-only skips) and
+    MySQL 8.0 (31 pass, 1 skip), no testlogger "FATAL ERROR"; triggers untouched (no MariaDB run); protocol unchanged; fork
+    diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

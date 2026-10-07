@@ -43,6 +43,25 @@ func TestBasis(t *testing.T) {
 	assert.True(t, b.Stale(touch(protocol.TouchRepository, 7, "true,3")))
 	assert.True(t, b.Stale(touch(protocol.TouchRepository, 7, "false,3")))
 	assert.False(t, Basis(nil).Stale(touch(protocol.TouchRepository, 7, "true,3")))
+
+	// staleAgainst: the touches recorded by a running computation.
+	read := Basis{{protocol.TouchRepository, 7}: "true,3", {protocol.TouchUser, 3}: "u"}
+	touched := Basis{}
+	assert.False(t, read.staleAgainst(nil))
+	assert.False(t, Basis(nil).staleAgainst(touched))
+	for i := range 10 {
+		touched.add(protocol.TouchRepository, int64(100+i), "false,1") // rows it did not read
+	}
+	assert.False(t, read.staleAgainst(touched))
+	touched.add(protocol.TouchRepository, 7, "true,3")
+	assert.False(t, read.staleAgainst(touched), "the state it read")
+	assert.False(t, touched.staleAgainst(read), "symmetric")
+	touched.add(protocol.TouchRepository, 7, "true,3")
+	assert.False(t, read.staleAgainst(touched), "touched twice in the state it read")
+	touched.add(protocol.TouchRepository, 7, "false,3")
+	assert.True(t, read.staleAgainst(touched), "touched in two states: one is not the state it read")
+	assert.True(t, Basis{{protocol.TouchRepository, 7}: basisConflict}.staleAgainst(touched), "conflict against conflict")
+	assert.True(t, read.staleAgainst(Basis{{protocol.TouchUser, 3}: "v"}), "another state")
 }
 
 func exec(t *testing.T, query string, args ...any) {
@@ -201,7 +220,9 @@ func TestDecisionBasis(t *testing.T) {
 
 // A touch that arrives while a computation runs is decided when it
 // finishes: cached only if the computation read the touched row in the
-// touch's state (or not at all).
+// touch's state (or not at all). Touches come with almost every write
+// batch, so they do not detach the computation: callers after a touch join
+// it, and compute again only if its result is stale against the touch.
 func TestCacheTouchedWhileComputing(t *testing.T) {
 	ctx := t.Context()
 	c := NewCache(time.Minute, 10)
@@ -210,25 +231,185 @@ func TestCacheTouchedWhileComputing(t *testing.T) {
 		g.basis = Basis{{protocol.TouchRepository, 1}: repoState}
 		return g
 	}
-	touch := protocol.PermissionChange{Touched: []protocol.PermissionTouch{{Kind: protocol.TouchRepository, ID: 1, State: "true,2"}}}
+	touchOf := func(id int64, state string) protocol.PermissionChange {
+		return protocol.PermissionChange{Touched: []protocol.PermissionTouch{{Kind: protocol.TouchRepository, ID: id, State: state}}}
+	}
+	touch := touchOf(1, "true,2")
+	noMore := func() {
+		t.Helper()
+		settled()
+		select {
+		case req := <-requests:
+			t.Fatalf("unexpected computation for viewer %d", req.viewer)
+		default:
+		}
+	}
+	next := func() stubLoad {
+		t.Helper()
+		select {
+		case req := <-requests:
+			return req
+		case <-time.After(10 * time.Second):
+			t.Fatal("no computation started")
+			return stubLoad{}
+		}
+	}
+	reset := func() {
+		c.Invalidate(protocol.PermissionChange{All: true})
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		assert.Empty(t, c.running)
+		assert.Empty(t, c.inflight)
+	}
 
+	// Stale against the touch: the caller before it gets the result, the
+	// one after it computes again; only the fresh result is cached.
 	a := asyncGrants(ctx, c, 6)
-	req := <-requests
+	req := next()
 	c.Invalidate(touch)
 	later := asyncGrants(ctx, c, 6)
-	req2 := <-requests // a caller after the touch does not join
+	noMore() // joined
 	req.answer <- withBasis(grantsOf(6, "repo:1"), "false,2")
 	assert.Contains(t, groupsOf(<-a), "repo:1")
+	req2 := next() // the later caller computes again
 	assert.Nil(t, c.cached(6), "read another state: not cached")
 	req2.answer <- withBasis(grantsOf(6), "true,2")
-	<-later
+	assert.NotContains(t, groupsOf(<-later), "repo:1", "got a result from before the touch")
 	assert.NotNil(t, c.cached(6), "read the touched state: cached")
+	noMore()
 
-	c.Invalidate(protocol.PermissionChange{All: true})
+	// Did not read the row: cached, joined.
+	reset()
 	a = asyncGrants(ctx, c, 6)
-	req = <-requests
+	req = next()
 	c.Invalidate(touch)
+	later = asyncGrants(ctx, c, 6)
+	noMore()
 	req.answer <- grantsOf(6, "repo:3")
-	<-a
+	assert.Same(t, <-a, <-later)
 	assert.NotNil(t, c.cached(6), "did not read the row: cached")
+
+	// Read the touched state: cached, joined.
+	reset()
+	a = asyncGrants(ctx, c, 6)
+	req = next()
+	c.Invalidate(touch)
+	later = asyncGrants(ctx, c, 6)
+	noMore()
+	req.answer <- withBasis(grantsOf(6, "repo:1"), "true,2")
+	assert.Same(t, <-a, <-later)
+	assert.NotNil(t, c.cached(6))
+
+	// Regression (review round 4): touches of rows it did not read, any
+	// number of them, neither detach the computation nor keep it from
+	// being cached (they used to count toward maxCallChanges).
+	reset()
+	a = asyncGrants(ctx, c, 6)
+	req = next()
+	c.Invalidate(touchOf(1000, "false,1"))
+	later = asyncGrants(ctx, c, 6)
+	for i := range 2 * maxCallChanges {
+		c.Invalidate(touchOf(int64(1000+i), "false,1"))
+	}
+	alsoLater := asyncGrants(ctx, c, 6)
+	noMore() // both joined
+	req.answer <- withBasis(grantsOf(6, "repo:1"), "false,2")
+	ga := <-a
+	assert.Same(t, ga, <-later, "unrelated touch detached the computation")
+	assert.Same(t, ga, <-alsoLater)
+	assert.Same(t, ga, c.cachedGrants(6), "not cached after unrelated touches")
+
+	// Recorded touches are one per row, however often it is touched.
+	reset()
+	a = asyncGrants(ctx, c, 6)
+	req = next()
+	for range 3 {
+		c.Invalidate(protocol.PermissionChange{Touched: []protocol.PermissionTouch{
+			{Kind: protocol.TouchRepository, ID: 5, State: "false,1"},
+			{Kind: protocol.TouchUser, ID: 5, State: "u"},
+		}})
+	}
+	c.mu.Lock()
+	for cl := range c.running {
+		assert.Len(t, cl.touched, 2)
+		assert.Equal(t, 3, cl.touches)
+		assert.False(t, cl.stale)
+	}
+	c.mu.Unlock()
+	req.answer <- grantsOf(6)
+	<-a
+	assert.NotNil(t, c.cached(6))
+
+	// A row touched in two states (an epoch changed it in between) is
+	// stale for any state the computation read.
+	reset()
+	a = asyncGrants(ctx, c, 6)
+	req = next()
+	c.Invalidate(touch)
+	c.Invalidate(touchOf(1, "false,2"))
+	later = asyncGrants(ctx, c, 6)
+	noMore()
+	req.answer <- withBasis(grantsOf(6, "repo:1"), "false,2")
+	<-a
+	req2 = next()
+	assert.Nil(t, c.cached(6))
+	req2.answer <- withBasis(grantsOf(6, "repo:1"), "false,2")
+	<-later
+	assert.NotNil(t, c.cached(6))
+
+	// An epoch that also carries touches: the epoch part detaches as
+	// before, the touches are recorded (not kept on the change).
+	reset()
+	a = asyncGrants(ctx, c, 6)
+	req = next()
+	mixed := touch
+	mixed.Repos = []int64{3}
+	c.Invalidate(mixed)
+	c.mu.Lock()
+	for cl := range c.running {
+		require.Len(t, cl.changes, 1)
+		assert.Empty(t, cl.changes[0].Touched)
+		assert.Len(t, cl.touched, 1)
+	}
+	c.mu.Unlock()
+	later = asyncGrants(ctx, c, 6)
+	req2 = next() // detached by the epoch
+	req.answer <- withBasis(grantsOf(6), "false,2")
+	<-a
+	assert.Nil(t, c.cached(6), "stale against the touch")
+	req2.answer <- withBasis(grantsOf(6), "true,2")
+	<-later
+	assert.NotNil(t, c.cached(6))
+
+	// The touched rows remembered per computation are bounded.
+	reset()
+	a = asyncGrants(ctx, c, 6)
+	req = next()
+	many := protocol.PermissionChange{}
+	for i := range maxCallTouchedRows + 1 {
+		many.Touched = append(many.Touched, protocol.PermissionTouch{Kind: protocol.TouchUser, ID: int64(1 + i), State: "u"})
+	}
+	c.Invalidate(many)
+	c.mu.Lock()
+	for cl := range c.running {
+		assert.LessOrEqual(t, len(cl.touched), maxCallTouchedRows)
+		assert.True(t, cl.stale)
+	}
+	c.mu.Unlock()
+	later = asyncGrants(ctx, c, 6)
+	req2 = next() // detached
+	req.answer <- grantsOf(6)
+	<-a
+	assert.Nil(t, c.cached(6))
+	req2.answer <- grantsOf(6)
+	<-later
+	assert.NotNil(t, c.cached(6))
+}
+
+// cachedGrants returns the viewer's cached grants, or nil.
+func (c *Cache) cachedGrants(viewerID int64) *Grants {
+	if e := c.cached(viewerID); e != nil {
+		return e.grants
+	}
+	return nil
 }

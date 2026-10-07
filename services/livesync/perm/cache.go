@@ -34,18 +34,25 @@ const (
 // it, and a cancelled request must not fail them).
 const computeTimeout = time.Minute
 
-// maxCallChanges bounds the invalidations remembered per running
-// computation; a computation that overlaps more is not cached.
+// maxCallChanges bounds the repository and owner epochs remembered per
+// running computation; a computation that overlaps more is not cached.
 const maxCallChanges = 64
+
+// maxCallTouchedRows bounds the touched rows remembered per running
+// computation (one entry per distinct row, however often it is touched);
+// a computation that overlaps touches of more rows is not cached.
+const maxCallTouchedRows = 1 << 16
 
 // Cache holds the grants of recently active viewers, shared by all of a
 // viewer's connections on this instance (PLAN §4.5). Every instance's
 // tailer passes the permission epochs of the sync log to Invalidate, so a
 // change committed on any instance drops the affected entries everywhere.
 // Its methods are safe for concurrent use; callers asking for the same
-// viewer at the same time share one computation, unless an invalidation
-// that may concern it arrived in between (callers after it start a fresh
-// one).
+// viewer at the same time share one computation, unless an epoch that may
+// concern it arrived in between (callers after it start a fresh one). A
+// touch does not split callers (touches come with almost every write
+// batch, and most concern nobody): callers after it join, and compute
+// again only if the result turns out to be stale against it.
 //
 // Grants and checks read the master database in one transaction
 // (readMaster): a read replica may not have replayed the change behind an
@@ -89,9 +96,19 @@ type call struct {
 	viewer int64
 	// stale: an invalidation since the computation started concerns its
 	// result for sure (or too many may), so it is not cached. changes are
-	// the invalidations that may concern it, decided when it finishes.
+	// the repository and owner epochs that may concern it (without their
+	// touches), decided when it finishes.
 	stale   bool
 	changes []protocol.PermissionChange
+	// touched holds the state of every row touched since the computation
+	// started (basisConflict for a row touched in different states),
+	// compared with the result's basis when it finishes; touches counts
+	// the invalidations that carried touches. A caller that joins after a
+	// touch computes again when touchStale (the result's basis has another
+	// state of a touched row) instead of taking the result.
+	touched    Basis
+	touches    int
+	touchStale bool
 }
 
 // NewCache returns an empty cache; ttl and size <= 0 mean the defaults.
@@ -182,28 +199,36 @@ func (c *Cache) cached(viewerID int64) *cacheEntry {
 }
 
 func (c *Cache) get(ctx context.Context, viewerID int64) (*cacheEntry, error) {
-	if e := c.cached(viewerID); e != nil {
-		return e, nil
-	}
-	c.mu.Lock()
-	cl := c.inflight[viewerID]
-	if cl == nil {
-		cl = &call{done: make(chan struct{}), viewer: viewerID}
-		c.inflight[viewerID] = cl
-		c.running[cl] = struct{}{}
-		go c.run(context.WithoutCancel(ctx), cl)
-	}
-	c.mu.Unlock()
-	select {
-	case <-cl.done:
-		return cl.entry, cl.err
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	for {
+		if e := c.cached(viewerID); e != nil {
+			return e, nil
+		}
+		c.mu.Lock()
+		cl := c.inflight[viewerID]
+		if cl == nil {
+			cl = &call{done: make(chan struct{}), viewer: viewerID}
+			c.inflight[viewerID] = cl
+			c.running[cl] = struct{}{}
+			go c.run(context.WithoutCancel(ctx), cl)
+		}
+		// Joined after a touch: the result must not predate it.
+		afterTouch := cl.touches > 0
+		c.mu.Unlock()
+		select {
+		case <-cl.done:
+			if afterTouch && cl.err == nil && cl.touchStale {
+				continue // computed from a state the touch undid
+			}
+			return cl.entry, cl.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 
 // run computes cl's grants and caches them unless an invalidation since it
-// started concerns them.
+// started concerns them (callers that joined after a touch the result is
+// stale against compute again, see get).
 func (c *Cache) run(ctx context.Context, cl *call) {
 	ctx, cancel := context.WithTimeout(ctx, computeTimeout)
 	defer cancel()
@@ -215,8 +240,11 @@ func (c *Cache) run(ctx context.Context, cl *call) {
 	if c.inflight[cl.viewer] == cl {
 		delete(c.inflight, cl.viewer)
 	}
-	if err == nil && !cl.stale && c.entries[cl.viewer] == nil && !anyAffects(cl.changes, cl.viewer, entry.grants) {
-		c.storeLocked(cl.viewer, entry)
+	if err == nil {
+		cl.touchStale = entry.grants.basis.staleAgainst(cl.touched)
+		if !cl.stale && !cl.touchStale && c.entries[cl.viewer] == nil && !anyAffects(cl.changes, cl.viewer, entry.grants) {
+			c.storeLocked(cl.viewer, entry)
+		}
 	}
 	c.mu.Unlock()
 	close(cl.done)
@@ -246,7 +274,7 @@ func (c *Cache) compute(ctx context.Context, viewerID int64) (e *cacheEntry, err
 }
 
 // anyAffects reports whether one of changes may change the grants g of
-// viewer.
+// viewer (their touches are not looked at: see call.touched).
 func anyAffects(changes []protocol.PermissionChange, viewer int64, g *Grants) bool {
 	for _, ch := range changes {
 		if affects(ch, viewer, g) {
@@ -256,7 +284,8 @@ func anyAffects(changes []protocol.PermissionChange, viewer int64, g *Grants) bo
 	return false
 }
 
-// affects reports whether ch may change the grants g of viewer.
+// affects reports whether ch, apart from its touches, may change the grants
+// g of viewer.
 func affects(ch protocol.PermissionChange, viewer int64, g *Grants) bool {
 	if ch.All {
 		return true
@@ -269,7 +298,7 @@ func affects(ch protocol.PermissionChange, viewer int64, g *Grants) bool {
 			return true
 		}
 	}
-	return g.basis.Stale(ch.Touched)
+	return false
 }
 
 // changedGroups are the groups whose readers ch names (besides its users).
@@ -340,29 +369,41 @@ func (c *Cache) removeLocked(viewerID int64) {
 // owners' groups (all of them for ch.All), and of every viewer whose
 // grants were computed from another state of a touched row (ch.Touched;
 // entries that saw the touched rows' current state, e.g. after a counter
-// update, are kept). Running computations it may concern are detached, so
+// update, are kept). Running computations an epoch may concern (its
+// users' ones; all of them for repositories and owners) are detached, so
 // later callers do not get a result read before the change, and are not
-// cached if it does concern them. Cost: O(affected entries + entries that
-// read a touched row + running computations).
+// cached if it does concern them. Touches only record the touched rows'
+// states on every running computation, without detaching it: they come
+// with almost every write batch, and detaching would defeat sharing
+// computations. The comparison with what it read is made when it
+// finishes: when it read another state, it is not cached and the callers
+// that joined after the touch compute again.
+// Cost: O(affected entries + entries that read a touched row + running
+// computations × touched rows).
 func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for cl := range c.running {
+		detach := false
 		switch {
 		case ch.All || slices.Contains(ch.Users, cl.viewer):
-			cl.stale = true
-		case len(ch.Repos) > 0 || len(ch.Owners) > 0 || len(ch.Touched) > 0:
-			// Whether it grants one of the groups, or which states of the
-			// touched rows it read, is known only when it finishes.
+			cl.stale, detach = true, true
+		case len(ch.Repos) > 0 || len(ch.Owners) > 0:
+			// Whether it grants one of the groups is known only when it
+			// finishes.
 			if len(cl.changes) == maxCallChanges {
 				cl.stale = true
 			} else {
-				cl.changes = append(cl.changes, ch)
+				epoch := ch
+				epoch.Touched = nil // recorded below
+				cl.changes = append(cl.changes, epoch)
 			}
-		default:
-			continue
+			detach = true
 		}
-		if c.inflight[cl.viewer] == cl {
+		if len(ch.Touched) > 0 && !cl.stale && !cl.touch(ch.Touched) {
+			cl.stale, detach = true, true
+		}
+		if detach && c.inflight[cl.viewer] == cl {
 			delete(c.inflight, cl.viewer)
 		}
 	}
@@ -389,6 +430,22 @@ func (c *Cache) Invalidate(ch protocol.PermissionChange) {
 			}
 		}
 	}
+}
+
+// touch records touched rows' states on cl (see call.touched); false when
+// that would exceed maxCallTouchedRows.
+func (cl *call) touch(touched []protocol.PermissionTouch) bool {
+	if cl.touched == nil {
+		cl.touched = Basis{}
+	}
+	for _, t := range touched {
+		if _, ok := cl.touched[basisKey{t.Kind, t.ID}]; !ok && len(cl.touched) == maxCallTouchedRows {
+			return false
+		}
+		cl.touched.add(t.Kind, t.ID, t.State)
+	}
+	cl.touches++
+	return true
 }
 
 // DecodeChange returns the PermissionChange of a sync log entry; ok is false

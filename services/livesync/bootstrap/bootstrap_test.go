@@ -78,12 +78,12 @@ func stream(t *testing.T, perms *perm.Cache, viewer int64, group string, edit fu
 	if edit != nil {
 		edit(&req)
 	}
-	pending, err := Pending(ctx, req)
+	prepared, pending, err := Prepare(ctx, req)
 	require.NoError(t, err)
 	require.Empty(t, pending)
 	var buf bytes.Buffer
 	var res response
-	require.NoError(t, Stream(ctx, &buf, func() error { res.flushes++; return nil }, perms, req))
+	require.NoError(t, prepared.Stream(ctx, &buf, func() error { res.flushes++; return nil }, perms))
 
 	sc := bufio.NewScanner(&buf)
 	sc.Buffer(nil, 16<<20)
@@ -310,4 +310,25 @@ func TestCrossReferences(t *testing.T) {
 	for _, ch := range res.changes {
 		assert.NotEqual(t, protocol.ModelComment, ch.M, "model filter")
 	}
+}
+
+// The gate: a table whose index walk runs (here a repair after a
+// re-bootstrap marker) makes the bootstrap wait.
+func TestPrepareGate(t *testing.T) {
+	prepare(t)
+	ctx := t.Context()
+	req := Request{Group: "repo:1", ViewerID: 2, Units: ^perm.UnitSet(0), Tier: protocol.TierSummary}
+	p, pending, err := Prepare(ctx, req)
+	require.NoError(t, err)
+	require.Empty(t, pending)
+	require.NotNil(t, p)
+	require.NoError(t, livesync_model.SetMeta(ctx, materialize.MetaBackfillPrefix+"label", "repair:0"))
+	p, pending, err = Prepare(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"label"}, pending)
+	assert.Nil(t, p)
+	req.Models = []protocol.Model{protocol.ModelMilestone}
+	_, pending, err = Prepare(ctx, req)
+	require.NoError(t, err)
+	assert.Empty(t, pending, "a model filter without labels does not wait for them")
 }

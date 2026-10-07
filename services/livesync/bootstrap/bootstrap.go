@@ -55,15 +55,37 @@ func (r *Request) snapshot() materialize.SnapshotRequest {
 	}
 }
 
-// Pending returns the tables the request reads whose entity index backfill
-// is not done yet: the bootstrap must not be served before (B3's bootstrap
-// gate; the client retries later).
-func Pending(ctx context.Context, req Request) ([]string, error) {
+// Prepared is a request whose watermark was read and whose tables are all
+// indexed: ready to Stream.
+type Prepared struct {
+	req       Request
+	watermark int64
+}
+
+// Prepare reads the watermark (the sync log head) and then checks B3's
+// bootstrap gate: it returns the tables the request reads whose entity
+// index backfill is not done, and no Prepared, when the bootstrap must not
+// be served yet (the client retries later).
+//
+// The order matters: a re-bootstrap marker and the restart of its table's
+// index walk ("repair:0") are written in one transaction, so either the
+// marker is above the watermark (the client gets bootstrap_required after
+// this bootstrap and loads again) or the gate, read after the watermark,
+// sees the walk and refuses.
+func Prepare(ctx context.Context, req Request) (*Prepared, []string, error) {
+	watermark, err := synclog.Head(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("livesync: bootstrap: read the sync log head: %w", err)
+	}
 	tables, err := materialize.SnapshotTables(req.snapshot())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return materialize.BackfillPending(ctx, tables)
+	pending, err := materialize.BackfillPending(ctx, tables)
+	if err != nil || len(pending) > 0 {
+		return nil, pending, err
+	}
+	return &Prepared{req: req, watermark: watermark}, nil, nil
 }
 
 // maxProfileGroups bounds the profile groups other than the directories
@@ -77,12 +99,9 @@ const maxProfileGroups = 1000
 // client receives the response while it is produced. An error after the
 // header leaves the response without its end line (the client discards
 // it). perms decides which referenced profiles the viewer may read.
-func Stream(ctx context.Context, w io.Writer, flush func() error, perms *perm.Cache, req Request) error {
-	// The watermark is read before the snapshot (PLAN §4.7).
-	watermark, err := synclog.Head(ctx)
-	if err != nil {
-		return fmt.Errorf("livesync: bootstrap: read the sync log head: %w", err)
-	}
+func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, perms *perm.Cache) error {
+	// The watermark was read before the snapshot (PLAN §4.7).
+	req, watermark := p.req, p.watermark
 	snap := req.snapshot()
 	models, err := materialize.SnapshotModels(snap)
 	if err != nil {

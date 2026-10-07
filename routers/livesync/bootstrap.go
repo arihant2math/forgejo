@@ -133,7 +133,7 @@ func serveSnapshot(w http.ResponseWriter, req *http.Request, load bool) {
 		return
 	}
 	breq.Units = units
-	pending, err := bootstrap.Pending(ctx, breq)
+	prepared, pending, err := bootstrap.Prepare(ctx, breq)
 	if err != nil {
 		log.Error("livesync: bootstrap of %s: %v", group, err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Message: http.StatusText(http.StatusInternalServerError)})
@@ -165,7 +165,7 @@ func serveSnapshot(w http.ResponseWriter, req *http.Request, load bool) {
 		}
 		return nil
 	}
-	err = bootstrap.Stream(ctx, out, flush, perms, breq)
+	err = prepared.Stream(ctx, out, flush, perms)
 	if cerr := closeOut(); err == nil {
 		err = cerr
 	}

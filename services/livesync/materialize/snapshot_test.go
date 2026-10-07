@@ -6,16 +6,20 @@ package materialize
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"forgejo.org/models/db"
+	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/json"
 	"forgejo.org/services/livesync/catalog"
 	"forgejo.org/services/livesync/protocol"
 
+	xormlog "code.forgejo.org/xorm/xorm/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -189,12 +193,16 @@ func TestSnapshotIndexFilter(t *testing.T) {
 
 // The summary tier holds open issues and those updated since the cutoff;
 // the closed tier pages through the others, newest first, with their
-// labels and pull requests.
+// labels, assignees, project cards and pull requests.
 func TestSnapshotTiers(t *testing.T) {
 	resetLivesync(t)
 	ctx := t.Context()
 	m, _ := testMaterializer(t)
 	backfillAll(t, m)
+	// Pull request 2 (issue 2) closed: the closed tier holds it and issue 5,
+	// the pull request first (newer).
+	exec(t, "UPDATE issue SET is_closed = ?, updated_unix = 978307250 WHERE id = 2", true)
+	cutoff := time.Unix(978307300, 0)
 
 	var all []struct {
 		ID          int64 `xorm:"id"`
@@ -202,17 +210,18 @@ func TestSnapshotTiers(t *testing.T) {
 		UpdatedUnix int64 `xorm:"updated_unix"`
 	}
 	require.NoError(t, db.GetEngine(ctx).Table("issue").Cols("id", "is_closed", "updated_unix").Where("repo_id = 1").Find(&all))
-	cutoff := time.Unix(all[0].UpdatedUnix, 0).Add(time.Second)
 	var open, closed []string
+	var closedIDs []int64
 	for _, i := range all {
 		if !i.IsClosed || i.UpdatedUnix >= cutoff.Unix() {
 			open = append(open, fmt.Sprintf("Issue %d", i.ID))
 		} else {
 			closed = append(closed, fmt.Sprintf("Issue %d", i.ID))
+			closedIDs = append(closedIDs, i.ID)
 		}
 	}
 	require.NotEmpty(t, open)
-	require.NotEmpty(t, closed)
+	require.ElementsMatch(t, []string{"Issue 2", "Issue 5"}, closed)
 
 	issuesOf := func(keys []string) []string {
 		var res []string
@@ -227,50 +236,161 @@ func TestSnapshotTiers(t *testing.T) {
 	assert.ElementsMatch(t, open, issuesOf(summary))
 	assert.Contains(t, summary, "Repository 1")
 
-	var paged []string
-	cur := ClosedCursor{Updated: cutoff.Unix()}
-	var lastUpdated int64 = 1 << 62
-	for pages := 0; ; pages++ {
-		require.Less(t, pages, 100)
-		keys, res, ents := snapshotKeys(t, SnapshotRequest{Group: "repo:1", Tier: protocol.TierClosed, ClosedBefore: cur, Limit: 1, Allows: allUnits})
-		issues := issuesOf(keys)
-		require.LessOrEqual(t, len(issues), 1)
-		for _, e := range ents {
-			if e.Model == protocol.ModelIssue {
-				var dto protocol.Issue
-				require.NoError(t, json.Unmarshal([]byte(e.Payload), &dto))
-				assert.Equal(t, "closed", dto.State)
-				assert.LessOrEqual(t, dto.UpdatedAt.Unix(), lastUpdated, "newest first")
-				lastUpdated = dto.UpdatedAt.Unix()
+	// pages reads every page of the closed tier with one issue per page.
+	pages := func(allows func(protocol.Unit) bool) (paged, keys []string, cursors []string) {
+		cur := ClosedCursor{Updated: cutoff.Unix()}
+		var lastUpdated int64 = 1 << 62
+		for n := 0; ; n++ {
+			require.Less(t, n, 100)
+			got, res, ents := snapshotKeys(t, SnapshotRequest{Group: "repo:1", Tier: protocol.TierClosed, ClosedBefore: cur, Limit: 1, Allows: allows})
+			issues := issuesOf(got)
+			require.Len(t, issues, 1, "a page of one, never empty")
+			for _, e := range ents {
+				if e.Model == protocol.ModelIssue {
+					var dto protocol.Issue
+					require.NoError(t, json.Unmarshal([]byte(e.Payload), &dto))
+					assert.Equal(t, "closed", dto.State)
+					assert.LessOrEqual(t, dto.UpdatedAt.Unix(), lastUpdated, "newest first")
+					lastUpdated = dto.UpdatedAt.Unix()
+				}
+				assert.NotEqual(t, protocol.ModelLabel, e.Model, "only issue entities in the closed tier")
 			}
-			assert.NotEqual(t, protocol.ModelLabel, e.Model, "only issue entities in the closed tier")
+			paged = append(paged, issues...)
+			keys = append(keys, got...)
+			if res.Next == nil {
+				return paged, keys, cursors
+			}
+			cursors = append(cursors, res.Next.String())
+			next, err := ParseClosedCursor(res.Next.String())
+			require.NoError(t, err)
+			require.Equal(t, *res.Next, next)
+			cur = next
 		}
-		paged = append(paged, issues...)
-		if res.Next == nil {
-			break
-		}
-		next, err := ParseClosedCursor(res.Next.String())
-		require.NoError(t, err)
-		require.Equal(t, *res.Next, next)
-		cur = next
 	}
-	assert.ElementsMatch(t, closed, paged)
+	paged, pageKeys, _ := pages(allUnits)
+	assert.Equal(t, []string{"Issue 2", "Issue 5"}, paged, "newest first")
 
-	// The related entities of a closed issue are in its page, not in the
-	// summary: issue_label 1 is on issue 1.
-	var issueLabel struct {
-		ID      int64 `xorm:"id"`
-		IssueID int64 `xorm:"issue_id"`
+	// The children of the closed issues are in their pages, not in the
+	// summary.
+	var children []string
+	for table, model := range map[string]protocol.Model{
+		"issue_label": protocol.ModelIssueLabel, "issue_assignees": protocol.ModelIssueAssignee,
+		"project_issue": protocol.ModelProjectIssue, "pull_request": protocol.ModelPullRequest,
+	} {
+		var ids []int64
+		require.NoError(t, db.GetEngine(ctx).Table(table).Cols("id").In("issue_id", closedIDs).Find(&ids))
+		for _, id := range ids {
+			children = append(children, fmt.Sprintf("%s %d", model, id))
+		}
 	}
-	ok, err := db.GetEngine(ctx).Table("issue_label").Where("id = 1").Get(&issueLabel)
+	for _, want := range []string{"IssueLabel", "ProjectIssue", "PullRequest"} {
+		assert.True(t, slices.ContainsFunc(children, func(k string) bool { return strings.HasPrefix(k, want+" ") }), "fixture %s of a closed issue", want)
+	}
+	for _, k := range children {
+		assert.Contains(t, pageKeys, k, "in its issue's page")
+		assert.NotContains(t, summary, k, "not in the summary")
+	}
+
+	// A viewer who may read the issues but not the pull requests (or the
+	// reverse) pages through what they may read only: no empty page, and no
+	// cursor taken from an entity they may not read.
+	issuesOnly := func(u protocol.Unit) bool { return u != protocol.UnitPulls }
+	pullsOnly := func(u protocol.Unit) bool { return u != protocol.UnitIssues }
+	paged, _, cursors := pages(issuesOnly)
+	assert.Equal(t, []string{"Issue 5"}, paged)
+	assert.Empty(t, cursors, "pull request 2 gives no cursor")
+	paged, _, cursors = pages(pullsOnly)
+	assert.Equal(t, []string{"Issue 2"}, paged)
+	assert.Empty(t, cursors)
+	keys, res, _ := snapshotKeys(t, SnapshotRequest{
+		Group: "repo:1", Tier: protocol.TierClosed, ClosedBefore: ClosedCursor{Updated: cutoff.Unix()}, Limit: 10,
+		Allows: func(u protocol.Unit) bool { return u == protocol.UnitNone || u == protocol.UnitCode },
+	})
+	assert.Empty(t, keys, "neither issues nor pull requests")
+	assert.Nil(t, res.Next)
+}
+
+// sqlRecorder is an xorm logger that records the statements run on the
+// engine while it is installed.
+type sqlRecorder struct {
+	xormlog.ContextLogger
+	mu  *sync.Mutex
+	sql *[]string
+}
+
+func (r sqlRecorder) IsShowSQL() bool { return true }
+
+func (r sqlRecorder) BeforeSQL(xormlog.LogContext) {}
+
+func (r sqlRecorder) AfterSQL(c xormlog.LogContext) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	*r.sql = append(*r.sql, c.SQL)
+}
+
+// recordSQL returns the statements fn runs.
+func recordSQL(t *testing.T, fn func()) []string {
+	t.Helper()
+	e, err := livesync_model.MasterXORMEngine()
 	require.NoError(t, err)
-	require.True(t, ok)
-	key := fmt.Sprintf("Issue %d", issueLabel.IssueID)
-	if slices.Contains(closed, key) {
-		assert.NotContains(t, summary, "IssueLabel 1")
-	} else {
-		assert.Contains(t, summary, "IssueLabel 1")
+	var sql []string
+	old := e.Logger()
+	e.SetLogger(sqlRecorder{ContextLogger: old, mu: &sync.Mutex{}, sql: &sql})
+	defer e.SetLogger(old)
+	fn()
+	return sql
+}
+
+// The candidate rows are read through the conditions' indexes (B6 review):
+// no keyset paging ("ORDER BY id LIMIT n", which PostgreSQL plans as a walk
+// of the primary key), no OR of an issue's and its comments' rows (which
+// defeats both indexes); and the rows that hang off a chunk of issues are
+// placed with the chunk's issues, not by loading them again per child table.
+func TestSnapshotQueries(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	backfillAll(t, m)
+	var sql []string
+	for _, req := range []SnapshotRequest{
+		{Group: "issue:1", Tier: protocol.TierFull, Allows: allUnits},
+		{Group: "user:1", Tier: protocol.TierFull, Allows: allUnits, Recent: time.Now()},
+		{Group: "org:3", Tier: protocol.TierFull, Allows: allUnits},
+	} {
+		sql = append(sql, recordSQL(t, func() { snapshotKeys(t, req) })...)
 	}
+	summary := recordSQL(t, func() {
+		keys, _, _ := snapshotKeys(t, SnapshotRequest{Group: "repo:1", Tier: protocol.TierSummary, Allows: allUnits})
+		require.Contains(t, keys, "IssueLabel 1")
+		require.Contains(t, keys, "PullRequest 2")
+	})
+	sql = append(sql, summary...)
+	paging := regexp.MustCompile(`(?i)\bORDER BY\b.*\bLIMIT\b`)
+	or := regexp.MustCompile(`(?i)\bOR\b`)
+	fromTable := regexp.MustCompile("(?i)\\bFROM [`\"]?(\\w+)")
+	table := func(q string) string {
+		if m := fromTable.FindStringSubmatch(q); m != nil {
+			return m[1]
+		}
+		return ""
+	}
+	for _, q := range sql {
+		assert.False(t, paging.MatchString(q), "no paging: %s", q)
+		switch table(q) {
+		case "reaction", "attachment", "issue_content_history":
+			assert.False(t, or.MatchString(q), "one condition per query: %s", q)
+		}
+	}
+	// repo:1's summary issues fit in one chunk: their full rows are read
+	// once (their labels, assignees, project cards and pull requests are
+	// placed with them), and the pull requests once (their auto-merges).
+	full := map[string]int{}
+	for _, q := range summary {
+		if strings.HasPrefix(q, "SELECT `id`, `") {
+			full[table(q)]++
+		}
+	}
+	assert.Equal(t, 1, full["issue"], "full issue rows read")
+	assert.Equal(t, 1, full["pull_request"], "full pull request rows read")
 }
 
 // The viewer's units filter the entities; models restrict them.

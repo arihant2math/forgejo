@@ -47,11 +47,9 @@ import (
 // backfill runs.
 const bootstrapRetryAfter = "2"
 
-// Page size of the closed tier (load?closedBefore=): default and maximum.
-const (
-	defaultClosedPage = 500
-	maxClosedPage     = 2000
-)
+// defaultClosedPage is the default page size of the closed tier
+// (load?closedBefore=; at most materialize.MaxClosedPage).
+const defaultClosedPage = 500
 
 // serveBootstrap answers GET /-/sync/bootstrap.
 func serveBootstrap(w http.ResponseWriter, req *http.Request) {
@@ -98,8 +96,8 @@ func serveSnapshot(w http.ResponseWriter, req *http.Request, load bool) {
 		}
 		breq.Tier, breq.ClosedBefore, breq.Limit = protocol.TierClosed, c, defaultClosedPage
 		if s := query.Get("limit"); s != "" {
-			if breq.Limit, err = strconv.Atoi(s); err != nil || breq.Limit <= 0 || breq.Limit > maxClosedPage {
-				badRequest(w, "limit must be between 1 and "+strconv.Itoa(maxClosedPage))
+			if breq.Limit, err = strconv.Atoi(s); err != nil || breq.Limit <= 0 || breq.Limit > materialize.MaxClosedPage {
+				badRequest(w, "limit must be between 1 and "+strconv.Itoa(materialize.MaxClosedPage))
 				return
 			}
 		}

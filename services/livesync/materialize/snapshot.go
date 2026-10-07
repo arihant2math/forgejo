@@ -16,6 +16,7 @@ import (
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
 	user_model "forgejo.org/models/user"
+	"forgejo.org/modules/git"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/structs"
 	"forgejo.org/services/livesync/capture"
@@ -131,17 +132,25 @@ type SnapshotResult struct {
 	Next *ClosedCursor
 }
 
-// source is a table read by a snapshot and the condition selecting the
+// source is a table read by a snapshot and the conditions selecting the
 // candidate rows. Candidates may be a superset: only the entities the specs
-// place in the requested group are kept. children are tables whose rows
-// hang off the source's rows: they are read per chunk of the source's rows
-// through an index of their parent column (an issue's labels, assignees,
-// project cards and pull request), instead of walking the whole child table
-// filtered by a subquery.
+// place in the requested group are kept. Each condition is read on its own,
+// so that it can use an index of its columns (an OR of conditions on
+// different columns cannot: "issue_id = N OR comment_id IN (…)" was planned
+// as a walk of the whole table), and the candidates are their union.
+// children are tables whose rows hang off the source's rows: they are read
+// per chunk of the source's rows through an index of their parent column
+// (an issue's labels, assignees, project cards and pull request), instead of
+// walking the whole child table filtered by a subquery.
 type source struct {
 	table    string
-	cond     builder.Cond
+	conds    []builder.Cond
 	children []child
+}
+
+// from is the source of table's rows matching any of conds.
+func from(table string, conds ...builder.Cond) source {
+	return source{table: table, conds: conds}
 }
 
 // child is a table read for each chunk of a source's rows; cond selects the
@@ -160,6 +169,11 @@ var issueChildren = []child{
 	{"pull_auto_merge", func(ids []int64) builder.Cond {
 		return builder.In("pull_id", sel("pull_request", builder.In("issue_id", ids)))
 	}},
+}
+
+// issues is the source of the issues matching cond, with their children.
+func issues(cond builder.Cond) source {
+	return source{table: "issue", conds: []builder.Cond{cond}, children: issueChildren}
 }
 
 // tables returns the source's table and its children's.
@@ -195,40 +209,39 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 	switch prefix {
 	case protocol.GroupPrefixRepo:
 		if req.Tier == protocol.TierClosed {
-			return []source{{table: "issue", cond: builder.In("id", page), children: issueChildren}}, nil
+			return []source{issues(builder.In("id", page))}, nil
 		}
 		repo := builder.Eq{"repo_id": id}
-		issues := builder.Eq{"repo_id": id}.And(builder.Or(builder.Eq{"is_closed": false}, recently("updated_unix")))
 		return []source{
-			{table: "repository", cond: builder.Eq{"id": id}},
-			{table: "repo_unit", cond: repo},
-			{table: "collaboration", cond: repo},
-			{table: "label", cond: repo},
-			{table: "milestone", cond: repo},
-			{table: "project", cond: repo},
-			{table: "project_board", cond: builder.In("project_id", sel("project", repo))},
-			{table: "branch", cond: repo},
-			{table: "release", cond: builder.Eq{"repo_id": id, "is_draft": false}},
-			{table: "attachment", cond: builder.In("release_id", sel("release", repo))},
-			{table: "issue", cond: issues, children: issueChildren},
-			{table: "commit_status", cond: repo.And(recently("updated_unix"))},
-			{table: "action_run", cond: repo.And(recently("updated"))},
-			{table: "action_run_job", cond: repo.And(recently("updated"))},
+			from("repository", builder.Eq{"id": id}),
+			from("repo_unit", repo),
+			from("collaboration", repo),
+			from("label", repo),
+			from("milestone", repo),
+			from("project", repo),
+			from("project_board", builder.In("project_id", sel("project", repo))),
+			from("branch", repo),
+			from("release", builder.Eq{"repo_id": id, "is_draft": false}),
+			from("attachment", builder.In("release_id", sel("release", repo))),
+			issues(repo.And(builder.Or(builder.Eq{"is_closed": false}, recently("updated_unix")))),
+			from("commit_status", repo.And(recently("updated_unix"))),
+			from("action_run", repo.And(recently("updated"))),
+			from("action_run_job", repo.And(recently("updated"))),
 		}, nil
 	case protocol.GroupPrefixIssue:
 		issue := builder.Eq{"issue_id": id}
 		// Rows that hang off a comment are placed by the comment, whatever
 		// their own issue_id says.
-		issueOrComment := builder.Or(issue, builder.In("comment_id", sel("comment", issue)))
+		onComments := builder.In("comment_id", sel("comment", issue))
 		return []source{
-			{table: "issue", cond: builder.Eq{"id": id}},
-			{table: "comment", cond: issue},
-			{table: "review", cond: issue},
-			{table: "reaction", cond: issueOrComment},
-			{table: "attachment", cond: issueOrComment},
-			{table: "issue_dependency", cond: issue},
-			{table: "tracked_time", cond: issue},
-			{table: "issue_content_history", cond: issueOrComment},
+			from("issue", builder.Eq{"id": id}),
+			from("comment", issue),
+			from("review", issue),
+			from("reaction", issue, onComments),
+			from("attachment", issue, onComments),
+			from("issue_dependency", issue),
+			from("tracked_time", issue),
+			from("issue_content_history", issue, onComments),
 		}, nil
 	case protocol.GroupPrefixUser:
 		user := builder.Eq{"user_id": id}
@@ -236,26 +249,26 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 		pendingComments := builder.In("review_id", sel("review", pending))
 		onPendingComments := builder.In("comment_id", sel("comment", pendingComments))
 		return []source{
-			{table: "access", cond: user},
-			{table: "notification", cond: user.And(builder.Or(builder.Neq{"status": activities_model.NotificationStatusRead}, recently("updated_unix")))},
-			{table: "stopwatch", cond: user},
-			{table: "issue_watch", cond: user},
-			{table: "watch", cond: user},
-			{table: "star", cond: builder.Eq{"uid": id}},
-			{table: "forgejo_blocked_user", cond: user},
-			{table: "review_state", cond: user},
-			{table: "review", cond: pending},
-			{table: "comment", cond: pendingComments},
-			{table: "reaction", cond: onPendingComments},
-			{table: "attachment", cond: onPendingComments},
-			{table: "issue_content_history", cond: onPendingComments},
+			from("access", user),
+			from("notification", user.And(builder.Neq{"status": activities_model.NotificationStatusRead}), user.And(recently("updated_unix"))),
+			from("stopwatch", user),
+			from("issue_watch", user),
+			from("watch", user),
+			from("star", builder.Eq{"uid": id}),
+			from("forgejo_blocked_user", user),
+			from("review_state", user),
+			from("review", pending),
+			from("comment", pendingComments),
+			from("reaction", onPendingComments),
+			from("attachment", onPendingComments),
+			from("issue_content_history", onPendingComments),
 		}, nil
 	case protocol.GroupPrefixProfile:
 		projects := builder.Eq{"owner_id": id, "repo_id": 0}
 		return []source{
-			{table: "user", cond: builder.Eq{"id": id}},
-			{table: "project", cond: projects},
-			{table: "project_board", cond: builder.In("project_id", sel("project", projects))},
+			from("user", builder.Eq{"id": id}),
+			from("project", projects),
+			from("project_board", builder.In("project_id", sel("project", projects))),
 		}, nil
 	case protocol.GroupPrefixProfiles:
 		vis := structs.VisibleTypePublic
@@ -263,21 +276,21 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			vis = structs.VisibleTypeLimited
 		}
 		return []source{
-			{table: "user", cond: builder.Neq{"`type`": user_model.UserTypeOrganization}.And(builder.Eq{"visibility": vis})},
+			from("user", builder.Neq{"`type`": user_model.UserTypeOrganization}.And(builder.Eq{"visibility": vis})),
 		}, nil
 	case protocol.GroupPrefixOrg:
 		org := builder.Eq{"org_id": id}
 		projects := builder.Eq{"owner_id": id, "repo_id": 0}
 		return []source{
-			{table: "user", cond: builder.Eq{"id": id}},
-			{table: "org_user", cond: org},
-			{table: "team", cond: org},
-			{table: "team_user", cond: org},
-			{table: "team_repo", cond: org},
-			{table: "team_unit", cond: org},
-			{table: "label", cond: org},
-			{table: "project", cond: projects},
-			{table: "project_board", cond: builder.In("project_id", sel("project", projects))},
+			from("user", builder.Eq{"id": id}),
+			from("org_user", org),
+			from("team", org),
+			from("team_user", org),
+			from("team_repo", org),
+			from("team_unit", org),
+			from("label", org),
+			from("project", projects),
+			from("project_board", builder.In("project_id", sel("project", projects))),
 		}, nil
 	}
 	return nil, fmt.Errorf("livesync: not a client group: %q", req.Group)
@@ -370,13 +383,23 @@ func snapshotChunk(table string) int {
 	return inChunk
 }
 
-// maxClosedPage bounds the closed tier's page size.
-const maxClosedPage = 2000
+// MaxClosedPage bounds the closed tier's page size (SnapshotRequest.Limit).
+const MaxClosedPage = 2000
 
 // Snapshot reads the group's current entities that req.Allows and passes
 // them to emit, chunk by chunk (emit is called outside any transaction). See
 // the consistency notes above; the caller reads the watermark first and
 // checks the backfill gate.
+//
+// The candidate rows of each source are read first, through the indexes of
+// their conditions and without ORDER BY id … LIMIT: keyset paging ("cond AND
+// id > last ORDER BY id LIMIT n") makes PostgreSQL walk the primary key and
+// filter every row of the table whenever the matches are not dense in id
+// order (B6 review: 0.5 s per chunk of a repository's summary in a table of
+// 3M issues). The ids (8 bytes each) are then chunked in Go. Reading them
+// before the chunks is as consistent as reading them per chunk: a row that
+// enters the candidates later changed after the watermark was read, so it
+// reaches the client as a delta.
 func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEntity) error) (SnapshotResult, error) {
 	var res SnapshotResult
 	var page []int64
@@ -396,29 +419,35 @@ func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEnti
 	keep := func(e *entity) bool {
 		return e.group == req.Group && (len(req.Models) == 0 || slices.Contains(req.Models, e.model)) && req.Allows(e.unit)
 	}
+	// The git repositories opened for rendering markdown are kept for the
+	// whole snapshot (an issue with 1000 comments is 10 chunks); the parent
+	// rows are cached per chunk, since each chunk is its own transaction.
+	gitRepos := map[int64]*git.Repository{}
+	defer closeGitRepos(gitRepos)
 	for _, src := range sources {
 		if !slices.ContainsFunc(src.tables(), func(t string) bool { return wantedTable(t, req.Models) }) {
 			continue
 		}
+		ids, err := candidates(ctx, &src)
+		if err != nil {
+			return res, fmt.Errorf("livesync: snapshot of %s: %s rows: %w", req.Group, src.table, err)
+		}
 		n := snapshotChunk(src.table)
-		var last int64
-		for {
+		for start := 0; start < len(ids); start += n {
 			if err := ctx.Err(); err != nil {
 				return res, err
 			}
-			var ids []int64
+			chunk := ids[start:min(start+n, len(ids))]
 			var batch []SnapshotEntity
 			err := capture.WithQuietTx(ctx, func(ctx context.Context) error {
-				if err := db.GetEngine(ctx).Table(src.table).Cols("id").Where(src.cond.And(builder.Gt{"id": last})).
-					OrderBy("id").Limit(n).Find(&ids); err != nil {
-					return fmt.Errorf("livesync: snapshot of %s: %s rows: %w", req.Group, src.table, err)
-				}
-				if len(ids) == 0 {
-					return nil
-				}
+				// One loader for the chunk and its children: the issues an
+				// issue's labels, assignees and project cards are placed by
+				// are the chunk's, read once.
+				l := newLoader()
+				l.gitRepos = gitRepos
 				var err error
 				if wantedTable(src.table, req.Models) {
-					if batch, err = snapshotRows(ctx, src.table, ids, keep); err != nil {
+					if batch, err = snapshotRows(ctx, l, src.table, chunk, keep); err != nil {
 						return err
 					}
 				}
@@ -427,13 +456,14 @@ func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEnti
 						continue
 					}
 					var childIDs []int64
-					if err := db.GetEngine(ctx).Table(c.table).Cols("id").Where(c.cond(ids)).OrderBy("id").Find(&childIDs); err != nil {
+					if err := db.GetEngine(ctx).Table(c.table).Cols("id").Where(c.cond(chunk)).Find(&childIDs); err != nil {
 						return fmt.Errorf("livesync: snapshot of %s: %s rows: %w", req.Group, c.table, err)
 					}
 					if len(childIDs) == 0 {
 						continue
 					}
-					more, err := snapshotRows(ctx, c.table, childIDs, keep)
+					slices.Sort(childIDs)
+					more, err := snapshotRows(ctx, l, c.table, childIDs, keep)
 					if err != nil {
 						return err
 					}
@@ -450,28 +480,56 @@ func Snapshot(ctx context.Context, req SnapshotRequest, emit func([]SnapshotEnti
 					return res, err
 				}
 			}
-			if len(ids) < n {
-				break
-			}
-			last = ids[len(ids)-1]
 		}
 	}
 	return res, nil
 }
 
+// candidates returns the ids of the rows matching any of the source's
+// conditions, sorted and without duplicates, read in one transaction.
+func candidates(ctx context.Context, src *source) ([]int64, error) {
+	var res []int64
+	err := capture.WithQuietTx(ctx, func(ctx context.Context) error {
+		for _, cond := range src.conds {
+			var ids []int64
+			if err := db.GetEngine(ctx).Table(src.table).Cols("id").Where(cond).Find(&ids); err != nil {
+				return err
+			}
+			res = append(res, ids...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(res)
+	return slices.Compact(res), nil
+}
+
 // closedPage returns the ids of the closed tier's page (newest first) and
-// the cursor of the next page.
+// the cursor of the next page. Only the issues, or only the pull requests,
+// when the viewer may read only those: the page and its cursor are built
+// from rows the viewer may read (a cursor taken from a pull request would
+// tell an issues-only reader that it exists and when it was updated).
 func closedPage(ctx context.Context, req SnapshotRequest) ([]int64, *ClosedCursor, error) {
 	prefix, repoID, ok := protocol.ParseGroup(req.Group)
 	if !ok || prefix != protocol.GroupPrefixRepo {
 		return nil, nil, fmt.Errorf("livesync: the closed tier needs a repo group, not %q", req.Group)
 	}
-	limit := min(max(req.Limit, 1), maxClosedPage)
+	limit := min(max(req.Limit, 1), MaxClosedPage)
 	c := req.ClosedBefore
 	cond := builder.Eq{"repo_id": repoID, "is_closed": true}.And(builder.Or(
 		builder.Lt{"updated_unix": c.Updated},
 		builder.Eq{"updated_unix": c.Updated}.And(builder.Lt{"id": c.ID}),
 	))
+	switch issues, pulls := req.Allows(protocol.UnitIssues), req.Allows(protocol.UnitPulls); {
+	case !issues && !pulls:
+		return nil, nil, nil
+	case !pulls:
+		cond = cond.And(builder.Eq{"is_pull": false})
+	case !issues:
+		cond = cond.And(builder.Eq{"is_pull": true})
+	}
 	var rows []struct {
 		ID          int64 `xorm:"id"`
 		UpdatedUnix int64 `xorm:"updated_unix"`
@@ -496,12 +554,10 @@ func closedPage(ctx context.Context, req SnapshotRequest) ([]int64, *ClosedCurso
 	return ids, next, nil
 }
 
-// snapshotRows loads the rows ids of table and returns the entities keep
-// accepts that the entity index knows, with their payloads. It runs in a
-// read transaction on the master.
-func snapshotRows(ctx context.Context, table string, ids []int64, keep func(*entity) bool) ([]SnapshotEntity, error) {
-	l := newLoader()
-	defer l.close()
+// snapshotRows loads the rows ids of table with l and returns the entities
+// keep accepts that the entity index knows, with their payloads. It runs in
+// a read transaction on the master.
+func snapshotRows(ctx context.Context, l *loader, table string, ids []int64, keep func(*entity) bool) ([]SnapshotEntity, error) {
 	loaded, err := specs[table].load(ctx, l, ids, true)
 	if err != nil {
 		return nil, fmt.Errorf("livesync: snapshot: load %s rows: %w", table, err)
@@ -623,7 +679,9 @@ func Profiles(ctx context.Context, ids []int64) ([]SnapshotEntity, error) {
 	for start := 0; start < len(ids); start += inChunk {
 		chunk := ids[start:min(start+inChunk, len(ids))]
 		err := capture.WithQuietTx(ctx, func(ctx context.Context) error {
-			batch, err := snapshotRows(ctx, "user", chunk, func(*entity) bool { return true })
+			l := newLoader()
+			defer l.close()
+			batch, err := snapshotRows(ctx, l, "user", chunk, func(*entity) bool { return true })
 			res = append(res, batch...)
 			return err
 		})

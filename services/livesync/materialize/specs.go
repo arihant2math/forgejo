@@ -432,6 +432,14 @@ var specs = func() map[string]*spec {
 		rowSpec[issues_model.PullRequest]{
 			model: protocol.ModelPullRequest, schema: protocol.SchemaPullRequest,
 			id: func(r *issues_model.PullRequest) int64 { return r.ID },
+			// Cached for their auto-merges (read in the same batch or
+			// snapshot chunk).
+			prepare: func(_ context.Context, l *loader, rows []*issues_model.PullRequest) error {
+				for _, p := range rows {
+					l.pulls[p.ID] = p
+				}
+				return nil
+			},
 			place: func(_ *loader, r *issues_model.PullRequest) (string, protocol.Unit) {
 				return protocol.RepoGroup(r.BaseRepoID), protocol.UnitPulls
 			},

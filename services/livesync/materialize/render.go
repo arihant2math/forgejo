@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	repo_model "forgejo.org/models/repo"
+	"forgejo.org/modules/git"
 	"forgejo.org/modules/gitrepo"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
@@ -105,10 +106,16 @@ func (l *loader) renderEnv(ctx context.Context, repo *repo_model.Repository) str
 
 // close releases the git repositories opened for rendering.
 func (l *loader) close() {
-	for _, r := range l.gitRepos {
+	closeGitRepos(l.gitRepos)
+	l.gitRepos = nil
+}
+
+// closeGitRepos closes the git repositories of a loader (or of the loaders
+// of one snapshot, which share them).
+func closeGitRepos(repos map[int64]*git.Repository) {
+	for _, r := range repos {
 		if r != nil {
 			r.Close()
 		}
 	}
-	l.gitRepos = nil
 }

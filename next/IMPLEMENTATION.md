@@ -302,7 +302,7 @@ does) **and** MySQL 8.0 (binlog on).
 ### Backend
 
 #### B1 — Skeleton
-- [ ] **Status**
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0; unit tests, vet, gofumpt, golangci-lint, deadcode, `make tidy-check` clean; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`)
 - **Scope:** `services/livesync/settings.go` (`[livesync]`: `ENABLED`=false, `INSTALL_MODE`=auto|verify);
   `models/livesync` with the core tables, created by `Engine.Sync` from `livesync.Init`
   (not `db.RegisterModel`): `livesync_change(id, tbl, row_id, op)`,

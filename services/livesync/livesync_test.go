@@ -18,21 +18,38 @@ import (
 
 func TestLoadSettings(t *testing.T) {
 	const hole = 30 * time.Second
+	// def returns the default settings changed by fn.
+	def := func(fn func(s *Settings)) Settings {
+		s := Settings{
+			InstallMode: InstallModeAuto, HoleTimeout: hole,
+			LogRetention: 30 * 24 * time.Hour, LogMaxRows: 1_000_000, HotCoalesce: time.Second,
+		}
+		fn(&s)
+		return s
+	}
+	same := func(*Settings) {}
 	cases := []struct {
 		ini     string
 		want    Settings
 		wantErr bool
 	}{
-		{"", Settings{Enabled: false, InstallMode: InstallModeAuto, HoleTimeout: hole}, false},
-		{"[livesync]\nENABLED = true\n", Settings{Enabled: true, InstallMode: InstallModeAuto, HoleTimeout: hole}, false},
-		{"[livesync]\nENABLED = true\nINSTALL_MODE = verify\n", Settings{Enabled: true, InstallMode: InstallModeVerify, HoleTimeout: hole}, false},
-		{"[livesync]\nINSTALL_MODE = \" Verify \"\n", Settings{InstallMode: InstallModeVerify, HoleTimeout: hole}, false},
-		{"[livesync]\nINSTALL_MODE = AUTO\n", Settings{InstallMode: InstallModeAuto, HoleTimeout: hole}, false},
+		{"", def(same), false},
+		{"[livesync]\nENABLED = true\n", def(func(s *Settings) { s.Enabled = true }), false},
+		{"[livesync]\nENABLED = true\nINSTALL_MODE = verify\n", def(func(s *Settings) { s.Enabled, s.InstallMode = true, InstallModeVerify }), false},
+		{"[livesync]\nINSTALL_MODE = \" Verify \"\n", def(func(s *Settings) { s.InstallMode = InstallModeVerify }), false},
+		{"[livesync]\nINSTALL_MODE = AUTO\n", def(same), false},
 		{"[livesync]\nINSTALL_MODE = manual\n", Settings{}, true},
-		{"[livesync]\nPOLL_INTERVAL = 50ms\nHOLE_TIMEOUT = 2s\n", Settings{InstallMode: InstallModeAuto, PollInterval: 50 * time.Millisecond, HoleTimeout: 2 * time.Second}, false},
+		{"[livesync]\nPOLL_INTERVAL = 50ms\nHOLE_TIMEOUT = 2s\n", def(func(s *Settings) { s.PollInterval, s.HoleTimeout = 50*time.Millisecond, 2*time.Second }), false},
 		{"[livesync]\nPOLL_INTERVAL = soon\n", Settings{}, true},
 		{"[livesync]\nPOLL_INTERVAL = -1s\n", Settings{}, true},
 		{"[livesync]\nHOLE_TIMEOUT = 0\n", Settings{}, true},
+		{"[livesync]\nLOG_RETENTION = 0\nLOG_MAX_ROWS = 0\nHOT_COALESCE = 0\n", def(func(s *Settings) { s.LogRetention, s.LogMaxRows, s.HotCoalesce = 0, 0, 0 }), false},
+		{"[livesync]\nLOG_RETENTION = 48h\nLOG_MAX_ROWS = 500\nHOT_COALESCE = 250ms\n", def(func(s *Settings) {
+			s.LogRetention, s.LogMaxRows, s.HotCoalesce = 48*time.Hour, 500, 250*time.Millisecond
+		}), false},
+		{"[livesync]\nLOG_RETENTION = forever\n", Settings{}, true},
+		{"[livesync]\nLOG_MAX_ROWS = -1\n", Settings{}, true},
+		{"[livesync]\nHOT_COALESCE = -1s\n", Settings{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.ini, func(t *testing.T) {

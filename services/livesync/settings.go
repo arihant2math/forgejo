@@ -41,6 +41,17 @@ type Settings struct {
 	// outbox id below its high-water mark (an uncommitted transaction) before
 	// giving it up as rolled back (B2).
 	HoleTimeout time.Duration
+	// LOG_RETENTION (default 720h = 30 days): sync log entries older than
+	// this are trimmed; clients whose cursor is older must re-bootstrap. 0
+	// keeps entries forever (subject to LOG_MAX_ROWS) (B3).
+	LogRetention time.Duration
+	// LOG_MAX_ROWS (default 1000000): at most this many of the newest sync
+	// log entries are kept; 0 means no row limit (B3).
+	LogMaxRows int64
+	// HOT_COALESCE (default 1s): a row of a hot table (notification,
+	// commit_status, action_run_job) is materialized at most once per this
+	// interval, with its latest state; 0 disables the coalescing (B3).
+	HotCoalesce time.Duration
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -64,6 +75,16 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	}
 	if s.HoleTimeout, err = sec.Key("HOLE_TIMEOUT").MustDuration(30 * time.Second); err != nil {
 		return s, fmt.Errorf("invalid [livesync] HOLE_TIMEOUT: %w", err)
+	}
+	if s.LogRetention, err = sec.Key("LOG_RETENTION").MustDuration(30 * 24 * time.Hour); err != nil {
+		return s, fmt.Errorf("invalid [livesync] LOG_RETENTION: %w", err)
+	}
+	s.LogMaxRows = sec.Key("LOG_MAX_ROWS").MustInt64(1_000_000)
+	if s.HotCoalesce, err = sec.Key("HOT_COALESCE").MustDuration(time.Second); err != nil {
+		return s, fmt.Errorf("invalid [livesync] HOT_COALESCE: %w", err)
+	}
+	if s.LogRetention < 0 || s.LogMaxRows < 0 || s.HotCoalesce < 0 {
+		return s, fmt.Errorf("invalid [livesync] LOG_RETENTION %s / LOG_MAX_ROWS %d / HOT_COALESCE %s (want >= 0)", s.LogRetention, s.LogMaxRows, s.HotCoalesce)
 	}
 	if s.PollInterval < 0 || s.HoleTimeout <= 0 {
 		return s, fmt.Errorf("invalid [livesync] POLL_INTERVAL %s / HOLE_TIMEOUT %s (want >= 0 / > 0)", s.PollInterval, s.HoleTimeout)

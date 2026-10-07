@@ -1358,7 +1358,7 @@ does) **and** MySQL 8.0 (binlog on).
     diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
-- [ ] **Status**
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesync*` + `TestVersion` green on PG 16/`gtestschema` (31 pass, 3 MySQL-only skips) and MySQL 8.0 binlog on (33 pass, 1 skip), incl. `TestLivesyncHub` (ws + sse) and `TestLivesyncHubSlowConsumer`, no testlogger "FATAL ERROR"; livesync unit tests green with `-race` (1 run); `gen-protocol.sh --check` up to date; `routers/livesync/deps.go` gone; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; **one open item** (flaky hub unit tests under `-race` load, pre-existing, not a product bug), see *Open items*)
 - **Scope:** `services/livesync/protocol` message types (`hello`, `welcome`,
   `subscribe`/`unsubscribe`, `delta`, `caught_up`, `bootstrap_required`,
   `group_revoked`, `barrier`/`barrier_ok`, `session_invalid`, `notice`, `pong`,
@@ -1599,6 +1599,19 @@ does) **and** MySQL 8.0 (binlog on).
     optimisation. Cross-reference comments are still unpublished (B3's open issue; the hub has no second requirement per entry). No
     metrics yet (B8). Caps are per instance. The WS/SSE session requests do not appear in Forgejo's router log. Grants for narrower
     token scopes: still refused at hello (B4 rule).
+
+  - **Open items (from the final review; unresolved).**
+    - **major — `services/livesync/hub/hub.go:378`: `TestHeldEntries` and `TestTouches` are flaky under load** (pre-existing; round-1
+      code 50cf196 shows it too, not caused by the round-2 fix, which was verified correct: `TestStopDuringHello` `-race -count=30` green,
+      no deadlock, lock order `handleMu` → `h.mu`/`c.mu`). Hub package with `-race -count=5`: `TestHeldEntries` failed 1/4 runs (2/8 of
+      a prebuilt binary) at `replay_test.go:277` ("expected: 4, actual: 1"), `TestTouches` once at `hub_test.go:523` ("expected 4,
+      actual 3"); neither fails in isolation. Cause: `releaseHeldLocked` (hub.go:377-388) calls `enqueueChange` for the held entries,
+      which wakes the writer, *before* `goLiveLocked` → `c.clearHold(s)` removes the hold; the writer takes `c.mu`, not `h.mu`, so it can
+      drain the queue in between and compute `to = min(pos, holds)` with the stale hold (delta with `v = pos+4` says `to = pos+1`), and no
+      later frame raises `to` until the session gets another change. The protocol allows `to < v` (clients only replay a little extra on
+      reconnect), but the suite is not reliably green under `-race`. **Fix:** in `releaseHeldLocked` call `c.clearHold(s)` before
+      enqueueing the held entries (everything held is ≤ `h.pos` and the function runs under `h.mu`, so fan-out cannot interleave); or make
+      the tests wait for a frame with `to ≥` the expected position instead of asserting the first frame's `to`.
 
 #### B6 — Bootstrap + partial load
 - [ ] **Status**

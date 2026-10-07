@@ -43,6 +43,9 @@ func newRoutes() http.Handler {
 	r.Get(syncPrefix+"/health", health)
 	r.Get(syncPrefix+"/grants", grants)
 	r.Post(syncPrefix+"/send", sendMessage)
+	r.Get(syncPrefix+"/bootstrap", serveBootstrap)
+	r.Get(syncPrefix+"/load", serveLoad)
+	r.Get(syncPrefix+"/workspace", serveWorkspace)
 
 	return r
 }

@@ -144,6 +144,12 @@ func TestHandlerRouting(t *testing.T) {
 		{"", http.MethodPost, "/-/sync/send", http.StatusServiceUnavailable},
 		{"", http.MethodGet, "/-/sync/send", http.StatusMethodNotAllowed},
 		{"/forge", http.MethodGet, "/forge/-/sync//ws/", http.StatusServiceUnavailable},
+		// Bootstraps, loads and the workspace (B6).
+		{"", http.MethodGet, "/-/sync/bootstrap?group=repo:1", http.StatusServiceUnavailable},
+		{"", http.MethodPost, "/-/sync/bootstrap", http.StatusMethodNotAllowed},
+		{"", http.MethodGet, "/-/sync/load?group=issue:1", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-/sync/workspace", http.StatusServiceUnavailable},
+		{"/forge", http.MethodGet, "/forge/-/sync/workspace/", http.StatusServiceUnavailable},
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.sub+c.path, func(t *testing.T) {

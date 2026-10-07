@@ -26,6 +26,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/SaveTheRbtz/zstd-seekable-format-go/pkg v0.9.0
 	github.com/alecthomas/chroma/v2 v2.23.1
+	github.com/andybalholm/brotli v1.2.0
 	github.com/blakesmith/ar v0.0.0-20190502131153-809d4375e1fb
 	github.com/blevesearch/bleve/v2 v2.6.1
 	github.com/buildkite/terminal-to-html/v3 v3.17.1
@@ -123,7 +124,6 @@ require (
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/RoaringBitmap/roaring/v2 v2.14.5 // indirect
 	github.com/STARRY-S/zip v0.2.3 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.4 // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect

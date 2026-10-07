@@ -76,6 +76,15 @@ type Settings struct {
 	// SESSION_CHECK_INTERVAL (default 5m): how often a sync session's
 	// token and account are checked again (B5).
 	SessionCheckInterval time.Duration
+	// SUMMARY_RECENCY (default 2160h = 90 days): a repository bootstrap's
+	// summary tier holds the open issues and pull requests plus those
+	// updated within this window (older closed ones are loaded on demand),
+	// and the commit statuses and action runs updated within it; a user's
+	// bootstrap holds the read notifications updated within it (B6).
+	SummaryRecency time.Duration
+	// WORKSPACE_MAX_REPOS (default 200): the repositories GET
+	// /-/sync/workspace lists at most (most recently updated first) (B6).
+	WorkspaceMaxRepos int
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -119,6 +128,13 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	s.MaxReplay = sec.Key("MAX_REPLAY").MustInt(hub.DefaultMaxReplay)
 	if s.SessionCheckInterval, err = sec.Key("SESSION_CHECK_INTERVAL").MustDuration(hub.DefaultRevalidateInterval); err != nil {
 		return s, fmt.Errorf("invalid [livesync] SESSION_CHECK_INTERVAL: %w", err)
+	}
+	if s.SummaryRecency, err = sec.Key("SUMMARY_RECENCY").MustDuration(90 * 24 * time.Hour); err != nil {
+		return s, fmt.Errorf("invalid [livesync] SUMMARY_RECENCY: %w", err)
+	}
+	s.WorkspaceMaxRepos = sec.Key("WORKSPACE_MAX_REPOS").MustInt(200)
+	if s.SummaryRecency <= 0 || s.WorkspaceMaxRepos <= 0 {
+		return s, fmt.Errorf("invalid [livesync] SUMMARY_RECENCY %s / WORKSPACE_MAX_REPOS %d (want > 0)", s.SummaryRecency, s.WorkspaceMaxRepos)
 	}
 	if s.SendBuffer <= 0 || s.MaxSubscriptions <= 0 || s.MaxConnections <= 0 || s.MaxReplay <= 0 || s.SessionCheckInterval <= 0 {
 		return s, fmt.Errorf("invalid [livesync] SEND_BUFFER %d / MAX_SUBSCRIPTIONS %d / MAX_CONNECTIONS_PER_USER %d / MAX_REPLAY %d / SESSION_CHECK_INTERVAL %s (want > 0)",

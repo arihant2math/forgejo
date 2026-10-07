@@ -1,0 +1,262 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package bootstrap
+
+import (
+	"bufio"
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+
+	"forgejo.org/models/db"
+	livesync_model "forgejo.org/models/livesync"
+	"forgejo.org/models/unittest"
+	"forgejo.org/modules/json"
+	"forgejo.org/services/livesync/materialize"
+	"forgejo.org/services/livesync/perm"
+	"forgejo.org/services/livesync/protocol"
+	"forgejo.org/services/livesync/synclog"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestMain(m *testing.M) {
+	unittest.MainTest(m)
+}
+
+// prepare resets livesync's tables over Forgejo's fixtures (SQLite), runs
+// the entity index backfill to its end and returns a permission cache.
+func prepare(t *testing.T) *perm.Cache {
+	t.Helper()
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	require.NoError(t, livesync_model.SyncTables(ctx))
+	for _, table := range []string{"livesync_change", "livesync_log", "livesync_entity", "livesync_meta"} {
+		_, err := db.GetEngine(ctx).Exec("DELETE FROM " + table)
+		require.NoError(t, err)
+	}
+	w, err := synclog.AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(w.Release)
+	m := materialize.New(materialize.Config{}, w, func() {})
+	require.NoError(t, m.Prepare(ctx))
+	for {
+		more, err := m.BackfillStep(ctx)
+		require.NoError(t, err)
+		if !more {
+			break
+		}
+	}
+	return perm.NewCache(time.Minute, 0)
+}
+
+// response is a parsed bootstrap response.
+type response struct {
+	header  protocol.BootstrapHeader
+	changes []protocol.Change
+	end     *protocol.BootstrapEnd
+	flushes int
+}
+
+func stream(t *testing.T, perms *perm.Cache, viewer int64, group string, edit func(*Request)) response {
+	t.Helper()
+	ctx := t.Context()
+	d, ok, err := perms.Check(ctx, viewer, group)
+	require.NoError(t, err)
+	require.True(t, ok, "user %d may read %s", viewer, group)
+	req := Request{Group: group, ViewerID: viewer, Units: d.Units, Tier: protocol.TierFull}
+	if strings.HasPrefix(group, "repo:") {
+		req.Tier = protocol.TierSummary
+	}
+	if edit != nil {
+		edit(&req)
+	}
+	pending, err := Pending(ctx, req)
+	require.NoError(t, err)
+	require.Empty(t, pending)
+	var buf bytes.Buffer
+	var res response
+	require.NoError(t, Stream(ctx, &buf, func() error { res.flushes++; return nil }, perms, req))
+
+	sc := bufio.NewScanner(&buf)
+	sc.Buffer(nil, 16<<20)
+	require.True(t, sc.Scan())
+	require.NoError(t, json.Unmarshal(sc.Bytes(), &res.header))
+	assert.Equal(t, "header", res.header.Type)
+	for sc.Scan() {
+		require.Nil(t, res.end, "nothing after the end line")
+		if bytes.HasPrefix(sc.Bytes(), []byte(`{"type":"end"`)) {
+			res.end = &protocol.BootstrapEnd{}
+			require.NoError(t, json.Unmarshal(sc.Bytes(), res.end))
+			continue
+		}
+		var ch protocol.Change
+		require.NoError(t, json.Unmarshal(sc.Bytes(), &ch), "%s", sc.Bytes())
+		res.changes = append(res.changes, ch)
+	}
+	require.NotNil(t, res.end, "end line")
+	return res
+}
+
+func TestStream(t *testing.T) {
+	perms := prepare(t)
+	head, err := synclog.Head(t.Context())
+	require.NoError(t, err)
+
+	res := stream(t, perms, 2, "repo:1", nil)
+	h := res.header
+	assert.Equal(t, "repo:1", h.Group)
+	assert.Equal(t, head, h.Watermark)
+	assert.Equal(t, protocol.TierSummary, h.Tier)
+	require.NotNil(t, h.ClosedBefore)
+	assert.Contains(t, h.Units, protocol.UnitIssues)
+	assert.Equal(t, protocol.SchemaIssue, h.Schemas[protocol.ModelIssue])
+	assert.NotContains(t, h.Schemas, protocol.ModelComment, "the models this group can hold")
+	assert.Greater(t, res.flushes, 2, "streamed: header and chunks flushed")
+	count := 0
+	models := map[protocol.Model]int{}
+	for _, ch := range res.changes {
+		assert.Equal(t, h.Watermark, ch.V)
+		assert.Equal(t, protocol.OpUpsert, ch.Op)
+		require.NotNil(t, ch.D)
+		if ch.G == "repo:1" {
+			count++
+			models[ch.M]++
+		}
+	}
+	assert.Equal(t, count, res.end.Count)
+	assert.Equal(t, 1, models[protocol.ModelRepository])
+	assert.Positive(t, models[protocol.ModelLabel])
+	assert.Contains(t, res.end.Refs, protocol.GroupProfilesPublic, "posters and owner are public users")
+	assert.Empty(t, res.end.Next)
+
+	// An organization's repository: its profile is in org:3, embedded.
+	res = stream(t, perms, 2, "repo:3", nil)
+	assert.Contains(t, res.end.Refs, "org:3")
+	var org *protocol.Change
+	for i, ch := range res.changes {
+		if ch.G == "org:3" {
+			org = &res.changes[i]
+		}
+	}
+	require.NotNil(t, org, "the owner's profile is embedded")
+	assert.Equal(t, protocol.ModelUser, org.M)
+	assert.EqualValues(t, 3, org.ID)
+	assert.Equal(t, res.header.Watermark, org.V)
+
+	// A private user's profile: embedded for themselves, not for others.
+	res = stream(t, perms, 31, "org:19", nil)
+	assert.Contains(t, res.end.Refs, "profile:31")
+	found := false
+	for _, ch := range res.changes {
+		if ch.G == "profile:31" && ch.ID == 31 {
+			found = true
+		}
+	}
+	assert.True(t, found, "own private profile embedded")
+	res = stream(t, perms, 20, "org:19", nil)
+	assert.NotContains(t, res.end.Refs, "profile:31")
+	for _, ch := range res.changes {
+		assert.NotEqual(t, "profile:31", ch.G, "another user's private profile")
+	}
+
+	// A model filter, and a viewer without units.
+	res = stream(t, perms, 2, "repo:1", func(r *Request) { r.Models = []protocol.Model{protocol.ModelMilestone} })
+	assert.Equal(t, []protocol.Model{protocol.ModelMilestone}, res.header.Models)
+	assert.Equal(t, map[protocol.Model]int{protocol.ModelMilestone: protocol.SchemaMilestone}, res.header.Schemas)
+	for _, ch := range res.changes {
+		if ch.G == "repo:1" {
+			assert.Equal(t, protocol.ModelMilestone, ch.M)
+		}
+	}
+	res = stream(t, perms, 2, "repo:1", func(r *Request) { r.Units = 0 })
+	assert.Zero(t, res.end.Count, "no units: nothing (not even unit-less entities)")
+
+	// The closed tier pages.
+	res = stream(t, perms, 2, "repo:1", func(r *Request) {
+		r.Tier, r.ClosedBefore, r.Limit = protocol.TierClosed, materialize.ClosedCursor{Updated: time.Now().Unix() + 3600}, 1
+	})
+	assert.Equal(t, protocol.TierClosed, res.header.Tier)
+	assert.Nil(t, res.header.ClosedBefore)
+	closed, err := db.GetEngine(t.Context()).Table("issue").Where("repo_id = 1 AND is_closed = ?", true).Count()
+	require.NoError(t, err)
+	require.Positive(t, closed)
+	issues := 0
+	for _, ch := range res.changes {
+		if ch.M == protocol.ModelIssue {
+			issues++
+		}
+	}
+	assert.Equal(t, 1, issues, "a page of one")
+	assert.Equal(t, closed > 1, res.end.Next != "")
+}
+
+func TestWorkspace(t *testing.T) {
+	perms := prepare(t)
+	ctx := t.Context()
+	ws, err := Workspace(ctx, perms, 2, 100)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, ws.ViewerID)
+	reasons := map[string]string{}
+	var repos []string
+	for _, g := range ws.Groups {
+		reasons[g.Group] = g.Reason
+		if strings.HasPrefix(g.Group, "repo:") {
+			repos = append(repos, g.Group)
+		} else {
+			assert.Empty(t, repos, "non-repository groups first")
+		}
+	}
+	assert.Equal(t, protocol.WorkspaceSelf, reasons["user:2"])
+	assert.Equal(t, protocol.WorkspaceProfile, reasons["profile:2"])
+	assert.Equal(t, protocol.WorkspaceDirectory, reasons[protocol.GroupProfilesPublic])
+	assert.Equal(t, protocol.WorkspaceMember, reasons["org:3"])
+	assert.Equal(t, protocol.WorkspaceOwner, reasons["repo:1"])
+	assert.Equal(t, protocol.WorkspaceAccess, reasons["repo:3"], "org repository")
+	assert.False(t, ws.Truncated)
+
+	// The cap keeps the most recently updated repositories.
+	capped, err := Workspace(ctx, perms, 2, 2)
+	require.NoError(t, err)
+	assert.True(t, capped.Truncated)
+	var cappedRepos []string
+	for _, g := range capped.Groups {
+		if strings.HasPrefix(g.Group, "repo:") {
+			cappedRepos = append(cappedRepos, g.Group)
+		}
+	}
+	assert.Equal(t, repos[:2], cappedRepos)
+
+	// A watched public repository without access: reason watch.
+	_, err = db.GetEngine(ctx).Exec("INSERT INTO watch (user_id, repo_id, watch_selection_issues, watch_selection_pull_requests, watch_selection_releases, source, created_unix, updated_unix) VALUES (5, 1, ?, ?, ?, ?, 0, 0)", true, true, true, false)
+	require.NoError(t, err)
+	ws, err = Workspace(ctx, perms, 5, 100)
+	require.NoError(t, err)
+	var watched *protocol.WorkspaceGroup
+	for i, g := range ws.Groups {
+		if g.Group == "repo:1" {
+			watched = &ws.Groups[i]
+		}
+	}
+	require.NotNil(t, watched)
+	assert.Equal(t, protocol.WorkspaceWatch, watched.Reason)
+	assert.Contains(t, watched.Units, protocol.UnitIssues)
+
+	// A viewer who may not sign in: empty.
+	ws, err = Workspace(ctx, perms, 9, 100)
+	require.NoError(t, err)
+	assert.Empty(t, ws.Groups)
+}
+
+func TestAppendChange(t *testing.T) {
+	line := appendChange(nil, 7, &materialize.SnapshotEntity{Group: "repo:1", Model: "Label", ID: 3, Payload: `{"id":3,"name":"<b>"}`})
+	assert.JSONEq(t, `{"v":7,"g":"repo:1","m":"Label","id":3,"op":"U","d":{"id":3,"name":"<b>"}}`, string(line))
+	assert.True(t, strings.HasSuffix(string(line), `"d":{"id":3,"name":"<b>"}}`+"\n"), "payload verbatim, one line")
+	var ch protocol.Change
+	require.NoError(t, json.Unmarshal(line, &ch))
+	assert.Equal(t, protocol.Change{V: 7, G: "repo:1", M: "Label", ID: 3, Op: "U", D: map[string]any{"id": float64(3), "name": "<b>"}}, ch)
+	assert.Equal(t, `"a\"b"`, string(appendJSONString(nil, `a"b`)))
+}

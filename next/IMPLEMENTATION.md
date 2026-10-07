@@ -1010,9 +1010,18 @@ does) **and** MySQL 8.0 (binlog on).
     never), `perm.Mask`, `perm.UnitOf` (moved from materialize's `unitName`). Viewers who may not sign in (inactive, login
     prohibited, organizations, missing) get nothing. The cache is keyed by viewer id, loads the viewer row itself, computes a
     viewer at most once at a time (waiters share the result), is bounded (LRU, `DefaultCacheSize` 10 000) and expires entries
-    after `[livesync] PERM_CACHE_TTL` (default 10 min; safety net only). A computation that overlapped an invalidation
-    concerning it is returned but not cached. Cost of `Grants`: ≈ 5 queries per related repository (one
-    `GetUserRepoPermission` each); fine at the targets, batch it if users with thousands of repositories appear.
+    after `[livesync] PERM_CACHE_TTL` (default 10 min; safety net only). **Review round 1:** an invalidation *detaches* the
+    running computations it may concern (users named; for repos/owners every running one, decided when it finishes), so a
+    caller after the epoch (B5 re-checking a viewer) never joins a computation that read the data before the change; such a
+    computation is cached only if none of the (≤ 64, else not cached) invalidations it overlapped concerns its result. A
+    computation runs in its own goroutine on `context.WithoutCancel` (≤ 1 min): a cancelled request stops waiting but does
+    not fail the others. Grants and checks run in one quiet read transaction on the **master** (`capture.WithQuietTx`;
+    replicas may lag behind an epoch). `Check` without cached grants loads the viewer and decides the one group (no full
+    computation). **Cost of `Grants`:** a fixed number of queries — viewer, `org_user`, `collaboration`, `access`, teams,
+    their `team_repo`/`team_unit` rows, owned and includes-all repositories, then per 500 related repositories the rows,
+    owners and units (≈ 12 + 3 per 500 repositories) — decided in memory by `viewerInputs.repoPermission`, a step-by-step
+    mirror of `GetUserRepoPermission` (SURFACE.md; `TestGrantsMatchUpstream` compares them for every fixture user ×
+    repository). Do not call `Grants`/`Check` inside a transaction of your own.
   - **Permission epochs (the materializer hook point B3 left out).** Specs of the permission tables have a `perm` hook
     returning the row's *permission state* = subjects + fingerprint of permission-relevant columns (`materialize/perm.go`):
     `access` (u, repo+mode), `collaboration` (u, repo+mode), `team` (t = members, mode + includes_all), `team_user` (u),
@@ -1020,7 +1029,7 @@ does) **and** MySQL 8.0 (binlog on).
     `repo_unit` (r, type+default permissions), `user` (u + O = org:/profile: readers and every owned repository; visibility,
     active, prohibit_login, admin, restricted, type), `forgejo_blocked_user` (u, u). The state of the last materialized
     version is stored in the new **`livesync_entity.perm`** column (VARCHAR(255), added by Sync; `TablesVersion` stays 1),
-    written by upserts, repair backfill and the initial backfill, so deletes have it. When a row's state changes (incl.
+    written by upserts, repair backfill, the initial backfill and the permission walk (round 1), so deletes have it. When a row's state changes (incl.
     appearing/going), the old and new subjects are collected; per transaction they are expanded (team members, owners'
     repositories, read in the writer transaction) into one **`protocol.OpPermission` (`P`) entry in the pseudo group
     `protocol.GroupPermission` (`"!perm"`, entity id 0, model `""`) with a `protocol.PermissionChange{users, repos,
@@ -1029,7 +1038,22 @@ does) **and** MySQL 8.0 (binlog on).
     admin) writes the epoch alone and updates only the index's perm column. No epoch for changes that leave the state alone
     (names, counters, `updated_unix`). The sync id of a `P` entry is the epoch. **Lost changes:** `HandleEpochs` writes
     `P{all:true}` before the markers when a permission table's trigger was repaired, and a delete of a permission row the
-    index does not know yet (only possible before the table's backfill is done) also gives `P{all:true}`.
+    index does not know yet (only possible before the table's backfill is done) also gives `P{all:true}`. **Review round 1
+    (unknown states, `permSubjects.transition`):** a permission row *inserted and deleted again* between two materializations
+    (coalesced away; possible whenever the materializer lags) gives `P{all}` — except `access`, whose rows
+    `recalculateAccess` derives in the same transaction from the other permission tables (whose changes are the epochs; often
+    replaced twice in one flow, e.g. an org repository created by a non-owner, which would otherwise mean `P{all}` per
+    creation); an index row with an **empty** state (written by B3) is unknown: deleted ⇒ `P{all}`, changed ⇒ the current
+    subjects (a state's subjects are fixed id columns, except a repository's owner, whose old readers are also `r<id>`'s);
+    walks record the state of a row that still has outbox changes as **unverified** (`?` prefix), and its next change names
+    the recorded and the current subjects. **Netting:** per transaction, known states that went and came back (same table +
+    state string) cancel out — Forgejo replaces every access row of a repository with new ids on each recalculation, team
+    and repository units on each update; previously every user with an access row on the repository was named. Netting can
+    only hide an intermediate state with *fewer* rows (less access) between two transactions of one batch, i.e. at worst a
+    grant computed in that gap is a stale *denial* until the next epoch or the TTL, never a leak. **Permission walk:** for a
+    permission table whose `materialized_perm.<tbl>` differs from `permVersion` (1; absent on B3 databases) `HandleEpochs`
+    starts a walk `entity_backfill.<tbl>` = `perm:<id>` (`indexPerm`: fills only the perm column, inserts missing rows; no
+    markers, no epoch); B6's gate (`done`) waits for it too (once, after an upgrade from B3).
   - **Event stream for the hub (B5).** The `P` entries *are* the stream: every instance's tailer reads them in order with the
     deltas (`ReadSince(group)` never returns them to clients: their group is never granted and they are not in `*`).
     `perm.DecodeChange(entry)` decodes one. `services/livesync.permSink` wraps the tailer's sink: it applies every epoch to
@@ -1052,7 +1076,8 @@ does) **and** MySQL 8.0 (binlog on).
     not sign in or tokens without full read access, 503 while stopped. It is the production caller of `perm` (deadcode) and
     the surface of the differential test. **Auth for B5/B6** (`routers/livesync/auth.go` `authenticate(req)`): Forgejo's
     `auth_method.OAuth2` + `auth_method.AccessToken{PermitBearer}` (Authorization `Bearer`/`token`, or the form, like API v1;
-    no sessions ⇒ no CSRF surface, no passwords), then API v1's account check (inactive / prohibited ⇒ 403), then
+    no sessions ⇒ no CSRF surface, no passwords), then API v1's whole account check (`checkAccount`, round 1: not activated,
+    inactive / prohibited, must change the password, two-factor required but not enrolled ⇒ 403 with API v1's messages), then
     `checkTokenAccess`: the token must have `read:repository,issue,organization,user,notification` (or the write/all
     equivalents), not `public-only`, and no repository restriction (only `authz.AllAccessAuthorizationReducer` or none).
     B5's `hello` should call the same function (it takes an `*http.Request`; build one or split the token part out).
@@ -1092,9 +1117,37 @@ does) **and** MySQL 8.0 (binlog on).
     markers, users re-placed to `profiles:public`; `/-/sync/grants` 200 with a personal token, 404 for a missing repository,
     401 without; creating a private repository wrote `P{users:[1],repos:[3]}`); dev DB triggers removed afterwards.
   - **Not done / for later.** No `group_revoked` yet (B5 consumes the epochs). Grants ignore narrower token scopes (such
-    tokens are refused instead). The restricted-user own-profile gap above. `Grants` cost is per related repository (no
-    batching of `GetUserRepoPermission`). PLAN §4.4's group list (`user:`, `org:`, `repo:`, `issue:`) now also has the
-    profile groups; PLAN text not edited.
+    tokens are refused instead). The restricted-user own-profile gap above. PLAN §4.4's group list (`user:`, `org:`, `repo:`,
+    `issue:`) now also has the profile groups; PLAN text not edited. **For B5:** `authenticate` runs at `hello`; a socket
+    that outlives a later 2FA requirement / password-change flag / deactivation must be re-validated (deactivation and login
+    prohibition are user-row epochs; `must_change_password` and 2FA enrolment are not tracked).
+  - **Review round 1 (10 findings, all fixed; details in the bullets above).** (1) insert+delete coalesced away ⇒ `P{all}`
+    (access exempt, argued in `specs.go`); (2) B3 index rows with `perm=''` ⇒ unknown (delete `P{all}`, change current
+    subjects) + permission walk; (3) callers after an `Invalidate` never join an older computation (detach); (4)
+    `authenticate` = API v1's full account check; (5) walks record pending rows as unverified; (6) grants/checks on the
+    master in one read transaction; (7) batched grants (fixed query count) + lightweight `Check`; (8) netting of replaced
+    states per table; (9) computations detached from the starting request's context; (10) the unbounded `recent` list is
+    gone (per-computation, bounded change lists). **Residual (found while fixing (1), not fixed):** coalescing also hides an
+    *update* that is undone within one batch (`repository.is_private` true→false→true, a collaborator's mode up and down):
+    the row's final state equals the indexed one, so no epoch, although a grant computed in between saw the intermediate
+    state. Naming a row's subjects whenever it changed twice in a batch would fire for every busy repository (counter
+    updates) and be wrong for B5's load; the precise fix is capture-level (the trigger flags updates that touch
+    permission columns, e.g. op `P`), a change of B2's DDL with an epoch bump of every table, left for an explicit
+    decision. It needs a human-speed flip-flop inside one materializer batch (milliseconds, longer only while it lags).
+    Tests added: `TestConsumeVanishedPermissionRow`, `TestConsumePermissionNetting`, `TestConsumeLegacyPermissionStates`,
+    `TestBackfillPendingPermissionChange`, `TestGrantsMatchUpstream` (verified to fail with mutated `repoPermission`),
+    `TestCacheInvalidatedWhileComputing` (rewritten: joins, detaches, bounded changes), `TestCacheCancelledCaller`,
+    `TestCheckAccount`; `TestLivesyncPermAuth` compares must-change-password and `GLOBAL_TWO_FACTOR_REQUIREMENT=all` answers
+    with API v1's (user24 with 2FA passes). Notes on the reviewers' repros: finding 5's scratch test updated the row without
+    an outbox row (the trigger writes one in the same transaction), so no walk could tell; `TestBackfillPendingPermissionChange`
+    inserts it as the trigger would. Finding 3's scratch test poked at internals that no longer exist; the rewritten cache
+    test covers its scenario. **Bug introduced and fixed in this round:** the walk-mode map defaulted to `indexUpsert` (zero
+    value), so the initial walk overwrote the materializer's index rows; `TestLivesyncMaterializeDrafts` caught it on MySQL
+    (≈ 1 run in 3), `TestBackfill` now asserts that the initial walk keeps an emitted row (verified to fail without the fix),
+    and the materialize integration tests then passed 10/10 on MySQL.
+    Commands: gofumpt (clean), golangci-lint (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean),
+    unit tests with `-race`, `gen-protocol.sh --check` (unchanged), `TestLivesync*|TestVersion` on PG 16 (`gtestschema`) and
+    MySQL 8.0: PG 28 pass + 3 MySQL-only skips, MySQL 30 pass + 1 skip, no testlogger "FATAL ERROR"; fork diff unchanged.
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

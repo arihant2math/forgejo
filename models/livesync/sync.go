@@ -24,7 +24,7 @@ func MasterEngine(ctx context.Context) (db.Engine, error) {
 	if db.InTransaction(ctx) {
 		return db.GetEngine(ctx), nil
 	}
-	master, err := masterXORMEngine()
+	master, err := MasterXORMEngine()
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func MasterEngine(ctx context.Context) (db.Engine, error) {
 // against concurrent callers (check-then-create), so call it only under
 // WithSchemaLock (services/livesync.EnsureTables does).
 func SyncTables(ctx context.Context) error {
-	master, err := masterXORMEngine()
+	master, err := MasterXORMEngine()
 	if err != nil {
 		return err
 	}

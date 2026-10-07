@@ -42,7 +42,7 @@ func WithSchemaLock(ctx context.Context, fn func(ctx context.Context) error) err
 	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {
 		return fn(ctx)
 	}
-	master, err := masterXORMEngine()
+	master, err := MasterXORMEngine()
 	if err != nil {
 		return err
 	}
@@ -107,8 +107,8 @@ func releaseLock(conn *sql.Conn, name string) {
 	}
 }
 
-// masterXORMEngine returns the master *xorm.Engine behind db.DefaultContext.
-func masterXORMEngine() (*xorm.Engine, error) {
+// MasterXORMEngine returns the master *xorm.Engine behind db.DefaultContext.
+func MasterXORMEngine() (*xorm.Engine, error) {
 	engined, ok := db.DefaultContext.(db.Engined)
 	if !ok {
 		return nil, fmt.Errorf("livesync: db.DefaultContext (%T) has no engine", db.DefaultContext)

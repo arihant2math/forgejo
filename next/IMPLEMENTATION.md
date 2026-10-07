@@ -1134,6 +1134,7 @@ does) **and** MySQL 8.0 (binlog on).
     updates) and be wrong for B5's load; the precise fix is capture-level (the trigger flags updates that touch
     permission columns, e.g. op `P`), a change of B2's DDL with an epoch bump of every table, left for an explicit
     decision. It needs a human-speed flip-flop inside one materializer batch (milliseconds, longer only while it lags).
+    **→ Fixed in review round 2 (capture-level flag), see below.**
     Tests added: `TestConsumeVanishedPermissionRow`, `TestConsumePermissionNetting`, `TestConsumeLegacyPermissionStates`,
     `TestBackfillPendingPermissionChange`, `TestGrantsMatchUpstream` (verified to fail with mutated `repoPermission`),
     `TestCacheInvalidatedWhileComputing` (rewritten: joins, detaches, bounded changes), `TestCacheCancelledCaller`,
@@ -1148,6 +1149,58 @@ does) **and** MySQL 8.0 (binlog on).
     Commands: gofumpt (clean), golangci-lint (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean),
     unit tests with `-race`, `gen-protocol.sh --check` (unchanged), `TestLivesync*|TestVersion` on PG 16 (`gtestschema`) and
     MySQL 8.0: PG 28 pass + 3 MySQL-only skips, MySQL 30 pass + 1 skip, no testlogger "FATAL ERROR"; fork diff unchanged.
+  - **Review round 2 (1 finding, fixed): flip-flops of permission columns.** A permission row updated and changed back
+    before the materializer read it (`repository.is_private` false→true→false, a user made admin and back, a collaborator's
+    mode up and down) looked unchanged: no epoch, so a grant / B5 subscription obtained in between stayed. **Decision:
+    capture-level flag.** The materializer cannot fix this alone: it only ever sees the stored and the current state, and
+    "the row changed twice in a batch" is not even sufficient (the first update's batch may already read the restored row,
+    the second update arriving in the next batch). So the **update trigger of every permission table compares the table's
+    permission columns and writes outbox op `P`** (`livesync_model.OpPermUpdate`) instead of `U` when one changed.
+    `catalog.Table.PermColumns` lists them (repository `owner_id, is_private`; user `type, visibility, is_active,
+    prohibit_login, is_admin, is_restricted`; org_user `uid, org_id`; team `authorize, includes_all_repositories`; team_user
+    `uid, team_id`; team_repo `team_id, repo_id`; team_unit `team_id, type, access_mode`; collaboration/access `user_id,
+    repo_id, mode`; repo_unit `repo_id, type, default_permissions`; forgejo_blocked_user `user_id, block_id`) — exactly
+    the columns the materializer's permission states read: **`TestPermColumns`** (materialize, SQLite) changes every
+    column of a fixture row of each permission table and asserts that the state changes iff the column is listed
+    (verified to fail when a column is missing or extra). `coalesce` keeps `rowChanges.permUpdated`;
+    `permSubjects.transition(…, permFlags{inserted, updated, derived, backfilled})` names the stored **and** the current
+    subjects of a flagged row directly (outside netting), even when the states are equal; the intermediate state has the
+    same subjects (id columns Forgejo never updates, except a repository's owner, whose intermediate owner's access is
+    `repo:{id}`'s, which `r<id>` covers). Counter/name/`updated_unix` updates stay `U` and produce no epoch, as before.
+    **DDL:** PG: the shared function (now "v2") reads the permission columns from **trigger arguments**
+    (`EXECUTE FUNCTION livesync_capture('owner_id', 'is_private')`) and compares `to_jsonb(OLD) -> col IS DISTINCT FROM
+    to_jsonb(NEW) -> col`, so a dropped/renamed column is never a runtime error (it just stops flagging); `Inspect` now
+    compares `pg_trigger.tgargs` with the catalog (a trigger with other arguments is stale). MySQL: the `_au` trigger of a
+    permission table is `… VALUES ('repository', NEW.id, CASE WHEN NOT (OLD.`owner_id` <=> NEW.`owner_id`) OR … THEN 'P'
+    ELSE 'U' END)` (single statement, deterministic; `action_statement` round-trips, so staleness detection is unchanged).
+    **Caveat (MySQL only):** the MySQL trigger names columns, so an upstream migration that drops or renames a permission
+    column makes updates of that table fail until the trigger is replaced — Init replaces it at the next start (after the
+    migrations) because the expected body changes with the catalog, and `CheckCatalog` (hence `TestLivesyncCatalogContract`)
+    now fails when a permission column does not exist, so an upstream sync that renames one is caught in CI;
+    `TestPermColumns` fails too. The window is the migration run itself (and a deployment that disabled livesync with the
+    triggers left installed: B8's uninstall). These are core columns; accepted. **Upgrade cost:** the PG function body
+    changed, so the first start after this change repairs it and bumps every table's schema epoch (`P{all}` + `B`
+    markers for every table, once); on MySQL only the 11 `_au` triggers are replaced (their tables' epochs). Nothing is
+    deployed yet. **Write cost** (sandbox, autocommit single writer, LISTEN off, 3000 updates): PG `UPDATE user SET
+    last_login_unix…` +43 µs, `repository.num_stars` +60 µs (the two `to_jsonb` of a wide row) vs. +2 µs for a
+    non-permission table (`label`); MySQL ≈ +100–250 µs per update on all tracked tables, noisy (fsync-bound) and not
+    measurably different between permission and other tables. Negligible at the §4.11 write rates; if PG's `user`
+    updates ever matter, a per-table function with direct column references is the faster variant (it loses the
+    dropped-column robustness). Tests: `TestConsumePermissionFlipFlop` (repo private→public→private + a counter in one
+    batch ⇒ epoch `{users:[2], repos:[2]}` and the DTO update; user 4 admin and back split over two batches ⇒ an epoch in
+    each; a collaboration's mode up and down in a batch that also nets an access replacement ⇒ epoch for the user; plain
+    `U` updates ⇒ none; verified to fail without the `transition` change), `TestCoalesce` (`permUpdated`),
+    `TestPostgresDDL`/`TestMySQLDDL`/`TestPostgresTriggerState` (arguments, `tgargs` decoding and staleness);
+    integration: `TestLivesyncCaptureOutbox/permission columns` (PG + MySQL: for every permission table and column,
+    `SET c = c` ⇒ `U`, a changed value ⇒ `P`, in a rolled-back raw transaction; counters ⇒ `U`) and
+    `TestLivesyncPermEpochs` (repo1 made public and private again in **one transaction** — no visible change at all — ⇒
+    an epoch naming repository 1). The reviewer's scratch repro (`TestRR3FlipFlop`) used `U` ops, which the triggers no
+    longer write for those updates.
+    Commands: gofumpt (clean), golangci-lint on livesync packages + `tests/integration` (0 issues), `go vet`, deadcode diff
+    (clean), unit tests with `-race` (all livesync packages), `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 28 pass,
+    3 MySQL-only skips) and MySQL 8.0 (30 pass, 1 skip), plus `TestLivesyncCapture*|TestLivesyncMaterialize*|
+    TestLivesyncPermEpochs|TestLivesyncPermLostChanges` on MariaDB 11.8.9 (all pass; the `CASE` trigger body round-trips
+    through `information_schema.triggers` there too), no testlogger "FATAL ERROR"; protocol unchanged; fork diff unchanged.
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

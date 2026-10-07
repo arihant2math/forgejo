@@ -24,6 +24,10 @@ type rowChanges struct {
 	// exist before this batch (permission epochs need to know that a row
 	// that is gone now existed in between, see materializeRows).
 	inserted bool
+	// permUpdated: one of the changes is an update of a permission column
+	// (livesync_model.OpPermUpdate), so the row's permission state changed
+	// in between even if its current state equals the materialized one.
+	permUpdated bool
 }
 
 // last is the newest outbox id of the row.
@@ -35,7 +39,8 @@ func (r rowChanges) last() int64 { return r.changeIDs[len(r.changeIDs)-1] }
 // state once, and a row that no longer exists is a delete whatever the
 // changes said (an insert followed by a delete in the same batch produces
 // no entry, if no client ever saw the row). Only whether the row was
-// inserted is kept (rowChanges.inserted).
+// inserted and whether a permission column was updated is kept
+// (rowChanges.inserted, rowChanges.permUpdated).
 func coalesce(changes []livesync_model.Change) []rowChanges {
 	index := make(map[rowKey]int, len(changes))
 	res := make([]rowChanges, 0, len(changes))
@@ -48,8 +53,11 @@ func coalesce(changes []livesync_model.Change) []rowChanges {
 			res = append(res, rowChanges{key: k})
 		}
 		res[i].changeIDs = append(res[i].changeIDs, c.ID)
-		if c.Op == livesync_model.OpInsert {
+		switch c.Op {
+		case livesync_model.OpInsert:
 			res[i].inserted = true
+		case livesync_model.OpPermUpdate:
+			res[i].permUpdated = true
 		}
 	}
 	return res

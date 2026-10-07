@@ -15,11 +15,12 @@ import (
 
 // CheckCatalog compares the livesync catalog with the tables Forgejo
 // registers (db.RegisterModel). It fails when a tracked table is no longer
-// registered or has no auto-increment primary key named id (the capture
-// triggers reference only that column). It returns the registered tables
-// that are neither tracked nor ignored, and logs them along with catalogued
-// ignored tables that vanished: both mean the catalog needs a decision, which
-// the TestLivesyncCatalogContract integration test enforces in CI.
+// registered, has no auto-increment primary key named id or lacks one of its
+// permission columns (the capture triggers reference only those columns).
+// It returns the registered tables that are neither tracked nor ignored, and
+// logs them along with catalogued ignored tables that vanished: both mean the
+// catalog needs a decision, which the TestLivesyncCatalogContract
+// integration test enforces in CI.
 func CheckCatalog() (unclassified []string, err error) {
 	beans, err := db.NamesToBean()
 	if err != nil {
@@ -27,12 +28,17 @@ func CheckCatalog() (unclassified []string, err error) {
 	}
 	names := make([]string, 0, len(beans))
 	primaryKey := make(map[string]string, len(beans))
+	columns := make(map[string]map[string]bool, len(beans))
 	for _, bean := range beans {
 		info, err := db.TableInfo(bean)
 		if err != nil {
 			return nil, fmt.Errorf("livesync: table info for %T: %w", bean, err)
 		}
 		names = append(names, info.Name)
+		columns[info.Name] = map[string]bool{}
+		for _, c := range info.ColumnsSeq() {
+			columns[info.Name][c] = true
+		}
 		if slices.Equal(info.PrimaryKeys, []string{"id"}) && info.AutoIncrement == "id" {
 			primaryKey[info.Name] = "id"
 		} else {
@@ -47,6 +53,13 @@ func CheckCatalog() (unclassified []string, err error) {
 		trackedSet[t.Name] = true
 		if pk, ok := primaryKey[t.Name]; ok && pk != "id" {
 			problems = append(problems, fmt.Sprintf("tracked table %s has %s, want an auto-increment id", t.Name, pk))
+		}
+		if cols, ok := columns[t.Name]; ok {
+			for _, c := range t.PermColumns {
+				if !cols[c] {
+					problems = append(problems, fmt.Sprintf("tracked table %s has no permission column %s", t.Name, c))
+				}
+			}
 		}
 	}
 	var vanishedIgnored []string

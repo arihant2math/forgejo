@@ -44,23 +44,33 @@ type Table struct {
 	// Hot tables receive bursts of writes (notifications, statuses, job
 	// state); the materializer coalesces them more aggressively.
 	Hot bool
+	// PermColumns are the columns of a permission table (one that decides
+	// who may read what) that its rows' permission state depends on
+	// (services/livesync/materialize/perm.go; TestPermColumns there checks
+	// that the two agree). The update trigger compares them and writes
+	// livesync_model.OpPermUpdate instead of OpUpdate when one changed, so
+	// that an update undone before the materializer reads the row still
+	// tells it that the permission state changed in between. Empty for the
+	// other tables.
+	PermColumns []string
 }
 
 // tracked is the list of captured tables. Every tracked table must have an
 // auto-increment primary key named id: the triggers reference only that
-// column (services/livesync.CheckCatalog verifies it).
+// column, plus the permission columns of permission tables
+// (services/livesync.CheckCatalog verifies that they exist).
 var tracked = []Table{
 	// Structure/summary tier.
-	{Name: "repository", Model: "Repository"},
-	{Name: "user", Model: "User"},
-	{Name: "org_user", Model: "OrgUser"},
-	{Name: "team", Model: "Team"},
-	{Name: "team_user", Model: "TeamUser"},
-	{Name: "team_repo", Model: "TeamRepo"},
-	{Name: "team_unit", Model: "TeamUnit"},
-	{Name: "collaboration", Model: "Collaboration"},
-	{Name: "access", Model: "Access"},
-	{Name: "repo_unit", Model: "RepoUnit"},
+	{Name: "repository", Model: "Repository", PermColumns: []string{"owner_id", "is_private"}},
+	{Name: "user", Model: "User", PermColumns: []string{"type", "visibility", "is_active", "prohibit_login", "is_admin", "is_restricted"}},
+	{Name: "org_user", Model: "OrgUser", PermColumns: []string{"uid", "org_id"}},
+	{Name: "team", Model: "Team", PermColumns: []string{"authorize", "includes_all_repositories"}},
+	{Name: "team_user", Model: "TeamUser", PermColumns: []string{"uid", "team_id"}},
+	{Name: "team_repo", Model: "TeamRepo", PermColumns: []string{"team_id", "repo_id"}},
+	{Name: "team_unit", Model: "TeamUnit", PermColumns: []string{"team_id", "type", "access_mode"}},
+	{Name: "collaboration", Model: "Collaboration", PermColumns: []string{"user_id", "repo_id", "mode"}},
+	{Name: "access", Model: "Access", PermColumns: []string{"user_id", "repo_id", "mode"}},
+	{Name: "repo_unit", Model: "RepoUnit", PermColumns: []string{"repo_id", "type", "default_permissions"}},
 	{Name: "label", Model: "Label"},
 	{Name: "milestone", Model: "Milestone"},
 	{Name: "project", Model: "Project"},
@@ -81,7 +91,7 @@ var tracked = []Table{
 	{Name: "issue_watch", Model: "IssueWatch"},
 	{Name: "watch", Model: "Watch"},
 	{Name: "star", Model: "Star"},
-	{Name: "forgejo_blocked_user", Model: "BlockedUser"},
+	{Name: "forgejo_blocked_user", Model: "BlockedUser", PermColumns: []string{"user_id", "block_id"}},
 
 	// Lazy tier (per-issue group).
 	{Name: "comment", Model: "Comment", Tier: TierLazy},
@@ -155,7 +165,14 @@ var (
 	}()
 )
 
-// Tracked returns the tracked tables, sorted by name. The slice is a copy.
+// Lookup returns the tracked table with the given name.
+func Lookup(name string) (Table, bool) {
+	t, ok := trackedByName[name]
+	return t, ok
+}
+
+// Tracked returns the tracked tables, sorted by name. The slice is a copy
+// (their PermColumns are shared: do not modify them).
 func Tracked() []Table {
 	ts := slices.Clone(tracked)
 	sort.Slice(ts, func(i, j int) bool { return ts[i].Name < ts[j].Name })

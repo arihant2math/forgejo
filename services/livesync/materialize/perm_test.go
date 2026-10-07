@@ -4,15 +4,20 @@
 package materialize
 
 import (
+	"context"
+	"errors"
+	"slices"
 	"testing"
 
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
+	"forgejo.org/models/unittest"
 	"forgejo.org/modules/json"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/catalog"
 	"forgejo.org/services/livesync/protocol"
 
+	"code.forgejo.org/xorm/xorm/schemas"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -281,6 +286,157 @@ func TestConsumePermissionNetting(t *testing.T) {
 	rows, entries = takeLog(t, &cursor)
 	ch, _ = permChange(t, rows, entries)
 	assert.Equal(t, protocol.PermissionChange{Users: []int64{5}}, ch)
+}
+
+// A permission column changed and changed back before the materializer
+// read the row: the stored and the current state are equal, but a grant
+// computed in between may have seen the other one. The capture triggers
+// flag such updates (OpPermUpdate), so they are epochs anyway — also when
+// the two updates fall into different batches and the first batch already
+// reads the restored row. Updates of other columns of the same rows are
+// not (OpUpdate).
+func TestConsumePermissionFlipFlop(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	backfillAll(t, m)
+	var cursor int64
+	takeLog(t, &cursor)
+
+	// Repository 2 (user 2's, private) made public and private again.
+	exec(t, "UPDATE repository SET is_private = ? WHERE id = 2", false)
+	exec(t, "UPDATE repository SET is_private = ? WHERE id = 2", true)
+	exec(t, "UPDATE repository SET num_stars = num_stars + 1 WHERE id = 2")
+	consume(t, m, change(1, "repository", 2, "P"), change(2, "repository", 2, "P"), change(3, "repository", 2, "U"))
+	rows, entries := takeLog(t, &cursor)
+	ch, rest := permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}, Repos: []int64{2}}, ch)
+	assert.Equal(t, []logRow{{"repo:2", "", "Repository", "U", 2}}, rest, "the counter changed the DTO")
+
+	// User 4 made site administrator and back, split across two batches.
+	exec(t, "UPDATE `user` SET is_admin = ? WHERE id = 4", true)
+	exec(t, "UPDATE `user` SET is_admin = ? WHERE id = 4", false)
+	for _, id := range []int64{4, 5} {
+		consume(t, m, change(id, "user", 4, "P"))
+		rows, entries = takeLog(t, &cursor)
+		ch, rest = permChange(t, rows, entries)
+		assert.Equal(t, []int64{4}, ch.Users)
+		assert.Equal(t, []int64{4}, ch.Owners)
+		assert.False(t, ch.All)
+		noEpoch(t, rest)
+	}
+
+	// A collaboration's mode up and down (collaboration 1: user 2 on
+	// repository 3), in a batch that also replaces an access row with an
+	// identical one (netted): the flagged row is named all the same.
+	exec(t, "UPDATE collaboration SET mode = 3 WHERE id = 1")
+	exec(t, "UPDATE collaboration SET mode = 2 WHERE id = 1")
+	exec(t, "DELETE FROM access WHERE id = 5")
+	exec(t, "INSERT INTO access (id, user_id, repo_id, mode) VALUES (500, 4, 3, 2)")
+	consume(t, m, change(6, "collaboration", 1, "P"), change(7, "collaboration", 1, "P"), change(8, "access", 5, "D"), change(9, "access", 500, "I"))
+	rows, entries = takeLog(t, &cursor)
+	ch, _ = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}}, ch)
+
+	// Plain updates of the same rows: no epoch.
+	consume(t, m, change(10, "repository", 2, "U"), change(11, "user", 4, "U"), change(12, "collaboration", 1, "U"))
+	rows, _ = takeLog(t, &cursor)
+	noEpoch(t, rows)
+}
+
+// The permission columns the capture triggers compare
+// (catalog.Table.PermColumns) are exactly the columns a row's permission
+// state depends on: changing any other column of a fixture row leaves the
+// state alone, changing one of them changes it.
+func TestPermColumns(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	errRollback := errors.New("rollback")
+	beans, err := db.NamesToBean()
+	require.NoError(t, err)
+	tables := map[string]*schemas.Table{}
+	for _, bean := range beans {
+		info, err := db.TableInfo(bean)
+		require.NoError(t, err)
+		tables[info.Name] = info
+	}
+	state := func(tbl string, id int64) string {
+		t.Helper()
+		l := newLoader()
+		defer l.close()
+		loaded, err := specs[tbl].load(ctx, l, []int64{id}, false)
+		require.NoError(t, err)
+		require.Contains(t, loaded, id)
+		return loaded[id][0].perm
+	}
+	n := 0
+	for _, tbl := range catalog.Tracked() {
+		if !specs[tbl.Name].perm {
+			assert.Empty(t, tbl.PermColumns, tbl.Name)
+			continue
+		}
+		require.NotEmpty(t, tbl.PermColumns, tbl.Name)
+		info := tables[tbl.Name]
+		require.NotNil(t, info, tbl.Name)
+		var id int64
+		has, err := db.GetEngine(ctx).Table(tbl.Name).Cols("id").OrderBy("id").Get(&id)
+		require.NoError(t, err)
+		require.True(t, has, "%s has fixtures", tbl.Name)
+		before := state(tbl.Name, id)
+		require.NotEmpty(t, before)
+		checked := map[string]bool{}
+		quoted := "`" + tbl.Name + "`"
+		for _, col := range info.Columns() {
+			if col.Name == "id" {
+				continue
+			}
+			var set string
+			switch {
+			case col.SQLType.IsBool():
+				set = "CASE WHEN `" + col.Name + "` THEN 0 ELSE 1 END"
+			case col.SQLType.IsNumeric():
+				set = "COALESCE(`" + col.Name + "`, 0) + 1000003"
+			case col.SQLType.IsText():
+				set = "COALESCE(`" + col.Name + "`, '') || 'x'"
+			default:
+				continue
+			}
+			err := db.WithTx(ctx, func(ctx context.Context) error {
+				// Rolled back: foreign keys are never checked.
+				if _, err := db.GetEngine(ctx).Exec("PRAGMA defer_foreign_keys = ON"); err != nil {
+					return err
+				}
+				if _, err := db.GetEngine(ctx).Exec("UPDATE "+quoted+" SET `"+col.Name+"` = "+set+" WHERE id = ?", id); err != nil {
+					return err
+				}
+				l := newLoader()
+				defer l.close()
+				loaded, err := specs[tbl.Name].load(ctx, l, []int64{id}, false)
+				if err != nil && !slices.Contains(tbl.PermColumns, col.Name) {
+					// Not a valid value of a structured column (JSON):
+					// the row cannot be read, so it has no state.
+					t.Logf("%s.%s: %v", tbl.Name, col.Name, err)
+					return errRollback
+				} else if err != nil {
+					return err
+				}
+				after := loaded[id][0].perm
+				if slices.Contains(tbl.PermColumns, col.Name) {
+					assert.NotEqual(t, before, after, "%s.%s is a permission column: the state must depend on it", tbl.Name, col.Name)
+				} else {
+					assert.Equal(t, before, after, "%s.%s changes the permission state: add it to catalog.Table.PermColumns", tbl.Name, col.Name)
+				}
+				checked[col.Name] = true
+				n++
+				return errRollback
+			})
+			require.ErrorIs(t, err, errRollback, tbl.Name+"."+col.Name)
+		}
+		assert.Equal(t, before, state(tbl.Name, id), "rolled back")
+		for _, col := range tbl.PermColumns {
+			assert.True(t, checked[col], "%s.%s checked", tbl.Name, col)
+		}
+	}
+	assert.Greater(t, n, 50)
 }
 
 // Index rows written before permission states existed (B3) have none: a

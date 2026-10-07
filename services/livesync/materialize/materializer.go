@@ -210,11 +210,11 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 	l := newLoader()
 	defer l.close()
 	keys := make([]rowKey, 0, len(rows))
-	inserted := map[rowKey]bool{}
+	changed := map[rowKey]rowChanges{}
 	for _, r := range rows {
 		keys = append(keys, r.key)
-		if r.inserted {
-			inserted[r.key] = true
+		if r.inserted || r.permUpdated {
+			changed[r.key] = r
 		}
 	}
 	done := map[rowKey]bool{}
@@ -223,7 +223,7 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 		for _, k := range keys {
 			done[k] = true
 		}
-		moved, err := m.materializeRows(ctx, l, keys, inserted, &entries, plan)
+		moved, err := m.materializeRows(ctx, l, keys, changed, &entries, plan)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -272,9 +272,9 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // materializeRows appends the entries and index changes for rows (in
 // order) and returns the rows whose main entity changed group (including
-// appearing in or leaving every group), by table. inserted are the rows
-// with an insert among their changes.
-func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []rowKey, inserted map[rowKey]bool, entries *[]synclog.Entry, plan *indexPlan) (map[string][]int64, error) {
+// appearing in or leaving every group), by table. changed has the rows with
+// an insert or a permission column update among their changes.
+func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []rowKey, changed map[rowKey]rowChanges, entries *[]synclog.Entry, plan *indexPlan) (map[string][]int64, error) {
 	// Group the rows by table, keeping the batch order of tables.
 	byTable := map[string][]int64{}
 	var tables []string
@@ -325,7 +325,11 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 				if cur != nil {
 					curPerm = cur.perm
 				}
-				permChanged = plan.perm.transition(r.tbl, o, curPerm, inserted[r], s.permDerived, m.backfillComplete(r.tbl))
+				c := changed[r]
+				permChanged = plan.perm.transition(r.tbl, o, curPerm, permFlags{
+					inserted: c.inserted, updated: c.permUpdated,
+					derived: s.permDerived, backfilled: m.backfillComplete(r.tbl),
+				})
 			}
 			// keepPerm records a changed state for a row whose index row
 			// is otherwise kept as it is (or not written).

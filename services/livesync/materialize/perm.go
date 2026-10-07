@@ -31,7 +31,11 @@ import (
 // *before* the transaction's other entries, so a hub that applies the log in
 // order revokes access before delivering anything written after the
 // change in the same batch. Changes that leave the state alone (an
-// updated_unix, a counter, a name) produce no epoch.
+// updated_unix, a counter, a name) produce no epoch. A change undone before
+// the materializer reads the row is still an epoch: the capture triggers
+// flag updates of permission columns (catalog.Table.PermColumns,
+// livesync_model.OpPermUpdate; see permSubjects.transition), and inserted
+// rows that are gone again are unknown states.
 //
 // Subjects, as tokens of the state:
 //
@@ -90,6 +94,21 @@ type permSubjects struct {
 	all bool
 }
 
+// permFlags describes what the changes of a batch say about a row of a
+// permission table (see permSubjects.transition).
+type permFlags struct {
+	// inserted: the row was inserted in this batch.
+	inserted bool
+	// updated: an update in this batch changed one of the row's
+	// permission columns (livesync_model.OpPermUpdate).
+	updated bool
+	// derived: the table's rows are derived from other permission rows in
+	// the same transaction (spec.permDerived: access).
+	derived bool
+	// backfilled: the table's index backfill is complete.
+	backfilled bool
+}
+
 // transition records the change of the permission state of a row of table
 // (main entity of a spec with perm) from the state stored in its index row
 // o (nil: not indexed) to its current state cur ("" when the row is gone or
@@ -100,7 +119,7 @@ type permSubjects struct {
 //     table's index backfill recorded it (!backfilled): its state is unknown,
 //     so the epoch names everyone (PermissionChange.All). Tables whose rows
 //     are derived from other permission rows in the same transaction
-//     (spec.permDerived: access) are exempt for inserted rows, see there.
+//     (derived: access) are exempt for inserted rows, see there.
 //   - Not indexed and present: a new row (inserted: its state counts as
 //     appeared) or one the backfill has not recorded yet (its earlier state
 //     is unknown: the subjects of the current one are named directly — a
@@ -112,14 +131,30 @@ type permSubjects struct {
 //     (permUnverified): gone ⇒ everyone (empty) or the recorded subjects
 //     (unverified); present ⇒ the recorded and the current subjects.
 //   - Otherwise a known state: removed and/or added when it differs.
-func (p *permSubjects) transition(table string, o *livesync_model.Entity, cur string, inserted, derived, backfilled bool) bool {
+//
+// The materializer sees only the stored and the current state: a row whose
+// permission columns changed and changed back before it was materialized
+// (a repository made public and private again; the changes may even be
+// split across batches, the first batch already reading the restored row)
+// looks unchanged. The capture trigger flags such updates (updated), and
+// then the stored and the current subjects are named whatever the states
+// are, outside netting: the intermediate state had the same subjects (the
+// id columns Forgejo never updates, except a repository's owner, whose
+// intermediate owner's access is the repository's, r<id>).
+func (p *permSubjects) transition(table string, o *livesync_model.Entity, cur string, f permFlags) bool {
+	if f.updated {
+		if o != nil {
+			p.add(o.Perm)
+		}
+		p.add(cur)
+	}
 	switch {
 	case o == nil && cur == "":
-		if !backfilled || (inserted && !derived) {
+		if !f.backfilled || (f.inserted && !f.derived) {
 			p.all = true
 		}
 		return false
-	case o == nil && inserted:
+	case o == nil && f.inserted:
 		p.count(&p.added, table, cur)
 		return true
 	case o == nil:

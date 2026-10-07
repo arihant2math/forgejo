@@ -41,12 +41,15 @@ func TestCoalesce(t *testing.T) {
 		change(4, "label", 7, "U"),
 		change(5, "issue", 7, "D"),
 		change(6, "comment", 4, "I"),
+		change(7, "repository", 2, "P"),
+		change(8, "repository", 2, "U"),
 	})
 	assert.Equal(t, []rowChanges{
 		{key: rowKey{"issue", 7}, changeIDs: []int64{1, 3, 5}, inserted: true},
 		{key: rowKey{"comment", 3}, changeIDs: []int64{2}, inserted: true},
 		{key: rowKey{"label", 7}, changeIDs: []int64{4}},
 		{key: rowKey{"comment", 4}, changeIDs: []int64{6}, inserted: true},
+		{key: rowKey{"repository", 2}, changeIDs: []int64{7, 8}, permUpdated: true},
 	}, got)
 	assert.EqualValues(t, 5, got[0].last())
 	assert.Empty(t, coalesce(nil))

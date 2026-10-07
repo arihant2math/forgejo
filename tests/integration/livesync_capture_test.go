@@ -126,6 +126,91 @@ func TestLivesyncCaptureOutbox(t *testing.T) {
 		assert.Empty(t, livesyncTakeOutbox(t))
 	})
 
+	// Updates of a permission table that change one of its permission
+	// columns are flagged 'P' (so the materializer sees a change undone
+	// before it reads the row), other updates are 'U'.
+	t.Run("permission columns", func(t *testing.T) {
+		x := livesyncMaster(t)
+		beans, err := db.NamesToBean()
+		require.NoError(t, err)
+		bools := map[string]bool{}
+		for _, bean := range beans {
+			info, err := db.TableInfo(bean)
+			require.NoError(t, err)
+			for _, col := range info.Columns() {
+				if col.SQLType.IsBool() {
+					bools[info.Name+"."+col.Name] = true
+				}
+			}
+		}
+		n := 0
+		for _, tbl := range catalog.Tracked() {
+			if len(tbl.PermColumns) == 0 {
+				continue
+			}
+			n++
+			var id int64
+			has, err := x.Table(tbl.Name).Cols("id").OrderBy("id").Get(&id)
+			require.NoError(t, err)
+			require.True(t, has, tbl.Name)
+			// A raw transaction, rolled back: a value that violates a
+			// constraint (foreign keys, unique indexes) is an error to try
+			// the next candidate with, not a logged SQL error.
+			update := func(set string) (string, error) {
+				t.Helper()
+				tx, err := x.DB().DB.BeginTx(ctx, nil)
+				require.NoError(t, err)
+				defer func() { require.NoError(t, tx.Rollback()) }()
+				if _, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET %s WHERE id = %d", x.Quote(tbl.Name), set, id)); err != nil {
+					return "", err
+				}
+				rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT tbl, row_id, op FROM %s", x.Quote("livesync_change")))
+				require.NoError(t, err)
+				defer rows.Close()
+				var outbox []string
+				for rows.Next() {
+					var c livesync_model.Change
+					require.NoError(t, rows.Scan(&c.Tbl, &c.RowID, &c.Op))
+					outbox = append(outbox, outboxEntry(c.Tbl, c.RowID, c.Op))
+				}
+				require.NoError(t, rows.Err())
+				require.Len(t, outbox, 1)
+				return outbox[0], nil
+			}
+			for _, col := range tbl.PermColumns {
+				q := x.Quote(col)
+				got, err := update(q + " = " + q)
+				require.NoError(t, err)
+				assert.Equal(t, outboxEntry(tbl.Name, id, "U"), got, "%s.%s unchanged", tbl.Name, col)
+				candidates := []string{q + " + 1000003", q + " + 1", q + " - 1", q + " + 2"}
+				if bools[tbl.Name+"."+col] {
+					candidates = []string{"NOT " + q}
+				}
+				var errs []error
+				for _, value := range candidates {
+					if got, err = update(q + " = " + value); err == nil {
+						break
+					}
+					errs = append(errs, err)
+				}
+				require.Less(t, len(errs), len(candidates), "%s.%s: %v", tbl.Name, col, errs)
+				assert.Equal(t, outboxEntry(tbl.Name, id, "P"), got, "%s.%s changed", tbl.Name, col)
+			}
+		}
+		assert.Equal(t, 11, n)
+		// Not a permission column.
+		var id int64
+		_, err = x.Table("repository").Cols("id").OrderBy("id").Get(&id)
+		require.NoError(t, err)
+		_, err = x.Exec("UPDATE repository SET num_stars = num_stars + 1 WHERE id = ?", id)
+		require.NoError(t, err)
+		_, err = x.Exec("UPDATE repository SET is_private = NOT is_private WHERE id = ?", id)
+		require.NoError(t, err)
+		_, err = x.Exec("UPDATE repository SET is_private = NOT is_private, num_stars = num_stars - 1 WHERE id = ?", id)
+		require.NoError(t, err)
+		assert.Equal(t, []string{outboxEntry("repository", id, "U"), outboxEntry("repository", id, "P"), outboxEntry("repository", id, "P")}, livesyncTakeOutbox(t))
+	})
+
 	t.Run("API v1 write", func(t *testing.T) {
 		session := loginUser(t, "user2")
 		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteIssue, auth_model.AccessTokenScopeWriteRepository)

@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -304,6 +305,20 @@ func TestLivesyncPermEpochs(t *testing.T) {
 	// The repository's entity reached the log after the epoch.
 	e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelRepository, 1, protocol.OpUpsert))
 	assert.True(t, livesyncPayload[protocol.Repository](t, e).Private)
+
+	// Made public and private again in one transaction (so in one
+	// materializer batch): the stored and the final state are equal, but
+	// the flagged updates are an epoch all the same.
+	cursor = livesyncLogHead(t)
+	require.NoError(t, db.WithTx(t.Context(), func(ctx context.Context) error {
+		for _, private := range []bool{false, true} {
+			if _, err := db.GetEngine(ctx).Exec("UPDATE repository SET is_private = ? WHERE id = 1", private); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	livesyncPermEpoch(t, cursor, func(ch protocol.PermissionChange) bool { return slices.Contains(ch.Repos, 1) })
 
 	// user4 removed from org3's team1 (the team that gives access to the
 	// private repo3): the epoch names user4, the grant drops.

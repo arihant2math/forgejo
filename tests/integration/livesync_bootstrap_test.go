@@ -841,6 +841,9 @@ func TestLivesyncBootstrapConvergence(t *testing.T) {
 		var obj struct {
 			ID int64 `json:"id"`
 		}
+		// Ids are reused after a fixture reload (the reload's own deletes
+		// are in the log): only the entries from here on count.
+		cursor := livesyncLogHead(t)
 		resume := livesyncPauseMaterializer(t, func() {
 			livesyncHTTP(t, u, token, "PATCH", repo+"/labels/1", map[string]any{"description": "paused"}, nil)
 		})
@@ -863,7 +866,7 @@ func TestLivesyncBootstrapConvergence(t *testing.T) {
 		require.Equal(t, http.StatusNoContent, livesyncHTTP(t, u, token, "DELETE", fmt.Sprintf("%s/labels/%d", repo, label), nil, nil))
 		resume()
 		livesyncSettle(t)
-		for _, e := range livesyncLogSince(t, 0) {
+		for _, e := range livesyncLogSince(t, cursor) {
 			assert.False(t, e.Model == string(protocol.ModelComment) && e.EntityID == comment, "the comment is in no log entry (coalesced)")
 			assert.False(t, e.Model == string(protocol.ModelLabel) && e.EntityID == label, "the label is in no log entry (coalesced)")
 		}

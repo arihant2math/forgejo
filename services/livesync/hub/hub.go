@@ -582,8 +582,8 @@ func changeSize(ch *protocol.Change) int {
 }
 
 // groupKind is the prefix of a group name ("repo" for repo:1, "profiles"
-// for the profile directories).
+// for the profile directories; protocol.ParseGroup).
 func groupKind(group string) string {
-	kind, _, _ := strings.Cut(group, ":")
+	kind, _, _ := protocol.ParseGroup(group)
 	return kind
 }

@@ -3,11 +3,6 @@
 
 package protocol
 
-import (
-	"strconv"
-	"strings"
-)
-
 // Tiers of a bootstrap (BootstrapHeader.Tier).
 
 const (
@@ -148,26 +143,3 @@ const (
 	// WorkspaceWatch: a repository the viewer watches (and may read).
 	WorkspaceWatch = "watch"
 )
-
-// ParseGroup splits a client group name into its prefix (GroupPrefix*) and
-// id; the profile directories have id 0. ok is false for pseudo groups and
-// malformed names.
-func ParseGroup(group string) (prefix string, id int64, ok bool) {
-	switch group {
-	case GroupProfilesPublic, GroupProfilesLimited:
-		return GroupPrefixProfiles, 0, true
-	}
-	prefix, rest, found := strings.Cut(group, ":")
-	if !found {
-		return "", 0, false
-	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != rest {
-		return "", 0, false
-	}
-	switch prefix {
-	case GroupPrefixUser, GroupPrefixProfile, GroupPrefixOrg, GroupPrefixRepo, GroupPrefixIssue:
-		return prefix, id, true
-	}
-	return "", 0, false
-}

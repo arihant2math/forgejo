@@ -26,7 +26,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"forgejo.org/models/db"
@@ -129,24 +128,19 @@ const (
 )
 
 // parseGroup splits a group name into its kind and id (0 for the profile
-// directories). Pseudo groups (GroupAll, GroupPermission) and malformed
-// names are kindInvalid: never granted.
+// directories), with protocol.ParseGroup. Pseudo groups (GroupAll,
+// GroupPermission) and malformed names are kindInvalid: never granted.
 func parseGroup(group string) (groupKind, int64) {
-	switch group {
-	case protocol.GroupProfilesPublic:
-		return kindProfilesPublic, 0
-	case protocol.GroupProfilesLimited:
-		return kindProfilesLimited, 0
-	}
-	prefix, rest, ok := strings.Cut(group, ":")
+	prefix, id, ok := protocol.ParseGroup(group)
 	if !ok {
 		return kindInvalid, 0
 	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != rest {
-		return kindInvalid, 0
-	}
 	switch prefix {
+	case protocol.GroupPrefixProfiles:
+		if group == protocol.GroupProfilesPublic {
+			return kindProfilesPublic, 0
+		}
+		return kindProfilesLimited, 0
 	case protocol.GroupPrefixUser:
 		return kindUser, id
 	case protocol.GroupPrefixProfile:

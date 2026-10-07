@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"strconv"
+	"strings"
 )
 
 // Model names an entity type. It is written to livesync_log.model and is
@@ -267,6 +268,31 @@ func RepoGroup(id int64) string { return GroupPrefixRepo + ":" + strconv.FormatI
 // IssueGroup is the group of an issue's (or pull request's) lazy-tier
 // entities: timeline, reactions, reviews, body.
 func IssueGroup(id int64) string { return GroupPrefixIssue + ":" + strconv.FormatInt(id, 10) }
+
+// ParseGroup splits a client group name into its prefix (GroupPrefix*) and
+// id; the profile directories have id 0. ok is false for pseudo groups and
+// malformed names (an id must be positive and canonical: no sign, no
+// leading zero). It is the one parser of group names: permission checks,
+// the hub and bootstraps all use it.
+func ParseGroup(group string) (prefix string, id int64, ok bool) {
+	switch group {
+	case GroupProfilesPublic, GroupProfilesLimited:
+		return GroupPrefixProfiles, 0, true
+	}
+	prefix, rest, found := strings.Cut(group, ":")
+	if !found {
+		return "", 0, false
+	}
+	id, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != rest {
+		return "", 0, false
+	}
+	switch prefix {
+	case GroupPrefixUser, GroupPrefixProfile, GroupPrefixOrg, GroupPrefixRepo, GroupPrefixIssue:
+		return prefix, id, true
+	}
+	return "", 0, false
+}
 
 // Unit is what a reader of a group needs (livesync_log.unit) to receive an
 // entity of it. In repo:{id} and issue:{id} groups it is a repository unit,

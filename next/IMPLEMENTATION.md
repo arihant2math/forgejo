@@ -946,7 +946,7 @@ does) **and** MySQL 8.0 (binlog on).
     empty, backfill done, writer token 1); dev DBs' triggers removed again afterwards.
 
 #### B4 — Permissions
-- [ ] **Status**
+- [x] **Status** — done 2026-10-07 (final check: `TestLivesyncPerm*` (differential, epochs, auth, lost changes) + `TestLivesyncCaptureOutbox*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests green; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review rounds 1–2 fixed; **one open major item** (MySQL permission-column triggers vs. upstream migrations), see *Open items* in the notes)
 - **Scope:** `services/livesync/perm`: `Grants(ctx, user) → map[group]units` from
   `access_model.GetUserRepoPermission`, org/team membership, visibility; per-user cache
   shared across connections; permission epochs bumped by the materializer when it
@@ -1177,7 +1177,7 @@ does) **and** MySQL 8.0 (binlog on).
     column makes updates of that table fail until the trigger is replaced — Init replaces it at the next start (after the
     migrations) because the expected body changes with the catalog, and `CheckCatalog` (hence `TestLivesyncCatalogContract`)
     now fails when a permission column does not exist, so an upstream sync that renames one is caught in CI;
-    `TestPermColumns` fails too. The window is the migration run itself (and a deployment that disabled livesync with the
+    `TestPermColumns` fails too. **(Understated — see *Open items at close*.)** The window is the migration run itself (and a deployment that disabled livesync with the
     triggers left installed: B8's uninstall). These are core columns; accepted. **Upgrade cost:** the PG function body
     changed, so the first start after this change repairs it and bumps every table's schema epoch (`P{all}` + `B`
     markers for every table, once); on MySQL only the 11 `_au` triggers are replaced (their tables' epochs). Nothing is
@@ -1201,6 +1201,31 @@ does) **and** MySQL 8.0 (binlog on).
     3 MySQL-only skips) and MySQL 8.0 (30 pass, 1 skip), plus `TestLivesyncCapture*|TestLivesyncMaterialize*|
     TestLivesyncPermEpochs|TestLivesyncPermLostChanges` on MariaDB 11.8.9 (all pass; the `CASE` trigger body round-trips
     through `information_schema.triggers` there too), no testlogger "FATAL ERROR"; protocol unchanged; fork diff unchanged.
+  - **Open items at close (unresolved, for the orchestrator).**
+    - **[major] MySQL/MariaDB capture triggers now name permission columns** (`services/livesync/capture/ddl.go` ~152,
+      review round 3). The `_au` trigger of each of the 11 permission tables reads `OLD.<col>`/`NEW.<col>` for 22 columns
+      (user `type, visibility, is_active, prohibit_login, is_admin, is_restricted`, repository `owner_id, is_private`, team
+      `authorize`, …). An upstream rename/drop of one of them makes **every UPDATE of that table fail** (reproduced on MySQL
+      8.0.46: `ERROR 1054 Unknown column 'is_private' in 'OLD'` after `RENAME COLUMN` or `DROP COLUMN`). This contradicts
+      PLAN §4.3 ("Trigger design (robust against upstream migrations)": the trigger "references only `id`"; livesync never
+      breaks plain Forgejo), and PLAN §4.3 was not updated. The round-2 caveat above ("the window is the migration run
+      itself … accepted") **understates** it: (1) *upgrade abort*: a later migration in the same run that updates the
+      renamed table (migrations touch `user`/`repository` routinely) fails, so Forgejo does not start at all, also in
+      `INSTALL_MODE=auto`, because livesync `Init` (which would replace the trigger) runs only after the migrations;
+      recovery needs a manual `DROP TRIGGER`; (2) *`INSTALL_MODE=verify`* (PLAN §4.3's mode for the common MySQL 8 case:
+      binlog on, no SUPER): `Ensure(ctx, false)` never replaces triggers (`services/livesync/livesync.go` ~131), so every
+      UPDATE of the table fails until a DBA runs the new DDL; for `user` that includes the `last_login_unix` update at
+      sign-in, i.e. the classic forge is down, not just livesync; (3) *`ENABLED=false` with triggers left installed*
+      (`routers/livesync/wrap.go` ~44–48 keeps them by design; no uninstall until B8): the same permanent breakage after
+      such an upgrade. Before round 2 none of these could break non-livesync writes. CI catches an upstream rename
+      (`CheckCatalog`/`TestLivesyncCatalogContract`/`TestPermColumns`), but that does not protect deployed databases whose
+      triggers predate the new binary. Verified correct otherwise: transition/coalesce logic, the epoch path through
+      `withPermissionEpoch` and `Cache.Invalidate`, PG function v2 + `tgargs` check, MySQL staleness, `PermColumns` ⇔ perm
+      funcs; tests green on PG 16 and MySQL 8.0. **Options:** (a) keep it, accept explicitly, update PLAN §4.3 and correct
+      the caveat to cover verify mode, disabled livesync and the migration abort; (b) mitigate, e.g. a pre-migration step
+      that drops livesync's `_au` triggers of permission tables on MySQL (Init reinstalls them with markers/epochs); (c) go
+      back to plain `U` triggers on MySQL with a bounded-staleness safeguard (e.g. a TTL on B5 subscriptions to repo/user
+      groups) instead of exact flagging. **B5/B8 must not build on (a) without that decision.**
 
 #### B5 — WebSocket hub + protocol (+ SSE fallback)
 - [ ] **Status**

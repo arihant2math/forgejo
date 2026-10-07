@@ -25,6 +25,7 @@ import (
 	"forgejo.org/modules/setting"
 	"forgejo.org/routers"
 	"forgejo.org/routers/install"
+	livesync_router "forgejo.org/routers/livesync"
 
 	"github.com/felixge/fgprof"
 	"github.com/urfave/cli/v3"
@@ -218,7 +219,7 @@ func serveInstalled(_ context.Context, ctx *cli.Command) error {
 	}
 
 	// Set up Chi routes
-	webRoutes := routers.NormalRoutes()
+	webRoutes := livesync_router.Wrap(routers.NormalRoutes())
 	err := listen(webRoutes, true)
 	if err != nil {
 		log.Critical("Unable to open listener for web server: %s", err.Error())

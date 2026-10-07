@@ -1,0 +1,177 @@
+/* Copyright 2026 The Forgejo Authors. All rights reserved.
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Design tokens: the ONLY place where colours, type, spacing, sizes, radii,
+ * shadows, z-index and motion are defined. Everything else uses these names,
+ * either as Tailwind utilities (bg-surface, text-fg-muted, h-row, rounded-md,
+ * shadow-popover, …) or as var(--…) in CSS. Need a new value? Add a token here.
+ *
+ * `@theme static` turns each --namespace-name into a Tailwind utility and
+ * always emits the variable, so the dark theme can override it below. Tailwind's
+ * default theme is not imported: only these tokens exist.
+ */
+
+@theme static {
+  /* ── Colour, light theme (dark overrides follow). ─────────────────────── */
+
+  /* Surfaces, from back to front. */
+  --color-canvas: #f7f7f8; /* app background, sidebar */
+  --color-surface: #fff; /* main content panel */
+  --color-raised: #fff; /* popovers, menus, dialogs */
+  --color-overlay: #18181b52; /* dialog backdrop */
+
+  /* Interactive fills. */
+  --color-hover: #efeff1;
+  --color-selected: #e8e8eb;
+  --color-skeleton: #ececef;
+
+  /* Hairlines. */
+  --color-border: #e4e4e7;
+  --color-border-subtle: #ededf0;
+  --color-border-strong: #d4d4d8;
+
+  /* Text. */
+  --color-fg: #1b1b1f;
+  --color-fg-muted: #5e5e68;
+  --color-fg-subtle: #8a8a94;
+  --color-fg-on-accent: #fff;
+
+  /* The one accent, and status colours. */
+  --color-accent: #5e6ad2;
+  --color-accent-hover: #4f5bc5;
+  --color-accent-subtle: #ecedfa;
+  --color-focus: #5e6ad2;
+  --color-success: #2f9e5b;
+  --color-warning: #c2850c;
+  --color-danger: #d93f4c;
+  --color-danger-subtle: #fcebec;
+  --color-done: #7a5af8;
+  --color-shadow: #0000001f;
+
+  /* ── Typography. System fonts only: no webfont request on the boot path. ── */
+  --font-sans:
+    -apple-system, blinkmacsystemfont, "Segoe UI Variable Text", "Segoe UI", system-ui, roboto,
+    "Helvetica Neue", arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, "SF Mono", sfmono-regular, menlo, consolas, "Liberation Mono", monospace;
+  --default-font-family: var(--font-sans);
+  --default-mono-font-family: var(--font-mono);
+
+  /* 13px is the UI base size (text-base). */
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 12px;
+  --text-sm--line-height: 16px;
+  --text-base: 13px;
+  --text-base--line-height: 20px;
+  --text-md: 14px;
+  --text-md--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --tracking-tight: -0.01em;
+
+  /* ── Spacing: a 4px grid (p-1 = 4px, p-1.5 = 6px, gap-2 = 8px, …). ─────── */
+  --spacing: 4px;
+
+  /* Fixed component sizes (h-control, h-row, w-sidebar, …). */
+  --spacing-control-sm: 24px;
+  --spacing-control: 28px;
+  --spacing-row: 32px;
+  --spacing-header: 44px;
+  --spacing-sidebar: var(--sidebar-width);
+
+  /* Max widths (max-w-xs = tooltips, max-w-sm = menus, max-w-md = dialogs, max-w-lg = prose). */
+  --container-xs: 280px;
+  --container-sm: 320px;
+  --container-md: 560px;
+  --container-lg: 720px;
+
+  /* ── Radii, shadows (floating surfaces only). ─────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+  --shadow-popover: 0 4px 16px var(--color-shadow), 0 1px 3px var(--color-shadow);
+  --shadow-dialog: 0 16px 48px var(--color-shadow), 0 2px 6px var(--color-shadow);
+
+  /* ── Motion: appear instantly, fade out in 150 ms. transform/opacity only. ── */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --default-transition-duration: var(--speed-out);
+  --default-transition-timing-function: var(--ease-out);
+  --animate-exit: exit var(--speed-out) var(--ease-out) forwards;
+  --animate-exit-pop: exit-pop var(--speed-out) var(--ease-out) forwards;
+
+  @keyframes exit {
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes exit-pop {
+    to {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+}
+
+/* Tokens that are not a Tailwind namespace. */
+:root {
+  color-scheme: light;
+
+  /* Runtime-adjustable layout values (the splash script may override them on <html>). */
+  --sidebar-width: 232px;
+
+  /* Motion. */
+  --speed-in: 0s;
+  --speed-out: 0.15s;
+  --speed-quick: 0.1s;
+
+  /* Stacking order (z-sticky, z-popover, … utilities in app.css). */
+  --z-sticky: 10;
+  --z-popover: 50;
+  --z-dialog: 60;
+  --z-tooltip: 70;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #0f1012;
+  --color-surface: #151619;
+  --color-raised: #1c1d21;
+  --color-overlay: #00000080;
+  --color-hover: #1f2024;
+  --color-selected: #26272c;
+  --color-skeleton: #222327;
+  --color-border: #26272b;
+  --color-border-subtle: #1e1f23;
+  --color-border-strong: #34353b;
+  --color-fg: #ececee;
+  --color-fg-muted: #9b9ca4;
+  --color-fg-subtle: #6d6e76;
+  --color-fg-on-accent: #fff;
+  --color-accent: #6e79e0;
+  --color-accent-hover: #838de7;
+  --color-accent-subtle: #24263a;
+  --color-focus: #838de7;
+  --color-success: #4cc27a;
+  --color-warning: #e0a83a;
+  --color-danger: #eb5a65;
+  --color-danger-subtle: #3b1e22;
+  --color-done: #9b82fb;
+  --color-shadow: #0006;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --speed-out: 0s;
+    --speed-quick: 0s;
+    --animate-exit: none;
+    --animate-exit-pop: none;
+  }
+}

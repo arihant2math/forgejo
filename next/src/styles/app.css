@@ -1,0 +1,70 @@
+/* Copyright 2026 The Forgejo Authors. All rights reserved.
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The one stylesheet. Vite inlines its compiled output into index.html
+ * (tools/vite-plugin-shell.ts), so the first frame needs no CSS request.
+ * Tailwind's default theme is deliberately not imported: tokens.css is the
+ * whole theme.
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "./tokens.css";
+@import "./base.css" layer(base);
+
+/* The boot shell in index.html is rendered from src/app/BootShell.tsx at build time. */
+@source "../../index.html";
+
+/* Splash state set on <html> by the inline boot script (src/app/splash.ts). */
+@custom-variant logged-out (&:where([data-shell="logged-out"] *));
+@custom-variant shape-detail (&:where([data-skeleton="detail"] *));
+
+/* Motion: state changes appear instantly (--speed-in) and fade out (--speed-out). */
+@utility interactive {
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: var(--speed-out);
+  transition-timing-function: var(--ease-out);
+
+  &:hover,
+  &:active,
+  &[data-highlighted],
+  &[data-state="open"] {
+    transition-duration: var(--speed-in);
+  }
+}
+
+/* Stacking layers. */
+@utility z-sticky {
+  z-index: var(--z-sticky);
+}
+
+@utility z-popover {
+  z-index: var(--z-popover);
+}
+
+@utility z-dialog {
+  z-index: var(--z-dialog);
+}
+
+@utility z-tooltip {
+  z-index: var(--z-tooltip);
+}
+
+/* Floating content scales from the side it opened on (Radix sets the variable). */
+@utility origin-popper {
+  transform-origin: var(--radix-popper-transform-origin);
+}
+
+/* The boot shell's avatar shows the initial the splash script stored (if any). */
+@utility splash-initial {
+  &::after {
+    content: var(--splash-initial, "");
+  }
+}
+
+/* A label's own colour (server data), passed in as --label-color. */
+@utility bg-label {
+  background-color: var(--label-color);
+}

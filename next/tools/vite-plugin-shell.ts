@@ -6,10 +6,13 @@
 //    performance.mark('appStart') and localStorage.splash → <html> before first paint;
 //  * <!--next:boot-shell--> → src/app/BootShell.tsx rendered to static HTML;
 //  * (build) the app stylesheet is inlined as <style>, so the first frame needs no
-//    CSS request, and the CSS file is dropped from the output;
-//  * (build) <link rel=modulepreload> for the boot routes' chunks, so they load in
-//    parallel with the entry (Vite already preloads the entry's static imports).
+//    CSS request; the CSS file is dropped from the output and from the manifest;
+//  * (build) <link rel=modulepreload> for the boot routes' chunks, right after the
+//    entry script so they start before the inline CSS is parsed (Vite already
+//    preloads the entry's static imports).
 
+import {readFileSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {minifySync, type Plugin} from 'vite';
@@ -46,11 +49,14 @@ export function staticClosure(bundle: OutputBundle, start: OutputChunk): OutputC
 export function shell({bootRoutes}: ShellOptions): Plugin {
   let base = '/';
   let root = '';
+  let outDir = '';
+  const inlined = new Set<string>();
   return {
     name: 'next:shell',
     configResolved(config) {
       base = config.base;
       root = config.root;
+      outDir = join(config.root, config.build.outDir);
     },
     transformIndexHtml: {
       order: 'pre',
@@ -73,6 +79,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
           const css = bundle[fileName] as OutputAsset | undefined;
           if (css?.type !== 'asset') return tag;
           delete bundle[fileName]; // eslint-disable-line @typescript-eslint/no-dynamic-delete -- the bundle is a plain record
+          inlined.add(fileName);
           return `<style>${String(css.source).trim()}</style>`;
         });
 
@@ -90,9 +97,24 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
             links.push(`<link rel="modulepreload" crossorigin href="${href}">`);
           }
         }
-        html = html.replace('</head>', `${links.join('')}</head>`);
+        const entry = /<script type="module"[^>]*><\/script>/.exec(html);
+        if (!entry) throw new Error('next:shell: no entry <script type="module"> in index.html');
+        html = html.replace(entry[0], `${entry[0]}${links.join('')}`);
         page.source = html;
       },
+    },
+    writeBundle() {
+      // The manifest still lists the inlined stylesheet; B8 and the service
+      // worker read it, so drop the file that no longer exists.
+      if (!inlined.size) return;
+      const path = join(outDir, '.vite/manifest.json');
+      const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, {css?: string[]}>;
+      for (const chunk of Object.values(manifest)) {
+        if (!chunk.css) continue;
+        chunk.css = chunk.css.filter((f) => !inlined.has(f));
+        if (!chunk.css.length) delete chunk.css;
+      }
+      writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
     },
   };
 }

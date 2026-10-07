@@ -10,18 +10,24 @@
 @layer theme, base, components, utilities;
 
 @import "tailwindcss/preflight.css" layer(base);
-@import "tailwindcss/utilities.css" layer(utilities);
+/* Only the app's own sources generate utilities: tests, lint fixtures, docs and
+ * src/dev (the dev-only gallery, which brings its own sheet) are not scanned. */
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "./tokens.css";
 @import "./base.css" layer(base);
 
-/* The boot shell in index.html is rendered from src/app/BootShell.tsx at build time. */
-@source "../../index.html";
+@source "../app";
+@source "../ui";
+@source "../features";
+@source not "../**/*.test.tsx";
+@source not "../**/*.test.ts";
 
 /* Splash state set on <html> by the inline boot script (src/app/splash.ts). */
 @custom-variant logged-out (&:where([data-shell="logged-out"] *));
 @custom-variant shape-detail (&:where([data-skeleton="detail"] *));
 
-/* Motion: state changes appear instantly (--speed-in) and fade out (--speed-out). */
+/* Motion: the only transition in the app. Entering a state is instant
+ * (--speed-in), leaving it fades out (--speed-out); colours and opacity only. */
 @utility interactive {
   transition-property: color, background-color, border-color, opacity;
   transition-duration: var(--speed-out);
@@ -29,10 +35,21 @@
 
   &:hover,
   &:active,
+  &:focus-visible,
   &[data-highlighted],
-  &[data-state="open"] {
+  &[data-selected],
+  &[aria-selected="true"],
+  &[aria-pressed="true"],
+  &[data-state="open"],
+  &[data-state="checked"],
+  &[data-state="on"],
+  &[data-state="active"] {
     transition-duration: var(--speed-in);
   }
+}
+
+@utility opacity-disabled {
+  opacity: var(--opacity-disabled);
 }
 
 /* Stacking layers. */

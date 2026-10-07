@@ -18,12 +18,47 @@ function block(selector: string): string {
   throw new Error(`unterminated ${selector}`);
 }
 
+/** WCAG 2 contrast ratio of two #rgb / #rrggbb colours. */
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const h = hex.replace('#', '');
+    const full = h.length === 3 ? h.replace(/./g, '$&$&') : h.slice(0, 6);
+    const [r = 0, g = 0, bl = 0] = [0, 2, 4].map((i) => {
+      const c = Number.parseInt(full.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+}
+
 const decls = (text: string) => new Map([...text.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]?.trim()]));
 
 describe('tokens.css', () => {
   const light = decls(block('@theme static'));
   const dark = decls(block(':root[data-theme="dark"]'));
   const root = decls(block(':root'));
+
+  test.each(['light', 'dark'] as const)('WCAG contrast, %s theme', (theme) => {
+    const color = (name: string) => {
+      const v = (theme === 'dark' ? dark.get(name) : undefined) ?? light.get(name);
+      if (!v) throw new Error(`no ${name}`);
+      return v;
+    };
+    const text = ['fg', 'fg-muted', 'fg-subtle', 'accent-fg', 'success', 'warning', 'danger', 'done'];
+    const backgrounds = ['canvas', 'surface', 'raised', 'hover', 'selected'];
+    const failures: string[] = [];
+    const need = (fg: string, bg: string, min: number) => {
+      const r = contrast(color(`--color-${fg}`), color(`--color-${bg}`));
+      if (r < min) failures.push(`${fg} on ${bg}: ${r.toFixed(2)} < ${min}`);
+    };
+    for (const fg of text) for (const bg of backgrounds) need(fg, bg, 4.5);
+    for (const [fg, bg] of [['accent-fg', 'accent-subtle'], ['success', 'success-subtle'], ['warning', 'warning-subtle'], ['danger', 'danger-subtle'], ['done', 'done-subtle'], ['fg-muted', 'hover']]) need(fg ?? '', bg ?? '', 4.5);
+    for (const bg of ['accent', 'accent-hover', 'danger-solid', 'danger-solid-hover']) need('fg-on-accent', bg, 4.5);
+    for (const bg of ['canvas', 'surface', 'raised']) need('focus', bg, 3);
+    expect(failures).toEqual([]);
+  });
 
   test('the dark theme overrides exactly the colour tokens', () => {
     const colors = [...light.keys()].filter((k) => k?.startsWith('--color-')).sort();

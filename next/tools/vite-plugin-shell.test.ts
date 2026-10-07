@@ -8,15 +8,19 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe, expect, test} from 'vitest';
 import {vendorChunk} from '../vite.config.ts';
-import {analyze, BUDGET} from './budget.ts';
+import {analyze, BUDGET, cssProblems} from './budget.ts';
 
 describe('vendorChunk', () => {
   test.each([
     ['/x/node_modules/react/index.js', 'vendor-react'],
     ['/x/node_modules/react-dom/cjs/react-dom-client.production.js', 'vendor-react-dom'],
-    ['/x/node_modules/lucide-react/dist/esm/icons/plus.js', 'vendor-lucide-react'],
-    ['/x/node_modules/@radix-ui/react-dialog/dist/index.mjs', 'vendor-radix-ui'],
+    ['/x/node_modules/@radix-ui/react-dialog/dist/index.mjs', 'vendor-radix-ui-dialog'],
+    ['/x/node_modules/@radix-ui/react-presence/dist/index.mjs', 'vendor-radix-ui-internal'],
+    ['/x/node_modules/@radix-ui/primitive/dist/index.mjs', 'vendor-radix-ui-internal'],
     ['/x/node_modules/@floating-ui/dom/dist/x.mjs', 'vendor-floating-ui'],
+    ['/x/node_modules/get-nonce/dist/es2015/index.js', 'vendor-react-remove-scroll'],
+    ['/x/node_modules/lucide-react/dist/esm/icons/plus.js', null],
+    ['/x/node_modules/lucide-react/dist/esm/Icon.js', 'vendor-lucide-react'],
     ['/x/node_modules/@tanstack/react-router/dist/esm/index.js', 'vendor-tanstack-react-router'],
     ['/x/node_modules/a/node_modules/b/index.js', 'vendor-a'],
     ['/x/src/main.tsx', null],
@@ -35,19 +39,21 @@ function dist(files: Record<string, string>): string {
 }
 
 const manifest = (imports: string[]) => JSON.stringify({
-  'index.html': {file: 'assets/main.js', isEntry: true, imports},
+  'index.html': {file: 'assets/main.js', isEntry: true, imports, dynamicImports: ['src/Home.tsx']},
   _a: {file: 'assets/a.js'},
+  'src/Home.tsx': {file: 'assets/home.js', imports: ['_a']},
 });
 
 describe('budget', () => {
   test('counts inline script/style, entry and preloads; passes under budget', () => {
     const r = analyze(dist({
-      'index.html': '<script>mark()</script><style>a{}</style><script type="module" crossorigin src="/-/next/assets/main.js"></script><link rel="modulepreload" crossorigin href="/-/next/assets/a.js">',
+      'index.html': '<script>mark()</script><style>a{}</style><script type="module" crossorigin src="/-/next/assets/main.js"></script><link href="/-/next/assets/a.js" crossorigin rel="modulepreload"><link rel=modulepreload href="/-/next/assets/home.js">',
       'assets/main.js': 'x',
       'assets/a.js': 'y',
+      'assets/home.js': 'z',
       '.vite/manifest.json': manifest(['_a']),
-    }));
-    expect(r.items.map((i) => i.name)).toEqual(['index.html <script> #1', 'index.html <style> #1', 'assets/main.js', 'assets/a.js']);
+    }), '/-/next/', ['src/Home.tsx']);
+    expect(r.items.map((i) => i.name)).toEqual(['index.html <script> #1', 'index.html <style> #1', 'assets/main.js', 'assets/a.js', 'assets/home.js']);
     expect(r.problems).toEqual([]);
   });
 
@@ -57,9 +63,17 @@ describe('budget', () => {
       'index.html': '<script type="module" src="/-/next/assets/main.js"></script>',
       'assets/main.js': noise,
       'assets/a.js': 'y',
+      'assets/home.js': 'z',
       '.vite/manifest.json': manifest(['_a']),
-    }));
-    expect(r.problems).toContain('assets/a.js: statically imported at boot but not preloaded');
+    }), '/-/next/', ['src/Home.tsx', 'src/Missing.tsx']);
+    expect(r.problems).toContain('assets/a.js: needed at boot but not preloaded');
+    expect(r.problems).toContain('assets/home.js: needed at boot but not preloaded');
+    expect(r.problems).toContain('boot route src/Missing.tsx: no chunk of its own in the manifest');
     expect(r.problems.some((p) => p.startsWith('boot JS'))).toBe(true);
+  });
+
+  test('flags banned CSS in the output', () => {
+    expect(cssProblems(':root{--color-fg:#fff}.a{background-color:#0000}@property --x{initial-value:#fff}')).toEqual([]);
+    expect(cssProblems('.bg-\\[\\#fff\\]{background-color:#fff}.t{transition-property:all}')).toHaveLength(2);
   });
 });

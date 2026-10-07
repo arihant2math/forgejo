@@ -8,7 +8,7 @@ export function Kbd({children, className}: {children: string; className?: string
   return (
     <kbd
       className={cx(
-        'inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-sm border border-border px-1 font-sans text-xs text-fg-muted',
+        'inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-sm border border-border bg-canvas px-1 font-sans text-xs text-fg-muted',
         className,
       )}
     >

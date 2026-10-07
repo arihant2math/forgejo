@@ -7,7 +7,11 @@ import {Shortcut} from './Kbd.tsx';
 import {floating} from './recipes.ts';
 import {cx} from './cx.ts';
 
-/** Mount once at the app root: one shared delay timer, so moving across a toolbar is instant. */
+/**
+ * Mount once around the app shell (F3; the boot route does not need it): one
+ * shared delay timer, so moving across a toolbar is instant. Tooltip throws
+ * without it.
+ */
 export function TooltipProvider({children}: {children: ReactNode}) {
   return <T.Provider delayDuration={500} skipDelayDuration={300}>{children}</T.Provider>;
 }

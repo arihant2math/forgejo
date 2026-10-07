@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The shared primitives. Features compose these; they never restyle a button,
-// menu, input or row locally (IMPLEMENTATION.md §2.4).
+// menu, input or row locally (IMPLEMENTATION.md §2.4; tokens/no-restyle).
 
 export {Avatar} from './Avatar.tsx';
-export {Badge, LabelChip} from './Badge.tsx';
+export {Badge, LabelChip, type BadgeTone} from './Badge.tsx';
 export {Button, IconButton, type ButtonVariant} from './Button.tsx';
 export {cx} from './cx.ts';
 export {Dialog, DialogClose, DialogTrigger} from './Dialog.tsx';
@@ -15,8 +15,10 @@ export {Input} from './Input.tsx';
 export {Kbd, Shortcut} from './Kbd.tsx';
 export {ListRow} from './ListRow.tsx';
 export {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
-  Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger,
+  ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuRadioGroup,
+  ContextMenuRadioItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger,
+  Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub,
+  MenuTrigger,
 } from './Menu.tsx';
 export {Popover, PopoverClose, PopoverContent, PopoverTrigger} from './Popover.tsx';
 export {Skeleton} from './Skeleton.tsx';

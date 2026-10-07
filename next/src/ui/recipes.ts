@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Class recipes shared by more than one primitive. Features never use these
-// directly: they compose the primitives in this directory.
+// directly: they compose the primitives in this directory. Recipes never set a
+// property that the primitive using them sets too (ui.test.tsx checks for
+// conflicting utilities).
 
-// Recipes never set a property twice when combined: a primitive adds the
-// stacking layer, text colour, etc. itself (ui.test.tsx checks for conflicts).
+/** A raised panel: dialogs, and the base of floating surfaces. Add a shadow. */
+export const surface = 'rounded-lg border border-border bg-raised text-fg';
 
 /** A floating surface (menus, popovers, tooltips): appears instantly, fades and shrinks out. Add a z-* layer. */
-export const floating =
-  'origin-popper overflow-hidden rounded-lg border border-border bg-raised text-fg shadow-popover ' +
-  'data-[state=closed]:animate-exit-pop';
+export const floating = `${surface} origin-popper overflow-hidden shadow-popover data-[state=closed]:animate-exit-pop`;
 
 /** One row in a menu or a command list. Add a text colour. */
 export const menuItem =
-  'interactive flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none ' +
+  'interactive group flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none ' +
   'select-none data-highlighted:bg-hover data-disabled:pointer-events-none data-disabled:text-fg-subtle';
 
 /** Inline-flex control with a fixed height; used by Button, IconButton and Input. */

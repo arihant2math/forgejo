@@ -74,7 +74,7 @@ describe('primitives', () => {
   test('ContextMenu: opens on right click with the same item rendering', () => {
     render(
       <ContextMenu>
-        <ContextMenuTrigger asChild><ListRow>Row</ListRow></ContextMenuTrigger>
+        <ContextMenuTrigger asChild><ListRow role="option">Row</ListRow></ContextMenuTrigger>
         <ContextMenuContent><ContextMenuItem icon={Tag} shortcut="L">Labels</ContextMenuItem></ContextMenuContent>
       </ContextMenu>,
     );

@@ -4,7 +4,9 @@
 import type {HTMLAttributes, ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
 
-export interface ListRowProps extends HTMLAttributes<HTMLDivElement> {
+export interface ListRowProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role' | 'className'> {
+  /** The row's role in its list: option (listbox), row (grid) or presentation (skeletons). */
+  role: 'option' | 'row' | 'presentation';
   selected?: boolean;
   /** Fixed-width slot before the title (status icon, avatar, …). */
   leading?: ReactNode;
@@ -16,16 +18,17 @@ export interface ListRowProps extends HTMLAttributes<HTMLDivElement> {
 /**
  * One compact list row (issues, PRs, notifications). Fixed height and layout
  * containment, so virtualized lists can position rows without measuring.
+ * Keyboard movement (roving tabindex, J/K) belongs to the list (F4).
  */
-export function ListRow({selected, leading, trailing, children, className, ...rest}: ListRowProps) {
+export function ListRow({role, selected, leading, trailing, children, ...rest}: ListRowProps) {
   return (
     <div
+      role={role}
       data-selected={selected ? '' : undefined}
-      aria-selected={selected}
+      aria-selected={role === 'presentation' ? undefined : Boolean(selected)}
       className={cx(
         'interactive flex h-row items-center gap-2 border-b border-border-subtle px-3 text-base text-fg contain-content',
         'hover:bg-hover data-selected:bg-selected',
-        className,
       )}
       {...rest}
     >

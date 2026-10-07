@@ -5,18 +5,28 @@ import {cx} from './cx.ts';
 
 const sizes = {sm: 'size-4 text-xs', md: 'size-5 text-xs', lg: 'size-6 text-sm'} as const;
 
-export interface AvatarProps {
-  /** Display name; its first letter is the fallback when there is no image. */
-  name: string;
-  src?: string | undefined;
+export type AvatarProps = {
   size?: keyof typeof sizes;
-  className?: string;
-}
+} & (
+  | {
+    /** Display name; its first letter is the fallback when there is no image. */
+    name: string;
+    src?: string | undefined;
+    fromSplash?: never;
+  }
+  | {
+    /** Boot shell only: show the initial the splash script stored (--splash-initial). */
+    fromSplash: true;
+    name?: never;
+    src?: never;
+  }
+);
 
-export function Avatar({name, src, size = 'md', className}: AvatarProps) {
-  const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-selected font-medium text-fg-muted select-none', sizes[size], className);
-  if (src) return <img src={src} alt={name} loading="lazy" decoding="async" className={cx(cls, 'object-cover')}/>;
-  return <span role="img" aria-label={name} className={cls}>{initial(name)}</span>;
+export function Avatar({size = 'md', ...props}: AvatarProps) {
+  const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-selected font-medium text-fg-muted select-none', sizes[size]);
+  if (props.fromSplash) return <span aria-hidden className={cx(cls, 'splash-initial')}/>;
+  if (props.src) return <img src={props.src} alt={props.name} loading="lazy" decoding="async" className={cx(cls, 'object-cover')}/>;
+  return <span role="img" aria-label={props.name} className={cls}>{initial(props.name)}</span>;
 }
 
 function initial(name: string): string {

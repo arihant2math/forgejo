@@ -23,7 +23,8 @@ export default defineConfig({
     {name: 'dev', testMatch: 'gallery.spec.ts', use: {baseURL: 'http://127.0.0.1:5173'}},
   ],
   webServer: [
-    {command: 'npx vite build && npx vite preview --host 127.0.0.1', url: 'http://127.0.0.1:4173/-/next/', reuseExistingServer: !process.env.CI},
+    // Always this checkout's fresh build: never test whatever already listens on the port.
+    {command: 'npx vite build && npx vite preview --host 127.0.0.1', url: 'http://127.0.0.1:4173/-/next/', reuseExistingServer: false},
     {command: 'npx vite --host 127.0.0.1', url: 'http://127.0.0.1:5173/-/next/', reuseExistingServer: !process.env.CI},
   ],
 });

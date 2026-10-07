@@ -10,10 +10,16 @@ export const Popover = P.Root;
 export const PopoverTrigger = P.Trigger;
 export const PopoverClose = P.Close;
 
-export function PopoverContent({className, sideOffset = 4, align = 'start', ...rest}: ComponentProps<typeof P.Content>) {
+const widths = {sm: 'w-64', md: 'w-80'} as const;
+
+export interface PopoverContentProps extends Omit<ComponentProps<typeof P.Content>, 'className'> {
+  width?: keyof typeof widths;
+}
+
+export function PopoverContent({width = 'sm', sideOffset = 4, align = 'start', ...rest}: PopoverContentProps) {
   return (
     <P.Portal>
-      <P.Content sideOffset={sideOffset} align={align} className={cx(floating, 'z-popover p-2', className)} {...rest}/>
+      <P.Content sideOffset={sideOffset} align={align} className={cx(floating, 'z-popover p-2', widths[width])} {...rest}/>
     </P.Portal>
   );
 }

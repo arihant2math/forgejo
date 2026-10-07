@@ -8,12 +8,17 @@ const chip = 'inline-flex h-5 shrink-0 items-center gap-1 px-1.5 text-sm font-me
 
 const tones = {
   neutral: 'bg-hover text-fg-muted',
-  accent: 'bg-accent-subtle text-accent',
+  accent: 'bg-accent-subtle text-accent-fg',
+  success: 'bg-success-subtle text-success',
+  warning: 'bg-warning-subtle text-warning',
   danger: 'bg-danger-subtle text-danger',
+  done: 'bg-done-subtle text-done',
 } as const;
 
+export type BadgeTone = keyof typeof tones;
+
 /** A small status or count chip. */
-export function Badge({tone = 'neutral', children}: {tone?: keyof typeof tones; children: ReactNode}) {
+export function Badge({tone = 'neutral', children}: {tone?: BadgeTone; children: ReactNode}) {
   return <span className={cx(chip, 'rounded-sm', tones[tone])}>{children}</span>;
 }
 

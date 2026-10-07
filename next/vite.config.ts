@@ -4,17 +4,32 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import {defineConfig} from 'vite';
+import {BOOT_ROUTES} from './tools/boot.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
 
-/** Per-package vendor chunks (PLAN §1): a dependency update only invalidates its own chunk. */
+// Radix primitives the app uses get a chunk each; Radix's internal packages
+// (context, presence, popper, …) are tiny, always load together and release
+// in lockstep, so they share one. The same goes for floating-ui and for
+// react-remove-scroll's dependency tree (modal dialogs/menus only).
+const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover']);
+const removeScroll = new Set(['react-remove-scroll', 'react-remove-scroll-bar', 'react-style-singleton', 'use-callback-ref', 'use-sidecar', 'get-nonce', 'detect-node-es', 'tslib']);
+
+/**
+ * Per-package vendor chunks (PLAN §1): a dependency update only invalidates its
+ * own chunk, and a package only one lazy route uses loads with that route.
+ * Icons are not grouped: each lucide icon stays with the route that draws it.
+ */
 export function vendorChunk(id: string): string | null {
   const m = /[\\/]node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id);
   if (!m?.[1]) return null;
   const pkg = m[1].replace('\\', '/');
-  // These scopes release in lockstep and consist of many sub-kilobyte packages:
-  // one chunk per scope instead of ~30 tiny requests.
-  const scope = /^@(radix-ui|floating-ui)\//.exec(pkg);
-  return `vendor-${(scope?.[1] ?? pkg).replace(/^@/, '').replace('/', '-')}`;
+  if (pkg === 'lucide-react' && /[\\/]icons[\\/]/.test(id)) return null;
+  const radix = /^@radix-ui\/react-(.+)$/.exec(pkg);
+  if (radix?.[1]) return radixPrimitives.has(radix[1]) ? `vendor-radix-ui-${radix[1]}` : 'vendor-radix-ui-internal';
+  if (pkg.startsWith('@radix-ui/')) return 'vendor-radix-ui-internal';
+  if (pkg.startsWith('@floating-ui/')) return 'vendor-floating-ui';
+  if (removeScroll.has(pkg)) return 'vendor-react-remove-scroll';
+  return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
 
 export default defineConfig({
@@ -23,7 +38,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    shell({bootRoutes: ['src/features/home/Home.tsx']}),
+    shell({bootRoutes: BOOT_ROUTES}),
   ],
   css: {
     transformer: 'lightningcss',
@@ -33,10 +48,18 @@ export default defineConfig({
     cssTarget: 'esnext',
     cssMinify: 'lightningcss',
     manifest: true,
-    sourcemap: true,
+    // Maps are written for debugging but not referenced from the chunks (and
+    // must not be precached or served by default).
+    sourcemap: 'hidden',
     modulePreload: {polyfill: false},
     reportCompressedSize: false,
     rolldownOptions: {
+      // src/ui modules are pure (components and class tables only), so a feature
+      // importing one primitive from the barrel does not pull in the others.
+      // Everything else keeps the default: side-effect-only imports still work.
+      treeshake: {
+        moduleSideEffects: (id: string) => (/[\\/]src[\\/]ui[\\/][^\\/]+\.tsx?$/.test(id) ? false : undefined),
+      },
       output: {
         codeSplitting: {
           // Without this, a group also captures its dependencies, e.g. react

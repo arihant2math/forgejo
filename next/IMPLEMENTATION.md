@@ -1714,6 +1714,176 @@ does) **and** MySQL 8.0 (binlog on).
   green; gallery renders both themes; a Vitest/Playwright check that `<html data-theme>`
   is set before first paint; lint fails on a sample `transition: all` and `bg-[#fff]`.
 - **Notes/decisions:**
+  * **Ran ahead of B10.** F1 created `next/package.json` + `package-lock.json` (B10 has not run).
+    For B10: add a `conformance` project next to `unit` in `vitest.config.ts` and a
+    `"test:conformance": "vitest run --project conformance"` script. `npm test` is already
+    pinned to `--project unit`, and `conformance/` is already in `tsconfig.node.json` and in
+    the ESLint node-globals block.
+  * **Commands (in `next/`):**
+    * `npm ci`, `npm run dev` (Vite on :5173, base `/-/next/`; the gallery is at `/-/next/gallery`).
+    * `npm run lint` (ESLint + Stylelint) · `npm run typecheck` (two tsconfigs) · `npm test` (Vitest, jsdom).
+    * `npm run build` · `npm run budget` · `npm run check` (all of these in order).
+    * `npm run test:browser` (Playwright: `e2e/boot.spec.ts` against `vite build && vite preview` on :4173,
+      and `e2e/gallery.spec.ts` against the dev server on :5173). In this sandbox run
+      `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium npm run test:browser`: Playwright 1.63's own
+      Chromium (build 1243) is not preinstalled any more, and the config passes this env var as
+      `executablePath`. Final run: lint/typecheck clean, 100 unit tests, 10 browser tests, boot JS
+      81.3 KB br / 150, CSS 4.4 KB br / 30.
+  * **Versions (exact pins):**
+    * vite 8.3.3 (Rolldown), react/react-dom 19.3.0, typescript 6.0.3, tailwindcss + @tailwindcss/vite + @tailwindcss/node 4.3.3.
+    * lightningcss 1.33.0, eslint 10.12.0 + typescript-eslint 8.71.1 (strictTypeChecked + stylisticTypeChecked) + react-hooks 7.1.1.
+    * stylelint 17.16.0 (+ config-standard, declaration-strict-value), vitest 5.0.3 + jsdom 30.1.2, @playwright/test 1.63.0.
+    * radix-ui 1.7.0 (the umbrella package), lucide-react 1.52.0 (the one icon set).
+    * TS 7.0 (tsgo) is out, but typescript-eslint supports TS < 6.1, so we stay on 6.0.3.
+    * `npm audit`: 8 high-severity issues, all dev-only (stylelint → globby → micromatch → braces); `--omit=dev` is clean.
+  * **Layout deviations from §2.1:**
+    * `src/dev/gallery/` (dev-only; not scanned by app.css, ships its own `gallery.css`).
+    * `lint/eslint-plugin-tokens.ts` (local rules) and `src/test/` (setup, `conflicts.ts`, `lint-fixtures/`).
+    * `tools/vite-plugin-shell.ts`, `tools/budget.ts`, `tools/boot.ts`, `tsconfig.node.json`, `playwright.config.ts` + `e2e/` (F8 extends these).
+  * **Root ESLint interaction (needs an orchestrator decision; I edited nothing at the root).**
+    * Root `make lint-js` runs `npx eslint` with ESLint 9, which uses only the root flat config. It therefore lints `next/` with upstream's rules.
+    * Measured with root `npm ci` in this sandbox: about 400 errors in `next/` sources, including `import-x/no-unresolved` for react when `next/node_modules` is absent, and 382 errors in B3's `src/protocol/types.gen.ts`. A locally built `next/dist` adds more than 40 000.
+    * So root `make lint-frontend` already failed before F1, because of `types.gen.ts`.
+    * Nothing inside `next/` can exclude it: ESLint 9 has no ignore file for flat configs, and does not pick up nested configs without a flag.
+    * Decision: `next/` is linted only by `next/eslint.config.ts`. The fork runs upstream's JS lint as `npx eslint --max-warnings=0 --ignore-pattern 'next/'` (verified to work); `sync-upstream.sh` and the canary should do the same instead of `make lint-js`.
+    * If `make lint-frontend` must pass unchanged, the only fix is adding `'next/'` to the root `ignores` in `eslint.config.ts`. That is a one-line edit of an upstream file, so it is left to the orchestrator.
+    * Root `tsconfig.json`, `vitest.config.ts` and `STYLELINT_FILES` do not include `next/`.
+  * **Design tokens: `src/styles/tokens.css` is the only place values live.**
+    * Each token is a Tailwind `@theme static` variable, so every token is also a utility. Tailwind's default theme is not imported, so `bg-white`, `text-red-500` and `shadow-sm` do not exist.
+    * Dark theme: `:root[data-theme="dark"]` overrides exactly the colour tokens (tested).
+    * Colours (`--color-*`; utilities `bg-*`, `text-*`, `border-*`):
+      * surfaces: `canvas` (app background, sidebar), `surface` (content), `raised` (menus/dialogs), `overlay`;
+      * fills: `hover`, `selected`, `skeleton`;
+      * hairlines: `border`, `border-subtle`, `border-strong`;
+      * text: `fg`, `fg-muted`, `fg-subtle`, `fg-on-accent`;
+      * accent: `accent`, `accent-hover` (fills), `accent-fg` (accent text), `accent-subtle`, `focus`;
+      * status: `success`, `warning`, `danger`, `done`, each with a `-subtle` tint, plus `danger-solid` / `danger-solid-hover` fills;
+      * `shadow` (the colour used inside the shadows).
+    * Contrast is tested (`tokens.test.ts`) in both themes:
+      * every text and status colour ≥ 4.5:1 on canvas, surface, raised, hover and selected;
+      * each status colour on its own `-subtle` tint;
+      * `fg-on-accent` on the accent and danger fills;
+      * `focus` ≥ 3:1 on surfaces.
+    * Type: system font stack `--font-sans` / `--font-mono` (no webfont).
+      * Sizes `text-xs` 11, `text-sm` 12, `text-base` 13 (the UI base), `text-md` 14, `text-lg` 16, `text-xl` 20 (px, each with its line height).
+      * Weights `font-normal`, `font-medium`, `font-semibold`.
+    * Spacing: `--spacing: 4px`. The lint rule only allows the steps listed in `spacingSteps` (0–96, e.g. `p-1.5`, `gap-2`, `w-64`).
+    * Sizes: `h-control-sm` 24, `h-control` 28, `h-row` 32, `h-header` 44, `w-sidebar` (= runtime `--sidebar-width`, default 232), `w-pane` 280.
+    * Containers: `max-w-xs` 280 (tooltips), `max-w-sm` 320 (menus), `max-w-md` 560 (dialogs), `max-w-lg` 720 (prose).
+    * Radii `rounded-sm` 4, `rounded-md` 6, `rounded-lg` 8, `rounded-full`. Shadows `shadow-popover`, `shadow-dialog` (floating surfaces only).
+    * Non-Tailwind `:root` tokens:
+      * `--sidebar-width`, `--focus-ring-width` / `--focus-ring-offset` (2px / 2px, the ring sits outside the control);
+      * `--opacity-disabled` (utility `opacity-disabled`);
+      * `--z-sticky`, `--z-popover`, `--z-dialog`, `--z-tooltip` (utilities `z-sticky`, …).
+    * Motion:
+      * `--speed-in: 0s`, `--speed-out: .15s`, `--speed-quick: .1s` (reserved for press feedback, unused so far), `--ease-out`;
+      * `animate-exit` (fade) and `animate-exit-pop` (fade + scale .97); popovers scale from `origin-popper`, which Radix sets.
+      * `prefers-reduced-motion` sets the speeds to 0 and the exit animations to `none`, so Radix unmounts immediately (tested in the browser).
+    * The one transition in the app is the `interactive` utility (`app.css`):
+      * it transitions only colour, background, border and opacity;
+      * entering hover, active, focus-visible, highlighted, selected, pressed, open, checked or on is instant;
+      * leaving fades over `--speed-out`.
+    * Other custom utilities and variants in `app.css`:
+      * `bg-label` (a label's server colour, passed as `--label-color`) and `splash-initial`;
+      * variants `logged-out:` and `shape-detail:`, keyed on the splash attributes on `<html>`.
+  * **Enforcement:**
+    * **ESLint `tokens/tokens-only`** (all non-test `src/` strings) rejects:
+      * arbitrary values/properties/variants (except `data-[…]` / `aria-[…]`), `dark:`, `*:` / `**:`;
+      * every `transition*` / `ease-*` / `duration-N` / `delay-N` utility;
+      * bare numbers that bypass tokens (`z-10`, `leading-5`, `opacity-50`, `border-2`, `ring-2`, `scale-95`, …), off-scale spacing (`p-3.25`, `w-37`) and colour `/` modifiers (`bg-accent/50`);
+      * whole-string raw colours (`'#fff'`, `'rgb(…)'`; `'Fixes #123'` is fine).
+    * **ESLint `tokens/no-literal-style`:** no literal values in `style={{…}}`.
+    * **ESLint `tokens/no-restyle`:**
+      * outside `src/ui`, a primitive's `className` may only place or size it (margins, w/h/size, flex/grid placement, position, `hidden`, `sr-only`, `truncate`);
+      * `<Icon>` may also take a text colour;
+      * menu, popover and row contents take no `className` at all.
+    * **ESLint `no-restricted-imports`:** only `src/ui` imports Radix.
+    * **Stylelint:**
+      * `transition` / `transition-property` must use an allowlist (opacity, transform, translate, scale, rotate and colour properties) with `var()` durations. This also catches `transition: .2s`, which means `all`.
+      * The transition properties are banned outside `app.css`.
+      * Raw values are banned outside `tokens.css` for colours (no hex or named colours), font, line height, letter spacing, z-index, radius, border/outline width/offset, shadow, opacity, animation, durations, margin, padding and gap.
+    * **Tests:**
+      * `src/styles/classes.test.ts` compiles every class used in `src/` against the theme, via `@tailwindcss/node` `__unstable__loadDesignSystem`; unknown classes fail.
+      * `src/test/conflicts.ts`, used in `App.test.tsx` and `ui.test.tsx`, fails when an element sets the same property twice (e.g. `text-fg text-danger`). It runs on the whole gallery, so on every primitive and variant.
+      * `lint/lint.test.ts` runs the real configs on `src/test/lint-fixtures/` (`bg-[#fff]`, `transition: all`, …).
+    * **Tailwind sources:** `app.css` uses `source(none)` and scans only `src/app`, `src/ui` and `src/features` (tests excluded), so fixtures, docs and the gallery cannot add CSS. `budget.ts` also fails on raw colours outside custom properties and on `transition: all` in the built CSS.
+  * **Primitives (`src/ui`, barrel `src/ui/index.ts`; side-effect free, see below):**
+    * `Button {variant: primary|secondary|ghost|danger, size: sm|md, icon, tooltip, shortcut, asChild}`. Use `asChild` to render a router `<Link>`.
+    * `IconButton {icon, label (aria-label + tooltip), shortcut, variant, size}`.
+    * `Input {size, invalid}`.
+    * `Kbd`, and `Shortcut {keys: "⌘K" | "G I"}`.
+    * `Tooltip {content, shortcut, side}` and `TooltipProvider`. Mount the provider once around the app shell in F3; Radix throws without it, and the boot route does not need it.
+    * `Menu` / `MenuTrigger` / `MenuContent` with `MenuItem {icon, shortcut, danger}`, `MenuCheckboxItem`, `MenuRadioGroup` + `MenuRadioItem`, `MenuLabel`, `MenuSeparator`, `MenuSub {label, icon}`.
+    * The identical `ContextMenu*` set is built from the same item factory, so row context menus and "…" menus match.
+    * `Popover` / `PopoverTrigger` / `PopoverClose`, and `PopoverContent {width: sm|md}`.
+    * `Dialog {open, onOpenChange, trigger, title, description, footer, size: sm|md|lg}`, plus `DialogTrigger` and `DialogClose`.
+    * `Avatar {name, src, size: sm|md|lg}`; `fromSplash` is for the boot shell only.
+    * `Badge {tone: neutral|accent|success|warning|danger|done}` and `LabelChip {name, color}`. A label's colour from the server goes in through a CSS variable.
+    * `ListRow {role: option|row|presentation, selected, leading, trailing}`. Its height is fixed (`h-row`) with `contain: content`. Roving tabindex and J/K belong to the F4 list.
+    * `Skeleton {round: sm|md|full}` (static, no shimmer), `EmptyState {icon, title, description, action}`, `Icon {icon, size: sm|md|lg}` (lucide, stroke 1.75), and `cx`.
+    * Shared class recipes live in `src/ui/recipes.ts` (`surface`, `floating`, `menuItem`, `control`, `controlHeight`); features never use them directly.
+    * Missing, to add as variants when needed: Select/Combobox (F4/F6), Toast (F5), a NavItem (sidebar, F3), a Text/section-label primitive, and `--color-hover` on `canvas`. Hover there is only 1.07:1 against the canvas, so the F3 sidebar may want a stronger hover token.
+  * **Boot sequence (PLAN §5.2).** `index.html` holds two placeholders that `tools/vite-plugin-shell.ts` fills:
+    * `<!--next:splash-->` becomes `src/app/splash.ts` `applySplash`, minified and inlined. It is the first thing in `<head>`: `performance.mark('appStart')`, then it reads `localStorage.splash` and applies it to `<html>`:
+      * `data-theme` (light/dark; `system` resolves via `matchMedia`);
+      * `--sidebar-width` (clamped to 180–480);
+      * `data-shell="app|logged-out"` (logged-out when there is no `splash.user` DB marker);
+      * `data-skeleton="list|detail"`;
+      * a `<style>` hiding the skeleton rows beyond `skeleton.rows` (0–40, default 14);
+      * `--splash-initial`.
+      It never throws (blocked storage, garbage JSON).
+    * `<!--next:boot-shell-->` becomes `src/app/BootShell.tsx`, rendered to static HTML at build time (sidebar, header, 40 `ListRow` skeleton rows, the detail shape, and the logged-out screen).
+    * Splash shape (F2/F3 write it with `writeSplash()`; read it with `readSplash()`):
+      `{theme?: 'light'|'dark'|'system', sidebarWidth?: number, skeleton?: {shape?: 'list'|'detail', rows?: number}, user?: string, initial?: string}`.
+      **F2 must set `user`** (the id of the user whose IDB exists) and clear it on logout.
+    * The theme switch at runtime is `setThemePreference()` in `src/app/theme.ts`, and `followSystemTheme()` keeps following the OS while the preference is `system`.
+    * **The boot route is never rendered through Suspense.** React holds a Suspense reveal for up to 300 ms after a fallback commits, which the perf reviewer measured at about 390 ms to content. `main.tsx` therefore awaits `loadRoute()` (`src/app/routes.ts`) before the first render, and the route chunk is modulepreloaded, so the await costs nothing.
+    * F3 must keep both rules with TanStack Router: lazy route chunks, and `await router.load()` before `createRoot().render()`.
+    * The logged-out boot shell and React's first commit are identical (unit test + Playwright CLS = 0).
+    * The signed-in boot frame is still replaced by the `Home` placeholder until F3 renders the real shell, so a layout shift there is expected until F3.
+  * **Build.** `vite.config.ts`:
+    * base `/-/next/`; `target`/`cssTarget: 'esnext'`; lightningcss transformer and minifier; no modulepreload polyfill;
+    * `build.manifest: true` (`dist/.vite/manifest.json`, for B8 and the F5 service worker);
+    * `sourcemap: 'hidden'`: `.map` files are written but not referenced, so B8 and F5 must not serve or precache `*.map`.
+  * **Vendor chunks** (`vendorChunk()`): one chunk per npm package, with these exceptions:
+    * each Radix primitive the app uses (`tooltip`, `dropdown-menu`, `context-menu`, `menu`, `dialog`, `popover`) gets its own chunk;
+    * Radix internals share `vendor-radix-ui-internal`, floating-ui shares `vendor-floating-ui`, and react-remove-scroll's dependency tree shares `vendor-react-remove-scroll`;
+    * lucide icons are not grouped: each stays with the route that draws it, and only lucide's base module is `vendor-lucide-react`.
+    * Add a new Radix primitive to `radixPrimitives`.
+    * Rolldown's `codeSplitting.includeDependenciesRecursively: false` is required; otherwise react lands in `vendor-lucide-react`. Reviewers found no ordering or cycle problems: the vendors are side-effect-free ESM or lazily initialised CJS.
+  * **Tree-shaking.** `treeshake.moduleSideEffects` marks `src/ui/*` side-effect free, so importing one primitive from the barrel doesn't pull in Menu/Dialog. This took boot JS from 100 to 81 KB br. Keep `src/ui` modules pure, and wrap any top-level calls in them with `/* @__PURE__ */`. A package-level `"sideEffects"` field was removed because it silently drops side-effect-only imports such as an SW registration.
+  * **Shell plugin (build):**
+    * the whole app stylesheet is inlined as `<style>` (4.4 KB br), so the first paint makes no CSS request; the CSS file is deleted from `dist/` and from the manifest;
+    * modulepreloads are emitted for the boot routes in `tools/boot.ts` (`BOOT_ROUTES`) and their static closure, right after the entry script;
+    * the budget caps inline CSS at 10 KB br. Beyond that, inline only tokens, base and shell, and link a hashed stylesheet.
+    * B8: the inline script and style have no CSP hash/nonce. If Forgejo ever sends a CSP for the SPA document, hash them at build time.
+    * B8: under a Forgejo `AppSubURL`, the fixed base `/-/next/` needs Vite `experimental.renderBuiltUrl` or rewriting when served.
+    * The favicon is `data:,` for now (no request); B8 can point it at Forgejo's.
+  * **Budget (`tools/budget.ts`, `npm run budget`).** Sizes are brotli q11, with 1 KB = 1000 B:
+    * JS: inline scripts plus every `<script src>` and `<link rel=modulepreload>` in `dist/index.html` (attributes parsed in any order). Limit 150 KB.
+    * CSS: inline `<style>` plus any linked stylesheet. Limit 30 KB, of which inline at most 10 KB.
+    * It fails when any chunk in the static closure of the entry, or of a `BOOT_ROUTES` module, is not preloaded (no late discovery).
+    * Current boot route: 81.3 KB br. react-dom alone is 55 KB; the Radix tooltip, internals and floating-ui are about 22 KB because `Button`/`IconButton` include `Tooltip`. F3's shell needs tooltips at boot anyway.
+    * CI: this fork has no CI for `next/` (GitHub has no workflows, and `.forgejo/workflows` are upstream's). Until F8 writes the CI recipe, `npm run check` is the gate.
+  * **Typecheck:** `tsconfig.json` covers browser code (`src/`, no node types, `noUncheckedSideEffectImports`). `tsconfig.node.json` covers tests, tools, lint, e2e, conformance and configs. Both are strict, with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` and `erasableSyntaxOnly` (tools run under Node's type stripping: `node tools/budget.ts`).
+  * **Reviews.** Round 1 used three adversarial reviewers (correctness/tooling, design system, performance), with 14 + 21 + 10 findings. Fixed:
+    * the Suspense 300 ms throttle on boot (blocker);
+    * banned and arbitrary utilities leaking into the built CSS from fixtures/docs;
+    * the invisible focus ring on primary buttons;
+    * WCAG contrast failures;
+    * instant-in missing for selected/pressed/checked states;
+    * the token-lint bypasses (`z-10`, `p-3.25`, `bg-accent/50`, `*:`, `@[…]`) and the Stylelint gaps (`transition: .2s`, raw shorthand durations, named colours);
+    * primitives that could be restyled via `className`;
+    * the missing primitive APIs (asChild, ContextMenu parity, Sub/Radio, badge tones, dialog sizes);
+    * class conflicts (`text-fg` vs `text-danger`, `z-popover` vs `z-tooltip`, radius);
+    * the BootShell duplicating primitives;
+    * radix and lucide getting into boot chunks; the budget missing boot-route closures and attribute order; the stale manifest CSS entry; source map comments; the `sideEffects` field dropping imports;
+    * Playwright reusing a foreign preview server; the favicon 404 console error; vacuous motion tests;
+    * Node types visible to browser code.
+    Not changed:
+    * whole-sheet inlining, now capped at 10 KB br inline;
+    * 40 static skeleton rows (about 20 KB raw, about 1 KB br);
+    * unused `--speed-quick`.
 
 #### F2 — Data layer
 - [ ] **Status**

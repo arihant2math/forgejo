@@ -3,22 +3,15 @@
 
 // Placeholder for the boot route until F3 builds the real app shell.
 
-import {LogIn, Rocket} from 'lucide-react';
+import {Rocket} from 'lucide-react';
+import {LoggedOut} from '../../app/LoggedOut.tsx';
 import {readSplash} from '../../app/splash.ts';
-import {Button, EmptyState} from '../../ui/index.ts';
+import {EmptyState} from '../../ui/index.ts';
 
 export default function Home() {
-  const signedIn = Boolean(readSplash().user);
   return (
     <div className="flex h-full items-center justify-center bg-canvas">
-      {signedIn ?
-        <EmptyState icon={Rocket} title="Forgejo Next" description="The app shell arrives with milestone F3."/> :
-        <EmptyState
-          icon={LogIn}
-          title="Forgejo"
-          description="Sign in to continue."
-          action={<Button variant="primary" disabled>Sign in</Button>}
-        />}
+      {readSplash().user ? <EmptyState icon={Rocket} title="Forgejo Next" description="The app shell arrives with milestone F3."/> : <LoggedOut/>}
     </div>
   );
 }

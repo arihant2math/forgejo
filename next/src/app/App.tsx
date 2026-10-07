@@ -1,17 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {Suspense} from 'react';
-import {TooltipProvider} from '../ui/Tooltip.tsx';
-import {BootShell} from './BootShell.tsx';
-import {RouteView} from './routes.tsx';
+import type {ComponentType} from 'react';
 
-export function App({pathname}: {pathname: string}) {
-  return (
-    <TooltipProvider>
-      <Suspense fallback={<BootShell/>}>
-        <RouteView pathname={pathname}/>
-      </Suspense>
-    </TooltipProvider>
-  );
+/** The app root. F3 adds the providers (router, store, tooltips) here. */
+export function App({route: Route}: {route: ComponentType}) {
+  return <Route/>;
 }

@@ -6,5 +6,5 @@
 
 .a {
   color: var(--color-fg);
-  transition: opacity var(--speed-out) var(--ease-out), transform var(--speed-out), border-color var(--speed-quick);
+  animation: var(--animate-exit);
 }

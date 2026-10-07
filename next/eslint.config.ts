@@ -19,7 +19,8 @@ export default defineConfig(
   tseslint.configs.stylisticTypeChecked,
   {
     languageOptions: {
-      parserOptions: {projectService: true, tsconfigRootDir: import.meta.dirname},
+      // Browser code (tsconfig.json) and Node-side code (tsconfig.node.json: tests, tools, configs).
+      parserOptions: {project: ['./tsconfig.json', './tsconfig.node.json'], tsconfigRootDir: import.meta.dirname},
     },
     linterOptions: {reportUnusedDisableDirectives: 'error'},
     rules: {
@@ -43,6 +44,7 @@ export default defineConfig(
     rules: {
       'tokens/tokens-only': 'error',
       'tokens/no-literal-style': 'error',
+      'tokens/no-restyle': 'error',
     },
   },
   {
@@ -56,7 +58,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['*.ts', 'tools/**/*.ts', 'lint/**/*.ts', 'e2e/**/*.ts'],
+    files: ['*.ts', 'tools/**/*.ts', 'lint/**/*.ts', 'e2e/**/*.ts', 'conformance/**/*.ts'],
     languageOptions: {globals: globals.node},
     rules: {'no-console': 'off'},
   },

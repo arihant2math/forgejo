@@ -21,3 +21,10 @@
   color: #fff;
   padding: 13px;
 }
+
+.e {
+  transition: 0.2s;
+  transition-duration: var(--speed-out);
+  outline-color: red;
+  animation: spin 1s linear infinite;
+}

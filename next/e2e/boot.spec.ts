@@ -92,3 +92,16 @@ test('no local DB marker: logged-out shell, then the app boots from preloaded ch
   expect(requests.filter((p) => p.endsWith('.css'))).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('React replaces the logged-out boot shell without a layout shift', async ({page}) => {
+  await page.addInitScript(() => {
+    (window as unknown as {shifts: number}).shifts = 0;
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) (window as unknown as {shifts: number}).shifts += (e as unknown as {value: number}).value;
+    }).observe({type: 'layout-shift', buffered: true});
+  });
+  await page.goto('/-/next/');
+  await expect(page.getByRole('button', {name: 'Sign in'})).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as unknown as {shifts: number}).shifts)).toBe(0);
+});

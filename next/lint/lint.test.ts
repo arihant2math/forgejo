@@ -26,8 +26,16 @@ describe('eslint (eslint.config.ts)', () => {
     has(/tokens-only: "dark:bg-canvas"/);
     has(/tokens-only: "duration-300"/);
     has(/tokens-only: "\[&>svg\]:size-4": arbitrary variant/);
-    has(/tokens-only: Raw colour in "#ff0000"/);
-    has(/tokens-only: Raw colour in "rgb\(0 0 0\)"/);
+    has(/tokens-only: "z-10": hard-coded value/);
+    has(/tokens-only: "p-3.25": off the spacing scale/);
+    has(/tokens-only: "bg-accent\/50": colour\/opacity modifier/);
+    has(/tokens-only: "\*:p-1": child-selector variant/);
+    has(/tokens-only: "transition-colors": use the interactive utility/);
+    has(/tokens-only: Raw colour "#ff0000"/);
+    has(/tokens-only: Raw colour "rgb\(0 0 0\)"/);
+    has(/no-restyle: "bg-danger" restyles <Button>/);
+    has(/no-restyle: "px-1" restyles <Button>/);
+    expect(messages.filter((m) => m.includes('Fixes #123') || m.includes('"ml-2"'))).toEqual([]);
     has(/no-literal-style/);
     has(/no-restricted-imports/);
   });
@@ -36,13 +44,16 @@ describe('eslint (eslint.config.ts)', () => {
 describe('classProblem', () => {
   test.each([
     'bg-surface', 'h-row', 'data-[state=closed]:animate-exit', 'group-data-[state=open]:text-fg', 'hover:bg-hover',
-    'transition-colors', 'transition-opacity', 'w-1/2', 'aria-invalid:border-danger', 'interactive',
+    'w-1/2', 'aria-invalid:border-danger', 'interactive', 'size-3.5', 'h-4.5', '-mx-1', 'shrink-0', 'outline-offset-0',
+    'z-popover', 'disabled:opacity-disabled', 'react-dom/client', 'var(--color-danger)', 'image/png',
   ])('allows %s', (c) => {
     expect(classProblem(c)).toBeUndefined();
   });
   test.each([
     'bg-[#fff]', 'p-[13px]', 'bg-(--x)', '[mask-type:alpha]', 'hover:w-[3px]', 'transition', 'transition-all',
     'dark:bg-canvas', 'md:dark:text-fg', 'duration-150', 'delay-75', '[&_svg]:size-4', '-mt-[2px]', '!p-[1px]',
+    'transition-colors', 'transition-opacity', 'ease-linear', 'z-10', 'leading-5', 'opacity-50', 'border-2', 'ring-2',
+    'scale-95', 'p-3.25', 'w-37', 'bg-accent/50', 'text-fg/[0.37]', '*:p-1', '**:bg-hover', '@[600px]:flex', '@md:p-[13px]',
   ])('rejects %s', (c) => {
     expect(classProblem(c)).toBeDefined();
   });
@@ -55,15 +66,22 @@ describe('stylelint (stylelint.config.ts)', () => {
     const has = (re: RegExp) => {
       expect(warnings.some((w) => re.test(w)), `${String(re)} in\n${warnings.join('\n')}`).toBe(true);
     };
-    has(/declaration-property-value-disallowed-list: Disallowed value "all 0.2s"/);
-    has(/declaration-property-value-disallowed-list: Disallowed value "width var/);
-    has(/declaration-property-value-disallowed-list: Disallowed value "margin-top"/);
+    has(/declaration-property-value-allowed-list: Disallowed value "all 0.2s" for property "transition"/);
+    has(/declaration-property-value-allowed-list: Disallowed value "width var/);
+    has(/declaration-property-value-allowed-list: Disallowed value "margin-top"/);
+    has(/declaration-property-value-allowed-list: Disallowed value "0.2s" for property "transition"/);
+    has(/property-disallowed-list: Disallowed property "transition-duration"/);
     has(/color-no-hex/);
+    has(/color-named/);
     has(/declaration-strict-value: Expected variable or keyword for "13px"/);
+    has(/declaration-strict-value: Expected variable or keyword for "spin"/);
   });
 
-  test('good.css passes', async () => {
+  test('good.css and the allowed transition form pass', async () => {
     const {results} = await stylelint.lint({files: [`${fixtures}good.css`], cwd: root});
     expect(results.flatMap((r) => r.warnings)).toEqual([]);
+    // The transition rule itself (the only transition is `interactive` in app.css).
+    const ok = await stylelint.lint({code: '.a {\n  transition: opacity var(--speed-out) var(--ease-out), transform var(--speed-out);\n}\n', codeFilename: `${root}src/styles/app.css`, cwd: root});
+    expect(ok.results.flatMap((r) => r.warnings)).toEqual([]);
   });
 });

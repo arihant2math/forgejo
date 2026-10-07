@@ -19,7 +19,7 @@ export function Input({size = 'md', invalid, className, ...rest}: InputProps) {
         control,
         controlHeight[size],
         'w-full border border-border bg-surface px-2 text-fg placeholder:text-fg-subtle hover:border-border-strong',
-        'focus-visible:border-accent aria-invalid:border-danger disabled:opacity-50',
+        'focus-visible:outline-offset-0 aria-invalid:border-danger aria-invalid:outline-danger disabled:opacity-disabled',
         size === 'sm' ? 'text-sm' : 'text-base',
         className,
       )}

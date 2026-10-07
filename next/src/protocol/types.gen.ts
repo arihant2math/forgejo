@@ -166,7 +166,7 @@ export interface Workspace {
 export interface WorkspaceGroup {
   group: string;
   units: Unit[];
-  reason: 'self' | 'profile' | 'directory' | 'member' | 'owner' | 'access' | 'watch';
+  reason: 'self' | 'profile' | 'directory' | 'member' | 'repo_owner' | 'owner' | 'access' | 'watch';
 }
 /**
  * WorkspaceSelf: the viewer's own user:{id} group.
@@ -184,6 +184,15 @@ export const WorkspaceDirectory = "directory";
  * WorkspaceMember: an organization the viewer is a member of.
  */
 export const WorkspaceMember = "member";
+/**
+ * WorkspaceRepoOwner: an organization the viewer is not a member of
+ * that owns a repository of the workspace and that the viewer may see.
+ * Its group holds what the repository's entities refer to besides
+ * themselves: the organization's labels (IssueLabel.label_id), projects
+ * and columns (ProjectIssue), public members and teams the viewer may
+ * see.
+ */
+export const WorkspaceRepoOwner = "repo_owner";
 /**
  * WorkspaceOwner: a repository the viewer owns.
  */

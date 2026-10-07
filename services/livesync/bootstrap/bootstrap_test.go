@@ -6,6 +6,7 @@ package bootstrap
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	"forgejo.org/modules/structs"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
@@ -234,20 +236,40 @@ func TestWorkspace(t *testing.T) {
 	}
 	assert.Equal(t, repos[:2], cappedRepos)
 
-	// A watched public repository without access: reason watch.
-	_, err = db.GetEngine(ctx).Exec("INSERT INTO watch (user_id, repo_id, watch_selection_issues, watch_selection_pull_requests, watch_selection_releases, source, created_unix, updated_unix) VALUES (5, 1, ?, ?, ?, ?, 0, 0)", true, true, true, false)
-	require.NoError(t, err)
+	// Watched public repositories without access: reason watch; the
+	// organization owning one of them (public, user 5 is no member), whose
+	// labels and projects its issues refer to: reason repo_owner.
+	for _, repo := range []int64{1, 32} {
+		_, err = db.GetEngine(ctx).Exec("INSERT INTO watch (user_id, repo_id, watch_selection_issues, watch_selection_pull_requests, watch_selection_releases, source, created_unix, updated_unix) VALUES (5, ?, ?, ?, ?, ?, 0, 0)", repo, true, true, true, false)
+		require.NoError(t, err)
+	}
 	ws, err = Workspace(ctx, perms, 5, 100)
 	require.NoError(t, err)
-	var watched *protocol.WorkspaceGroup
-	for i, g := range ws.Groups {
-		if g.Group == "repo:1" {
-			watched = &ws.Groups[i]
+	byGroup := map[string]protocol.WorkspaceGroup{}
+	for _, g := range ws.Groups {
+		byGroup[g.Group] = g
+		d, ok, err := perms.Check(ctx, 5, g.Group)
+		require.NoError(t, err)
+		require.True(t, ok, g.Group)
+		assert.Equal(t, d.Units.Units(), g.Units, "%s: the grant's units", g.Group)
+	}
+	require.Contains(t, byGroup, "repo:1")
+	assert.Equal(t, protocol.WorkspaceWatch, byGroup["repo:1"].Reason)
+	assert.Contains(t, byGroup["repo:1"].Units, protocol.UnitIssues)
+	assert.Equal(t, protocol.WorkspaceWatch, byGroup["repo:32"].Reason)
+	assert.Equal(t, protocol.WorkspaceRepoOwner, byGroup["org:3"].Reason)
+	assert.NotContains(t, byGroup, "org:2", "a user owns repository 1")
+	// A member's organization is listed once, as member.
+	ws, err = Workspace(ctx, perms, 2, 100)
+	require.NoError(t, err)
+	n := 0
+	for _, g := range ws.Groups {
+		if g.Group == "org:3" {
+			n++
+			assert.Equal(t, protocol.WorkspaceMember, g.Reason)
 		}
 	}
-	require.NotNil(t, watched)
-	assert.Equal(t, protocol.WorkspaceWatch, watched.Reason)
-	assert.Contains(t, watched.Units, protocol.UnitIssues)
+	assert.Equal(t, 1, n)
 
 	// A viewer who may not sign in: empty.
 	ws, err = Workspace(ctx, perms, 9, 100)
@@ -331,4 +353,38 @@ func TestPrepareGate(t *testing.T) {
 	_, pending, err = Prepare(ctx, req)
 	require.NoError(t, err)
 	assert.Empty(t, pending, "a model filter without labels does not wait for them")
+}
+
+// A response may refer to any number of per-user profile groups: they are
+// decided in one batch, none is dropped (the first version checked at most
+// 1000, one transaction each, and silently left out the rest).
+func TestProfileRefsMany(t *testing.T) {
+	perms := prepare(t)
+	ctx := t.Context()
+	const n = 1200
+	users := make([]*user_model.User, 0, n)
+	ids := make([]int64, 0, n)
+	for i := range n {
+		id := int64(100000 + i)
+		name := fmt.Sprintf("private-%d", i)
+		users = append(users, &user_model.User{ID: id, LowerName: name, Name: name, Email: name + "@example.com", Visibility: structs.VisibleTypePrivate, IsActive: true})
+		ids = append(ids, id)
+	}
+	for start := 0; start < n; start += 20 {
+		chunk := users[start:min(start+20, n)]
+		_, err := db.GetEngine(ctx).NoAutoTime().Insert(&chunk)
+		require.NoError(t, err)
+	}
+
+	// The admin may read every private profile; another user none of them.
+	refs, embed, err := profileRefs(ctx, perms, Request{Group: "repo:1", ViewerID: 1}, append(ids, 2))
+	require.NoError(t, err)
+	assert.Len(t, embed, n)
+	assert.Len(t, refs, n+1)
+	assert.Contains(t, refs, protocol.GroupProfilesPublic)
+	assert.Contains(t, refs, protocol.ProfileGroup(ids[n-1]))
+	refs, embed, err = profileRefs(ctx, perms, Request{Group: "repo:1", ViewerID: 2}, append(ids, 2))
+	require.NoError(t, err)
+	assert.Empty(t, embed)
+	assert.Equal(t, []string{protocol.GroupProfilesPublic}, refs)
 }

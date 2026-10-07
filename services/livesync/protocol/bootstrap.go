@@ -121,7 +121,7 @@ type Workspace struct {
 type WorkspaceGroup struct {
 	Group  string `json:"group"`
 	Units  []Unit `json:"units"`
-	Reason string `json:"reason" tstype:"'self' | 'profile' | 'directory' | 'member' | 'owner' | 'access' | 'watch'"`
+	Reason string `json:"reason" tstype:"'self' | 'profile' | 'directory' | 'member' | 'repo_owner' | 'owner' | 'access' | 'watch'"`
 }
 
 // Reasons of a WorkspaceGroup.
@@ -135,6 +135,13 @@ const (
 	WorkspaceDirectory = "directory"
 	// WorkspaceMember: an organization the viewer is a member of.
 	WorkspaceMember = "member"
+	// WorkspaceRepoOwner: an organization the viewer is not a member of
+	// that owns a repository of the workspace and that the viewer may see.
+	// Its group holds what the repository's entities refer to besides
+	// themselves: the organization's labels (IssueLabel.label_id), projects
+	// and columns (ProjectIssue), public members and teams the viewer may
+	// see.
+	WorkspaceRepoOwner = "repo_owner"
 	// WorkspaceOwner: a repository the viewer owns.
 	WorkspaceOwner = "owner"
 	// WorkspaceAccess: a repository the viewer was given access to

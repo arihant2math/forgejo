@@ -20,9 +20,12 @@ import (
 
 // Workspace returns the viewer's workspace (protocol.Workspace): the
 // non-repository groups of their implicit grants (own user and profile
-// groups, the profile directories, member organizations), then the
-// repositories they own, were given access to (the implicit grants) or
-// watch and may read, most recently updated first, at most maxRepos.
+// groups, the profile directories, member organizations), the other
+// organizations that own the listed repositories and that the viewer may
+// see, then the repositories they own, were given access to (the implicit
+// grants) or watch and may read, most recently updated first, at most
+// maxRepos. Its cost does not grow with checks per repository: the watched
+// repositories and the organizations are decided in batches.
 func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos int) (*protocol.Workspace, error) {
 	grants, err := perms.Grants(ctx, viewerID)
 	if err != nil {
@@ -94,32 +97,62 @@ func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos 
 	slices.SortFunc(repos, func(a, b repoRow) int {
 		return cmp.Or(cmp.Compare(b.UpdatedUnix, a.UpdatedUnix), cmp.Compare(b.ID, a.ID))
 	})
-	n := 0
+	// The watched repositories without an implicit grant (public ones, or
+	// ones the viewer has lost access to), decided in one batch: the cap
+	// counts readable repositories only, so they are decided before it.
+	var watchedGroups []string
 	for _, r := range repos {
-		if n == maxRepos {
+		if watched[r.ID] {
+			watchedGroups = append(watchedGroups, protocol.RepoGroup(r.ID))
+		}
+	}
+	readable, err := perms.CheckGroups(ctx, viewerID, watchedGroups)
+	if err != nil {
+		return nil, err
+	}
+	var repoGroups []protocol.WorkspaceGroup
+	owners := map[int64]bool{}
+	var ownerGroups []string
+	for _, r := range repos {
+		group := protocol.RepoGroup(r.ID)
+		g := protocol.WorkspaceGroup{Group: group, Units: implicit[r.ID], Reason: protocol.WorkspaceAccess}
+		switch d, ok := readable[group]; {
+		case !watched[r.ID] && r.OwnerID == viewerID:
+			g.Reason = protocol.WorkspaceOwner
+		case watched[r.ID] && ok:
+			g.Units, g.Reason = d.Units.Units(), protocol.WorkspaceWatch
+		case watched[r.ID]:
+			continue
+		}
+		if len(repoGroups) == maxRepos {
 			ws.Truncated = true
 			break
 		}
-		group := protocol.RepoGroup(r.ID)
-		if units, ok := implicit[r.ID]; ok {
-			reason := protocol.WorkspaceAccess
-			if r.OwnerID == viewerID {
-				reason = protocol.WorkspaceOwner
-			}
-			ws.Groups = append(ws.Groups, protocol.WorkspaceGroup{Group: group, Units: units, Reason: reason})
-			n++
-			continue
-		}
-		// Watched without an implicit grant: a public repository, or one
-		// the viewer has lost access to.
-		d, ok, err := perms.Check(ctx, viewerID, group)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			ws.Groups = append(ws.Groups, protocol.WorkspaceGroup{Group: group, Units: d.Units.Units(), Reason: protocol.WorkspaceWatch})
-			n++
+		repoGroups = append(repoGroups, g)
+		if r.OwnerID != viewerID && !owners[r.OwnerID] {
+			owners[r.OwnerID] = true
+			ownerGroups = append(ownerGroups, protocol.OrgGroup(r.OwnerID))
 		}
 	}
+
+	// The organizations owning those repositories that the viewer may see
+	// without being a member: the repositories' issues refer to their
+	// labels and projects, which live in org:{id}. (A member's are already
+	// listed; an owner that is a user, or an organization the viewer may
+	// not see, is refused by the check.)
+	orgs, err := perms.CheckGroups(ctx, viewerID, ownerGroups)
+	if err != nil {
+		return nil, err
+	}
+	listed := map[string]bool{}
+	for _, g := range ws.Groups {
+		listed[g.Group] = true
+	}
+	for _, group := range ownerGroups {
+		if d, ok := orgs[group]; ok && !listed[group] {
+			ws.Groups = append(ws.Groups, protocol.WorkspaceGroup{Group: group, Units: d.Units.Units(), Reason: protocol.WorkspaceRepoOwner})
+		}
+	}
+	ws.Groups = append(ws.Groups, repoGroups...)
 	return ws, nil
 }

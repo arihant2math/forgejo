@@ -88,11 +88,6 @@ func Prepare(ctx context.Context, req Request) (*Prepared, []string, error) {
 	return &Prepared{req: req, watermark: watermark}, nil, nil
 }
 
-// maxProfileGroups bounds the profile groups other than the directories
-// (private users' profile:{id}, organizations' org:{id}) a response refers
-// to and embeds: each needs its own permission check.
-const maxProfileGroups = 1000
-
 // Stream writes the response to w: the header line, the group's entities,
 // the profiles they refer to that live in per-user groups, and the end
 // line. flush is called after the header and after every chunk, so the
@@ -200,25 +195,21 @@ func crossReferences(ctx context.Context, perms *perm.Cache, viewerID, issueID i
 	if err != nil || len(xrefs) == 0 {
 		return nil, err
 	}
-	units := map[int64]perm.UnitSet{}
+	var groups []string
+	for _, x := range xrefs {
+		groups = append(groups, protocol.RepoGroup(x.RefRepoID))
+	}
+	readable, err := perms.CheckGroups(ctx, viewerID, groups)
+	if err != nil {
+		return nil, err
+	}
 	var res []materialize.SnapshotEntity
 	for _, x := range xrefs {
-		u, ok := units[x.RefRepoID]
-		if !ok {
-			d, readable, err := perms.Check(ctx, viewerID, protocol.RepoGroup(x.RefRepoID))
-			if err != nil {
-				return nil, err
-			}
-			if readable {
-				u = d.Units
-			}
-			units[x.RefRepoID] = u
-		}
 		need := protocol.UnitIssues
 		if x.RefIsPull {
 			need = protocol.UnitPulls
 		}
-		if u.Allows(need) {
+		if d, ok := readable[protocol.RepoGroup(x.RefRepoID)]; ok && d.Units.Allows(need) {
 			res = append(res, x.SnapshotEntity)
 		}
 	}
@@ -228,7 +219,8 @@ func crossReferences(ctx context.Context, perms *perm.Cache, viewerID, issueID i
 // profileRefs returns the groups holding the profiles of users that the
 // viewer may read (sorted, without the requested group itself), and the
 // users whose profiles are in per-user groups (profile:{id}, org:{id}),
-// which the response embeds.
+// which the response embeds. The groups are decided in one batch
+// (perm.Cache.CheckGroups), however many the response refers to.
 func profileRefs(ctx context.Context, perms *perm.Cache, req Request, users []int64) ([]string, []int64, error) {
 	refs := []string{}
 	if len(users) == 0 {
@@ -238,36 +230,28 @@ func profileRefs(ctx context.Context, perms *perm.Cache, req Request, users []in
 	if err != nil {
 		return nil, nil, err
 	}
-	grants, err := perms.Grants(ctx, req.ViewerID)
+	var groups []string
+	for _, group := range places {
+		if group != req.Group {
+			groups = append(groups, group)
+		}
+	}
+	readable, err := perms.CheckGroups(ctx, req.ViewerID, groups)
 	if err != nil {
 		return nil, nil, err
 	}
-	readable := map[string]bool{}
-	checks := 0
 	var embed []int64
 	for _, id := range users {
 		group, ok := places[id]
-		if !ok || group == req.Group {
+		if _, r := readable[group]; !ok || !r || group == req.Group {
 			continue
 		}
-		r, decided := readable[group]
-		if !decided {
-			if _, ok := grants.Units(group); ok {
-				r = true
-			} else if checks < maxProfileGroups {
-				checks++
-				if _, r, err = perms.Check(ctx, req.ViewerID, group); err != nil {
-					return nil, nil, err
-				}
-			}
-			readable[group] = r
-			if r {
-				refs = append(refs, group)
-			}
-		}
-		if r && group != protocol.GroupProfilesPublic && group != protocol.GroupProfilesLimited {
+		if group != protocol.GroupProfilesPublic && group != protocol.GroupProfilesLimited {
 			embed = append(embed, id)
 		}
+	}
+	for group := range readable {
+		refs = append(refs, group)
 	}
 	slices.Sort(refs)
 	return refs, embed, nil

@@ -588,3 +588,53 @@ func TestDecodeChange(t *testing.T) {
 	assert.True(t, ok)
 	assert.Error(t, err)
 }
+
+// CheckGroups decides like Check, for every fixture user and group, with
+// and without cached grants.
+func TestCheckGroups(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	var users []*user_model.User
+	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&users))
+	var repos []*repo_model.Repository
+	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&repos))
+	groups := []string{
+		"*", protocol.GroupPermission, "repo:0", "repo:999999", "org:999999", "issue:1", "issue:2", "issue:999999",
+		protocol.GroupProfilesPublic, protocol.GroupProfilesLimited, "repo:1",
+	}
+	for _, r := range repos {
+		groups = append(groups, protocol.RepoGroup(r.ID))
+	}
+	for _, u := range users {
+		groups = append(groups, protocol.OrgGroup(u.ID), protocol.ProfileGroup(u.ID), protocol.UserGroup(u.ID))
+	}
+	readable := 0
+	for _, cached := range []bool{false, true} {
+		for _, viewer := range users {
+			c := NewCache(time.Minute, 0)
+			if cached {
+				_, err := c.Grants(ctx, viewer.ID)
+				require.NoError(t, err)
+			}
+			got, err := c.CheckGroups(ctx, viewer.ID, groups)
+			require.NoError(t, err)
+			want := map[string]Decision{}
+			for _, g := range groups {
+				d, ok, err := c.Check(ctx, viewer.ID, g)
+				require.NoError(t, err)
+				if ok {
+					want[g] = d
+				}
+			}
+			require.Len(t, got, len(want), "viewer %d cached %v", viewer.ID, cached)
+			for g, d := range want {
+				require.Contains(t, got, g, "viewer %d cached %v", viewer.ID, cached)
+				assert.Equal(t, d.Units, got[g].Units, "viewer %d %s", viewer.ID, g)
+				assert.Equal(t, d.RepoID, got[g].RepoID, "viewer %d %s", viewer.ID, g)
+				assert.Equal(t, d.Basis, got[g].Basis, "viewer %d %s", viewer.ID, g)
+			}
+			readable += len(want)
+		}
+	}
+	assert.Greater(t, readable, 1000)
+}

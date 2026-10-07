@@ -223,7 +223,7 @@ func TestDoorbell(t *testing.T) {
 	}
 	unsubscribe(a)
 	ringAll()
-	assert.Len(t, a.c, 0)
+	assert.Empty(t, a.c)
 	assert.Len(t, b.c, 1)
 	unsubscribe(b)
 	assert.Nil(t, bells.Load())

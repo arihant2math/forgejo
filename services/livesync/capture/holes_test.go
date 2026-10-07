@@ -15,12 +15,12 @@ import (
 func TestHoles(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	var h holes
-	assert.True(t, h.empty())
+	assert.Empty(t, h.ranges())
 	_, ok := h.min()
 	assert.False(t, ok)
 
 	h.add(5, 4, t0) // empty range: ignored
-	assert.True(t, h.empty())
+	assert.Empty(t, h.ranges())
 
 	h.add(3, 3, t0)
 	h.add(5, 9, t0.Add(time.Second))
@@ -51,7 +51,7 @@ func TestHoles(t *testing.T) {
 	assert.Equal(t, [][2]int64{{12, 12}}, h.ranges())
 	assert.EqualValues(t, 0, h.expire(t0))
 	assert.EqualValues(t, 1, h.expire(t0.Add(time.Hour)))
-	assert.True(t, h.empty())
+	assert.Empty(t, h.ranges())
 }
 
 func TestHolesCap(t *testing.T) {

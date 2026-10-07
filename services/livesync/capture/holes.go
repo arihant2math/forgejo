@@ -32,8 +32,6 @@ type holeRange struct {
 // early; rows that commit later are still found by the reader's sweep.
 const maxHoleRanges = 10000
 
-func (h *holes) empty() bool { return len(h.r) == 0 }
-
 // min returns the lowest id that is still a hole.
 func (h *holes) min() (int64, bool) {
 	if len(h.r) == 0 {

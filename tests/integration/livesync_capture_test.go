@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -86,7 +87,7 @@ func TestLivesyncCaptureOutbox(t *testing.T) {
 			if err := db.Insert(ctx, newProbeLabel("rolled-back")); err != nil {
 				return err
 			}
-			assert.Len(t, livesyncOutboxInTx(t, ctx), 1, "the outbox row is written in the same transaction")
+			assert.Len(t, livesyncOutboxInTx(ctx, t), 1, "the outbox row is written in the same transaction")
 			return errors.New("roll back")
 		})
 		require.EqualError(t, err, "roll back")
@@ -136,7 +137,7 @@ func TestLivesyncCaptureOutbox(t *testing.T) {
 }
 
 // livesyncOutboxInTx reads the outbox inside the caller's transaction.
-func livesyncOutboxInTx(t *testing.T, ctx context.Context) []livesync_model.Change {
+func livesyncOutboxInTx(ctx context.Context, t *testing.T) []livesync_model.Change {
 	t.Helper()
 	var rows []livesync_model.Change
 	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&rows))
@@ -425,10 +426,7 @@ func TestLivesyncCaptureVerifyMode(t *testing.T) {
 	}
 	require.NoError(t, livesync_service.Init(ctx))
 	assert.True(t, livesync_service.Running())
-	want := map[string]int64{}
-	for k, v := range epochs {
-		want[k] = v
-	}
+	want := maps.Clone(epochs)
 	want["comment"]++
 	assert.Equal(t, want, livesyncEpochs(t))
 	v, _, err := livesync_model.GetMeta(ctx, capture.MetaPending)

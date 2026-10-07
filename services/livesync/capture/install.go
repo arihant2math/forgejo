@@ -398,16 +398,14 @@ func firstLine(s string) string {
 
 // withPrivilegeHint explains the usual reason why creating triggers fails.
 func withPrivilegeHint(err error) error {
-	var myErr *mysql.MySQLError
-	if errors.As(err, &myErr) {
+	if myErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		switch myErr.Number {
 		case 1419, 1142, 1227: // binlog needs SUPER, TRIGGER denied, access denied
 			return fmt.Errorf("%w; the database user may not create triggers: MySQL needs the TRIGGER privilege and, with binary logging on, SUPER or log_bin_trust_function_creators = 1. "+
 				"Grant them, or set [livesync] INSTALL_MODE = verify and have a DBA run the DDL", err)
 		}
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "42501" { // insufficient_privilege
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "42501" { // insufficient_privilege
 		return fmt.Errorf("%w; triggers must be created by the owner of Forgejo's tables. "+
 			"Run Forgejo as the owner, or set [livesync] INSTALL_MODE = verify and have the owner run the DDL", err)
 	}

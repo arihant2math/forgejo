@@ -64,6 +64,23 @@ func (s *livesyncSnapshot) ids(group string, model protocol.Model, keep func(d m
 	return res
 }
 
+// objs returns the payloads of the snapshot's entities of group and model.
+func (s *livesyncSnapshot) objs(group string, model protocol.Model) []map[string]any {
+	var res []map[string]any
+	for _, ch := range s.changes {
+		if ch.G == group && ch.M == model {
+			res = append(res, ch.D.(map[string]any))
+		}
+	}
+	return res
+}
+
+// livesyncNum reads an integer field of a decoded JSON object.
+func livesyncNum(d map[string]any, field string) int64 {
+	v, _ := d[field].(float64)
+	return int64(v)
+}
+
 func livesyncParseSnapshot(t *testing.T, body io.Reader) *livesyncSnapshot {
 	t.Helper()
 	s := &livesyncSnapshot{}
@@ -112,31 +129,54 @@ func livesyncBootstrap(t *testing.T, token, path string) *livesyncSnapshot {
 	}
 }
 
-// livesyncAPIIDs returns the "id" of every object of a paged API v1 list
-// (nil if the request is not 200).
-func livesyncAPIIDs(t *testing.T, token, path string) []int64 {
+// livesyncAPIObjects returns every object of a paged API v1 list (nil if
+// the request is not 200).
+func livesyncAPIObjects(t *testing.T, token, path string) []map[string]any {
 	t.Helper()
 	sep := "?"
 	if strings.Contains(path, "?") {
 		sep = "&"
 	}
-	var res []int64
+	res := []map[string]any{}
 	for page := 1; ; page++ {
 		resp := MakeRequest(t, NewRequest(t, "GET", fmt.Sprintf("%s%slimit=50&page=%d", path, sep, page)).AddTokenAuth(token), NoExpectedStatus)
 		if resp.Code != http.StatusOK {
 			return nil
 		}
-		var list []struct {
-			ID int64 `json:"id"`
-		}
+		var list []map[string]any
 		DecodeJSON(t, resp, &list)
-		for _, o := range list {
-			res = append(res, o.ID)
-		}
+		res = append(res, list...)
 		if len(list) < 50 {
 			return res
 		}
 	}
+}
+
+// livesyncAPIIDs returns the "id" of every object of a paged API v1 list
+// (nil if the request is not 200).
+func livesyncAPIIDs(t *testing.T, token, path string) []int64 {
+	t.Helper()
+	list := livesyncAPIObjects(t, token, path)
+	if list == nil {
+		return nil
+	}
+	res := []int64{}
+	for _, o := range list {
+		res = append(res, livesyncNum(o, "id"))
+	}
+	return res
+}
+
+// livesyncAPIObject GETs one API v1 object (nil if not 200).
+func livesyncAPIObject(t *testing.T, token, path string) map[string]any {
+	t.Helper()
+	resp := MakeRequest(t, NewRequest(t, "GET", path).AddTokenAuth(token), NoExpectedStatus)
+	if resp.Code != http.StatusOK {
+		return nil
+	}
+	var o map[string]any
+	DecodeJSON(t, resp, &o)
+	return o
 }
 
 // TestLivesyncBootstrapAPI covers the HTTP surface of the bootstrap, load
@@ -289,26 +329,62 @@ func livesyncExec(t *testing.T, query string, args ...any) {
 
 // TestLivesyncBootstrapDifferential (B6 acceptance): for every fixture user
 // who may sign in, what a bootstrap returns is a subset of what API v1
-// returns to that user, and a group the user may not read is a 404:
+// returns to that user, and a group the user may not read is a 404. Every
+// model a bootstrap serves is compared:
 //
 //   - repo:{id}: 404 ⇔ /-/sync/grants?group= 404 (⇔ API v1, B4); the
-//     repository ⇔ GET /repos/{o}/{r}; issues and pull requests ⊆
-//     /issues?state=all; labels ⊆ /labels; milestones ⊆
+//     repository ⇔ GET /repos/{o}/{r}; its units ⊆ its has_* flags;
+//     collaborations ⊆ /collaborators; issues and pull requests ⊆
+//     /issues?state=all, their labels and assignees ⊆ the issue's; pull
+//     requests ⇒ their issue's JSON has a pull_request; labels ⊆ /labels; milestones ⊆
 //     /milestones?state=all; releases ⊆ /releases (tags without a release
-//     only for code readers, like /tags);
+//     only for code readers, like /tags) and their attachments ⊆ the
+//     release's assets; branches ⇒ /branches/{name} (deleted branches: see
+//     below); commit statuses ⊆ /statuses/{sha}; action runs and jobs ⇒
+//     /actions/runs/{id}, /actions/jobs/{id};
 //   - issue:{id} (up to three issues per readable repository): the body ⇒
-//     /issues/{n} is 200; comments of type "comment" ⊆ /issues/{n}/comments;
-//     reviews ⊆ /pulls/{n}/reviews;
+//     /issues/{n} is 200; comments ⊆ /issues/{n}/timeline (which applies
+//     upstream's cross-reference filter), code comments ⊆ their review's
+//     comments; reviews ⊆ /pulls/{n}/reviews; reactions ⊆ the issue's or
+//     comment's reactions (user, content); attachments ⊆ its assets;
+//     dependencies ⊆ /issues/{n}/dependencies;
 //   - org:{id}: teams ⊆ /orgs/{org}/teams, members ⊆ /orgs/{org}/members
 //     (public_members for non-members), labels ⊆ /orgs/{org}/labels;
-//   - user:{id} (own): stars ⊆ /user/starred;
-//   - the profile directories: every profile ⇒ /users/{name} is 200.
+//   - user:{id} (own): stars ⊆ /user/starred, tracked times ⊆ /user/times,
+//     notifications ⊆ /notifications?all=true;
+//   - the profile directories: every profile ⇒ /users/{name} is 200; every
+//     embedded profile line of another group ⇒ /users/{name} or
+//     /orgs/{name} is 200.
+//
+// Exceptions (no API v1 to compare with, or upstream's web UI serves more):
+// projects, project columns and content history revisions (no API v1;
+// checked against the unit the web UI requires: projects, the issue's);
+// deleted branches (the web UI's branch list shows them to code readers,
+// API v1's does not; checked against the code unit); code comments without
+// a review (old data: only the web UI's files view lists them; checked
+// against the pulls unit).
 func TestLivesyncBootstrapDifferential(t *testing.T) {
 	livesyncSkipSQLite(t)
 	defer tests.PrepareTestEnv(t)()
 	livesyncServeWith(t, map[string]string{"SUMMARY_RECENCY": "438000h"}) // 50 years: the whole summary
 	livesyncWaitBackfill(t)
 	ctx := t.Context()
+
+	// Rows of the models the fixtures lack: revisions of an issue body and
+	// of a comment, and dependencies of issue 1 (user2/repo1, public) on
+	// pull request 2 (same repository) and on issue 4 (user2/repo2,
+	// private).
+	owner := livesyncToken(t, &user_model.User{ID: 2})
+	const repo1 = "/api/v1/repos/user2/repo1"
+	MakeRequest(t, NewRequestWithJSON(t, "PATCH", repo1, map[string]any{"internal_tracker": map[string]any{
+		"enable_time_tracker": true, "allow_only_contributors_to_track_time": true, "enable_issue_dependencies": true,
+	}}).AddTokenAuth(owner), http.StatusOK)
+	MakeRequest(t, NewRequestWithJSON(t, "PATCH", repo1+"/issues/1", map[string]any{"body": "edited by the differential test"}).AddTokenAuth(owner), http.StatusCreated)
+	MakeRequest(t, NewRequestWithJSON(t, "PATCH", repo1+"/issues/comments/2", map[string]any{"body": "edited too"}).AddTokenAuth(livesyncToken(t, &user_model.User{ID: 3})), NoExpectedStatus)
+	for _, dep := range []map[string]any{{"owner": "user2", "repo": "repo1", "index": 2}, {"owner": "user2", "repo": "repo2", "index": 1}} {
+		MakeRequest(t, NewRequestWithJSON(t, "POST", repo1+"/issues/1/dependencies", dep).AddTokenAuth(owner), http.StatusCreated)
+	}
+	livesyncSettle(t)
 
 	var users []*user_model.User
 	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&users))
@@ -320,10 +396,6 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 	for _, is := range issues {
 		issueIndex[is.ID] = is
 	}
-	repoByID := map[int64]*repo_model.Repository{}
-	for _, r := range repos {
-		repoByID[r.ID] = r
-	}
 	userByID := map[int64]*user_model.User{}
 	for _, u := range users {
 		userByID[u.ID] = u
@@ -334,8 +406,43 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			assert.Contains(t, api, id, "%s: %d is not in API v1's answer %v", what, id, api)
 		}
 	}
+	ids := func(objs []map[string]any, field string) []int64 {
+		var res []int64
+		for _, o := range objs {
+			res = append(res, livesyncNum(o, field))
+		}
+		return res
+	}
+	// compared counts the entities compared per model.
+	compared := map[protocol.Model]int{}
+	count := func(s *livesyncSnapshot) {
+		for _, ch := range s.changes {
+			compared[ch.M]++
+		}
+	}
+	// embedded checks the profile lines of other groups.
+	embedded := func(what, token string, s *livesyncSnapshot) {
+		t.Helper()
+		for _, ch := range s.changes {
+			if ch.G == s.header.Group {
+				continue
+			}
+			require.Equal(t, protocol.ModelUser, ch.M, "%s: only profiles of other groups", what)
+			login := ch.D.(map[string]any)["login"].(string)
+			path := "/api/v1/users/" + login
+			if strings.HasPrefix(ch.G, protocol.GroupPrefixOrg+":") {
+				path = "/api/v1/orgs/" + login
+			}
+			assert.Equal(t, http.StatusOK, livesyncStatus(t, token, path), "%s: embedded %s %s", what, ch.G, login)
+		}
+	}
+	hasFlag := map[string]string{
+		"issues": "has_issues", "ext_issues": "has_issues", "wiki": "has_wiki", "ext_wiki": "has_wiki",
+		"pulls": "has_pull_requests", "projects": "has_projects", "releases": "has_releases",
+		"packages": "has_packages", "actions": "has_actions",
+	}
 
-	compared := 0
+	groups := 0
 	profiles := 0
 	for _, viewer := range users {
 		if viewer.IsOrganization() || !viewer.IsActive || viewer.ProhibitLogin {
@@ -352,11 +459,52 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			}
 			base := fmt.Sprintf("/api/v1/repos/%s/%s", repo.OwnerName, repo.Name)
 			s := livesyncBootstrap(t, token, path)
-			if _, ok := s.of(group)[fmt.Sprintf("Repository %d", repo.ID)]; ok {
-				assert.Equal(t, http.StatusOK, livesyncStatus(t, token, base))
-			}
 			what := fmt.Sprintf("viewer %d %s", viewer.ID, group)
-			subset(what+" issues", s.ids(group, protocol.ModelIssue, nil), livesyncAPIIDs(t, token, base+"/issues?state=all"))
+			count(s)
+			embedded(what, token, s)
+			if _, ok := s.of(group)[fmt.Sprintf("Repository %d", repo.ID)]; ok {
+				apiRepo := livesyncAPIObject(t, token, base)
+				require.NotNil(t, apiRepo, what)
+				for _, u := range s.objs(group, protocol.ModelRepoUnit) {
+					if flag := hasFlag[u["type"].(string)]; flag != "" {
+						assert.Equal(t, true, apiRepo[flag], "%s unit %s ⇒ %s", what, u["type"], flag)
+					}
+				}
+			}
+			if c := s.objs(group, protocol.ModelCollaboration); len(c) > 0 {
+				subset(what+" collaborators", ids(c, "user_id"), livesyncAPIIDs(t, token, base+"/collaborators"))
+			}
+			apiIssues := map[int64]map[string]any{}
+			for _, o := range livesyncAPIObjects(t, token, base+"/issues?state=all") {
+				apiIssues[livesyncNum(o, "id")] = o
+			}
+			for _, id := range s.ids(group, protocol.ModelIssue, nil) {
+				assert.Contains(t, apiIssues, id, "%s issue %d", what, id)
+			}
+			related := func(issueID int64, field string) []int64 {
+				var res []int64
+				if o := apiIssues[issueID]; o != nil {
+					list, _ := o[field].([]any)
+					for _, x := range list {
+						res = append(res, livesyncNum(x.(map[string]any), "id"))
+					}
+				}
+				return res
+			}
+			for _, il := range s.objs(group, protocol.ModelIssueLabel) {
+				assert.Contains(t, related(livesyncNum(il, "issue_id"), "labels"), livesyncNum(il, "label_id"), "%s issue label %v", what, il)
+			}
+			for _, ia := range s.objs(group, protocol.ModelIssueAssignee) {
+				assert.Contains(t, related(livesyncNum(ia, "issue_id"), "assignees"), livesyncNum(ia, "assignee_id"), "%s issue assignee %v", what, ia)
+			}
+			// Through the issue's JSON: API v1's pull request JSON logs
+			// errors for fixture pull requests whose git refs are missing.
+			for _, pr := range s.objs(group, protocol.ModelPullRequest) {
+				issue := apiIssues[livesyncNum(pr, "issue_id")]
+				if assert.NotNil(t, issue, "%s pull request %v: its issue", what, pr["id"]) {
+					assert.NotNil(t, issue["pull_request"], "%s pull request %v", what, pr["id"])
+				}
+			}
 			subset(what+" labels", s.ids(group, protocol.ModelLabel, nil), livesyncAPIIDs(t, token, base+"/labels"))
 			subset(what+" milestones", s.ids(group, protocol.ModelMilestone, nil), livesyncAPIIDs(t, token, base+"/milestones?state=all"))
 			isTag := func(d map[string]any) bool { return d["is_tag"] == true }
@@ -365,7 +513,37 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 				// A tag without a release: API v1 serves tags to code readers.
 				assert.Contains(t, s.header.Units, protocol.UnitCode, what+" tags")
 			}
-			compared++
+			for _, a := range s.objs(group, protocol.ModelAttachment) {
+				rel := livesyncNum(a, "release_id")
+				subset(fmt.Sprintf("%s release %d assets", what, rel), []int64{livesyncNum(a, "id")}, livesyncAPIIDs(t, token, fmt.Sprintf("%s/releases/%d/assets", base, rel)))
+			}
+			for _, b := range s.objs(group, protocol.ModelBranch) {
+				if b["is_deleted"] == true {
+					assert.Contains(t, s.header.Units, protocol.UnitCode, "%s deleted branch %s", what, b["name"])
+					continue
+				}
+				assert.Equal(t, http.StatusOK, livesyncStatus(t, token, base+"/branches/"+url.PathEscape(b["name"].(string))), "%s branch %s", what, b["name"])
+			}
+			bySHA := map[string][]int64{}
+			for _, cs := range s.objs(group, protocol.ModelCommitStatus) {
+				bySHA[cs["sha"].(string)] = append(bySHA[cs["sha"].(string)], livesyncNum(cs, "id"))
+			}
+			for sha, got := range bySHA {
+				subset(what+" statuses of "+sha, got, livesyncAPIIDs(t, token, base+"/statuses/"+sha))
+			}
+			for _, id := range s.ids(group, protocol.ModelActionRun, nil) {
+				assert.Equal(t, http.StatusOK, livesyncStatus(t, token, fmt.Sprintf("%s/actions/runs/%d", base, id)), "%s action run %d", what, id)
+			}
+			for _, id := range s.ids(group, protocol.ModelActionRunJob, nil) {
+				assert.Equal(t, http.StatusOK, livesyncStatus(t, token, fmt.Sprintf("%s/actions/jobs/%d", base, id)), "%s action job %d", what, id)
+			}
+			if len(s.ids(group, protocol.ModelProject, nil))+len(s.ids(group, protocol.ModelProjectColumn, nil)) > 0 {
+				assert.Contains(t, s.header.Units, protocol.UnitProjects, what+" projects")
+			}
+			for _, pi := range s.objs(group, protocol.ModelProjectIssue) {
+				assert.Contains(t, apiIssues, livesyncNum(pi, "issue_id"), "%s project card %v: its issue", what, pi)
+			}
+			groups++
 
 			for i, id := range s.ids(group, protocol.ModelIssue, nil) {
 				if i == 3 {
@@ -376,14 +554,59 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 				lazy := livesyncBootstrap(t, token, fmt.Sprintf("/-/sync/load?group=issue:%d", id))
 				ig := protocol.IssueGroup(id)
 				what := fmt.Sprintf("viewer %d %s", viewer.ID, ig)
+				count(lazy)
+				embedded(what, token, lazy)
+				ibase := fmt.Sprintf("%s/issues/%d", base, is.Index)
 				if _, ok := lazy.of(ig)[fmt.Sprintf("IssueBody %d", id)]; ok {
-					assert.Equal(t, http.StatusOK, livesyncStatus(t, token, fmt.Sprintf("%s/issues/%d", base, is.Index)), what)
+					assert.Equal(t, http.StatusOK, livesyncStatus(t, token, ibase), what)
 				}
-				comments := lazy.ids(ig, protocol.ModelComment, func(d map[string]any) bool { return d["type"] == "comment" })
-				subset(what+" comments", comments, livesyncAPIIDs(t, token, fmt.Sprintf("%s/issues/%d/comments", base, is.Index)))
+				var timeline []int64
+				for _, c := range lazy.objs(ig, protocol.ModelComment) {
+					if c["type"] == "code" && livesyncNum(c, "review_id") == 0 {
+						// A code comment without a review (old data): no
+						// API v1 lists it; the web UI's files view shows it
+						// to the pull request's readers.
+						assert.Contains(t, lazy.header.Units, protocol.UnitPulls, "%s code comment %v", what, c["id"])
+						continue
+					}
+					if c["type"] == "code" {
+						path := fmt.Sprintf("%s/pulls/%d/reviews/%d/comments", base, is.Index, livesyncNum(c, "review_id"))
+						subset(what+" code comments", []int64{livesyncNum(c, "id")}, livesyncAPIIDs(t, token, path))
+						continue
+					}
+					if timeline == nil {
+						timeline = livesyncAPIIDs(t, token, ibase+"/timeline")
+					}
+					subset(fmt.Sprintf("%s %s comments", what, c["type"]), []int64{livesyncNum(c, "id")}, timeline)
+				}
 				if is.IsPull {
 					subset(what+" reviews", lazy.ids(ig, protocol.ModelReview, nil), livesyncAPIIDs(t, token, fmt.Sprintf("%s/pulls/%d/reviews", base, is.Index)))
 				}
+				for _, r := range lazy.objs(ig, protocol.ModelReaction) {
+					path := ibase + "/reactions"
+					if c := livesyncNum(r, "comment_id"); c != 0 {
+						path = fmt.Sprintf("%s/issues/comments/%d/reactions", base, c)
+					}
+					var api []string
+					for _, o := range livesyncAPIObjects(t, token, path) {
+						api = append(api, fmt.Sprintf("%d %s", livesyncNum(o["user"].(map[string]any), "id"), o["content"]))
+					}
+					assert.Contains(t, api, fmt.Sprintf("%d %s", livesyncNum(r, "user_id"), r["content"]), "%s reaction %v", what, r)
+				}
+				for _, a := range lazy.objs(ig, protocol.ModelAttachment) {
+					path := ibase + "/assets"
+					if c := livesyncNum(a, "comment_id"); c != 0 {
+						path = fmt.Sprintf("%s/issues/comments/%d/assets", base, c)
+					}
+					subset(what+" attachments", []int64{livesyncNum(a, "id")}, livesyncAPIIDs(t, token, path))
+				}
+				if deps := lazy.objs(ig, protocol.ModelIssueDependency); len(deps) > 0 {
+					subset(what+" dependencies", ids(deps, "dependency_id"), livesyncAPIIDs(t, token, ibase+"/dependencies"))
+				}
+				for _, h := range lazy.objs(ig, protocol.ModelContentHistory) {
+					assert.Equal(t, id, livesyncNum(h, "issue_id"), "%s revision %v", what, h)
+				}
+				assert.Empty(t, lazy.objs(ig, protocol.ModelTrackedTime), "tracked times are their tracker's")
 			}
 		}
 
@@ -399,6 +622,8 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			}
 			s := livesyncBootstrap(t, token, "/-/sync/bootstrap?group="+group)
 			what := fmt.Sprintf("viewer %d %s", viewer.ID, group)
+			count(s)
+			embedded(what, token, s)
 			base := "/api/v1/orgs/" + org.Name
 			subset(what+" teams", s.ids(group, protocol.ModelTeam, nil), livesyncAPIIDs(t, token, base+"/teams"))
 			subset(what+" labels", s.ids(group, protocol.ModelLabel, nil), livesyncAPIIDs(t, token, base+"/labels"))
@@ -416,17 +641,20 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 					assert.Contains(t, apiMembers, uid, "%s member %d", what, uid)
 				}
 			}
-			compared++
+			groups++
 		}
 
-		own := livesyncBootstrap(t, token, "/-/sync/bootstrap?group="+protocol.UserGroup(viewer.ID))
-		var starred []int64
-		for _, ch := range own.of(protocol.UserGroup(viewer.ID)) {
-			if ch.M == protocol.ModelStar {
-				starred = append(starred, int64(ch.D.(map[string]any)["repo_id"].(float64)))
-			}
+		ownGroup := protocol.UserGroup(viewer.ID)
+		own := livesyncBootstrap(t, token, "/-/sync/bootstrap?group="+ownGroup)
+		count(own)
+		embedded(fmt.Sprintf("viewer %d %s", viewer.ID, ownGroup), token, own)
+		subset(fmt.Sprintf("viewer %d stars", viewer.ID), ids(own.objs(ownGroup, protocol.ModelStar), "repo_id"), livesyncAPIIDs(t, token, "/api/v1/user/starred"))
+		if times := own.ids(ownGroup, protocol.ModelTrackedTime, nil); len(times) > 0 {
+			subset(fmt.Sprintf("viewer %d tracked times", viewer.ID), times, livesyncAPIIDs(t, token, "/api/v1/user/times"))
 		}
-		subset(fmt.Sprintf("viewer %d stars", viewer.ID), starred, livesyncAPIIDs(t, token, "/api/v1/user/starred"))
+		if n := own.ids(ownGroup, protocol.ModelNotification, nil); len(n) > 0 {
+			subset(fmt.Sprintf("viewer %d notifications", viewer.ID), n, livesyncAPIIDs(t, token, "/api/v1/notifications?all=true"))
+		}
 
 		if profiles < 4 { // every directory entry checked for a few viewers
 			profiles++
@@ -441,7 +669,21 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			}
 		}
 	}
-	assert.Greater(t, compared, 100, "readable groups compared")
+	assert.Greater(t, groups, 100, "readable groups compared")
+	t.Logf("entities compared per model: %v", compared)
+	// Every model a bootstrap serves was compared at least once (the
+	// fixtures have no auto-merge, commit status or action rows that
+	// reach a bootstrap: those are checked when present).
+	for _, m := range []protocol.Model{
+		protocol.ModelRepository, protocol.ModelRepoUnit, protocol.ModelCollaboration, protocol.ModelLabel, protocol.ModelMilestone,
+		protocol.ModelProject, protocol.ModelProjectColumn, protocol.ModelProjectIssue, protocol.ModelIssue, protocol.ModelIssueBody,
+		protocol.ModelIssueLabel, protocol.ModelIssueAssignee, protocol.ModelPullRequest, protocol.ModelBranch, protocol.ModelRelease,
+		protocol.ModelComment, protocol.ModelReview, protocol.ModelReaction, protocol.ModelAttachment, protocol.ModelIssueDependency,
+		protocol.ModelContentHistory, protocol.ModelTeam, protocol.ModelOrgUser, protocol.ModelStar, protocol.ModelTrackedTime,
+		protocol.ModelNotification, protocol.ModelUser,
+	} {
+		assert.Positive(t, compared[m], "%s compared", m)
+	}
 }
 
 // livesyncHTTP does an API v1 request as token over the real listener (safe

@@ -674,3 +674,37 @@ func TestReleasePlace(t *testing.T) {
 	}
 	assert.EqualValues(t, 1, placementVersions["release"], "a placement change needs a version bump")
 }
+
+// A tracked time is its tracker's (user:{id}, self), as API v1's
+// /user/times; a deleted one is in no group.
+func TestTrackedTimePlace(t *testing.T) {
+	resetLivesync(t)
+	loaded, err := specs["tracked_time"].load(t.Context(), newLoader(), []int64{1, 2, 4}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "user:1", loaded[1][0].group)
+	assert.Equal(t, protocol.UnitSelf, loaded[1][0].unit)
+	assert.Equal(t, "user:2", loaded[2][0].group)
+	assert.Empty(t, loaded[4][0].group, "no tracker")
+	exec(t, "UPDATE tracked_time SET deleted = ? WHERE id = 2", true)
+	loaded, err = specs["tracked_time"].load(t.Context(), newLoader(), []int64{2}, false)
+	require.NoError(t, err)
+	assert.Empty(t, loaded[2][0].group, "deleted")
+	assert.EqualValues(t, 1, placementVersions["tracked_time"], "a placement change needs a version bump")
+}
+
+// Reactions of a type upstream does not allow ([ui] REACTIONS) are in no
+// group; the allowed types are part of the reaction table's placement
+// version.
+func TestReactionPlace(t *testing.T) {
+	resetLivesync(t)
+	loaded, err := specs["reaction"].load(t.Context(), newLoader(), []int64{1, 3}, false)
+	require.NoError(t, err)
+	require.Len(t, loaded, 2)
+	assert.Empty(t, loaded[1][0].group, "zzz is not an allowed reaction")
+	assert.Equal(t, "issue:1", loaded[3][0].group, "eyes")
+	v := placementVersion("reaction")
+	assert.EqualValues(t, 1, v>>32)
+	defer test.MockVariableValue(&setting.UI.Reactions, append([]string{"zzz"}, setting.UI.Reactions...))()
+	assert.NotEqual(t, v, placementVersion("reaction"), "the allowed types are part of the version")
+	assert.Equal(t, placementVersions["label"], placementVersion("label"))
+}

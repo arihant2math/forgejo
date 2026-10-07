@@ -105,11 +105,14 @@ export const TierClosed = "closed";
  * header states (Units, as in a Grant): keep them with the group and treat a
  * later grant with other units as bootstrap_required{permission_changed}
  * (the units rule, see GroupRequest).
- * An issue's load (issue:{id}) also carries the comments that refer to the
- * issue from other repositories and that the viewer may see (upstream shows
- * them only to readers of the referencing repository's issues or pull
- * requests). They are decided per viewer and are not in the sync log: no
- * delta changes them; the next load of the issue refreshes them.
+ * An issue's load (issue:{id}) also carries entities whose readers depend on
+ * a second repository, decided per viewer as upstream decides them: the
+ * comments that refer to the issue from other repositories (shown only to
+ * readers of the referencing repository's issues or pull requests) and the
+ * issue's dependencies (IssueDependency: shown only when the repository has
+ * dependencies enabled, and only those whose issue the viewer may read).
+ * They are not in the sync log: no delta changes them; the next load of the
+ * issue refreshes them (the load replaces the group, them included).
  */
 export interface BootstrapHeader {
   type: 'header';

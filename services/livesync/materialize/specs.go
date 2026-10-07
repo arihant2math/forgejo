@@ -18,6 +18,7 @@ import (
 	pull_model "forgejo.org/models/pull"
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
+	"forgejo.org/modules/setting"
 	"forgejo.org/modules/timeutil"
 	"forgejo.org/services/livesync/catalog"
 	"forgejo.org/services/livesync/perm"
@@ -182,6 +183,13 @@ func commentChild[T any](parents func(*T) (issueID, commentID int64)) func(conte
 			return err
 		}
 		return l.loadComments(ctx, commentIDs)
+	}
+}
+
+func issueDependencyDTO(r *issues_model.IssueDependency) *protocol.IssueDependency {
+	return &protocol.IssueDependency{
+		ID: r.ID, UserID: r.UserID, IssueID: r.IssueID, DependencyID: r.DependencyID,
+		CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
 	}
 }
 
@@ -628,6 +636,12 @@ var specs = func() map[string]*spec {
 			id:      func(r *issues_model.Reaction) int64 { return r.ID },
 			prepare: commentChild(func(r *issues_model.Reaction) (int64, int64) { return r.IssueID, r.CommentID }),
 			place: func(l *loader, r *issues_model.Reaction) (string, protocol.Unit) {
+				// Upstream shows only the reactions of an allowed type
+				// ([ui] REACTIONS; issues_model.FindReactions), in the web
+				// UI and API v1 alike (B6 review). See placementVersion.
+				if !setting.UI.ReactionsLookup.Contains(r.Type) {
+					return "", protocol.UnitNone
+				}
 				return l.commentChildPlace(r.IssueID, r.CommentID)
 			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.Reaction) (any, error) {
@@ -683,23 +697,34 @@ var specs = func() map[string]*spec {
 		}.spec("attachment"),
 		rowSpec[issues_model.IssueDependency]{
 			model: protocol.ModelIssueDependency, schema: protocol.SchemaIssueDependency,
-			id:      func(r *issues_model.IssueDependency) int64 { return r.ID },
-			prepare: issueChild(func(r *issues_model.IssueDependency) int64 { return r.IssueID }),
-			place: func(l *loader, r *issues_model.IssueDependency) (string, protocol.Unit) {
-				return l.issuePlace(r.IssueID)
+			id: func(r *issues_model.IssueDependency) int64 { return r.ID },
+			// In no group (B6 review): who may read a dependency depends
+			// on the dependency's repository too, and on the issue
+			// repository's dependency setting (API v1); an issue's load
+			// adds the ones its viewer may see (Conditionals).
+			place: func(*loader, *issues_model.IssueDependency) (string, protocol.Unit) {
+				return "", protocol.UnitNone
 			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.IssueDependency) (any, error) {
-				return &protocol.IssueDependency{
-					ID: r.ID, UserID: r.UserID, IssueID: r.IssueID, DependencyID: r.DependencyID,
-					CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
-				}, nil
+				return issueDependencyDTO(r), nil
 			},
 		}.spec("issue_dependency"),
 		rowSpec[issues_model.TrackedTime]{
 			model: protocol.ModelTrackedTime, schema: protocol.SchemaTrackedTime,
-			id:      func(r *issues_model.TrackedTime) int64 { return r.ID },
-			prepare: issueChild(func(r *issues_model.TrackedTime) int64 { return r.IssueID }),
-			place:   func(l *loader, r *issues_model.TrackedTime) (string, protocol.Unit) { return l.issuePlace(r.IssueID) },
+			id: func(r *issues_model.TrackedTime) int64 { return r.ID },
+			// The tracker's own times, like API v1's GET /user/times (B6
+			// review): an issue's list (GET …/issues/{n}/times) answers 404
+			// when the repository's time tracker is disabled and shows a
+			// reader who is not a writer of the issues only their own
+			// times, which one group and unit per issue cannot express. A
+			// deleted time (deleted = true, kept by upstream) is in no
+			// group: its delete is sent.
+			place: func(_ *loader, r *issues_model.TrackedTime) (string, protocol.Unit) {
+				if r.Deleted || r.UserID <= 0 {
+					return "", protocol.UnitNone
+				}
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
+			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.TrackedTime) (any, error) {
 				return &protocol.TrackedTime{
 					ID: r.ID, IssueID: r.IssueID, UserID: r.UserID, Time: r.Time, Deleted: r.Deleted,

@@ -6,6 +6,7 @@ package materialize
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
+	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/catalog"
 	"forgejo.org/services/livesync/protocol"
@@ -37,11 +39,38 @@ const MetaPlacementPrefix = "materialized_placement."
 // deletes there. Version 1 of user, project and project_board (B4): the
 // public profiles moved from user:{id} to the profile groups. Version 1 of
 // release (B6): tags without a release need the code unit, not releases.
+// Version 1 of tracked_time (B6 review): a tracked time moved from its
+// issue:{id} to its tracker's user:{id} (self), a deleted one to no group.
+// Version 1 of reaction (B6 review): reactions of a type that is not
+// allowed are in no group (see placementVersion). Version 1 of
+// issue_dependency (B6 review): in no group, sent per viewer by issue
+// loads (Conditionals).
 var placementVersions = map[string]int64{
-	"user":          1,
-	"project":       1,
-	"project_board": 1,
-	"release":       1,
+	"user":             1,
+	"project":          1,
+	"project_board":    1,
+	"release":          1,
+	"tracked_time":     1,
+	"reaction":         1,
+	"issue_dependency": 1,
+}
+
+// placementVersion is the placement version of table: placementVersions,
+// combined for reaction with the allowed reaction types ([ui] REACTIONS),
+// which decide whether a reaction is placed at all (version 1, B6 review:
+// upstream lists only reactions of an allowed type), so that changing them
+// re-places the reactions like a code change of the rules.
+func placementVersion(table string) int64 {
+	v := placementVersions[table]
+	if table == "reaction" {
+		h := fnv.New32a()
+		for _, r := range setting.UI.Reactions {
+			_, _ = h.Write([]byte(r))
+			_, _ = h.Write([]byte{0})
+		}
+		v = v<<32 | int64(h.Sum32())
+	}
+	return v
 }
 
 // MetaPermPrefix + table name is the livesync_meta entry holding the
@@ -133,7 +162,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 		epoch := current[t.Name]
 		done, ok := handled[t.Name]
 		repaired := ok && done != epoch
-		moved := ok && placed[t.Name] != placementVersions[t.Name]
+		moved := ok && placed[t.Name] != placementVersion(t.Name)
 		permStale := ok && specs[t.Name].perm && permDone[t.Name] != permVersion
 		if ok && !repaired && !moved && !permStale {
 			continue
@@ -197,7 +226,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			if err := livesync_model.SetMeta(ctx, MetaHandledEpochPrefix+table, strconv.FormatInt(current[table], 10)); err != nil {
 				return err
 			}
-			if err := livesync_model.SetMeta(ctx, MetaPlacementPrefix+table, strconv.FormatInt(placementVersions[table], 10)); err != nil {
+			if err := livesync_model.SetMeta(ctx, MetaPlacementPrefix+table, strconv.FormatInt(placementVersion(table), 10)); err != nil {
 				return err
 			}
 			if specs[table].perm {

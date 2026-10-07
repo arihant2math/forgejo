@@ -345,6 +345,59 @@ func TestCrossReferences(t *testing.T) {
 	}
 }
 
+// An issue's load carries its dependencies as API v1 lists them: only when
+// the repository has dependencies enabled, and only those whose issue the
+// viewer may read; they are never in the sync log.
+func TestDependencies(t *testing.T) {
+	perms := prepare(t)
+	ctx := t.Context()
+	// Issue 1 (user2/repo1, public) is blocked by pull request 2 (repo1) and
+	// by issue 4 (user2/repo2, private).
+	for i, dep := range []int64{2, 4} {
+		_, err := db.GetEngine(ctx).Exec("INSERT INTO issue_dependency (id, user_id, issue_id, dependency_id, created_unix, updated_unix) VALUES (?, 2, 1, ?, 0, 0)", 1000+i, dep)
+		require.NoError(t, err)
+	}
+	deps := func(viewer int64) []int64 {
+		var res []int64
+		for _, ch := range stream(t, perms, viewer, "issue:1", nil).changes {
+			if ch.M == protocol.ModelIssueDependency {
+				assert.Equal(t, "issue:1", ch.G)
+				res = append(res, int64(ch.D.(map[string]any)["dependency_id"].(float64)))
+			}
+		}
+		return res
+	}
+	// The fixture's issues config of repo1 has dependencies disabled.
+	assert.Empty(t, deps(2), "disabled: none")
+	_, err := db.GetEngine(ctx).Exec("UPDATE repo_unit SET config = ? WHERE repo_id = 1 AND type = 2", `{"EnableTimetracker":true,"EnableDependencies":true}`)
+	require.NoError(t, err)
+	shown := 0
+	for _, viewer := range []int64{1, 2, 4, 5} {
+		u, err := user_model.GetUserByID(ctx, viewer)
+		require.NoError(t, err)
+		var want []int64
+		for _, dep := range []int64{2, 4} {
+			issue, err := issues_model.GetIssueByID(ctx, dep)
+			require.NoError(t, err)
+			repo, err := repo_model.GetRepositoryByID(ctx, issue.RepoID)
+			require.NoError(t, err)
+			p, err := access_model.GetUserRepoPermission(ctx, repo, u)
+			require.NoError(t, err)
+			if p.CanReadIssuesOrPulls(issue.IsPull) {
+				want = append(want, dep)
+			}
+		}
+		assert.Equal(t, want, deps(viewer), "viewer %d", viewer)
+		shown += len(want)
+	}
+	assert.Greater(t, shown, 4, "some viewers see both, some one")
+	res := stream(t, perms, 2, "issue:1", func(r *Request) { r.Models = []protocol.Model{protocol.ModelIssueBody} })
+	for _, ch := range res.changes {
+		assert.NotEqual(t, protocol.ModelIssueDependency, ch.M, "model filter")
+	}
+	assert.Contains(t, stream(t, perms, 2, "issue:1", nil).header.Schemas, protocol.ModelIssueDependency)
+}
+
 // The gate: a table whose index walk runs (here a repair after a
 // re-bootstrap marker) makes the bootstrap wait.
 func TestPrepareGate(t *testing.T) {

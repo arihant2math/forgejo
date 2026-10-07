@@ -156,13 +156,13 @@ func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, 
 	if err != nil {
 		return err
 	}
-	if prefix, id, _ := protocol.ParseGroup(req.Group); prefix == protocol.GroupPrefixIssue && (len(req.Models) == 0 || slices.Contains(req.Models, protocol.ModelComment)) {
-		xrefs, err := crossReferences(ctx, perms, req.ViewerID, id)
+	if prefix, id, _ := protocol.ParseGroup(req.Group); prefix == protocol.GroupPrefixIssue {
+		extras, err := conditionals(ctx, perms, req, id)
 		if err != nil {
 			return err
 		}
-		res.Count += len(xrefs)
-		if err := writeEntities(xrefs); err != nil {
+		res.Count += len(extras)
+		if err := writeEntities(extras); err != nil {
 			return err
 		}
 	}
@@ -191,32 +191,28 @@ func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, 
 	return flushAll()
 }
 
-// crossReferences returns the comments of issue that refer to it from
-// other repositories and that viewer may see: upstream shows them to
-// viewers who can read the referencing repository's issues (or pull
-// requests, for a reference from a pull request) — routers/web/repo
-// filterXRefComments. They are not in the sync log (see
-// materialize.CrossReferences), so the load is their only source.
-func crossReferences(ctx context.Context, perms *perm.Cache, viewerID, issueID int64) ([]materialize.SnapshotEntity, error) {
-	xrefs, err := materialize.CrossReferences(ctx, issueID)
-	if err != nil || len(xrefs) == 0 {
+// conditionals returns the conditional entities of the issue (its
+// cross-references from other repositories and its dependencies,
+// materialize.Conditionals) that the viewer may see: those whose second
+// repository the viewer may read with the needed unit, as upstream decides
+// (filterXRefComments, API v1's issue dependencies). They are not in the
+// sync log, so the load is their only source.
+func conditionals(ctx context.Context, perms *perm.Cache, req Request, issueID int64) ([]materialize.SnapshotEntity, error) {
+	extras, err := materialize.Conditionals(ctx, issueID, req.Models)
+	if err != nil || len(extras) == 0 {
 		return nil, err
 	}
 	var groups []string
-	for _, x := range xrefs {
-		groups = append(groups, protocol.RepoGroup(x.RefRepoID))
+	for _, x := range extras {
+		groups = append(groups, protocol.RepoGroup(x.RepoID))
 	}
-	readable, err := perms.CheckGroups(ctx, viewerID, groups)
+	readable, err := perms.CheckGroups(ctx, req.ViewerID, groups)
 	if err != nil {
 		return nil, err
 	}
 	var res []materialize.SnapshotEntity
-	for _, x := range xrefs {
-		need := protocol.UnitIssues
-		if x.RefIsPull {
-			need = protocol.UnitPulls
-		}
-		if d, ok := readable[protocol.RepoGroup(x.RefRepoID)]; ok && d.Units.Allows(need) {
+	for _, x := range extras {
+		if d, ok := readable[protocol.RepoGroup(x.RepoID)]; ok && d.Units.Allows(x.RepoUnit) && req.Units.Allows(x.Unit) {
 			res = append(res, x.SnapshotEntity)
 		}
 	}

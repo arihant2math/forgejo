@@ -4,6 +4,7 @@
 package materialize
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -240,8 +241,6 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("review", issue),
 			from("reaction", issue, onComments),
 			from("attachment", issue, onComments),
-			from("issue_dependency", issue),
-			from("tracked_time", issue),
 			from("issue_content_history", issue, onComments),
 		}, nil
 	case protocol.GroupPrefixUser:
@@ -258,6 +257,7 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("star", builder.Eq{"uid": id}),
 			from("forgejo_blocked_user", user),
 			from("review_state", user),
+			from("tracked_time", user.And(builder.Eq{"deleted": false})),
 			from("review", pending),
 			from("comment", pendingComments),
 			from("reaction", onPendingComments),
@@ -337,13 +337,21 @@ func SnapshotModels(req SnapshotRequest) ([]protocol.Model, error) {
 		return nil, err
 	}
 	var res []protocol.Model
+	add := func(m protocol.Model) {
+		if (len(req.Models) == 0 || slices.Contains(req.Models, m)) && !slices.Contains(res, m) {
+			res = append(res, m)
+		}
+	}
 	for _, s := range sources {
 		for _, table := range s.tables() {
 			for _, m := range specs[table].models {
-				if (len(req.Models) == 0 || slices.Contains(req.Models, m)) && !slices.Contains(res, m) {
-					res = append(res, m)
-				}
+				add(m)
 			}
+		}
+	}
+	if prefix, _, _ := protocol.ParseGroup(req.Group); prefix == protocol.GroupPrefixIssue {
+		for _, m := range conditionalModels {
+			add(m)
 		}
 	}
 	return res, nil
@@ -702,29 +710,40 @@ func Profiles(ctx context.Context, ids []int64) ([]SnapshotEntity, error) {
 	return res, nil
 }
 
-// CrossReference is a comment of an issue that refers to it from another
-// repository (an issue, pull request or comment of repository RefRepoID
-// mentioned the issue).
-type CrossReference struct {
+// Conditional is an entity of an issue's load that is in no group,
+// because who may read it depends on a second repository: a load sends it
+// to the viewers who may read the issue's Unit (as for the issue's other
+// entities) and RepoID's RepoUnit (bootstrap.Stream). Its group is the
+// issue's. It is not in the sync log: no delta changes it, the next load of
+// the issue refreshes it.
+type Conditional struct {
 	SnapshotEntity
-	RefRepoID int64
-	RefIsPull bool
+	Unit     protocol.Unit
+	RepoID   int64
+	RepoUnit protocol.Unit
 }
 
-// maxCrossReferences bounds the cross-references of one issue a load
-// sends.
-const maxCrossReferences = 1000
+// maxConditionals bounds the cross-references and the dependencies of one
+// issue a load sends.
+const maxConditionals = 1000
 
-// CrossReferences returns the comments of issue that refer to it from
-// other repositories, in the issue's group, as the materializer would
-// build them. They are in no group (commentPlace: upstream shows such a
-// comment only to viewers who can read the issues or pulls of the
-// referencing repository too, which one group and unit cannot express), so
-// they are not in the sync log: an issue's load adds the ones its viewer
-// may see (bootstrap.Stream). Their attachments and reactions, if any, are
-// not included.
-func CrossReferences(ctx context.Context, issueID int64) ([]CrossReference, error) {
-	var res []CrossReference
+// Conditionals returns the issue's conditional entities among models (all
+// when models is empty), as the materializer would build them:
+//
+//   - the comments that refer to the issue from other repositories
+//     (Comment). They are in no group (commentPlace): upstream shows such a
+//     comment only to viewers who can read the issues or pulls of the
+//     referencing repository too (filterXRefComments), which one group and
+//     unit cannot express. Their attachments and reactions, if any, are not
+//     included.
+//   - the issue's dependencies (IssueDependency: the issues blocking it),
+//     when the issue's repository has dependencies enabled. API v1 (GET
+//     …/issues/{n}/dependencies) lists a dependency only to viewers who can
+//     read the dependency's issues or pulls, and nothing when dependencies
+//     are disabled (B6 review): no group either (issueDependencySpec).
+func Conditionals(ctx context.Context, issueID int64, models []protocol.Model) ([]Conditional, error) {
+	want := func(m protocol.Model) bool { return len(models) == 0 || slices.Contains(models, m) }
+	var res []Conditional
 	err := capture.WithQuietTx(ctx, func(ctx context.Context) error {
 		l := newLoader()
 		defer l.close()
@@ -735,20 +754,8 @@ func CrossReferences(ctx context.Context, issueID int64) ([]CrossReference, erro
 		if issue == nil {
 			return nil
 		}
-		var comments []*issues_model.Comment
-		cond := builder.Eq{"issue_id": issueID}.
-			And(builder.In("`type`", issues_model.CommentTypeIssueRef, issues_model.CommentTypeCommentRef, issues_model.CommentTypePullRef)).
-			And(builder.Neq{"ref_repo_id": 0}).And(builder.Neq{"ref_repo_id": issue.RepoID})
-		if err := db.GetEngine(ctx).Where(cond).OrderBy("id").Limit(maxCrossReferences).Find(&comments); err != nil {
-			return err
-		}
 		group, unit := l.issuePlace(issueID)
-		for _, c := range comments {
-			if !issues_model.CommentTypeIsRef(c.Type) {
-				continue
-			}
-			e := entity{key: "comment", model: protocol.ModelComment, schema: protocol.SchemaComment, group: group, unit: unit, dto: commentDTO(l, c)}
-			e.renders = l.takeRenders()
+		add := func(e *entity, id, repoID int64, need protocol.Unit) error {
 			if _, err := e.changeHash(ctx, l); err != nil {
 				return err
 			}
@@ -756,15 +763,68 @@ func CrossReferences(ctx context.Context, issueID int64) ([]CrossReference, erro
 			if err != nil {
 				return err
 			}
-			res = append(res, CrossReference{
-				SnapshotEntity: SnapshotEntity{Group: group, Model: protocol.ModelComment, ID: c.ID, Payload: payload, UserRefs: userRefs(e.dto)},
-				RefRepoID:      c.RefRepoID, RefIsPull: c.RefIsPull,
+			res = append(res, Conditional{
+				SnapshotEntity: SnapshotEntity{Group: e.group, Model: e.model, ID: id, Payload: payload, UserRefs: userRefs(e.dto)},
+				Unit:           e.unit, RepoID: repoID, RepoUnit: need,
 			})
+			return nil
+		}
+
+		if want(protocol.ModelComment) {
+			// Read through the issue_id index, not paged by id (see
+			// Snapshot), then bounded.
+			var comments []*issues_model.Comment
+			cond := builder.Eq{"issue_id": issueID}.
+				And(builder.In("`type`", issues_model.CommentTypeIssueRef, issues_model.CommentTypeCommentRef, issues_model.CommentTypePullRef)).
+				And(builder.Neq{"ref_repo_id": 0}).And(builder.Neq{"ref_repo_id": issue.RepoID})
+			if err := db.GetEngine(ctx).Where(cond).Find(&comments); err != nil {
+				return err
+			}
+			slices.SortFunc(comments, func(a, b *issues_model.Comment) int { return cmp.Compare(a.ID, b.ID) })
+			for _, c := range comments[:min(len(comments), maxConditionals)] {
+				if !issues_model.CommentTypeIsRef(c.Type) {
+					continue
+				}
+				e := entity{key: "comment", model: protocol.ModelComment, schema: protocol.SchemaComment, group: group, unit: unit, dto: commentDTO(l, c)}
+				e.renders = l.takeRenders()
+				need := protocol.UnitIssues
+				if c.RefIsPull {
+					need = protocol.UnitPulls
+				}
+				if err := add(&e, c.ID, c.RefRepoID, need); err != nil {
+					return err
+				}
+			}
+		}
+
+		if want(protocol.ModelIssueDependency) && l.repos[issue.RepoID] != nil && l.repos[issue.RepoID].IsDependenciesEnabled(ctx) {
+			var deps []*issues_model.IssueDependency
+			if err := db.GetEngine(ctx).Where(builder.Eq{"issue_id": issueID}).Find(&deps); err != nil {
+				return err
+			}
+			slices.SortFunc(deps, func(a, b *issues_model.IssueDependency) int { return cmp.Compare(a.ID, b.ID) })
+			deps = deps[:min(len(deps), maxConditionals)]
+			if err := l.loadIssues(ctx, ids(deps, func(d *issues_model.IssueDependency) int64 { return d.DependencyID })); err != nil {
+				return err
+			}
+			for _, d := range deps {
+				dep := l.issues[d.DependencyID]
+				if dep == nil {
+					continue // upstream skips a dependency on a missing issue
+				}
+				e := entity{key: "issue_dependency", model: protocol.ModelIssueDependency, schema: protocol.SchemaIssueDependency, group: group, unit: unit, dto: issueDependencyDTO(d)}
+				if err := add(&e, d.ID, dep.RepoID, issueUnit(dep)); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("livesync: cross-references of issue %d: %w", issueID, err)
+		return nil, fmt.Errorf("livesync: conditional entities of issue %d: %w", issueID, err)
 	}
 	return res, nil
 }
+
+// conditionalModels are the models of Conditionals.
+var conditionalModels = []protocol.Model{protocol.ModelComment, protocol.ModelIssueDependency}

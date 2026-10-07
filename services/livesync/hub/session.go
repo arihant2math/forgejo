@@ -41,12 +41,21 @@ func (c *conn) start() bool {
 }
 
 // stop unregisters the session (its subscriptions are dropped) once its
-// worker returned.
+// worker returned and no client message is being handled. Over SSE the
+// client's messages are handled by POST /-/sync/send concurrently with the
+// stream's handler: a hello or subscribe still running when the stream
+// closes would otherwise register the session or subscriptions after this
+// cleanup, and nothing would remove them again (byUser, byGroup and
+// subCount would keep a dead session for good).
 func (c *conn) stop() {
 	c.cancel()
 	c.mu.Lock()
 	c.room.Broadcast()
 	c.mu.Unlock()
+	// Wait for a message being handled; later ones are dropped (handle).
+	c.handleMu.Lock()
+	c.stopped = true
+	c.handleMu.Unlock()
 	<-c.workerDone
 	h := c.h
 	h.mu.Lock()
@@ -77,6 +86,11 @@ func (c *conn) stop() {
 func (c *conn) handle(data []byte) {
 	c.handleMu.Lock()
 	defer c.handleMu.Unlock()
+	if c.stopped || c.ctx.Err() != nil {
+		// The session ends (stop may already have cleaned it up): nothing
+		// may be registered for it any more.
+		return
+	}
 	var env struct {
 		Type protocol.MessageType `json:"type"`
 	}

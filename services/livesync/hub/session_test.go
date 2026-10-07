@@ -390,3 +390,66 @@ func TestRevalidate(t *testing.T) {
 		})
 	}
 }
+
+// Over SSE a hello (POST /-/sync/send) may still be handled when the
+// stream's handler returns and stops the session. stop waits for it, and a
+// message handled after stop registers nothing: the session must not stay
+// in byUser, byGroup or subCount (review round 2).
+func TestStopDuringHello(t *testing.T) {
+	x := newHarness(t, Config{})
+	// Warm user 2's grants: the blocked hello then finds them in the cache
+	// and registers without noticing the cancelled context.
+	cl := x.connect(nil)
+	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
+	cl.expect(protocol.MsgCaughtUp)
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	c := x.h.newConn(newFakeTransport(), func(ctx context.Context, token string) (int64, string, error) {
+		close(entered)
+		<-release // ignores ctx, like the cached paths after it
+		return fakeAuth(ctx, token)
+	})
+	require.True(t, c.start())
+	hello, err := json.Marshal(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u2", Groups: []protocol.GroupRequest{{Group: "repo:1"}}})
+	require.NoError(t, err)
+	handled := make(chan struct{})
+	go func() {
+		defer close(handled)
+		c.handle(hello)
+	}()
+	<-entered
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		c.stop() // ServeSSE's defer
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("stop returned while the hello was handled")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-handled
+	<-stopped
+
+	// A message of the stopped session handled afterwards (Send looked the
+	// session up before stop removed it) is dropped.
+	late := x.h.newConn(newFakeTransport(), fakeAuth)
+	require.True(t, late.start())
+	late.stop()
+	late.handle(hello)
+
+	x.h.mu.Lock()
+	defer x.h.mu.Unlock()
+	assert.NotContains(t, x.h.conns, c)
+	assert.NotContains(t, x.h.conns, late)
+	assert.Len(t, x.h.byUser[2], 1)
+	assert.Contains(t, x.h.byUser[2], cl.c)
+	assert.Equal(t, 1, x.h.subCount[2])
+	require.Len(t, x.h.byGroup["repo:1"], 1)
+	for s := range x.h.byGroup["repo:1"] {
+		assert.Same(t, cl.c, s.c)
+	}
+	assert.Empty(t, c.subs)
+	assert.Empty(t, late.subs)
+}

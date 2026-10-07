@@ -114,10 +114,12 @@ type conn struct {
 	cancel context.CancelFunc
 
 	// handleMu serialises the client's messages (the fallback transport
-	// receives them from concurrent POSTs); helloDone and clientBuild are
-	// guarded by it.
+	// receives them from concurrent POSTs) and excludes them from stop;
+	// helloDone and stopped are guarded by it. stopped: stop runs, later
+	// messages are dropped.
 	handleMu  sync.Mutex
 	helloDone bool
+	stopped   bool
 
 	// session is the id of a fallback session (guarded by Hub.mu).
 	session string

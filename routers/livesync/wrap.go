@@ -66,7 +66,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // the application root. Forgejo's routes are registered without
 // setting.AppSubURL (a reverse proxy, or the FCGI server, strips it), but a
 // request that still carries the sub-path is recognised too.
+//
+// path is classified the way upstream will route it: Forgejo collapses
+// repeated slashes and trims trailing ones (stripSlashesMiddleware in
+// routers/common) only inside its routers, i.e. after Wrap's dispatch, so
+// ownPath normalises first. The returned path is the normalised one; inner
+// still gets its requests untouched and normalises them itself.
 func ownPath(path string) (string, bool) {
+	path = normalizeSlashes(path)
 	if sub := setting.AppSubURL; sub != "" && strings.HasPrefix(path, sub+"/") {
 		path = path[len(sub):]
 	}
@@ -76,6 +83,25 @@ func ownPath(path string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// normalizeSlashes collapses runs of '/' into one and drops trailing slashes,
+// exactly like routers/common's stripSlashesMiddleware does for upstream's
+// routes, so that every spelling upstream treats as /-/sync/… is livesync's.
+func normalizeSlashes(path string) string {
+	if !strings.Contains(path, "//") && !strings.HasSuffix(path, "/") {
+		return path // fast path: already clean
+	}
+	var b strings.Builder
+	b.Grow(len(path))
+	prevWasSlash := false
+	for _, c := range []byte(strings.TrimRight(path, "/")) {
+		if c != '/' || !prevWasSlash {
+			b.WriteByte(c)
+		}
+		prevWasSlash = c == '/'
+	}
+	return b.String()
 }
 
 // withPath returns a shallow copy of req whose URL path is p.

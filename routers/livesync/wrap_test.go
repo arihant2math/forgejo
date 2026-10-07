@@ -89,6 +89,18 @@ func TestOwnPath(t *testing.T) {
 		{"/forge", "/-/sync/health", "/-/sync/health", true}, // sub-path already stripped by the proxy
 		{"/forge", "/forge/api/v1/version", "", false},
 		{"/forge", "/forgex/-/sync/health", "", false},
+		// Upstream collapses repeated slashes and trims trailing ones before
+		// routing, so every such spelling must be classified the same way.
+		{"", "//-/sync/health", "/-/sync/health", true},
+		{"", "/-//sync/health", "/-/sync/health", true},
+		{"", "/-/sync//health", "/-/sync/health", true},
+		{"", "/-/sync/health/", "/-/sync/health", true},
+		{"", "/-/sync/", "/-/sync", true},
+		{"", "///-///next///", "/-/next", true},
+		{"", "//api/v1/version", "", false},
+		{"", "/-/syncx//", "", false},
+		{"/forge", "/forge//-/sync/health/", "/-/sync/health", true},
+		{"/forge", "//forge/-//sync/health", "/-/sync/health", true},
 	}
 	for _, c := range cases {
 		t.Run(c.sub+c.path, func(t *testing.T) {
@@ -118,6 +130,12 @@ func TestHandlerRouting(t *testing.T) {
 		{"", http.MethodGet, "/", 299},
 		{"/forge", http.MethodGet, "/forge/-/sync/health", http.StatusServiceUnavailable},
 		{"/forge", http.MethodGet, "/forge/api/v1/version", 299},
+		{"", http.MethodGet, "//-/sync/health", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-//sync/health", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-/sync//health", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-/sync/health/", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "//-//next//nope/", http.StatusNotFound},
+		{"", http.MethodGet, "//api/v1/version", 299},
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.sub+c.path, func(t *testing.T) {
@@ -130,5 +148,18 @@ func TestHandlerRouting(t *testing.T) {
 				assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 			}
 		})
+	}
+}
+
+// TestHandlerInnerUntouched checks that requests passed to inner keep their
+// original path (upstream normalises it itself).
+func TestHandlerInnerUntouched(t *testing.T) {
+	var got string
+	h := &handler{inner: http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+		got = req.URL.Path
+	}), own: newRoutes()}
+	for _, p := range []string{"//api/v1/version/", "/-/syncx//", "/user//settings"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, p, nil))
+		assert.Equal(t, p, got)
 	}
 }

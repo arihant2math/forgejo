@@ -147,6 +147,12 @@ Caveats:
   livesync themselves must uninstall in cleanup too (`livesyncUninstallTriggers` +
   `livesyncResetCapture`). `livesyncDropTables` uninstalls first: with triggers present and
   `livesync_change` gone, every write to a tracked table fails.
+* **Livesync running in a test (B3):** `livesyncStart(t, extraSettings)` resets the outbox / sync log / entity index /
+  meta, runs `Init` (triggers, tailer, writer role + materializer) and cleans up; wait for entries with
+  `livesyncWaitLog(t, cursor, timeout, livesyncEntry(model, id, op))` from `cursor := livesyncLogHead(t)`.
+  `onApplicationRun`/`PrepareTestEnv` fixture reloads while livesync runs are materialized like any write.
+* **Protocol types (B3):** after changing `services/livesync/protocol`, run `next/tools/gen-protocol.sh` (tygo
+  v0.2.21, ~2 s warm) and commit `next/src/protocol/types.gen.ts`; `--check` fails when it is stale.
 * `log.Error` during an integration test prints `testlogger.go:recordError() FATAL
   ERROR` (it does not fail the test, but keep tests free of expected errors: an
   unknown-handler 404/405 in the router log counts as one). `tests/e2e/e2e_test.go`
@@ -722,6 +728,148 @@ does) **and** MySQL 8.0 (binlog on).
   `schema_epoch.<tbl>` (drop a trigger, write, re-`Init`) ⇒ the write made while the trigger was missing reaches
   the log (reconciliation) or the model is marked for re-bootstrap, and the epoch is recorded as handled.
 - **Notes/decisions:**
+  - **Files.** `services/livesync/protocol/{protocol,entities}.go` (models, per-model schema versions, ops, groups,
+    units, 40 DTOs); `next/tools/{gen-protocol.sh,tygo.yaml}` → `next/src/protocol/types.gen.ts` (generated, committed);
+    `services/livesync/synclog/{writer,read,retention,tailer}.go` (+ SQLite unit tests);
+    `services/livesync/materialize/{materializer,coalesce,load,specs,specs_render,render,index,epochs,backfill}.go`
+    (+ SQLite unit tests over Forgejo's fixtures); `services/livesync/writer.go` (writer role) and Init/settings changes;
+    `models/livesync`: `Lease`/`TryLease`/`ErrLeaseHeld` (lock.go), `InsertMetaIfAbsent` (sync.go), new columns;
+    `capture`: `Batch.Defer`, exported `Listen` and `CurrentSchema`; `tests/integration/livesync_{materialize,synclog}_test.go`
+    + helpers (`livesyncStart`, `livesyncLogHead/LogSince/WaitLog/Entry`; `livesyncResetCapture` now also empties
+    `livesync_log`/`livesync_entity` and every `livesync_meta` row but `tables_version`). `drainConsumer` is gone.
+  - **Table changes** (Sync adds them; no rows existed, `TablesVersion` stays 1): `livesync_log.unit` VARCHAR(32);
+    `livesync_entity.unit` VARCHAR(32) and `.hash` VARCHAR(16) (fnv-64a hex of the last payload). `livesync_entity.tbl` is
+    the *entity key*: the table for a row's main entity, `"<table>#<suffix>"` for a derived one (`issue#body`).
+  - **Protocol (for B5/B6/F2).** Groups `user:{id}`/`org:{id}`/`repo:{id}`/`issue:{id}` (`protocol.UserGroup` …) plus
+    the pseudo group **`protocol.GroupAll = "*"`**: entries every reader gets (`synclog.ReadSince(group)` always includes
+    them). Log ops (`protocol.Op`): `U` upsert (payload = full DTO JSON), `D` delete (no payload), **`B` re-bootstrap
+    marker** (GroupAll, entity id 0, payload `RebootstrapMarker{table, epoch}`). `livesync_log.unit` = required unit
+    (`protocol.Unit`: `""` any access, `code`, `issues`, `pulls`, `issues|pulls` = either, `releases`, `projects`,
+    `actions`; same names as `RepoUnit.type`/`TeamUnit.type`). `schema_ver` = `protocol.Schema<Model>` (all 1).
+    DTO conventions: API v1 snake_case names, refs as ids, times RFC 3339 UTC (`time.Time`, optional ones omitted).
+    **Placement** (all in `materialize/specs*.go`): Repository, RepoUnit, Collaboration → `repo:{id}` unit none; User →
+    `user:{id}` (`org:{id}` for orgs; public profile only, no email/admin/active flags, pronouns only if not private);
+    OrgUser/Team/TeamUser/TeamRepo/TeamUnit → `org:{org_id}`; Access, Notification, Stopwatch, IssueWatch, Watch, Star,
+    BlockedUser, **ReviewState** (viewed files are per user, PLAN §4.4) → `user:{user_id}`; Label → `repo:` unit
+    `issues|pulls` (org labels → `org:`); Milestone → `repo:` `issues|pulls`; Project/ProjectColumn/ProjectIssue → the
+    project's repo (unit `projects`) or owner (`org:`/`user:`); Issue, IssueLabel, IssueAssignee → `repo:{issue.repo_id}`
+    unit `issues`/`pulls` by `is_pull`; **IssueBody** (body + body_html, derived from the issue row, same id) →
+    `issue:{id}`; PullRequest, AutoMerge → `repo:{base_repo_id}` `pulls`; Branch, CommitStatus → `code`; Release →
+    `releases`; ActionRun/Job → `actions`; Comment, Reaction, Review (`pulls`), IssueDependency, TrackedTime,
+    ContentHistory → `issue:{issue_id}`; Attachment → `issue:` or (release) `repo:` `releases`, unattached ones nowhere.
+    A row whose group changes gets `D` in the old group + `U` in the new one. **For B4/B6:** other users' public
+    profiles live in their `user:{id}` group, which carries that user's private entities too — B4 must not grant
+    `user:{id}` to others; B6 should embed the `User` entities a bootstrap references (or B4/B5 add a model filter).
+  - **TS generation.** `next/tools/gen-protocol.sh [--check]` runs `go run github.com/gzuidhof/tygo@v0.2.21` with
+    `GOTOOLCHAIN` = go.mod's toolchain (tygo loads this module), writes to a temp file, then copies (or diffs for
+    `--check`, exit 1 when stale). Go doc comments become TSDoc. Const blocks have their comment detached by a blank
+    line (tygo otherwise repeats a block comment on every constant). `time.Time` → `string`, `map[string]any` →
+    `{ [key: string]: any}`. B5 adds its message types to the same package and re-runs the script.
+  - **Sync log (`synclog`).** `AcquireWriter(ctx, wake) (*Writer, error)` = `models/livesync.TryLease("livesync.writer")`
+    (`pg_try_advisory_lock` / `GET_LOCK(…, 0)` on a pinned connection; `ErrWriterHeld` otherwise) + **fencing token**
+    (`livesync_meta.log_writer`, incremented on every acquisition). `Writer.Append(txCtx, entries) (first int64, err)`
+    must run in the caller's transaction and is called in **every** writer transaction (also with no entries): it locks
+    `log_head` + `log_writer` with `SELECT … ORDER BY name FOR UPDATE` (without ORDER BY PostgreSQL locks in physical
+    order and concurrent appends deadlocked — found by the concurrency test), returns `ErrNotWriter` if the token moved,
+    assigns `head+1…` (gap-free, strictly increasing in commit order since the head row stays locked), inserts in chunks
+    of 100, updates the head, `pg_notify('livesync_log', current_schema())` on PG and `db.AfterTx(wake)`. `Check` pings
+    the lease connection; `Release`. `Head`, `Floor`, `ReadSince(ctx, group, cursor, limit)` (group `""` = all; entries
+    of group + GroupAll, ascending; `*TrimmedError{Cursor, Floor}` / `ErrTrimmed` when `cursor < floor` — the floor is
+    read *after* the entries, so a concurrent trim can never hide a gap), `Trim(ctx, maxAge, maxRows) (floor, error)`
+    (chunks of 5000, each chunk's DELETE and the `log_floor` move in one tx; floor = "oldest cursor still served").
+    **Tailer** (every instance; invariant 2 = writer and tailer split): `StartTailer(ctx, cfg, sink)` from the current
+    head, woken by the local writer (AfterTx), by `LISTEN livesync_log` on PG (via `capture.Listen`, one more pgx
+    connection per instance) and by polling (`POLL_INTERVAL`, default 250 ms PG / 100 ms MySQL); hands ordered batches
+    to `Sink.Deliver(ctx, []LogEntry)`; skips ahead to the floor with a warning if it ever fell behind retention.
+    **B5: implement `synclog.Sink` in the hub and replace `logSink` (services/livesync/writer.go) in Init.**
+  - **Writer role** (`services/livesync/writer.go`, started by Init on every instance): loop { `AcquireWriter`; on
+    success `materialize.New` + `Prepare` (backfill state, epochs) + `capture.Start(reader, materializer)`; then every
+    2 s `Check` the lease, every 5 s `HandleEpochs`, retention at once and every 10 min, backfill steps every 10 ms until
+    done; on lease loss / `ErrNotWriter` (the materializer calls `stop`) / shutdown: stop the reader (wait ≤ 10 s),
+    release; otherwise retry every 2 s }. So **only the lease holder runs the outbox reader** (B2's open point), and a
+    writer that lost its lease without noticing is fenced by the token. Shutdown waits for the writer goroutine and the
+    tailer (≤ 10 s each). Writer transactions run on `context.WithoutCancel` (≤ 1 min): cancelling mid-transaction made
+    database/sql roll back under running statements and xorm log `[Error SQL Query] ROLLBACK` at every shutdown.
+  - **Materializer.** `Consume` (capture.Consumer): coalesce by (table, row) in first-appearance order; untracked tables
+    are acknowledged; hot rows rate-limited (below); then **one quiet transaction** (`capture.WithQuietTx`): load the
+    rows per table with `In("id", …)` through the typed models (parents — issues, repos, projects, pulls — cached per
+    batch), build DTOs, read the entity index, decide per entity: gone/no group + indexed → `D` in the indexed
+    group/unit and unindex; new or changed → `U` (+ `D` in the old group if it moved) and upsert the index with the new
+    hash/sync id; **same group, unit and payload hash → nothing** (no-op updates such as fixture reloads or touched
+    timestamps that the DTO does not carry produce no entry); `Writer.Append`; index writes (multi-row upserts);
+    **`Batch.Commit` in the same transaction** (log append + outbox delete + capture cursor atomic, B2's open point). A
+    row whose DTO cannot be built is logged at Error and skipped (one bad row must not stall the log); DB errors make the
+    reader retry the batch. **Hot tables** (`notification`, `commit_status`, `action_run_job`): a row materialized less
+    than `HOT_COALESCE` (default 1 s) ago is deferred with the new `capture.Batch.Defer(id, until)` — its newest outbox
+    row stays in the outbox (the others are deleted), the reader skips it until due (the hole re-check and the sweep now
+    page by id and filter deferred rows; the sweep also runs when a deferred row is due) and delivers it again: at most
+    one entry per hot row per second, latest state, first change after a quiet period immediate, nothing lost on restart
+    (the sweep finds deferred rows).
+  - **Markdown / viewer-independence (PLAN §4.4 check, findings).** `body_html` of IssueBody, Comment, Review and
+    Release is rendered by `markdown.RenderString` with the repository's metas and links (as the issue page) but with the
+    materializer's context, which is not an `*app_context.Context`, so `services/markup.ProcessorHelper` treats it as
+    **anonymous**: @mentions link public users only (limited/private users are plain text for every reader — a safe
+    subset of the classic UI), permalink code previews show public repositories' code only (never private code; also
+    not the issue's own private repo), issue refs / SHAs / team mentions depend only on the repository; the
+    "(comment)" suffix of comment links is English (no locale). Result: viewer-independent, so rendering once is fine;
+    **no per-request rendering needed**. Each repository's git repo is opened once per batch for SHA checks (and when
+    it is missing on disk, `repoPath` is dropped from the metas, so SHAs stay plain text instead of upstream logging
+    "unable to open repository" per SHA — this happened in tests whose fixture reloads were materialized).
+    Milestone/Project/Label descriptions are raw only. HTML in payloads is JSON-escaped (`<`, jsoniter default).
+  - **Schema epochs — decision: re-bootstrap markers, no reconciliation scan.** A scan over `updated_unix` would miss
+    deletes and the many writes that do not touch `updated_unix` (counters, `NoAutoTime`, tables without the column), so
+    it cannot make the log correct; the hash makes a full rescan cheap in log entries but not in DB work. Instead
+    `HandleEpochs` (at `Prepare` and every 5 s, so bumps by another instance's start are seen) compares
+    `schema_epoch.<tbl>` with `materialized_epoch.<tbl>` (`materialize.MetaHandledEpochPrefix`): for every table that
+    differs it appends one `B` marker per model of the table (`issue` → Issue + IssueBody) to GroupAll, restarts that
+    table's index backfill and records the epoch as handled, in one writer transaction. A table with **no** handled
+    epoch yet (first start, newly tracked table) is recorded without a marker (bootstraps read tables directly; no client
+    can hold its entities from the log). **For B5:** a `B` entry ⇒ `bootstrap_required{group, reason}` for every
+    subscribed group that can contain that model (by group kind) for clients whose cursor is below the marker.
+  - **Entity index backfill** (deletes of rows that existed before livesync was installed have no index row and
+    could not be routed). `BackfillStep` walks each tracked table by id (500 rows per writer transaction, group/unit
+    only, `ON CONFLICT DO NOTHING` / `ON DUPLICATE KEY UPDATE tbl = tbl` so it never overwrites the materializer's newer
+    rows), progress in `entity_backfill.<tbl>` (last id or `done`; `materialize.MetaBackfillPrefix`), serialised with
+    `Consume` by the materializer's mutex. **While a table's backfill is incomplete, a delete of an unindexed row of it
+    is written to GroupAll** (model + id, no payload) — clients drop the entity if they hold it; once complete, such a
+    delete is of a row nobody ever received and is skipped. A marker restarts the table's backfill (rows inserted while
+    its trigger was missing). Cost: ≈ rows/500 transactions per table, 10 ms apart, in the background.
+  - **Settings added:** `LOG_RETENTION` (default 720h, 0 = no age limit), `LOG_MAX_ROWS` (default 1 000 000, 0 = no
+    row limit), `HOT_COALESCE` (default 1s, 0 = off). `POLL_INTERVAL` now also drives the tailer.
+  - **livesync_meta names now:** `tables_version`, `capture_cursor`, `capture_pending`, `schema_epoch.*` (B1/B2);
+    `log_head`, `log_writer`, `log_floor` (synclog), `materialized_epoch.*`, `entity_backfill.*` (materialize).
+  - **Not done / for later.** No `Head()` on the tailer and no sync id in `/-/sync/health` (kept free of activity
+    information); B5 adds what it needs. Per-row DTO errors are skipped, but a row that fails to *load* (xorm conversion
+    error) still makes the batch retry. The User-group caveat above. B4 hooks permission epochs into the materializer
+    (no hook point added: it would be dead code now). MariaDB not re-run for B3 (B2 covered the triggers there).
+  - **Tests.** Unit (no DB / SQLite with fixtures): `TestCoalesce`, `TestHotLimiter`, `TestSpecsCoverCatalog` (a spec per
+    tracked table, catalog model names = protocol names), `TestLoadFixtures` (all 39 tables' fixture rows load, place
+    and encode, with and without DTOs), `TestConsume` (entries/groups/units/payloads incl. rendered HTML, batch
+    acknowledged in the tx, index rows, hash dedupe, delete routed by the index, unknown delete → GroupAll until the
+    backfill is complete, group move = D + U), `TestConsumeHot`, `TestConsumeFencing` (ErrNotWriter ⇒ stop, batch not
+    acknowledged), `TestHandleEpochs`, `TestBackfill`; `synclog`: `TestAppendAndReadSince`, `TestWriterFencing`, `TestTrim`,
+    `TestTailer`; `capture`: `TestReaderDefer` (deferred rows below/above the cursor), `TestReaderHoles` made robust (it
+    read the stored cursor before the reader's commit; flaked under `-race` already on B2's code); settings. Integration,
+    **green on PG 16 (`gtestschema`) and MySQL 8.0**: `TestLivesyncMaterializeAPI` (API v1 create issue → Issue in
+    `repo:1`/issues + IssueBody in `issue:N` with body_html; add label → IssueLabel + Label; comment → Comment with
+    body_html + Issue comments=1; delete comment → `D` in `issue:N` from the index, index row removed; gap-free;
+    outbox drained), `TestLivesyncMaterializeConcurrentWriters` (8 goroutines × 15 label writes, some insert+update
+    in one tx ⇒ exactly one entry per label, ids gap-free), `TestLivesyncMaterializeEpoch` (drop label trigger, write,
+    re-Init ⇒ epoch 2, `B` marker for Label only, handled = 2, the lost write not in the log, backfill restarted,
+    capture works again), `TestLivesyncSyncLogLease` (running instance holds the lease ⇒ `ErrWriterHeld`; released at
+    shutdown; killing the lease session (`pg_terminate_backend` / `KILL`) ⇒ `Check` fails, another writer takes over,
+    the old one gets `ErrNotWriter`), `TestLivesyncSyncLogConcurrentAppend` (8 × 25 concurrent transactions of 2
+    entries, every 5th rolled back ⇒ ids 1…320 gap-free, a transaction's entries consecutive), `TestLivesyncSyncLogRetention`
+    (age and row limits, floor reported, `TrimmedError`). All B1/B2 `TestLivesync*` still green (the materializer now
+    consumes the fixture reloads `onApplicationRun` does while livesync runs).
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./models/livesync/... ./services/livesync/... ./routers/livesync/...
+    ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), unit tests
+    (`-race` for capture/synclog/materialize), `next/tools/gen-protocol.sh --check` (up to date), `./integrations.pgsql.test
+    -test.run 'TestLivesync|TestVersion|TestNodeinfo'` with `tests/pgsql.ini` and `tests/mysql.ini` (all green),
+    fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; tygo runs via `go run
+    …@version` and adds nothing to go.mod); dev binary smoke test on PG and MySQL with `ENABLED = true` (repo + issue
+    via API ⇒ Repository, RepoUnit×8, User, Watch, Issue, IssueBody entries with a rendered @mention and #ref, outbox
+    empty, backfill done, writer token 1); dev DBs' triggers removed again afterwards.
 
 #### B4 — Permissions
 - [ ] **Status**

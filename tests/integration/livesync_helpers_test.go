@@ -366,13 +366,21 @@ func livesyncEntry(model protocol.Model, id int64, op protocol.Op) func(e *lives
 // / entity index, and serves MakeRequest through the wrapped handler.
 func livesyncServe(t *testing.T) {
 	t.Helper()
+	livesyncServeWith(t, nil)
+}
+
+// livesyncServeWith is livesyncServe with extra [livesync] settings.
+func livesyncServeWith(t *testing.T, kv map[string]string) {
+	t.Helper()
 	livesyncResetCapture(t)
 	t.Cleanup(func() {
 		livesync_service.Shutdown()
 		livesyncUninstallTriggers(t)
 		livesyncResetCapture(t)
 	})
-	livesyncConfig(t, map[string]string{"ENABLED": "true", "INSTALL_MODE": "auto"})
+	settings := map[string]string{"ENABLED": "true", "INSTALL_MODE": "auto"}
+	maps.Copy(settings, kv)
+	livesyncConfig(t, settings)
 	wrapped := livesync_router.Wrap(routers.NormalRoutes())
 	require.True(t, livesync_service.Running(), "livesync failed to start, see the log")
 	t.Cleanup(test.MockVariableValue(&testWebRoutes, livesyncRoutes(wrapped)))
@@ -403,4 +411,20 @@ func livesyncToken(t *testing.T, u *user_model.User) string {
 	tok := &auth_model.AccessToken{UID: u.ID, Name: fmt.Sprintf("livesync-perm-%d", time.Now().UnixNano()), Scope: auth_model.AccessTokenScopeAll, ResourceAllRepos: true}
 	require.NoError(t, auth_model.NewAccessToken(t.Context(), tok))
 	return tok.Token
+}
+
+// livesyncSettle waits until the materializer has consumed every outbox
+// row and the sync log head stopped moving (writes of earlier requests are
+// all in the log).
+func livesyncSettle(t *testing.T) {
+	t.Helper()
+	assert.Eventually(t, func() bool { return len(livesyncOutbox(t)) == 0 }, livesyncWait, 10*time.Millisecond, "outbox drained")
+	head := livesyncLogHead(t)
+	assert.Eventually(t, func() bool {
+		time.Sleep(100 * time.Millisecond)
+		next := livesyncLogHead(t)
+		stable := next == head && len(livesyncOutbox(t)) == 0
+		head = next
+		return stable
+	}, livesyncWait, time.Millisecond, "sync log settled")
 }

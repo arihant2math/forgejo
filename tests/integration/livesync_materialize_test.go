@@ -345,6 +345,9 @@ func TestLivesyncMaterializeDrafts(t *testing.T) {
 	}
 
 	// Submitting moves the review and its comment to the pull request.
+	// (The review row may still have a pending update from the request
+	// above: start after everything it wrote is in the log.)
+	livesyncSettle(t)
 	cursor = livesyncLogHead(t)
 	req = NewRequestWithJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/3/reviews/%d", review.ID), map[string]any{
 		"body": "done", "event": "COMMENT",

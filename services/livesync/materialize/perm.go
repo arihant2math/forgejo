@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"forgejo.org/models/db"
+	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
 	"forgejo.org/services/livesync/protocol"
@@ -58,16 +59,103 @@ func fingerprint(values ...any) string {
 	return strings.Join(parts, ",")
 }
 
-// permSubjects collects the subjects of changed permission states.
+// permUnverified prefixes a permission state that an index walk recorded
+// for a row with changes still in the outbox: the walk read the row's
+// current state, which may already include those changes, so it is not
+// known to be the state before them. The next change of the row is an
+// epoch for the subjects of the recorded and of the current state, whatever
+// they are (see permSubjects.transition).
+const permUnverified = "?"
+
+// permKey identifies a permission state of a table, for netting.
+type permKey struct {
+	table, state string
+}
+
+// permSubjects collects the subjects of the permission states that changed
+// in a transaction.
 type permSubjects struct {
+	// ids are the subjects collected directly, by kind.
 	ids map[byte]map[int64]bool
-	// all: a permission row went whose state is unknown (deleted before
-	// the entity index backfill reached it), so its subjects are too.
+	// removed and added count the known states that went and appeared
+	// (rows deleted / inserted or changed). A state that went and appeared
+	// again in the same transaction (Forgejo deletes and re-inserts the
+	// access rows of a repository with new ids on every recalculation,
+	// team and repository units on every update) changed nobody's access,
+	// so change nets them out before collecting their subjects.
+	removed, added map[permKey]int
+	// all: a permission row changed whose state is unknown (gone before
+	// the materializer or an index walk recorded it), so its subjects are
+	// too.
 	all bool
 }
 
-// add records the subjects of a state ("" adds nothing).
+// transition records the change of the permission state of a row of table
+// (main entity of a spec with perm) from the state stored in its index row
+// o (nil: not indexed) to its current state cur ("" when the row is gone or
+// in no group), and reports whether the stored state must be updated.
+//
+//   - Not indexed and gone: the row existed between two materializations
+//     only if it was inserted in this batch (inserted) — or before the
+//     table's index backfill recorded it (!backfilled): its state is unknown,
+//     so the epoch names everyone (PermissionChange.All). Tables whose rows
+//     are derived from other permission rows in the same transaction
+//     (spec.permDerived: access) are exempt for inserted rows, see there.
+//   - Not indexed and present: a new row (inserted: its state counts as
+//     appeared) or one the backfill has not recorded yet (its earlier state
+//     is unknown: the subjects of the current one are named directly — a
+//     state's subjects are fixed columns of the row (ids), except a
+//     repository's owner, whose old readers are also the repository's
+//     readers, r<id>).
+//   - Indexed with an empty state (written before permission states
+//     existed, until the permission walk recorded it) or an unverified one
+//     (permUnverified): gone ⇒ everyone (empty) or the recorded subjects
+//     (unverified); present ⇒ the recorded and the current subjects.
+//   - Otherwise a known state: removed and/or added when it differs.
+func (p *permSubjects) transition(table string, o *livesync_model.Entity, cur string, inserted, derived, backfilled bool) bool {
+	switch {
+	case o == nil && cur == "":
+		if !backfilled || (inserted && !derived) {
+			p.all = true
+		}
+		return false
+	case o == nil && inserted:
+		p.count(&p.added, table, cur)
+		return true
+	case o == nil:
+		p.add(cur)
+		return true
+	case o.Perm == "":
+		if cur == "" {
+			p.all = true
+		}
+		p.add(cur)
+		return true
+	case strings.HasPrefix(o.Perm, permUnverified):
+		p.add(o.Perm)
+		p.add(cur)
+		return true
+	case o.Perm == cur:
+		return false
+	}
+	p.count(&p.removed, table, o.Perm)
+	if cur != "" {
+		p.count(&p.added, table, cur)
+	}
+	return true
+}
+
+func (p *permSubjects) count(m *map[permKey]int, table, state string) {
+	if *m == nil {
+		*m = map[permKey]int{}
+	}
+	(*m)[permKey{table, state}]++
+}
+
+// add records the subjects of a state ("" adds nothing; an unverified
+// state's subjects count).
 func (p *permSubjects) add(state string) {
+	state = strings.TrimPrefix(state, permUnverified)
 	for tok := range strings.FieldsSeq(state) {
 		if tok[0] == '#' {
 			break
@@ -86,6 +174,22 @@ func (p *permSubjects) add(state string) {
 	}
 }
 
+// net adds the subjects of the states that went or appeared more often
+// than the other way round.
+func (p *permSubjects) net() {
+	for k, n := range p.removed {
+		if n > p.added[k] {
+			p.add(k.state)
+		}
+	}
+	for k, n := range p.added {
+		if n > p.removed[k] {
+			p.add(k.state)
+		}
+	}
+	p.removed, p.added = nil, nil
+}
+
 func (p *permSubjects) list(kind byte) []int64 {
 	res := make([]int64, 0, len(p.ids[kind]))
 	for id := range p.ids[kind] {
@@ -102,6 +206,7 @@ func (p *permSubjects) change(ctx context.Context) (ch protocol.PermissionChange
 	if p.all {
 		return protocol.PermissionChange{All: true}, true, nil
 	}
+	p.net()
 	if len(p.ids) == 0 {
 		return ch, false, nil
 	}

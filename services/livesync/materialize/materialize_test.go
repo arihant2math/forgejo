@@ -43,10 +43,10 @@ func TestCoalesce(t *testing.T) {
 		change(6, "comment", 4, "I"),
 	})
 	assert.Equal(t, []rowChanges{
-		{key: rowKey{"issue", 7}, changeIDs: []int64{1, 3, 5}},
-		{key: rowKey{"comment", 3}, changeIDs: []int64{2}},
+		{key: rowKey{"issue", 7}, changeIDs: []int64{1, 3, 5}, inserted: true},
+		{key: rowKey{"comment", 3}, changeIDs: []int64{2}, inserted: true},
 		{key: rowKey{"label", 7}, changeIDs: []int64{4}},
-		{key: rowKey{"comment", 4}, changeIDs: []int64{6}},
+		{key: rowKey{"comment", 4}, changeIDs: []int64{6}, inserted: true},
 	}, got)
 	assert.EqualValues(t, 5, got[0].last())
 	assert.Empty(t, coalesce(nil))
@@ -398,7 +398,7 @@ func TestHandleEpochs(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, handled["label"])
 	assert.False(t, m.backfillComplete("label"), "the backfill restarts")
-	assert.True(t, m.repair["label"], "in repair mode")
+	assert.Equal(t, indexRepair, m.walk["label"], "in repair mode")
 	v, _, err := livesync_model.GetMeta(ctx, MetaBackfillPrefix+"label")
 	require.NoError(t, err)
 	assert.Equal(t, "repair:0", v)

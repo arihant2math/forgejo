@@ -24,7 +24,8 @@ func TestPermSubjects(t *testing.T) {
 	p.add(permState(fingerprint(1, true), subject('u', 5), subject('r', 3)))
 	p.add(permState("", subject('u', 5), subject('O', 7), subject('t', 2)))
 	p.add("u0 x #u9") // nothing after the fingerprint marker, no id 0
-	assert.Equal(t, []int64{5}, p.list('u'))
+	p.add(permUnverified + permState("", subject('u', 6)))
+	assert.Equal(t, []int64{5, 6}, p.list('u'))
 	assert.Equal(t, []int64{3}, p.list('r'))
 	assert.Equal(t, []int64{7}, p.list('O'))
 	assert.Equal(t, []int64{2}, p.list('t'))
@@ -165,7 +166,9 @@ func TestConsumePermissionEpochs(t *testing.T) {
 
 // A permission row deleted before the index backfill recorded its state:
 // its subjects are unknown, so the epoch names everything. Once the table's
-// backfill is complete, an unindexed delete cannot have been visible.
+// backfill is complete, a delete of an unindexed row that was not inserted
+// in the same batch is not a row anyone could have read (rows that were are
+// TestConsumeVanishedPermissionRow).
 func TestConsumeUnindexedPermissionDelete(t *testing.T) {
 	resetLivesync(t)
 	m, _ := testMaterializer(t)
@@ -182,6 +185,181 @@ func TestConsumeUnindexedPermissionDelete(t *testing.T) {
 	consume(t, m, change(3, "collaboration", 3, "D"))
 	rows, _ = takeLog(t, &cursor)
 	assert.Empty(t, rows)
+}
+
+// backfillAll runs the index backfill to its end.
+func backfillAll(t *testing.T, m *Materializer) {
+	t.Helper()
+	for {
+		more, err := m.BackfillStep(t.Context())
+		require.NoError(t, err)
+		if !more {
+			return
+		}
+	}
+}
+
+// noEpoch asserts that rows hold no permission epoch.
+func noEpoch(t *testing.T, rows []logRow) {
+	t.Helper()
+	for _, r := range rows {
+		assert.NotEqual(t, "P", r.Op, "no permission epoch")
+	}
+}
+
+// A permission row inserted and deleted again between two materializations
+// (one batch) existed in between: a grant computed meanwhile may have seen
+// it, and its subjects are unknown, so the epoch names everyone — except
+// for access rows, which are derived from the other permission tables in
+// the same transaction (their changes are the epochs).
+func TestConsumeVanishedPermissionRow(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	backfillAll(t, m)
+	var cursor int64
+	takeLog(t, &cursor)
+
+	exec(t, "INSERT INTO collaboration (id, repo_id, user_id, mode) VALUES (100, 2, 5, 2)")
+	exec(t, "DELETE FROM collaboration WHERE id = 100")
+	consume(t, m, change(1, "collaboration", 100, "I"), change(2, "collaboration", 100, "D"))
+	rows, entries := takeLog(t, &cursor)
+	ch, rest := permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{All: true}, ch)
+	assert.Empty(t, rest)
+
+	exec(t, "INSERT INTO access (id, user_id, repo_id, mode) VALUES (100, 5, 2, 2)")
+	exec(t, "DELETE FROM access WHERE id = 100")
+	consume(t, m, change(3, "access", 100, "I"), change(4, "access", 100, "D"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Empty(t, rows)
+
+	// Inserted, kept: an epoch for its subjects, as before.
+	exec(t, "INSERT INTO collaboration (id, repo_id, user_id, mode) VALUES (101, 2, 5, 2)")
+	consume(t, m, change(5, "collaboration", 101, "I"))
+	rows, entries = takeLog(t, &cursor)
+	ch, _ = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{5}}, ch)
+}
+
+// Forgejo replaces access rows (and team/repository units) with new ids
+// on every recalculation: identical states that went and came back in one
+// transaction change nobody's access and are netted out; a state that
+// really changed is still an epoch.
+func TestConsumePermissionNetting(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	backfillAll(t, m)
+	var cursor int64
+	takeLog(t, &cursor)
+
+	// access 5: user 4 on repository 3, mode 2.
+	exec(t, "DELETE FROM access WHERE id = 5")
+	exec(t, "INSERT INTO access (id, user_id, repo_id, mode) VALUES (500, 4, 3, 2)")
+	consume(t, m, change(1, "access", 5, "D"), change(2, "access", 500, "I"))
+	rows, _ := takeLog(t, &cursor)
+	noEpoch(t, rows)
+	assert.Equal(t, []logRow{{"user:4", "self", "Access", "D", 5}, {"user:4", "self", "Access", "U", 500}}, rows)
+	assert.Equal(t, permState(fingerprint(3, 2), "u4"), indexRow(t, "access", 500).Perm)
+
+	// The same with another mode: an epoch for the user.
+	exec(t, "DELETE FROM access WHERE id = 500")
+	exec(t, "INSERT INTO access (id, user_id, repo_id, mode) VALUES (501, 4, 3, 1)")
+	consume(t, m, change(3, "access", 500, "D"), change(4, "access", 501, "I"))
+	rows, entries := takeLog(t, &cursor)
+	ch, _ := permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{4}}, ch)
+
+	// A collaboration and an access row with the same state string are
+	// different grants: never netted against each other.
+	exec(t, "INSERT INTO collaboration (id, repo_id, user_id, mode) VALUES (100, 2, 5, 2)")
+	consume(t, m, change(5, "collaboration", 100, "I"))
+	takeLog(t, &cursor)
+	exec(t, "DELETE FROM collaboration WHERE id = 100")
+	exec(t, "INSERT INTO access (id, user_id, repo_id, mode) VALUES (502, 5, 2, 2)")
+	require.Equal(t, indexRow(t, "collaboration", 100).Perm, permState(fingerprint(2, 2), "u5"))
+	consume(t, m, change(6, "collaboration", 100, "D"), change(7, "access", 502, "I"))
+	rows, entries = takeLog(t, &cursor)
+	ch, _ = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{5}}, ch)
+}
+
+// Index rows written before permission states existed (B3) have none: a
+// permission walk records them without touching groups or hashes; until it
+// has, the state of such a row is unknown (a delete names everyone, a
+// change the row's current subjects).
+func TestConsumeLegacyPermissionStates(t *testing.T) {
+	resetLivesync(t)
+	ctx := t.Context()
+	m, _ := testMaterializer(t)
+	backfillAll(t, m)
+	var cursor int64
+	takeLog(t, &cursor)
+	// The index as B3 left it, plus a hash a materialized row would have.
+	exec(t, "UPDATE livesync_entity SET perm = '' WHERE tbl IN ('collaboration', 'repository')")
+	exec(t, "UPDATE livesync_entity SET hash = 'h' WHERE tbl = 'collaboration' AND row_id = 3")
+	_, err := db.GetEngine(ctx).Exec("DELETE FROM livesync_meta WHERE name LIKE ?", MetaPermPrefix+"%")
+	require.NoError(t, err)
+
+	exec(t, "DELETE FROM collaboration WHERE id = 1")
+	consume(t, m, change(1, "collaboration", 1, "D"))
+	rows, entries := takeLog(t, &cursor)
+	ch, rest := permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{All: true}, ch)
+	assert.Equal(t, []logRow{{"repo:3", "", "Collaboration", "D", 1}}, rest)
+
+	exec(t, "UPDATE repository SET description = 'changed' WHERE id = 1")
+	consume(t, m, change(2, "repository", 1, "U"))
+	rows, entries = takeLog(t, &cursor)
+	ch, _ = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}, Repos: []int64{1}}, ch, "the current subjects")
+	assert.NotEmpty(t, indexRow(t, "repository", 1).Perm, "recorded")
+
+	// The permission walk: started by HandleEpochs, no log entries.
+	require.NoError(t, m.HandleEpochs(ctx))
+	rows, _ = takeLog(t, &cursor)
+	assert.Empty(t, rows)
+	assert.Equal(t, indexPerm, m.walk["collaboration"])
+	assert.Equal(t, indexPerm, m.walk["access"])
+	assert.True(t, m.backfillComplete("label"), "not a permission table")
+	v, _, err := livesync_model.GetMeta(ctx, MetaBackfillPrefix+"collaboration")
+	require.NoError(t, err)
+	assert.Equal(t, "perm:0", v)
+	backfillAll(t, m)
+	row := indexRow(t, "collaboration", 3)
+	assert.Equal(t, livesync_model.Entity{Tbl: "collaboration", RowID: 3, Grp: "repo:40", Hash: "h", Perm: permState(fingerprint(40, 2), "u4")}, *row,
+		"only the permission state is written")
+	require.NoError(t, m.HandleEpochs(ctx))
+	assert.True(t, m.backfillComplete("collaboration"), "recorded as done")
+
+	exec(t, "DELETE FROM collaboration WHERE id = 3")
+	consume(t, m, change(3, "collaboration", 3, "D"))
+	rows, entries = takeLog(t, &cursor)
+	ch, _ = permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{4}}, ch)
+}
+
+// An index walk that passes a row whose change is still in the outbox may
+// already see the changed state: it records it as unverified, so consuming
+// the change is still an epoch.
+func TestBackfillPendingPermissionChange(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	exec(t, "UPDATE repository SET is_private = ? WHERE id = 1", true)
+	require.NoError(t, db.Insert(t.Context(), &livesync_model.Change{ID: 1, Tbl: "repository", RowID: 1, Op: "U"}))
+	backfillAll(t, m)
+	assert.Equal(t, permUnverified+permState(fingerprint(true, 2), "r1", "u2"), indexRow(t, "repository", 1).Perm)
+	assert.Equal(t, permState(fingerprint(true, 2), "r2", "u2"), indexRow(t, "repository", 2).Perm, "nothing pending")
+	takeLog(t, &cursor)
+
+	_, err := db.GetEngine(t.Context()).Exec("DELETE FROM livesync_change")
+	require.NoError(t, err)
+	consume(t, m, change(1, "repository", 1, "U"))
+	rows, entries := takeLog(t, &cursor)
+	ch, rest := permChange(t, rows, entries)
+	assert.Equal(t, protocol.PermissionChange{Users: []int64{2}, Repos: []int64{1}}, ch)
+	assert.Equal(t, []logRow{{"repo:1", "", "Repository", "U", 1}}, rest)
+	assert.Equal(t, permState(fingerprint(true, 2), "r1", "u2"), indexRow(t, "repository", 1).Perm, "verified now")
 }
 
 func indexRows(t *testing.T, key string) []livesync_model.Entity {
@@ -237,7 +415,7 @@ func TestHandleEpochsPlacementAndPermissions(t *testing.T) {
 	var marker protocol.RebootstrapMarker
 	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &marker))
 	assert.Equal(t, protocol.RebootstrapPlacementChanged, marker.Reason)
-	assert.True(t, m.repair["user"])
+	assert.Equal(t, indexRepair, m.walk["user"])
 	placed, err := readMetaInts(ctx, MetaPlacementPrefix)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, placed["user"])

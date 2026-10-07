@@ -17,12 +17,14 @@ import (
 
 // MetaBackfillPrefix + table name is the livesync_meta entry holding the
 // progress of the table's entity index backfill: the last row id indexed
-// ("repair:<id>" for a repair backfill), or "done".
+// ("repair:<id>" for a repair backfill, "perm:<id>" for a permission walk),
+// or "done".
 const MetaBackfillPrefix = "entity_backfill."
 
 const (
 	backfillDoneValue          = "done"
 	backfillRepairPrefix       = "repair:"
+	backfillPermPrefix         = "perm:"
 	backfillDone         int64 = -1
 	// backfillChunk is the number of rows indexed per BackfillStep.
 	backfillChunk = 500
@@ -52,6 +54,18 @@ const (
 // table wait for the repair too; every client that held the table's models
 // re-bootstraps after the marker, so what the stale index routes in the
 // meantime reaches nobody who keeps it.
+//
+// A permission walk (indexPerm, "perm:<id>") records the permission states
+// of a permission table whose index rows were written before permission
+// states existed (B3; HandleEpochs starts it when the table's
+// materialized_perm version is behind permVersion): it only fills the perm
+// column, so it needs no markers. Until it has passed a row, the row's
+// empty state is unknown (see permSubjects.transition).
+//
+// Every walk records the permission state of a row that still has changes
+// in the outbox as unverified (permUnverified): the walk reads the row's
+// current state, which may already include them, and recording it as known
+// would make the materializer see no change when it consumes them.
 
 func (m *Materializer) loadBackfill(ctx context.Context) error {
 	e, err := livesync_model.MasterEngine(ctx)
@@ -63,31 +77,38 @@ func (m *Materializer) loadBackfill(ctx context.Context) error {
 		return fmt.Errorf("livesync: read the backfill progress: %w", err)
 	}
 	m.backfill = map[string]int64{}
-	m.repair = map[string]bool{}
+	m.walk = map[string]indexWrite{}
 	for _, meta := range metas {
 		table := meta.Name[len(MetaBackfillPrefix):]
 		if meta.Value == backfillDoneValue {
 			m.backfill[table] = backfillDone
 			continue
 		}
-		value, repair := strings.CutPrefix(meta.Value, backfillRepairPrefix)
+		value, mode := meta.Value, indexKeep
+		if v, ok := strings.CutPrefix(value, backfillRepairPrefix); ok {
+			value, mode = v, indexRepair
+		} else if v, ok := strings.CutPrefix(value, backfillPermPrefix); ok {
+			value, mode = v, indexPerm
+		}
 		v, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
 			return fmt.Errorf("livesync_meta %s is %q, not a backfill progress", meta.Name, meta.Value)
 		}
 		m.backfill[table] = v
-		m.repair[table] = repair
+		m.walk[table] = mode
 	}
 	return nil
 }
 
 // backfillValue is the livesync_meta value of a backfill progress.
-func backfillValue(last int64, repair bool) string {
+func backfillValue(last int64, mode indexWrite) string {
 	switch {
 	case last == backfillDone:
 		return backfillDoneValue
-	case repair:
+	case mode == indexRepair:
 		return backfillRepairPrefix + strconv.FormatInt(last, 10)
+	case mode == indexPerm:
+		return backfillPermPrefix + strconv.FormatInt(last, 10)
 	}
 	return strconv.FormatInt(last, 10)
 }
@@ -112,11 +133,7 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 	if table == "" {
 		return false, nil
 	}
-	after, repair := m.backfill[table], m.repair[table]
-	mode := indexKeep
-	if repair {
-		mode = indexRepair
-	}
+	after, mode := m.backfill[table], m.walk[table]
 	var next int64
 	err := m.inWriterTx(ctx, func(ctx context.Context) error {
 		// Fencing only: an old writer must not keep indexing.
@@ -132,12 +149,25 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 		if err != nil {
 			return fmt.Errorf("livesync: backfill %s: %w", table, err)
 		}
+		// Read after the rows: a change committed in between is pending
+		// here, so its row is recorded as unverified.
+		var pending map[int64]bool
+		if s.perm {
+			if pending, err = pendingRows(ctx, table, ids); err != nil {
+				return err
+			}
+		}
 		var rows []livesync_model.Entity
 		for _, id := range ids {
 			for _, e := range loaded[id] {
-				if e.group != "" {
-					rows = append(rows, livesync_model.Entity{Tbl: e.key, RowID: id, Grp: e.group, Unit: string(e.unit), Perm: e.perm})
+				if e.group == "" || (mode == indexPerm && e.perm == "") {
+					continue
 				}
+				perm := e.perm
+				if perm != "" && pending[id] {
+					perm = permUnverified + perm
+				}
+				rows = append(rows, livesync_model.Entity{Tbl: e.key, RowID: id, Grp: e.group, Unit: string(e.unit), Perm: perm})
 			}
 		}
 		if err := writeIndex(ctx, rows, mode); err != nil {
@@ -147,15 +177,35 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 		if len(ids) == backfillChunk {
 			next = ids[len(ids)-1]
 		}
-		return livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(next, repair))
+		return livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(next, mode))
 	})
 	if err != nil {
 		return true, err
 	}
 	m.backfill[table] = next
 	if next == backfillDone {
-		delete(m.repair, table)
+		delete(m.walk, table)
 		log.Debug("livesync: entity index backfill of %s complete", table)
 	}
 	return true, nil
+}
+
+// pendingRows returns which of the rows of table have changes in the
+// outbox (not consumed yet, or deferred).
+func pendingRows(ctx context.Context, table string, ids []int64) (map[int64]bool, error) {
+	e, err := livesync_model.MasterEngine(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res := map[int64]bool{}
+	for start := 0; start < len(ids); start += inChunk {
+		var found []int64
+		if err := e.Table("livesync_change").Distinct("row_id").Where("tbl = ?", table).In("row_id", ids[start:min(start+inChunk, len(ids))]).Find(&found); err != nil {
+			return nil, fmt.Errorf("livesync: backfill %s: pending changes: %w", table, err)
+		}
+		for _, id := range found {
+			res[id] = true
+		}
+	}
+	return res, nil
 }

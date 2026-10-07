@@ -41,6 +41,19 @@ var placementVersions = map[string]int64{
 	"project_board": 1,
 }
 
+// MetaPermPrefix + table name is the livesync_meta entry holding the
+// version of the permission states (permVersion) the index rows of a
+// permission table were written with.
+const MetaPermPrefix = "materialized_perm."
+
+// permVersion is the version of the permission states (spec.perm) stored
+// in the entity index. Version 1 (B4) introduced them: index rows written
+// before have none. When a permission table's recorded version differs,
+// HandleEpochs starts a permission walk of it (see the entity index
+// backfill), which stores the states without touching groups (no markers
+// needed). Bump it when the states of existing rows must be recomputed.
+const permVersion = 1
+
 // readMetaInts returns the numeric livesync_meta entries whose name starts
 // with prefix, keyed by the rest of the name.
 func readMetaInts(ctx context.Context, prefix string) (map[string]int64, error) {
@@ -87,7 +100,10 @@ func readMetaInts(ctx context.Context, prefix string) (map[string]int64, error) 
 // RebootstrapPlacementChanged, repair backfill). When a table with
 // permission states (spec.perm) gets markers for a repaired trigger, the
 // permission changes it lost are unknown, so a permission epoch for
-// everything (PermissionChange.All) goes first.
+// everything (PermissionChange.All) goes first. A permission table whose
+// permission state version (permVersion) differs from the one recorded
+// gets a permission walk (no markers, no epoch), unless a repair walk,
+// which records the states too, is running or starting.
 func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -103,19 +119,30 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	permDone, err := readMetaInts(ctx, MetaPermPrefix)
+	if err != nil {
+		return err
+	}
 	var entries []synclog.Entry
-	var record, reset []string
+	var record, reset, permWalk []string
 	permLost := false
 	for _, t := range catalog.Tracked() {
 		epoch := current[t.Name]
 		done, ok := handled[t.Name]
 		repaired := ok && done != epoch
 		moved := ok && placed[t.Name] != placementVersions[t.Name]
-		if ok && !repaired && !moved {
+		permStale := ok && specs[t.Name].perm && permDone[t.Name] != permVersion
+		if ok && !repaired && !moved && !permStale {
 			continue
 		}
 		record = append(record, t.Name)
 		if !ok {
+			continue
+		}
+		if !repaired && !moved {
+			if m.walk[t.Name] != indexRepair || m.backfillComplete(t.Name) {
+				permWalk = append(permWalk, t.Name)
+			}
 			continue
 		}
 		reset = append(reset, t.Name)
@@ -157,9 +184,19 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			if err := livesync_model.SetMeta(ctx, MetaPlacementPrefix+table, strconv.FormatInt(placementVersions[table], 10)); err != nil {
 				return err
 			}
+			if specs[table].perm {
+				if err := livesync_model.SetMeta(ctx, MetaPermPrefix+table, strconv.Itoa(permVersion)); err != nil {
+					return err
+				}
+			}
 		}
 		for _, table := range reset {
-			if err := livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(0, true)); err != nil {
+			if err := livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(0, indexRepair)); err != nil {
+				return err
+			}
+		}
+		for _, table := range permWalk {
+			if err := livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(0, indexPerm)); err != nil {
 				return err
 			}
 		}
@@ -169,7 +206,14 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	}
 	for _, table := range reset {
 		m.backfill[table] = 0
-		m.repair[table] = true
+		m.walk[table] = indexRepair
+	}
+	for _, table := range permWalk {
+		m.backfill[table] = 0
+		m.walk[table] = indexPerm
+	}
+	if len(permWalk) > 0 {
+		log.Info("livesync: recording the permission states of %s", strings.Join(permWalk, ", "))
 	}
 	if len(reset) > 0 {
 		log.Info("livesync: the capture triggers or placement rules of %s changed; appended re-bootstrap markers for their models", strings.Join(reset, ", "))

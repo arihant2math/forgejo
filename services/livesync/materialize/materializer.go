@@ -54,10 +54,11 @@ type Materializer struct {
 	mu  sync.Mutex
 	hot hotLimiter
 	// backfill holds, per tracked table, the last id whose entity index
-	// row the backfill wrote, or backfillDone; repair marks the tables
-	// whose backfill runs in repair mode (after a re-bootstrap marker).
+	// row the backfill wrote, or backfillDone; walk is the mode of the
+	// tables whose backfill is not the initial one (indexRepair after a
+	// re-bootstrap marker, indexPerm for a permission walk).
 	backfill map[string]int64
-	repair   map[string]bool
+	walk     map[string]indexWrite
 }
 
 // New returns a materializer that appends with w. stop is called when w
@@ -155,9 +156,12 @@ type indexPlan struct {
 	upserts []livesync_model.Entity
 	entry   []int // index into the entries of each upsert
 	deletes []indexKey
-	// permOnly are index rows whose permission state changed while
-	// nothing else did (no entry): only their perm column is updated.
-	permOnly []livesync_model.Entity
+	// permIndex are rows of permission tables whose new permission state
+	// must be stored although no entry is written for them (nothing
+	// visible changed, e.g. a user made admin, or the DTO could not be
+	// built): the perm column of their index row is updated, and a missing
+	// index row is inserted (group and unit, no hash).
+	permIndex []livesync_model.Entity
 	// perm collects the subjects of the permission states that changed.
 	perm permSubjects
 }
@@ -169,7 +173,7 @@ func (p *indexPlan) apply(ctx context.Context, first int64) error {
 	if err := writeIndex(ctx, p.upserts, indexUpsert); err != nil {
 		return err
 	}
-	if err := updateIndexPerm(ctx, p.permOnly); err != nil {
+	if err := writeIndex(ctx, p.permIndex, indexPerm); err != nil {
 		return err
 	}
 	return deleteIndex(ctx, p.deletes)
@@ -206,8 +210,12 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 	l := newLoader()
 	defer l.close()
 	keys := make([]rowKey, 0, len(rows))
+	inserted := map[rowKey]bool{}
 	for _, r := range rows {
 		keys = append(keys, r.key)
+		if r.inserted {
+			inserted[r.key] = true
+		}
 	}
 	done := map[rowKey]bool{}
 	var entries []synclog.Entry
@@ -215,7 +223,7 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 		for _, k := range keys {
 			done[k] = true
 		}
-		moved, err := m.materializeRows(ctx, l, keys, &entries, plan)
+		moved, err := m.materializeRows(ctx, l, keys, inserted, &entries, plan)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -264,8 +272,9 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // materializeRows appends the entries and index changes for rows (in
 // order) and returns the rows whose main entity changed group (including
-// appearing in or leaving every group), by table.
-func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []rowKey, entries *[]synclog.Entry, plan *indexPlan) (map[string][]int64, error) {
+// appearing in or leaving every group), by table. inserted are the rows
+// with an insert among their changes.
+func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []rowKey, inserted map[rowKey]bool, entries *[]synclog.Entry, plan *indexPlan) (map[string][]int64, error) {
 	// Group the rows by table, keeping the batch order of tables.
 	byTable := map[string][]int64{}
 	var tables []string
@@ -313,24 +322,16 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 			var curPerm string
 			permChanged := false
 			if i == 0 && s.perm {
-				var oldPerm string
-				if o != nil {
-					oldPerm = o.Perm
-				}
 				if cur != nil {
 					curPerm = cur.perm
 				}
-				if oldPerm != curPerm {
-					permChanged = true
-					plan.perm.add(oldPerm)
-					plan.perm.add(curPerm)
-				}
+				permChanged = plan.perm.transition(r.tbl, o, curPerm, inserted[r], s.permDerived, m.backfillComplete(r.tbl))
 			}
-			// keepPerm records a changed state for an index row that is
-			// kept as it is otherwise.
+			// keepPerm records a changed state for a row whose index row
+			// is otherwise kept as it is (or not written).
 			keepPerm := func() {
-				if permChanged && o != nil {
-					plan.permOnly = append(plan.permOnly, livesync_model.Entity{Tbl: key, RowID: r.id, Perm: curPerm})
+				if permChanged {
+					plan.permIndex = append(plan.permIndex, livesync_model.Entity{Tbl: key, RowID: r.id, Grp: cur.group, Unit: string(cur.unit), Perm: curPerm})
 				}
 			}
 			if i == 0 {
@@ -352,13 +353,8 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 				// not indexed: no client can hold it from the log. One
 				// that has it from a bootstrap made before the table's
 				// index backfill completed could; bootstraps must wait for
-				// it (B6, see the entity index backfill).
-				if i == 0 && s.perm && !m.backfillComplete(r.tbl) {
-					// A permission row deleted before the backfill
-					// recorded its state: whose access it gave is
-					// unknown.
-					plan.perm.all = true
-				}
+				// it (B6, see the entity index backfill). (A permission
+				// row's epoch, if it needs one, was decided above.)
 			case cur == nil:
 				*entries = append(*entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.id, Op: protocol.OpDelete})
 				plan.deletes = append(plan.deletes, indexKey{key, r.id})

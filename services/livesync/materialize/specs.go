@@ -46,6 +46,8 @@ type spec struct {
 	// perm: the table's rows have a permission state (entity.perm), whose
 	// changes are permission epochs (see perm.go).
 	perm bool
+	// permDerived: see rowSpec.permDerived.
+	permDerived bool
 }
 
 // dependent names the rows of table whose column refers to a row of
@@ -71,16 +73,22 @@ type rowSpec[T any] struct {
 	// perm returns the row's permission state (permState), for the tables
 	// that decide who may read what (optional, see perm.go).
 	perm func(r *T) string
+	// permDerived: the rows are derived from rows of other permission
+	// tables in the same transaction, so a row inserted and deleted again
+	// between two materializations needs no epoch of its own (see the
+	// access spec).
+	permDerived bool
 }
 
 func (s rowSpec[T]) spec(table string) *spec {
 	return &spec{
-		table:      table,
-		keys:       []string{table},
-		models:     []protocol.Model{s.model},
-		schemas:    []int{s.schema},
-		dependents: s.dependents,
-		perm:       s.perm != nil,
+		table:       table,
+		keys:        []string{table},
+		models:      []protocol.Model{s.model},
+		schemas:     []int{s.schema},
+		dependents:  s.dependents,
+		perm:        s.perm != nil,
+		permDerived: s.permDerived,
 		load: func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error) {
 			rows, err := findByIDs(ctx, ids, s.id)
 			if err != nil {
@@ -280,6 +288,22 @@ var specs = func() map[string]*spec {
 			perm: func(r *access_model.Access) string {
 				return permState(fingerprint(r.RepoID, int(r.Mode)), subject('u', r.UserID))
 			},
+			// Access rows are written only by access_model.recalculateAccess,
+			// in the transaction of the change to the rows it derives them
+			// from (collaboration, team, team_user, team_repo, repository),
+			// and it replaces all rows of its scope with new ids; with
+			// several recalculations in one flow (an organization repository
+			// created by a non-owner, a collaborator added and given a mode),
+			// rows inserted by one are deleted by the next, often in the same
+			// batch. Such a row granted what its source rows granted at the
+			// time; if that differs from what they grant now, the source rows
+			// changed after it was read, and their changes are epochs of their
+			// own (naming the user, or the repository's readers) — or they
+			// existed only in between too, which is an epoch for everyone. So
+			// a vanished access row needs no epoch for everyone, unlike the
+			// rows of the other permission tables (see
+			// permSubjects.transition).
+			permDerived: true,
 		}.spec("access"),
 		repoUnitSpec(),
 		rowSpec[issues_model.Label]{

@@ -20,6 +20,10 @@ type rowChanges struct {
 	key rowKey
 	// changeIDs are the outbox ids of the row's changes, ascending.
 	changeIDs []int64
+	// inserted: one of the changes is an insert, i.e. the row did not
+	// exist before this batch (permission epochs need to know that a row
+	// that is gone now existed in between, see materializeRows).
+	inserted bool
 }
 
 // last is the newest outbox id of the row.
@@ -30,7 +34,8 @@ func (r rowChanges) last() int64 { return r.changeIDs[len(r.changeIDs)-1] }
 // update, delete) do not matter: the materializer loads each row's current
 // state once, and a row that no longer exists is a delete whatever the
 // changes said (an insert followed by a delete in the same batch produces
-// nothing, if no client ever saw the row).
+// no entry, if no client ever saw the row). Only whether the row was
+// inserted is kept (rowChanges.inserted).
 func coalesce(changes []livesync_model.Change) []rowChanges {
 	index := make(map[rowKey]int, len(changes))
 	res := make([]rowChanges, 0, len(changes))
@@ -43,6 +48,9 @@ func coalesce(changes []livesync_model.Change) []rowChanges {
 			res = append(res, rowChanges{key: k})
 		}
 		res[i].changeIDs = append(res[i].changeIDs, c.ID)
+		if c.Op == livesync_model.OpInsert {
+			res[i].inserted = true
+		}
 	}
 	return res
 }

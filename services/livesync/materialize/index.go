@@ -62,6 +62,12 @@ const (
 	// HandleEpochs; lost permission changes are covered by the epoch for
 	// everyone it writes).
 	indexRepair
+	// indexPerm overwrites only their permission state (a row the
+	// materializer did not emit although its permission state changed, and
+	// the permission walk of a table indexed before permission states
+	// existed): their group, unit and hash, which tell where clients hold
+	// the entity, stay. Missing rows are inserted as with indexKeep.
+	indexPerm
 )
 
 // writeIndex inserts rows into the index; mode says what happens to
@@ -82,6 +88,10 @@ func writeIndex(ctx context.Context, rows []livesync_model.Entity, mode indexWri
 		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash), perm = VALUES(perm)"
 	case mode == indexRepair:
 		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash, perm = excluded.perm"
+	case mode == indexPerm && mysql:
+		conflict = " ON DUPLICATE KEY UPDATE perm = VALUES(perm)"
+	case mode == indexPerm:
+		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET perm = excluded.perm"
 	case mysql:
 		conflict = " ON DUPLICATE KEY UPDATE tbl = tbl"
 	default:
@@ -103,25 +113,6 @@ func writeIndex(ctx context.Context, rows []livesync_model.Entity, mode indexWri
 		args = append([]any{sb.String()}, args...)
 		if _, err := e.Exec(args...); err != nil {
 			return fmt.Errorf("livesync: write the entity index: %w", err)
-		}
-	}
-	return nil
-}
-
-// updateIndexPerm stores the permission state of index rows that otherwise
-// stay as they are (rare: a permission column changed but nothing the DTO
-// carries, e.g. a user made admin).
-func updateIndexPerm(ctx context.Context, rows []livesync_model.Entity) error {
-	if len(rows) == 0 {
-		return nil
-	}
-	e, err := livesync_model.MasterEngine(ctx)
-	if err != nil {
-		return err
-	}
-	for _, r := range rows {
-		if _, err := e.Exec("UPDATE livesync_entity SET perm = ? WHERE tbl = ? AND row_id = ?", r.Perm, r.Tbl, r.RowID); err != nil {
-			return fmt.Errorf("livesync: update the entity index: %w", err)
 		}
 	}
 	return nil

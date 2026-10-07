@@ -273,3 +273,108 @@ func TestLivesyncMaterializeEpoch(t *testing.T) {
 	require.NoError(t, db.Insert(ctx, after))
 	livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelLabel, after.ID, protocol.OpUpsert))
 }
+
+// livesyncBarrier writes a probe row and waits for its entry: every change
+// committed before it has been materialized by then.
+func livesyncBarrier(t *testing.T) {
+	t.Helper()
+	cursor := livesyncLogHead(t)
+	probe := newProbeLabel("barrier")
+	require.NoError(t, db.Insert(t.Context(), probe))
+	livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelLabel, probe.ID, protocol.OpUpsert))
+}
+
+// livesyncEntriesOf returns the entries of one entity after cursor.
+func livesyncEntriesOf(t *testing.T, cursor int64, model protocol.Model, id int64) []string {
+	t.Helper()
+	var res []string
+	for _, e := range livesyncLogSince(t, cursor) {
+		if e.Model == string(model) && e.EntityID == id {
+			res = append(res, e.Op+" "+e.Grp+" "+e.Unit)
+		}
+	}
+	return res
+}
+
+// livesyncAssertPlaces checks an entity's entries ("<op> <group> <unit>"):
+// the given ones in order, the last of them possibly repeated (an entity can
+// be updated more than once by one API call).
+func livesyncAssertPlaces(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	require.GreaterOrEqual(t, len(got), len(want), "%v", got)
+	assert.Equal(t, want, got[:len(want)])
+	for _, g := range got[len(want):] {
+		assert.Equal(t, want[len(want)-1], g)
+	}
+}
+
+// Drafts only some readers may see are not published to the shared groups:
+// a pending review and its code comments stay with the reviewer until
+// submitted, a draft release is nowhere until published (API v1 flows).
+func TestLivesyncMaterializeDrafts(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	livesyncStart(t, nil)
+	// user1 has no pending review on pull request 3 (user2/repo1#3) yet, so
+	// the review is created now.
+	token := getTokenForLoggedInUser(t, loginUser(t, "user1"), auth_model.AccessTokenScopeWriteRepository)
+
+	// A pending review with a code comment.
+	cursor := livesyncLogHead(t)
+	req := NewRequestWithJSON(t, http.MethodPost, "/api/v1/repos/user2/repo1/pulls/3/reviews", map[string]any{
+		"body": "draft", "event": "PENDING",
+		"comments": []map[string]any{{"path": "README.md", "body": "secret draft remark", "new_position": 1}},
+	}).AddTokenAuth(token)
+	var review struct {
+		ID    int64  `json:"id"`
+		State string `json:"state"`
+	}
+	DecodeJSON(t, MakeRequest(t, req, http.StatusOK), &review)
+	require.Equal(t, "PENDING", review.State)
+	var comment issues_model.Comment
+	has, err := db.GetEngine(t.Context()).Where("review_id = ?", review.ID).Get(&comment)
+	require.NoError(t, err)
+	require.True(t, has)
+	livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, comment.ID, protocol.OpUpsert))
+	livesyncAssertPlaces(t, livesyncEntriesOf(t, cursor, protocol.ModelReview, review.ID), "U user:1 self")
+	livesyncAssertPlaces(t, livesyncEntriesOf(t, cursor, protocol.ModelComment, comment.ID), "U user:1 self")
+	for _, e := range livesyncLogSince(t, cursor) {
+		if e.Grp != "user:1" {
+			assert.NotContains(t, e.Payload, "secret draft remark", "%s %d in %s", e.Model, e.EntityID, e.Grp)
+		}
+	}
+
+	// Submitting moves the review and its comment to the pull request.
+	cursor = livesyncLogHead(t)
+	req = NewRequestWithJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/3/reviews/%d", review.ID), map[string]any{
+		"body": "done", "event": "COMMENT",
+	}).AddTokenAuth(token)
+	MakeRequest(t, req, http.StatusOK)
+	livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, comment.ID, protocol.OpUpsert))
+	livesyncAssertPlaces(t, livesyncEntriesOf(t, cursor, protocol.ModelReview, review.ID), "D user:1 self", "U issue:3 pulls")
+	livesyncAssertPlaces(t, livesyncEntriesOf(t, cursor, protocol.ModelComment, comment.ID), "D user:1 self", "U issue:3 pulls")
+
+	// A draft release is not published; publishing it is.
+	token = getTokenForLoggedInUser(t, loginUser(t, "user2"), auth_model.AccessTokenScopeWriteRepository)
+	cursor = livesyncLogHead(t)
+	req = NewRequestWithJSON(t, http.MethodPost, "/api/v1/repos/user2/repo1/releases", map[string]any{
+		"tag_name": "livesync-draft", "target_commitish": "master", "name": "unannounced", "body": "draft notes", "draft": true,
+	}).AddTokenAuth(token)
+	var release struct {
+		ID int64 `json:"id"`
+	}
+	DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &release)
+	livesyncBarrier(t)
+	assert.Empty(t, livesyncEntriesOf(t, cursor, protocol.ModelRelease, release.ID))
+	for _, e := range livesyncLogSince(t, cursor) {
+		assert.NotContains(t, e.Payload, "unannounced", "%s %d", e.Model, e.EntityID)
+	}
+	req = NewRequestWithJSON(t, http.MethodPatch, fmt.Sprintf("/api/v1/repos/user2/repo1/releases/%d", release.ID), map[string]any{
+		"draft": false,
+	}).AddTokenAuth(token)
+	MakeRequest(t, req, http.StatusOK)
+	e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelRelease, release.ID, protocol.OpUpsert))
+	assert.Equal(t, "repo:1", e.Grp)
+	assert.Equal(t, "releases", e.Unit)
+	assert.Equal(t, "unannounced", livesyncPayload[protocol.Release](t, e).Name)
+}

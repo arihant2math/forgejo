@@ -6,13 +6,16 @@ package materialize
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	activities_model "forgejo.org/models/activities"
+	"forgejo.org/models/avatars"
 	issues_model "forgejo.org/models/issues"
 	repo_model "forgejo.org/models/repo"
 	unit_model "forgejo.org/models/unit"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/protocol"
 )
 
@@ -37,7 +40,7 @@ func repositorySpec() *spec {
 				Template: r.IsTemplate, Mirror: r.IsMirror, Archived: r.IsArchived, Empty: r.IsEmpty,
 				DefaultBranch: r.DefaultBranch, StarsCount: r.NumStars, ForksCount: r.NumForks,
 				WatchersCount: r.NumWatches, Topics: topics, ObjectFormatName: r.ObjectFormatName,
-				AvatarURL: r.AvatarLink(ctx), CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
+				AvatarURL: repoAvatarLink(ctx, r), CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
 			}
 			if r.IsArchived {
 				res.ArchivedAt = optTS(r.ArchivedUnix)
@@ -59,7 +62,7 @@ func userSpec() *spec {
 		},
 		dto: func(ctx context.Context, _ *loader, r *user_model.User) (any, error) {
 			res := &protocol.User{
-				ID: r.ID, Login: r.Name, FullName: r.FullName, AvatarURL: r.AvatarLink(ctx), Type: userType(r.Type),
+				ID: r.ID, Login: r.Name, FullName: r.FullName, AvatarURL: userAvatarLink(ctx, r), Type: userType(r.Type),
 				Visibility: r.Visibility.String(), Description: r.Description, Website: r.Website,
 				Location: r.Location, CreatedAt: ts(r.CreatedUnix),
 			}
@@ -69,6 +72,41 @@ func userSpec() *spec {
 			return res, nil
 		},
 	}.spec("user")
+}
+
+// userAvatarLink is User.AvatarLink without its side effects. Upstream
+// computes the link of a user without an avatar in local-avatar mode
+// (OFFLINE_MODE, the default, or DISABLE_GRAVATAR) by generating a random
+// PNG, saving it to avatar storage and updating the user row, and with
+// federated avatars it records the email hash in the database: neither may
+// happen inside the materializer's transaction (blocking storage I/O, a row
+// lock on a hot upstream table, and a captured write that would materialize
+// the user again). In those cases the DTO carries the user's fast avatar
+// link (/user/avatar/{name}/0), which redirects to the real avatar and does
+// that work in the web request that follows it, outside livesync.
+func userAvatarLink(ctx context.Context, u *user_model.User) string {
+	if u.IsGhost() || u.ID <= 0 || u.UseCustomAvatar {
+		return u.AvatarLink(ctx) // no side effects on these paths
+	}
+	local := setting.OfflineMode || setting.Config().Picture.DisableGravatar.Value(ctx)
+	switch {
+	case local && u.Avatar != "":
+		return u.AvatarLink(ctx)
+	case local, setting.Config().Picture.EnableFederatedAvatar.Value(ctx):
+		return setting.AppURL + strings.TrimPrefix(avatars.GenerateUserAvatarFastLink(u.Name, 0), setting.AppSubURL+"/")
+	}
+	return u.AvatarLink(ctx) // Gravatar: a URL computed from the email hash
+}
+
+// repoAvatarLink is Repository.AvatarLink without its side effect: with
+// [repository] AVATAR_FALLBACK = random, upstream generates and stores a
+// random avatar (and updates the repository row) for a repository without
+// one. Such a repository has no avatar link here until it gets one.
+func repoAvatarLink(ctx context.Context, r *repo_model.Repository) string {
+	if r.Avatar == "" && setting.RepoAvatar.Fallback == "random" {
+		return ""
+	}
+	return r.AvatarLink(ctx)
 }
 
 func userType(t user_model.UserType) string {
@@ -179,10 +217,9 @@ func issueSpec() *spec {
 				body := entity{key: issueBodyKey, model: protocol.ModelIssueBody, schema: protocol.SchemaIssueBody, group: protocol.IssueGroup(issue.ID), unit: unit}
 				if full {
 					summary.dto = issueDTO(issue)
-					body.dto = &protocol.IssueBody{
-						ID: issue.ID, RepoID: issue.RepoID, Body: issue.Content,
-						BodyHTML: l.renderMarkdown(ctx, l.repos[issue.RepoID], issue.Content), ContentVersion: issue.ContentVersion,
-					}
+					dto := &protocol.IssueBody{ID: issue.ID, RepoID: issue.RepoID, Body: issue.Content, ContentVersion: issue.ContentVersion}
+					l.markdown(l.repos[issue.RepoID], issue.Content, &dto.BodyHTML)
+					body.dto, body.renders = dto, l.takeRenders()
 				}
 				res[id] = []entity{summary, body}
 			}
@@ -233,15 +270,20 @@ func commentSpec() *spec {
 		model: protocol.ModelComment, schema: protocol.SchemaComment,
 		id: func(r *issues_model.Comment) int64 { return r.ID },
 		prepare: func(ctx context.Context, l *loader, rows []*issues_model.Comment) error {
+			if err := l.loadCommentParents(ctx, rows); err != nil {
+				return err
+			}
 			return issueRepos(ctx, l, ids(rows, func(r *issues_model.Comment) int64 { return r.IssueID }))
 		},
-		place: func(l *loader, r *issues_model.Comment) (string, protocol.Unit) { return l.issuePlace(r.IssueID) },
-		dto: func(ctx context.Context, l *loader, r *issues_model.Comment) (any, error) {
-			return &protocol.Comment{
+		place: func(l *loader, r *issues_model.Comment) (string, protocol.Unit) { return l.commentPlace(r) },
+		dependents: []dependent{
+			{"attachment", "comment_id"}, {"reaction", "comment_id"}, {"issue_content_history", "comment_id"},
+		},
+		dto: func(_ context.Context, l *loader, r *issues_model.Comment) (any, error) {
+			res := &protocol.Comment{
 				ID: r.ID, IssueID: r.IssueID, Type: r.Type.String(), PosterID: r.PosterID,
 				OriginalAuthor: r.OriginalAuthor, OriginalAuthorID: r.OriginalAuthorID, Body: r.Content,
-				BodyHTML: l.renderMarkdown(ctx, l.issueRepo(r.IssueID), r.Content), ContentVersion: r.ContentVersion,
-				LabelID: r.LabelID, OldProjectID: r.OldProjectID, ProjectID: r.ProjectID,
+				ContentVersion: r.ContentVersion, LabelID: r.LabelID, OldProjectID: r.OldProjectID, ProjectID: r.ProjectID,
 				OldMilestoneID: r.OldMilestoneID, MilestoneID: r.MilestoneID, TimeID: r.TimeID,
 				AssigneeID: r.AssigneeID, AssigneeTeamID: r.AssigneeTeamID, RemovedAssignee: r.RemovedAssignee,
 				ResolveDoerID: r.ResolveDoerID, OldTitle: r.OldTitle, NewTitle: r.NewTitle, OldRef: r.OldRef,
@@ -250,7 +292,9 @@ func commentSpec() *spec {
 				Invalidated: r.Invalidated, RefRepoID: r.RefRepoID, RefIssueID: r.RefIssueID,
 				RefCommentID: r.RefCommentID, RefAction: int(r.RefAction), RefIsPull: r.RefIsPull,
 				CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
-			}, nil
+			}
+			l.markdown(l.issueRepo(r.IssueID), r.Content, &res.BodyHTML)
+			return res, nil
 		},
 	}.spec("comment")
 }
@@ -277,18 +321,19 @@ func reviewSpec() *spec {
 		prepare: func(ctx context.Context, l *loader, rows []*issues_model.Review) error {
 			return issueRepos(ctx, l, ids(rows, func(r *issues_model.Review) int64 { return r.IssueID }))
 		},
-		place: func(l *loader, r *issues_model.Review) (string, protocol.Unit) {
-			group, _ := l.issuePlace(r.IssueID)
-			return group, protocol.UnitPulls
-		},
-		dto: func(ctx context.Context, l *loader, r *issues_model.Review) (any, error) {
-			return &protocol.Review{
+		place: func(l *loader, r *issues_model.Review) (string, protocol.Unit) { return l.reviewPlace(r) },
+		// Submitting a pending review changes the review row only: its
+		// code comments (and their attachments) move with it.
+		dependents: []dependent{{"comment", "review_id"}},
+		dto: func(_ context.Context, l *loader, r *issues_model.Review) (any, error) {
+			res := &protocol.Review{
 				ID: r.ID, IssueID: r.IssueID, State: reviewState(r.Type), ReviewerID: r.ReviewerID,
 				ReviewerTeamID: r.ReviewerTeamID, OriginalAuthor: r.OriginalAuthor, Body: r.Content,
-				BodyHTML: l.renderMarkdown(ctx, l.issueRepo(r.IssueID), r.Content), Official: r.Official,
-				CommitID: r.CommitID, Stale: r.Stale, Dismissed: r.Dismissed,
+				Official: r.Official, CommitID: r.CommitID, Stale: r.Stale, Dismissed: r.Dismissed,
 				CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
-			}, nil
+			}
+			l.markdown(l.issueRepo(r.IssueID), r.Content, &res.BodyHTML)
+			return res, nil
 		},
 	}.spec("review")
 }
@@ -300,16 +345,19 @@ func releaseSpec() *spec {
 		prepare: func(ctx context.Context, l *loader, rows []*repo_model.Release) error {
 			return l.loadRepos(ctx, ids(rows, func(r *repo_model.Release) int64 { return r.RepoID }))
 		},
-		place: func(_ *loader, r *repo_model.Release) (string, protocol.Unit) {
-			return protocol.RepoGroup(r.RepoID), protocol.UnitReleases
-		},
-		dto: func(ctx context.Context, l *loader, r *repo_model.Release) (any, error) {
-			return &protocol.Release{
+		place: func(_ *loader, r *repo_model.Release) (string, protocol.Unit) { return releasePlace(r) },
+		// Publishing a draft changes the release row only: its
+		// attachments appear with it.
+		dependents: []dependent{{"attachment", "release_id"}},
+		dto: func(_ context.Context, l *loader, r *repo_model.Release) (any, error) {
+			res := &protocol.Release{
 				ID: r.ID, RepoID: r.RepoID, PublisherID: r.PublisherID, TagName: r.TagName, TargetCommitish: r.Target,
-				Name: r.Title, SHA: r.Sha1, Body: r.Note, BodyHTML: l.renderMarkdown(ctx, l.repos[r.RepoID], r.Note),
+				Name: r.Title, SHA: r.Sha1, Body: r.Note,
 				Draft: r.IsDraft, Prerelease: r.IsPrerelease, IsTag: r.IsTag, NumCommits: r.NumCommits,
 				HideArchiveLinks: r.HideArchiveLinks, OriginalAuthor: r.OriginalAuthor, CreatedAt: ts(r.CreatedUnix),
-			}, nil
+			}
+			l.markdown(l.repos[r.RepoID], r.Note, &res.BodyHTML)
+			return res, nil
 		},
 	}.spec("release")
 }

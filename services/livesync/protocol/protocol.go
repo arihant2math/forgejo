@@ -154,16 +154,22 @@ const (
 	GroupPrefixIssue = "issue"
 )
 
-// GroupAll is the pseudo group of entries that concern every client: schema
-// epoch markers (OpRebootstrap) and deletes whose group is unknown (rows that
-// were never materialized while the entity index was still being backfilled).
-// Readers of a group always receive GroupAll entries too.
+// GroupAll is the pseudo group of the entries that concern every client: the
+// schema epoch markers (OpRebootstrap), which carry no entity data. Readers
+// of a group always receive GroupAll entries too. Nothing else is written to
+// it (PLAN §4.5: nothing is broadcast instance-wide).
 const GroupAll = "*"
 
-// UserGroup is the group of a user's own (viewer-specific) entities.
+// UserGroup is the group of a user: their public profile and public
+// entities (unit UnitNone), and their own viewer-specific entities (unit
+// UnitSelf: subscriptions, notifications, stopwatches, viewed files,
+// pending reviews, …), which only that user may receive.
 func UserGroup(id int64) string { return GroupPrefixUser + ":" + strconv.FormatInt(id, 10) }
 
-// OrgGroup is the group of an organization's entities.
+// OrgGroup is the group of an organization: what anyone who may see the
+// organization reads (unit UnitNone: profile, labels, projects, public
+// memberships) and what only its members read (unit UnitMembers: teams,
+// their members, repositories and units, concealed memberships).
 func OrgGroup(id int64) string { return GroupPrefixOrg + ":" + strconv.FormatInt(id, 10) }
 
 // RepoGroup is the group of a repository's summary-tier entities.
@@ -173,11 +179,15 @@ func RepoGroup(id int64) string { return GroupPrefixRepo + ":" + strconv.FormatI
 // entities: timeline, reactions, reviews, body.
 func IssueGroup(id int64) string { return GroupPrefixIssue + ":" + strconv.FormatInt(id, 10) }
 
-// Unit is the repository unit a reader needs (livesync_log.unit) to receive
-// an entity of a repo:{id} or issue:{id} group, checked with
-// Permission.CanRead(unit) (PLAN §4.4). UnitNone means any read access to
-// the group. Several alternatives are separated by "|": the entity is visible
-// with any of them. The same names identify unit types in RepoUnit/TeamUnit.
+// Unit is what a reader of a group needs (livesync_log.unit) to receive an
+// entity of it. In repo:{id} and issue:{id} groups it is a repository unit,
+// checked with Permission.CanRead(unit) (PLAN §4.4); several alternatives are
+// separated by "|" (the entity is visible with any of them), and the same
+// names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
+// UnitNone (anyone who may see the user) or UnitSelf (that user only); in
+// org:{id} groups UnitNone (anyone who may see the organization) or
+// UnitMembers (its members only). UnitNone means any read access to the
+// group.
 type Unit string
 
 const (
@@ -193,4 +203,8 @@ const (
 	UnitProjects        Unit = "projects"
 	UnitPackages        Unit = "packages"
 	UnitActions         Unit = "actions"
+	// UnitSelf: in user:{id}, only that user.
+	UnitSelf Unit = "self"
+	// UnitMembers: in org:{id}, only the organization's members.
+	UnitMembers Unit = "members"
 )

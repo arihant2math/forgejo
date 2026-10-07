@@ -61,7 +61,8 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// OrgUser is an organization membership (group org:{org_id}).
+// OrgUser is an organization membership (group org:{org_id}; unit members
+// for a concealed membership).
 type OrgUser struct {
 	ID     int64 `json:"id"`
 	OrgID  int64 `json:"org_id"`
@@ -69,7 +70,7 @@ type OrgUser struct {
 	Public bool  `json:"public"`
 }
 
-// Team is an organization team (group org:{org_id}).
+// Team is an organization team (group org:{org_id}, unit members).
 type Team struct {
 	ID                      int64  `json:"id"`
 	OrgID                   int64  `json:"org_id"`
@@ -82,7 +83,7 @@ type Team struct {
 	NumRepos                int    `json:"num_repos"`
 }
 
-// TeamUser is a team membership (group org:{org_id}).
+// TeamUser is a team membership (group org:{org_id}, unit members).
 type TeamUser struct {
 	ID     int64 `json:"id"`
 	OrgID  int64 `json:"org_id"`
@@ -90,7 +91,8 @@ type TeamUser struct {
 	UserID int64 `json:"user_id"`
 }
 
-// TeamRepo gives a team access to a repository (group org:{org_id}).
+// TeamRepo gives a team access to a repository (group org:{org_id}, unit
+// members).
 type TeamRepo struct {
 	ID     int64 `json:"id"`
 	OrgID  int64 `json:"org_id"`
@@ -98,7 +100,8 @@ type TeamRepo struct {
 	RepoID int64 `json:"repo_id"`
 }
 
-// TeamUnit is a team's access mode for one unit type (group org:{org_id}).
+// TeamUnit is a team's access mode for one unit type (group org:{org_id},
+// unit members).
 type TeamUnit struct {
 	ID         int64  `json:"id"`
 	OrgID      int64  `json:"org_id"`
@@ -119,7 +122,7 @@ type Collaboration struct {
 }
 
 // Access is a user's computed access mode to a repository (group
-// user:{user_id}).
+// user:{user_id}, unit self).
 type Access struct {
 	ID         int64  `json:"id"`
 	UserID     int64  `json:"user_id"`
@@ -203,7 +206,9 @@ type ProjectColumn struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// ProjectIssue places an issue on a project board (the project's group).
+// ProjectIssue places an issue on a project board (group repo:{repo_id} of
+// the issue, unit issues or pulls: a user or organization project can hold
+// issues of repositories its readers cannot see).
 type ProjectIssue struct {
 	ID        int64 `json:"id"`
 	IssueID   int64 `json:"issue_id"`
@@ -312,7 +317,9 @@ type Branch struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
-// Release is a release or tag (group repo:{repo_id}, unit releases).
+// Release is a release or tag (group repo:{repo_id}, unit releases). Draft
+// releases are in no group (upstream shows them to writers only): they
+// appear when published.
 type Release struct {
 	ID               int64     `json:"id"`
 	RepoID           int64     `json:"repo_id"`
@@ -393,7 +400,8 @@ type ActionRunJob struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 }
 
-// Notification is an inbox entry of a user (group user:{user_id}).
+// Notification is an inbox entry of a user (group user:{user_id}, unit
+// self).
 type Notification struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
@@ -407,7 +415,7 @@ type Notification struct {
 }
 
 // Stopwatch is a user's running time tracker on an issue (group
-// user:{user_id}).
+// user:{user_id}, unit self).
 type Stopwatch struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
@@ -416,7 +424,7 @@ type Stopwatch struct {
 }
 
 // IssueWatch is a user's explicit (un)subscription to an issue (group
-// user:{user_id}).
+// user:{user_id}, unit self).
 type IssueWatch struct {
 	ID         int64     `json:"id"`
 	UserID     int64     `json:"user_id"`
@@ -426,7 +434,8 @@ type IssueWatch struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// Watch is a user's watch settings for a repository (group user:{user_id}).
+// Watch is a user's watch settings for a repository (group user:{user_id},
+// unit self).
 type Watch struct {
 	ID           int64     `json:"id"`
 	UserID       int64     `json:"user_id"`
@@ -439,7 +448,7 @@ type Watch struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// Star is a user's star on a repository (group user:{user_id}).
+// Star is a user's star on a repository (group user:{user_id}, unit self).
 type Star struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
@@ -447,7 +456,8 @@ type Star struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// BlockedUser records that user_id blocked block_id (group user:{user_id}).
+// BlockedUser records that user_id blocked block_id (group user:{user_id},
+// unit self).
 type BlockedUser struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
@@ -457,7 +467,10 @@ type BlockedUser struct {
 
 // Comment is one timeline entry of an issue or pull request: a comment, a
 // code review comment or an event (group issue:{issue_id}, unit issues or
-// pulls). Type is Forgejo's comment type name ("comment", "close", "label",
+// pulls). Code comments of a pending review are in the reviewer's group
+// (user:{reviewer_id}, unit self) until the review is submitted;
+// cross-references from another repository are in no group (upstream shows
+// them only to readers of that repository's issues or pulls). Type is Forgejo's comment type name ("comment", "close", "label",
 // "code", ...); the other fields are set as the type uses them.
 type Comment struct {
 	ID               int64     `json:"id"`
@@ -501,7 +514,7 @@ type Comment struct {
 }
 
 // Reaction is an emoji reaction on an issue or comment (group
-// issue:{issue_id}).
+// issue:{issue_id}, or the group of its comment).
 type Reaction struct {
 	ID             int64     `json:"id"`
 	IssueID        int64     `json:"issue_id"`
@@ -513,7 +526,8 @@ type Reaction struct {
 }
 
 // Review is a pull request review or review request (group
-// issue:{issue_id}, unit pulls).
+// issue:{issue_id}, unit pulls). A pending review is a draft only its
+// reviewer sees: group user:{reviewer_id}, unit self, until submitted.
 type Review struct {
 	ID             int64     `json:"id"`
 	IssueID        int64     `json:"issue_id"`
@@ -532,7 +546,7 @@ type Review struct {
 }
 
 // ReviewState holds a user's "viewed files" of a pull request at a commit
-// (group user:{user_id}). Values: 0 unviewed, 1 changed since viewed,
+// (group user:{user_id}, unit self). Values: 0 unviewed, 1 changed since viewed,
 // 2 viewed.
 type ReviewState struct {
 	ID           int64            `json:"id"`
@@ -543,8 +557,9 @@ type ReviewState struct {
 	UpdatedAt    time.Time        `json:"updated_at"`
 }
 
-// Attachment is a file attached to an issue/comment (group
-// issue:{issue_id}) or to a release (group repo:{repo_id}, unit releases).
+// Attachment is a file attached to an issue (group issue:{issue_id}), a
+// comment (the comment's group) or a release (the release's group: repo:{repo_id},
+// unit releases, or none for a draft).
 type Attachment struct {
 	ID            int64     `json:"id"`
 	UUID          string    `json:"uuid"`
@@ -582,14 +597,15 @@ type TrackedTime struct {
 }
 
 // ContentHistory is one revision of an issue or comment body (group
-// issue:{issue_id}; fetched on demand only).
+// issue:{issue_id}, or the group of its comment). The catalog puts the table
+// in the on-demand tier: the sync log carries the revision's metadata only,
+// the text itself is fetched on request.
 type ContentHistory struct {
 	ID             int64     `json:"id"`
 	PosterID       int64     `json:"poster_id"`
 	IssueID        int64     `json:"issue_id"`
 	CommentID      int64     `json:"comment_id"`
 	EditedAt       time.Time `json:"edited_at"`
-	ContentText    string    `json:"content_text"`
 	IsFirstCreated bool      `json:"is_first_created"`
 	IsDeleted      bool      `json:"is_deleted"`
 }

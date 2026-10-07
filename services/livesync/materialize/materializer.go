@@ -21,9 +21,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
+	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/services/livesync/capture"
@@ -52,8 +54,10 @@ type Materializer struct {
 	mu  sync.Mutex
 	hot hotLimiter
 	// backfill holds, per tracked table, the last id whose entity index
-	// row the backfill wrote, or backfillDone.
+	// row the backfill wrote, or backfillDone; repair marks the tables
+	// whose backfill runs in repair mode (after a re-bootstrap marker).
 	backfill map[string]int64
+	repair   map[string]bool
 }
 
 // New returns a materializer that appends with w. stop is called when w
@@ -154,36 +158,102 @@ func (p *indexPlan) apply(ctx context.Context, first int64) error {
 	for i := range p.upserts {
 		p.upserts[i].LastSyncID = first + int64(p.entry[i])
 	}
-	if err := writeIndex(ctx, p.upserts, true); err != nil {
+	if err := writeIndex(ctx, p.upserts, indexUpsert); err != nil {
 		return err
 	}
 	return deleteIndex(ctx, p.deletes)
 }
 
-// materialize builds the log entries and index changes for rows.
+// maxDependentRounds bounds the dependents cascade of one batch (review →
+// comment → attachment/reaction/revision is two rounds).
+const maxDependentRounds = 4
+
+// materialize builds the log entries and index changes for rows, and for
+// the rows that depend on a row whose group changed (spec.dependents).
 func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]synclog.Entry, *indexPlan, error) {
 	plan := &indexPlan{}
 	if len(rows) == 0 {
 		return nil, plan, nil
 	}
+	l := newLoader()
+	defer l.close()
+	keys := make([]rowKey, 0, len(rows))
+	for _, r := range rows {
+		keys = append(keys, r.key)
+	}
+	done := map[rowKey]bool{}
+	var entries []synclog.Entry
+	for round := 0; len(keys) > 0; round++ {
+		for _, k := range keys {
+			done[k] = true
+		}
+		moved, err := m.materializeRows(ctx, l, keys, &entries, plan)
+		if err != nil {
+			return nil, nil, err
+		}
+		if round == maxDependentRounds {
+			break
+		}
+		if keys, err = dependentRows(ctx, moved, done); err != nil {
+			return nil, nil, err
+		}
+	}
+	return entries, plan, nil
+}
+
+// dependentRows returns the rows, not yet materialized in this batch, that
+// depend on the moved rows (table → ids).
+func dependentRows(ctx context.Context, moved map[string][]int64, done map[rowKey]bool) ([]rowKey, error) {
+	var res []rowKey
+	for _, tbl := range sortedKeys(moved) {
+		for _, dep := range specs[tbl].dependents {
+			ids := moved[tbl]
+			for start := 0; start < len(ids); start += inChunk {
+				var found []int64
+				if err := db.GetEngine(ctx).Table(dep.table).Cols("id").In(dep.column, ids[start:min(start+inChunk, len(ids))]).OrderBy("id").Find(&found); err != nil {
+					return nil, fmt.Errorf("livesync: find the %s rows of moved %s rows: %w", dep.table, tbl, err)
+				}
+				for _, id := range found {
+					if k := (rowKey{dep.table, id}); !done[k] {
+						done[k] = true
+						res = append(res, k)
+					}
+				}
+			}
+		}
+	}
+	return res, nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// materializeRows appends the entries and index changes for rows (in
+// order) and returns the rows whose main entity changed group (including
+// appearing in or leaving every group), by table.
+func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []rowKey, entries *[]synclog.Entry, plan *indexPlan) (map[string][]int64, error) {
 	// Group the rows by table, keeping the batch order of tables.
 	byTable := map[string][]int64{}
 	var tables []string
 	for _, r := range rows {
-		if _, ok := byTable[r.key.tbl]; !ok {
-			tables = append(tables, r.key.tbl)
+		if _, ok := byTable[r.tbl]; !ok {
+			tables = append(tables, r.tbl)
 		}
-		byTable[r.key.tbl] = append(byTable[r.key.tbl], r.key.id)
+		byTable[r.tbl] = append(byTable[r.tbl], r.id)
 	}
-	l := newLoader()
-	defer l.close()
 	states := map[rowKey][]entity{}
 	old := map[indexKey]*livesync_model.Entity{}
 	for _, tbl := range tables {
 		s := specs[tbl]
 		loaded, err := s.load(ctx, l, byTable[tbl], true)
 		if err != nil {
-			return nil, nil, fmt.Errorf("livesync: load %s rows: %w", tbl, err)
+			return nil, fmt.Errorf("livesync: load %s rows: %w", tbl, err)
 		}
 		for id, ents := range loaded {
 			states[rowKey{tbl, id}] = ents
@@ -191,7 +261,7 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 		for _, key := range s.keys {
 			idx, err := loadIndex(ctx, key, byTable[tbl])
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			for id, e := range idx {
 				old[indexKey{key, id}] = e
@@ -199,52 +269,70 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]sy
 		}
 	}
 
-	var entries []synclog.Entry
+	moved := map[string][]int64{}
 	for _, r := range rows {
-		s := specs[r.key.tbl]
-		ents, exists := states[r.key]
+		s := specs[r.tbl]
+		ents := states[r]
 		for i, key := range s.keys {
 			var cur *entity
-			if exists && ents[i].group != "" {
+			if ents != nil && ents[i].group != "" {
 				cur = &ents[i]
 			}
-			o := old[indexKey{key, r.key.id}]
+			o := old[indexKey{key, r.id}]
+			if i == 0 {
+				var oldGroup, curGroup string
+				if o != nil {
+					oldGroup = o.Grp
+				}
+				if cur != nil {
+					curGroup = cur.group
+				}
+				if oldGroup != curGroup {
+					moved[r.tbl] = append(moved[r.tbl], r.id)
+				}
+			}
 			model := s.models[i]
 			switch {
 			case cur == nil && o == nil:
-				// Never emitted. If the row is gone and the index is not
-				// complete for its table yet, a client may hold it from a
-				// bootstrap: tell everyone (id only, no payload).
-				if !exists && !m.backfillComplete(r.key.tbl) {
-					entries = append(entries, synclog.Entry{Group: protocol.GroupAll, Model: model, EntityID: r.key.id, Op: protocol.OpDelete})
-				}
+				// Never emitted (or not since it left every group), and
+				// not indexed: no client can hold it from the log. One
+				// that has it from a bootstrap made before the table's
+				// index backfill completed could; bootstraps must wait for
+				// it (B6, see the entity index backfill).
 			case cur == nil:
-				entries = append(entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.key.id, Op: protocol.OpDelete})
-				plan.deletes = append(plan.deletes, indexKey{key, r.key.id})
+				*entries = append(*entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.id, Op: protocol.OpDelete})
+				plan.deletes = append(plan.deletes, indexKey{key, r.id})
 			default:
-				payload, hash, err := "", "", cur.err
+				hash, err := "", cur.err
 				if err == nil {
-					payload, hash, err = cur.payload()
+					hash, err = cur.changeHash(ctx, l)
 				}
 				if err != nil {
-					log.Error("livesync: skipping a change of %s %d: %v", r.key.tbl, r.key.id, err)
+					log.Error("livesync: skipping a change of %s %d: %v", r.tbl, r.id, err)
 					continue
 				}
 				if o != nil && o.Grp == cur.group && o.Unit == string(cur.unit) && o.Hash == hash {
 					continue // nothing visible changed
 				}
-				if o != nil && o.Grp != cur.group {
-					// Moved to another group: gone from the old one.
-					entries = append(entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.key.id, Op: protocol.OpDelete})
+				payload, err := cur.payload(ctx, l)
+				if err != nil {
+					log.Error("livesync: skipping a change of %s %d: %v", r.tbl, r.id, err)
+					continue
 				}
-				plan.upserts = append(plan.upserts, livesync_model.Entity{Tbl: key, RowID: r.key.id, Grp: cur.group, Unit: string(cur.unit), Hash: hash})
-				plan.entry = append(plan.entry, len(entries))
-				entries = append(entries, synclog.Entry{
-					Group: cur.group, Unit: cur.unit, Model: cur.model, EntityID: r.key.id,
+				if o != nil && (o.Grp != cur.group || o.Unit != string(cur.unit)) {
+					// Moved to another group, or now needs another unit:
+					// gone for the readers of the old place (members of
+					// the new one get the upsert right after).
+					*entries = append(*entries, synclog.Entry{Group: o.Grp, Unit: protocol.Unit(o.Unit), Model: model, EntityID: r.id, Op: protocol.OpDelete})
+				}
+				plan.upserts = append(plan.upserts, livesync_model.Entity{Tbl: key, RowID: r.id, Grp: cur.group, Unit: string(cur.unit), Hash: hash})
+				plan.entry = append(plan.entry, len(*entries))
+				*entries = append(*entries, synclog.Entry{
+					Group: cur.group, Unit: cur.unit, Model: cur.model, EntityID: r.id,
 					Op: protocol.OpUpsert, Payload: payload, SchemaVer: cur.schema,
 				})
 			}
 		}
 	}
-	return entries, plan, nil
+	return moved, nil
 }

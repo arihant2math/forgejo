@@ -59,7 +59,8 @@ export interface User {
   created_at: string /* RFC 3339, UTC */;
 }
 /**
- * OrgUser is an organization membership (group org:{org_id}).
+ * OrgUser is an organization membership (group org:{org_id}; unit members
+ * for a concealed membership).
  */
 export interface OrgUser {
   id: number /* int64 */;
@@ -68,7 +69,7 @@ export interface OrgUser {
   public: boolean;
 }
 /**
- * Team is an organization team (group org:{org_id}).
+ * Team is an organization team (group org:{org_id}, unit members).
  */
 export interface Team {
   id: number /* int64 */;
@@ -82,7 +83,7 @@ export interface Team {
   num_repos: number /* int */;
 }
 /**
- * TeamUser is a team membership (group org:{org_id}).
+ * TeamUser is a team membership (group org:{org_id}, unit members).
  */
 export interface TeamUser {
   id: number /* int64 */;
@@ -91,7 +92,8 @@ export interface TeamUser {
   user_id: number /* int64 */;
 }
 /**
- * TeamRepo gives a team access to a repository (group org:{org_id}).
+ * TeamRepo gives a team access to a repository (group org:{org_id}, unit
+ * members).
  */
 export interface TeamRepo {
   id: number /* int64 */;
@@ -100,7 +102,8 @@ export interface TeamRepo {
   repo_id: number /* int64 */;
 }
 /**
- * TeamUnit is a team's access mode for one unit type (group org:{org_id}).
+ * TeamUnit is a team's access mode for one unit type (group org:{org_id},
+ * unit members).
  */
 export interface TeamUnit {
   id: number /* int64 */;
@@ -123,7 +126,7 @@ export interface Collaboration {
 }
 /**
  * Access is a user's computed access mode to a repository (group
- * user:{user_id}).
+ * user:{user_id}, unit self).
  */
 export interface Access {
   id: number /* int64 */;
@@ -215,7 +218,9 @@ export interface ProjectColumn {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * ProjectIssue places an issue on a project board (the project's group).
+ * ProjectIssue places an issue on a project board (group repo:{repo_id} of
+ * the issue, unit issues or pulls: a user or organization project can hold
+ * issues of repositories its readers cannot see).
  */
 export interface ProjectIssue {
   id: number /* int64 */;
@@ -332,7 +337,9 @@ export interface Branch {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * Release is a release or tag (group repo:{repo_id}, unit releases).
+ * Release is a release or tag (group repo:{repo_id}, unit releases). Draft
+ * releases are in no group (upstream shows them to writers only): they
+ * appear when published.
  */
 export interface Release {
   id: number /* int64 */;
@@ -417,7 +424,8 @@ export interface ActionRunJob {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * Notification is an inbox entry of a user (group user:{user_id}).
+ * Notification is an inbox entry of a user (group user:{user_id}, unit
+ * self).
  */
 export interface Notification {
   id: number /* int64 */;
@@ -432,7 +440,7 @@ export interface Notification {
 }
 /**
  * Stopwatch is a user's running time tracker on an issue (group
- * user:{user_id}).
+ * user:{user_id}, unit self).
  */
 export interface Stopwatch {
   id: number /* int64 */;
@@ -442,7 +450,7 @@ export interface Stopwatch {
 }
 /**
  * IssueWatch is a user's explicit (un)subscription to an issue (group
- * user:{user_id}).
+ * user:{user_id}, unit self).
  */
 export interface IssueWatch {
   id: number /* int64 */;
@@ -453,7 +461,8 @@ export interface IssueWatch {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * Watch is a user's watch settings for a repository (group user:{user_id}).
+ * Watch is a user's watch settings for a repository (group user:{user_id},
+ * unit self).
  */
 export interface Watch {
   id: number /* int64 */;
@@ -467,7 +476,7 @@ export interface Watch {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * Star is a user's star on a repository (group user:{user_id}).
+ * Star is a user's star on a repository (group user:{user_id}, unit self).
  */
 export interface Star {
   id: number /* int64 */;
@@ -476,7 +485,8 @@ export interface Star {
   created_at: string /* RFC 3339, UTC */;
 }
 /**
- * BlockedUser records that user_id blocked block_id (group user:{user_id}).
+ * BlockedUser records that user_id blocked block_id (group user:{user_id},
+ * unit self).
  */
 export interface BlockedUser {
   id: number /* int64 */;
@@ -487,7 +497,10 @@ export interface BlockedUser {
 /**
  * Comment is one timeline entry of an issue or pull request: a comment, a
  * code review comment or an event (group issue:{issue_id}, unit issues or
- * pulls). Type is Forgejo's comment type name ("comment", "close", "label",
+ * pulls). Code comments of a pending review are in the reviewer's group
+ * (user:{reviewer_id}, unit self) until the review is submitted;
+ * cross-references from another repository are in no group (upstream shows
+ * them only to readers of that repository's issues or pulls). Type is Forgejo's comment type name ("comment", "close", "label",
  * "code", ...); the other fields are set as the type uses them.
  */
 export interface Comment {
@@ -532,7 +545,7 @@ export interface Comment {
 }
 /**
  * Reaction is an emoji reaction on an issue or comment (group
- * issue:{issue_id}).
+ * issue:{issue_id}, or the group of its comment).
  */
 export interface Reaction {
   id: number /* int64 */;
@@ -545,7 +558,8 @@ export interface Reaction {
 }
 /**
  * Review is a pull request review or review request (group
- * issue:{issue_id}, unit pulls).
+ * issue:{issue_id}, unit pulls). A pending review is a draft only its
+ * reviewer sees: group user:{reviewer_id}, unit self, until submitted.
  */
 export interface Review {
   id: number /* int64 */;
@@ -565,7 +579,7 @@ export interface Review {
 }
 /**
  * ReviewState holds a user's "viewed files" of a pull request at a commit
- * (group user:{user_id}). Values: 0 unviewed, 1 changed since viewed,
+ * (group user:{user_id}, unit self). Values: 0 unviewed, 1 changed since viewed,
  * 2 viewed.
  */
 export interface ReviewState {
@@ -577,8 +591,9 @@ export interface ReviewState {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
- * Attachment is a file attached to an issue/comment (group
- * issue:{issue_id}) or to a release (group repo:{repo_id}, unit releases).
+ * Attachment is a file attached to an issue (group issue:{issue_id}), a
+ * comment (the comment's group) or a release (the release's group: repo:{repo_id},
+ * unit releases, or none for a draft).
  */
 export interface Attachment {
   id: number /* int64 */;
@@ -619,7 +634,9 @@ export interface TrackedTime {
 }
 /**
  * ContentHistory is one revision of an issue or comment body (group
- * issue:{issue_id}; fetched on demand only).
+ * issue:{issue_id}, or the group of its comment). The catalog puts the table
+ * in the on-demand tier: the sync log carries the revision's metadata only,
+ * the text itself is fetched on request.
  */
 export interface ContentHistory {
   id: number /* int64 */;
@@ -627,7 +644,6 @@ export interface ContentHistory {
   issue_id: number /* int64 */;
   comment_id: number /* int64 */;
   edited_at: string /* RFC 3339, UTC */;
-  content_text: string;
   is_first_created: boolean;
   is_deleted: boolean;
 }
@@ -774,18 +790,22 @@ export const GroupPrefixOrg = "org";
 export const GroupPrefixRepo = "repo";
 export const GroupPrefixIssue = "issue";
 /**
- * GroupAll is the pseudo group of entries that concern every client: schema
- * epoch markers (OpRebootstrap) and deletes whose group is unknown (rows that
- * were never materialized while the entity index was still being backfilled).
- * Readers of a group always receive GroupAll entries too.
+ * GroupAll is the pseudo group of the entries that concern every client: the
+ * schema epoch markers (OpRebootstrap), which carry no entity data. Readers
+ * of a group always receive GroupAll entries too. Nothing else is written to
+ * it (PLAN §4.5: nothing is broadcast instance-wide).
  */
 export const GroupAll = "*";
 /**
- * Unit is the repository unit a reader needs (livesync_log.unit) to receive
- * an entity of a repo:{id} or issue:{id} group, checked with
- * Permission.CanRead(unit) (PLAN §4.4). UnitNone means any read access to
- * the group. Several alternatives are separated by "|": the entity is visible
- * with any of them. The same names identify unit types in RepoUnit/TeamUnit.
+ * Unit is what a reader of a group needs (livesync_log.unit) to receive an
+ * entity of it. In repo:{id} and issue:{id} groups it is a repository unit,
+ * checked with Permission.CanRead(unit) (PLAN §4.4); several alternatives are
+ * separated by "|" (the entity is visible with any of them), and the same
+ * names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
+ * UnitNone (anyone who may see the user) or UnitSelf (that user only); in
+ * org:{id} groups UnitNone (anyone who may see the organization) or
+ * UnitMembers (its members only). UnitNone means any read access to the
+ * group.
  */
 export type Unit = string;
 export const UnitNone: Unit = "";
@@ -800,3 +820,11 @@ export const UnitExternalTracker: Unit = "ext_issues";
 export const UnitProjects: Unit = "projects";
 export const UnitPackages: Unit = "packages";
 export const UnitActions: Unit = "actions";
+/**
+ * UnitSelf: in user:{id}, only that user.
+ */
+export const UnitSelf: Unit = "self";
+/**
+ * UnitMembers: in org:{id}, only the organization's members.
+ */
+export const UnitMembers: Unit = "members";

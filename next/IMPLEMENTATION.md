@@ -742,24 +742,39 @@ does) **and** MySQL 8.0 (binlog on).
     the *entity key*: the table for a row's main entity, `"<table>#<suffix>"` for a derived one (`issue#body`).
   - **Protocol (for B5/B6/F2).** Groups `user:{id}`/`org:{id}`/`repo:{id}`/`issue:{id}` (`protocol.UserGroup` …) plus
     the pseudo group **`protocol.GroupAll = "*"`**: entries every reader gets (`synclog.ReadSince(group)` always includes
-    them). Log ops (`protocol.Op`): `U` upsert (payload = full DTO JSON), `D` delete (no payload), **`B` re-bootstrap
+    them) — **only `B` markers** (no entity data; review round 1 removed the unknown-group deletes). Log ops
+    (`protocol.Op`): `U` upsert (payload = full DTO JSON, not HTML-escaped), `D` delete (no payload), **`B` re-bootstrap
     marker** (GroupAll, entity id 0, payload `RebootstrapMarker{table, epoch}`). `livesync_log.unit` = required unit
-    (`protocol.Unit`: `""` any access, `code`, `issues`, `pulls`, `issues|pulls` = either, `releases`, `projects`,
-    `actions`; same names as `RepoUnit.type`/`TeamUnit.type`). `schema_ver` = `protocol.Schema<Model>` (all 1).
+    (`protocol.Unit`): in `repo:`/`issue:` a repository unit (`""` any access, `code`, `issues`, `pulls`, `issues|pulls` =
+    either, `releases`, `projects`, `actions`; same names as `RepoUnit.type`/`TeamUnit.type`); **in `user:{id}`: `""`
+    = anyone who may see the user, `self` = that user only; in `org:{id}`: `""` = anyone who may see the org, `members` =
+    its members only** (round 1). `schema_ver` = `protocol.Schema<Model>` (all 1).
     DTO conventions: API v1 snake_case names, refs as ids, times RFC 3339 UTC (`time.Time`, optional ones omitted).
-    **Placement** (all in `materialize/specs*.go`): Repository, RepoUnit, Collaboration → `repo:{id}` unit none; User →
-    `user:{id}` (`org:{id}` for orgs; public profile only, no email/admin/active flags, pronouns only if not private);
-    OrgUser/Team/TeamUser/TeamRepo/TeamUnit → `org:{org_id}`; Access, Notification, Stopwatch, IssueWatch, Watch, Star,
-    BlockedUser, **ReviewState** (viewed files are per user, PLAN §4.4) → `user:{user_id}`; Label → `repo:` unit
-    `issues|pulls` (org labels → `org:`); Milestone → `repo:` `issues|pulls`; Project/ProjectColumn/ProjectIssue → the
-    project's repo (unit `projects`) or owner (`org:`/`user:`); Issue, IssueLabel, IssueAssignee → `repo:{issue.repo_id}`
-    unit `issues`/`pulls` by `is_pull`; **IssueBody** (body + body_html, derived from the issue row, same id) →
-    `issue:{id}`; PullRequest, AutoMerge → `repo:{base_repo_id}` `pulls`; Branch, CommitStatus → `code`; Release →
-    `releases`; ActionRun/Job → `actions`; Comment, Reaction, Review (`pulls`), IssueDependency, TrackedTime,
-    ContentHistory → `issue:{issue_id}`; Attachment → `issue:` or (release) `repo:` `releases`, unattached ones nowhere.
-    A row whose group changes gets `D` in the old group + `U` in the new one. **For B4/B6:** other users' public
-    profiles live in their `user:{id}` group, which carries that user's private entities too — B4 must not grant
-    `user:{id}` to others; B6 should embed the `User` entities a bootstrap references (or B4/B5 add a model filter).
+    **Placement** (all in `materialize/specs*.go`, round 1 changes in bold): Repository, RepoUnit, Collaboration →
+    `repo:{id}` unit none; User → `user:{id}` unit none (`org:{id}` for orgs; public profile only, no email/admin/active
+    flags, pronouns only if not private); **OrgUser → `org:{org_id}` unit none if public, `members` if concealed;
+    Team/TeamUser/TeamRepo/TeamUnit → `org:{org_id}` `members`**; Access, Notification, Stopwatch, IssueWatch, Watch,
+    Star, BlockedUser, **ReviewState** (viewed files are per user, PLAN §4.4) → `user:{user_id}` **unit `self`**; Label →
+    `repo:` unit `issues|pulls` (org labels → `org:` unit none); Milestone → `repo:` `issues|pulls`; Project/ProjectColumn
+    → the project's repo (unit `projects`) or owner (`org:`/`user:` unit none); **ProjectIssue → the issue's
+    `repo:{repo_id}` unit `issues`/`pulls`** (a user/org project can hold issues of private repositories its readers
+    cannot see); Issue, IssueLabel, IssueAssignee → `repo:{issue.repo_id}` unit `issues`/`pulls` by `is_pull`;
+    **IssueBody** (body + body_html, derived from the issue row, same id) → `issue:{id}`; PullRequest, AutoMerge →
+    `repo:{base_repo_id}` `pulls`; Branch, CommitStatus → `code`; Release → `releases`, **a draft release → no group**
+    (upstream: writers only); ActionRun/Job → `actions`; Comment, Review (`pulls`), IssueDependency, TrackedTime →
+    `issue:{issue_id}`, **except a pending Review and the code comments of a pending review → `user:{reviewer_id}`
+    `self`** (upstream: the reviewer only), **and a cross-reference Comment from another repository (`IssueRef`/
+    `CommentRef`/`PullRef` with `ref_repo_id` ≠ the issue's repo) → no group**; **Reaction, ContentHistory → the
+    comment's place when `comment_id` ≠ 0**, else `issue:{issue_id}`; Attachment → **the release's place** (draft: none),
+    **the comment's place**, else `issue:`; unattached ones nowhere. A row whose group **or unit** changes gets `D` in
+    the old group/unit + `U` in the new one (round 1: unit changes too, e.g. a membership concealed). **Dependents**
+    (`spec.dependents`, round 1): when a row's main entity changes group (incl. entering or leaving every group), the
+    rows whose place derives from it are materialized again in the same transaction (review → its comments; comment →
+    attachments, reactions, revisions; release → attachments), since their own rows do not change on submit/publish
+    (`SubmitReview` only updates the review row). **For B4/B6:** grant `user:{id}` unit none to whoever may see the
+    user and `self` to the user only; `org:{id}` unit none to whoever may see the org, `members` to members only. A
+    pending review's draft stays in the reviewer's `self` even if they lose access to the repository (their own text and
+    the diff hunk they commented on).
   - **TS generation.** `next/tools/gen-protocol.sh [--check]` runs `go run github.com/gzuidhof/tygo@v0.2.21` with
     `GOTOOLCHAIN` = go.mod's toolchain (tygo loads this module), writes to a temp file, then copies (or diffs for
     `--check`, exit 1 when stale). Go doc comments become TSDoc. Const blocks have their comment detached by a blank
@@ -777,6 +792,10 @@ does) **and** MySQL 8.0 (binlog on).
     of group + GroupAll, ascending; `*TrimmedError{Cursor, Floor}` / `ErrTrimmed` when `cursor < floor` — the floor is
     read *after* the entries, so a concurrent trim can never hide a gap), `Trim(ctx, maxAge, maxRows) (floor, error)`
     (chunks of 5000, each chunk's DELETE and the `log_floor` move in one tx; floor = "oldest cursor still served").
+    **Round 1: `Trim` is a `Writer` method**: every chunk transaction is fenced (`Append(ctx, nil)` ⇒ `ErrNotWriter` for
+    a writer that lost its lease; the writer role then steps down) and moves the floor only up (`log_floor` read with
+    `FOR UPDATE`, a higher value stays), so overlapping trims of an old and a new writer cannot move the floor back and
+    make `ReadSince` serve a silent gap (`TestTrimFencing`).
     **Tailer** (every instance; invariant 2 = writer and tailer split): `StartTailer(ctx, cfg, sink)` from the current
     head, woken by the local writer (AfterTx), by `LISTEN livesync_log` on PG (via `capture.Listen`, one more pgx
     connection per instance) and by polling (`POLL_INTERVAL`, default 250 ms PG / 100 ms MySQL); hands ordered batches
@@ -815,32 +834,87 @@ does) **and** MySQL 8.0 (binlog on).
     **no per-request rendering needed**. Each repository's git repo is opened once per batch for SHA checks (and when
     it is missing on disk, `repoPath` is dropped from the metas, so SHAs stay plain text instead of upstream logging
     "unable to open repository" per SHA — this happened in tests whose fixture reloads were materialized).
-    Milestone/Project/Label descriptions are raw only. HTML in payloads is JSON-escaped (`<`, jsoniter default).
+    Milestone/Project/Label descriptions are raw only. **Correction (review round 1):** "viewer-independent, no
+    per-request rendering needed" holds for the *markdown* only. Whether a reader may receive an entity at all is
+    decided by its placement, and three kinds of rows were placed too widely in round 0 (pending reviews with their
+    draft comments and attachments, draft releases with their attachments, cross-references from other repositories);
+    they now have non-shared placements (above). **Open issue for B5/B6 (cross-references):** upstream shows a
+    cross-reference comment from repository P on issue X only to viewers who can read X *and* P's issues/pulls
+    (`filterXRefComments`); one group + one unit cannot express two conditions, so these comments are **not published**
+    (no group) and the Next timeline misses them for now. Suggested fix when B5/B6 exist: an optional second requirement
+    on log entries (e.g. `livesync_log.also_grp/also_unit` = `repo:{P}`/`issues|pulls`, checked by the hub per delivery
+    and by the issue bootstrap per viewer), or serve them per viewer from the bootstrap/an on-demand endpoint.
+    **Rendering cost (round 1):** the entity index hash of a DTO with markdown is the hash of the payload *without* the
+    rendered HTML plus the rendering environment (repository link + markup metas), so markdown is rendered only when the
+    source or environment changed (`entity.changeHash`/`payload`, `loader.markdown`): posting a comment no longer
+    re-renders the unchanged issue body (`TestConsumeRenderSkip`). External inputs of the HTML (a mentioned user's
+    visibility, a referenced commit appearing) are picked up at the next change of the source, as before. **Payloads
+    are encoded without HTML escaping** (`materialize.marshal`: `SetEscapeHTML(false)`; round 0 wrote `\u003c` for every
+    `<`). **Avatars (round 1):** `User.AvatarLink` generates/stores a random avatar and UPDATEs the user row in
+    local-avatar mode (OFFLINE_MODE default) and federated avatars write `email_hash`; `userAvatarLink` uses the fast link
+    `/user/avatar/{name}/0` in those cases (the redirect does the work in its own web request) and `repoAvatarLink` gives
+    no avatar for a repository without one under `AVATAR_FALLBACK = random`, so DTO building has no side effects.
   - **Schema epochs — decision: re-bootstrap markers, no reconciliation scan.** A scan over `updated_unix` would miss
     deletes and the many writes that do not touch `updated_unix` (counters, `NoAutoTime`, tables without the column), so
     it cannot make the log correct; the hash makes a full rescan cheap in log entries but not in DB work. Instead
     `HandleEpochs` (at `Prepare` and every 5 s, so bumps by another instance's start are seen) compares
     `schema_epoch.<tbl>` with `materialized_epoch.<tbl>` (`materialize.MetaHandledEpochPrefix`): for every table that
     differs it appends one `B` marker per model of the table (`issue` → Issue + IssueBody) to GroupAll, restarts that
-    table's index backfill and records the epoch as handled, in one writer transaction. A table with **no** handled
+    table's index backfill **in repair mode** (`entity_backfill.<tbl>` = `repair:0`; round 1) and records the epoch as
+    handled, in one writer transaction. The repair walk overwrites every index row's group and unit with the row's
+    current ones and clears its hash (`indexRepair`, `last_sync_id` kept), so a move or a change lost while the trigger
+    was missing can neither misroute a later delete nor make a later change look unchanged (`TestEpochRepairsIndex`).
+    During the walk the old index still routes; that reaches nobody who keeps it, because every client holding the
+    table's models re-bootstraps after the marker and bootstraps wait for the walk (B6 gate below). A table with **no** handled
     epoch yet (first start, newly tracked table) is recorded without a marker (bootstraps read tables directly; no client
     can hold its entities from the log). **For B5:** a `B` entry ⇒ `bootstrap_required{group, reason}` for every
     subscribed group that can contain that model (by group kind) for clients whose cursor is below the marker.
   - **Entity index backfill** (deletes of rows that existed before livesync was installed have no index row and
     could not be routed). `BackfillStep` walks each tracked table by id (500 rows per writer transaction, group/unit
     only, `ON CONFLICT DO NOTHING` / `ON DUPLICATE KEY UPDATE tbl = tbl` so it never overwrites the materializer's newer
-    rows), progress in `entity_backfill.<tbl>` (last id or `done`; `materialize.MetaBackfillPrefix`), serialised with
-    `Consume` by the materializer's mutex. **While a table's backfill is incomplete, a delete of an unindexed row of it
-    is written to GroupAll** (model + id, no payload) — clients drop the entity if they hold it; once complete, such a
-    delete is of a row nobody ever received and is skipped. A marker restarts the table's backfill (rows inserted while
-    its trigger was missing). Cost: ≈ rows/500 transactions per table, 10 ms apart, in the background.
+    rows), progress in `entity_backfill.<tbl>` (last id, `repair:<id>`, or `done`; `materialize.MetaBackfillPrefix`),
+    serialised with `Consume` by the materializer's mutex. **A delete of an unindexed row is emitted nowhere** (round 1;
+    round 0 wrote it to GroupAll while the table's backfill was incomplete, which broadcast ids of deleted private rows to
+    every connection for the whole initial backfill and after every repair — against PLAN §4.4 "exactly one group", §4.5
+    "nothing is broadcast instance-wide", §4.11 invariant 3 — and still lost deletes committed before the walk but
+    consumed after it, review finding 7). **Constraint for B6 (the bootstrap gate): a bootstrap of a model must wait (or
+    answer "retry later") until its table's `entity_backfill.<tbl>` is `done`.** Then no client can hold an unindexed
+    row: the walk indexes every row that existed when it passed, later inserts are indexed by the materializer, and a
+    row deleted before the walk reached it is in no bootstrap made after `done`. After a marker the value is
+    `repair:0` again, so re-bootstraps wait for the repair walk too. Cost: ≈ rows/500 transactions per table, 10 ms
+    apart, in the background (a 1M-row table ≈ 1–2 min); the Next UI's first bootstrap after installing livesync waits
+    for it. **Also for B6** (independent of the backfill): a bootstrap's watermark must not be ahead of what the
+    materializer has consumed (a row inserted and deleted around the snapshot would otherwise stay in the client): take
+    the snapshot, then wait until the capture cursor passes the outbox ids committed before it (or a `barrier`) before
+    handing out the watermark.
   - **Settings added:** `LOG_RETENTION` (default 720h, 0 = no age limit), `LOG_MAX_ROWS` (default 1 000 000, 0 = no
     row limit), `HOT_COALESCE` (default 1s, 0 = off). `POLL_INTERVAL` now also drives the tailer.
   - **livesync_meta names now:** `tables_version`, `capture_cursor`, `capture_pending`, `schema_epoch.*` (B1/B2);
     `log_head`, `log_writer`, `log_floor` (synclog), `materialized_epoch.*`, `entity_backfill.*` (materialize).
+  - **Review round 1 (12 findings: 11 fixed, 1 (cross-references) fixed by not publishing + recorded as open
+    issue for B5/B6).** (1) pending reviews + their code comments + attachments → `user:{reviewer}` `self`, moved to
+    `issue:{id}` on submit via dependents; (2) draft releases + attachments → no group until published; (3) cross-repo
+    reference comments → no group (open issue above); (4) units `self`/`members` split `user:`/`org:` groups into public
+    and private parts (ProjectIssue moved to the issue's repo group, found while fixing this); (5) epoch marker ⇒ repair
+    backfill (group/unit overwritten, hash cleared); (6)+(7) no GroupAll deletes; B6 bootstrap gate on the backfill
+    (finding 7's sequence needs a bootstrap before the table's backfill is done, which the gate forbids; its suggested
+    high-water mark is therefore not needed); (8) fenced, monotonic `Trim`; (9) markdown rendered only when source or
+    environment changed; (10) ContentHistory DTO without `content_text` (on-demand tier: metadata only, text fetched on
+    request — B6/B7 provide the endpoint); (11) payloads without HTML escaping; (12) avatar links without side effects.
+    Tests added: `TestConsumePlacement`, `TestConsumeRenderSkip`, `TestEpochRepairsIndex`, `TestUserAvatarWithoutSideEffects`,
+    `TestTrimFencing`, integration `TestLivesyncMaterializeDrafts` (API v1: pending review with a code comment → `user:1`
+    `self`, nothing about it elsewhere; submit → `D` there + `U` in `issue:3` for review and comment; draft release → no
+    entry and its title nowhere in the log; publish → `U` in `repo:1` `releases`); `TestConsume`/`TestLoadFixtures`/
+    `TestHandleEpochs` updated (no GroupAll delete; a comment entering a group brings its attachments/reactions; no
+    `\u003c` and no `content_text` in any fixture payload; `repair:0`). Commands: gofumpt, golangci-lint (0 issues),
+    `go vet` (+ integration with sqlite tags), deadcode diff (clean), unit tests (`-race` for materialize/synclog),
+    `gen-protocol.sh --check`, `TestLivesync*|TestVersion` green on PG 16 (`gtestschema`, 4 full runs) and MySQL 8.0 (2
+    full runs), the drafts test 3× on each; fork diff unchanged. One full PG run printed a testlogger "FATAL ERROR"
+    (a `log.Error`) inside `TestLivesyncCaptureRepair` (the test passed); it did not recur in 3 more full runs and 5 runs
+    of the capture tests, and the line was not captured — watch for it.
   - **Not done / for later.** No `Head()` on the tailer and no sync id in `/-/sync/health` (kept free of activity
     information); B5 adds what it needs. Per-row DTO errors are skipped, but a row that fails to *load* (xorm conversion
-    error) still makes the batch retry. The User-group caveat above. B4 hooks permission epochs into the materializer
+    error) still makes the batch retry. The cross-reference open issue above. B4 hooks permission epochs into the materializer
     (no hook point added: it would be dead code now). MariaDB not re-run for B3 (B2 covered the triggers there).
   - **Tests.** Unit (no DB / SQLite with fixtures): `TestCoalesce`, `TestHotLimiter`, `TestSpecsCoverCatalog` (a spec per
     tracked table, catalog model names = protocol names), `TestLoadFixtures` (all 39 tables' fixture rows load, place
@@ -848,7 +922,7 @@ does) **and** MySQL 8.0 (binlog on).
     acknowledged in the tx, index rows, hash dedupe, delete routed by the index, unknown delete → GroupAll until the
     backfill is complete, group move = D + U), `TestConsumeHot`, `TestConsumeFencing` (ErrNotWriter ⇒ stop, batch not
     acknowledged), `TestHandleEpochs`, `TestBackfill`; `synclog`: `TestAppendAndReadSince`, `TestWriterFencing`, `TestTrim`,
-    `TestTailer`; `capture`: `TestReaderDefer` (deferred rows below/above the cursor), `TestReaderHoles` made robust (it
+    `TestTailer`, `TestTrimFencing`; `capture`: `TestReaderDefer` (deferred rows below/above the cursor), `TestReaderHoles` made robust (it
     read the stored cursor before the reader's commit; flaked under `-race` already on B2's code); settings. Integration,
     **green on PG 16 (`gtestschema`) and MySQL 8.0**: `TestLivesyncMaterializeAPI` (API v1 create issue → Issue in
     `repo:1`/issues + IssueBody in `issue:N` with body_html; add label → IssueLabel + Label; comment → Comment with

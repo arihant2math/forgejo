@@ -6,9 +6,11 @@ package materialize
 import (
 	"context"
 	"maps"
+	"sync/atomic"
 
 	repo_model "forgejo.org/models/repo"
 	"forgejo.org/modules/gitrepo"
+	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/markup"
 	"forgejo.org/modules/markup/markdown"
@@ -47,6 +49,7 @@ func (l *loader) renderMarkdown(ctx context.Context, repo *repo_model.Repository
 	if content == "" || repo == nil {
 		return ""
 	}
+	renderCount.Add(1)
 	rc := &markup.RenderContext{
 		Ctx:   ctx,
 		Links: markup.Links{Base: repo.Link()},
@@ -75,6 +78,29 @@ func (l *loader) renderMarkdown(ctx context.Context, repo *repo_model.Repository
 		return ""
 	}
 	return string(html)
+}
+
+// renderCount counts markdown renders (tests check that unchanged bodies
+// are not rendered again).
+var renderCount atomic.Int64
+
+// renderEnv describes what renderMarkdown's output depends on besides the
+// content: the repository's link and markup metas (owner and name, external
+// tracker settings, …). See entity.changeHash.
+func (l *loader) renderEnv(ctx context.Context, repo *repo_model.Repository) string {
+	if repo == nil {
+		return ""
+	}
+	if env, ok := l.envs[repo.ID]; ok {
+		return env
+	}
+	metas, err := json.Marshal(repo.ComposeMetas(ctx)) // map keys are sorted
+	if err != nil {
+		metas = nil // then only the link counts
+	}
+	env := repo.Link() + "\x00" + string(metas)
+	l.envs[repo.ID] = env
+	return env
 }
 
 // close releases the git repositories opened for rendering.

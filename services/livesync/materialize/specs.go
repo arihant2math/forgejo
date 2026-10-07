@@ -37,6 +37,17 @@ type spec struct {
 	// each existing row (DTOs only when full). Rows that do not exist are
 	// absent from the result.
 	load func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error)
+	// dependents are the rows of other tables whose group derives from a
+	// row of this table: when a row's main entity changes group, they are
+	// materialized again in the same transaction (their own rows did not
+	// change, so nothing else would move them).
+	dependents []dependent
+}
+
+// dependent names the rows of table whose column refers to a row of
+// another table.
+type dependent struct {
+	table, column string
 }
 
 // rowSpec describes a table whose rows map to one entity each.
@@ -48,16 +59,20 @@ type rowSpec[T any] struct {
 	prepare func(ctx context.Context, l *loader, rows []*T) error
 	// place returns the row's group and unit ("" group: none).
 	place func(l *loader, r *T) (string, protocol.Unit)
-	// dto builds the row's payload.
+	// dto builds the row's payload; markdown fields are left to
+	// loader.markdown.
 	dto func(ctx context.Context, l *loader, r *T) (any, error)
+	// dependents: see spec.dependents.
+	dependents []dependent
 }
 
 func (s rowSpec[T]) spec(table string) *spec {
 	return &spec{
-		table:   table,
-		keys:    []string{table},
-		models:  []protocol.Model{s.model},
-		schemas: []int{s.schema},
+		table:      table,
+		keys:       []string{table},
+		models:     []protocol.Model{s.model},
+		schemas:    []int{s.schema},
+		dependents: s.dependents,
 		load: func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error) {
 			rows, err := findByIDs(ctx, ids, s.id)
 			if err != nil {
@@ -80,6 +95,7 @@ func (s rowSpec[T]) spec(table string) *spec {
 					if e.dto, err = s.dto(ctx, l, r); err != nil {
 						e.err = fmt.Errorf("build %s %d: %w", s.model, id, err)
 					}
+					e.renders = l.takeRenders()
 				}
 				res[id] = []entity{e}
 			}
@@ -123,6 +139,24 @@ func issueChild[T any](issueID func(*T) int64) func(context.Context, *loader, []
 	}
 }
 
+// commentChild is the rowSpec prepare step of rows that hang off an issue
+// and possibly one of its comments (see loader.commentChildPlace).
+func commentChild[T any](parents func(*T) (issueID, commentID int64)) func(context.Context, *loader, []*T) error {
+	return func(ctx context.Context, l *loader, rows []*T) error {
+		issueIDs := make([]int64, 0, len(rows))
+		commentIDs := make([]int64, 0, len(rows))
+		for _, r := range rows {
+			issueID, commentID := parents(r)
+			issueIDs = append(issueIDs, issueID)
+			commentIDs = append(commentIDs, commentID)
+		}
+		if err := l.loadIssues(ctx, issueIDs); err != nil {
+			return err
+		}
+		return l.loadComments(ctx, commentIDs)
+	}
+}
+
 // specs is the materializer's table registry, keyed by table name. It
 // covers exactly the catalog's tracked tables (TestSpecsCoverCatalog).
 var specs = func() map[string]*spec {
@@ -133,7 +167,11 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelOrgUser, schema: protocol.SchemaOrgUser,
 			id: func(r *org_model.OrgUser) int64 { return r.ID },
 			place: func(_ *loader, r *org_model.OrgUser) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+				// Non-members see public memberships only.
+				if r.IsPublic {
+					return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+				}
+				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.OrgUser) (any, error) {
 				return &protocol.OrgUser{ID: r.ID, OrgID: r.OrgID, UserID: r.UID, Public: r.IsPublic}, nil
@@ -143,7 +181,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelTeam, schema: protocol.SchemaTeam,
 			id: func(r *org_model.Team) int64 { return r.ID },
 			place: func(_ *loader, r *org_model.Team) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.Team) (any, error) {
 				return &protocol.Team{
@@ -157,7 +195,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelTeamUser, schema: protocol.SchemaTeamUser,
 			id: func(r *org_model.TeamUser) int64 { return r.ID },
 			place: func(_ *loader, r *org_model.TeamUser) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamUser) (any, error) {
 				return &protocol.TeamUser{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, UserID: r.UID}, nil
@@ -167,7 +205,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelTeamRepo, schema: protocol.SchemaTeamRepo,
 			id: func(r *org_model.TeamRepo) int64 { return r.ID },
 			place: func(_ *loader, r *org_model.TeamRepo) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamRepo) (any, error) {
 				return &protocol.TeamRepo{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, RepoID: r.RepoID}, nil
@@ -177,7 +215,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelTeamUnit, schema: protocol.SchemaTeamUnit,
 			id: func(r *org_model.TeamUnit) int64 { return r.ID },
 			place: func(_ *loader, r *org_model.TeamUnit) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamUnit) (any, error) {
 				return &protocol.TeamUnit{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, Type: unitName(r.Type), Permission: r.AccessMode.String()}, nil
@@ -200,7 +238,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelAccess, schema: protocol.SchemaAccess,
 			id: func(r *access_model.Access) int64 { return r.ID },
 			place: func(_ *loader, r *access_model.Access) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *access_model.Access) (any, error) {
 				return &protocol.Access{ID: r.ID, UserID: r.UserID, RepoID: r.RepoID, Permission: r.Mode.String()}, nil
@@ -286,12 +324,13 @@ var specs = func() map[string]*spec {
 		}.spec("project_board"),
 		rowSpec[project_model.ProjectIssue]{
 			model: protocol.ModelProjectIssue, schema: protocol.SchemaProjectIssue,
-			id: func(r *project_model.ProjectIssue) int64 { return r.ID },
-			prepare: func(ctx context.Context, l *loader, rows []*project_model.ProjectIssue) error {
-				return l.loadProjects(ctx, ids(rows, func(r *project_model.ProjectIssue) int64 { return r.ProjectID }))
-			},
+			id:      func(r *project_model.ProjectIssue) int64 { return r.ID },
+			prepare: issueChild(func(r *project_model.ProjectIssue) int64 { return r.IssueID }),
+			// With the issue, not the project: a user or organization
+			// project can hold issues of private repositories that
+			// readers of the project cannot see.
 			place: func(l *loader, r *project_model.ProjectIssue) (string, protocol.Unit) {
-				return l.projectPlace(r.ProjectID)
+				return l.issueRepoPlace(r.IssueID)
 			},
 			dto: func(_ context.Context, _ *loader, r *project_model.ProjectIssue) (any, error) {
 				return &protocol.ProjectIssue{ID: r.ID, IssueID: r.IssueID, ProjectID: r.ProjectID, ColumnID: r.ProjectColumnID, Sorting: r.Sorting}, nil
@@ -432,7 +471,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelNotification, schema: protocol.SchemaNotification,
 			id: func(r *activities_model.Notification) int64 { return r.ID },
 			place: func(_ *loader, r *activities_model.Notification) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *activities_model.Notification) (any, error) {
 				return &protocol.Notification{
@@ -446,7 +485,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelStopwatch, schema: protocol.SchemaStopwatch,
 			id: func(r *issues_model.Stopwatch) int64 { return r.ID },
 			place: func(_ *loader, r *issues_model.Stopwatch) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.Stopwatch) (any, error) {
 				return &protocol.Stopwatch{ID: r.ID, UserID: r.UserID, IssueID: r.IssueID, CreatedAt: ts(r.CreatedUnix)}, nil
@@ -456,7 +495,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelIssueWatch, schema: protocol.SchemaIssueWatch,
 			id: func(r *issues_model.IssueWatch) int64 { return r.ID },
 			place: func(_ *loader, r *issues_model.IssueWatch) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.IssueWatch) (any, error) {
 				return &protocol.IssueWatch{
@@ -469,7 +508,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelWatch, schema: protocol.SchemaWatch,
 			id: func(r *repo_model.Watch) int64 { return r.ID },
 			place: func(_ *loader, r *repo_model.Watch) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *repo_model.Watch) (any, error) {
 				return &protocol.Watch{
@@ -483,7 +522,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelStar, schema: protocol.SchemaStar,
 			id: func(r *repo_model.Star) int64 { return r.ID },
 			place: func(_ *loader, r *repo_model.Star) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UID), protocol.UnitNone
+				return protocol.UserGroup(r.UID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *repo_model.Star) (any, error) {
 				return &protocol.Star{ID: r.ID, UserID: r.UID, RepoID: r.RepoID, CreatedAt: ts(r.CreatedUnix)}, nil
@@ -493,7 +532,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelBlockedUser, schema: protocol.SchemaBlockedUser,
 			id: func(r *user_model.BlockedUser) int64 { return r.ID },
 			place: func(_ *loader, r *user_model.BlockedUser) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *user_model.BlockedUser) (any, error) {
 				return &protocol.BlockedUser{ID: r.ID, UserID: r.UserID, BlockID: r.BlockID, CreatedAt: ts(r.CreatedUnix)}, nil
@@ -503,8 +542,10 @@ var specs = func() map[string]*spec {
 		rowSpec[issues_model.Reaction]{
 			model: protocol.ModelReaction, schema: protocol.SchemaReaction,
 			id:      func(r *issues_model.Reaction) int64 { return r.ID },
-			prepare: issueChild(func(r *issues_model.Reaction) int64 { return r.IssueID }),
-			place:   func(l *loader, r *issues_model.Reaction) (string, protocol.Unit) { return l.issuePlace(r.IssueID) },
+			prepare: commentChild(func(r *issues_model.Reaction) (int64, int64) { return r.IssueID, r.CommentID }),
+			place: func(l *loader, r *issues_model.Reaction) (string, protocol.Unit) {
+				return l.commentChildPlace(r.IssueID, r.CommentID)
+			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.Reaction) (any, error) {
 				return &protocol.Reaction{
 					ID: r.ID, IssueID: r.IssueID, CommentID: r.CommentID, UserID: r.UserID,
@@ -517,7 +558,7 @@ var specs = func() map[string]*spec {
 			model: protocol.ModelReviewState, schema: protocol.SchemaReviewState,
 			id: func(r *pull_model.ReviewState) int64 { return r.ID },
 			place: func(_ *loader, r *pull_model.ReviewState) (string, protocol.Unit) {
-				return protocol.UserGroup(r.UserID), protocol.UnitNone
+				return protocol.UserGroup(r.UserID), protocol.UnitSelf
 			},
 			dto: func(_ context.Context, _ *loader, r *pull_model.ReviewState) (any, error) {
 				files := make(map[string]uint8, len(r.UpdatedFiles))
@@ -532,14 +573,19 @@ var specs = func() map[string]*spec {
 		}.spec("review_state"),
 		rowSpec[repo_model.Attachment]{
 			model: protocol.ModelAttachment, schema: protocol.SchemaAttachment,
-			id:      func(r *repo_model.Attachment) int64 { return r.ID },
-			prepare: issueChild(func(r *repo_model.Attachment) int64 { return r.IssueID }),
+			id: func(r *repo_model.Attachment) int64 { return r.ID },
+			prepare: func(ctx context.Context, l *loader, rows []*repo_model.Attachment) error {
+				if err := commentChild(func(r *repo_model.Attachment) (int64, int64) { return r.IssueID, r.CommentID })(ctx, l, rows); err != nil {
+					return err
+				}
+				return l.loadReleases(ctx, ids(rows, func(r *repo_model.Attachment) int64 { return r.ReleaseID }))
+			},
 			place: func(l *loader, r *repo_model.Attachment) (string, protocol.Unit) {
 				switch {
-				case r.IssueID != 0:
-					return l.issuePlace(r.IssueID)
 				case r.ReleaseID != 0:
-					return protocol.RepoGroup(r.RepoID), protocol.UnitReleases
+					return releasePlace(l.releases[r.ReleaseID])
+				case r.IssueID != 0:
+					return l.commentChildPlace(r.IssueID, r.CommentID)
 				}
 				return "", protocol.UnitNone // uploaded, not attached yet
 			},
@@ -580,14 +626,16 @@ var specs = func() map[string]*spec {
 		rowSpec[issues_model.ContentHistory]{
 			model: protocol.ModelContentHistory, schema: protocol.SchemaContentHistory,
 			id:      func(r *issues_model.ContentHistory) int64 { return r.ID },
-			prepare: issueChild(func(r *issues_model.ContentHistory) int64 { return r.IssueID }),
+			prepare: commentChild(func(r *issues_model.ContentHistory) (int64, int64) { return r.IssueID, r.CommentID }),
 			place: func(l *loader, r *issues_model.ContentHistory) (string, protocol.Unit) {
-				return l.issuePlace(r.IssueID)
+				return l.commentChildPlace(r.IssueID, r.CommentID)
 			},
+			// On-demand tier (catalog.TierOnDemand): the revision's
+			// metadata only, never its text, which is fetched on request.
 			dto: func(_ context.Context, _ *loader, r *issues_model.ContentHistory) (any, error) {
 				return &protocol.ContentHistory{
 					ID: r.ID, PosterID: r.PosterID, IssueID: r.IssueID, CommentID: r.CommentID, EditedAt: ts(r.EditedUnix),
-					ContentText: r.ContentText, IsFirstCreated: r.IsFirstCreated, IsDeleted: r.IsDeleted,
+					IsFirstCreated: r.IsFirstCreated, IsDeleted: r.IsDeleted,
 				}, nil
 			},
 		}.spec("issue_content_history"),

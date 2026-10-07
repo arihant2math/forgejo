@@ -44,14 +44,46 @@ func loadIndex(ctx context.Context, key string, ids []int64) (map[int64]*livesyn
 // indexWriteChunk bounds the rows of one multi-row index statement.
 const indexWriteChunk = 200
 
-// writeIndex inserts rows into the index. With replace, existing rows are
-// overwritten (the materializer's own upserts); without, existing rows are
-// left alone (the backfill must never overwrite what the materializer
-// wrote, which is newer).
-func writeIndex(ctx context.Context, rows []livesync_model.Entity, replace bool) error {
+// indexWrite says how writeIndex treats existing index rows.
+type indexWrite int
+
+const (
+	// indexUpsert overwrites them (the materializer's own upserts).
+	indexUpsert indexWrite = iota
+	// indexKeep leaves them alone: the initial backfill must never
+	// overwrite what the materializer wrote, which tells where clients hold
+	// the entity (a row whose move is still in the outbox is in its old
+	// group until the materializer emits the move).
+	indexKeep
+	// indexRepair overwrites their group and unit and clears their hash,
+	// keeping last_sync_id: the backfill after a re-bootstrap marker, when
+	// the index may be stale (writes were lost) and every client rebuilds
+	// its state from a bootstrap (see HandleEpochs).
+	indexRepair
+)
+
+// writeIndex inserts rows into the index; mode says what happens to
+// existing rows.
+func writeIndex(ctx context.Context, rows []livesync_model.Entity, mode indexWrite) error {
 	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
 		return err
+	}
+	mysql := setting.Database.Type.IsMySQL()
+	var conflict string
+	switch {
+	case mode == indexUpsert && mysql:
+		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash), last_sync_id = VALUES(last_sync_id)"
+	case mode == indexUpsert:
+		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash, last_sync_id = excluded.last_sync_id"
+	case mode == indexRepair && mysql:
+		conflict = " ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash)"
+	case mode == indexRepair:
+		conflict = " ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash"
+	case mysql:
+		conflict = " ON DUPLICATE KEY UPDATE tbl = tbl"
+	default:
+		conflict = " ON CONFLICT (tbl, row_id) DO NOTHING"
 	}
 	for start := 0; start < len(rows); start += indexWriteChunk {
 		chunk := rows[start:min(start+indexWriteChunk, len(rows))]
@@ -65,16 +97,7 @@ func writeIndex(ctx context.Context, rows []livesync_model.Entity, replace bool)
 			sb.WriteString("(?, ?, ?, ?, ?, ?)")
 			args = append(args, r.Tbl, r.RowID, r.Grp, r.Unit, r.Hash, r.LastSyncID)
 		}
-		switch {
-		case setting.Database.Type.IsMySQL() && replace:
-			sb.WriteString(" ON DUPLICATE KEY UPDATE grp = VALUES(grp), unit = VALUES(unit), hash = VALUES(hash), last_sync_id = VALUES(last_sync_id)")
-		case setting.Database.Type.IsMySQL():
-			sb.WriteString(" ON DUPLICATE KEY UPDATE tbl = tbl")
-		case replace:
-			sb.WriteString(" ON CONFLICT (tbl, row_id) DO UPDATE SET grp = excluded.grp, unit = excluded.unit, hash = excluded.hash, last_sync_id = excluded.last_sync_id")
-		default:
-			sb.WriteString(" ON CONFLICT (tbl, row_id) DO NOTHING")
-		}
+		sb.WriteString(conflict)
 		args = append([]any{sb.String()}, args...)
 		if _, err := e.Exec(args...); err != nil {
 			return fmt.Errorf("livesync: write the entity index: %w", err)

@@ -14,6 +14,8 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/models/unittest"
 	"forgejo.org/modules/json"
+	"forgejo.org/modules/setting"
+	"forgejo.org/modules/test"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/catalog"
 	"forgejo.org/services/livesync/protocol"
@@ -119,7 +121,8 @@ func TestLoadFixtures(t *testing.T) {
 		if len(ids) == 0 {
 			continue // no fixtures (e.g. pull_auto_merge)
 		}
-		loaded, err := specs[tbl.Name].load(ctx, newLoader(), ids, true)
+		l := newLoader()
+		loaded, err := specs[tbl.Name].load(ctx, l, ids, true)
 		require.NoError(t, err, tbl.Name)
 		assert.Len(t, loaded, len(ids), tbl.Name)
 		for id, ents := range loaded {
@@ -130,12 +133,19 @@ func TestLoadFixtures(t *testing.T) {
 					continue
 				}
 				assert.Regexp(t, `^(user|org|repo|issue):\d+$`, e.group, "%s %d", tbl.Name, id)
-				payload, hash, err := e.payload()
+				hash, err := e.changeHash(ctx, l)
+				require.NoError(t, err)
+				assert.NotEmpty(t, hash)
+				payload, err := e.payload(ctx, l)
 				require.NoError(t, err)
 				assert.Contains(t, payload, fmt.Sprintf(`"id":%d`, id), "%s %d", tbl.Name, id)
-				assert.NotEmpty(t, hash)
+				assert.NotContains(t, payload, `\u003c`, "no HTML escaping")
+				if tbl.Tier == catalog.TierOnDemand {
+					assert.NotContains(t, payload, "content_text", "on-demand tier: no text in the log")
+				}
 			}
 		}
+		l.close()
 		// Without DTOs (backfill): same groups.
 		bare, err := specs[tbl.Name].load(ctx, newLoader(), ids, false)
 		require.NoError(t, err)
@@ -210,7 +220,9 @@ func TestConsume(t *testing.T) {
 	var cursor int64
 
 	// Issue 1 (repo 1), comment 2 (on issue 1), label 1 twice, an
-	// untracked table: one entry per entity, the issue gives two.
+	// untracked table: one entry per entity, the issue gives two. The
+	// comment enters a group, so the rows that hang off it (attachments 6
+	// and 7, reactions 4 and 5, not emitted before) follow.
 	b := consume(t, m,
 		change(1, "issue", 1, "U"), change(2, "comment", 2, "I"), change(3, "label", 1, "U"),
 		change(4, "label", 1, "U"), change(5, "probe", 1, "U"))
@@ -220,6 +232,10 @@ func TestConsume(t *testing.T) {
 		{"issue:1", "issues", "IssueBody", "U", 1},
 		{"issue:1", "issues", "Comment", "U", 2},
 		{"repo:1", "issues|pulls", "Label", "U", 1},
+		{"issue:1", "issues", "Attachment", "U", 6},
+		{"issue:1", "issues", "Attachment", "U", 7},
+		{"issue:1", "issues", "Reaction", "U", 4},
+		{"issue:1", "issues", "Reaction", "U", 5},
 	}, rows)
 	var issue protocol.Issue
 	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &issue))
@@ -274,12 +290,12 @@ func TestConsume(t *testing.T) {
 	assert.Equal(t, []logRow{{"repo:1", "issues|pulls", "Label", "D", 1}}, rows)
 	assert.Nil(t, indexRow(t, "label", 1))
 
-	// A delete of a row that was never emitted nor indexed goes to
-	// everyone while the table's index backfill is incomplete...
+	// A delete of a row that was never emitted nor indexed goes nowhere
+	// (never to every client), whether the table's index backfill is
+	// complete or not: bootstraps wait for the backfill.
 	consume(t, m, change(10, "label", 999, "D"))
 	rows, _ = takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"*", "", "Label", "D", 999}}, rows)
-	// ...and nowhere once it is complete.
+	assert.Empty(t, rows)
 	m.backfill["label"] = backfillDone
 	consume(t, m, change(11, "label", 998, "D"))
 	rows, _ = takeLog(t, &cursor)
@@ -306,7 +322,7 @@ func TestConsumeHot(t *testing.T) {
 
 	consume(t, m, change(1, "notification", 1, "U"))
 	rows, _ := takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"user:1", "", "Notification", "U", 1}}, rows)
+	assert.Equal(t, []logRow{{"user:1", "self", "Notification", "U", 1}}, rows)
 
 	// Within the window (an hour here), further changes of that row are
 	// deferred: the newest outbox row stays, the others are deleted.
@@ -314,7 +330,7 @@ func TestConsumeHot(t *testing.T) {
 	require.NoError(t, err)
 	b := consume(t, m, change(2, "notification", 1, "U"), change(3, "notification", 1, "U"), change(4, "notification", 2, "U"))
 	rows, _ = takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"user:2", "", "Notification", "U", 2}}, rows, "only the other row")
+	assert.Equal(t, []logRow{{"user:2", "self", "Notification", "U", 2}}, rows, "only the other row")
 	var left []int64
 	require.NoError(t, db.GetEngine(t.Context()).Table("livesync_change").Cols("id").Find(&left))
 	assert.Equal(t, []int64{3}, left)
@@ -381,9 +397,10 @@ func TestHandleEpochs(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, handled["label"])
 	assert.False(t, m.backfillComplete("label"), "the backfill restarts")
+	assert.True(t, m.repair["label"], "in repair mode")
 	v, _, err := livesync_model.GetMeta(ctx, MetaBackfillPrefix+"label")
 	require.NoError(t, err)
-	assert.Equal(t, "0", v)
+	assert.Equal(t, "repair:0", v)
 
 	require.NoError(t, m.HandleEpochs(ctx))
 	rows, _ = takeLog(t, &cursor)
@@ -434,4 +451,189 @@ func TestBackfill(t *testing.T) {
 	consume(t, m2, change(2, "label", 2, "D"))
 	rows, _ = takeLog(t, &cursor)
 	assert.Equal(t, []logRow{{"repo:1", "issues|pulls", "Label", "D", 2}}, rows)
+}
+
+func exec(t *testing.T, query string, args ...any) {
+	t.Helper()
+	_, err := db.GetEngine(t.Context()).Exec(append([]any{query}, args...)...)
+	require.NoError(t, err)
+}
+
+// Entities that upstream shows to some readers of their issue, repository,
+// user or organization only are not published to everyone who may read the
+// group: pending reviews (and their comments and attachments), draft
+// releases (and their attachments), cross-references from other
+// repositories, members-only organization rows, a user's own rows.
+func TestConsumePlacement(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+
+	// Fixtures: review 4 is pending (reviewer 1, pull 2) and comment 4 is
+	// its code comment; attachment 3 hangs off that comment (moved there),
+	// attachment 10 off draft release 4; comment 2082 on issue 1 references
+	// it from repository 32, comment 2080 from the same repository; org 3
+	// has a public (1) and a concealed (2) membership.
+	exec(t, "UPDATE attachment SET comment_id = 4, issue_id = 2 WHERE id = 3")
+	exec(t, "UPDATE attachment SET release_id = 4, repo_id = 1 WHERE id = 10")
+	consume(t, m,
+		change(1, "review", 4, "U"), change(2, "comment", 4, "U"), change(3, "attachment", 3, "U"),
+		change(4, "release", 4, "U"), change(5, "attachment", 10, "U"),
+		change(6, "comment", 2082, "U"), change(7, "comment", 2080, "U"),
+		change(8, "org_user", 1, "U"), change(9, "org_user", 2, "U"), change(10, "team", 1, "U"),
+		change(11, "team_repo", 1, "U"), change(12, "label", 3, "U"),
+		change(13, "star", 1, "U"), change(14, "project_issue", 1, "U"))
+	rows, entries := takeLog(t, &cursor)
+	assert.Equal(t, []logRow{
+		{"user:1", "self", "Review", "U", 4},
+		{"user:1", "self", "Comment", "U", 4},
+		{"user:1", "self", "Attachment", "U", 3},
+		// release 4, attachment 10 (draft) and comment 2082 (another
+		// repository's reference): nowhere
+		{"issue:1", "issues", "Comment", "U", 2080},
+		{"org:3", "", "OrgUser", "U", 1},
+		{"org:3", "members", "OrgUser", "U", 2},
+		{"org:3", "members", "Team", "U", 1},
+		{"org:3", "members", "TeamRepo", "U", 1},
+		{"org:3", "", "Label", "U", 3},
+		{"user:2", "self", "Star", "U", 1},
+		{"repo:1", "issues", "ProjectIssue", "U", 1},
+	}, rows)
+	var review protocol.Review
+	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &review))
+	assert.Equal(t, "PENDING", review.State)
+
+	// Submitting the review changes the review row only: the review, its
+	// comment and the comment's attachment move to the pull request.
+	exec(t, "UPDATE review SET type = 1 WHERE id = 4")
+	consume(t, m, change(20, "review", 4, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{
+		{"user:1", "self", "Review", "D", 4},
+		{"issue:2", "pulls", "Review", "U", 4},
+		{"user:1", "self", "Comment", "D", 4},
+		{"issue:2", "pulls", "Comment", "U", 4},
+		{"user:1", "self", "Attachment", "D", 3},
+		{"issue:2", "pulls", "Attachment", "U", 3},
+	}, rows)
+
+	// Publishing the draft: the release and its attachment appear.
+	exec(t, "UPDATE `release` SET is_draft = ? WHERE id = 4", false)
+	consume(t, m, change(21, "release", 4, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{
+		{"repo:1", "releases", "Release", "U", 4},
+		{"repo:1", "releases", "Attachment", "U", 10},
+	}, rows)
+
+	// Concealing a membership: gone for non-members, kept for members.
+	exec(t, "UPDATE org_user SET is_public = ? WHERE id = 1", false)
+	consume(t, m, change(22, "org_user", 1, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{
+		{"org:3", "", "OrgUser", "D", 1},
+		{"org:3", "members", "OrgUser", "U", 1},
+	}, rows)
+}
+
+// An issue row change that leaves the body alone (every comment touches
+// updated_unix) does not render the body again.
+func TestConsumeRenderSkip(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	consume(t, m, change(1, "issue", 1, "U"))
+	rows, entries := takeLog(t, &cursor)
+	require.Len(t, rows, 2)
+	assert.Contains(t, entries[1].Payload, `"body_html":"<p>content for the first issue</p>\n"`, "HTML is not escaped")
+
+	before := renderCount.Load()
+	exec(t, "UPDATE issue SET updated_unix = updated_unix + 10, num_comments = num_comments + 1 WHERE id = 1")
+	consume(t, m, change(2, "issue", 1, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"repo:1", "issues", "Issue", "U", 1}}, rows)
+	assert.Equal(t, before, renderCount.Load(), "the body was not rendered")
+
+	exec(t, "UPDATE issue SET content = 'new *body*' WHERE id = 1")
+	consume(t, m, change(3, "issue", 1, "U"))
+	rows, entries = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"issue:1", "issues", "IssueBody", "U", 1}}, rows)
+	assert.Equal(t, before+1, renderCount.Load())
+	var body protocol.IssueBody
+	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &body))
+	assert.Equal(t, "<p>new <em>body</em></p>\n", body.BodyHTML)
+
+	// A renamed repository changes the links: rendered again.
+	exec(t, "UPDATE repository SET name = 'renamed' WHERE id = 1")
+	consume(t, m, change(4, "issue", 1, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"issue:1", "issues", "IssueBody", "U", 1}}, rows)
+}
+
+// After a re-bootstrap marker, the restarted backfill repairs the table's
+// index: a stale group or hash (writes lost while the trigger was missing)
+// must not misroute or drop later changes.
+func TestEpochRepairsIndex(t *testing.T) {
+	resetLivesync(t)
+	ctx := t.Context()
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"label", "1"))
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"milestone", "1"))
+	m, _ := testMaterializer(t)
+	var cursor int64
+	consume(t, m, change(1, "label", 1, "U"), change(2, "milestone", 1, "U"))
+	takeLog(t, &cursor)
+
+	// Lost while the triggers were missing: label 1 renamed, milestone 1
+	// moved to repository 2.
+	exec(t, "UPDATE label SET name = 'lost' WHERE id = 1")
+	exec(t, "UPDATE milestone SET repo_id = 2 WHERE id = 1")
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"label", "2"))
+	require.NoError(t, livesync_model.SetMeta(ctx, capture.MetaEpochPrefix+"milestone", "2"))
+	require.NoError(t, m.HandleEpochs(ctx))
+	rows, _ := takeLog(t, &cursor)
+	assert.Len(t, rows, 2, "the markers")
+	for {
+		more, err := m.BackfillStep(ctx)
+		require.NoError(t, err)
+		if !more {
+			break
+		}
+	}
+	assert.Equal(t, livesync_model.Entity{Tbl: "milestone", RowID: 1, Grp: "repo:2", Unit: "issues|pulls", LastSyncID: 2}, *indexRow(t, "milestone", 1))
+	assert.Empty(t, indexRow(t, "label", 1).Hash)
+	v, _, err := livesync_model.GetMeta(ctx, MetaBackfillPrefix+"label")
+	require.NoError(t, err)
+	assert.Equal(t, "done", v)
+
+	// The rename is undone with capture: emitted (clients re-bootstrapped
+	// and hold "lost"), although the payload equals the last one emitted.
+	exec(t, "UPDATE label SET name = 'label1' WHERE id = 1")
+	consume(t, m, change(3, "label", 1, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"repo:1", "issues|pulls", "Label", "U", 1}}, rows)
+	// The milestone is deleted: routed to its current repository.
+	exec(t, "DELETE FROM milestone WHERE id = 1")
+	consume(t, m, change(4, "milestone", 1, "D"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"repo:2", "issues|pulls", "Milestone", "D", 1}}, rows)
+}
+
+// Building a User DTO has no side effects: upstream's AvatarLink generates,
+// stores and records a random avatar for a user without one in
+// local-avatar mode.
+func TestUserAvatarWithoutSideEffects(t *testing.T) {
+	resetLivesync(t)
+	defer test.MockVariableValue(&setting.OfflineMode, true)()
+	m, _ := testMaterializer(t)
+	var cursor int64
+	consume(t, m, change(1, "user", 2, "U"))
+	_, entries := takeLog(t, &cursor)
+	require.Len(t, entries, 1)
+	var u protocol.User
+	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &u))
+	assert.Equal(t, setting.AppURL+"user/avatar/user2/0", u.AvatarURL)
+	var avatar string
+	_, err := db.GetEngine(t.Context()).SQL("SELECT avatar FROM `user` WHERE id = 2").Get(&avatar)
+	require.NoError(t, err)
+	assert.Empty(t, avatar, "no avatar generated")
 }

@@ -54,8 +54,10 @@ func readMetaInts(ctx context.Context, prefix string) (map[string]int64, error) 
 // materializer appends one re-bootstrap marker per model of the table to
 // GroupAll (protocol.OpRebootstrap; B5 turns it into bootstrap_required for
 // the groups a client holds), restarts the entity index backfill of the
-// table (rows inserted while the trigger was missing are not indexed), and
-// records the epoch as handled, all in one transaction.
+// table in repair mode (rows inserted while the trigger was missing are not
+// indexed, and the index rows of rows changed meanwhile have a stale group
+// and hash; see the entity index backfill), and records the epoch as
+// handled, all in one transaction.
 //
 // A table with no handled epoch yet (livesync's first start, or a table
 // newly added to the catalog) is recorded without a marker: no client can
@@ -110,7 +112,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			}
 		}
 		for _, table := range reset {
-			if err := livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, "0"); err != nil {
+			if err := livesync_model.SetMeta(ctx, MetaBackfillPrefix+table, backfillValue(0, true)); err != nil {
 				return err
 			}
 		}
@@ -120,6 +122,7 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	}
 	for _, table := range reset {
 		m.backfill[table] = 0
+		m.repair[table] = true
 	}
 	if len(reset) > 0 {
 		log.Info("livesync: the capture triggers of %s were repaired; appended re-bootstrap markers for their models", strings.Join(reset, ", "))

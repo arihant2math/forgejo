@@ -6,11 +6,14 @@ package livesync
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	auth_model "forgejo.org/models/auth"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/optional"
+	"forgejo.org/modules/setting"
+	"forgejo.org/modules/test"
 	"forgejo.org/services/auth"
 	"forgejo.org/services/authz"
 
@@ -68,5 +71,31 @@ func TestAuthenticateWithoutToken(t *testing.T) {
 	_, aerr := authenticate(httptest.NewRequest(http.MethodGet, "/-/sync/grants", nil))
 	if assert.NotNil(t, aerr) {
 		assert.Equal(t, http.StatusUnauthorized, aerr.status)
+	}
+}
+
+// Accounts API v1 refuses are refused with API v1's answers (the
+// two-factor case needs the database: TestLivesyncPermAuth).
+func TestCheckAccount(t *testing.T) {
+	defer test.MockVariableValue(&setting.GlobalTwoFactorRequirement, setting.NoneTwoFactorRequirement)()
+	defer test.MockVariableValue(&setting.Service.RegisterEmailConfirm, false)()
+	ctx := t.Context()
+	assert.Nil(t, checkAccount(ctx, &user_model.User{ID: 1, IsActive: true}))
+	cases := map[string]*user_model.User{
+		"prohibited from signing in": {ID: 1, IsActive: false},
+		"prohibited ":                {ID: 1, IsActive: true, ProhibitLogin: true},
+		"change your password":       {ID: 1, IsActive: true, MustChangePassword: true},
+	}
+	for want, u := range cases {
+		aerr := checkAccount(ctx, u)
+		if assert.NotNil(t, aerr, want) {
+			assert.Equal(t, http.StatusForbidden, aerr.status)
+			assert.Contains(t, aerr.message, strings.TrimSpace(want))
+		}
+	}
+	defer test.MockVariableValue(&setting.Service.RegisterEmailConfirm, true)()
+	aerr := checkAccount(ctx, &user_model.User{ID: 1})
+	if assert.NotNil(t, aerr) {
+		assert.Equal(t, "This account is not activated.", aerr.message)
 	}
 }

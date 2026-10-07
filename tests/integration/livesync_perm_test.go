@@ -367,6 +367,26 @@ func TestLivesyncPermAuth(t *testing.T) {
 		resp := MakeRequest(t, NewRequest(t, "GET", "/-/sync/grants?group="+group).AddTokenAuth(other), http.StatusNotFound)
 		assert.JSONEq(t, `{"message":"Not Found"}`, resp.Body.String(), group)
 	}
+
+	// Accounts API v1 refuses: the same status and message from both.
+	same := func(token string, status int) {
+		t.Helper()
+		api := MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1").AddTokenAuth(token), status)
+		sync := MakeRequest(t, NewRequest(t, "GET", "/-/sync/grants").AddTokenAuth(token), status)
+		if status != http.StatusOK {
+			assert.JSONEq(t, api.Body.String(), sync.Body.String())
+		}
+	}
+	_, err := db.GetEngine(t.Context()).Exec("UPDATE `user` SET must_change_password = ? WHERE id = 2", true)
+	require.NoError(t, err)
+	same(full, http.StatusForbidden)
+	_, err = db.GetEngine(t.Context()).Exec("UPDATE `user` SET must_change_password = ? WHERE id = 2", false)
+	require.NoError(t, err)
+	same(full, http.StatusOK)
+	defer test.MockVariableValue(&setting.GlobalTwoFactorRequirement, setting.AllTwoFactorRequirement)()
+	same(full, http.StatusForbidden) // user2 has no second factor
+	same(livesyncToken(t, &user_model.User{ID: 24}), http.StatusOK)
+
 	livesync_service.Shutdown()
 	MakeRequest(t, NewRequest(t, "GET", "/-/sync/grants").AddTokenAuth(full), http.StatusServiceUnavailable)
 }

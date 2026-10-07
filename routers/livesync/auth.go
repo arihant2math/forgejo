@@ -4,12 +4,15 @@
 package livesync
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	auth_model "forgejo.org/models/auth"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/log"
+	"forgejo.org/modules/setting"
+	"forgejo.org/modules/translation"
 	"forgejo.org/services/auth"
 	auth_method "forgejo.org/services/auth/method"
 	"forgejo.org/services/authz"
@@ -60,14 +63,40 @@ func authenticate(req *http.Request) (*user_model.User, *authError) {
 	if u == nil {
 		return nil, &authError{http.StatusUnauthorized, "a valid access token is required"}
 	}
-	// As API v1 (routers/api/shared/middleware.go).
-	if !u.IsActive || u.ProhibitLogin {
-		return nil, &authError{http.StatusForbidden, "This account is prohibited from signing in, please contact your site administrator."}
+	if aerr := checkAccount(req.Context(), u); aerr != nil {
+		return nil, aerr
 	}
 	if err := checkTokenAccess(result); err != nil {
 		return nil, &authError{http.StatusForbidden, err.Error()}
 	}
 	return u, nil
+}
+
+// checkAccount refuses accounts that API v1 refuses (verifyAuthWithOptions
+// in routers/api/shared/middleware.go, applied to every API route), with
+// the same statuses and messages: not activated, prohibited from signing
+// in, required to change the password, or required to enable two-factor
+// authentication ([security] GLOBAL_TWO_FACTOR_REQUIREMENT) without having
+// done so.
+func checkAccount(ctx context.Context, u *user_model.User) *authError {
+	switch {
+	case !u.IsActive && setting.Service.RegisterEmailConfirm:
+		return &authError{http.StatusForbidden, "This account is not activated."}
+	case !u.IsActive || u.ProhibitLogin:
+		return &authError{http.StatusForbidden, "This account is prohibited from signing in, please contact your site administrator."}
+	case u.MustChangePassword:
+		return &authError{http.StatusForbidden, "You must change your password. Change it at: " + setting.AppURL + "/user/change_password"}
+	case u.MustHaveTwoFactor():
+		has, err := auth_model.HasTwoFactorByUID(ctx, u.ID)
+		if err != nil {
+			log.Error("livesync: two-factor authentication of user %d: %v", u.ID, err)
+			return &authError{http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)}
+		}
+		if !has {
+			return &authError{http.StatusForbidden, translation.NewLocale("en-US").TrString("error.must_enable_2fa", setting.AppURL+"user/settings/security")}
+		}
+	}
+	return nil
 }
 
 var errTokenAccess = errors.New("livesync needs a token with read access to repositories, issues, organizations, users and notifications, not limited to public or specific repositories")

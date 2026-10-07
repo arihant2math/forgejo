@@ -7,10 +7,13 @@ import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
 
-// Radix primitives the app uses get a chunk each; Radix's internal packages
-// (context, presence, popper, …) are tiny, always load together and release
-// in lockstep, so they share one. The same goes for floating-ui and for
-// react-remove-scroll's dependency tree (modal dialogs/menus only).
+// Radix primitives the app uses get a chunk each. Radix's internal packages
+// (context, presence, popper, focus-scope, …) share one chunk: left to
+// Rolldown's default splitting they landed in the boot route's chunk, which
+// then formed an import cycle with vendor-radix-ui-tooltip and broke boot
+// ("x is not a function"; e2e/boot.spec.ts catches it). The cost: internals
+// only a lazy route uses (menu/dialog ones) load at boot too (~5 KB br today).
+// floating-ui and react-remove-scroll's dependency tree are each one chunk.
 const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover']);
 const removeScroll = new Set(['react-remove-scroll', 'react-remove-scroll-bar', 'react-style-singleton', 'use-callback-ref', 'use-sidecar', 'get-nonce', 'detect-node-es', 'tslib']);
 
@@ -25,7 +28,7 @@ export function vendorChunk(id: string): string | null {
   const pkg = m[1].replace('\\', '/');
   if (pkg === 'lucide-react' && /[\\/]icons[\\/]/.test(id)) return null;
   const radix = /^@radix-ui\/react-(.+)$/.exec(pkg);
-  if (radix?.[1]) return radixPrimitives.has(radix[1]) ? `vendor-radix-ui-${radix[1]}` : 'vendor-radix-ui-internal';
+  if (radix?.[1] && radixPrimitives.has(radix[1])) return `vendor-radix-ui-${radix[1]}`;
   if (pkg.startsWith('@radix-ui/')) return 'vendor-radix-ui-internal';
   if (pkg.startsWith('@floating-ui/')) return 'vendor-floating-ui';
   if (removeScroll.has(pkg)) return 'vendor-react-remove-scroll';

@@ -53,7 +53,10 @@ export default defineConfig(
     ignores: ['src/ui/**'],
     rules: {
       'no-restricted-imports': ['error', {
-        patterns: [{group: ['radix-ui', '@radix-ui/*'], message: 'Use the primitives in src/ui (extend them with a variant if needed).'}],
+        patterns: [
+          {group: ['radix-ui', '@radix-ui/*'], message: 'Use the primitives in src/ui (extend them with a variant if needed).'},
+          {group: ['**/ui/recipes*'], message: 'Recipes are internal to src/ui: compose the primitives instead.'},
+        ],
       }],
     },
   },

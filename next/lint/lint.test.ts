@@ -33,11 +33,21 @@ describe('eslint (eslint.config.ts)', () => {
     has(/tokens-only: "transition-colors": use the interactive utility/);
     has(/tokens-only: Raw colour "#ff0000"/);
     has(/tokens-only: Raw colour "rgb\(0 0 0\)"/);
+    has(/tokens-only: "brightness-75": colours, gradients/);
+    has(/tokens-only: "bg-linear-45": colours, gradients/);
+    has(/tokens-only: "w-\[13px\]": arbitrary value/); // through widths.map((w) => …)
+    has(/no-literal-style/);
     has(/no-restyle: "bg-danger" restyles <Button>/);
     has(/no-restyle: "px-1" restyles <Button>/);
-    expect(messages.filter((m) => m.includes('Fixes #123') || m.includes('"ml-2"'))).toEqual([]);
-    has(/no-literal-style/);
-    has(/no-restricted-imports/);
+    has(/no-restyle: "h-10": <Button> owns its size/);
+    has(/no-restyle: "rounded-full" restyles <Button>/); // via const and via namespace import
+    has(/no-restyle: className on <Button> must be literal/);
+    has(/no-restyle: Spreading className\/style onto <Button>/);
+    has(/no-restyle: style on <Button>/);
+    has(/no-restyle: "inset-ring-2" restyles <Input>/);
+    has(/no-restyle: Render icons through <Icon icon=\{Trash2\}\/>/);
+    has(/no-restricted-imports: .*Recipes are internal/);
+    expect(messages.filter((m) => /Fixes #123|- \[ \]|object Object|"transition"|order-1|"ml-2"|"text-danger" restyles <Icon>/.test(m))).toEqual([]);
   });
 });
 
@@ -75,6 +85,11 @@ describe('stylelint (stylelint.config.ts)', () => {
     has(/color-named/);
     has(/declaration-strict-value: Expected variable or keyword for "13px"/);
     has(/declaration-strict-value: Expected variable or keyword for "spin"/);
+    has(/declaration-strict-value: Expected variable or keyword for "3px" of "border"/);
+    has(/declaration-strict-value: Expected variable or keyword for "15px\/22px" of "font"/);
+    has(/declaration-strict-value: Expected variable or keyword for "13px" of "width"/);
+    has(/declaration-strict-value: Expected variable or keyword for "brightness\(1.3\)" of "filter"/);
+    has(/motion\/keyframes-transform-opacity: "height" in @keyframes/);
   });
 
   test('good.css and the allowed transition form pass', async () => {

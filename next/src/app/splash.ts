@@ -63,7 +63,6 @@ export function applySplash(win: Window): void {
     Math.round(Math.min(40, Math.max(0, sk.rows))) :
     14;
   const style = win.document.createElement('style');
-  // eslint-disable-next-line tokens/tokens-only -- a CSS selector, not a class list
   style.textContent = `[data-sk-row]:nth-child(n+${rows + 1}){display:none}`;
   win.document.head.append(style);
   if (typeof s.initial === 'string' && /^[\p{L}\p{N}]{1,2}$/u.test(s.initial)) {

@@ -23,7 +23,7 @@ export type AvatarProps = {
 );
 
 export function Avatar({size = 'md', ...props}: AvatarProps) {
-  const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-selected font-medium text-fg-muted select-none', sizes[size]);
+  const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-border-strong font-medium text-fg select-none', sizes[size]);
   if (props.fromSplash) return <span aria-hidden className={cx(cls, 'splash-initial')}/>;
   if (props.src) return <img src={props.src} alt={props.name} loading="lazy" decoding="async" className={cx(cls, 'object-cover')}/>;
   return <span role="img" aria-label={props.name} className={cls}>{initial(props.name)}</span>;

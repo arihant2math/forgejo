@@ -16,9 +16,10 @@
 @import "./tokens.css";
 @import "./base.css" layer(base);
 
-@source "../app";
-@source "../ui";
-@source "../features";
+@source "../";
+@source not "../dev";
+@source not "../test";
+@source not "../protocol";
 @source not "../**/*.test.tsx";
 @source not "../**/*.test.ts";
 
@@ -69,9 +70,19 @@
   z-index: var(--z-tooltip);
 }
 
-/* Floating content scales from the side it opened on (Radix sets the variable). */
+/* Floating content scales from the side it opened on and never outgrows the
+ * viewport (Radix sets the variables on the popper wrapper). */
 @utility origin-popper {
   transform-origin: var(--radix-popper-transform-origin);
+}
+
+@utility max-h-popper {
+  max-height: var(--radix-popper-available-height);
+}
+
+/* Focus ring inside the element, for full-width rows where an outside ring is clipped. */
+@utility focus-inset {
+  outline-offset: var(--focus-ring-inset);
 }
 
 /* The boot shell's avatar shows the initial the splash script stored (if any). */

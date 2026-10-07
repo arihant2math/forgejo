@@ -21,7 +21,7 @@ export function Kbd({children, className}: {children: string; className?: string
 export function Shortcut({keys, className}: {keys: string; className?: string}) {
   return (
     <span className={cx('inline-flex items-center gap-0.5', className)}>
-      {keys.split(' ').map((key) => <Kbd key={key}>{key}</Kbd>)}
+      {keys.split(' ').map((key, i) => <Kbd key={i}>{key}</Kbd>)}
     </span>
   );
 }

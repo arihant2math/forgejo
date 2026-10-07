@@ -7,7 +7,7 @@ import {cx} from './cx.ts';
 const chip = 'inline-flex h-5 shrink-0 items-center gap-1 px-1.5 text-sm font-medium whitespace-nowrap tabular-nums';
 
 const tones = {
-  neutral: 'bg-hover text-fg-muted',
+  neutral: 'border border-border-strong text-fg-muted',
   accent: 'bg-accent-subtle text-accent-fg',
   success: 'bg-success-subtle text-success',
   warning: 'bg-warning-subtle text-warning',
@@ -25,7 +25,7 @@ export function Badge({tone = 'neutral', children}: {tone?: BadgeTone; children:
 /** An issue label: its own colour (server data) as a dot, the name in normal text colour. */
 export function LabelChip({name, color}: {name: string; color: string}) {
   return (
-    <span className={cx(chip, 'rounded-full border border-border text-fg-muted')} style={{'--label-color': color} as CSSProperties}>
+    <span className={cx(chip, 'rounded-full border border-border-strong text-fg-muted')} style={{'--label-color': color} as CSSProperties}>
       <span aria-hidden className="size-2 rounded-full bg-label"/>
       {name}
     </span>

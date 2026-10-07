@@ -19,7 +19,7 @@ export interface PopoverContentProps extends Omit<ComponentProps<typeof P.Conten
 export function PopoverContent({width = 'sm', sideOffset = 4, align = 'start', ...rest}: PopoverContentProps) {
   return (
     <P.Portal>
-      <P.Content sideOffset={sideOffset} align={align} className={cx(floating, 'z-popover p-2', widths[width])} {...rest}/>
+      <P.Content sideOffset={sideOffset} align={align} className={cx(floating, 'z-popover max-h-popper overflow-y-auto p-2', widths[width])} {...rest}/>
     </P.Portal>
   );
 }

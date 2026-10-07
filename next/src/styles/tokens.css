@@ -22,8 +22,9 @@
   --color-raised: #fff; /* popovers, menus, dialogs */
   --color-overlay: #18181b52; /* dialog backdrop */
 
-  /* Interactive fills. */
+  /* Interactive fills. raised-hover is the highlighted row of a menu (on raised). */
   --color-hover: #efeff1;
+  --color-raised-hover: #ebebef;
   --color-selected: #e8e8eb;
   --color-skeleton: #ececef;
 
@@ -137,6 +138,7 @@
   /* Focus ring: outside the element, so it shows on filled controls. */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
+  --focus-ring-inset: calc(var(--focus-ring-width) * -1); /* rows: ring drawn inside */
 
   /* Motion. --speed-quick is for press feedback (≤ 100 ms). */
   --speed-in: 0s;
@@ -146,10 +148,11 @@
   /* Disabled controls. */
   --opacity-disabled: 0.5;
 
-  /* Stacking order (z-sticky, z-popover, … utilities in app.css). */
+  /* Stacking order (z-sticky, z-popover, … utilities in app.css). Floating
+   * content is always opened from what is on top, so it stacks above dialogs. */
   --z-sticky: 10;
-  --z-popover: 50;
-  --z-dialog: 60;
+  --z-dialog: 50;
+  --z-popover: 60;
   --z-tooltip: 70;
 }
 
@@ -161,6 +164,7 @@
   --color-raised: #1c1d21;
   --color-overlay: #00000080;
   --color-hover: #1f2024;
+  --color-raised-hover: #2b2c32;
   --color-selected: #26272c;
   --color-skeleton: #222327;
   --color-border: #26272b;

@@ -39,6 +39,7 @@ interface ManifestChunk {
   file: string;
   isEntry?: boolean;
   imports?: string[];
+  css?: string[];
 }
 
 /** The attributes of every <tag …> in html, in any attribute order. */
@@ -49,6 +50,31 @@ function tags(html: string, name: string): Record<string, string>[] {
   ));
 }
 
+/**
+ * Static import cycles between chunks. With per-package chunks and
+ * includeDependenciesRecursively: false, a cycle can evaluate a chunk before
+ * the one it imports from ("x is not a function" at boot).
+ */
+export function chunkCycles(manifest: Record<string, ManifestChunk>): string[] {
+  const problems: string[] = [];
+  const state = new Map<string, 'visiting' | 'done'>();
+  const stack: string[] = [];
+  const visit = (key: string) => {
+    if (state.get(key) === 'done') return;
+    if (state.get(key) === 'visiting') {
+      problems.push(`chunk import cycle: ${[...stack.slice(stack.indexOf(key)), key].map((k) => manifest[k]?.file ?? k).join(' → ')}`);
+      return;
+    }
+    state.set(key, 'visiting');
+    stack.push(key);
+    for (const dep of manifest[key]?.imports ?? []) visit(dep);
+    stack.pop();
+    state.set(key, 'done');
+  };
+  for (const key of Object.keys(manifest)) visit(key);
+  return problems;
+}
+
 /** CSS the lint rules forbid that could still reach the output (e.g. from a dependency). */
 export function cssProblems(css: string): string[] {
   const problems: string[] = [];
@@ -56,7 +82,14 @@ export function cssProblems(css: string): string[] {
   for (const m of css.matchAll(/([\w-]+)\s*:\s*[^;{}]*?#(?!0000\b)[\da-f]{3,8}\b/gi)) {
     if (!m[1]?.startsWith('--') && m[1] !== 'initial-value') problems.push(`raw colour outside a token: ${m[0].slice(0, 80)}`);
   }
-  for (const m of css.matchAll(/transition(?:-property)?\s*:\s*all\b[^;}]*/gi)) problems.push(`transition: all: ${m[0]}`);
+  for (const m of css.matchAll(/(?:^|[{;])\s*([a-z-]+)\s*:\s*[^;{}]*?\b(?:rgba?|hsla?|oklch)\(/gi)) {
+    if (!m[1]?.startsWith('--') && m[1] !== 'initial-value') problems.push(`raw colour outside a token: ${m[0].slice(0, 80)}`);
+  }
+  for (const m of css.matchAll(/transition(?:-property)?\s*:\s*([^;}]*)/gi)) {
+    if (/(?:^|[\s,])(?:all|(?:min-|max-)?(?:width|height)|top|right|bottom|left|inset|margin[\w-]*|padding[\w-]*|flex[\w-]*|grid[\w-]*|gap|font-size|display)(?=$|[\s,])/.test(m[1] ?? '')) {
+      problems.push(`layout transition: ${m[0]}`);
+    }
+  }
   return problems;
 }
 
@@ -120,6 +153,8 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
       if (!chunk || seen.has(key)) return;
       seen.add(key);
       if (!loaded.has(chunk.file)) problems.push(`${chunk.file}: needed at boot but not preloaded`);
+      // CSS of a boot chunk would be fetched late by the preload helper (only the page's own sheet is inlined).
+      for (const css of chunk.css ?? []) problems.push(`${css}: CSS of boot chunk ${chunk.file} is not inlined; import it from app.css`);
       for (const dep of chunk.imports ?? []) visit(dep, seen);
     };
     const seen = new Set<string>();
@@ -128,6 +163,7 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
       if (!manifest[route]) problems.push(`boot route ${route}: no chunk of its own in the manifest`);
       visit(route, seen);
     }
+    problems.push(...chunkCycles(manifest));
   } else {
     problems.push('.vite/manifest.json missing (build.manifest must stay on)');
   }

@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe, expect, test} from 'vitest';
 import {vendorChunk} from '../vite.config.ts';
-import {analyze, BUDGET, cssProblems} from './budget.ts';
+import {analyze, BUDGET, chunkCycles, cssProblems} from './budget.ts';
 
 describe('vendorChunk', () => {
   test.each([
@@ -75,5 +75,13 @@ describe('budget', () => {
   test('flags banned CSS in the output', () => {
     expect(cssProblems(':root{--color-fg:#fff}.a{background-color:#0000}@property --x{initial-value:#fff}')).toEqual([]);
     expect(cssProblems('.bg-\\[\\#fff\\]{background-color:#fff}.t{transition-property:all}')).toHaveLength(2);
+    expect(cssProblems('.a{color:rgb(0 0 0)}.b{transition:height .2s}.c{transition-property:color,background-color,border-color,opacity}')).toHaveLength(2);
+  });
+});
+
+describe('chunkCycles', () => {
+  test('finds a static import cycle between chunks', () => {
+    expect(chunkCycles({a: {file: 'a.js', imports: ['b']}, b: {file: 'b.js', imports: ['c']}, c: {file: 'c.js'}})).toEqual([]);
+    expect(chunkCycles({a: {file: 'a.js', imports: ['b']}, b: {file: 'b.js', imports: ['a']}})).toEqual(['chunk import cycle: a.js → b.js → a.js']);
   });
 });

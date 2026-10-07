@@ -25,10 +25,20 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** Class strings: className attributes, cx() arguments, and string constants in src/ui (recipes, variant tables). */
+/**
+ * Class strings: className attributes and cx() arguments (following same-file
+ * consts, `table[key]` and `list.map((x) => …)` parameters), and module-level
+ * constants in src/ui (recipes, variant tables).
+ */
 export function classStrings(file: string, text: string): string[] {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const inUi = relative(src, file).startsWith('ui/');
+  const tables = relative(src, file).startsWith('ui/');
+  const followed = new Set<string>();
+  const topLevel = new Map<string, ts.Expression>();
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer) topLevel.set(d.name.text, d.initializer);
+  }
   const out: string[] = [];
   // Collects the strings an expression can evaluate to (not those it merely compares against).
   const collect = (node: ts.Node): void => {
@@ -58,11 +68,31 @@ export function classStrings(file: string, text: string): string[] {
       for (const p of node.properties) if (ts.isPropertyAssignment(p)) collect(p.initializer);
     } else if (ts.isArrayLiteralExpression(node)) node.elements.forEach(collect);
     else if (ts.isCallExpression(node) && node.expression.getText(sf) === 'cx') node.arguments.forEach(collect);
+    else if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node)) collect(node.expression);
+    else if (ts.isIdentifier(node)) follow(node);
+  };
+  // A same-file const, or the list behind a `.map((x) => …)` parameter.
+  const follow = (id: ts.Identifier) => {
+    for (let n: ts.Node = id.parent; !ts.isSourceFile(n); n = n.parent) {
+      if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
+        const param = n.parameters.find((p) => ts.isIdentifier(p.name) && p.name.text === id.text);
+        if (param) {
+          const call = n.parent;
+          if (ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === 'map') collect(call.expression.expression);
+          return;
+        }
+      }
+    }
+    const init = topLevel.get(id.text);
+    if (init && !followed.has(id.text)) {
+      followed.add(id.text);
+      collect(init);
+    }
   };
   const visit = (node: ts.Node) => {
     if (ts.isJsxAttribute(node) && node.name.getText(sf) === 'className' && node.initializer) collect(node.initializer);
     else if (ts.isCallExpression(node) && node.expression.getText(sf) === 'cx') node.arguments.forEach(collect);
-    else if (inUi && ts.isVariableStatement(node) && ts.isSourceFile(node.parent)) {
+    else if (tables && ts.isVariableStatement(node) && ts.isSourceFile(node.parent)) {
       for (const d of node.declarationList.declarations) if (d.initializer) collect(d.initializer);
     } else ts.forEachChild(node, visit);
   };
@@ -90,5 +120,7 @@ describe('classes', () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     expect(ds.candidatesToCss(['bg-white', 'text-red-500', 'font-bold', 'shadow-sm', 'bg-surface'])).toEqual([null, null, null, null, expect.any(String)]);
     expect(classStrings(join(src, 'ui/X.tsx'), 'const a = {x: "bg-x"}; <A className={cx("p-1", y ? "m-1" : `h-3 ${w}`)}/>')).toEqual(['bg-x', 'p-1', 'm-1', 'h-3 ']);
+    // Outside src/ui: consts and map parameters reached from a class context.
+    expect(classStrings(join(src, 'app/X.tsx'), 'const data = ["Sync log"]; const ws = ["w-big"]; const row = "h-row"; <>{ws.map((w) => <A className={`${row} ${w}`}/>)}</>')).toEqual(['h-row', 'w-big']);
   });
 });

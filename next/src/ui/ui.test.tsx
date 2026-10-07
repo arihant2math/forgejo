@@ -25,6 +25,13 @@ describe('primitives', () => {
     expect(screen.getByRole('button', {name: 'Create issue'}).className).toContain('size-control');
   });
 
+  test('Input: sized by className (it has no width of its own)', () => {
+    render(<Input className="w-64" placeholder="w"/>);
+    const el = screen.getByPlaceholderText('w');
+    expect(el.className).toContain('w-64');
+    expect(classConflicts(document.body)).toEqual([]);
+  });
+
   test('Input: invalid state', () => {
     render(<Input invalid placeholder="x"/>);
     expect(screen.getByPlaceholderText('x').getAttribute('aria-invalid')).toBe('true');
@@ -80,7 +87,7 @@ describe('primitives', () => {
     );
     fireEvent.contextMenu(screen.getByText('Row'));
     const item = screen.getByRole('menuitem', {name: /Labels/});
-    expect(item.className).toContain('data-highlighted:bg-hover');
+    expect(item.className).toContain('data-highlighted:bg-raised-hover');
     expect(classConflicts(document.body)).toEqual([]);
   });
 

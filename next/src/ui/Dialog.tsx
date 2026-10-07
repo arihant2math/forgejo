@@ -12,15 +12,15 @@ export const DialogClose = D.Close;
 const widths = {sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg'} as const;
 
 export interface DialogProps {
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
   /** Uncontrolled: the element that opens the dialog (wrap it in <DialogTrigger asChild>). */
   trigger?: ReactNode;
   title: string;
   description?: ReactNode;
   /** Buttons, right-aligned. */
   footer?: ReactNode;
-  size?: keyof typeof widths;
+  size?: keyof typeof widths | undefined;
   children?: ReactNode;
 }
 
@@ -31,14 +31,14 @@ export function Dialog({open, onOpenChange, trigger, title, description, footer,
       {trigger}
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-dialog flex items-start justify-center overflow-y-auto bg-overlay px-4 pt-24 pb-8 data-[state=closed]:animate-exit">
-          <D.Content className={cx(surface, 'flex w-full flex-col gap-3 p-4 shadow-dialog outline-none data-[state=closed]:animate-exit-pop', widths[size])}>
+          <D.Content
+            {...(description ? {} : {'aria-describedby': undefined})}
+            className={cx(surface, 'flex w-full flex-col gap-3 p-4 shadow-dialog outline-none data-[state=closed]:animate-exit-pop', widths[size])}>
             <div className="flex flex-col gap-1">
               <D.Title className="text-md font-semibold">{title}</D.Title>
-              {description ?
-                <D.Description className="text-base text-fg-muted">{description}</D.Description> :
-                <D.Description className="sr-only">{title}</D.Description>}
+              {description && <D.Description className="text-base text-fg-muted">{description}</D.Description>}
             </div>
-            {children}
+            {children && <div>{children}</div>}
             {footer && <div className="flex justify-end gap-2 pt-1">{footer}</div>}
           </D.Content>
         </D.Overlay>

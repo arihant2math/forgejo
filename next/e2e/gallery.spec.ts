@@ -82,3 +82,36 @@ test('reduced motion: menus close without an exit animation', async ({page}) => 
   expect(r.closing).not.toBe('exit-pop'); // '' when Radix unmounted it before the next frame
   expect(r.mountedMs).toBeLessThan(100);
 });
+
+test('a menu opened inside a dialog is on top and usable', async ({page}) => {
+  await page.goto('/-/next/gallery');
+  await page.getByRole('button', {name: 'Dialog'}).click();
+  const dialog = page.getByRole('dialog', {name: 'Archive repository?'});
+  await dialog.getByRole('button', {name: 'Labels'}).click();
+  const item = page.getByRole('menuitem', {name: 'enhancement'});
+  await expect(item).toBeVisible();
+  const box = await item.boundingBox();
+  if (!box) throw new Error('no box');
+  const top = await page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest('[role=menuitem]')?.textContent, {x: box.x + box.width / 2, y: box.y + box.height / 2});
+  expect(top).toBe('enhancement');
+  await item.click();
+  await expect(item).toBeHidden();
+  await expect(dialog).toBeVisible();
+});
+
+test('closing a menu does not pop its trigger\'s tooltip', async ({page}) => {
+  await page.goto('/-/next/gallery');
+  const trigger = page.getByRole('button', {name: 'More actions'});
+  await trigger.click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await page.waitForTimeout(800); // past the tooltip delay
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  // Keyboard focus that is not a return from the menu still shows it.
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('tooltip')).toHaveCount(1);
+});

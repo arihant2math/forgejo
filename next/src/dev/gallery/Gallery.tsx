@@ -137,6 +137,12 @@ export default function Gallery() {
               <MenuItem icon={Trash2} danger>Delete</MenuItem>
             </MenuContent>
           </Menu>
+          <Menu>
+            <MenuTrigger asChild><IconButton icon={MoreHorizontal} label="More actions"/></MenuTrigger>
+            <MenuContent>
+              <MenuItem icon={Copy}>Copy link</MenuItem>
+            </MenuContent>
+          </Menu>
           <Popover>
             <PopoverTrigger asChild><Button>Popover</Button></PopoverTrigger>
             <PopoverContent>
@@ -153,7 +159,15 @@ export default function Gallery() {
                 <DialogClose asChild><Button variant="primary">Archive</Button></DialogClose>
               </>
             )}
-          />
+          >
+            <Menu>
+              <MenuTrigger asChild><Button size="sm" icon={Tag}>Labels</Button></MenuTrigger>
+              <MenuContent>
+                <MenuItem>bug</MenuItem>
+                <MenuItem>enhancement</MenuItem>
+              </MenuContent>
+            </Menu>
+          </Dialog>
         </Section>
 
         <section className="border-b border-border">

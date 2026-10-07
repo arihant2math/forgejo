@@ -1727,8 +1727,8 @@ does) **and** MySQL 8.0 (binlog on).
       and `e2e/gallery.spec.ts` against the dev server on :5173). In this sandbox run
       `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium npm run test:browser`: Playwright 1.63's own
       Chromium (build 1243) is not preinstalled any more, and the config passes this env var as
-      `executablePath`. Final run: lint/typecheck clean, 100 unit tests, 10 browser tests, boot JS
-      81.3 KB br / 150, CSS 4.4 KB br / 30.
+      `executablePath`. Final run: lint/typecheck clean, 103 unit tests, 12 browser tests, boot JS
+      81.7 KB br / 150, CSS 4.5 KB br / 30.
   * **Versions (exact pins):**
     * vite 8.3.3 (Rolldown), react/react-dom 19.3.0, typescript 6.0.3, tailwindcss + @tailwindcss/vite + @tailwindcss/node 4.3.3.
     * lightningcss 1.33.0, eslint 10.12.0 + typescript-eslint 8.71.1 (strictTypeChecked + stylisticTypeChecked) + react-hooks 7.1.1.
@@ -1737,7 +1737,9 @@ does) **and** MySQL 8.0 (binlog on).
     * TS 7.0 (tsgo) is out, but typescript-eslint supports TS < 6.1, so we stay on 6.0.3.
     * `npm audit`: 8 high-severity issues, all dev-only (stylelint → globby → micromatch → braces); `--omit=dev` is clean.
   * **Layout deviations from §2.1:**
-    * `src/dev/gallery/` (dev-only; not scanned by app.css, ships its own `gallery.css`).
+    * `src/dev/gallery/` (dev-only; not scanned by app.css, ships its own `gallery.css`). Stylesheets may live
+    only in `src/styles` and `src/dev` (`src/styles/files.test.ts`).
+  * `lint/stylelint-plugin-motion.ts`: the `@keyframes` rule (only transform and opacity may be animated).
     * `lint/eslint-plugin-tokens.ts` (local rules) and `src/test/` (setup, `conflicts.ts`, `lint-fixtures/`).
     * `tools/vite-plugin-shell.ts`, `tools/budget.ts`, `tools/boot.ts`, `tsconfig.node.json`, `playwright.config.ts` + `e2e/` (F8 extends these).
   * **Root ESLint interaction (needs an orchestrator decision; I edited nothing at the root).**
@@ -1753,7 +1755,7 @@ does) **and** MySQL 8.0 (binlog on).
     * Dark theme: `:root[data-theme="dark"]` overrides exactly the colour tokens (tested).
     * Colours (`--color-*`; utilities `bg-*`, `text-*`, `border-*`):
       * surfaces: `canvas` (app background, sidebar), `surface` (content), `raised` (menus/dialogs), `overlay`;
-      * fills: `hover`, `selected`, `skeleton`;
+      * fills: `hover`, `selected`, `skeleton`, and `raised-hover` (the highlighted menu row, on `raised`);
       * hairlines: `border`, `border-subtle`, `border-strong`;
       * text: `fg`, `fg-muted`, `fg-subtle`, `fg-on-accent`;
       * accent: `accent`, `accent-hover` (fills), `accent-fg` (accent text), `accent-subtle`, `focus`;
@@ -1763,7 +1765,9 @@ does) **and** MySQL 8.0 (binlog on).
       * every text and status colour ≥ 4.5:1 on canvas, surface, raised, hover and selected;
       * each status colour on its own `-subtle` tint;
       * `fg-on-accent` on the accent and danger fills;
-      * `focus` ≥ 3:1 on surfaces.
+      * `focus` ≥ 3:1 on surfaces;
+      * state fills against what they sit on: `raised-hover` on raised, hover and selected on surface, and
+        `border-strong` on selected (chip and avatar edges). These are not WCAG pairs, but they must stay visible.
     * Type: system font stack `--font-sans` / `--font-mono` (no webfont).
       * Sizes `text-xs` 11, `text-sm` 12, `text-base` 13 (the UI base), `text-md` 14, `text-lg` 16, `text-xl` 20 (px, each with its line height).
       * Weights `font-normal`, `font-medium`, `font-semibold`.
@@ -1773,8 +1777,11 @@ does) **and** MySQL 8.0 (binlog on).
     * Radii `rounded-sm` 4, `rounded-md` 6, `rounded-lg` 8, `rounded-full`. Shadows `shadow-popover`, `shadow-dialog` (floating surfaces only).
     * Non-Tailwind `:root` tokens:
       * `--sidebar-width`, `--focus-ring-width` / `--focus-ring-offset` (2px / 2px, the ring sits outside the control);
+        `--focus-ring-inset` (utility `focus-inset`, used by ListRow, whose ring is drawn inside because rows are edge to edge);
       * `--opacity-disabled` (utility `opacity-disabled`);
-      * `--z-sticky`, `--z-popover`, `--z-dialog`, `--z-tooltip` (utilities `z-sticky`, …).
+      * `--z-sticky` 10, `--z-dialog` 50, `--z-popover` 60, `--z-tooltip` 70 (utilities `z-sticky`, …). Floating
+        content stacks above dialogs because it is always opened from whatever is on top; a menu inside a dialog is tested in e2e.
+      * The `max-h-popper` utility caps menus and popovers at Radix's available height, and they scroll beyond it.
     * Motion:
       * `--speed-in: 0s`, `--speed-out: .15s`, `--speed-quick: .1s` (reserved for press feedback, unused so far), `--ease-out`;
       * `animate-exit` (fade) and `animate-exit-pop` (fade + scale .97); popovers scale from `origin-popper`, which Radix sets.
@@ -1787,41 +1794,68 @@ does) **and** MySQL 8.0 (binlog on).
       * `bg-label` (a label's server colour, passed as `--label-color`) and `splash-initial`;
       * variants `logged-out:` and `shape-detail:`, keyed on the splash attributes on `<html>`.
   * **Enforcement:**
-    * **ESLint `tokens/tokens-only`** (all non-test `src/` strings) rejects:
+    * **ESLint `tokens/tokens-only`.** A raw colour string is rejected anywhere. Class checks apply only to class
+      contexts, so prose such as `'- [ ] '` or `'transition'` is fine:
+      * every string in `src/ui`;
+      * `className` and `cx(…)` expressions elsewhere, following same-file consts, `table[key]` and `list.map((x) => …)` parameters.
+      In those contexts it rejects:
       * arbitrary values/properties/variants (except `data-[…]` / `aria-[…]`), `dark:`, `*:` / `**:`;
       * every `transition*` / `ease-*` / `duration-N` / `delay-N` utility;
-      * bare numbers that bypass tokens (`z-10`, `leading-5`, `opacity-50`, `border-2`, `ring-2`, `scale-95`, …), off-scale spacing (`p-3.25`, `w-37`) and colour `/` modifiers (`bg-accent/50`);
+      * bare numbers that bypass tokens (`z-10`, `leading-5`, `opacity-50`, `border-2`, `scale-95`, `decoration-4`, …), off-scale spacing (`p-3.25`, `w-37`, `indent-37`) and colour `/` modifiers (`bg-accent/50`);
+      * filters, gradients and ad hoc rings and shadows (`brightness-*`, `bg-linear-*`, `from-*`, `ring*`, `inset-ring*`, `shadow-*` other than `shadow-popover` and `shadow-dialog`);
       * whole-string raw colours (`'#fff'`, `'rgb(…)'`; `'Fixes #123'` is fine).
-    * **ESLint `tokens/no-literal-style`:** no literal values in `style={{…}}`.
+    * **ESLint `tokens/no-literal-style`:** no literal values in `style={{…}}`, including templates without expressions.
     * **ESLint `tokens/no-restyle`:**
       * outside `src/ui`, a primitive's `className` may only place or size it (margins, w/h/size, flex/grid placement, position, `hidden`, `sr-only`, `truncate`);
       * `<Icon>` may also take a text colour;
-      * menu, popover and row contents take no `className` at all.
-    * **ESLint `no-restricted-imports`:** only `src/ui` imports Radix.
+      * menu, popover and row contents take no `className` at all;
+      * size classes a primitive owns through its size prop are rejected (`h-*` and `size-*` on Button, Input, IconButton, Avatar and Icon);
+      * a `className` that is not literal (or a same-file const of literals) is rejected;
+      * so are `style` on a primitive and spreads of `className`/`style`;
+      * namespace imports (`<UI.Button>`) are checked too;
+      * bare lucide icons outside `src/ui` are rejected: render them through `<Icon icon={X}/>`.
+    * **ESLint `no-restricted-imports`:** only `src/ui` imports Radix or `ui/recipes.ts`.
     * **Stylelint:**
       * `transition` / `transition-property` must use an allowlist (opacity, transform, translate, scale, rotate and colour properties) with `var()` durations. This also catches `transition: .2s`, which means `all`.
       * The transition properties are banned outside `app.css`.
-      * Raw values are banned outside `tokens.css` for colours (no hex or named colours), font, line height, letter spacing, z-index, radius, border/outline width/offset, shadow, opacity, animation, durations, margin, padding and gap.
+      * Raw values are banned outside `tokens.css` (`declaration-strict-value` with `expandShorthand`):
+        * colours (no hex or named colours) and `font*`, line height, letter spacing;
+        * z-index, `border*`, `outline*`, shadow, opacity, filter;
+        * animation, durations;
+        * margin, padding, gap, inset, `(min-|max-)width/height` (% and viewport units are allowed);
+        * text decoration.
+      * `motion/keyframes-transform-opacity`: `@keyframes` may only animate transform and opacity.
     * **Tests:**
       * `src/styles/classes.test.ts` compiles every class used in `src/` against the theme, via `@tailwindcss/node` `__unstable__loadDesignSystem`; unknown classes fail.
       * `src/test/conflicts.ts`, used in `App.test.tsx` and `ui.test.tsx`, fails when an element sets the same property twice (e.g. `text-fg text-danger`). It runs on the whole gallery, so on every primitive and variant.
       * `lint/lint.test.ts` runs the real configs on `src/test/lint-fixtures/` (`bg-[#fff]`, `transition: all`, …).
-    * **Tailwind sources:** `app.css` uses `source(none)` and scans only `src/app`, `src/ui` and `src/features` (tests excluded), so fixtures, docs and the gallery cannot add CSS. `budget.ts` also fails on raw colours outside custom properties and on `transition: all` in the built CSS.
+    * **Tailwind sources:** `app.css` uses `source(none)` and scans all of `src/` except `src/dev`, `src/test`, `src/protocol` and `*.test.*`. Future `src/data`, `src/sync`, … are covered, and fixtures, docs and the gallery cannot add CSS.
+    * `budget.ts` also fails on raw colours (hex, `rgb()`, `hsl()`, `oklch()`) outside custom properties, and on `all` or layout-property transitions, in the built CSS.
   * **Primitives (`src/ui`, barrel `src/ui/index.ts`; side-effect free, see below):**
     * `Button {variant: primary|secondary|ghost|danger, size: sm|md, icon, tooltip, shortcut, asChild}`. Use `asChild` to render a router `<Link>`.
-    * `IconButton {icon, label (aria-label + tooltip), shortcut, variant, size}`.
-    * `Input {size, invalid}`.
+    * `IconButton {icon, label (aria-label + tooltip), shortcut, variant, size, pressed}`. `pressed` makes it a toggle (`aria-pressed`).
+    * `Input {size, invalid}`. It has no width of its own; size it with `className` (`w-full`, `w-64`).
     * `Kbd`, and `Shortcut {keys: "⌘K" | "G I"}`.
     * `Tooltip {content, shortcut, side}` and `TooltipProvider`. Mount the provider once around the app shell in F3; Radix throws without it, and the boot route does not need it.
+      * When the trigger also opens a menu or popover (`aria-haspopup`), the tooltip stays shut while the menu is open.
+      * After the menu closes, it stays shut until the pointer leaves or focus moves on (tested in e2e).
     * `Menu` / `MenuTrigger` / `MenuContent` with `MenuItem {icon, shortcut, danger}`, `MenuCheckboxItem`, `MenuRadioGroup` + `MenuRadioItem`, `MenuLabel`, `MenuSeparator`, `MenuSub {label, icon}`.
     * The identical `ContextMenu*` set is built from the same item factory, so row context menus and "…" menus match.
     * `Popover` / `PopoverTrigger` / `PopoverClose`, and `PopoverContent {width: sm|md}`.
     * `Dialog {open, onOpenChange, trigger, title, description, footer, size: sm|md|lg}`, plus `DialogTrigger` and `DialogClose`.
-    * `Avatar {name, src, size: sm|md|lg}`; `fromSplash` is for the boot shell only.
-    * `Badge {tone: neutral|accent|success|warning|danger|done}` and `LabelChip {name, color}`. A label's colour from the server goes in through a CSS variable.
-    * `ListRow {role: option|row|presentation, selected, leading, trailing}`. Its height is fixed (`h-row`) with `contain: content`. Roving tabindex and J/K belong to the F4 list.
+      * Without a `description`, the content has no `aria-describedby`.
+      * Children are wrapped in a block, so a lone Button doesn't stretch.
+    * `Avatar {name, src, size: sm|md|lg}`; the fallback is `bg-border-strong` so it stays visible on a selected row; `fromSplash` is for the boot shell only.
+    * `Badge {tone: neutral|accent|success|warning|danger|done}` and `LabelChip {name, color}`. Neutral and label chips are outlined (`border-strong`). A label's colour from the server goes in through a CSS variable.
+    * `ListRow {role: option|row|presentation, selected, active, leading, trailing}`.
+      * `active` is the keyboard cursor (`data-active`), separate from `selected`.
+      * With `role="row"` the slots are gridcells.
+      * The height is fixed (`h-row`) with `contain: content`, and the focus ring is drawn inside.
+      * Missing for F4: roving tabindex, J/K, and link rendering (`asChild`/`href`, so middle-click opens a new tab).
     * `Skeleton {round: sm|md|full}` (static, no shimmer), `EmptyState {icon, title, description, action}`, `Icon {icon, size: sm|md|lg}` (lucide, stroke 1.75), and `cx`.
-    * Shared class recipes live in `src/ui/recipes.ts` (`surface`, `floating`, `menuItem`, `control`, `controlHeight`); features never use them directly.
+    * Shared class recipes live in `src/ui/recipes.ts` (`surface`, `floating`, `menuItem`, `iconSlot`, `control`, `controlHeight`); features never use them directly (lint).
+    * In `src/app/LoggedOut.tsx`, `CenteredScreen` is the centred full-height layout used by the boot shell and Home.
+    * Known trade-off: input borders are 1.27:1 against the surface. That is Linear-like, but below WCAG 1.4.11's 3:1 for control boundaries.
     * Missing, to add as variants when needed: Select/Combobox (F4/F6), Toast (F5), a NavItem (sidebar, F3), a Text/section-label primitive, and `--color-hover` on `canvas`. Hover there is only 1.07:1 against the canvas, so the F3 sidebar may want a stronger hover token.
   * **Boot sequence (PLAN §5.2).** `index.html` holds two placeholders that `tools/vite-plugin-shell.ts` fills:
     * `<!--next:splash-->` becomes `src/app/splash.ts` `applySplash`, minified and inlined. It is the first thing in `<head>`: `performance.mark('appStart')`, then it reads `localStorage.splash` and applies it to `<html>`:
@@ -1839,7 +1873,10 @@ does) **and** MySQL 8.0 (binlog on).
     * The theme switch at runtime is `setThemePreference()` in `src/app/theme.ts`, and `followSystemTheme()` keeps following the OS while the preference is `system`.
     * **The boot route is never rendered through Suspense.** React holds a Suspense reveal for up to 300 ms after a fallback commits, which the perf reviewer measured at about 390 ms to content. `main.tsx` therefore awaits `loadRoute()` (`src/app/routes.ts`) before the first render, and the route chunk is modulepreloaded, so the await costs nothing.
     * F3 must keep both rules with TanStack Router: lazy route chunks, and `await router.load()` before `createRoot().render()`.
-    * The logged-out boot shell and React's first commit are identical (unit test + Playwright CLS = 0).
+    * The logged-out boot shell and React's first commit are identical, wrapper included.
+      * Unit test: outerHTML equality.
+      * Playwright: the bounding boxes of the button, title, text and icon with app JS blocked equal those after React mounts. A CLS sum would not work, because React inserts new nodes, which the layout-shift API ignores.
+    * If the route chunk fails to load (e.g. an old build was deleted after a deploy), `main.tsx` reloads once (`sessionStorage.bootRetry`). F5's service worker should make this rare.
     * The signed-in boot frame is still replaced by the `Home` placeholder until F3 renders the real shell, so a layout shift there is expected until F3.
   * **Build.** `vite.config.ts`:
     * base `/-/next/`; `target`/`cssTarget: 'esnext'`; lightningcss transformer and minifier; no modulepreload polyfill;
@@ -1848,9 +1885,10 @@ does) **and** MySQL 8.0 (binlog on).
   * **Vendor chunks** (`vendorChunk()`): one chunk per npm package, with these exceptions:
     * each Radix primitive the app uses (`tooltip`, `dropdown-menu`, `context-menu`, `menu`, `dialog`, `popover`) gets its own chunk;
     * Radix internals share `vendor-radix-ui-internal`, floating-ui shares `vendor-floating-ui`, and react-remove-scroll's dependency tree shares `vendor-react-remove-scroll`;
+    * why the Radix internals are grouped: left to default splitting, they landed in the Home chunk, which then formed an import cycle with `vendor-radix-ui-tooltip` and broke boot with "x is not a function". The cost is that internals only a lazy route needs (menu/dialog ones) load at boot, about 5 KB br once such a route exists;
     * lucide icons are not grouped: each stays with the route that draws it, and only lucide's base module is `vendor-lucide-react`.
     * Add a new Radix primitive to `radixPrimitives`.
-    * Rolldown's `codeSplitting.includeDependenciesRecursively: false` is required; otherwise react lands in `vendor-lucide-react`. Reviewers found no ordering or cycle problems: the vendors are side-effect-free ESM or lazily initialised CJS.
+    * Rolldown's `codeSplitting.includeDependenciesRecursively: false` is required; otherwise react lands in `vendor-lucide-react`. It allows chunk cycles, so the budget fails on any static import cycle between chunks (`chunkCycles`), and the e2e boot test runs the real build.
   * **Tree-shaking.** `treeshake.moduleSideEffects` marks `src/ui/*` side-effect free, so importing one primitive from the barrel doesn't pull in Menu/Dialog. This took boot JS from 100 to 81 KB br. Keep `src/ui` modules pure, and wrap any top-level calls in them with `/* @__PURE__ */`. A package-level `"sideEffects"` field was removed because it silently drops side-effect-only imports such as an SW registration.
   * **Shell plugin (build):**
     * the whole app stylesheet is inlined as `<style>` (4.4 KB br), so the first paint makes no CSS request; the CSS file is deleted from `dist/` and from the manifest;
@@ -1862,7 +1900,10 @@ does) **and** MySQL 8.0 (binlog on).
   * **Budget (`tools/budget.ts`, `npm run budget`).** Sizes are brotli q11, with 1 KB = 1000 B:
     * JS: inline scripts plus every `<script src>` and `<link rel=modulepreload>` in `dist/index.html` (attributes parsed in any order). Limit 150 KB.
     * CSS: inline `<style>` plus any linked stylesheet. Limit 30 KB, of which inline at most 10 KB.
-    * It fails when any chunk in the static closure of the entry, or of a `BOOT_ROUTES` module, is not preloaded (no late discovery).
+    * It fails when:
+      * any chunk in the static closure of the entry, or of a `BOOT_ROUTES` module, is not preloaded (no late discovery);
+      * such a chunk has CSS of its own, which would be fetched late; import CSS from app.css instead;
+      * there is a chunk import cycle.
     * Current boot route: 81.3 KB br. react-dom alone is 55 KB; the Radix tooltip, internals and floating-ui are about 22 KB because `Button`/`IconButton` include `Tooltip`. F3's shell needs tooltips at boot anyway.
     * CI: this fork has no CI for `next/` (GitHub has no workflows, and `.forgejo/workflows` are upstream's). Until F8 writes the CI recipe, `npm run check` is the gate.
   * **Typecheck:** `tsconfig.json` covers browser code (`src/`, no node types, `noUncheckedSideEffectImports`). `tsconfig.node.json` covers tests, tools, lint, e2e, conformance and configs. Both are strict, with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` and `erasableSyntaxOnly` (tools run under Node's type stripping: `node tools/budget.ts`).
@@ -1884,6 +1925,23 @@ does) **and** MySQL 8.0 (binlog on).
     * whole-sheet inlining, now capped at 10 KB br inline;
     * 40 static skeleton rows (about 20 KB raw, about 1 KB br);
     * unused `--speed-quick`.
+    Round 2 used two reviewers (correctness/perf and design system): no blockers, 2 + 6 majors. Fixed:
+    * the layout-shift tests were vacuous;
+    * classes in unscanned directories silently went missing from production CSS, and classes.test missed consts;
+    * menus opened under dialogs;
+    * the menu highlight was invisible in dark mode;
+    * the ListRow focus ring was clipped;
+    * the no-restyle bypasses (consts, spreads, namespaces, `inset-ring`, recipes, template styles, bare icons);
+    * the CSS-file route (shorthands, keyframes, file location);
+    * Input `w-full` beat `className` sizing.
+    Also fixed:
+    * the tooltip reopening on its menu trigger;
+    * `tokens-only` flagging prose and missing filter/gradient utilities;
+    * ListRow `active` and gridcells; chip and avatar colour collisions; menu max height and scrolling; duplicated layout strings;
+    * Dialog describedby and the child wrapper; Shortcut keys;
+    * the budget missing boot-chunk CSS, the absolute `outDir` crash, the dev server reuse in Playwright, and the gallery.css layer;
+    * reload-once on a failed boot chunk.
+    Ungrouping the Radix internals, as the reviewer suggested, produced the chunk cycle described above, so it was reverted and is now guarded.
 
 #### F2 — Data layer
 - [ ] **Status**

@@ -11,9 +11,9 @@ import type {ComponentProps, ReactNode} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {Shortcut} from './Kbd.tsx';
-import {floating, menuItem} from './recipes.ts';
+import {floating, iconSlot, menuItem} from './recipes.ts';
 
-const content = cx(floating, 'z-popover min-w-48 max-w-sm p-1');
+const content = cx(floating, 'z-popover max-h-popper min-w-48 max-w-sm overflow-y-auto p-1');
 
 export interface MenuItemProps {
   icon?: LucideIcon | undefined;
@@ -28,7 +28,7 @@ function ItemBody({icon, shortcut, children}: Omit<MenuItemProps, 'danger'>) {
     <>
       {icon && <Icon icon={icon} className="text-fg-muted group-data-disabled:text-fg-subtle"/>}
       <span className="flex-1 truncate">{children}</span>
-      {shortcut && <Shortcut keys={shortcut}/>}
+      {shortcut && <Shortcut keys={shortcut} className="group-data-disabled:opacity-disabled"/>}
     </>
   );
 }
@@ -47,7 +47,7 @@ function makeItems(P: Parts) {
   function CheckboxItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.CheckboxItem>, 'children'>) {
     return (
       <P.CheckboxItem className={cx(menuItem, 'text-fg')} {...rest}>
-        <span className="flex size-4 items-center justify-center">
+        <span className={iconSlot}>
           <P.ItemIndicator><Icon icon={Check}/></P.ItemIndicator>
         </span>
         <ItemBody shortcut={shortcut}>{children}</ItemBody>
@@ -57,7 +57,7 @@ function makeItems(P: Parts) {
   function RadioItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.RadioItem>, 'children'>) {
     return (
       <P.RadioItem className={cx(menuItem, 'text-fg')} {...rest}>
-        <span className="flex size-4 items-center justify-center">
+        <span className={iconSlot}>
           <P.ItemIndicator><Icon icon={Dot}/></P.ItemIndicator>
         </span>
         <ItemBody shortcut={shortcut}>{children}</ItemBody>
@@ -74,7 +74,7 @@ function makeItems(P: Parts) {
   function Sub({label, icon, children}: {label: ReactNode; icon?: LucideIcon | undefined; children: ReactNode}) {
     return (
       <P.Sub>
-        <P.SubTrigger className={cx(menuItem, 'text-fg data-[state=open]:bg-hover')}>
+        <P.SubTrigger className={cx(menuItem, 'text-fg data-[state=open]:bg-raised-hover')}>
           <ItemBody icon={icon}>{label}</ItemBody>
           <Icon icon={ChevronRight} size="sm" className="text-fg-muted"/>
         </P.SubTrigger>

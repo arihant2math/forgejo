@@ -20,7 +20,7 @@ export type ButtonVariant = keyof typeof variants;
 interface BaseProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant | undefined;
   size?: ControlSize | undefined;
-  /** Render the single child (e.g. a router <Link>) with the button's look instead of a <button>. */
+  /** Render the single child (e.g. a router <Link>) with the button's look instead of a <button>; `icon` is then ignored (put an <Icon> in the child). */
   asChild?: boolean | undefined;
   /** Shortcut hint shown in the tooltip, e.g. "C" or "G I". */
   shortcut?: string | undefined;
@@ -58,15 +58,18 @@ export interface IconButtonProps extends Omit<BaseProps, 'asChild' | 'children'>
   icon: LucideIcon;
   /** Accessible name, also shown as the tooltip. */
   label: string;
+  /** A toggle button: exposes aria-pressed and looks selected while on. */
+  pressed?: boolean | undefined;
 }
 
 /** A square icon-only button with a tooltip naming it (and its shortcut). */
-export function IconButton({variant = 'ghost', size = 'md', icon, label, shortcut, className, ...rest}: IconButtonProps) {
+export function IconButton({variant = 'ghost', size = 'md', icon, label, shortcut, pressed, className, ...rest}: IconButtonProps) {
   return withTooltip(
     <button
       type="button"
       aria-label={label}
-      className={cx(base, size === 'sm' ? 'size-control-sm' : 'size-control', variants[variant], className)}
+      aria-pressed={pressed}
+      className={cx(base, size === 'sm' ? 'size-control-sm' : 'size-control', variants[variant], pressed && 'aria-pressed:bg-selected aria-pressed:text-fg', className)}
       {...rest}
     >
       <Icon icon={icon} size={size}/>

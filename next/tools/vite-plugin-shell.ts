@@ -12,7 +12,7 @@
 //    preloads the entry's static imports).
 
 import {readFileSync, writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {join, resolve} from 'node:path';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {minifySync, type Plugin} from 'vite';
@@ -56,7 +56,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
     configResolved(config) {
       base = config.base;
       root = config.root;
-      outDir = join(config.root, config.build.outDir);
+      outDir = resolve(config.root, config.build.outDir);
     },
     transformIndexHtml: {
       order: 'pre',

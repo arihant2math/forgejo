@@ -10,12 +10,15 @@
 export const surface = 'rounded-lg border border-border bg-raised text-fg';
 
 /** A floating surface (menus, popovers, tooltips): appears instantly, fades and shrinks out. Add a z-* layer. */
-export const floating = `${surface} origin-popper overflow-hidden shadow-popover data-[state=closed]:animate-exit-pop`;
+export const floating = `${surface} origin-popper shadow-popover data-[state=closed]:animate-exit-pop`;
 
 /** One row in a menu or a command list. Add a text colour. */
 export const menuItem =
   'interactive group flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none ' +
-  'select-none data-highlighted:bg-hover data-disabled:pointer-events-none data-disabled:text-fg-subtle';
+  'select-none data-highlighted:bg-raised-hover data-disabled:pointer-events-none data-disabled:text-fg-subtle';
+
+/** A centred square slot for a checkbox/radio indicator or a status icon. */
+export const iconSlot = 'flex size-4 shrink-0 items-center justify-center';
 
 /** Inline-flex control with a fixed height; used by Button, IconButton and Input. */
 export const control = 'interactive inline-flex shrink-0 items-center rounded-md';

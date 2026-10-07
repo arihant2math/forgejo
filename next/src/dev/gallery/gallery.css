@@ -1,11 +1,13 @@
 /* Copyright 2026 The Forgejo Authors. All rights reserved.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The dev-only gallery's own utilities: app.css does not scan src/dev,
- * so gallery-only classes never reach the production stylesheet.
+ * The dev-only gallery's own utilities: app.css does not scan src/dev, so
+ * gallery-only classes never reach the production stylesheet. (@reference
+ * carries app.css's @source list along, so this sheet repeats the app's
+ * utilities too; dev only, and in the same layer, so the cascade matches.)
  */
 
-@import "tailwindcss/utilities.css" source(none);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
 
 @reference "../../styles/app.css";
 

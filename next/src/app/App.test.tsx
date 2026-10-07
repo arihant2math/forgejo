@@ -29,12 +29,13 @@ describe('boot', () => {
     expect(classConflicts(div)).toEqual([]);
   });
 
-  test('the logged-out boot shell is exactly what the boot route renders', async () => {
+  test('the logged-out boot shell is exactly what the boot route renders (wrapper included)', async () => {
     const shell = document.createElement('div');
     shell.innerHTML = renderToStaticMarkup(<BootShell/>);
     const {container} = await renderRoute('');
     const panel = shell.querySelector('.logged-out\\:flex');
-    expect(panel?.innerHTML).toBe(container.firstElementChild?.innerHTML);
+    // The boot copy is hidden unless the splash says logged-out; otherwise identical.
+    expect(panel?.outerHTML.replace('hidden logged-out:flex', 'flex')).toBe(container.firstElementChild?.outerHTML);
   });
 
   test('the boot route renders without Suspense (logged-out device)', async () => {

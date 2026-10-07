@@ -77,9 +77,7 @@ export function BootShell() {
   return (
     <>
       <Frame/>
-      <div className="hidden h-full items-center justify-center bg-canvas logged-out:flex">
-        <LoggedOut/>
-      </div>
+      <LoggedOut boot="logged-out"/>
     </>
   );
 }

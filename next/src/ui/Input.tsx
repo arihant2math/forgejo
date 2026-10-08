@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {InputHTMLAttributes, Ref, TextareaHTMLAttributes} from 'react';
+import type {InputHTMLAttributes, ReactNode, Ref, TextareaHTMLAttributes} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {control, controlHeight, type ControlSize, field} from './recipes.ts';
@@ -54,5 +54,18 @@ export function TextArea({invalid, rows = 6, ...rest}: TextAreaProps) {
       className={cx('interactive block w-full resize-y rounded-md px-2 py-1.5 text-md', field)}
       {...rest}
     />
+  );
+}
+
+/**
+ * The box of a rich text field (the CodeMirror markdown editor): a TextArea's
+ * look — border, surface, hover, focus outline while the editor inside has
+ * focus, invalid — around content the editor draws. Full width.
+ */
+export function EditorFrame({invalid, children, ref}: {invalid?: boolean | undefined; children: ReactNode; ref?: Ref<HTMLDivElement>}) {
+  return (
+    <div ref={ref} aria-invalid={invalid} className={cx('interactive block w-full rounded-md text-md focus-ring-within', field)}>
+      {children}
+    </div>
   );
 }

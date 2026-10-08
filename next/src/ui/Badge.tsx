@@ -49,3 +49,18 @@ export function LabelIcon({icon, color, size = 'md'}: {icon: LucideIcon; color: 
     </span>
   );
 }
+
+/**
+ * A chip that toggles (a reaction: its emoji and count). Pressed: the
+ * viewer is among those counted (accent tint, aria-pressed).
+ */
+export function ChipButton({pressed, label, onClick, disabled, children}: {pressed: boolean; label: string; onClick: () => void; disabled?: boolean | undefined; children: ReactNode}) {
+  return (
+    // aria-disabled, not disabled: who reacted stays reachable (focus, the title) when you cannot react.
+    <button type="button" aria-pressed={pressed} aria-label={label} title={label} aria-disabled={disabled} onClick={disabled ? undefined : onClick}
+      // The same border either way: toggling never changes its width.
+      className={cx(chip, 'interactive rounded-full border', pressed ? 'border-transparent bg-accent-subtle text-accent-fg' : 'border-border-strong text-fg-muted', !disabled && 'hover:bg-hover')}>
+      {children}
+    </button>
+  );
+}

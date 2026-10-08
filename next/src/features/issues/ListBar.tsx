@@ -8,15 +8,18 @@
 // ordering). Everything lives in the URL's search params (search.ts), so a
 // view is a link; the list recomputes locally on every change.
 
-import {useNavigate} from '@tanstack/react-router';
-import {ListFilter, Rows3, Search, Tag, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
+import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
+import {Layers, ListFilter, Rows3, Search, Tag, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLabels} from '../../app/search.ts';
 import type {IssueListModel} from './list.ts';
-import {useApp} from '../../app/store.ts';
+import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
+import {useApp, useSession} from '../../app/store.ts';
+import {SaveViewDialog} from '../views/SaveView.tsx';
+import {viewStore} from '../views/views.ts';
 import {
-  Badge, Button, Input, LabelDot, Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  Badge, Button, Icon, Input, LabelDot, Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
   MenuSub, MenuTrigger,
 } from '../../ui/index.ts';
 import {usePool} from './cells.tsx';
@@ -67,11 +70,25 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
     set({state: s === 'open' ? undefined : s});
   };
   const selected = model.cursor.selected.size;
+  // Saving the view (Shift+V): this page with its search params, the "my" lists' type included.
+  const {userId} = useSession();
+  const path = useLocation({select: (l) => l.pathname});
+  const type = useSearch({strict: false, select: (s: Record<string, unknown>) => (typeof s.type === 'string' ? s.type : undefined)});
+  const viewSearch = {...search, ...(type ? {type} : {})};
+  const [saving, setSaving] = useState(false);
+  useShortcut('view.save', () => {
+    setSaving(true);
+  });
+  const saved = viewStore(userId).match(path, viewSearch);
   return (
     <>
+      {saving && <SaveViewDialog path={path} search={viewSearch} onClose={() => {
+        setSaving(false);
+      }}/>}
+      {saved && <Badge><Icon icon={Layers} size="sm"/>{saved.name}</Badge>}
       {selected > 0 && <Badge tone="accent">{selected} selected · Esc clears</Badge>}
       {stateButtons && STATES.map((s) => (
-        <Button key={s.state} size="sm" variant={state === s.state ? 'secondary' : 'ghost'} aria-pressed={state === s.state} onClick={() => {
+        <Button key={s.state} size="sm" pressed={state === s.state} onClick={() => {
           setState(s.state);
         }}>{s.label}</Button>
       ))}
@@ -111,6 +128,10 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
           }}>
             {SORTS.map((s) => <MenuRadioItem key={s.sort} value={s.sort}>{s.label}</MenuRadioItem>)}
           </MenuRadioGroup>
+          <MenuSeparator/>
+          <MenuItem icon={Layers} shortcut={shortcutHint('view.save')} onSelect={() => {
+            setSaving(true);
+          }}>Save view…</MenuItem>
         </MenuContent>
       </Menu>
     </>

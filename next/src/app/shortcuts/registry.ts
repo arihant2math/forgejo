@@ -56,7 +56,8 @@ function isTextField(el: Element | null): boolean {
  */
 function inOverlay(el: Element | null): boolean {
   const overlay = el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]');
-  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts');
+  // A menu or dialog fading out (Radix: data-state="closed") has let go of the keys already.
+  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts') && overlay?.getAttribute('data-state') !== 'closed';
 }
 
 interface Binding {
@@ -93,6 +94,52 @@ export class ShortcutRegistry {
   /** The shortcuts something is bound to right now (the shortcuts help lists these). */
   bound(): Set<ShortcutId> {
     return new Set(this.bindings.map((b) => b.id));
+  }
+
+  /**
+   * The bound shortcuts whose scope is active now, outside global (what the
+   * view on screen offers: the palette lists them as commands).
+   */
+  available(): ShortcutId[] {
+    const seen = new Set<ShortcutId>();
+    for (const b of this.bindings) {
+      const def = this.keymap[b.id];
+      if (def && def.scope !== 'global' && this.depth(def.scope) >= 0) seen.add(b.id);
+    }
+    return [...seen];
+  }
+
+  /**
+   * Whether a shortcut's keys run something else now: another binding with
+   * the same keys in a deeper active scope (on a board, L is the next
+   * column, not labels). Its hint must not be shown then.
+   */
+  shadowed(id: ShortcutId): boolean {
+    const def = this.keymap[id];
+    if (!def) return false;
+    const mine = this.depth(def.scope);
+    return this.bindings.some((b) => {
+      const other = this.keymap[b.id];
+      return b.id !== id && other?.keys === def.keys && this.depth(other.scope) > mine;
+    });
+  }
+
+  /** Runs what a shortcut is bound to now (as if its keys were typed); false when nothing is. */
+  run(id: ShortcutId): boolean {
+    let best: Binding | undefined;
+    let depth = -1;
+    for (const b of this.bindings) {
+      if (b.id !== id) continue;
+      const def = this.keymap[b.id];
+      const d = def ? this.depth(def.scope) : -1;
+      if (d > depth || (d === depth && best && b.seq > best.seq)) {
+        best = b;
+        depth = d;
+      }
+    }
+    if (!best || depth < 0) return false;
+    best.run();
+    return true;
   }
 
   /** Activates a scope while a view is mounted; returns the function that pops it. */

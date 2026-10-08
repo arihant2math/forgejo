@@ -184,6 +184,47 @@ export class Overlay {
   }
 
   /**
+   * Every override of one field of a model, as id → value, in the order
+   * the overriding intents were made (the inbox's statuses, a board's
+   * pending moves). Observing it reacts to every change of the overlay (few
+   * layers: one scan of the field keys).
+   */
+  fieldOverrides(model: ModelName, field: string): Map<number, unknown> {
+    this.rev.reportObserved();
+    const found: {id: number; value: unknown; seq: number}[] = [];
+    const prefix = `${model}\0`;
+    const suffix = `\0${field}`;
+    for (const [k, list] of this.fields) {
+      if (!k.startsWith(prefix) || !k.endsWith(suffix)) continue;
+      const id = Number(k.slice(prefix.length, k.length - suffix.length));
+      const top = list.at(-1);
+      for (const op of top?.ops ?? []) if (top && op.t === 'field' && op.model === model && op.id === id && op.field === field) found.push({id, value: op.value, seq: top.seq});
+    }
+    return new Map(found.sort((a, b) => a.seq - b.seq).map((f) => [f.id, f.value]));
+  }
+
+  /**
+   * Every pending override of one field of a model, all layers (not only the
+   * top one per entity), in the order they were made: [id, value] pairs (a
+   * board's moves are replayed this way, one card possibly moved twice).
+   * Observing it reacts to every change of the overlay.
+   */
+  fieldLayers(model: ModelName, field: string): [number, unknown][] {
+    this.rev.reportObserved();
+    const found: {id: number; value: unknown; seq: number}[] = [];
+    const prefix = `${model}\0`;
+    const suffix = `\0${field}`;
+    for (const [k, list] of this.fields) {
+      if (!k.startsWith(prefix) || !k.endsWith(suffix)) continue;
+      const id = Number(k.slice(prefix.length, k.length - suffix.length));
+      for (const layer of list) {
+        for (const op of layer.ops) if (op.t === 'field' && op.model === model && op.id === id && op.field === field) found.push({id, value: op.value, seq: layer.seq});
+      }
+    }
+    return found.sort((a, b) => a.seq - b.seq).map((f) => [f.id, f.value]);
+  }
+
+  /**
    * The overrides of a set made by the layers added before `layer` (and by
    * `layer` itself when `inclusive`): what the set looked like to the user
    * when that intent was made. Untracked.

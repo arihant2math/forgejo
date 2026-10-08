@@ -26,10 +26,16 @@ export interface UiState {
   signOut: {pending: number} | undefined;
   /** Changes not synced yet: queued intents and failed ones kept as drafts (the sync indicator's "N pending"). */
   pendingIntents: number;
+  /** Unread notifications as the user sees them (pending read/unread intents included); undefined until the queue started. */
+  unread: number | undefined;
+  /** The new-issue dialog (C): open, for which repository (0: the last one used). */
+  create: {repoId: number} | undefined;
   /** The "Unsynced changes" panel is open. */
   unsyncedOpen: boolean;
   /** Transient notices (notices.ts), oldest first. */
   notices: NoticeSpec[];
+  /** The repository whose page is open (the new-issue dialog's default), 0 for none. */
+  repoOpen: number;
   /** The issue whose page is open (its conflicts and overrides show inline there, not as notices). */
   issueOpen: number | undefined;
   /** The issues the keyboard acts on (the list's selection or cursor, the open issue): the palette offers their actions. */
@@ -49,8 +55,8 @@ export interface App {
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
   const ui = observable<UiState>(
-    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unsyncedOpen: false, issueOpen: undefined, notices: [], issueTarget: [], picker: undefined},
-    {notices: observableShallow, issueTarget: observableRef, picker: observableRef},
+    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, notices: [], issueTarget: [], picker: undefined},
+    {notices: observableShallow, issueTarget: observableRef, picker: observableRef, create: observableRef},
   );
   return {config, session, ui};
 }

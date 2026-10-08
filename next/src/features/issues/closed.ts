@@ -35,7 +35,10 @@ const MAX_BACKOFF = 30_000;
 export function closedPager(data: Data, group: string): ClosedPager {
   let p = pagers.get(group);
   if (p) return p;
-  const state = observable({pages: 0, count: 0, loading: false, done: false}, {}, {deep: false});
+  // `wake`: bumped when the connection comes back after a load stopped offline, so observers of `loading`
+  // ask again (nothing else they read changes then).
+  const state = observable({pages: 0, count: 0, loading: false, done: false, wake: 0}, {}, {deep: false});
+  let stoppedOffline = false;
   let next: string | undefined;
   let failures = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -43,7 +46,8 @@ export function closedPager(data: Data, group: string): ClosedPager {
     retry = undefined;
     if (state.done) return;
     if (!navigator.onLine) {
-      // Tried again when the connection is back.
+      // Tried again when the connection is back (the `online` listener wakes the callers).
+      stoppedOffline = true;
       runInAction(() => {
         state.loading = false;
       });
@@ -75,7 +79,7 @@ export function closedPager(data: Data, group: string): ClosedPager {
       return state.count;
     },
     get loading() {
-      return state.loading;
+      return state.wake >= 0 && state.loading;
     },
     get done() {
       return state.done;
@@ -87,6 +91,12 @@ export function closedPager(data: Data, group: string): ClosedPager {
   };
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
+      if (stoppedOffline) {
+        stoppedOffline = false;
+        runInAction(() => {
+          state.wake++;
+        });
+      }
       if (retry !== undefined) {
         clearTimeout(retry);
         retry = undefined;

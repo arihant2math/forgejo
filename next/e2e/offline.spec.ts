@@ -181,7 +181,8 @@ test('a description conflict is shown in the editor and resolved there', async (
   const callout = page.getByRole('main').getByRole('note').filter({hasText: 'Your edit conflicts with a newer change'});
   await expect(callout).toBeVisible({timeout: 20_000});
   const editor = page.getByRole('textbox', {name: 'Resolve the description'});
-  await expect(editor).toHaveValue(/<<<<<<< yours\nLine one, MINE\.\n=======\nLine one, THEIRS\.\n>>>>>>> theirs/);
+  // The CodeMirror editor (F6): its lines as text.
+  await expect.poll(() => editor.evaluate((el) => (el as HTMLElement).innerText)).toMatch(/<<<<<<< yours\nLine one, MINE\.\n=======\nLine one, THEIRS\.\n>>>>>>> theirs/);
   // Saving is refused while markers are left.
   await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
   await editor.fill('Line one, MINE and THEIRS.\n\nLine two.\n\nLine three.');

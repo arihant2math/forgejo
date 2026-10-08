@@ -18,7 +18,7 @@ import {LoggedOut} from './LoggedOut.tsx';
 import {HeaderBar, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './shell/Frame.tsx';
 import {SKELETON_MAX_ROWS} from './splash.ts';
 
-const navWidths = ['sm', 'md', 'xl'] as const;
+const navWidths = ['sm', 'md', 'xl', 'sm'] as const;
 const repoWidths = ['lg', 'md', 'xl'] as const;
 const rowWidths = ['w-64', 'w-48', 'w-72', 'w-56', 'w-40', 'w-60', 'w-52', 'w-44'];
 
@@ -27,6 +27,7 @@ function Sidebar() {
     <>
       <SidebarTop>
         <NavSkeleton width="lg" leading={<Avatar size="sm" fromSplash/>}/>
+        <NavSkeleton width="md"/>
         <NavSkeleton width="sm"/>
       </SidebarTop>
       <SidebarBody>

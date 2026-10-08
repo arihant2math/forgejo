@@ -2646,6 +2646,150 @@ does) **and** MySQL 8.0 (binlog on).
   expected delta arrives (boards/body/viewed files), conflict returns 409, immutable
   headers present.
 - **Notes/decisions:**
+  - **Files.** `services/livesync/protocol/{api,logs}.go` (wire types + the route table, regenerated
+    `next/src/protocol/types.gen.ts`; `next/tools/tygo.yaml` unions gain `LogTailMessage`/`LogUntailMessage`,
+    `LogMessage`/`LogClosedMessage`, `LogClosedReason`, `ViewedState`; `TestTypeScriptUnions` checks them);
+    `routers/livesync/{api,api_boards,api_body,api_viewed,api_git,api_markdown}.go` (+ `api_test.go`), `routes.go`
+    (`registerAPI`), `wrap.go` (write dispatch), `idempotency.go` (`serveKeyed` target, `serveSynced`), `auth.go`
+    (`authenticateResult`, `hasScope`); `services/livesync/hub/logs.go` (+ `logs_test.go`) and `conn.go`/`session.go`/`hub.go`
+    (`Config.Logs`, `LogInterval`); `services/livesync/actionslog/actionslog.go` (+ SQLite test); `materialize/render.go`
+    (`RenderPreview`); `settings.go` (`LOG_TAIL_INTERVAL`), `livesync.go` (hub wiring); `SURFACE.md`;
+    `tests/integration/livesync_api_test.go` (+ log fields in `livesyncMsg`).
+  - **Scope decision: the Actions log tail is done here** (the tracker deferred it to F7; the orchestrator asked for it
+    with B9). It is a session feature of the B5 hub, not an HTTP endpoint.
+  - **Contract (the only definition: `services/livesync/protocol/api.go` + `logs.go`, mirrored in `types.gen.ts`).**
+    Routes (ids are database ids — issue id, not number; repositories by id so renames do not break immutable caches):
+    `POST /-/sync/api/projects/{id}/columns` (`APIColumnCreate{title, color?}` → 201 `APICreated{id}`; 422 at 20
+    columns), `PATCH …/columns/{column}` (`APIColumnEdit{title?, color?, default?}` → 200 `APICreated`), `DELETE
+    …/columns/{column}` (204; 422 for the default column; its cards move to the default column), `PUT
+    /-/sync/api/projects/{id}/column-order` (`APIColumnOrder{column_ids}` = every column once, else 409), `POST
+    …/columns/{column}/cards` (`APICardMove{issue_id, position?}` — index in the target column computed against its
+    current cards, or `{cards:[{issue_id, sorting}]}` = the column's full order as the classic board sends it; every issue
+    must already be on the board (409) and readable (404)), `PATCH /-/sync/api/issues/{id}/body` and
+    `/comments/{id}/body` (`APIBodyEdit{body, expected_version}` → 200 `APIBodyEdited{content_version}`, **409
+    `APIBodyConflict{message, body, content_version}`** = the current text/version, the 3-way-merge base), `GET
+    /-/sync/api/issues/{id}/viewed[?head=sha]` and `PUT …/viewed` (`APIViewedUpdate{commit_sha?, files:{path: bool}}` →
+    `APIViewedFiles{pull_id, commit_sha, files:{path: viewed|unviewed|has_changed}}`), `POST /-/sync/api/markdown`
+    (`APIMarkdownRequest{repo_id?, items}` → `APIMarkdownResponse{html}`, ≤ 64 items / 1 MiB), and the immutable reads
+    `GET /-/sync/api/repos/{id}/tree/{commit}[/{path}]` (`APITree{commit, path, sha, entries:[{name, type
+    blob|tree|commit|symlink, mode "100644", sha, size?}]}`), `/raw/{commit}/{path}` and `/blobs/{sha}` (bytes,
+    `application/octet-stream`, nosniff, sandbox CSP, Content-Length), `/blame/{commit}/{path}[?bypass_ignore=1]`
+    (`APIBlame{commit, path, parts:[{sha, start_line, lines, previous_sha?, previous_path?}], commits:{sha:{summary,
+    author_name, author_email, author_id, authored_at, committed_at}}, uses_ignore_revs, faulty_ignore_revs_file}` — no
+    line text: the lines are the raw file's), `/diff/{commit}` (against the first parent, or the empty tree for a root
+    commit) and `/diff/{base}/{head}` (`git diff -M`, `text/plain`, streamed). Errors are `{message}`: 401 token, 403
+    account / missing write scope / readable but not changeable, **404 = missing or not readable (never told apart) and
+    every non-SHA address** (branch, tag, abbreviated, uppercase), 400 malformed, 409 stale view, 422 refused by state,
+    503 + Retry-After while livesync is stopped.
+  - **Writes reuse B7.** `handler.ServeHTTP` sends a write below `/-/sync/api/` (`apiWrite`: POST/PUT/PATCH/DELETE except
+    the read-only `POST /markdown`) with an `Idempotency-Key` through `serveKeyed(w, req, path, h.own)` — the B7 layer
+    with livesync's router as the target instead of API v1 (new `keyedWrite.target`; store, hash, wait, replay, 409/422,
+    credential and account checks unchanged). **Without a key a write gets the sync-id echo too** (`serveSynced`: outbox
+    position before/after, response buffered, `synced` = B7's bounded `WaitSynced` / `SyncedNow` for errors), so every gap
+    write answers with `X-Livesync-Sync-Id` (B7 contract). Write bodies are acknowledgements (`{id}`, `{content_version}`,
+    the viewed state); **entities arrive as deltas** (no DTO building outside the materializer). No crash-window check for
+    gap creates (a column create interrupted by a crash runs again on retry; documented in `protocol/api.go`). The
+    markdown preview ignores the key (no record, no sync id).
+  - **Auth / scopes.** `authenticate` (B4 rules: read scopes, account checks) for every endpoint; writes additionally
+    need `write:issue` (boards — API v1 has no projects API and cards are issues —, body edits) or `write:repository`
+    (viewed files: API v1's pull routes are in the repository category). The Next UI's OAuth scope (B8) has both.
+  - **Permissions (equivalent to the classic UI; deliberate differences in bold).** Writes use
+    `access_model.GetUserRepoPermission` like the repository context; reads use `perm.Cache.Check` (B4's API-v1-equivalent
+    decisions, cached for the viewer's repositories). Boards: repository project = `MustEnableProjects` (globally enabled,
+    unit readable, else 404) + `CanWrite(projects)` (403) + not archived; organization project = organization visible +
+    `Organization.UnitPermission(projects)` ≥ read (else 404) / ≥ write (else 403); user project = its owner (403 for
+    others who may see the owner, else 404); card moves check repository / owner like the classic board and **also that
+    the viewer may read each moved issue** (upstream does not). Body edits: issue readable (`checkIssueRights`), poster or
+    `CanWriteIssuesOrPulls`, **comments also need the issue readable** (classic only needs repository access), another
+    user's pending-review comment is 404. Viewed files: a readable pull request; PUT refuses archived repositories. Immutable
+    reads: the code unit. Markdown with `repo_id`: the repository readable. **Archived repositories answer 403 "archived"**
+    (the classic UI answers 404; the viewer may read it, so 403 is honest and leaks nothing).
+  - **Immutable responses.** `Cache-Control: private, max-age=31536000, immutable` + **`Vary: Authorization`** (a
+    browser cache shared by two accounts must not serve one's private blobs to the other; the HTTP cache therefore keys by
+    token, i.e. per access-token lifetime — F7's IDB/SW cache by SHA is the real cache) + strong ETags: tree = tree SHA,
+    raw/blobs = blob SHA, blame = `commit:path` (`:bypass`), diff = commit or `base..head`; `If-None-Match` ⇒ 304 after the
+    permission check and before reading content (trees/raw resolve the path first). A blob SHA is checked to be a blob
+    (cat-file batch-check type). SHA-256 repositories accept 64-hex ids. Blame refuses files ≥ `[ui]
+    MAX_DISPLAY_FILE_SIZE` (422); diffs and blobs are streamed without a size limit.
+  - **Viewed files.** GET returns the newest state (`GetNewestReviewState`); with `?head=` (another commit) the files
+    changed since the state's commit that were viewed are reported `has_changed` **without writing** (the classic files
+    view stores that marker when it renders). PUT = `UpdateReviewState` (merge), default commit = the pull request's
+    head. The rows are synced as `ReviewState` in `user:{viewer}` (unit self), so F7 normally reads them from the pool.
+  - **Markdown preview = the materializer's rendering** (`materialize.RenderPreview` shares `renderMarkdown`): the preview
+    is byte-for-byte the `body_html` the sync log will carry for that text (asserted against a real IssueBody entry),
+    i.e. rendered without a viewer (@mentions link public users only, B3). Without `repo_id`: plain markdown.
+  - **Actions log tail (hub).** C→S `log_tail{job_id, task_id?, offset?}` / `log_untail{job_id}`; S→C `log{job_id,
+    task_id, offset, lines:[{t (Unix ms), c}], steps?, done?, expired?}` and `log_closed{job_id, reason:
+    forbidden|limit|error}`. Offsets are 0-based line indexes of one task; a re-run (another task) restarts at 0 with the
+    new `task_id`; resume = tail again with `task_id` + `offset` = lines held. `steps` (as the classic job page,
+    `actions.FullSteps`: name, status, log_index, log_length, started, stopped) in the first message and whenever they
+    change. Each tail is a goroutine of the session (≤ 8 per session; ended by `log_untail`, a restart of the same job, the
+    session's end — `stop` waits for them — or completion): every `[livesync] LOG_TAIL_INTERVAL` (default 1s) it reads the
+    job, its task and steps through `hub.LogSource` (`actionslog.Source`: 3 primary-key queries; `setting.Actions.Enabled`
+    off ⇒ not found), sends the new lines in messages of ≤ 500 lines / 128 KiB after waiting for room in the send buffer
+    (like replays: never overflows the session), takes the hub's check slots for its reads, and checks the permission
+    (`perm.Cache.Check(repo:{id})` with the `actions` unit) at the start, before every message with lines and at least every
+    10 s — a lost permission or missing job ⇒ `log_closed{forbidden}`. Done = job and task finished and every line sent:
+    at once when the log is archived (`LogInStorage`, the runner's "no more"), else after 2 quiet polls; an expired log ⇒
+    `log{expired, done}`. Not in the sync log (logs are files; `action_task` is untracked); job status still comes as
+    `ActionRunJob` deltas in `repo:{id}`.
+  - **For F4–F7.** F4/F5: body edits through `PATCH /-/sync/api/issues|comments/{id}/body` with `expected_version` =
+    the `content_version` the intent's `baseText` came from (IssueBody/Comment DTOs carry it); on 409 merge `baseText` /
+    `body` / local and retry with the conflict's `content_version` (and a **new** Idempotency-Key — a retry with the same key
+    replays the 409); drop the overlay at `X-Livesync-Sync-Id`. F6: boards — move-card intents send `{issue_id,
+    position}` (computed by the server against the freshest column, so concurrent moves commute better than a full
+    order), column CRUD/order as above; created column ids come back as `{id}` for temp-id remapping; markdown preview for
+    the composer (batch up to 64). F7: tree/raw/blob/blame/diff by `(repo_id, sha)` with the head SHA from the synced
+    `Branch`; cache by SHA in IDB/SW forever (the responses never change); viewed files via `PUT …/viewed` (offline intent;
+    `GET ?head=` for the has-changed marks); logs over the session with `log_tail`. F3–F7 still extend `spaRoutes` (B8)
+    for their routes; B9 adds none.
+  - **Settings added:** `LOG_TAIL_INTERVAL` (1s, > 0).
+  - **Tests.** Unit: `routers/livesync` `TestValidSHA`, `TestAPIWrite`, `TestImmutable`, `TestViewedFiles`,
+    `TestHandlerRouting` (gap reads/writes 503 while stopped, 405, 404, sub-path); `hub` **`TestLogTail`** (fake
+    `LogSource`, real `perm.Cache` on fixtures: first message with lines + steps, only new lines later, steps-only message,
+    done with an archived log, resume from task+offset, re-run ⇒ new task from 0, done after quiet polls, unreadable /
+    missing ⇒ forbidden (also for the owner of a repository without the actions unit), permission lost while tailing,
+    the 8-tail limit, untail, `stop` ends every tail; `-race -count=10`), `TestCutLines`; `actionslog` `TestSource`
+    (fixture job 192 / task 47 with a DBFS log: state, steps, lines by offset, not found, actions disabled); `protocol`
+    `TestTypeScriptUnions`; settings. Integration (**PG 16 `gtestschema` and MySQL 8.0 binlog on**):
+    **`TestLivesyncAPI`** — a WebSocket session of user2 (repo:1, issue:1, user:2) receives the deltas of the writes;
+    *boards*: create (201, sync id covers the `ProjectColumn` entry, delta), invalid title/colour/body 400, edit (title,
+    colour removed, default moved: both columns' entries covered), unknown / other project's column 404, order (reversed,
+    DB checked; incomplete 409), card moves by position (top, end) and by full order (DB sortings), not on board 409, other
+    repository's / missing issue 404, delete default 422, delete other ⇒ cards in the default column + `D` entry,
+    organization and user projects, user5 403 on repo1/user2 projects, private project 404, unknown 404, read-only token
+    403, keyed create twice ⇒ one column + replay with the same body and sync id, same key other body ⇒ 422; *body*: edit ⇒
+    `content_version + 1`, IssueBody entry covered and delta with rendered HTML; stale version ⇒ 409 with the current
+    text/version and nothing changed; 403 (not poster/writer, read-only token), 404 (private, missing); comment edit by
+    its poster, 409, by the repository owner, 403 for another user, 422 for a label event, keyed replay; *viewed*: empty,
+    PUT ⇒ state + `ReviewState` entry/delta, merge, `?head=`, 400 for non-SHA, per-user states, read-only token 403,
+    non-pull 404, private pull 404/200; *git*: tree (entries, sizes, mode, ETag = tree SHA, 304), non-SHA refs and unknown
+    SHAs 404, raw = blob bytes (headers, Content-Length, 304), blob by SHA, a tree SHA as blob 404, diffs equal `git diff
+    -M` (root commit vs empty tree, base/head, first parent), blame of a file written by two API commits (exact parts,
+    previous commit, author id, summary), private repository 404 / owner 200; *markdown*: preview = the IssueBody
+    `body_html` of an issue created with that text, no repository ⇒ plain, key ignored (no record, no sync id), private
+    repository 404, 413 limits; *auth* 401s/404. **`TestLivesyncAPILogTail`** — fixture job 192 (public repo4) with a DBFS
+    log written as the runner does: `log_tail` over WebSocket ⇒ lines + steps, appended lines, finish ⇒ done, resume from
+    offset, job moved to private repo2 and a missing job ⇒ `log_closed{forbidden}`, user5 over SSE reads the public log.
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...`
+    and `./tests/integration/...` with sqlite tags (0 issues), `go vet`, deadcode diff (clean), `go mod tidy -diff` (clean),
+    unit tests of every livesync package with `-race` (hub `TestLogTail` `-race -count=10`), `next/tools/gen-protocol.sh`
+    + `--check` (up to date), in `next/`: `npm ci && npm run typecheck && npm test` (193 pass; `node_modules` removed
+    again), `TestLivesyncAPI*` on PG 16 (`gtestschema`) and MySQL 8.0 binlog on (green, several runs), full
+    `-test.run 'TestLivesync|TestVersion'`: **PG 49 pass / 3 MySQL-only skips, MySQL 51 pass / 1 skip, no testlogger
+    "FATAL ERROR"**; each commit builds on its own; fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`,
+    `go.mod`, `go.sum`). MariaDB not run (no trigger/DDL change).
+  - **Known gaps / for later.** (1) Log tails poll per tail (3 small queries per `LOG_TAIL_INTERVAL`); many viewers of one
+    job each poll — a shared per-job poller (or a doorbell from the runner API's `UpdateLog`, which would be an upstream
+    change) is the optimisation if needed. Lines of a step summary (`renderStepSummaries`) are not sent. (2) No
+    crash-window dedupe for gap creates (columns). (3) No project create/edit/close endpoints (scope was columns, cards,
+    ordering; projects themselves are edited in the classic UI). (4) Tree entries' sizes cost one batch-check round trip
+    per blob (fine for directories of hundreds; immutable, so cached). Diffs and blobs are streamed without a size limit
+    (the client should not fetch huge ones eagerly); an error mid-stream cuts the response. (5) The markdown preview
+    renders anonymously like the materializer (limited/private @mentions are not linked; the classic preview links them
+    for a signed-in viewer) — by design, preview = synced HTML. (6) The browser HTTP cache keys immutable responses by
+    token (`Vary: Authorization`), so it only helps within one access token's lifetime. (7) Org projects whose owner is
+    a user's project of another type, or issues moved between repositories, follow upstream's checks (plus readability).
 
 #### B10 — Headless TS conformance suite (Phase 1 exit)
 - [ ] **Status**

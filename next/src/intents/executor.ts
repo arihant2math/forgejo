@@ -47,7 +47,7 @@
 // the pool holds its group up to v (Data.whenSynced: no flicker), without an
 // echo once the pool shows the intent's own effect; ≤ 60 s either way.
 
-import {action, makeObservable, observable, reaction} from 'mobx';
+import {observable, reaction, runInAction} from 'mobx';
 import type {Pool} from '../data/pool.ts';
 import {HeaderIdempotencyKey, HeaderSyncID} from '../protocol/types.gen.ts';
 import {effectHeld, lastChangedBy, scalarField, serverScalar} from './effects.ts';
@@ -182,7 +182,6 @@ export class Intents {
 
   constructor(env: IntentEnv) {
     this.env = env;
-    makeObservable<Intents, 'apply'>(this, {apply: action});
     this.cleanups.push(env.channel.onMessage((m) => {
       this.onMessage(m);
     }));
@@ -389,7 +388,7 @@ export class Intents {
 
   /** One MobX action (observers see a whole change at once). */
   private apply(fn: () => void): void {
-    fn();
+    runInAction(fn);
   }
 
   private track(rec: IntentRecord): void {

@@ -213,6 +213,33 @@ describe('signed in', () => {
     }
   });
 
+  test('an issue created offline: its page shows it at once, and the URL becomes its number once Forgejo created it', async () => {
+    const s = signedIn();
+    const app0 = createApp(config(), s);
+    const {editing} = await import('../intents/session.ts');
+    const {tempNum} = await import('../intents/intents.ts');
+    const t = crypto.randomUUID();
+    const temp = tempNum(t);
+    editing(app0).intents.submit({kind: 'issue.create', issueId: temp, repoId: 20, tempId: t, title: 'Made offline', body: 'Body typed offline', labelIds: [], assigneeIds: [], milestoneId: 0});
+    const router = createAppRouter(app0, createMemoryHistory({initialEntries: [`/acme/website/issues/new-${t}`]}));
+    await router.load();
+    render(<App app={app0} router={router}/>);
+    await waitFor(() => {
+      expect(screen.getByRole('main').querySelector('article h2')?.textContent).toContain('Made offline');
+    });
+    expect(screen.getByText('Body typed offline')).toBeTruthy();
+    expect(screen.getByText('New')).toBeTruthy();
+    // Created: the server's issue arrives and the temporary id is remapped; the URL follows (replace).
+    act(() => {
+      s.data.put('Issue', 'repo:20', issue(555, 20, 42, 'Made offline'));
+      runInAction(() => editing(app0).intents.remapped.set(temp, 555));
+    });
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/acme/website/issues/42');
+    });
+    expect(router.history.length).toBe(1);
+  });
+
   test('the sync indicator: offline with pending intents, signed out with a sign-in button', async () => {
     const s = signedIn();
     const {app} = await renderApp('/', s, config(true));

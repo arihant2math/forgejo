@@ -8,7 +8,7 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {useLocation, useParams} from '@tanstack/react-router';
+import {useLocation, useNavigate, useParams} from '@tanstack/react-router';
 import {CircleDot, SearchX} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -21,6 +21,8 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
+import {tempNum} from '../../intents/intents.ts';
+import {editing} from '../../intents/session.ts';
 import {EmptyState, Skeleton} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {PendingCell, StateIcon, TitleCell, usePool, useUser} from '../issues/cells.tsx';
@@ -41,7 +43,9 @@ export function findIssue(pool: Pool, repoId: number, index: number): Entity<'Is
 export function IssueView() {
   const {owner, repo, repoId} = useRepoPage();
   const {index: raw = ''} = useParams({strict: false});
-  const index = /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;
+  // An issue created offline is at "new-<tempId>" until Forgejo numbers it (then the URL is replaced).
+  const temp = TEMP_PATH.exec(raw)?.[1];
+  const index = temp ? tempNum(temp) : /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;
   const pulls = useLocation({select: (l) => /\/pulls\/[^/]+\/?$/.test(l.pathname)});
   const context = <RepoContext owner={owner} repo={repo} pulls={pulls}/>;
   if (repoId === undefined) {
@@ -55,9 +59,28 @@ export function IssueView() {
   return <IssuePage key={`${String(repoId)}#${String(index)}`} repoId={repoId} index={index} context={context}/>;
 }
 
+/** The path segment of an issue created offline (see `tempIssuePath`). */
+const TEMP_PATH = /^new-([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/;
+
+/** The page of an issue created offline, before Forgejo numbers it ("…/issues/new-<tempId>"). */
+export function tempIssuePath(owner: string, repo: string, tempId: string): string {
+  return `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/new-${tempId}`;
+}
+
 const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId: number; index: number; context: ReactNode}) {
   const pool = usePool();
-  const issue = findIssue(pool, repoId, index);
+  const app = useApp();
+  const {overlay, intents} = editing(app);
+  const navigate = useNavigate();
+  const {owner = '', repo = ''} = useParams({strict: false});
+  // index < 0: created offline. Once created, the server's issue replaces it, in the URL too (router.replace).
+  const real = index < 0 ? intents.remapped.get(index) : undefined;
+  const created = real === undefined ? undefined : pool.model('Issue').get(real);
+  const number = created?.get('number');
+  useEffect(() => {
+    if (number) void navigate({to: '/$owner/$repo/issues/$index', params: {owner, repo, index: String(number)}, replace: true});
+  }, [navigate, number, owner, repo]);
+  const issue = index < 0 ? created ?? overlay.createdEntity('Issue', index) as Entity<'Issue'> | undefined : findIssue(pool, repoId, index);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   if (!issue) return <NotHere repoId={repoId} index={index} context={context}/>;
   return (
@@ -121,7 +144,7 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
   return (
     <>
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
-      <span className="text-fg-subtle tabular-nums">#{index}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
+      <span className="text-fg-subtle tabular-nums">{index > 0 ? `#${String(index)}` : 'New'}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </>
   );
 });

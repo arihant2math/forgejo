@@ -95,7 +95,10 @@ export async function openData(opts: DataOptions): Promise<Data> {
   };
   const myHolds = new Map<string, number>();
   const holder = `tab:${tabs.id}`;
-  let commits = 0;
+  /** Another tab led at some point: this tab's pool mirrored it and may have missed an announcement. */
+  let sawLeader = !tabs.hasChannel && tabs.hasLocks;
+  /** This tab took over (set before the client exists: hydration then loads instead of mirroring). */
+  let leading = false;
   let client: SyncClient | undefined;
   let persister: Persister | undefined;
   let closed = false;
@@ -104,16 +107,16 @@ export async function openData(opts: DataOptions): Promise<Data> {
   // Follower: mirror IndexedDB. Leader: load through the version check.
   const hydrator = new Hydrator(db, (m, recs, seq) => {
     pool.batch(() => {
-      if (role.leader) pool.load(m, recs);
+      if (leading) pool.load(m, recs);
       else for (const r of recs) pool.mirror(m, r.id, r, seq);
     });
   }, opts.env?.IDBKeyRange);
   hydrator.trackSeen = true;
 
   const mirrorCommit = (c: Extract<TabMessage, {t: 'commit'}>) => {
-    commits++;
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
+      for (const g of c.dropped) for (const e of [...pool.groupEntities(g)]) pool.mirror(e.model, e.id, null, c.seq);
       for (const w of c.buckets) pool.mirrorBucket(w.m, w.g, w.b, w.r, c.seq);
     });
   };
@@ -123,15 +126,27 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const tabHolds = new Map<string, Set<string>>();
   const timeout = opts.tabTimeout ?? 3 * HEARTBEAT;
 
-  const requests = new Map<number, {resolve: (v: unknown) => void; reject: (e: Error) => void}>();
+  // Requests wait for a leader: another tab's (posted, posted again to a new leader) or this
+  // tab's own once it took over (run locally then).
+  interface Pending {
+    op: string;
+    args: unknown[];
+    resolve: (v: unknown) => void;
+    reject: (e: Error) => void;
+  }
+  const requests = new Map<number, Pending>();
   let reqSeq = 0;
   const ask = <T>(op: string, ...args: unknown[]): Promise<T> => {
-    if (role.leader && client) return local(op, args) as Promise<T>;
+    if (client) return local(op, args) as Promise<T>;
     const id = ++reqSeq;
     return new Promise<T>((resolve, reject) => {
-      requests.set(id, {resolve: resolve as (v: unknown) => void, reject});
+      requests.set(id, {op, args, resolve: resolve as (v: unknown) => void, reject});
       tabs.post({t: 'req', tab: tabs.id, id, op, args});
     });
+  };
+  const runPendingLocally = () => {
+    for (const r of requests.values()) local(r.op, r.args).then(r.resolve, r.reject);
+    requests.clear();
   };
   const local = (op: string, args: unknown[]): Promise<unknown> => {
     if (!client) return Promise.reject(new Error('not the leader'));
@@ -150,20 +165,22 @@ export async function openData(opts: DataOptions): Promise<Data> {
   cleanups.push(tabs.onMessage((m) => {
     switch (m.t) {
       case 'commit':
-        if (!role.leader) mirrorCommit(m);
+        sawLeader = true;
+        if (!leading) mirrorCommit(m);
         break;
       case 'status':
-        if (!role.leader) runInAction(() => Object.assign(status, m.status));
+        sawLeader = true;
+        if (!leading) runInAction(() => Object.assign(status, m.status));
         break;
       case 'event':
-        if (!role.leader) emit(m.name, m.e as never);
+        if (!leading) emit(m.name, m.e as never);
         break;
       case 'leader':
-        if (!role.leader) {
+        sawLeader = true;
+        if (!leading) {
           tabs.post({t: 'alive', tab: tabs.id, holds: [...myHolds.keys()]});
-          // Requests to the previous leader are lost: fail them.
-          for (const r of requests.values()) r.reject(new Error('leader changed'));
-          requests.clear();
+          // Requests to the previous leader may be lost: ask the new one (they are idempotent).
+          for (const [id, r] of requests) tabs.post({t: 'req', tab: tabs.id, id, op: r.op, args: r.args});
         }
         break;
       case 'res':
@@ -249,39 +266,54 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const promote = async () => {
     if (isClosed()) return;
     hydrator.eager = true;
-    await hydrated;
-    if (commits > 0) {
-      // A leader wrote while this tab followed: take IndexedDB as the truth
-      // (a flush announcement lost when the old leader died is caught here).
+    if (sawLeader) {
+      // Another tab led: take IndexedDB as the truth (a flush announcement lost when the old
+      // leader died is caught here), then lead from a pool that equals it.
+      await hydrated;
       await hydrator.rereadAll();
       pool.batch(() => {
         pool.retainSeen(hydrator.seen, hydrator.oldestSeq);
       });
+    } else {
+      // The first tab: sync as soon as the first frame's data is there; the rest hydrates
+      // meanwhile through the version check, and nothing of a group is written before it is
+      // hydrated (the persister defers it).
+      await firstRoute;
     }
+    leading = true;
+    hydrator.trackSeen = false;
+    hydrator.seen.clear();
     if (isClosed()) return;
-    runInAction(() => {
-      role.leader = true;
-    });
     pool.takeDirty();
     const meta = new MetaCache(await readMeta(db));
     const p = new Persister(db, pool, meta, {
       seq: meta.get<number>('flushedSeq') ?? 0,
-      onCommit: (c) => {
-        tabs.post({t: 'commit', seq: c.seq, buckets: c.buckets, cleared: c.cleared});
+      ...(opts.env?.IDBKeyRange ? {keyRange: opts.env.IDBKeyRange} : {}),
+      defer: (g) => !hydrator.isHydrated(g) || (client?.isLoading(g) ?? false),
+      onCommit: (cm) => {
+        tabs.post({t: 'commit', seq: cm.seq, buckets: cm.buckets, cleared: cm.cleared, dropped: cm.dropped});
       },
       onError: (err) => {
         console.error('livesync: persisting failed', err);
       },
     });
     persister = p;
+    void hydrated.then(() => {
+      p.schedule(); // what waited for hydration
+    });
     const c = new SyncClient({
       pool, meta, persister: p, userId, auth: opts.auth, clientId: tabs.id,
+      ensureHydrated: (g) => hydrator.groups([g]),
       ...(opts.endpoint ? {endpoint: opts.endpoint} : {}),
       ...(opts.buildId ? {buildId: opts.buildId} : {}),
       ...(opts.transport ? {transport: opts.transport} : {}),
       ...(opts.env?.transport ? {env: opts.env.transport} : {}),
     });
     client = c;
+    runInAction(() => {
+      role.leader = true;
+    });
+    runPendingLocally();
     for (const name of ['revoked', 'issueDropped', 'newBuild', 'schemaMismatch', 'caughtUp', 'wrongUser'] as const) {
       cleanups.push(c.on(name, (e) => {
         emit(name, e as never);
@@ -307,6 +339,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       clearInterval(sweep);
     });
     const onHide = () => {
+      c.persistPositions();
       void p.flush();
     };
     window.addEventListener('pagehide', onHide);
@@ -365,6 +398,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
     async close() {
       if (closed) return;
       closed = true;
+      hydrator.close();
       client?.stop();
       for (const c of cleanups) c();
       if (persister) {

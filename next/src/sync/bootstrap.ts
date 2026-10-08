@@ -89,10 +89,12 @@ export async function load(pool: Pool, req: LoadRequest): Promise<LoadResult> {
     throw new HttpError(res.status, message, Number.isFinite(ra) && ra > 0 ? ra : undefined);
   }
   let header: BootstrapHeader | undefined;
+  // Profiles of other groups are applied only once the response is complete: an incomplete
+  // response must not leave entities of groups nobody holds.
+  const embedded: Change[] = [];
   let end: BootstrapEnd | undefined;
   const received = new Map<string, Set<number>>();
   let count = 0;
-  let embedded = 0;
   let bytes = 0;
   const live = req.live ?? (() => true);
   for await (const lines of ndjsonLines(res.body)) {
@@ -107,33 +109,36 @@ export async function load(pool: Pool, req: LoadRequest): Promise<LoadResult> {
         header = obj as BootstrapHeader;
         if (header.group !== req.group) throw new Error(`bootstrap: header of ${header.group}, asked for ${req.group}`);
       } else if (obj.type === 'end') {
+        if (end) throw new Error('bootstrap: second end line');
         end = obj as BootstrapEnd;
       } else {
         if (!header) throw new Error('bootstrap: entity before the header');
-        changes.push(obj as Change);
+        if (end) throw new Error('bootstrap: data after the end line');
+        const c = obj as Change;
+        if (c.g === req.group) changes.push(c);
+        else embedded.push(c);
       }
     }
     if (changes.length) {
       pool.batch(() => {
         for (const c of changes) {
           if (c.op !== 'U' || !isModel(c.m)) continue;
-          if (c.g === req.group) {
-            count++;
-            let ids = received.get(c.m);
-            if (!ids) received.set(c.m, ids = new Set());
-            ids.add(c.id);
-          } else {
-            embedded++;
-          }
-          pool.put(c.m, c.id, c.g, c.v, c.d as never);
+          count++;
+          let ids = received.get(c.m);
+          if (!ids) received.set(c.m, ids = new Set());
+          ids.add(c.id);
+          pool.put(c.m, c.id, c.g, c.v, c.d as never, true);
         }
       });
     }
   }
   if (!header || !end) throw new Error('bootstrap: incomplete response (no end line)');
   if (!live()) throw new DOMException('released', 'AbortError');
+  pool.batch(() => {
+    for (const c of embedded) if (c.op === 'U' && isModel(c.m)) pool.put(c.m, c.id, c.g, c.v, c.d as never);
+  });
   const dropped = replaceGroup(pool, {
     group: req.group, header, end, received, heldUnits: req.heldUnits, summaryClosedBefore: req.summaryClosedBefore,
   });
-  return {header, end, count, embedded, dropped, bytes, ms: performance.now() - t0};
+  return {header, end, count, embedded: embedded.length, dropped, bytes, ms: performance.now() - t0};
 }

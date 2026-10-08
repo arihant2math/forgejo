@@ -32,9 +32,9 @@
 // floors live in memory only: after a reload no message from before it can
 // arrive.
 
-import {createAtom, type IAtom, runInAction} from 'mobx';
+import {_isComputingDerivation, createAtom, type IAtom, runInAction} from 'mobx';
 import {Entity, type EntityRecord, observeLazy} from './entity.ts';
-import {MODEL_NAMES, MODELS, type ModelDefs, type ModelName, type ModelTypes} from './models.ts';
+import {type GroupKind, groupKind, MODEL_NAMES, MODELS, type ModelDefs, type ModelName, type ModelTypes} from './models.ts';
 
 /** The fields a model is indexed on in the pool. */
 export type IndexedField<M extends ModelName> =
@@ -42,7 +42,8 @@ export type IndexedField<M extends ModelName> =
 
 interface Bucket<M extends ModelName> {
   set: Set<Entity<M>>;
-  atoms: Map<0, IAtom>;
+  /** Created when the bucket is first observed. */
+  atoms: Map<0, IAtom> | undefined;
 }
 
 const EMPTY: ReadonlySet<never> = new Set();
@@ -102,14 +103,17 @@ export class ModelStore<M extends ModelName = ModelName> {
     let bucket = index.get(value);
     if (!bucket) {
       // Created for the observer only; dropped again once nothing observes it and it is empty.
-      bucket = {set: new Set(), atoms: new Map()};
+      bucket = {set: new Set(), atoms: undefined};
       index.set(value, bucket);
     }
     const b = bucket;
-    observeLazy(b.atoms, 0, () => {
-      if (b.set.size === 0 && b.atoms.size === 0 && index.get(value) === b) index.delete(value);
-    });
-    if (b.set.size === 0 && b.atoms.size === 0) index.delete(value);
+    if (_isComputingDerivation()) {
+      const atoms = b.atoms ??= new Map<0, IAtom>();
+      observeLazy(atoms, 0, () => {
+        if (b.set.size === 0 && atoms.size === 0 && index.get(value) === b) index.delete(value);
+      });
+    }
+    if (b.set.size === 0 && !b.atoms?.size) index.delete(value);
     return b.set;
   }
 
@@ -127,7 +131,7 @@ export class ModelStore<M extends ModelName = ModelName> {
   _slotAdd(g: string, e: Entity<M>): void {
     let byB = this.slots.get(g);
     if (!byB) this.slots.set(g, byB = new Map<number, Set<Entity<M>>>());
-    const b = bucketOf(e.id);
+    const b = bucketOf(g, e.id);
     let set = byB.get(b);
     if (!set) byB.set(b, set = new Set());
     set.add(e);
@@ -136,7 +140,7 @@ export class ModelStore<M extends ModelName = ModelName> {
   /** @internal */
   _slotRemove(g: string, e: Entity<M>): void {
     const byB = this.slots.get(g);
-    const b = bucketOf(e.id);
+    const b = bucketOf(g, e.id);
     const set = byB?.get(b);
     if (!byB || !set) return;
     set.delete(e);
@@ -177,19 +181,19 @@ export class ModelStore<M extends ModelName = ModelName> {
     if (!index) return;
     let bucket = index.get(value);
     if (!bucket) {
-      bucket = {set: new Set(), atoms: new Map()};
+      bucket = {set: new Set(), atoms: undefined};
       index.set(value, bucket);
     }
     bucket.set.add(e);
-    bucket.atoms.get(0)?.reportChanged();
+    bucket.atoms?.get(0)?.reportChanged();
   }
 
   private bucketRemove(field: string, value: unknown, e: Entity<M>): void {
     const bucket = this.indexes.get(field)?.get(value);
     if (!bucket) return;
     bucket.set.delete(e);
-    bucket.atoms.get(0)?.reportChanged();
-    if (bucket.set.size === 0 && bucket.atoms.size === 0) this.indexes.get(field)?.delete(value);
+    bucket.atoms?.get(0)?.reportChanged();
+    if (bucket.set.size === 0 && !bucket.atoms?.size) this.indexes.get(field)?.delete(value);
   }
 }
 
@@ -201,17 +205,27 @@ export type DirtyBuckets = Map<ModelName, Map<string, Set<number>>>;
 
 /**
  * Entities are persisted in buckets: one IndexedDB value per (model, group,
- * id mod BUCKETS). Writing one value of many records is ~30× cheaper per
- * record in Chromium than one value per record (see idb.ts).
+ * id mod the group kind's bucket count). Writing one value of many records is
+ * ~30× cheaper per record in Chromium than one value per record (see idb.ts),
+ * while a change rewrites only its bucket. The counts keep values at tens to
+ * a few thousand records for typical group sizes: a repository's 50 000
+ * issues are 32 values of ~1600, an issue's 60 comments 2 values of 30.
+ * Changing a count changes where records live: bump IDB_VERSION and drop the
+ * model stores (idb.ts) when you do.
  */
-export const BUCKETS = 512;
+const KIND_BUCKETS: Record<GroupKind, number> = {repo: 32, profiles: 32, user: 8, org: 8, owner: 4, profile: 2, issue: 2};
 
-export function bucketOf(id: number): number {
-  return ((id % BUCKETS) + BUCKETS) % BUCKETS;
+/** Upper bound of every bucket number (key ranges over a whole group). */
+export const MAX_BUCKETS = 1024;
+
+export function bucketOf(g: string, id: number): number {
+  const kind = groupKind(g);
+  const n = kind ? KIND_BUCKETS[kind] : 1;
+  return ((id % n) + n) % n;
 }
 
 /** The maximum number of tombstones kept; the oldest go first. */
-export const MAX_TOMBSTONES = 200_000;
+export const MAX_TOMBSTONES = 50_000;
 
 /** A change the pool applied, as reported to `onApplied` listeners. */
 export interface Applied {
@@ -219,12 +233,20 @@ export interface Applied {
   id: number;
   /** The entity after the change, or undefined when it was removed. */
   entity: Entity | undefined;
+  /**
+   * Removed by a delete or a replacement (the server says it is gone from
+   * its group) — not by a purge, a reset or a cleared model.
+   */
+  dropped: boolean;
 }
 
 export class Pool {
   readonly stores: {readonly [M in ModelName]: ModelStore<M>};
   private readonly byGroup = new Map<string, Set<Entity>>();
+  /** Tombstones, oldest first: key (m, id, g) → v. */
   private readonly tombs = new Map<string, number>();
+  /** The tombstone keys of each group (dropped when a floor or purge covers them). */
+  private readonly tombsByGroup = new Map<string, Set<string>>();
   private readonly purged = new Map<string, number>();
   private readonly floors = new Map<string, Floor>();
   /** Buckets changed since the last `takeDirty` (the persister's work list). */
@@ -247,6 +269,11 @@ export class Pool {
 
   model<M extends ModelName>(m: M): ModelStore<M> {
     return this.stores[m];
+  }
+
+  /** Notes a version the server reached (welcome): purges from now on cover every state up to it. */
+  noteVersion(v: number): void {
+    this.seen(v);
   }
 
   /** The highest entity version the pool has applied or been told about. */
@@ -291,16 +318,20 @@ export class Pool {
   // ---- write primitives (leader) ----
 
   /** Applies an upsert: keeps it only if v is newer than what is held. Returns whether it changed anything. */
-  put<M extends ModelName>(m: M, id: number, g: string, v: number, d: ModelTypes[M]): boolean {
+  /**
+   * `authoritative`: a line of a bootstrap of `g` itself at watermark v —
+   * the group's state as of v, which a tombstone, purge or floor *at* v
+   * (an earlier response at the same log head) does not contradict.
+   */
+  put<M extends ModelName>(m: M, id: number, g: string, v: number, d: ModelTypes[M], authoritative = false): boolean {
     this.seen(v);
     const store = this.stores[m];
     const held = store._map.get(id);
     if (held && v <= held._v) return false;
-    const t = this.tombs.get(tombKey(m, id, g));
-    if (t !== undefined && v <= t) return false;
-    const p = this.purged.get(g);
-    if (p !== undefined && v <= p) return false;
-    if (this.belowFloor(m, g, v, d)) return false;
+    const stale = (marker: number | undefined) => marker !== undefined && (authoritative ? v < marker : v <= marker);
+    if (stale(this.tombs.get(tombKey(m, id, g)))) return false;
+    if (stale(this.purged.get(g))) return false;
+    if (this.belowFloor(m, g, v, d, authoritative)) return false;
     this.upsert(store, held, id, g, v, d, true);
     return true;
   }
@@ -320,13 +351,14 @@ export class Pool {
       f.all = Math.max(f.all, w);
     }
     f.exempt = exempt;
+    if (!exempt && !models?.length) this.dropTombs(group, f.all);
   }
 
-  private belowFloor(m: ModelName, g: string, v: number, d: unknown): boolean {
+  private belowFloor(m: ModelName, g: string, v: number, d: unknown, authoritative = false): boolean {
     const f = this.floors.size ? this.floors.get(g) : undefined;
     if (!f) return false;
     const floor = Math.max(f.all, f.models.get(m) ?? 0);
-    if (v > floor) return false;
+    if (authoritative ? v >= floor : v > floor) return false;
     return !f.exempt?.(m, d);
   }
 
@@ -336,8 +368,10 @@ export class Pool {
     this.tomb(m, id, g, v);
     const store = this.stores[m];
     const held = store._map.get(id);
+    // A record of the entity in g may still be persisted (a crash between the chunks of a move): rewrite g's bucket.
+    if (held?._g !== g) this.markBucket(m, g, bucketOf(g, id));
     if (!held || held._v >= v) return false;
-    this.remove(store, held, true);
+    this.remove(store, held, true, true);
     return true;
   }
 
@@ -347,7 +381,7 @@ export class Pool {
     const store = this.stores[m];
     const held = store._map.get(id);
     if (held?._g !== g || held._v > maxV) return false;
-    this.remove(store, held, true);
+    this.remove(store, held, true, true);
     return true;
   }
 
@@ -360,6 +394,7 @@ export class Pool {
     const maxV = this.maxSeen;
     const prev = this.purged.get(group);
     if (prev === undefined || prev < maxV) this.purged.set(group, maxV);
+    this.dropTombs(group, maxV);
     const held = this.byGroup.get(group);
     if (!held) return 0;
     let n = 0;
@@ -369,6 +404,25 @@ export class Pool {
         n++;
       }
     }
+    return n;
+  }
+
+  /**
+   * Forgets a group completely — what is held, its tombstones, floors and
+   * purge — so that a bootstrap from an older log position can fill it again
+   * (bootstrap_required{cursor_unknown}: the held versions come from another
+   * database, e.g. before a restore, and would win every version check).
+   */
+  resetGroup(group: string): number {
+    const held = this.byGroup.get(group);
+    let n = 0;
+    for (const e of [...held ?? []]) {
+      this.remove(this.stores[e.model], e, true);
+      n++;
+    }
+    this.dropTombs(group, Number.POSITIVE_INFINITY);
+    this.purged.delete(group);
+    this.floors.delete(group);
     return n;
   }
 
@@ -383,12 +437,13 @@ export class Pool {
     for (const r of records) {
       this.seen(r.v);
       const held = store._map.get(r.id);
-      if (held && r.v <= held._v) continue;
       const t = this.tombs.size ? this.tombs.get(tombKey(m, r.id, r.g)) : undefined;
-      if (t !== undefined && r.v <= t) continue;
       const p = this.purged.size ? this.purged.get(r.g) : undefined;
-      if (p !== undefined && r.v <= p) continue;
-      if (this.belowFloor(m, r.g, r.v, r.d)) continue;
+      if ((held && r.v <= held._v) || (t !== undefined && r.v <= t) || (p !== undefined && r.v <= p) || this.belowFloor(m, r.g, r.v, r.d)) {
+        // A stale persisted record (or a second copy left by a crash mid-flush): rewrite its bucket from memory.
+        if (held?._g !== r.g || held._v !== r.v) this.markBucket(m, r.g, bucketOf(r.g, r.id));
+        continue;
+      }
       this.upsert(store, held, r.id, r.g, r.v, r.d, false);
       n++;
     }
@@ -419,6 +474,8 @@ export class Pool {
     if (rec) {
       this.seen(rec.v);
       if (held?._v === rec.v && held._g === rec.g) return;
+      // Two records of one flush (a stale copy left by a crash mid-flush): the newer state wins.
+      if (last === seq && held && rec.v < held._v) return;
       this.upsert(store, held, id, rec.g, rec.v, rec.d, false);
     } else if (held) {
       this.remove(store, held, false);
@@ -495,6 +552,11 @@ export class Pool {
   }
 
   private tomb(m: ModelName, id: number, g: string, v: number): void {
+    // A floor or purge of the group covering v says the same already.
+    const f = this.floors.get(g);
+    if (f && !f.exempt && v <= f.all) return;
+    const p = this.purged.get(g);
+    if (p !== undefined && v <= p) return;
     const k = tombKey(m, id, g);
     const t = this.tombs.get(k);
     if (t !== undefined) {
@@ -502,10 +564,28 @@ export class Pool {
       this.tombs.delete(k); // re-insert: keeps the map in age order
     }
     this.tombs.set(k, v);
+    let keys = this.tombsByGroup.get(g);
+    if (!keys) this.tombsByGroup.set(g, keys = new Set());
+    keys.add(k);
     if (this.tombs.size > MAX_TOMBSTONES) {
       const oldest = this.tombs.keys().next();
-      if (!oldest.done) this.tombs.delete(oldest.value);
+      if (!oldest.done) this.dropTomb(oldest.value);
     }
+  }
+
+  private dropTomb(k: string): void {
+    this.tombs.delete(k);
+    const g = k.slice(k.lastIndexOf('\0') + 1);
+    const keys = this.tombsByGroup.get(g);
+    keys?.delete(k);
+    if (keys?.size === 0) this.tombsByGroup.delete(g);
+  }
+
+  /** Drops the group's tombstones at or below v (a floor or purge covers them now). */
+  private dropTombs(g: string, v: number): void {
+    const keys = this.tombsByGroup.get(g);
+    if (!keys) return;
+    for (const k of [...keys]) if ((this.tombs.get(k) ?? 0) <= v) this.dropTomb(k);
   }
 
   private markBucket(m: ModelName, g: string, b: number): void {
@@ -517,14 +597,14 @@ export class Pool {
   }
 
   private upsert<M extends ModelName>(store: ModelStore<M>, held: Entity<M> | undefined, id: number, g: string, v: number, d: ModelTypes[M], dirty: boolean): void {
-    if (dirty) this.markBucket(store.model, g, bucketOf(id));
+    if (dirty) this.markBucket(store.model, g, bucketOf(g, id));
     if (held) {
       const old = held._d;
       const oldG = held._g;
       held._set(g, v, d);
       store._reindex(held, old);
       if (oldG !== g) {
-        if (dirty) this.markBucket(store.model, oldG, bucketOf(id));
+        if (dirty) this.markBucket(store.model, oldG, bucketOf(oldG, id));
         this.groupRemove(oldG, held);
         store._slotRemove(oldG, held);
         this.groupAdd(g, held);
@@ -540,21 +620,21 @@ export class Pool {
     this.record(store.model, id, e);
   }
 
-  private remove<M extends ModelName>(store: ModelStore<M>, e: Entity<M>, dirty: boolean): void {
-    if (dirty) this.markBucket(store.model, e._g, bucketOf(e.id));
+  private remove<M extends ModelName>(store: ModelStore<M>, e: Entity<M>, dirty: boolean, dropped = false): void {
+    if (dirty) this.markBucket(store.model, e._g, bucketOf(e._g, e.id));
     store._delete(e);
     this.groupRemove(e._g, e);
     store._slotRemove(e._g, e);
-    this.record(store.model, e.id, undefined);
+    this.record(store.model, e.id, undefined, dropped);
   }
 
-  private record(model: ModelName, id: number, entity: Entity | undefined): void {
+  private record(model: ModelName, id: number, entity: Entity | undefined, dropped = false): void {
     if (!this.listeners.size) return;
     if (this.depth > 0) {
-      this.pending.push({model, id, entity});
+      this.pending.push({model, id, entity, dropped});
       return;
     }
-    const changes = [{model, id, entity}];
+    const changes = [{model, id, entity, dropped}];
     for (const l of this.listeners) l(changes);
   }
 

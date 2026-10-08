@@ -89,6 +89,48 @@ describe('write primitives', () => {
   });
 });
 
+describe('stale persisted records', () => {
+  test('a record that loses to the pool marks its bucket for a rewrite', () => {
+    const p = new Pool();
+    p.put('Issue', 1, 'repo:2', 9, issue(1, 2, 'moved'));
+    p.takeDirty();
+    // A copy left in repo:1 by a crash between the chunks of a move.
+    p.load('Issue', [{id: 1, g: 'repo:1', v: 5, d: issue(1, 1, 'stale copy')}]);
+    expect(p.model('Issue').get(1)?.group).toBe('repo:2');
+    expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:1', new Set([1])]]));
+    // The same with a delete for a group the entity is not held in.
+    p.del('Issue', 1, 'repo:3', 8);
+    expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:3', new Set([1])]]));
+  });
+
+  test('a bootstrap line at the watermark of an earlier purge is accepted, an embedded one is not', () => {
+    const p = new Pool();
+    p.put('User', 9, 'profiles:public', 30, {id: 9} as never);
+    p.purgeGroup('profiles:public');
+    expect(p.put('User', 9, 'profiles:public', 30, {id: 9} as never)).toBe(false);
+    expect(p.put('User', 9, 'profiles:public', 30, {id: 9} as never, true)).toBe(true);
+  });
+
+  test('removals report whether the server dropped the entity', () => {
+    const p = new Pool();
+    const seen: [number, boolean][] = [];
+    p.onApplied((cs) => {
+      for (const c of cs) if (!c.entity) seen.push([c.id, c.dropped]);
+    });
+    p.batch(() => {
+      p.put('Issue', 1, 'repo:1', 1, issue(1, 1, 'a'));
+      p.put('Issue', 2, 'repo:1', 1, issue(2, 1, 'b'));
+      p.put('Issue', 3, 'repo:2', 1, issue(3, 2, 'c'));
+    });
+    p.batch(() => {
+      p.del('Issue', 1, 'repo:1', 2);
+      p.evict('Issue', 2, 'repo:1', 2);
+      p.purgeGroup('repo:2');
+    });
+    expect(seen).toEqual([[1, true], [2, true], [3, false]]);
+  });
+});
+
 describe('reactivity', () => {
   test('a field observer reacts to that field only, and its atom goes away', () => {
     const p = new Pool();
@@ -274,8 +316,8 @@ function snapshot(s: Server, g: string, w: number): Entry[] {
 }
 
 function apply(p: Pool, ev: Ev, boots: Map<number, {g: string; w: number; ids: Set<number>}>): void {
-  const put = (e: Entry) => {
-    if (e.op === 'U') p.put('Issue', e.id, e.g, e.v, issue(e.id, 0, e.title ?? ''));
+  const put = (e: Entry, line = false) => {
+    if (e.op === 'U') p.put('Issue', e.id, e.g, e.v, issue(e.id, 0, e.title ?? ''), line);
     else p.del('Issue', e.id, e.g, e.v);
   };
   if (ev.k === 'entry') {
@@ -284,7 +326,7 @@ function apply(p: Pool, ev: Ev, boots: Map<number, {g: string; w: number; ids: S
     });
   } else if (ev.k === 'lines') {
     p.batch(() => {
-      ev.lines.forEach(put);
+      for (const l of ev.lines) put(l, true);
     });
   }
   else {
@@ -392,12 +434,16 @@ describe('convergence', () => {
       apply(p, {k: 'lines', b: 1, lines: lines1}, boots);
       for (const e of s.log) if (e.g === g && e.v <= Math.min(b, head)) apply(p, {k: 'entry', e}, boots);
       p.purgeGroup(g);
-      // In flight when the revocation arrived: they must not come back.
-      apply(p, {k: 'lines', b: 1, lines: lines1}, boots);
+      // In flight when the revocation arrived, as frames or as profiles embedded in other groups'
+      // bootstraps (the group's own bootstrap lines stop at the purge: SyncClient's live() check).
+      p.batch(() => {
+        for (const l of lines1) p.put('Issue', l.id, l.g, l.v, issue(l.id, 0, l.title ?? ''));
+      });
       expect([...p.groupEntities(g)]).toEqual([]);
-      // Re-granted: a fresh bootstrap (its watermark is past everything the client saw) and the rest.
-      const fresh = head + 1;
-      const lines2 = snapshot({...s, at: [...s.at, s.at[head] ?? new Map<number, {g: string; title: string}>()]}, g, fresh);
+      // Re-granted: a fresh bootstrap at the current head — on a quiet server the same watermark
+      // as everything the client saw (the purge's floor must not reject it).
+      const fresh = Math.max(1, head);
+      const lines2 = snapshot(s, g, fresh);
       boots.set(2, {g, w: fresh, ids: new Set(lines2.map((l) => l.id))});
       apply(p, {k: 'lines', b: 2, lines: lines2}, boots);
       apply(p, {k: 'end', b: 2}, boots);

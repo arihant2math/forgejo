@@ -103,7 +103,10 @@ export class Entity<M extends ModelName = ModelName> {
   }
 
   private observe(name: string): void {
-    this._atoms ??= new Map();
+    if (!this._atoms) {
+      if (!_isComputingDerivation()) return; // a plain read (sorting, filtering): nothing to observe
+      this._atoms = new Map();
+    }
     observeLazy(this._atoms, name);
   }
 

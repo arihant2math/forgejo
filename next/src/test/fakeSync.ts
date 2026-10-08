@@ -91,6 +91,8 @@ export interface Boot {
   status?: number;
   retryAfter?: string;
   incomplete?: boolean;
+  /** The response is sent once this resolves. */
+  gate?: Promise<void>;
 }
 
 export class Server {
@@ -108,6 +110,13 @@ export class Server {
     const group = u.searchParams.get('group') ?? '';
     const list = this.boots.get(group) ?? [];
     const b = list.length > 1 ? list.shift() : list[0];
+    if (b?.gate) {
+      const gate = b.gate;
+      delete b.gate;
+      if (list[0] !== b) list.unshift(b);
+      this.requests.pop();
+      return gate.then(() => this.fetch(input, init));
+    }
     if (!b) return Promise.resolve(new Response('{"message":"Not Found"}', {status: 404}));
     if (b.status) {
       const headers: Record<string, string> = b.retryAfter ? {'Retry-After': b.retryAfter} : {};

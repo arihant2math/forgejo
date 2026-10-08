@@ -146,3 +146,13 @@ test('the route group is hydrated first; deleteUserData forgets the device', asy
   const dbs = await factory.databases();
   expect(dbs).toEqual([]);
 });
+
+test('requests made before this tab took over run once it leads', async () => {
+  FakeWS.all = [];
+  const server = new Server();
+  const d = await tab(server, new IDBFactory(), new FakeLocks());
+  expect(d.role.leader).toBe(false);
+  const page = d.loadClosedPage('repo:5').then(() => 'ok', (e: unknown) => String(e));
+  await expect(page).resolves.toMatch(/not a held repository group/);
+  expect(d.role.leader).toBe(true);
+});

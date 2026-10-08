@@ -9,8 +9,8 @@ import type {Issue} from '../protocol/types.gen.ts';
 import {Hydrator} from './hydrate.ts';
 import {BLOBS, DRAFTS, INTENTS, type Layout, layout, META, modelStore, openDatabase, readMeta, request} from './idb.ts';
 import {MetaCache} from './meta.ts';
-import {type Commit, Persister} from './persist.ts';
-import {BUCKETS, bucketOf, Pool} from './pool.ts';
+import {CHUNK_VALUES, type Commit, Persister} from './persist.ts';
+import {bucketOf, Pool} from './pool.ts';
 
 function issue(id: number, repo: number, title: string): Issue {
   return {
@@ -41,9 +41,9 @@ async function putRaw(db: IDBDatabase, store: string, values: unknown[]): Promis
 function buckets(recs: {id: number; g: string; v: number; d: unknown}[]): {g: string; b: number; r: unknown[]}[] {
   const m = new Map<string, {g: string; b: number; r: unknown[]}>();
   for (const r of recs) {
-    const k = `${r.g}#${bucketOf(r.id)}`;
+    const k = `${r.g}#${bucketOf(r.g, r.id)}`;
     let v = m.get(k);
-    if (!v) m.set(k, v = {g: r.g, b: bucketOf(r.id), r: []});
+    if (!v) m.set(k, v = {g: r.g, b: bucketOf(r.g, r.id), r: []});
     v.r.push(r);
   }
   return [...m.values()];
@@ -153,15 +153,15 @@ describe('persistence', () => {
     const meta = new MetaCache();
     const commits: Commit[] = [];
     const p = new Persister(db, pool, meta, {onCommit: (c) => commits.push(c)});
-    // 512 buckets of 25 records = 12 800 records: CHUNK (5000) = 200 buckets per transaction.
-    const n = BUCKETS * 25;
+    // A repository has 32 buckets: 12 800 issues = 32 buckets of 400; CHUNK (5000) = 12 buckets per transaction.
+    const n = 32 * 400;
     pool.batch(() => {
       for (let i = 1; i <= n; i++) pool.put('Issue', i, 'repo:1', i, issue(i, 1, 't'));
     });
     meta.set('x', 1);
     await p.flush();
     expect(commits.map((c) => [c.seq, c.last, c.buckets.length, c.buckets.reduce((s, w) => s + w.r.length, 0)])).toEqual([
-      [1, false, 200, 5000], [1, false, 200, 5000], [1, true, 112, 2800],
+      [1, false, 12, 4800], [1, false, 12, 4800], [1, true, 8, 3200],
     ]);
     expect(p.flushedSeq).toBe(1);
     const m = await readMeta(db);
@@ -171,17 +171,61 @@ describe('persistence', () => {
     await p.flush();
     const last = commits.at(-1);
     expect(last).toMatchObject({seq: 2, last: true});
-    expect(last?.buckets.map((w) => [w.g, w.b, w.r.length])).toEqual([['repo:1', 1, 24]]);
+    expect(last?.buckets.map((w) => [w.g, w.b, w.r.length])).toEqual([['repo:1', 1, 399]]);
     const values = await all<{r: unknown[]}>(db, modelStore('Issue'));
-    expect(values).toHaveLength(BUCKETS);
+    expect(values).toHaveLength(32);
     expect(values.reduce((s, v) => s + v.r.length, 0)).toBe(n - 1);
     // An emptied bucket is deleted.
     pool.batch(() => {
-      for (let i = 2; i <= n; i += BUCKETS) pool.del('Issue', i, 'repo:1', 100_000);
+      for (let i = 2; i <= n; i += 32) pool.del('Issue', i, 'repo:1', 100_000);
     });
     await p.flush();
-    expect(await all(db, modelStore('Issue'))).toHaveLength(BUCKETS - 1);
+    expect(await all(db, modelStore('Issue'))).toHaveLength(31);
     expect(commits.at(-1)?.buckets).toEqual([{m: 'Issue', g: 'repo:1', b: 2, r: []}]);
+    db.close();
+  });
+
+  test('many small buckets: at most CHUNK_VALUES values per transaction', async () => {
+    const db = await openDatabase(1, {factory: new IDBFactory()});
+    const pool = new Pool();
+    const commits: Commit[] = [];
+    const p = new Persister(db, pool, new MetaCache(), {onCommit: (c) => commits.push(c)});
+    pool.batch(() => {
+      for (let i = 1; i <= CHUNK_VALUES + 100; i++) pool.put('Comment', i, `issue:${i}`, 1, {id: i, issue_id: i} as never);
+    });
+    await p.flush();
+    expect(commits.map((c) => c.buckets.length)).toEqual([CHUNK_VALUES, 100]);
+    db.close();
+  });
+
+  test('deferred groups are written later, with their positions; dropped groups are deleted first', async () => {
+    const db = await openDatabase(1, {factory: new IDBFactory()});
+    const pool = new Pool();
+    const meta = new MetaCache();
+    const deferred = new Set(['repo:2']);
+    const commits: Commit[] = [];
+    const p = new Persister(db, pool, meta, {defer: (g) => deferred.has(g), onCommit: (c) => commits.push(c)});
+    pool.batch(() => {
+      pool.put('Issue', 1, 'repo:1', 5, issue(1, 1, 'a'));
+      pool.put('Issue', 2, 'repo:2', 5, issue(2, 2, 'b'));
+    });
+    meta.set('group:repo:1', {group: 'repo:1', position: 5, holders: []});
+    meta.set('group:repo:2', {group: 'repo:2', position: 5, holders: []});
+    await p.flush();
+    const ids = async () => (await all<{r: {id: number}[]}>(db, modelStore('Issue'))).flatMap((v) => v.r.map((r) => r.id)).sort();
+    expect(await ids()).toEqual([1]);
+    expect((await readMeta(db)).has('group:repo:2')).toBe(false);
+    deferred.clear();
+    await p.flush();
+    expect(await ids()).toEqual([1, 2]);
+    expect((await readMeta(db)).get('group:repo:2')).toMatchObject({position: 5});
+    // A dropped group: every bucket goes, also records the pool never had.
+    await putRaw(db, modelStore('Issue'), [{g: 'repo:1', b: 7, r: [{id: 7, g: 'repo:1', v: 1, d: issue(7, 1, 'never hydrated')}]}]);
+    p.dropGroups(['repo:1']);
+    await p.flush();
+    expect(await ids()).toEqual([2]);
+    expect(commits.at(-1)).toMatchObject({dropped: ['repo:1']});
+    p.close();
     db.close();
   });
 

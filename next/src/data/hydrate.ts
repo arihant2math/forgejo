@@ -24,10 +24,10 @@
 import type {EntityRecord} from './entity.ts';
 import {type BucketValue, META, modelStore, request} from './idb.ts';
 import {canHold, groupKind, MODEL_NAMES, type ModelName} from './models.ts';
-import {BUCKETS} from './pool.ts';
+import {MAX_BUCKETS} from './pool.ts';
 
-/** Bucket values per read transaction of phase 2. */
-export const HYDRATE_CHUNK = 64;
+/** Records per read transaction of phase 2 the chunking aims at (it adapts its key count to it). */
+export const HYDRATE_CHUNK = 4000;
 
 /** Receives records read with the flush sequence they are at least as new as. */
 export type Sink = (m: ModelName, records: EntityRecord[], seq: number) => void;
@@ -41,13 +41,23 @@ function flushedSeq(tx: IDBTransaction): Promise<number> {
   return request(tx.objectStore(META).get('flushedSeq') as IDBRequest<{v: number} | undefined>).then((r) => r?.v ?? 0);
 }
 
-/** Yields to the browser: an idle period, or a macrotask. */
+/** Yields to the browser: an idle period, or a macrotask (MessageChannel: no 4 ms timer clamp). */
 export function yieldToBrowser(idle: boolean): Promise<void> {
   return new Promise((resolve) => {
-    if (idle && typeof requestIdleCallback === 'function') requestIdleCallback(() => {
-      resolve();
-    }, {timeout: 200});
-    else setTimeout(resolve, 0);
+    if (idle && typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => {
+        resolve();
+      }, {timeout: 200});
+    } else if (typeof MessageChannel === 'function') {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => {
+        ch.port1.close();
+        resolve();
+      };
+      ch.port2.postMessage(null);
+    } else {
+      setTimeout(resolve, 0);
+    }
   });
 }
 
@@ -64,6 +74,7 @@ export class Hydrator {
   readonly seen = new Map<ModelName, Set<number>>();
   private minSeq = Number.POSITIVE_INFINITY;
   trackSeen = false;
+  private closed = false;
 
   private readonly range: typeof IDBKeyRange;
 
@@ -78,6 +89,16 @@ export class Hydrator {
     return this.restDone;
   }
 
+  /** Stops reading (the database is closing); pending reads resolve with what they have. */
+  close(): void {
+    this.closed = true;
+  }
+
+  /** Whether everything IndexedDB holds of the group is in the pool. */
+  isHydrated(group: string): boolean {
+    return this.restDone || this.hydrated.has(group);
+  }
+
   /** The oldest flush any read so far was at. */
   get oldestSeq(): number {
     return this.minSeq === Number.POSITIVE_INFINITY ? 0 : this.minSeq;
@@ -87,7 +108,7 @@ export class Hydrator {
   async groups(list: Iterable<string>): Promise<HydrateStats> {
     const t0 = performance.now();
     const todo = [...new Set(list)].filter((g) => !this.hydrated.has(g) && groupKind(g) !== undefined);
-    if (!todo.length || this.restDone) return {records: 0, ms: 0};
+    if (!todo.length || this.restDone || this.closed) return {records: 0, ms: 0};
     const models = new Set<ModelName>();
     const reqs: [ModelName, string][] = [];
     for (const g of todo) {
@@ -102,7 +123,7 @@ export class Hydrator {
     const tx = this.db.transaction([META, ...[...models].map(modelStore)], 'readonly');
     const seqP = flushedSeq(tx);
     const results = await Promise.all(reqs.map(async ([m, g]) => {
-      const values = await request(tx.objectStore(modelStore(m)).getAll(this.range.bound([g, 0], [g, BUCKETS])) as IDBRequest<BucketValue[]>);
+      const values = await request(tx.objectStore(modelStore(m)).getAll(this.range.bound([g, 0], [g, MAX_BUCKETS])) as IDBRequest<BucketValue[]>);
       return values.flatMap((v) => v.r);
     }));
     const seq = await seqP;
@@ -136,24 +157,45 @@ export class Hydrator {
     let records = 0;
     for (const m of MODEL_NAMES) {
       let after: IDBValidKey | undefined;
+      let keyChunk = 16;
       for (;;) {
         await yieldToBrowser(!this.eager);
+        if (this.closed) return {records, ms: performance.now() - t0};
         const tx = this.db.transaction([META, modelStore(m)], 'readonly');
+        const store = tx.objectStore(modelStore(m));
         const seqP = flushedSeq(tx);
+        // Keys first (cheap): the values of groups already read are not read again.
         const range = after === undefined ? null : this.range.lowerBound(after, true);
-        const values = await request(tx.objectStore(modelStore(m)).getAll(range, HYDRATE_CHUNK) as IDBRequest<BucketValue[]>);
-        const seq = await seqP;
-        const last = values.at(-1);
-        if (!last) break;
-        after = [last.g, last.b];
-        const recs: EntityRecord[] = [];
-        for (const v of values) {
-          if (skipHydrated && this.hydrated.has(v.g)) continue;
-          for (const r of v.r) recs.push(r);
+        const asked = keyChunk;
+        const keys = await request(store.getAllKeys(range, asked)) as [string, number][];
+        const lastKey = keys.at(-1);
+        if (!lastKey) break;
+        after = lastKey;
+        const runs: [IDBValidKey, IDBValidKey][] = [];
+        let start: [string, number] | undefined;
+        let prev: [string, number] | undefined;
+        for (const k of keys) {
+          const skip = skipHydrated && this.hydrated.has(k[0]);
+          if (skip && start && prev) {
+            runs.push([start, prev]);
+            start = undefined;
+          } else if (!skip) {
+            start ??= k;
+          }
+          prev = k;
         }
+        if (start && prev) runs.push([start, prev]);
+        const values = (await Promise.all(runs.map(([lo, hi]) =>
+          request(store.getAll(this.range.bound(lo, hi)) as IDBRequest<BucketValue[]>)))).flat();
+        const seq = await seqP;
+        const recs: EntityRecord[] = [];
+        for (const v of values) for (const r of v.r) recs.push(r);
         records += recs.length;
         if (recs.length) this.deliver(m, recs, seq);
-        if (values.length < HYDRATE_CHUNK) break;
+        // Aim at HYDRATE_CHUNK records per transaction.
+        if (recs.length < HYDRATE_CHUNK / 2) keyChunk = Math.min(1024, keyChunk * 2);
+        else if (recs.length > HYDRATE_CHUNK * 2) keyChunk = Math.max(1, keyChunk >> 1);
+        if (keys.length < asked) break;
       }
     }
     this.restDone = true;

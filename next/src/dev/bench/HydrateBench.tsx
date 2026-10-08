@@ -25,11 +25,13 @@ export default function HydrateBench() {
   useEffect(() => {
     if (started) return;
     started = true;
-    const sizes = (new URLSearchParams(location.search).get('n') ?? '10000,50000').split(',').map(Number).filter((n) => n > 0);
+    // ?n=10000,50000x1,40000x200: N issues (+ N labels) over R repositories (default 1).
+    const sizes = (new URLSearchParams(location.search).get('n') ?? '10000,50000').split(',').map((s) => s.split('x').map(Number))
+      .filter(([n]) => (n ?? 0) > 0);
     void (async () => {
       const out: BenchResult[] = [];
       try {
-        for (const n of sizes) out.push(await benchHydrate(n));
+        for (const [n = 0, repos = 1] of sizes) out.push(await benchHydrate(n, repos));
         window.__bench = out;
         setText(out.map((r) => Object.entries(r).map(([k, v]) => `${k}=${typeof v === 'number' ? Math.round(v * 10) / 10 : String(v)}`).join(' ')).join('\n'));
       } catch (err) {

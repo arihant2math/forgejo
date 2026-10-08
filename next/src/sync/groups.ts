@@ -40,6 +40,8 @@ export interface GroupState {
   needs?: GroupNeeds;
   /** Groups the last bootstrap referred to (end.refs) and which this group holds. */
   refs?: string[];
+  /** Groups closed pages referred to (kept until the group is released). */
+  pageRefs?: string[];
   holders: string[];
   /** Last use (ms since epoch), for the "recent" LRU. */
   used?: number;
@@ -50,6 +52,8 @@ const PREFIX = 'group:';
 export class GroupTable {
   private readonly meta: MetaCache;
   private readonly states = new Map<string, GroupState>();
+  /** Groups whose position was raised since persistRaised. */
+  private raised = new Set<string>();
 
   constructor(meta: MetaCache) {
     this.meta = meta;
@@ -79,21 +83,40 @@ export class GroupTable {
     fn(s);
     this.states.set(group, s);
     this.meta.set(PREFIX + group, s);
+    this.raised.delete(group);
     return s;
   }
 
   remove(group: string): void {
+    this.raised.delete(group);
     if (!this.states.delete(group)) return;
     this.meta.delete(PREFIX + group);
   }
 
-  /** Raises a group's position (never lowers it). */
+  /**
+   * Raises a group's position (never lowers it). It reaches meta with the
+   * group's next `update` or `persistRaised` — not per frame: a delta raises
+   * every caught-up group, and writing them all each time would cost a flush
+   * per frame. A position persisted late is only replayed from a little
+   * earlier.
+   */
   raise(group: string, pos: number): void {
     const s = this.states.get(group);
     if (!s || (s.position ?? -1) >= pos) return;
-    this.update(group, (x) => {
-      x.position = pos;
-    });
+    // A new object: the one handed to meta may still be on its way to IndexedDB.
+    this.states.set(group, {...s, position: pos});
+    this.raised.add(group);
+  }
+
+  /** Hands the raised positions to meta; returns whether there were any. */
+  persistRaised(): boolean {
+    if (!this.raised.size) return false;
+    for (const g of this.raised) {
+      const s = this.states.get(g);
+      if (s) this.meta.set(PREFIX + g, s);
+    }
+    this.raised = new Set();
+    return true;
   }
 
   /** Adds a need for a (re-)bootstrap. */

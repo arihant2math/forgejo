@@ -22,6 +22,8 @@ import {load} from '../../sync/bootstrap.ts';
 
 export interface BenchResult {
   n: number;
+  /** Repositories the issues are spread over (one bootstrap each). */
+  repos: number;
   bootstrapMs: number;
   ndjsonMB: number;
   persistMs: number;
@@ -37,36 +39,48 @@ export interface BenchResult {
 
 const BENCH_USER = 999_999_999;
 
-function issue(id: number): Issue {
+function issue(id: number, repo = 1): Issue {
   return {
-    id, repo_id: 1, number: id, poster_id: 1 + (id % 97), original_author: '', original_author_id: 0,
+    id, repo_id: repo, number: id, poster_id: 1 + (id % 97), original_author: '', original_author_id: 0,
     title: `Issue ${id}: something does not work when the thing happens`, content_version: 1, milestone_id: id % 7,
     priority: 0, state: id % 3 ? 'open' : 'closed', is_pull: id % 5 === 0, comments: id % 13, ref: '', pin_order: 0,
     is_locked: false, created_at: '2026-03-01T10:00:00Z', updated_at: '2026-09-01T10:00:00Z',
   };
 }
 
-function ndjson(n: number): string {
-  const lines: string[] = [JSON.stringify({type: 'header', group: 'repo:1', watermark: 100, units: ['issues', 'pulls'], tier: 'full', schemas: {}})];
-  for (let i = 1; i <= n; i++) {
-    lines.push(JSON.stringify({v: 100, g: 'repo:1', m: 'Issue', id: i, op: 'U', d: issue(i)}));
-    lines.push(JSON.stringify({v: 100, g: 'repo:1', m: 'IssueLabel', id: i, op: 'U', d: {id: i, issue_id: i, label_id: i % 11}}));
+function ndjson(repo: number, ids: number[]): string {
+  const g = `repo:${repo}`;
+  const lines: string[] = [JSON.stringify({type: 'header', group: g, watermark: 100, units: ['issues', 'pulls'], tier: 'full', schemas: {}})];
+  for (const i of ids) {
+    lines.push(JSON.stringify({v: 100, g, m: 'Issue', id: i, op: 'U', d: issue(i, repo)}));
+    lines.push(JSON.stringify({v: 100, g, m: 'IssueLabel', id: i, op: 'U', d: {id: i, issue_id: i, label_id: i % 11}}));
   }
-  lines.push(JSON.stringify({type: 'end', count: 2 * n, refs: []}));
+  lines.push(JSON.stringify({type: 'end', count: 2 * ids.length, refs: []}));
   return lines.join('\n') + '\n';
 }
 
-export async function benchHydrate(n: number): Promise<BenchResult> {
+export async function benchHydrate(n: number, repos = 1): Promise<BenchResult> {
   await deleteDatabase(BENCH_USER).catch(() => undefined);
-  const body = ndjson(n);
+  // Issue ids interleaved across repositories, as a global id sequence gives them.
+  const bodies: string[] = [];
+  for (let r = 1; r <= repos; r++) {
+    const ids: number[] = [];
+    for (let i = r; i <= n; i += repos) ids.push(i);
+    bodies.push(ndjson(r, ids));
+  }
+  let bytes = 0;
 
   // Bootstrap: stream → parse → pool (+ replacement).
   const pool = new Pool();
   let t = performance.now();
-  await load(pool, {
-    endpoint: '', token: '', group: 'repo:1', heldUnits: undefined,
-    fetch: () => Promise.resolve(new Response(new Blob([body]).stream())),
-  });
+  for (let r = 1; r <= repos; r++) {
+    const body = bodies[r - 1] ?? '';
+    bytes += body.length;
+    await load(pool, {
+      endpoint: '', token: '', group: `repo:${r}`, heldUnits: undefined,
+      fetch: () => Promise.resolve(new Response(new Blob([body]).stream())),
+    });
+  }
   const bootstrapMs = performance.now() - t;
 
   // Persist.
@@ -87,7 +101,7 @@ export async function benchHydrate(n: number): Promise<BenchResult> {
   });
   let h = sink(() => cold);
   t = performance.now();
-  await h.groups(['repo:1']);
+  await h.groups(Array.from({length: repos}, (_, i) => `repo:${i + 1}`));
   const hydrateGroupMs = performance.now() - t;
   const loadOnlyMs = loadOnly;
 
@@ -126,6 +140,6 @@ export async function benchHydrate(n: number): Promise<BenchResult> {
   await deleteDatabase(BENCH_USER).catch(() => undefined);
   if (seen !== 'renamed' || open === 0) throw new Error('benchmark sanity check failed');
   return {
-    n, bootstrapMs, ndjsonMB: body.length / 1e6, persistMs, hydrateGroupMs, hydrateAllMs, loadOnlyMs, queryMs, deltaMs, deltaFlushMs, atoms,
+    n, repos, bootstrapMs, ndjsonMB: bytes / 1e6, persistMs, hydrateGroupMs, hydrateAllMs, loadOnlyMs, queryMs, deltaMs, deltaFlushMs, atoms,
   };
 }

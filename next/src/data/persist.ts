@@ -17,9 +17,10 @@
 
 import type {EntityRecord} from './entity.ts';
 import {done, META, modelStore, writeTx} from './idb.ts';
+import {canHold, groupKind, MODEL_NAMES} from './models.ts';
 import type {MetaCache} from './meta.ts';
 import type {ModelName} from './models.ts';
-import type {ModelStore, Pool} from './pool.ts';
+import {type DirtyBuckets, MAX_BUCKETS, type ModelStore, type Pool} from './pool.ts';
 
 /** A bucket as written: its records (none: the bucket was deleted). */
 export interface BucketWrite {
@@ -35,12 +36,16 @@ export interface Commit {
   buckets: BucketWrite[];
   /** Model stores emptied (before the puts). */
   cleared: ModelName[];
+  /** Groups whose every bucket was deleted (before the puts). */
+  dropped: string[];
   /** The last transaction of the flush (meta and the sequence were written). */
   last: boolean;
 }
 
 /** Records per transaction (a bucket is never split). */
 export const CHUNK = 5000;
+/** Values per transaction (many small buckets cost per value). */
+export const CHUNK_VALUES = 500;
 /** Debounce of a flush after a change. */
 export const FLUSH_DELAY = 40;
 /** A flush is not postponed longer than this under continuous changes. */
@@ -51,6 +56,15 @@ export interface PersisterOptions {
   onError?: (err: unknown) => void;
   /** The last flush sequence persisted (meta "flushedSeq"). */
   seq?: number;
+  /**
+   * Groups not to write yet, entities and meta "group:<g>" alike (kept dirty):
+   * a group being bootstrapped (written once, at the end) or not hydrated yet
+   * (a bucket written from memory would lose the records not read yet).
+   * Call `schedule()` when one stops being deferred.
+   */
+  defer?: (group: string) => boolean;
+  /** The IDBKeyRange of the factory that opened the database (default: the global one). */
+  keyRange?: typeof IDBKeyRange;
 }
 
 export class Persister {
@@ -66,6 +80,8 @@ export class Persister {
   private closed = false;
   /** Model stores to empty before the next writes (their schema changed). */
   private clears = new Set<ModelName>();
+  /** Groups to delete from every model store before the next writes. */
+  private drops = new Set<string>();
 
   constructor(db: IDBDatabase, pool: Pool, meta: MetaCache, opts: PersisterOptions = {}) {
     this.db = db;
@@ -120,6 +136,16 @@ export class Persister {
     this.schedule();
   }
 
+  /**
+   * Deletes every bucket of these groups in the next flush, before anything
+   * else is written (released or revoked groups: what IndexedDB holds of them
+   * may include records the pool never read).
+   */
+  dropGroups(groups: readonly string[]): void {
+    for (const g of groups) this.drops.add(g);
+    this.schedule();
+  }
+
   close(): void {
     this.closed = true;
     if (this.timer !== undefined) clearTimeout(this.timer);
@@ -127,16 +153,25 @@ export class Persister {
   }
 
   private async run(): Promise<void> {
-    if (this.clears.size) {
+    if (this.clears.size || this.drops.size) {
       const clears = [...this.clears];
+      const drops = [...this.drops];
       this.clears = new Set();
+      this.drops = new Set();
       try {
-        const tx = writeTx(this.db, clears.map(modelStore));
+        const tx = writeTx(this.db, MODEL_NAMES.map(modelStore));
         for (const m of clears) tx.objectStore(modelStore(m)).clear();
+        for (const g of drops) {
+          const kind = groupKind(g);
+          for (const m of MODEL_NAMES) {
+            if (kind && canHold(kind, m)) tx.objectStore(modelStore(m)).delete((this.opts.keyRange ?? IDBKeyRange).bound([g, 0], [g, MAX_BUCKETS]));
+          }
+        }
         await done(tx);
-        this.opts.onCommit?.({seq: this.seq + 1, buckets: [], cleared: clears, last: false});
+        this.opts.onCommit?.({seq: this.seq + 1, buckets: [], cleared: clears, dropped: drops, last: false});
       } catch (err) {
         for (const m of clears) this.clears.add(m);
+        for (const g of drops) this.drops.add(g);
         this.failures++;
         this.opts.onError?.(err);
         this.schedule();
@@ -146,6 +181,28 @@ export class Persister {
     if (!this.pool.dirtyCount && !this.meta.isDirty) return;
     const dirty = this.pool.takeDirty();
     const meta = this.meta.takeDirty();
+    const defer = this.opts.defer;
+    if (defer) {
+      const later: DirtyBuckets = new Map();
+      for (const [m, groups] of dirty) {
+        for (const [g, bs] of groups) {
+          if (!defer(g)) continue;
+          groups.delete(g);
+          let lg = later.get(m);
+          if (!lg) later.set(m, lg = new Map<string, Set<number>>());
+          lg.set(g, bs);
+        }
+      }
+      if (later.size) this.pool.restoreDirty(later);
+      const laterMeta = new Map<string, unknown>();
+      for (const [k, v] of meta) {
+        if (k.startsWith('group:') && defer(k.slice('group:'.length))) {
+          meta.delete(k);
+          laterMeta.set(k, v);
+        }
+      }
+      if (laterMeta.size) this.meta.restoreDirty(laterMeta);
+    }
     const writes: BucketWrite[] = [];
     for (const [m, groups] of dirty) {
       const store: ModelStore = this.pool.stores[m];
@@ -163,7 +220,7 @@ export class Persister {
       do {
         const chunk: BucketWrite[] = [];
         let n = 0;
-        while (i < writes.length && (n === 0 || n + (writes[i]?.r.length ?? 0) <= CHUNK)) {
+        while (i < writes.length && chunk.length < CHUNK_VALUES && (n === 0 || n + (writes[i]?.r.length ?? 0) <= CHUNK)) {
           const w = writes[i++];
           if (!w) break;
           chunk.push(w);
@@ -188,7 +245,7 @@ export class Persister {
         }
         await done(tx);
         if (last) this.seq = seq;
-        this.opts.onCommit?.({seq, buckets: chunk, cleared: [], last});
+        this.opts.onCommit?.({seq, buckets: chunk, cleared: [], dropped: [], last});
       } while (i < writes.length);
       this.failures = 0;
     } catch (err) {

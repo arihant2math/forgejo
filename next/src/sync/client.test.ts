@@ -27,7 +27,7 @@ function setup(opts: {meta?: MetaCache; server?: Server; refresh?: () => Promise
   const server = opts.server ?? new Server();
   const pool = new Pool();
   const meta = opts.meta ?? new MetaCache();
-  const persister = {schedule: vi.fn(), flush: vi.fn(() => Promise.resolve()), clearModels: vi.fn()};
+  const persister = {schedule: vi.fn(), flush: vi.fn(() => Promise.resolve()), clearModels: vi.fn(), dropGroups: vi.fn()};
   const refresh = vi.fn(opts.refresh ?? (() => Promise.resolve('tok')));
   const c = new SyncClient({
     pool, meta, persister, userId: 1, auth: {token: () => Promise.resolve('tok'), refresh}, endpoint: '/-/sync', backoffBase: 1,
@@ -384,5 +384,154 @@ describe('schemas', () => {
     await vi.waitFor(() => {
       expect(t.server.requests).toContain('/-/sync/bootstrap?group=repo%3A1&model=Issue');
     });
+  });
+});
+
+describe('review regressions', () => {
+  test('a group released and held again at the same watermark comes back', async () => {
+    const t = setup();
+    t.server.boots.set('profiles:public', [{watermark: 30, lines: [{v: 30, g: 'profiles:public', m: 'User', id: 9, op: 'U', d: {id: 9, login: 'u9'}}]}]);
+    const ws = await connected(t);
+    ws.emit(welcome());
+    t.c.hold('profiles:public', 'tab:a');
+    await vi.waitFor(() => {
+      expect(t.pool.model('User').get(9)).toBeDefined();
+    });
+    t.c.release('profiles:public', 'tab:a');
+    t.c.groups.update('profiles:public', (x) => {
+      x.holders = [];
+    });
+    t.c.hold('repo:99', 'tab:z'); // recompute
+    expect(t.c.isHeld('profiles:public')).toBe(false);
+    expect(t.pool.model('User').get(9)).toBeUndefined();
+    expect(t.persister.dropGroups).toHaveBeenCalledWith(['profiles:public']);
+    t.c.hold('profiles:public', 'tab:a');
+    await vi.waitFor(() => {
+      expect(t.pool.model('User').get(9)?.get('login')).toBe('u9');
+    });
+  });
+
+  test('a schema change of Issue releases no issue group; the model reloads at the same watermark', async () => {
+    const t = setup();
+    t.server.workspace.groups = [{group: 'repo:1', units: [], reason: 'owner'}];
+    t.server.boots.set('repo:1', [{watermark: 20, lines: [issueChange(7, 20, 'a')]}]);
+    t.server.boots.set('issue:7', [{watermark: 20, lines: [{v: 20, g: 'issue:7', m: 'IssueBody', id: 7, op: 'U', d: {id: 7, body: 'x'}}]}]);
+    const dropped: number[] = [];
+    t.c.on('issueDropped', (e) => dropped.push(e.issueId));
+    const ws = await connected(t);
+    ws.emit(welcome());
+    t.c.hold('issue:7', 'tab:a');
+    await vi.waitFor(() => {
+      expect(t.pool.model('IssueBody').size).toBe(1);
+      expect(t.c.groups.get('repo:1')?.position).toBe(20);
+    });
+    ws.close(1006);
+    await vi.waitFor(() => {
+      expect(FakeWS.all.length).toBe(2);
+    });
+    const ws2 = FakeWS.latest();
+    ws2.open();
+    await vi.waitFor(() => {
+      expect(ws2.last('hello')).toBeDefined();
+    });
+    ws2.emit(welcome({granted: [{group: 'repo:1', units: []}, {group: 'issue:7', units: []}], schemas: {...clientSchemas(), Issue: 99}}));
+    await vi.waitFor(() => {
+      expect(t.server.requests).toContain('/-/sync/bootstrap?group=repo%3A1&model=Issue');
+      expect(t.c.groups.get('repo:1')?.needs).toBeUndefined();
+    });
+    expect(dropped).toEqual([]);
+    expect(t.c.isHeld('issue:7')).toBe(true);
+    expect(t.pool.model('Issue').get(7)).toBeDefined();
+  });
+
+  test('cursor_unknown forgets the group and loads it again', async () => {
+    const meta = new MetaCache();
+    meta.set('group:repo:1', {group: 'repo:1', position: 999, units: ['issues'], watermark: 999, tier: 'summary', holders: ['pin']});
+    meta.set('schemas', clientSchemas());
+    const t = setup({meta});
+    t.pool.batch(() => t.pool.put('Issue', 1, 'repo:1', 500, {id: 1, repo_id: 1, title: 'stale', state: 'open', updated_at: NOW} as never));
+    t.server.boots.set('repo:1', [{watermark: 20, units: ['issues'], lines: [issueChange(1, 20, 'fresh')]}]);
+    const ws = await connected(t);
+    ws.emit(welcome({server_sync_id: 20, granted: [{group: 'repo:1', units: ['issues']}]}));
+    ws.emit({type: 'bootstrap_required', group: 'repo:1', reason: 'cursor_unknown'});
+    await vi.waitFor(() => {
+      expect(t.pool.model('Issue').get(1)?.get('title')).toBe('fresh');
+    });
+    expect(t.c.groups.get('repo:1')?.position).toBe(20);
+    expect(t.persister.dropGroups).toHaveBeenCalledWith(['repo:1']);
+  });
+
+  test('the own profile outside its subscription raises no position', async () => {
+    const meta = new MetaCache();
+    meta.set('group:profiles:public', {group: 'profiles:public', position: 10, units: [], watermark: 10, tier: 'full', holders: ['pin']});
+    meta.set('schemas', clientSchemas());
+    const t = setup({meta});
+    const ws = await connected(t);
+    ws.emit(welcome({server_sync_id: 100, granted: [{group: 'profiles:public', units: []}]}));
+    ws.emit({type: 'delta', to: 100, changes: [{v: 90, g: 'profiles:public', m: 'User', id: 1, op: 'U', d: {id: 1, login: 'me'}}]});
+    expect(t.pool.model('User').get(1)).toBeDefined();
+    expect(t.c.groups.get('profiles:public')?.position).toBe(10);
+  });
+
+  test('a bootstrap finishing between hello and welcome is subscribed after the welcome', async () => {
+    const t = setup();
+    let open!: () => void;
+    t.server.boots.set('repo:1', [{watermark: 20, gate: new Promise<void>((r) => {
+      open = r;
+    })}]);
+    t.c.hold('repo:1', 'tab:a');
+    const ws = await connected(t);
+    expect(ws.last('hello')?.groups).toEqual([]);
+    open();
+    await vi.waitFor(() => {
+      expect(t.c.groups.get('repo:1')?.position).toBe(20);
+    });
+    expect(ws.last('subscribe')).toBeUndefined();
+    ws.emit(welcome());
+    expect(ws.last('subscribe')?.groups).toEqual([{group: 'repo:1', since: 20}]);
+  });
+
+  test('a model re-bootstrap with other units keeps the held units, so the full one replaces the closed tier', async () => {
+    const meta = new MetaCache();
+    meta.set('group:repo:1', {group: 'repo:1', position: 10, units: ['issues', 'pulls'], watermark: 10, tier: 'summary', closedBefore: 1_790_000_000, holders: ['pin']});
+    meta.set('schemas', clientSchemas());
+    const t = setup({meta});
+    t.pool.batch(() => t.pool.put('Issue', 7, 'repo:1', 5, {id: 7, repo_id: 1, title: 'old closed PR', state: 'closed', is_pull: true, updated_at: '2020-01-01T00:00:00Z'} as never));
+    t.server.boots.set('repo:1', [
+      {watermark: 30, units: ['issues'], closed_before: 1_790_000_000},
+      {watermark: 31, units: ['issues'], lines: [issueChange(1, 31, 'open')], closed_before: 1_790_000_000},
+    ]);
+    const ws = await connected(t);
+    ws.emit(welcome({server_sync_id: 30, granted: [{group: 'repo:1', units: ['issues', 'pulls']}]}));
+    ws.emit({type: 'bootstrap_required', group: 'repo:1', reason: 'trigger_repaired', model: 'Label'});
+    await vi.waitFor(() => {
+      expect(t.c.groups.get('repo:1')?.watermark).toBe(31);
+    });
+    expect(t.pool.model('Issue').get(7)).toBeUndefined();
+    expect(t.c.groups.get('repo:1')?.units).toEqual(['issues']);
+  });
+
+  test('a grant for a group released meanwhile is unsubscribed, its deltas ignored', async () => {
+    const meta = new MetaCache();
+    meta.set('group:repo:1', {group: 'repo:1', position: 10, units: [], watermark: 10, holders: ['pin']});
+    meta.set('schemas', clientSchemas());
+    const t = setup({meta});
+    const ws = await connected(t);
+    t.c.pin('repo:1', false);
+    expect(t.c.isHeld('repo:1')).toBe(false);
+    ws.emit(welcome({granted: [{group: 'repo:1', units: []}]}));
+    expect(ws.last('unsubscribe')?.groups).toEqual(['repo:1']);
+    ws.emit({type: 'delta', to: 12, changes: [issueChange(1, 11, 'x')]});
+    expect(t.pool.model('Issue').size).toBe(0);
+  });
+
+  test('barriers: at most 16 pending; too_many_barriers rejects the last', async () => {
+    const t = setup();
+    const ws = await connected(t);
+    ws.emit(welcome());
+    const ps = Array.from({length: 16}, () => t.c.barrier().catch((e: unknown) => String(e)));
+    await expect(t.c.barrier()).rejects.toThrow(/too many/);
+    ws.emit({type: 'error', code: 'too_many_barriers', message: 'x'});
+    await expect(ps[15]).resolves.toMatch(/too many/);
   });
 });

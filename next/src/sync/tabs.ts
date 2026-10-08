@@ -16,7 +16,7 @@ import type {ModelName} from '../data/models.ts';
 import type {SyncEvents, SyncStatus} from './client.ts';
 
 export type TabMessage =
-  | {t: 'commit'; seq: number; buckets: BucketWrite[]; cleared: ModelName[]}
+  | {t: 'commit'; seq: number; buckets: BucketWrite[]; cleared: ModelName[]; dropped: string[]}
   | {t: 'leader'; tab: string}
   | {t: 'status'; status: SyncStatus}
   | {t: 'event'; name: keyof SyncEvents; e: SyncEvents[keyof SyncEvents]}
@@ -56,6 +56,16 @@ export class Tabs {
     }
     const locks = env.locks === undefined ? (globalThis.navigator as Navigator | undefined)?.locks : env.locks;
     if (locks) this.locks = locks;
+  }
+
+  /** Whether tabs can hear each other. */
+  get hasChannel(): boolean {
+    return this.channel !== undefined;
+  }
+
+  /** Whether leadership is elected (otherwise every tab leads alone). */
+  get hasLocks(): boolean {
+    return this.locks !== undefined;
   }
 
   onMessage(fn: (m: TabMessage) => void): () => void {

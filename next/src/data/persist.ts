@@ -158,14 +158,21 @@ export class Persister {
       const drops = [...this.drops];
       this.clears = new Set();
       this.drops = new Set();
-      // A dropped group's meta (its state removed, or reset) goes in the same transaction as the
-      // drop, deferred or not: a position must never outlive the records it covers.
-      const dropMeta = this.meta.takeKeys(drops.map((g) => `group:${g}`));
       try {
         const tx = writeTx(this.db, [...MODEL_NAMES.map(modelStore), META]);
-        for (const [k, v] of dropMeta) {
-          if (v === undefined) tx.objectStore(META).delete(k);
-          else tx.objectStore(META).put({k, v});
+        // A dropped group's persisted state goes in the same transaction as the drop, deferred
+        // or not, and without anything that claims records (a position must never outlive the
+        // records it covers): what it holds now — maybe a new position, if it was held again and
+        // loaded since — stays dirty and is written with its records.
+        for (const g of drops) {
+          const k = `group:${g}`;
+          const v = this.meta.get<Record<string, unknown>>(k);
+          if (v === undefined) {
+            tx.objectStore(META).delete(k);
+            continue;
+          }
+          const {position: _p, watermark: _w, units: _u, closedBefore: _c, tier: _t, ...rest} = v;
+          tx.objectStore(META).put({k, v: {...rest, needs: {all: true, models: [], reason: 'dropped'}}});
         }
         for (const m of clears) tx.objectStore(modelStore(m)).clear();
         for (const g of drops) {
@@ -179,7 +186,6 @@ export class Persister {
       } catch (err) {
         for (const m of clears) this.clears.add(m);
         for (const g of drops) this.drops.add(g);
-        this.meta.restoreDirty(dropMeta);
         this.failures++;
         this.opts.onError?.(err);
         this.schedule();
@@ -239,18 +245,24 @@ export class Persister {
         const names = new Set(chunk.map((w) => modelStore(w.m)));
         if (last) names.add(META);
         const tx = writeTx(this.db, [...names]);
-        for (const w of chunk) {
-          const store = tx.objectStore(modelStore(w.m));
-          if (w.r.length) store.put({g: w.g, b: w.b, r: w.r});
-          else store.delete([w.g, w.b]);
-        }
-        if (last) {
-          const ms = tx.objectStore(META);
-          for (const [k, v] of meta) {
-            if (v === undefined) ms.delete(k);
-            else ms.put({k, v});
+        try {
+          for (const w of chunk) {
+            const store = tx.objectStore(modelStore(w.m));
+            if (w.r.length) store.put({g: w.g, b: w.b, r: w.r});
+            else store.delete([w.g, w.b]);
           }
-          ms.put({k: 'flushedSeq', v: seq});
+          if (last) {
+            const ms = tx.objectStore(META);
+            for (const [k, v] of meta) {
+              if (v === undefined) ms.delete(k);
+              else ms.put({k, v});
+            }
+            ms.put({k: 'flushedSeq', v: seq});
+          }
+        } catch (err) {
+          // A request that throws (e.g. DataCloneError) does not abort the transaction by itself.
+          tx.abort();
+          throw err;
         }
         await done(tx);
         if (last) this.seq = seq;

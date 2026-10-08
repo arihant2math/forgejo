@@ -48,16 +48,6 @@ export class MetaCache {
     return out;
   }
 
-  /** Takes these entries if they are dirty (undefined = deleted). */
-  takeKeys(keys: readonly string[]): Map<string, unknown> {
-    const out = new Map<string, unknown>();
-    for (const k of keys) {
-      if (!this.dirty.delete(k)) continue;
-      out.set(k, this.values.get(k));
-    }
-    return out;
-  }
-
   /** Marks entries dirty again (a failed flush), unless they changed meanwhile. */
   restoreDirty(entries: Map<string, unknown>): void {
     for (const k of entries.keys()) this.dirty.add(k);

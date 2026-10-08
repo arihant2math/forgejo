@@ -311,3 +311,33 @@ describe('hydration', () => {
     db.close();
   });
 });
+
+test('a group dropped and loaded again before the drop flush: no position is persisted ahead of its records', async () => {
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const pool = new Pool();
+  const meta = new MetaCache();
+  const deferred = new Set<string>();
+  const p = new Persister(db, pool, meta, {defer: (g) => deferred.has(g)});
+  pool.batch(() => pool.put('Issue', 1, 'repo:1', 10, issue(1, 1, 'a')));
+  meta.set('group:repo:1', {group: 'repo:1', position: 10, units: [], holders: ['pin']});
+  await p.flush();
+  // Released…
+  pool.batch(() => pool.purgeGroup('repo:1'));
+  p.dropGroups(['repo:1']);
+  meta.delete('group:repo:1');
+  // …held again and loaded at 20 before the flush; its records are still deferred.
+  deferred.add('repo:1');
+  pool.batch(() => pool.put('Issue', 2, 'repo:1', 20, issue(2, 1, 'b'), true));
+  meta.set('group:repo:1', {group: 'repo:1', position: 20, units: [], holders: ['pin']});
+  await p.flush();
+  const state = (await readMeta(db)).get('group:repo:1') as {position?: number; needs?: unknown} | undefined;
+  expect(state?.position).toBeUndefined();
+  expect(state?.needs).toEqual({all: true, models: [], reason: 'dropped'});
+  // Once the group may be written, records and position go together.
+  deferred.clear();
+  await p.flush();
+  expect((await readMeta(db)).get('group:repo:1')).toMatchObject({position: 20});
+  expect((await all<{r: {id: number}[]}>(db, modelStore('Issue'))).flatMap((v) => v.r.map((r) => r.id))).toEqual([2]);
+  p.close();
+  db.close();
+});

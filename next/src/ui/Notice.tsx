@@ -6,14 +6,17 @@ import type {ReactNode} from 'react';
 import {IconButton} from './Button.tsx';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
-import {floating} from './recipes.ts';
+import {floating, message} from './recipes.ts';
 
-const tones = {
+/** The tones of a message (Notice, Callout): icon and colour. */
+export const messageTones = {
   neutral: {icon: Info, text: 'text-fg-muted'},
   success: {icon: CircleCheck, text: 'text-success'},
   warning: {icon: TriangleAlert, text: 'text-warning'},
   danger: {icon: CircleAlert, text: 'text-danger'},
 } as const satisfies Record<string, {icon: LucideIcon; text: string}>;
+
+const tones = messageTones;
 
 export type NoticeTone = keyof typeof tones;
 
@@ -49,11 +52,11 @@ export function Notice({tone = 'neutral', title, description, action, onDismiss,
       onBlur={() => onHold?.(false)}
       className={cx(floating, 'pointer-events-auto flex items-start gap-2 p-3')}
     >
-      <Icon icon={t.icon} className={cx('mt-0.5', t.text)}/>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-base font-medium text-fg">{title}</p>
-        {description && <p className="text-sm text-fg-muted">{description}</p>}
-        {action && <div className="flex gap-2 pt-1">{action}</div>}
+      <Icon icon={t.icon} className={cx(message.icon, t.text)}/>
+      <div className={message.body}>
+        <p className={message.title}>{title}</p>
+        {description && <p className={message.description}>{description}</p>}
+        {action && <div className={message.actions}>{action}</div>}
       </div>
       <IconButton icon={X} label="Dismiss" size="sm" onClick={onDismiss} className="-mt-1 -mr-1"/>
     </div>

@@ -161,17 +161,24 @@ export class World {
     for (const t of this.alive()) t.deliver();
   }
 
+  /**
+   * Deltas reach the tabs every `lag` rounds of `settle` (1: every round). A
+   * lag makes echoes arrive after the next intents are prepared, as in a browser.
+   */
+  lag = 1;
+
   /** Lets the queue run until nothing moves (or `max` rounds pass). */
   async settle(max = 400): Promise<void> {
     let quiet = 0;
     let last = '';
     for (let round = 0; round < max && quiet < 8; round++) {
       await new Promise((r) => setTimeout(r, round < 20 ? 0 : 2));
-      this.deliverAll();
+      if (round % this.lag === this.lag - 1) this.deliverAll();
       const sig = `${String(this.server.v)}|${this.alive().map((t) => `${String(t.intents.records.size)}:${String(t.overlay.size)}:${String(t.intents.drafts.size)}`).join(',')}`;
       // Online with work left that is not waiting for the user: not quiet (a backoff runs).
       const busy = this.server.online && [...this.leader?.intents.records.values() ?? []].some((r) => r.state !== 'parked');
-      quiet = sig === last && !busy ? quiet + 1 : 0;
+      // Quiet is judged on the rounds that deliver (in between, the tabs wait for deltas).
+      if (round % this.lag === this.lag - 1) quiet = sig === last && !busy ? quiet + 1 : 0;
       last = sig;
     }
   }

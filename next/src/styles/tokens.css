@@ -117,9 +117,18 @@
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --animate-exit: exit var(--speed-out) var(--ease-out) forwards;
   --animate-exit-pop: exit-pop var(--speed-out) var(--ease-out) forwards;
+  /* A "not synced yet" mark: shown only when the change takes longer than --delay-pending (offline,
+     a slow server); an online edit confirmed sooner never shows it (no flicker). */
+  --animate-pending: pending var(--speed-out) var(--ease-out) var(--delay-pending) both;
 
   @keyframes exit {
     to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes pending {
+    from {
       opacity: 0;
     }
   }
@@ -148,6 +157,7 @@
   --speed-in: 0s;
   --speed-out: 0.15s;
   --speed-quick: 0.1s;
+  --delay-pending: 1s;
 
   /* A label colour used as an icon colour (text-label): mixed towards the text colour for contrast. */
   --label-ink: 50%;
@@ -220,5 +230,6 @@
     --speed-quick: 0s;
     --animate-exit: none;
     --animate-exit-pop: none;
+    --animate-pending: none;
   }
 }

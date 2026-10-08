@@ -3,6 +3,7 @@
 
 import type {ReactNode} from 'react';
 import {cx} from './cx.ts';
+import {ghostHover} from './recipes.ts';
 
 const tones = {
   success: 'bg-success',
@@ -18,7 +19,7 @@ export function StatusDot({tone}: {tone: StatusTone}) {
   return <span aria-hidden className={cx('size-2 shrink-0 rounded-full', tones[tone])}/>;
 }
 
-const status = 'flex h-control-sm items-center gap-1.5 rounded-sm px-1.5 text-sm text-fg-muted';
+const status = 'flex h-control-sm items-center gap-1.5 rounded-sm px-1.5 text-sm';
 
 /**
  * A status in words with its dot (the sync indicator): compact, muted text.
@@ -27,14 +28,14 @@ const status = 'flex h-control-sm items-center gap-1.5 rounded-sm px-1.5 text-sm
 export function Status({tone, children, onClick, label}: {tone: StatusTone; children: ReactNode; onClick?: (() => void) | undefined; label?: string | undefined}) {
   if (onClick) {
     return (
-      <button type="button" aria-label={label} onClick={onClick} className={cx(status, 'interactive hover:bg-hover hover:text-fg')}>
+      <button type="button" aria-label={label} onClick={onClick} className={cx(status, 'interactive', ghostHover)}>
         <StatusDot tone={tone}/>
         {children}
       </button>
     );
   }
   return (
-    <span className={status}>
+    <span className={cx(status, 'text-fg-muted')}>
       <StatusDot tone={tone}/>
       {children}
     </span>

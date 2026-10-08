@@ -14,6 +14,7 @@ import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
+import {connectivity} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
@@ -169,7 +170,7 @@ const NotHere = observer(function NotHere({repoId, index, context}: {repoId: num
     if (!pager.done && !pager.loading) pager.more();
   }, [pager, pager.loading, pager.done]);
   // Offline nothing more can arrive: say so at once (no placeholder that never resolves).
-  const offline = data.status.connection === 'offline' || !navigator.onLine;
+  const offline = data.status.connection === 'offline' || !connectivity.online;
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>

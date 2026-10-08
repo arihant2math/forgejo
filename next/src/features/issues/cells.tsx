@@ -9,7 +9,7 @@
 // mount per cell for every row scrolled into view.
 
 import {
-  Circle, CircleCheck, CloudUpload, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
+  Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
   GitPullRequestClosed, OctagonAlert, SignalHigh, SignalLow, SignalMedium, SignalZero,
 } from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
@@ -21,7 +21,7 @@ import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
+import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, PendingIcon} from '../../ui/index.ts';
 import {ago, fullDate} from './format.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
 
@@ -220,8 +220,7 @@ export const TitleCell = observer(function TitleCell({issue}: {issue: Entity<'Is
 export const PendingCell = observer(function PendingCell({issueId}: {issueId: number}) {
   const n = editing(useApp()).intents.pendingOn(issueId);
   if (!n) return null;
-  const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`;
-  return <Hint label={label}><Icon icon={CloudUpload} size="sm" className="text-fg-subtle"/></Hint>;
+  return <PendingIcon label={`${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`}/>;
 });
 
 /** The first non-empty string. */

@@ -76,6 +76,8 @@ export function editing(app: App): Editing {
       });
     },
     onOverride: (o) => {
+      // Shown inline on the issue's page (Overrides): no second message when that page is open.
+      if (app.ui.issueTarget.includes(o.issueId)) return;
       const who = o.who ? untracked(() => data.pool.model('User').get(o.who)?.data.login) : undefined;
       notify(app, {
         tone: 'neutral', title: `You overrode ${who ? `@${who}’s` : 'a newer'} change`,
@@ -85,7 +87,8 @@ export function editing(app: App): Editing {
         }},
       });
     },
-    onConflict: () => {
+    onConflict: (rec) => {
+      if (app.ui.issueTarget.includes(rec.intent.issueId)) return;
       notify(app, {
         tone: 'warning', title: 'Your edit conflicts with a newer change',
         description: 'Both changed the same lines. Resolve it in the editor; nothing is lost.',

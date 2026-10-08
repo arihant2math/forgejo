@@ -5,13 +5,13 @@ import {Slot} from 'radix-ui';
 import type {ButtonHTMLAttributes, ReactElement, ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
-import {control, controlHeight, type ControlSize} from './recipes.ts';
+import {control, controlHeight, type ControlSize, ghostHover} from './recipes.ts';
 import {Tooltip} from './Tooltip.tsx';
 
 const variants = {
   primary: 'bg-accent text-fg-on-accent hover:bg-accent-hover',
   secondary: 'border border-border bg-surface text-fg hover:bg-hover',
-  ghost: 'text-fg-muted hover:bg-hover hover:text-fg data-[state=open]:bg-hover data-[state=open]:text-fg',
+  ghost: `${ghostHover} data-[state=open]:bg-hover data-[state=open]:text-fg`,
   danger: 'bg-danger-solid text-fg-on-accent hover:bg-danger-solid-hover',
 } as const;
 

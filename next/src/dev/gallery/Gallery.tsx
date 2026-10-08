@@ -143,12 +143,11 @@ export default function Gallery() {
           <div className="flex w-96 flex-col gap-2">
             <Callout tone="warning" title="Your edit conflicts with a newer change" actions={<><Button size="sm">Keep mine</Button><Button size="sm">Use theirs</Button></>}>Both changed the same lines.</Callout>
             <Callout title="You overrode @alice’s change to the status" actions={<Button size="sm">Undo</Button>}>Your change was applied last.</Callout>
-            <Callout tone="offline" title="Not available offline">Connect to load it.</Callout>
             <Callout tone="danger" title="Not sent">Forbidden.</Callout>
             <ProseSource text={'Typed **markdown**, not synced yet.\n\nSecond paragraph.'}/>
           </div>
           <div className="w-96">
-            <EntryList label="Unsynced changes">
+            <EntryList>
               <Entry leading={<Icon icon={Inbox}/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton size="sm" icon={Search} label="Discard"/>}/>
               <Entry title="Posting a comment" meta="#3 · dev/big" description="Forbidden."/>
             </EntryList>

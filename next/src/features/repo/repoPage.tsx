@@ -9,6 +9,8 @@ import {Link, useLoaderData, useParams} from '@tanstack/react-router';
 import {CloudOff, Slash} from 'lucide-react';
 import {type RepoMatch, useHold} from '../../app/repo.ts';
 import {AvailableOffline} from '../../app/Available.tsx';
+import {connectivity} from '../../app/online.ts';
+import {observer} from 'mobx-react-lite';
 import {useSession} from '../../app/store.ts';
 import {EmptyState, Icon, TextLink} from '../../ui/index.ts';
 
@@ -33,8 +35,8 @@ export function RepoContext({owner, repo, pulls = false}: {owner: string; repo: 
   );
 }
 
-export function Unavailable() {
-  const offline = !navigator.onLine;
+export const Unavailable = observer(function Unavailable() {
+  const offline = !connectivity.online;
   return (
     <EmptyState
       icon={CloudOff}
@@ -43,4 +45,4 @@ export function Unavailable() {
       action={offline ? <AvailableOffline/> : undefined}
     />
   );
-}
+});

@@ -11,7 +11,7 @@ import {useNavigate} from '@tanstack/react-router';
 import {CircleAlert, CircleDashed, Copy, GitMerge, RotateCw, Trash2, TriangleAlert} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import type {ReactNode} from 'react';
+import {type ReactNode, useId} from 'react';
 import {discardable, type IntentRecord} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
@@ -42,7 +42,7 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
     }} description={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'}
     footer={<Button onClick={close}>Close</Button>}>
       {empty ? <EmptyState icon={CircleDashed} title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
-        <div className="flex max-h-popper flex-col gap-4 overflow-y-auto">
+        <div className="flex flex-col gap-4">
           {parked.length > 0 && (
             <Section title="Conflicts">
               {parked.map((r) => <ParkedEntry key={r.id} app={app} rec={r} onOpen={close}/>)}
@@ -70,12 +70,22 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
 });
 
 function Section({title, children}: {title: string; children: ReactNode}) {
+  const id = useId();
   return (
-    <section className="flex flex-col gap-1">
-      <SectionHeading>{title}</SectionHeading>
-      <EntryList label={title}>{children}</EntryList>
+    <section aria-labelledby={id} className="flex flex-col gap-1">
+      <SectionHeading id={id}>{title}</SectionHeading>
+      <EntryList>{children}</EntryList>
     </section>
   );
+}
+
+/** Takes back a queued change, with Undo (the same change again, as a new intent). */
+function discardWithUndo(app: App, rec: IntentRecord): void {
+  const {intents} = editing(app);
+  intents.discard(rec.id);
+  notify(app, {tone: 'neutral', title: 'Discarded', description: describeIntent(rec.intent, names(app)), action: {label: 'Undo', run: () => {
+    intents.resubmit(rec.intent);
+  }}});
 }
 
 /** "#12 · dev/big" for an intent's issue, from the pool. */
@@ -110,7 +120,6 @@ function copy(app: App, text: string): void {
 
 function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: () => void}) {
   const navigate = useNavigate();
-  const {intents} = editing(app);
   const w = where(app, rec.intent);
   return (
     <Entry
@@ -127,7 +136,7 @@ function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: (
           copy(app, intentText(rec.intent) ?? '');
         }}/>
         <IconButton size="sm" icon={Trash2} label="Discard your change" onClick={() => {
-          intents.discard(rec.id);
+          discardWithUndo(app, rec);
         }}/>
       </>}
     />
@@ -163,7 +172,6 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
 });
 
 function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline: boolean}) {
-  const {intents} = editing(app);
   const w = where(app, rec.intent);
   const state = rec.state === 'acked' ? 'Saved; waiting for it to sync back.' : rec.note ?? (offline ? 'Sent when you are back online.' : 'Sending…');
   return (
@@ -173,7 +181,7 @@ function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline
       meta={w.meta}
       description={state}
       actions={discardable(rec) ? <IconButton size="sm" icon={Trash2} label="Discard (not sent yet)" onClick={() => {
-        intents.discard(rec.id);
+        discardWithUndo(app, rec);
       }}/> : undefined}
     />
   );

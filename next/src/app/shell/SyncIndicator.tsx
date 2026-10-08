@@ -35,22 +35,23 @@ export const SyncIndicator = observer(function SyncIndicator() {
   const {data, auth} = useSession();
   const v = describe(data.status.connection, data.status.loading, auth.status.state);
   const pending = app.ui.pendingIntents;
-  // With changes waiting it opens the "Unsynced changes" panel (its own chunk).
-  const open = pending > 0 ? () => {
+  // Opens the "Unsynced changes" panel (its own chunk). Always the same button: focus stays when the count changes.
+  const open = () => {
     runInAction(() => {
       app.ui.unsyncedOpen = true;
     });
-  } : undefined;
+  };
+  const words = pending > 0 ? `${v.label} · ${String(pending)} pending` : v.label;
   return (
     <div className="flex items-center gap-2">
       <Tooltip content={pending ? `${v.detail} ${String(pending)} not synced yet: see them.` : v.detail}>
-        <span role="status">
-          <Status tone={v.tone} onClick={open} label={pending ? `${v.label}, ${String(pending)} pending: show unsynced changes` : undefined}>
-            {v.label}
-            {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
-          </Status>
-        </span>
+        <Status tone={v.tone} onClick={open} label={`${words}: show unsynced changes`}>
+          {v.label}
+          {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
+        </Status>
       </Tooltip>
+      {/* The live region: announces the status, apart from the button. */}
+      <span role="status" className="sr-only">{words}</span>
       {v.signIn && app.config.oauth && (
         <Button size="sm" variant="primary" onClick={() => {
           signInHere(app);

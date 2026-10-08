@@ -49,6 +49,11 @@ export function serviceWorker(): Plugin {
         const {output} = await worker.generate({format: 'iife', minify: true});
         await worker.close();
         const [chunk] = output;
+        // B8 rewrites string literals that are exactly the base under a sub-path (routers/livesync/spa.go
+        // rewriteBase): the worker must keep one, or it would use /-/next/ under every sub-path.
+        if (![`"${base}"`, `'${base}'`, `\`${base}\``].some((lit) => chunk.code.includes(lit))) {
+          throw new Error(`next:sw: the built sw.js has no literal ${base} for B8 to rewrite under a sub-path`);
+        }
         this.emitFile({type: 'asset', fileName: 'sw.js', source: chunk.code});
       },
     },

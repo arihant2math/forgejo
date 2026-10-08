@@ -60,7 +60,7 @@ async function signedIn(ctx: BrowserContext): Promise<Page> {
   return page;
 }
 
-const indicator = (page: Page) => page.getByRole('banner').getByRole('status').or(page.getByRole('status').filter({hasText: /Live|Offline|Catching up|Connecting/})).first();
+const indicator = (page: Page) => page.getByRole('status').filter({hasText: /Live|Offline|Catching up|Connecting|Signed out/}).first();
 const sidebarProp = (page: Page, name: string) =>
   page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: new RegExp(`^${name}$`)}).locator('xpath=following-sibling::dd[1]');
 const activity = (page: Page) => page.getByRole('region', {name: 'Activity'});
@@ -151,7 +151,7 @@ test('a description conflict is shown in the editor and resolved there', async (
   await page.getByRole('button', {name: 'Save'}).click();
   expect((await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {body: 'Line one, THEIRS.\n\nLine two.\n\nLine three.'}, alice)).ok).toBe(true);
   await goOnline(ctx, page);
-  const callout = page.getByRole('main').getByRole('status').filter({hasText: 'Your edit conflicts with a newer change'});
+  const callout = page.getByRole('main').getByRole('note').filter({hasText: 'Your edit conflicts with a newer change'});
   await expect(callout).toBeVisible({timeout: 20_000});
   const editor = page.getByRole('textbox', {name: 'Resolve the description'});
   await expect(editor).toHaveValue(/<<<<<<< yours\nLine one, MINE\.\n=======\nLine one, THEIRS\.\n>>>>>>> theirs/);

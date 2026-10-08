@@ -1,19 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {CircleAlert, CloudOff, Info, TriangleAlert} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {cx} from './cx.ts';
-import {Icon, type LucideIcon} from './Icon.tsx';
+import {Icon} from './Icon.tsx';
+import {messageTones} from './Notice.tsx';
+import {message} from './recipes.ts';
 
-const tones = {
-  neutral: {icon: Info, look: 'border-border bg-canvas', text: 'text-fg-muted'},
-  offline: {icon: CloudOff, look: 'border-border bg-canvas', text: 'text-fg-muted'},
-  warning: {icon: TriangleAlert, look: 'border-border bg-warning-subtle', text: 'text-warning'},
-  danger: {icon: CircleAlert, look: 'border-border bg-danger-subtle', text: 'text-danger'},
-} as const satisfies Record<string, {icon: LucideIcon; look: string; text: string}>;
+/** Inline messages tint their box with the tone (Notice floats on `raised` instead). */
+const tints = {neutral: 'bg-canvas', warning: 'bg-warning-subtle', danger: 'bg-danger-subtle'} as const;
 
-export type CalloutTone = keyof typeof tones;
+export type CalloutTone = keyof typeof tints;
 
 export interface CalloutProps {
   tone?: CalloutTone | undefined;
@@ -25,18 +22,18 @@ export interface CalloutProps {
 
 /**
  * An inline message in the page's flow (not floating, unlike Notice): an
- * edit's conflict, a change of yours that overrode someone's, why something
- * is not available offline.
+ * edit's conflict, a change of yours that overrode someone's. A note, not a
+ * live region: what it is about is on the page already.
  */
 export function Callout({tone = 'neutral', title, children, actions}: CalloutProps) {
-  const t = tones[tone];
+  const t = messageTones[tone];
   return (
-    <div role={tone === 'danger' ? 'alert' : 'status'} className={cx('flex items-start gap-2 rounded-md border px-3 py-2', t.look)}>
-      <Icon icon={t.icon} className={cx('mt-0.5', t.text)}/>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-base font-medium text-fg">{title}</p>
-        {children && <div className="text-sm text-fg-muted">{children}</div>}
-        {actions && <div className="flex flex-wrap gap-2 pt-1">{actions}</div>}
+    <div role="note" className={cx('flex items-start gap-2 rounded-md border border-border px-3 py-2', tints[tone])}>
+      <Icon icon={t.icon} className={cx(message.icon, t.text)}/>
+      <div className={message.body}>
+        <p className={message.title}>{title}</p>
+        {children && <div className={message.description}>{children}</div>}
+        {actions && <div className={message.actions}>{actions}</div>}
       </div>
     </div>
   );

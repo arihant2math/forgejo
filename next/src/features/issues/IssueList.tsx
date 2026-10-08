@@ -293,12 +293,12 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
         handlers.aux(id, e);
       }}
       leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      trailing={<><PendingCell issueId={issue.id}/><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
+      trailing={<><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
     >
       <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
         {showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
-      <TitleCell issue={issue}/>
+      <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </ListRow>
   );
 });

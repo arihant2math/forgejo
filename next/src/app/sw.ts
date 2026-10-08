@@ -29,7 +29,9 @@ export function startServiceWorker(app: App): void {
       description: 'Reload to use it. Changes not synced yet are kept.',
       action: {label: 'Reload', run: () => {
         reloading = true;
-        reg.waiting?.postMessage({t: 'skipWaiting'});
+        // Another tab may have activated it already: then this one only needs to reload.
+        if (reg.waiting) reg.waiting.postMessage({t: 'skipWaiting'});
+        else location.reload();
       }},
     });
   };
@@ -56,15 +58,30 @@ export function startServiceWorker(app: App): void {
       console.warn('service worker: not registered or updated', err);
       return;
     }
-    offer(reg);
-    reg.addEventListener('updatefound', () => {
-      const w = reg.installing;
+    const watch = (w: ServiceWorker | null) => {
       w?.addEventListener('statechange', () => {
         if (w.state === 'installed') offer(reg);
       });
+    };
+    offer(reg);
+    // An install the browser started before this code ran (its updatefound has fired already).
+    watch(reg.installing);
+    reg.addEventListener('updatefound', () => {
+      watch(reg.installing);
     });
     app.session?.data.on('newBuild', () => {
       void reg.update().catch(() => killed());
     });
   })();
+}
+
+/**
+ * Back to the classic UI: the worker goes too (it would keep answering this
+ * instance's navigations offline with this app), and so does its cache.
+ */
+export async function removeServiceWorker(app: App): Promise<void> {
+  const container = (navigator as Partial<Navigator>).serviceWorker;
+  const reg = await container?.getRegistration(`${app.config.app_sub_url}/`).catch(() => undefined);
+  await reg?.unregister().catch(() => false);
+  for (const k of await caches.keys().catch(() => [])) if (k.startsWith('forgejo-next-')) await caches.delete(k);
 }

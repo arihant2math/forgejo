@@ -26,9 +26,9 @@ export const AvailableOffline = observer(function AvailableOffline() {
   const pool = app.session?.data.pool;
   const repos = pool ? [...pool.model('Repository').all()].map((r) => r.data).sort((a, b) => a.full_name.localeCompare(b.full_name)).slice(0, MAX_REPOS) : [];
   return (
-    <nav aria-label="Available on this device" className="flex flex-col gap-2 text-left">
+    <nav aria-label="Available on this device" className="flex flex-col items-center gap-2">
       <SectionHeading>Available on this device</SectionHeading>
-      <ul className="flex flex-col gap-1 text-base">
+      <ul className="flex flex-col items-center gap-1 text-base">
         {VIEWS.map((v) => <li key={v.to}><TextLink><Link to={v.to}>{v.label}</Link></TextLink></li>)}
         {repos.map((r) => (
           <li key={r.id}><TextLink><Link to="/$owner/$repo/issues" params={{owner: r.owner_name, repo: r.name}}>{r.full_name}</Link></TextLink></li>

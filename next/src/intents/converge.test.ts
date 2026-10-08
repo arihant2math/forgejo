@@ -158,9 +158,11 @@ function resolveAll(world: World): void {
   }
 }
 
-async function scenario(steps: Step[]): Promise<void> {
+async function scenario(steps: Step[], lag = 1): Promise<void> {
   const server = new FakeForgejo(ISSUES, LABELS);
   const world = new World(server, 2);
+  // Deltas late by a few rounds: echoes arrive after the next intents of an entity would be prepared.
+  world.lag = lag;
   const ex: Expect = {comments: new Set(), bodyTokens: new Map(), last: new Map(), remoteTouched: new Set()};
   for (let n = 1; n <= ISSUES; n++) ex.bodyTokens.set(n, new Set());
   await world.settle(5);
@@ -310,8 +312,8 @@ describe('convergence (PLAN §8 Phase 3 exit)', () => {
   }, 30_000);
 
   test('any interleaving of offline intents, remote changes, faults, leader changes and crashes converges without loss or duplicates', async () => {
-    await fc.assert(fc.asyncProperty(fc.array(stepArb, {minLength: 1, maxLength: 30}), scenario), {numRuns: RUNS, endOnFailure: true});
-  }, Math.max(300_000, RUNS * 200));
+    await fc.assert(fc.asyncProperty(fc.array(stepArb, {minLength: 1, maxLength: 30}), fc.constantFrom(1, 1, 3, 7), scenario), {numRuns: RUNS, endOnFailure: true, timeout: 20_000});
+  }, Math.max(300_000, RUNS * 1000));
 
   test('a scripted worst case: offline edits in two tabs, others edit the same issue, the leader dies mid-flush with a lost answer', async () => {
     await scenario([

@@ -25,6 +25,7 @@ export {
   MenuTrigger,
 } from './Menu.tsx';
 export {Notice, type NoticeTone} from './Notice.tsx';
+export {PendingBadge, PendingIcon} from './Pending.tsx';
 export {NoticeViewport} from './NoticeViewport.tsx';
 export {Popover, PopoverClose, PopoverContent, PopoverTrigger} from './Popover.tsx';
 export {Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue} from './Property.tsx';

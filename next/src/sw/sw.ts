@@ -15,16 +15,17 @@
 //   activate   drops other builds' caches; navigation preload.
 //   assets     cache first (immutable, hashed names).
 //   navigate   online: the network first, always (B8: never answer from cache
-//              while online without asking the network), through navigation
-//              preload only (see `preloading`). Offline (navigator.onLine,
-//              a failed request, or no answer in 4 s) → the cached shell; the
-//              app renders the route from IndexedDB, or its "not available
-//              offline" page listing what is.
-//   kill       sw.js answering 404/410 (the UI is not served any more), the
-//              UI's base answering 404, or a build made with NEXT_SW_KILL=1:
+//              while online without asking the network), as the browser's
+//              own request (navigation preload; see `navigate`). Offline
+//              (navigator.onLine, a failed request, or an app page with no
+//              answer in 4 s) → the cached shell; the app renders the route
+//              from IndexedDB, or says what is available offline.
+//   kill       sw.js answering 404/410 (the UI is not served any more; checked
+//              at most every 30 min, and when one of the app's own pages
+//              answers 404), or a build made with NEXT_SW_KILL=1:
 //              the worker deletes its caches and unregisters itself.
 
-import {BUILD_META, buildOf, CACHE_PREFIX, cacheName, isSpaRoute, sitePathOf, strategy} from './routes.ts';
+import {buildOf, CACHE_PREFIX, cacheName, isSpaRoute, sitePathOf, strategy} from './routes.ts';
 
 interface Build {
   version: string;
@@ -76,7 +77,6 @@ const SHELL = build.base;
 const NAVIGATION_TIMEOUT = 4000;
 /** The kill switch is checked at most this often while online. */
 const KILL_CHECK = 30 * 60_000;
-let lastKillCheck = 0;
 
 async function killSelf(): Promise<void> {
   for (const k of await caches.keys()) if (k.startsWith(CACHE_PREFIX)) await caches.delete(k);
@@ -85,14 +85,15 @@ async function killSelf(): Promise<void> {
 }
 
 async function precache(): Promise<void> {
-  const cache = await caches.open(CACHE);
   const shell = await fetch(SHELL, {cache: 'no-cache', credentials: 'same-origin'});
   if (!shell.ok) throw new Error(`the app shell answered ${String(shell.status)}`);
   const html = await shell.clone().text();
   // The server may already run a newer build: then this worker's assets are not what the shell needs (the next sw.js is).
   if (buildOf(html) !== build.version) throw new Error(`the shell is build ${buildOf(html) ?? '?'}, not ${build.version}`);
-  await cache.put(SHELL, shell);
+  const cache = await caches.open(CACHE);
   await cache.addAll(build.assets.map((a) => build.base + a));
+  // Last: a failed install leaves no shell that could be served without its assets.
+  await cache.put(SHELL, shell);
 }
 
 sw.addEventListener('install', (e) => {
@@ -110,11 +111,7 @@ sw.addEventListener('activate', (e) => {
   }
   e.waitUntil((async () => {
     for (const k of await caches.keys()) if (k.startsWith(CACHE_PREFIX) && k !== CACHE) await caches.delete(k);
-    if (sw.registration.navigationPreload) {
-      await sw.registration.navigationPreload.enable().then(() => {
-        preloading = true;
-      }, () => undefined);
-    }
+    await sw.registration.navigationPreload?.enable().catch(() => undefined);
     await sw.clients.claim();
   })());
 });
@@ -125,25 +122,22 @@ sw.addEventListener('message', (e) => {
   else if (m?.t === 'version') e.source?.postMessage({t: 'version', version: build.version});
 });
 
-/**
- * Navigation preload is on: an online navigation is the browser's own request
- * (cookies, Sec-Fetch-Dest: document — B8 decides app or classic page on
- * them). A request the worker made itself would not be a document navigation
- * to the server, so without preload the worker does not touch online navigations.
- */
-let preloading = false;
-void sw.registration.navigationPreload?.getState?.().then((st) => {
-  preloading ||= st.enabled;
-}).catch(() => undefined);
+/** The instance's sub-path ("" or "/git"). */
+const SUB = new URL(sw.registration.scope).pathname.replace(/\/$/, '');
+
+/** Whether a path is one of the app's pages: its canonical routes (B8 spaRoutes) or its own pages below the base. */
+function appPage(path: string): boolean {
+  if (path.startsWith(build.base)) return !/\.\w+$/.test(path);
+  const site = sitePathOf(path, SUB);
+  return site !== undefined && isSpaRoute(site);
+}
 
 sw.addEventListener('fetch', (e) => {
   if (build.kill) return;
   const s = strategy(e.request, sw.location.origin, build.base);
   if (s === 'asset') e.respondWith(asset(e.request));
-  else if (s === 'navigate') {
-    if (!navigator.onLine) e.respondWith(offline());
-    else if (preloading) e.respondWith(navigate(e));
-  }
+  // Top-level documents only (not frames); everything else is the browser's.
+  else if (s === 'navigate' && e.request.destination === 'document') e.respondWith(navigate(e));
 });
 
 async function asset(req: Request): Promise<Response> {
@@ -151,32 +145,48 @@ async function asset(req: Request): Promise<Response> {
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  if (res.ok) void cache.put(req, res.clone()).catch(() => undefined);
+  // Only this build's files are kept (a newer build's chunks belong to its own worker's cache).
+  const path = new URL(req.url).pathname.slice(build.base.length);
+  if (res.ok && build.assets.includes(path)) void cache.put(req, res.clone()).catch(() => undefined);
   return res;
 }
 
+/**
+ * A top-level navigation. Online it is the browser's own request — navigation
+ * preload (cookies, Sec-Fetch-Dest: document, on which B8 decides between the
+ * app and the classic page); a request made here would not be a document
+ * navigation to the server. Without preload, the app's pages get the app's
+ * document from the network and other pages a plain fetch (the same classic
+ * page). Offline — navigator.onLine, a failed request, or an app page that
+ * does not answer within 4 s — the cached shell answers: the app renders the
+ * route from IndexedDB, or says what is available offline. A classic page is
+ * never replaced by the shell while the network answers, however slowly.
+ */
 async function navigate(e: FetchEvent): Promise<Response> {
-  const net = e.preloadResponse.then((r) => r ?? fetch(e.request));
+  const path = new URL(e.request.url).pathname;
+  const app = appPage(path);
+  if (!navigator.onLine) return offline();
+  const net = e.preloadResponse.then((r) => r ?? (app ? fetch(SHELL, {cache: 'no-cache', credentials: 'same-origin'}) : fetch(e.request)));
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const slow = new Promise<'slow'>((resolve) => {
-    timer = setTimeout(() => {
-      resolve('slow');
-    }, NAVIGATION_TIMEOUT);
-  });
   try {
-    const first = await Promise.race([net, slow]);
-    if (first === 'slow') {
-      const cached = await shell();
-      if (cached) {
-        void net.catch(() => undefined);
-        return cached;
+    if (app) {
+      const slow = new Promise<'slow'>((resolve) => {
+        timer = setTimeout(() => {
+          resolve('slow');
+        }, NAVIGATION_TIMEOUT);
+      });
+      if (await Promise.race([net, slow]) === 'slow') {
+        const cached = await shell();
+        if (cached) {
+          void net.catch(() => undefined);
+          return cached;
+        }
       }
     }
     const res = await net;
-    e.waitUntil(afterOnline(e.request, res));
+    e.waitUntil(afterOnline(path, app, res));
     return res;
   } catch {
-    // No network after all: the app (it renders what IndexedDB has, or tells what is available offline).
     return await offline();
   } finally {
     clearTimeout(timer);
@@ -191,28 +201,28 @@ async function shell(): Promise<Response | undefined> {
   return (await caches.open(CACHE)).match(SHELL, {ignoreVary: true});
 }
 
+/** When the kill switch was last checked (kept in the cache: the worker restarts after every idle spell). */
+const KILL_KEY = `${build.base}__kill-check`;
+
 /** An online navigation: the kill switch, and a newer build on the server. */
-async function afterOnline(req: Request, res: Response): Promise<void> {
-  const path = new URL(req.url).pathname;
-  if (res.status === 404 && path.startsWith(build.base)) {
-    // The UI's own pages are gone: the server does not serve this UI (any more).
-    await killSelf();
-    return;
-  }
-  // Only the app's documents are read (never a classic page's body).
-  const sub = new URL(sw.registration.scope).pathname.replace(/\/$/, '');
-  const site = sitePathOf(path, sub);
-  const app = path.startsWith(build.base) || (site !== undefined && isSpaRoute(site));
-  const html = app && res.ok && res.headers.get('Content-Type')?.includes('text/html') ? await res.clone().text().catch(() => '') : '';
-  const theirs = html.includes(BUILD_META) ? buildOf(html) : undefined;
-  if (theirs && theirs !== build.version) {
-    void sw.registration.update().catch(() => undefined);
-  } else if (theirs === build.version) {
+async function afterOnline(path: string, app: boolean, res: Response): Promise<void> {
+  const cache = await caches.open(CACHE);
+  // One of the app's own pages is gone: the server may not serve this UI any more — sw.js says.
+  let check = res.status === 404 && path.startsWith(build.base);
+  if (app && res.ok && res.headers.get('Content-Type')?.includes('text/html')) {
+    // Only the app's documents are read (never a classic page's body).
+    const html = await res.clone().text().catch(() => '');
+    const theirs = buildOf(html);
+    if (theirs && theirs !== build.version) void sw.registration.update().catch(() => undefined);
     // The same build: keep the freshest shell (config and CSP as served now).
-    await (await caches.open(CACHE)).put(SHELL, new Response(html, {status: res.status, statusText: res.statusText, headers: res.headers}));
+    else if (theirs === build.version) await cache.put(SHELL, new Response(html, {status: res.status, statusText: res.statusText, headers: res.headers}));
   }
-  if (Date.now() - lastKillCheck < KILL_CHECK) return;
-  lastKillCheck = Date.now();
+  if (!check) {
+    const last = Number(await (await cache.match(KILL_KEY))?.text() ?? 0);
+    check = Date.now() - last > KILL_CHECK;
+  }
+  if (!check) return;
+  await cache.put(KILL_KEY, new Response(String(Date.now())));
   const me = await fetch(`${build.base}sw.js`, {cache: 'no-store', credentials: 'same-origin'}).catch(() => undefined);
   if (me && (me.status === 404 || me.status === 410)) await killSelf();
 }

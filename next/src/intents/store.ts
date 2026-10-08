@@ -17,7 +17,7 @@
 // draft, or done (deleted) — never two, never none. Writes of a record that
 // another tab removed meanwhile are dropped, never resurrected.
 
-import {done, DRAFTS, INTENTS, request} from '../data/idb.ts';
+import {done, DRAFTS, INTENTS, META, request} from '../data/idb.ts';
 import type {Intent} from './intents.ts';
 import type {ApiRequest} from './rest.ts';
 
@@ -67,6 +67,8 @@ export interface DraftRecord {
   reason?: string;
   /** The text the user typed. */
   text?: string;
+  /** text: what the edit is based on (an editor restored from it keeps its base: a 3-way merge stays right). */
+  base?: {text: string; version: number; updated?: string | undefined};
   /** What it was ("Editing the description of #12"). */
   title: string;
   issueId?: number;
@@ -76,6 +78,10 @@ export interface DraftRecord {
 }
 
 export const failedKey = (intentId: string) => `failed:${intentId}`;
+
+/** The meta record of the remapped temporary ids, and how many are kept. */
+const REMAPS = 'intentRemaps';
+const MAX_REMAPS = 500;
 
 export class IntentDb {
   private readonly dbp: Promise<IDBDatabase>;
@@ -132,8 +138,8 @@ export class IntentDb {
    * there (done or failed meanwhile, by another tab) is not written back; the
    * result tells which were.
    */
-  async update(recs: readonly IntentRecord[]): Promise<boolean[]> {
-    const tx = await this.tx(INTENTS, 'readwrite');
+  async update(recs: readonly IntentRecord[], remap?: readonly [number, number]): Promise<boolean[]> {
+    const tx = await this.tx(remap ? [INTENTS, META] : INTENTS, 'readwrite');
     const store = tx.objectStore(INTENTS);
     const finished = done(tx);
     const out: boolean[] = [];
@@ -147,8 +153,21 @@ export class IntentDb {
       if (ok) store.put(r);
       out.push(ok);
     }
+    // A create's temporary id → the server's, with its ack (an intent made later under the temporary id, or
+    // read after a reload, is remapped from this).
+    if (remap && out[0]) {
+      const meta = tx.objectStore(META);
+      const prev = (await request(meta.get(REMAPS) as IDBRequest<{v?: [number, number][]} | undefined>))?.v ?? [];
+      meta.put({k: REMAPS, v: [...prev.filter(([f]) => f !== remap[0]), remap].slice(-MAX_REMAPS)});
+    }
     await finished;
     return out;
+  }
+
+  /** Temporary ids replaced by the server's (the newest MAX_REMAPS). */
+  async remaps(): Promise<[number, number][]> {
+    const tx = await this.tx(META, 'readonly');
+    return (await request(tx.objectStore(META).get(REMAPS) as IDBRequest<{v?: [number, number][]} | undefined>))?.v ?? [];
   }
 
   /** The intent is done (confirmed, or nothing to do). */

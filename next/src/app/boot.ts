@@ -8,6 +8,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {optIn} from '../auth/optin.ts';
+import {isSpaRoute, sitePathOf} from '../sw/routes.ts';
 import {loadConfig, uiPath} from './config.ts';
 import {isChunkError} from './reload.ts';
 import {createAppRouter, type AppRouter} from './router.tsx';
@@ -19,14 +20,15 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   const config = await loadConfig();
   const callback = location.pathname.startsWith(uiPath(config, 'callback'));
   preloadRoute(app0(config));
+  // The offline queue's chunk loads while IndexedDB is read (it is not on the boot route's bundle).
+  const queueModule = callback ? undefined : import('../intents/session.ts');
+  queueModule?.catch(() => undefined);
   const session = callback ? undefined : await openSession(config);
   const app = createApp(config, session);
   const router = createAppRouter(app);
-  // The offline queue (its own chunk, read from IndexedDB) is in the overlay before the first frame:
-  // pending changes show at once after a reload. Never fatal for boot (it is started again on first use).
-  const queue = session ? import('../intents/session.ts').then((m) => m.startEditing(app)).catch((err: unknown) => {
-    console.error('intents: the queue could not be started', err);
-  }) : undefined;
+  // Pending changes are in the overlay before the first frame (they show at once after a reload);
+  // with none queued (the usual case) the first frame does not wait for the queue. Never fatal.
+  const queue = session && queueModule ? startQueue(app, session, queueModule) : undefined;
   await Promise.all([router.load(), queue]);
   const failed = router.state.matches.find((m) => m.status === 'error' && isChunkError(m.error));
   if (failed) throw failed.error;
@@ -34,6 +36,14 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   // sign-in broadcast would reload it before it leaves, and the code is single-use).
   if (!callback) started(app, router);
   return {app, router};
+}
+
+async function startQueue(app: App, session: NonNullable<App['session']>, m: Promise<{startEditing: (app: App) => Promise<unknown>}>): Promise<void> {
+  const pending = await session.data.countIntents().catch(() => 1);
+  const started = m.then((q) => q.startEditing(app)).catch((err: unknown) => {
+    console.error('intents: the queue could not be started', err);
+  });
+  if (pending > 0) await started;
 }
 
 function app0(config: App['config']): App {
@@ -73,8 +83,10 @@ function started(app: App, router: AppRouter): void {
   s.data.on('wrongUser', ({viewerId}) => {
     console.error(`livesync: the session belongs to user ${String(viewerId)}, not to this device's user ${String(s.userId)}`);
   });
-  // Canonical URLs reload into this UI only with the opt-in cookie.
-  void optIn(app.config);
+  // Canonical URLs reload into this UI only with the opt-in cookie. Not from a page the app does not
+  // have (the service worker's offline fallback): that would opt a user who left back in.
+  const site = sitePathOf(location.pathname, app.config.app_sub_url);
+  if (location.pathname.startsWith(app.config.base) || (site !== undefined && isSpaRoute(site))) void optIn(app.config);
   // The splash for the next boot: the route and the shape of its page.
   const remember = () => {
     const leaf = router.state.matches.at(-1);

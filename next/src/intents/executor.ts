@@ -47,7 +47,7 @@
 // the pool holds its group up to v (Data.whenSynced: no flicker), without an
 // echo once the pool shows the intent's own effect; ≤ 60 s either way.
 
-import {observable, reaction, runInAction} from 'mobx';
+import {observable, reaction, runInAction, untracked} from 'mobx';
 import type {Pool} from '../data/pool.ts';
 import {HeaderIdempotencyKey, HeaderSyncID} from '../protocol/types.gen.ts';
 import {effectHeld, lastChangedBy, scalarField, serverScalar} from './effects.ts';
@@ -70,7 +70,9 @@ export type IntentMessage =
   /** A tab asks the leader to take a queued intent back (discard). */
   | {t: 'discard'; id: string}
   /** A tab took over: the others re-read the queue (the old leader's last messages may be lost). */
-  | {t: 'leader'};
+  | {t: 'leader'}
+  /** An override notice was undone or dismissed. */
+  | {t: 'overrideGone'; id: string};
 
 export interface Channel {
   post(m: IntentMessage): void;
@@ -162,6 +164,10 @@ export class Intents {
   readonly overrides = observable.array<Override>([], {deep: false});
   /** Per entity (issue id): queued intents, for the pending badges. */
   private readonly perIssue = observable.map<number, number>({}, {deep: false});
+  /** Parked conflicts by text target (`body:<issue>`, `comment:<id>`) → record id (the editors observe one key). */
+  private readonly parked = observable.map<string, string>({}, {deep: false});
+  /** Intents whose storing failed: kept in memory (a re-read must not drop them). */
+  private readonly memoryOnly = new Set<string>();
   /** Resolves once the stored queue is in the overlay. */
   readonly ready: Promise<void>;
 
@@ -173,6 +179,9 @@ export class Intents {
   private readonly nextAt = new Map<string, number>();
   private wake: ReturnType<typeof setTimeout> | undefined;
   private pumpQueued = false;
+  private orphanCheck = false;
+  /** Entities whose last write was given up on without its echo: until their queue empties, the pool's word on them is not trusted (no "already done" shortcut; the server decides). */
+  private readonly stale = new Set<string>();
   /** Signed out: nothing is sent until the session is live again (the queue is held, PLAN §4.9). */
   private held = false;
   private barrierPending: Promise<unknown> | undefined;
@@ -207,7 +216,8 @@ export class Intents {
 
   /** Applies an intent to the overlay at once, stores it (a fresh Idempotency-Key) and queues it; returns it. */
   submit(input: IntentInput, replaces: {draft?: string; intent?: string} = {}): Intent {
-    const i = newIntent(input, this.now());
+    // An entity created offline and already created on the server: its server id (it may still show under its temporary one).
+    const i = this.remapKnown(newIntent(input, this.now()));
     const rec: IntentRecord = {id: i.id, intent: i, state: 'queued', attempts: 0, updated: this.now()};
     this.unstored.add(i.id);
     this.apply(() => {
@@ -232,8 +242,9 @@ export class Intents {
       if (replaces.intent) this.env.channel.post({t: 'done', id: replaces.intent});
       this.kick();
     }, (err: unknown) => {
-      // Not durable (storage full or broken): it still runs in this tab, and the user is told.
+      // Not durable (storage full or broken): it still runs in this tab (a re-read keeps it), and the user is told.
       this.unstored.delete(i.id);
+      this.memoryOnly.add(i.id);
       console.error('intents: storing failed', err);
       this.apply(() => {
         const r = this.records.get(i.id);
@@ -261,13 +272,10 @@ export class Intents {
     return this.perIssue.get(issueId) ?? 0;
   }
 
-  /** The parked conflict of an entity's text edit, if any (the editor shows it). */
+  /** The parked conflict of an entity's text edit, if any (the editor shows it). Observes that entity's conflict only. */
   conflictOf(kind: 'issue.body' | 'comment.edit', id: number): IntentRecord | undefined {
-    for (const r of this.records.values()) {
-      if (r.state !== 'parked' || r.intent.kind !== kind) continue;
-      if (kind === 'issue.body' ? r.intent.issueId === id : r.intent.kind === 'comment.edit' && r.intent.commentId === id) return r;
-    }
-    return undefined;
+    const rec = this.parked.get(kind === 'issue.body' ? `body:${String(id)}` : `comment:${String(id)}`);
+    return rec === undefined ? undefined : untracked(() => this.records.get(rec));
   }
 
   /**
@@ -291,6 +299,11 @@ export class Intents {
     const d = this.drafts.get(draftKey);
     if (!d?.intent) return undefined;
     return this.submit(strip(d.intent), {draft: draftKey});
+  }
+
+  /** The same change again, as a new intent (an undone discard). */
+  resubmit(i: Intent): Intent {
+    return this.submit(strip(i));
   }
 
   /** Discards a draft (the user chose to). */
@@ -319,12 +332,19 @@ export class Intents {
    * Takes back a queued intent the user no longer wants (never attempted, or
    * parked: see `discardable`). The leader does it (it knows what is in flight).
    */
-  discard(id: string): void {
+  discard(id: string, again = true): void {
     if (!this.env.isLeader()) {
       this.env.channel.post({t: 'discard', id});
       return;
     }
     const rec = this.records.get(id);
+    // Not known yet (a take-over, a follower's intent just stored): read the queue, then decide.
+    if (!rec && again) {
+      void this.reread().then(() => {
+        this.discard(id, false);
+      });
+      return;
+    }
     if (!rec || this.sending.has(id) || !discardable(rec)) return;
     void this.env.db.remove(id).then(() => {
       this.finishLocal(id);
@@ -340,11 +360,13 @@ export class Intents {
     this.submit(o.undo);
   }
 
-  dismissOverride(id: string): void {
+  dismissOverride(id: string, tell = true): void {
     this.apply(() => {
       const k = this.overrides.findIndex((x) => x.id === id);
       if (k >= 0) this.overrides.splice(k, 1);
     });
+    // Every tab drops it (an undo is offered once).
+    if (tell) this.env.channel.post({t: 'overrideGone', id});
   }
 
   /** This tab leads now: the queue in IndexedDB is the truth (a dead leader's last messages may be lost). */
@@ -359,22 +381,24 @@ export class Intents {
 
   /** Re-reads the queue and the drafts from IndexedDB (what another tab or a dead leader did). */
   async reread(): Promise<void> {
-    const [recs, drafts] = await Promise.all([this.env.db.list(), this.env.db.drafts()]);
+    const [recs, drafts, remaps] = await Promise.all([this.env.db.list(), this.env.db.drafts(), this.env.db.remaps()]);
     if (this.closed) return;
     this.apply(() => {
+      for (const [from, to] of remaps) if (this.remapped.get(from) !== to) this.remapped.set(from, to);
       const seen = new Set<string>();
       for (const r of recs) {
         seen.add(r.id);
         const cur = this.records.get(r.id);
         if (!cur) this.track(r);
-        else if (!this.sending.has(r.id)) this.replace(r);
+        // In flight here: this tab's state is newer than a read taken before its last write.
+        else if (!this.sending.has(r.id) && !this.confirming.has(r.id)) this.replace(r);
       }
       for (const id of [...this.records.keys()]) {
-        if (!seen.has(id) && !this.unstored.has(id) && !this.sending.has(id) && !this.confirming.has(id)) this.forget(id);
+        if (!seen.has(id) && !this.unstored.has(id) && !this.memoryOnly.has(id) && !this.sending.has(id) && !this.confirming.has(id)) this.forget(id);
       }
       const keys = new Set(drafts.map((d) => d.key));
       for (const k of [...this.drafts.keys()]) if (!keys.has(k)) this.drafts.delete(k);
-      for (const d of drafts) this.drafts.set(d.key, d);
+      for (const d of drafts) if (JSON.stringify(this.drafts.get(d.key)) !== JSON.stringify(d)) this.drafts.set(d.key, d);
     });
   }
 
@@ -396,27 +420,51 @@ export class Intents {
     this.env.overlay.add(rec.id, intentOps(rec.intent, {userId: this.env.userId}));
     const issue = rec.intent.issueId;
     if (issue) this.perIssue.set(issue, (this.perIssue.get(issue) ?? 0) + 1);
+    this.noteParked(undefined, rec);
   }
 
-  /** A record's new state; its layer follows its intent (remapped, merged). */
+  /** A record's new state; its layer follows its intent (remapped, merged). Nothing happens when nothing changed. */
   private replace(rec: IntentRecord): void {
     const cur = this.records.get(rec.id);
-    if (!cur) return;
+    if (!cur || JSON.stringify(cur) === JSON.stringify(rec)) return;
     if (cur.intent.issueId !== rec.intent.issueId) {
       this.count(cur.intent.issueId, -1);
       this.count(rec.intent.issueId, 1);
     }
     this.records.set(rec.id, rec);
     if (JSON.stringify(cur.intent) !== JSON.stringify(rec.intent)) this.env.overlay.add(rec.id, intentOps(rec.intent, {userId: this.env.userId}));
+    this.noteParked(cur, rec);
   }
 
   private forget(id: string): void {
     const rec = this.records.get(id);
     if (!rec) return;
     this.records.delete(id);
+    const chain = chainOf(rec.intent);
+    if (this.stale.has(chain) && ![...this.records.values()].some((r) => chainOf(r.intent) === chain)) this.stale.delete(chain);
     this.env.overlay.remove(id);
     this.count(rec.intent.issueId, -1);
     this.nextAt.delete(id);
+    this.memoryOnly.delete(id);
+    this.noteParked(rec, undefined);
+  }
+
+  /** Keeps `parked` (text target → parked record) in step with a record's change. */
+  private noteParked(before: IntentRecord | undefined, after: IntentRecord | undefined): void {
+    const was = before?.state === 'parked' ? textTarget(before.intent) : undefined;
+    const now = after?.state === 'parked' ? textTarget(after.intent) : undefined;
+    if (was !== undefined && was !== now && this.parked.get(was) === before?.id) this.parked.delete(was);
+    if (now !== undefined && after && this.parked.get(now) !== after.id) this.parked.set(now, after.id);
+  }
+
+  /** The intent with the temporary ids it refers to replaced by the server's, where those are known. */
+  private remapKnown(i: Intent): Intent {
+    let out = i;
+    for (const t of tempRefs(i)) {
+      const to = untracked(() => this.remapped.get(t));
+      if (to !== undefined) out = remapIntent(out, t, to);
+    }
+    return out;
   }
 
   private count(issue: number, by: number): void {
@@ -486,6 +534,9 @@ export class Intents {
       case 'leader':
         if (!this.env.isLeader()) void this.reread();
         break;
+      case 'overrideGone':
+        this.dismissOverride(m.id, false);
+        break;
     }
   }
 
@@ -529,24 +580,53 @@ export class Intents {
     const blocked = new Set<string>();
     let soonest = Number.POSITIVE_INFINITY;
     const order = [...this.records.values()].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER) || a.intent.created - b.intent.created);
+    // A parked conflict holds back only later edits of the same text (`textTarget`): the user resolves it
+    // in the editor while the issue's other changes go on.
+    const parkedTargets = new Map<string, IntentRecord>();
+    const waiting: IntentRecord[] = [];
     for (const rec of order) {
-      if (this.sending.size >= MAX_SENDS) break;
-      if (rec.state === 'acked') continue;
-      const chain = chainOf(rec.intent);
+      const i = rec.intent;
+      const chain = chainOf(i);
+      const target = textTarget(i);
+      if (rec.state === 'parked') {
+        if (target) parkedTargets.set(target, rec);
+        // An edit parked on a comment that is gone (deleted on the server): it cannot be made, its text is kept.
+        if (i.kind === 'comment.edit' && this.env.pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && !untracked(() => this.env.pool.model('Comment').get(i.commentId))) {
+          void this.fail(rec, 'The comment was deleted.');
+        }
+        continue;
+      }
       if (blocked.has(chain)) continue;
+      const parkedHere = target === undefined ? undefined : parkedTargets.get(target);
+      if (parkedHere) {
+        // Deleting the comment makes its parked edit moot: the edit goes to the drafts (its text kept).
+        if (i.kind === 'comment.delete') void this.fail(parkedHere, 'You deleted this comment; your edit is kept here.');
+        blocked.add(chain);
+        continue;
+      }
+      // Refers to an entity created offline: it waits for the create and its remap (without holding the
+      // issue's other changes back: the create itself may be behind it).
+      if (tempRefs(i).length) {
+        const remapped = this.remapKnown(i);
+        if (remapped !== i) {
+          blocked.add(chain);
+          void this.save([{...rec, intent: remapped, updated: this.now()}]).then(() => {
+            this.kick();
+          });
+        } else waiting.push(rec);
+        continue;
+      }
       blocked.add(chain);
-      if (rec.state === 'parked' || this.sending.has(rec.id)) continue;
-      // Not stored yet (it is sent once it is durable), unless storing failed.
-      if (this.unstored.has(rec.id)) continue;
+      // Acked: the entity's next intent waits for its echo (it is prepared against the state that includes it).
+      if (rec.state === 'acked' || this.sending.has(rec.id) || this.unstored.has(rec.id) || this.sending.size >= MAX_SENDS) continue;
       const at = this.nextAt.get(rec.id) ?? 0;
       if (at > now) {
         soonest = Math.min(soonest, at);
         continue;
       }
-      // Waits for the creates it refers to (their remap rewrites it).
-      if (tempRefs(rec.intent).length) continue;
       void this.send(rec);
     }
+    if (waiting.length) void this.orphans(waiting);
     if (this.wake) clearTimeout(this.wake);
     this.wake = undefined;
     if (soonest < Number.POSITIVE_INFINITY) {
@@ -577,25 +657,38 @@ export class Intents {
         for (const r of unknown) this.track(r);
       });
     }
-    const chain = chainOf(rec.intent);
-    const mine = rec.seq ?? Number.MAX_SAFE_INTEGER;
-    return stored.some((r) => r.id !== rec.id && r.state !== 'acked' && chainOf(r.intent) === chain && (r.seq ?? 0) < mine);
+    return stored.some((r) => r.id !== rec.id && (r.seq ?? 0) < (rec.seq ?? Number.MAX_SAFE_INTEGER) && holdsBack(r, rec, (t) => this.remapped.has(t)));
   }
 
-  /** Whether an earlier intent of the same entity is still in the queue (sent, waiting for its echo). */
-  private earlierIn(rec: IntentRecord): boolean {
-    const chain = chainOf(rec.intent);
-    const mine = rec.seq ?? Number.MAX_SAFE_INTEGER;
-    for (const r of this.records.values()) {
-      if (r.id !== rec.id && (r.seq ?? Number.MAX_SAFE_INTEGER) < mine && chainOf(r.intent) === chain) return true;
+  /**
+   * Intents that wait for a create no queued intent will make (it was discarded,
+   * or it failed and the tab died before failing them): they cannot be made, and
+   * fail with their text kept. Checked against IndexedDB (another tab may hold the create).
+   */
+  private async orphans(waiting: IntentRecord[]): Promise<void> {
+    if (this.orphanCheck) return;
+    this.orphanCheck = true;
+    try {
+      const stored = await this.env.db.list();
+      const creating = new Set<number>();
+      for (const r of stored) {
+        const i = r.intent;
+        if (i.kind === 'issue.create') creating.add(i.issueId);
+        else if ('tempId' in i) creating.add(tempNum(i.tempId));
+      }
+      for (const r of waiting) {
+        if (!this.records.has(r.id)) continue;
+        if (tempRefs(r.intent).some((t) => !creating.has(t) && !this.remapped.has(t))) await this.fail(r, 'It depends on a change that was discarded or could not be made.');
+      }
+    } finally {
+      this.orphanCheck = false;
     }
-    return false;
   }
 
   /** Persists a record's new state (unless it is gone); false when another tab finished it meanwhile. */
-  private async save(recs: IntentRecord[]): Promise<boolean[]> {
+  private async save(recs: IntentRecord[], remap?: [number, number]): Promise<boolean[]> {
     const stored = recs.filter((r) => r.seq !== undefined);
-    const ok = stored.length ? await this.env.db.update(stored) : [];
+    const ok = stored.length ? await this.env.db.update(stored, remap) : [];
     let k = 0;
     const out = recs.map((r) => (r.seq === undefined ? this.records.has(r.id) : ok[k++] ?? false));
     if (this.closed) return out.map(() => false);
@@ -627,9 +720,9 @@ export class Intents {
       // leader that died) is learnt here, and one of the same entity queued before this one goes first.
       if (await this.unknownBefore(rec)) return;
       const i = rec.intent;
-      // Nothing to do: the server already shows it (a remote change did the same). Not while an earlier
-      // intent of the entity is unconfirmed: the pool does not show that one yet, and it may undo this.
-      if (rec.req === undefined && POLICY[i.kind] !== 'create' && !this.earlierIn(rec) && effectHeld(env.pool, i, env.userId)) {
+      // Nothing to do: the server already shows it (a remote change did the same). The entity's earlier
+      // intents are confirmed by now (the pump holds an entity's next intent until then).
+      if (rec.req === undefined && POLICY[i.kind] !== 'create' && !this.stale.has(chainOf(i)) && effectHeld(env.pool, i, env.userId)) {
         await this.done(rec, undefined);
         return;
       }
@@ -664,11 +757,13 @@ export class Intents {
     const {env} = this;
     let rec = rec0;
     let i = rec.intent;
-    if (i.kind === 'issue.body') {
+    // A stale entity (see `stale`): the server's 409 tells the current text instead of the pool.
+    const fresh = !this.stale.has(chainOf(i));
+    if (i.kind === 'issue.body' && fresh) {
       const srv = env.pool.model('IssueBody').get(i.issueId)?.data;
       if (srv && srv.body !== i.baseText) return this.rebase(rec, srv.body, srv.content_version);
       if (srv && srv.content_version !== i.baseVersion) i = {...i, baseVersion: srv.content_version};
-    } else if (i.kind === 'comment.edit') {
+    } else if (i.kind === 'comment.edit' && fresh) {
       const srv = env.pool.model('Comment').get(i.commentId)?.data;
       if (srv && srv.updated_at !== i.baseUpdated && srv.body !== i.baseText) {
         await this.park(rec, {theirs: srv.body, version: srv.content_version, updated: srv.updated_at, merged: merge3(i.baseText, srv.body, i.text).text});
@@ -679,8 +774,8 @@ export class Intents {
     const req = requestFor(i, env.pool, env.overlay);
     rec = {...rec, intent: i, req, updated: this.now()};
     // Last writer wins, but the user hears about overriding someone's newer value.
-    // (Not while an earlier intent of the entity is unconfirmed: the pool does not show the base the user saw yet.)
-    if (POLICY[i.kind] === 'scalar' && 'base' in i && !this.earlierIn(rec)) {
+    // (The entity's earlier intents are confirmed by now: the pool shows what the user saw.)
+    if (POLICY[i.kind] === 'scalar' && 'base' in i) {
       const cur = serverScalar(env.pool, i);
       const mine = valueOf(i);
       if (cur !== undefined && cur !== i.base && cur !== mine) rec = {...rec, override: {theirs: cur, who: lastChangedBy(env.pool, i) ?? 0}};
@@ -699,7 +794,7 @@ export class Intents {
       return undefined;
     }
     const merged: Intent = {...i, baseText: theirs, baseVersion: version, text: m.text, key: uuid()};
-    if (merged.text === theirs) {
+    if (merged.text === theirs && !this.stale.has(chainOf(i))) {
       // The server already has it.
       await this.done({...rec, intent: merged}, undefined);
       return undefined;
@@ -723,8 +818,11 @@ export class Intents {
     let token: string;
     try {
       token = await env.token();
-    } catch {
-      this.held = true; // signed out: held, not dropped (PLAN §4.9)
+    } catch (err) {
+      // Signed out: held, not dropped (PLAN §4.9), until the session is live again. Anything else (the
+      // token endpoint unreachable): try again later.
+      if (err instanceof Error && err.name === 'SignedOut') this.held = true;
+      else await this.later(rec, -1, 'Could not get a session token; retrying.', false);
       return;
     }
     const res = await this.fetch(rec, req, token);
@@ -800,6 +898,11 @@ export class Intents {
         if (i.kind === 'issue.body') {
           const next = await this.rebase(rec, j.body, j.content_version);
           if (next?.req) await this.attempt(next, next.req);
+        } else if (j.body === i.baseText) {
+          // Only its version moved (the text is still the base): the same edit at the current version, under a new key.
+          const next: IntentRecord = {...rec, intent: {...i, baseVersion: j.content_version, key: uuid()}, attempts: 0, updated: this.now()};
+          delete next.req;
+          await this.save([next]);
         } else {
           await this.park(rec, {theirs: j.body, version: j.content_version, updated: '', merged: merge3(i.baseText, j.body, i.text).text});
         }
@@ -844,7 +947,9 @@ export class Intents {
         if (ri !== r.intent) changes.push({...r, intent: ri, updated: this.now()});
       }
     }
-    const ok = await this.save(changes);
+    // The remap is stored with the ack: an intent made later under the temporary id (or read after a
+    // reload) is remapped from it (`remapKnown`).
+    const ok = await this.save(changes, from !== undefined && created ? [from, created.id] : undefined);
     if (!ok[0]) return;
     if (from !== undefined && created && 'tempId' in i) {
       const m = {t: 'remap' as const, model: CREATES[i.kind], from, to: created.id, ...(created.number ? {number: created.number} : {})};
@@ -917,7 +1022,10 @@ export class Intents {
       });
     }
     try {
-      await Promise.race([arrived.catch(() => undefined), timeout]);
+      const reached = await Promise.race([arrived.then(() => true, () => true), timeout.then(() => false)]);
+      // Given up without the echo: the pool may not show this write yet, so what it says of the entity is
+      // not trusted for the next intents (`stale`).
+      if (!reached) this.stale.add(chainOf(i));
     } finally {
       for (const t of timers) clearTimeout(t);
       ctrl.abort();
@@ -933,6 +1041,8 @@ export class Intents {
     if (this.closed) return;
     this.finishLocal(rec.id);
     this.env.channel.post({t: 'done', id: rec.id, ...(echo ?? {})});
+    // The entity's next intent may go now.
+    this.kick();
   }
 
   /** It cannot be carried out: the layer goes, the intent and its text become a draft (one transaction). */
@@ -951,6 +1061,7 @@ export class Intents {
     });
     this.env.channel.post({t: 'failed', id: rec.id, draft});
     if (this.visible()) this.env.onFailed?.(draft);
+    this.kick();
     // What waits for a create that failed cannot happen either.
     if (i.kind in CREATES && 'tempId' in i) {
       const temp = i.kind === 'issue.create' ? i.issueId : tempNum(i.tempId);
@@ -991,6 +1102,23 @@ export class Intents {
       this.barrierAgain = false;
     });
   }
+}
+
+/** The text an intent edits (a parked conflict there holds back later edits of the same text): `body:<issue>`, `comment:<id>`. */
+function textTarget(i: Intent): string | undefined {
+  if (i.kind === 'issue.body') return `body:${String(i.issueId)}`;
+  if (i.kind === 'comment.edit' || i.kind === 'comment.delete') return `comment:${String(i.commentId)}`;
+  return undefined;
+}
+
+/**
+ * Whether the earlier queued `r` must be done before `rec` is sent: same
+ * entity, unless it is parked on another text, or waits for a create.
+ */
+function holdsBack(r: IntentRecord, rec: IntentRecord, known: (temp: number) => boolean): boolean {
+  if (chainOf(r.intent) !== chainOf(rec.intent)) return false;
+  if (r.state === 'parked') return textTarget(r.intent) !== undefined && textTarget(r.intent) === textTarget(rec.intent);
+  return tempRefs(r.intent).every(known);
 }
 
 /** The input of an intent (for a new one with the same change). */

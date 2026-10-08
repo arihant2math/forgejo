@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {lazy, type ReactNode, Suspense} from 'react';
+import {lazy, type ReactNode, Suspense, useState} from 'react';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Code, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
@@ -25,7 +25,7 @@ import {issueComments} from '../../intents/view.ts';
 import {firstOf, priorityIcon, statusIcon, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
 import {labelKind, scopedValue} from '../issues/labels.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
-import {CommentBody} from './Editing.tsx';
+import {CommentActions, CommentBody} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
 import {Reactions} from './Reactions.tsx';
 
@@ -113,16 +113,29 @@ const CommentItem = observer(function CommentItem({id}: {id: number}) {
   const type = c.get('type');
   if (type === 'comment' || type === 'code' || type === 'dismiss_review') {
     if (overlay.field('Comment', id, DELETED)) return null;
-    return (
-      <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
-        badge={type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
-        footer={<Reactions issueId={c.get('issue_id')} commentId={id}/>}>
-        <CommentBody c={c}/>
-      </Card>
-    );
+    return <CommentCard c={c} type={type}/>;
   }
   return <EventLine comment={c}/>;
 });
+
+/** A comment's card: its header (with the viewer's actions), its body or editor, its reactions. */
+function CommentCard({c, type}: {c: Entity<'Comment'>; type: string}) {
+  const [edit, setEdit] = useState(false);
+  return (
+    <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+      badge={<>
+        {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
+        {c.id > 0 && <CommentActions c={c} onEdit={() => {
+          setEdit(true);
+        }}/>}
+      </>}
+      footer={<Reactions issueId={c.get('issue_id')} commentId={c.id}/>}>
+      <CommentBody c={c} edit={edit} onEditDone={() => {
+        setEdit(false);
+      }}/>
+    </Card>
+  );
+}
 
 const REVIEW_LOOK: Record<string, {tone: BadgeTone; text: string}> = {
   APPROVED: {tone: 'success', text: 'approved'},

@@ -1,12 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {Link, type ErrorComponentProps} from '@tanstack/react-router';
+import type {ErrorComponentProps} from '@tanstack/react-router';
+import {observer} from 'mobx-react-lite';
 import {CloudOff, FileQuestion, RefreshCw} from 'lucide-react';
 import {useEffect} from 'react';
 import {Button, EmptyState} from '../ui/index.ts';
 import {AvailableOffline} from './Available.tsx';
 import {CenteredScreen} from './LoggedOut.tsx';
+import {connectivity} from './online.ts';
 import {isChunkError, reloadOnce} from './reload.ts';
 
 /** A route failed to load or render. A missing chunk (an old build) reloads once. */
@@ -28,31 +30,24 @@ export function RouteError({error}: ErrorComponentProps) {
 }
 
 /**
- * A path the app has no page for. Offline, the service worker answers every
- * navigation with the app: a classic page is then "not available offline",
- * and what is available is listed.
+ * A path the app has no page for. The service worker answers every
+ * navigation it cannot get from the network with the app (offline, or the
+ * server unreachable), so this is also the page of a classic page that is not
+ * available offline: it says so, and lists what is available.
  */
-export function RouteNotFound() {
-  if (!navigator.onLine) {
-    return (
-      <CenteredScreen>
-        <EmptyState
-          icon={CloudOff}
-          title="Not available offline"
-          description="This page needs a connection. These work offline:"
-          action={<div className="flex flex-col items-center gap-4"><AvailableOffline/><Button onClick={() => { location.reload(); }}>Try again</Button></div>}
-        />
-      </CenteredScreen>
-    );
-  }
+export const RouteNotFound = observer(function RouteNotFound() {
+  const online = connectivity.online;
   return (
     <CenteredScreen>
       <EmptyState
-        icon={FileQuestion}
-        title="Page not found"
-        description="Forgejo Next has no page at this address."
-        action={<Button asChild><Link to="/">Go home</Link></Button>}
+        icon={online ? FileQuestion : CloudOff}
+        title={online ? 'Not available here' : 'Not available offline'}
+        description={online ?
+          'Forgejo Next has no page at this address, or Forgejo could not be reached. Try again, or open one of these:' :
+          'This page needs a connection. These work offline:'}
+        action={<Button onClick={() => { location.reload(); }}>Try again</Button>}
       />
+      <AvailableOffline/>
     </CenteredScreen>
   );
-}
+});

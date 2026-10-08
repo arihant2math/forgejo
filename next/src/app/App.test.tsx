@@ -95,7 +95,7 @@ describe('boot', () => {
 
   test('unknown paths below the base: not found', async () => {
     await renderApp('/-/next/no/such/page');
-    expect(screen.getByText('Page not found')).toBeTruthy();
+    expect(screen.getByText('Not available here')).toBeTruthy();
   });
 
   test('the gallery route is available in dev', async () => {
@@ -202,14 +202,18 @@ describe('signed in', () => {
 
   test('an unknown repository offline: not available offline, with what is', async () => {
     const s = signedIn();
-    const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
-    Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => false});
+    const {connectivity} = await import('./online.ts');
+    runInAction(() => {
+      connectivity.online = false;
+    });
     try {
       await renderApp('/nobody/nothing/issues', s);
       expect(screen.getByText('Not available offline')).toBeTruthy();
       expect(screen.getByRole('navigation', {name: 'Available on this device'}).textContent).toContain('My issues');
     } finally {
-      if (online) Object.defineProperty(navigator, 'onLine', online);
+      runInAction(() => {
+        connectivity.online = true;
+      });
     }
   });
 
@@ -249,7 +253,7 @@ describe('signed in', () => {
         app.ui.pendingIntents = 3;
       });
     });
-    expect(screen.getByRole('status').textContent).toBe('Offline· 3 pending');
+    expect(screen.getByRole('status').textContent).toBe('Offline · 3 pending');
     act(() => {
       runInAction(() => {
         s.auth.status.state = 'expired';

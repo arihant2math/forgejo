@@ -4,7 +4,7 @@
 import type {InputHTMLAttributes, Ref, TextareaHTMLAttributes} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
-import {control, controlHeight, type ControlSize} from './recipes.ts';
+import {control, controlHeight, type ControlSize, field} from './recipes.ts';
 
 /** A text input. It has no width of its own: size it with className (w-full, w-64). */
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
@@ -22,8 +22,8 @@ export function Input({size = 'md', invalid, icon, className, ...rest}: InputPro
       className={cx(
         control,
         controlHeight[size],
-        'border border-border bg-surface px-2 text-fg placeholder:text-fg-subtle hover:border-border-strong',
-        'focus-visible:outline-offset-0 aria-invalid:border-danger aria-invalid:outline-danger disabled:opacity-disabled',
+        field,
+        'px-2',
         size === 'sm' ? 'text-sm' : 'text-base',
         icon ? 'w-full pl-7' : className,
       )}
@@ -50,11 +50,8 @@ export function TextArea({invalid, rows = 6, ...rest}: TextAreaProps) {
     <textarea
       aria-invalid={invalid}
       rows={rows}
-      className={cx(
-        'interactive block w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-sm text-fg',
-        'placeholder:text-fg-subtle hover:border-border-strong focus-visible:outline-offset-0',
-        'aria-invalid:border-danger aria-invalid:outline-danger disabled:opacity-disabled',
-      )}
+      // The prose size: what is typed reads like what it becomes (ProseSource, the rendering).
+      className={cx('interactive block w-full resize-y rounded-md px-2 py-1.5 text-md', field)}
       {...rest}
     />
   );

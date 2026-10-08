@@ -70,7 +70,7 @@ export function merge3(base: string, theirs: string, mine: string): MergeResult 
 
 /** Whether a text still holds conflict markers (an unresolved merge). */
 export function hasConflictMarkers(text: string): boolean {
-  return text.split('\n').some((l) => l === MARK_MINE || l === MARK_THEIRS);
+  return text.split('\n').some((l) => l === MARK_MINE || l === MARK_SPLIT || l === MARK_THEIRS);
 }
 
 function conflictWhole(mine: string, theirs: string): MergeResult {

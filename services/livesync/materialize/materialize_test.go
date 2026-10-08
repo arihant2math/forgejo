@@ -136,7 +136,7 @@ func TestLoadFixtures(t *testing.T) {
 					assert.Nil(t, e.dto)
 					continue
 				}
-				assert.Regexp(t, `^((user|org|repo|issue|profile):\d+|profiles:(public|limited))$`, e.group, "%s %d", tbl.Name, id)
+				assert.Regexp(t, `^((user|org|owner|repo|issue|profile):\d+|profiles:(public|limited))$`, e.group, "%s %d", tbl.Name, id)
 				hash, err := e.changeHash(ctx, l)
 				require.NoError(t, err)
 				assert.NotEmpty(t, hash)
@@ -509,7 +509,7 @@ func TestConsumePlacement(t *testing.T) {
 		{"org:3", "members", "OrgUser", "U", 2},
 		{"org:3", "members", "Team", "U", 1},
 		{"org:3", "members", "TeamRepo", "U", 1},
-		{"org:3", "", "Label", "U", 3},
+		{"owner:3", "", "Label", "U", 3},
 		{"user:2", "self", "Star", "U", 1},
 		{"repo:1", "issues", "ProjectIssue", "U", 1},
 	}, rows)

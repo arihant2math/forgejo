@@ -475,6 +475,7 @@ func (h *Hub) permissionLocked(ch protocol.PermissionChange, p, hold int64) {
 	for _, o := range ch.Owners {
 		addAll(h.byGroup[protocol.OrgGroup(o)])
 		addAll(h.byGroup[protocol.ProfileGroup(o)])
+		addAll(h.byGroup[protocol.OwnerGroup(o)])
 	}
 	for _, t := range ch.Touched {
 		for s := range h.byRow[rowKey{t.Kind, t.ID}] {
@@ -515,7 +516,7 @@ func epochConcerns(ch *protocol.PermissionChange, viewer int64, group string, de
 		}
 	}
 	for _, o := range ch.Owners {
-		if group == protocol.OrgGroup(o) || group == protocol.ProfileGroup(o) {
+		if group == protocol.OrgGroup(o) || group == protocol.ProfileGroup(o) || group == protocol.OwnerGroup(o) {
 			return true
 		}
 	}

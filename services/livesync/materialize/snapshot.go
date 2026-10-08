@@ -268,8 +268,12 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 		projects := builder.Eq{"owner_id": id, "repo_id": 0}
 		return []source{
 			from("user", builder.Eq{"id": id}),
-			from("project", projects),
 			from("project_board", builder.In("project_id", sel("project", projects))),
+		}, nil
+	case protocol.GroupPrefixOwner:
+		return []source{
+			from("label", builder.Eq{"org_id": id}),
+			from("project", builder.Eq{"owner_id": id, "repo_id": 0}),
 		}, nil
 	case protocol.GroupPrefixProfiles:
 		vis := structs.VisibleTypePublic
@@ -289,8 +293,6 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("team_user", org),
 			from("team_repo", org),
 			from("team_unit", org),
-			from("label", org),
-			from("project", projects),
 			from("project_board", builder.In("project_id", sel("project", projects))),
 		}, nil
 	}
@@ -665,6 +667,20 @@ func snapshotRows(ctx context.Context, l *loader, table string, ids []int64, kee
 		res = append(res, SnapshotEntity{Group: c.e.group, Model: c.e.model, ID: c.id, Payload: payload, UserRefs: userRefs(c.e.dto)})
 	}
 	return res, nil
+}
+
+// RepositoryOwner returns the owner id of repository id (0 when it does not
+// exist).
+func RepositoryOwner(ctx context.Context, id int64) (int64, error) {
+	var owner int64
+	err := capture.WithQuietTx(ctx, func(ctx context.Context) error {
+		_, err := db.GetEngine(ctx).Table("repository").Cols("owner_id").Where(builder.Eq{"id": id}).Get(&owner)
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("livesync: owner of repository %d: %w", id, err)
+	}
+	return owner, nil
 }
 
 // ProfileGroups returns the group of the User entity (profile) of each of

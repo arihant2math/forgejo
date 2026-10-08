@@ -449,12 +449,12 @@ func TestPermissionChangedResume(t *testing.T) {
 	})
 }
 
-// An epoch naming an owner re-checks the subscriptions of its org:{id}
-// and profile:{id} groups only.
+// An epoch naming an owner re-checks the subscriptions of its org:{id},
+// profile:{id} and owner:{id} groups only.
 func TestOwnerEpoch(t *testing.T) {
 	x := newHarness(t, Config{})
 	cl := x.connect(nil)
-	cl.hello(5, protocol.GroupRequest{Group: "org:3"}, protocol.GroupRequest{Group: "repo:1"})
+	cl.hello(5, protocol.GroupRequest{Group: "org:3"}, protocol.GroupRequest{Group: "owner:3"}, protocol.GroupRequest{Group: "repo:1"})
 	cl.expect(protocol.MsgCaughtUp)
 	_, err := db.GetEngine(t.Context()).Exec("UPDATE `user` SET visibility = 2 WHERE id = 3")
 	require.NoError(t, err)
@@ -462,7 +462,38 @@ func TestOwnerEpoch(t *testing.T) {
 	x.h.mu.Lock()
 	assert.Equal(t, stateLive, cl.c.subs["repo:1"].state, "not concerned")
 	x.h.mu.Unlock()
-	assert.Equal(t, "org:3", cl.expect(protocol.MsgGroupRevoked).Group)
+	revoked := []string{cl.expect(protocol.MsgGroupRevoked).Group, cl.expect(protocol.MsgGroupRevoked).Group}
+	assert.ElementsMatch(t, []string{"org:3", "owner:3"}, revoked)
+	cl.quiet(50 * time.Millisecond)
+}
+
+// An owner:{id} group granted through a repository of the owner (an
+// outside collaborator of a private organization, B6 review round 2) is
+// re-checked by an epoch of that repository: user4 reads privated_org's
+// labels and projects through repository 40 until its issues and pull
+// requests are disabled.
+func TestOwnerGroupThroughRepository(t *testing.T) {
+	x := newHarness(t, Config{})
+	cl := x.connect(nil)
+	w := cl.hello(4, protocol.GroupRequest{Group: "owner:23"}, protocol.GroupRequest{Group: "org:23"})
+	assert.Equal(t, []string{"owner:23"}, grantGroups(w.Granted))
+	cl.expect(protocol.MsgCaughtUp)
+	x.h.mu.Lock()
+	assert.EqualValues(t, 40, cl.c.subs["owner:23"].dec.RepoID)
+	x.h.mu.Unlock()
+
+	x.append(upsert("owner:23", protocol.ModelLabel, 1000, protocol.UnitNone))
+	x.deliver()
+	d := cl.expect(protocol.MsgDelta)
+	require.Len(t, d.Changes, 1)
+	assert.Equal(t, "owner:23", d.Changes[0].G)
+
+	x.epoch(protocol.PermissionChange{Repos: []int64{41}})
+	cl.quiet(50 * time.Millisecond)
+	_, err := db.GetEngine(t.Context()).Exec("DELETE FROM repo_unit WHERE repo_id = 40 AND `type` IN (2, 3)")
+	require.NoError(t, err)
+	x.epoch(protocol.PermissionChange{Repos: []int64{40}})
+	assert.Equal(t, "owner:23", cl.expect(protocol.MsgGroupRevoked).Group)
 	cl.quiet(50 * time.Millisecond)
 }
 

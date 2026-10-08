@@ -19,13 +19,14 @@ import (
 )
 
 // Workspace returns the viewer's workspace (protocol.Workspace): the
-// non-repository groups of their implicit grants (own user and profile
-// groups, the profile directories, member organizations), the other
-// organizations that own the listed repositories and that the viewer may
-// see, then the repositories they own, were given access to (the implicit
-// grants) or watch and may read, most recently updated first, at most
-// maxRepos. Its cost does not grow with checks per repository: the watched
-// repositories and the organizations are decided in batches.
+// non-repository groups of their implicit grants (own user, profile and
+// owner groups, the profile directories, member organizations and their
+// owner groups), the owner groups of the owners of the listed repositories
+// and the other organizations owning them that the viewer may see, then the
+// repositories they own, were given access to (the implicit grants) or
+// watch and may read, most recently updated first, at most maxRepos. Its
+// cost does not grow with checks per repository: the watched repositories
+// and the owners are decided in batches.
 func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos int) (*protocol.Workspace, error) {
 	grants, err := perms.Grants(ctx, viewerID)
 	if err != nil {
@@ -52,6 +53,16 @@ func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos 
 			reason = protocol.WorkspaceDirectory
 		case protocol.GroupPrefixOrg:
 			reason = protocol.WorkspaceMember
+		case protocol.GroupPrefixOwner:
+			// The viewer's own and their organizations' (the others are
+			// listed with the repositories they own, below).
+			if _, member := grants.Units(protocol.OrgGroup(id)); id == viewerID {
+				reason = protocol.WorkspaceProfile
+			} else if member {
+				reason = protocol.WorkspaceMember
+			} else {
+				continue
+			}
 		default:
 			continue
 		}
@@ -131,16 +142,19 @@ func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos 
 		repoGroups = append(repoGroups, g)
 		if r.OwnerID != viewerID && !owners[r.OwnerID] {
 			owners[r.OwnerID] = true
-			ownerGroups = append(ownerGroups, protocol.OrgGroup(r.OwnerID))
+			ownerGroups = append(ownerGroups, protocol.OrgGroup(r.OwnerID), protocol.OwnerGroup(r.OwnerID))
 		}
 	}
 
-	// The organizations owning those repositories that the viewer may see
-	// without being a member: the repositories' issues refer to their
-	// labels and projects, which live in org:{id}. (A member's are already
-	// listed; an owner that is a user, or an organization the viewer may
-	// not see, is refused by the check.)
-	orgs, err := perms.CheckGroups(ctx, viewerID, ownerGroups)
+	// What those repositories' entities refer to besides themselves: the
+	// owners' labels and projects (owner:{id}: readable by the readers of
+	// the repositories' issues or pull requests, even when they may not see
+	// the owner — an outside collaborator of a private organization) and,
+	// for an organization the viewer may see without being a member, its
+	// group (profile, project columns, public members). A member's are
+	// already listed; an owner that is a user has no org:{id}, and the
+	// checks refuse what the viewer may not read.
+	readableOwners, err := perms.CheckGroups(ctx, viewerID, ownerGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +163,7 @@ func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos 
 		listed[g.Group] = true
 	}
 	for _, group := range ownerGroups {
-		if d, ok := orgs[group]; ok && !listed[group] {
+		if d, ok := readableOwners[group]; ok && !listed[group] {
 			ws.Groups = append(ws.Groups, protocol.WorkspaceGroup{Group: group, Units: d.Units.Units(), Reason: protocol.WorkspaceRepoOwner})
 		}
 	}

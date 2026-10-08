@@ -178,7 +178,11 @@ func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, 
 	if res.Next != nil {
 		end.Next = res.Next.String()
 	}
-	groups, embed, err := profileRefs(ctx, perms, req, slices.Sorted(maps.Keys(refs)))
+	owners, err := ownerRefs(ctx, req)
+	if err != nil {
+		return err
+	}
+	groups, embed, err := profileRefs(ctx, perms, req, slices.Sorted(maps.Keys(refs)), owners)
 	if err != nil {
 		return err
 	}
@@ -226,14 +230,30 @@ func conditionals(ctx context.Context, perms *perm.Cache, req Request, issueID i
 	return res, nil
 }
 
-// profileRefs returns the groups holding the profiles of users that the
-// viewer may read (sorted, without the requested group itself), and the
-// users whose profiles are in per-user groups (profile:{id}, org:{id}),
-// which the response embeds. The groups are decided in one batch
+// ownerRefs returns the owner:{id} group a repo:{id} response refers to:
+// its issues' labels and project cards may name the owner's labels and
+// projects (IssueLabel.label_id, ProjectIssue.project_id).
+func ownerRefs(ctx context.Context, req Request) ([]string, error) {
+	prefix, id, _ := protocol.ParseGroup(req.Group)
+	if prefix != protocol.GroupPrefixRepo {
+		return nil, nil
+	}
+	owner, err := materialize.RepositoryOwner(ctx, id)
+	if err != nil || owner <= 0 {
+		return nil, err
+	}
+	return []string{protocol.OwnerGroup(owner)}, nil
+}
+
+// profileRefs returns the groups the response refers to that the viewer
+// may read (sorted, without the requested group itself): those holding the
+// profiles of users, and the groups of extra. It also returns the users
+// whose profiles are in per-user groups (profile:{id}, org:{id}), which the
+// response embeds. The groups are decided in one batch
 // (perm.Cache.CheckGroups), however many the response refers to.
-func profileRefs(ctx context.Context, perms *perm.Cache, req Request, users []int64) ([]string, []int64, error) {
+func profileRefs(ctx context.Context, perms *perm.Cache, req Request, users []int64, extra []string) ([]string, []int64, error) {
 	refs := []string{}
-	if len(users) == 0 {
+	if len(users) == 0 && len(extra) == 0 {
 		return refs, nil, nil
 	}
 	places, err := materialize.ProfileGroups(ctx, users)
@@ -242,6 +262,11 @@ func profileRefs(ctx context.Context, perms *perm.Cache, req Request, users []in
 	}
 	var groups []string
 	for _, group := range places {
+		if group != req.Group {
+			groups = append(groups, group)
+		}
+	}
+	for _, group := range extra {
 		if group != req.Group {
 			groups = append(groups, group)
 		}

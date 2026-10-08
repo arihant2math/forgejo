@@ -155,11 +155,7 @@ func (c *Cache) Check(ctx context.Context, viewerID int64, group string) (d Deci
 		if e.viewer == nil {
 			return Decision{}, false, nil
 		}
-		if units, ok := e.grants.Units(group); ok {
-			d := Decision{Units: units, Basis: e.grants.basisFor(group)}
-			if kind, id := parseGroup(group); kind == kindRepo {
-				d.RepoID = id
-			}
+		if d, ok := e.grants.decision(group); ok {
 			return d, true, nil
 		}
 		err = readMaster(ctx, func(ctx context.Context) (err error) {
@@ -309,12 +305,12 @@ func affects(ch protocol.PermissionChange, viewer int64, g *Grants) bool {
 
 // changedGroups are the groups whose readers ch names (besides its users).
 func changedGroups(ch protocol.PermissionChange) []string {
-	groups := make([]string, 0, len(ch.Repos)+2*len(ch.Owners))
+	groups := make([]string, 0, len(ch.Repos)+3*len(ch.Owners))
 	for _, id := range ch.Repos {
 		groups = append(groups, protocol.RepoGroup(id))
 	}
 	for _, id := range ch.Owners {
-		groups = append(groups, protocol.OrgGroup(id), protocol.ProfileGroup(id))
+		groups = append(groups, protocol.OrgGroup(id), protocol.ProfileGroup(id), protocol.OwnerGroup(id))
 	}
 	return groups
 }

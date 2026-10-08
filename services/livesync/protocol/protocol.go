@@ -165,9 +165,10 @@ const (
 // PermissionChange is the payload of an OpPermission entry: the subjects
 // whose access may have changed. The hub recomputes the grants of Users,
 // re-checks the subscribers of the repo:{id} groups of Repos (and of the
-// issue:{id} groups of those repositories), and the subscribers of the
-// org:{id} and profile:{id} groups of Owners (a user or organization whose
-// visibility, or whose set of possible viewers, changed). All means
+// issue:{id} and owner:{id} groups decided by those repositories), and the
+// subscribers of the org:{id}, profile:{id} and owner:{id} groups of Owners
+// (a user or organization whose visibility, or whose set of possible
+// viewers, changed). All means
 // everything may have changed (writes to a permission table may have been
 // lost): recompute every grant and re-check every subscription.
 //
@@ -216,6 +217,7 @@ const (
 	GroupPrefixIssue    = "issue"
 	GroupPrefixProfile  = "profile"
 	GroupPrefixProfiles = "profiles"
+	GroupPrefixOwner    = "owner"
 )
 
 // The shared profile directories: the User entities (profiles) of all
@@ -251,16 +253,32 @@ func UserGroup(id int64) string { return GroupPrefixUser + ":" + strconv.FormatI
 // ProfileGroup is the group of what anyone who may see individual user
 // {id} reads (as API v1's GET /users/{name} decides: a private user is seen
 // by themselves and site administrators only, a limited one by signed-in
-// viewers who are not restricted): the projects the user owns and, for a
-// private user, the User entity itself (a public or limited user's is in
-// GroupProfilesPublic / GroupProfilesLimited).
+// viewers who are not restricted): the columns of the projects the user
+// owns and, for a private user, the User entity itself (a public or limited
+// user's is in GroupProfilesPublic / GroupProfilesLimited). The projects
+// themselves are in the user's OwnerGroup.
 func ProfileGroup(id int64) string { return GroupPrefixProfile + ":" + strconv.FormatInt(id, 10) }
 
 // OrgGroup is the group of an organization: what anyone who may see the
-// organization reads (unit UnitNone: profile, labels, projects, public
-// memberships) and what only its members read (unit UnitMembers: teams,
-// their members, repositories and units, concealed memberships).
+// organization reads (unit UnitNone: profile, the columns of its projects,
+// public memberships) and what only its members read (unit UnitMembers:
+// teams, their members, repositories and units, concealed memberships). Its
+// labels and projects are in its OwnerGroup.
 func OrgGroup(id int64) string { return GroupPrefixOrg + ":" + strconv.FormatInt(id, 10) }
+
+// OwnerGroup is the group of what a user or organization {id} shares with
+// its repositories: the organization's labels (IssueLabel.label_id of its
+// repositories' issues may name them) and the projects the user or
+// organization owns (ProjectIssue.project_id). Upstream shows them to
+// everyone who may see the owner and to every reader of the issues or pull
+// requests of one of the owner's repositories (the repository's label list
+// and issue list pages) — e.g. an outside collaborator of a private
+// organization's repository, who may not see the organization itself. So it
+// is readable by the readers of the owner's OrgGroup or ProfileGroup and by
+// those of the issues or pull requests of any of its repositories (unit
+// UnitNone throughout). The projects' columns stay in the OrgGroup /
+// ProfileGroup, which upstream shows only to those who may see the owner.
+func OwnerGroup(id int64) string { return GroupPrefixOwner + ":" + strconv.FormatInt(id, 10) }
 
 // RepoGroup is the group of a repository's summary-tier entities.
 func RepoGroup(id int64) string { return GroupPrefixRepo + ":" + strconv.FormatInt(id, 10) }
@@ -288,7 +306,7 @@ func ParseGroup(group string) (prefix string, id int64, ok bool) {
 		return "", 0, false
 	}
 	switch prefix {
-	case GroupPrefixUser, GroupPrefixProfile, GroupPrefixOrg, GroupPrefixRepo, GroupPrefixIssue:
+	case GroupPrefixUser, GroupPrefixProfile, GroupPrefixOrg, GroupPrefixOwner, GroupPrefixRepo, GroupPrefixIssue:
 		return prefix, id, true
 	}
 	return "", 0, false
@@ -301,8 +319,8 @@ func ParseGroup(group string) (prefix string, id int64, ok bool) {
 // names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
 // UnitSelf (that user only; nobody else is granted the group anyway); in
 // org:{id} groups UnitNone (anyone who may see the organization) or
-// UnitMembers (its members only); in the profile groups UnitNone. UnitNone
-// means any read access to the group.
+// UnitMembers (its members only); in the profile and owner groups UnitNone.
+// UnitNone means any read access to the group.
 type Unit string
 
 const (
@@ -333,9 +351,11 @@ type Grant struct {
 
 // Grants is the answer of GET /-/sync/grants: the groups granted to the
 // viewer without asking (their own user group and profile group, the
-// profile directories, the organizations they are a member of and the
-// repositories they own or were given access to). Other groups (public
-// repositories and organizations, other users' profiles, issues) are
+// profile directories, the organizations they are a member of, the
+// repositories they own or were given access to, and the owner groups of
+// themselves, of those organizations and of the owners of those
+// repositories whose issues or pull requests they may read). Other groups
+// (public repositories and organizations, other users' profiles, issues) are
 // checked on demand (GET /-/sync/grants?group=…, which answers one Grant).
 // Site administrators get no implicit groups.
 type Grants struct {

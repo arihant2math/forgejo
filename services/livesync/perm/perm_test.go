@@ -606,8 +606,9 @@ func TestCheckGroups(t *testing.T) {
 		groups = append(groups, protocol.RepoGroup(r.ID))
 	}
 	for _, u := range users {
-		groups = append(groups, protocol.OrgGroup(u.ID), protocol.ProfileGroup(u.ID), protocol.UserGroup(u.ID))
+		groups = append(groups, protocol.OrgGroup(u.ID), protocol.ProfileGroup(u.ID), protocol.UserGroup(u.ID), protocol.OwnerGroup(u.ID))
 	}
+	groups = append(groups, "owner:999999")
 	readable := 0
 	for _, cached := range []bool{false, true} {
 		for _, viewer := range users {
@@ -637,4 +638,123 @@ func TestCheckGroups(t *testing.T) {
 		}
 	}
 	assert.Greater(t, readable, 1000)
+}
+
+// owner:{id} (protocol.OwnerGroup) is readable as upstream shows an
+// organization's labels and an owner's projects: to everyone who may see
+// the owner (HasOrgOrUserVisible, API v1's profile rule), and to every
+// reader of the issues or pull requests of one of the owner's repositories
+// (the repository's label page lists the organization's labels, its issue
+// list the owner's projects) — e.g. user4, an outside collaborator of
+// privated_org's repository 40, who may not see privated_org. The decision
+// names the repository with the smallest id when the owner itself is not
+// visible, and the implicit grants decide the same.
+func TestCheckOwner(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	c := NewCache(0, 0)
+	var users []*user_model.User
+	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&users))
+	var repos []*repo_model.Repository
+	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&repos))
+	throughRepo := 0
+	for _, viewer := range users {
+		if !usable(viewer) {
+			_, ok, err := c.Check(ctx, viewer.ID, protocol.OwnerGroup(2))
+			require.NoError(t, err)
+			assert.False(t, ok, "viewer %d may not sign in", viewer.ID)
+			continue
+		}
+		grants, err := c.Grants(ctx, viewer.ID)
+		require.NoError(t, err)
+		for _, owner := range users {
+			var visible bool
+			if owner.IsOrganization() {
+				visible = org_model.HasOrgOrUserVisible(ctx, owner, viewer)
+			} else {
+				visible = user_model.IsUserVisibleToViewer(ctx, owner, viewer) &&
+					(owner.Visibility != structs.VisibleTypePrivate || viewer.ID == owner.ID || viewer.IsAdmin)
+			}
+			var via int64
+			for _, repo := range repos {
+				if repo.OwnerID != owner.ID || visible || via != 0 {
+					continue
+				}
+				fresh := *repo
+				fresh.Owner, fresh.Units = nil, nil
+				p, err := access_model.GetUserRepoPermission(ctx, &fresh, viewer)
+				require.NoError(t, err)
+				if p.CanRead(unit_model.TypeIssues) || p.CanRead(unit_model.TypePullRequests) {
+					via = repo.ID
+				}
+			}
+			group := protocol.OwnerGroup(owner.ID)
+			fresh := NewCache(0, 0)
+			d, ok, err := fresh.Check(ctx, viewer.ID, group)
+			require.NoError(t, err)
+			require.Equal(t, visible || via != 0, ok, "viewer %d owner %d", viewer.ID, owner.ID)
+			if !ok {
+				continue
+			}
+			assert.Equal(t, unitBase, d.Units, "viewer %d owner %d", viewer.ID, owner.ID)
+			assert.Equal(t, via, d.RepoID, "viewer %d owner %d", viewer.ID, owner.ID)
+			if via != 0 {
+				throughRepo++
+			}
+			// Implicit grants: their own, their organizations', the
+			// owners of their related repositories (with the same
+			// repository when the owner is not visible).
+			if gd, ok := grants.decision(group); ok {
+				if via != 0 {
+					assert.Equal(t, via, gd.RepoID, "viewer %d owner %d implicit", viewer.ID, owner.ID)
+				}
+				if gd.RepoID != 0 {
+					assert.Equal(t, via, gd.RepoID, "viewer %d owner %d implicit", viewer.ID, owner.ID)
+				}
+			} else {
+				assert.NotEqual(t, viewer.ID, owner.ID, "own owner group is implicit")
+			}
+		}
+	}
+	assert.Positive(t, throughRepo)
+
+	// The reported case: an outside collaborator of a private
+	// organization's repository may read its owner group (its labels and
+	// projects), not the organization's group.
+	for _, cache := range []*Cache{NewCache(0, 0), c} {
+		d, ok, err := cache.Check(ctx, 4, "owner:23")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.EqualValues(t, 40, d.RepoID)
+		assert.Contains(t, d.Basis, basisKey{protocol.TouchRepository, 40})
+		assert.Contains(t, d.Basis, basisKey{protocol.TouchUser, 23})
+		_, ok, err = cache.Check(ctx, 4, "org:23")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	}
+	g, err := c.Grants(ctx, 4)
+	require.NoError(t, err)
+	assert.Contains(t, groupsOf(g), "owner:23")
+	assert.Contains(t, groupsOf(g), "owner:4")
+	g, err = c.Grants(ctx, 2)
+	require.NoError(t, err)
+	assert.Contains(t, groupsOf(g), "owner:3", "member organization")
+
+	// An epoch for the deciding repository's or the owner's readers
+	// drops the cached grants.
+	c.Invalidate(protocol.PermissionChange{Repos: []int64{40}})
+	assert.Nil(t, c.cached(4))
+	_, err = c.Grants(ctx, 4)
+	require.NoError(t, err)
+	c.Invalidate(protocol.PermissionChange{Owners: []int64{23}})
+	assert.Nil(t, c.cached(4))
+
+	// Without the collaboration it is gone.
+	_, err = db.GetEngine(ctx).Delete(&repo_model.Collaboration{UserID: 4, RepoID: 40})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).Delete(&access_model.Access{UserID: 4, RepoID: 40})
+	require.NoError(t, err)
+	_, ok, err := NewCache(0, 0).Check(ctx, 4, "owner:23")
+	require.NoError(t, err)
+	assert.False(t, ok)
 }

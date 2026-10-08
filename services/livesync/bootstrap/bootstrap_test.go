@@ -17,10 +17,12 @@ import (
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
 	access_model "forgejo.org/models/perm/access"
+	project_model "forgejo.org/models/project"
 	repo_model "forgejo.org/models/repo"
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	project_module "forgejo.org/modules/project"
 	"forgejo.org/modules/structs"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/materialize"
@@ -40,8 +42,18 @@ func TestMain(m *testing.M) {
 // the entity index backfill to its end and returns a permission cache.
 func prepare(t *testing.T) *perm.Cache {
 	t.Helper()
+	return prepareWith(t, nil)
+}
+
+// prepareWith is prepare with setup run on the fixtures before the
+// backfill.
+func prepareWith(t *testing.T, setup func(ctx context.Context)) *perm.Cache {
+	t.Helper()
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
+	if setup != nil {
+		setup(ctx)
+	}
 	require.NoError(t, livesync_model.SyncTables(ctx))
 	for _, table := range []string{"livesync_change", "livesync_log", "livesync_entity", "livesync_meta"} {
 		_, err := db.GetEngine(ctx).Exec("DELETE FROM " + table)
@@ -140,11 +152,17 @@ func TestStream(t *testing.T) {
 	assert.Equal(t, 1, models[protocol.ModelRepository])
 	assert.Positive(t, models[protocol.ModelLabel])
 	assert.Contains(t, res.end.Refs, protocol.GroupProfilesPublic, "posters and owner are public users")
+	assert.Contains(t, res.end.Refs, "owner:2", "the owner's projects")
 	assert.Empty(t, res.end.Next)
 
-	// An organization's repository: its profile is in org:3, embedded.
+	// An organization's repository: its profile is in org:3, embedded;
+	// its labels and projects in owner:3, listed only.
 	res = stream(t, perms, 2, "repo:3", nil)
 	assert.Contains(t, res.end.Refs, "org:3")
+	assert.Contains(t, res.end.Refs, "owner:3")
+	for _, ch := range res.changes {
+		assert.NotEqual(t, "owner:3", ch.G, "an owner group is not embedded")
+	}
 	var org *protocol.Change
 	for i, ch := range res.changes {
 		if ch.G == "org:3" {
@@ -233,6 +251,8 @@ func TestWorkspace(t *testing.T) {
 	assert.Equal(t, protocol.WorkspaceProfile, reasons["profile:2"])
 	assert.Equal(t, protocol.WorkspaceDirectory, reasons[protocol.GroupProfilesPublic])
 	assert.Equal(t, protocol.WorkspaceMember, reasons["org:3"])
+	assert.Equal(t, protocol.WorkspaceMember, reasons["owner:3"])
+	assert.Equal(t, protocol.WorkspaceProfile, reasons["owner:2"])
 	assert.Equal(t, protocol.WorkspaceOwner, reasons["repo:1"])
 	assert.Equal(t, protocol.WorkspaceAccess, reasons["repo:3"], "org repository")
 	assert.False(t, ws.Truncated)
@@ -271,23 +291,113 @@ func TestWorkspace(t *testing.T) {
 	assert.Contains(t, byGroup["repo:1"].Units, protocol.UnitIssues)
 	assert.Equal(t, protocol.WorkspaceWatch, byGroup["repo:32"].Reason)
 	assert.Equal(t, protocol.WorkspaceRepoOwner, byGroup["org:3"].Reason)
+	assert.Equal(t, protocol.WorkspaceRepoOwner, byGroup["owner:3"].Reason)
+	assert.Equal(t, protocol.WorkspaceRepoOwner, byGroup["owner:2"].Reason, "user2's projects")
 	assert.NotContains(t, byGroup, "org:2", "a user owns repository 1")
 	// A member's organization is listed once, as member.
 	ws, err = Workspace(ctx, perms, 2, 100)
 	require.NoError(t, err)
 	n := 0
 	for _, g := range ws.Groups {
-		if g.Group == "org:3" {
+		if g.Group == "org:3" || g.Group == "owner:3" {
 			n++
 			assert.Equal(t, protocol.WorkspaceMember, g.Reason)
 		}
 	}
-	assert.Equal(t, 1, n)
+	assert.Equal(t, 2, n)
 
 	// A viewer who may not sign in: empty.
 	ws, err = Workspace(ctx, perms, 9, 100)
 	require.NoError(t, err)
 	assert.Empty(t, ws.Groups)
+}
+
+// B6 review round 2: an outside collaborator of a private organization's
+// repository (user4 on privated_org's repository 40) cannot see the
+// organization, but upstream shows them its labels and projects on the
+// repository's issues. The organization's labels and projects are in
+// owner:23, which the repository's bootstrap refers to and the workspace
+// lists, and which user4 may load; the projects' columns stay in org:23,
+// which they may not read (upstream shows them the boards only through the
+// organization).
+func TestOwnerGroupReachable(t *testing.T) {
+	var issue issues_model.Issue
+	var label issues_model.Label
+	var project project_model.Project
+	var column project_model.Column
+	perms := prepareWith(t, func(ctx context.Context) {
+		e := db.GetEngine(ctx)
+		issue = issues_model.Issue{RepoID: 40, Index: 1, PosterID: 2, Title: "contract work", Content: "body"}
+		label = issues_model.Label{OrgID: 23, Name: "contract", Color: "#ee0701"}
+		project = project_model.Project{Title: "roadmap", OwnerID: 23, Type: project_module.TypeOrganization, CreatorID: 2, TemplateType: project_module.TemplateTypeNone}
+		for _, row := range []any{&issue, &label, &project} {
+			_, err := e.Insert(row)
+			require.NoError(t, err)
+		}
+		column = project_model.Column{ProjectID: project.ID, Title: "todo", CreatorID: 2}
+		_, err := e.Insert(&column)
+		require.NoError(t, err)
+		_, err = e.Insert(&issues_model.IssueLabel{IssueID: issue.ID, LabelID: label.ID})
+		require.NoError(t, err)
+		_, err = e.Insert(&project_model.ProjectIssue{IssueID: issue.ID, ProjectID: project.ID, ProjectColumnID: column.ID})
+		require.NoError(t, err)
+	})
+	ctx := t.Context()
+
+	res := stream(t, perms, 4, "repo:40", nil)
+	decode := func(d, v any) {
+		b, err := json.Marshal(d)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(b, v))
+	}
+	var labelRefs, projectRefs []int64
+	for _, ch := range res.changes {
+		switch ch.M {
+		case protocol.ModelIssueLabel:
+			var il protocol.IssueLabel
+			decode(ch.D, &il)
+			labelRefs = append(labelRefs, il.LabelID)
+		case protocol.ModelProjectIssue:
+			var pi protocol.ProjectIssue
+			decode(ch.D, &pi)
+			projectRefs = append(projectRefs, pi.ProjectID)
+		}
+	}
+	assert.Equal(t, []int64{label.ID}, labelRefs)
+	assert.Equal(t, []int64{project.ID}, projectRefs)
+	assert.Contains(t, res.end.Refs, "owner:23")
+	assert.NotContains(t, res.end.Refs, "org:23")
+
+	res = stream(t, perms, 4, "owner:23", nil)
+	got := map[string]bool{}
+	for _, ch := range res.changes {
+		assert.Equal(t, "owner:23", ch.G)
+		got[fmt.Sprintf("%s %d", ch.M, ch.ID)] = true
+	}
+	assert.Equal(t, map[string]bool{
+		fmt.Sprintf("Label %d", label.ID):     true,
+		fmt.Sprintf("Project %d", project.ID): true,
+	}, got)
+	_, ok, err := perms.Check(ctx, 4, "org:23")
+	require.NoError(t, err)
+	assert.False(t, ok, "the columns are not readable")
+	_, ok, err = perms.Check(ctx, 10, "owner:23")
+	require.NoError(t, err)
+	assert.False(t, ok, "user10 may read neither the organization nor its repositories")
+	_, ok, err = perms.Check(ctx, 5, "owner:23")
+	require.NoError(t, err)
+	assert.True(t, ok, "user5 is a member")
+
+	ws, err := Workspace(ctx, perms, 4, 100)
+	require.NoError(t, err)
+	reasons := map[string]string{}
+	for _, g := range ws.Groups {
+		reasons[g.Group] = g.Reason
+	}
+	assert.Equal(t, protocol.WorkspaceAccess, reasons["repo:40"])
+	assert.Equal(t, protocol.WorkspaceRepoOwner, reasons["owner:23"])
+	assert.NotContains(t, reasons, "org:23")
+	assert.Equal(t, protocol.WorkspaceProfile, reasons["owner:4"])
 }
 
 func TestAppendChange(t *testing.T) {
@@ -491,13 +601,13 @@ func TestProfileRefsMany(t *testing.T) {
 	}
 
 	// The admin may read every private profile; another user none of them.
-	refs, embed, err := profileRefs(ctx, perms, Request{Group: "repo:1", ViewerID: 1}, append(ids, 2))
+	refs, embed, err := profileRefs(ctx, perms, Request{Group: "repo:1", ViewerID: 1}, append(ids, 2), nil)
 	require.NoError(t, err)
 	assert.Len(t, embed, n)
 	assert.Len(t, refs, n+1)
 	assert.Contains(t, refs, protocol.GroupProfilesPublic)
 	assert.Contains(t, refs, protocol.ProfileGroup(ids[n-1]))
-	refs, embed, err = profileRefs(ctx, perms, Request{Group: "repo:1", ViewerID: 2}, append(ids, 2))
+	refs, embed, err = profileRefs(ctx, perms, Request{Group: "repo:1", ViewerID: 2}, append(ids, 2), nil)
 	require.NoError(t, err)
 	assert.Empty(t, embed)
 	assert.Equal(t, []string{protocol.GroupProfilesPublic}, refs)

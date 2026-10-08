@@ -611,14 +611,16 @@ func indexRows(t *testing.T, key string) []livesync_model.Entity {
 // Profiles are placed by visibility, never in user:{id}: a public user's in
 // the public directory, a limited one's in the limited directory, a private
 // one's in their profile group, an organization's in its group; a user's
-// projects in their profile group.
+// or organization's projects in their owner group (readers of their
+// repositories' issues see them), the projects' columns in the owner's
+// own group.
 func TestProfilePlacement(t *testing.T) {
 	resetLivesync(t)
 	m, _ := testMaterializer(t)
 	var cursor int64
 	consume(t, m,
 		change(1, "user", 2, "U"), change(2, "user", 33, "U"), change(3, "user", 31, "U"), change(4, "user", 3, "U"),
-		change(5, "project", 4, "U"))
+		change(5, "project", 4, "U"), change(6, "project_board", 4, "U"))
 	rows, entries := takeLog(t, &cursor)
 	_, rest := permChange(t, rows, entries) // first time the user rows are seen
 	assert.Equal(t, []logRow{
@@ -626,7 +628,8 @@ func TestProfilePlacement(t *testing.T) {
 		{protocol.GroupProfilesLimited, "", "User", "U", 33},
 		{"profile:31", "", "User", "U", 31},
 		{"org:3", "", "User", "U", 3},
-		{"profile:2", "", "Project", "U", 4},
+		{"owner:2", "", "Project", "U", 4},
+		{"profile:2", "", "ProjectColumn", "U", 4},
 	}, rest)
 }
 
@@ -648,9 +651,10 @@ func TestHandleEpochsPlacementAndPermissions(t *testing.T) {
 	rows, entries := takeLog(t, &cursor)
 	assert.Equal(t, []logRow{
 		{"*", "", "User", "B", 0},
+		{"*", "", "Label", "B", 0},
 		{"*", "", "Project", "B", 0},
 		{"*", "", "ProjectColumn", "B", 0},
-	}, sortRows(rows, []string{"User", "Project", "ProjectColumn"}))
+	}, sortRows(rows, []string{"User", "Label", "Project", "ProjectColumn"}))
 	var marker protocol.RebootstrapMarker
 	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &marker))
 	assert.Equal(t, protocol.RebootstrapPlacementChanged, marker.Reason)
@@ -658,7 +662,9 @@ func TestHandleEpochsPlacementAndPermissions(t *testing.T) {
 	placed, err := readMetaInts(ctx, MetaPlacementPrefix)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, placed["user"])
-	assert.EqualValues(t, 0, placed["label"])
+	assert.EqualValues(t, 1, placed["label"])
+	assert.EqualValues(t, 2, placed["project"])
+	assert.EqualValues(t, 0, placed["milestone"])
 	require.NoError(t, m.HandleEpochs(ctx))
 	rows, _ = takeLog(t, &cursor)
 	assert.Empty(t, rows, "handled")

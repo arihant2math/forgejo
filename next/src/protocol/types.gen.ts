@@ -167,21 +167,26 @@ export interface BootstrapEnd {
    */
   count: number /* int */;
   /**
-   * Refs are the groups holding the User entities (profiles) that the
-   * group's entities refer to (posters, assignees, owners, …) and that
-   * the viewer may read: the profile directories (profiles:public,
-   * profiles:limited), private users' profile:{id} and organizations'
-   * org:{id}. The profiles of profile:{id} and org:{id} groups were sent
-   * in this response (after the group's own entities, v = the watermark);
-   * those of the directories were not. Such a line only adds the one
-   * entity: it is not a bootstrap of its group (an organization's group
-   * also holds its labels, projects, teams and members, which issues of
-   * its repositories refer to), and it does not set or raise that group's
-   * position. To hold a referenced group, bootstrap it, then subscribe it
-   * with since = that bootstrap's watermark — never with this response's
-   * watermark, which would skip the group's entities the client never got.
-   * The workspace lists the groups to hold (the directories, the viewer's
-   * organizations and those owning the workspace's repositories).
+   * Refs are the groups that the group's entities refer to and that the
+   * viewer may read: the groups holding the User entities (profiles) of
+   * posters, assignees, owners, … — the profile directories
+   * (profiles:public, profiles:limited), private users' profile:{id} and
+   * organizations' org:{id} — and, for a repo:{id} response, the
+   * owner:{id} group of the repository's owner, which holds the
+   * organization labels and owner projects its issues' IssueLabel and
+   * ProjectIssue entities may name. The profiles of profile:{id} and
+   * org:{id} groups were sent in this response (after the group's own
+   * entities, v = the watermark); those of the directories were not, and
+   * neither were owner:{id}'s entities. Such a profile line only adds the
+   * one entity: it is not a bootstrap of its group (an organization's
+   * group also holds its project columns, teams and members), and it does
+   * not set or raise that group's position. To hold a referenced group,
+   * bootstrap it, then subscribe it with since = that bootstrap's
+   * watermark — never with this response's watermark, which would skip
+   * the group's entities the client never got. The workspace lists the
+   * groups to hold (the directories, the viewer's organizations and the
+   * owner groups and visible organizations owning the workspace's
+   * repositories).
    */
   refs: string[];
   /**
@@ -193,9 +198,10 @@ export interface BootstrapEnd {
 /**
  * Workspace answers GET /-/sync/workspace: the groups the client should keep
  * subscribed and bootstrapped (available offline), PLAN §4.7: the viewer's
- * own groups, the profile directories, their organizations and the
+ * own groups, the profile directories, their organizations, the
  * repositories they own, were given access to or watch — the repositories
- * ordered by recent activity and capped. Other groups (other public
+ * ordered by recent activity and capped — and the groups of those
+ * repositories' owners that the repositories refer to. Other groups (other public
  * repositories, issues) are loaded on demand; a client may pin more itself.
  */
 export interface Workspace {
@@ -222,7 +228,8 @@ export interface WorkspaceGroup {
  */
 export const WorkspaceSelf = "self";
 /**
- * WorkspaceProfile: the viewer's own profile:{id} group.
+ * WorkspaceProfile: the viewer's own profile:{id} and owner:{id}
+ * groups.
  */
 export const WorkspaceProfile = "profile";
 /**
@@ -230,16 +237,20 @@ export const WorkspaceProfile = "profile";
  */
 export const WorkspaceDirectory = "directory";
 /**
- * WorkspaceMember: an organization the viewer is a member of.
+ * WorkspaceMember: an organization the viewer is a member of: its
+ * org:{id} and owner:{id} groups.
  */
 export const WorkspaceMember = "member";
 /**
- * WorkspaceRepoOwner: an organization the viewer is not a member of
- * that owns a repository of the workspace and that the viewer may see.
- * Its group holds what the repository's entities refer to besides
- * themselves: the organization's labels (IssueLabel.label_id), projects
- * and columns (ProjectIssue), public members and teams the viewer may
- * see.
+ * WorkspaceRepoOwner: a group of the owner of a repository of the
+ * workspace that holds what the repository's entities refer to besides
+ * themselves: the owner's owner:{id} group (an organization's labels,
+ * IssueLabel.label_id, and the owner's projects, ProjectIssue.project_id;
+ * readable by every reader of the repository's issues or pull requests,
+ * also when the viewer may not see the owner) and, for an organization
+ * the viewer may see without being a member, its org:{id} group (its
+ * profile, its projects' columns, ProjectIssue.column_id, public
+ * members).
  */
 export const WorkspaceRepoOwner = "repo_owner";
 /**
@@ -1412,9 +1423,10 @@ export const RebootstrapPlacementChanged = "placement_changed";
  * PermissionChange is the payload of an OpPermission entry: the subjects
  * whose access may have changed. The hub recomputes the grants of Users,
  * re-checks the subscribers of the repo:{id} groups of Repos (and of the
- * issue:{id} groups of those repositories), and the subscribers of the
- * org:{id} and profile:{id} groups of Owners (a user or organization whose
- * visibility, or whose set of possible viewers, changed). All means
+ * issue:{id} and owner:{id} groups decided by those repositories), and the
+ * subscribers of the org:{id}, profile:{id} and owner:{id} groups of Owners
+ * (a user or organization whose visibility, or whose set of possible
+ * viewers, changed). All means
  * everything may have changed (writes to a permission table may have been
  * lost): recompute every grant and re-check every subscription.
  * Touched are the rows of the busy permission tables (repository, user)
@@ -1458,6 +1470,7 @@ export const GroupPrefixRepo = "repo";
 export const GroupPrefixIssue = "issue";
 export const GroupPrefixProfile = "profile";
 export const GroupPrefixProfiles = "profiles";
+export const GroupPrefixOwner = "owner";
 export const GroupProfilesPublic = GroupPrefixProfiles + ":public";
 export const GroupProfilesLimited = GroupPrefixProfiles + ":limited";
 /**
@@ -1481,8 +1494,8 @@ export const GroupPermission = "!perm";
  * names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
  * UnitSelf (that user only; nobody else is granted the group anyway); in
  * org:{id} groups UnitNone (anyone who may see the organization) or
- * UnitMembers (its members only); in the profile groups UnitNone. UnitNone
- * means any read access to the group.
+ * UnitMembers (its members only); in the profile and owner groups UnitNone.
+ * UnitNone means any read access to the group.
  */
 export type Unit = string;
 export const UnitNone: Unit = "";
@@ -1516,9 +1529,11 @@ export interface Grant {
 /**
  * Grants is the answer of GET /-/sync/grants: the groups granted to the
  * viewer without asking (their own user group and profile group, the
- * profile directories, the organizations they are a member of and the
- * repositories they own or were given access to). Other groups (public
- * repositories and organizations, other users' profiles, issues) are
+ * profile directories, the organizations they are a member of, the
+ * repositories they own or were given access to, and the owner groups of
+ * themselves, of those organizations and of the owners of those
+ * repositories whose issues or pull requests they may read). Other groups
+ * (public repositories and organizations, other users' profiles, issues) are
  * checked on demand (GET /-/sync/grants?group=…, which answers one Grant).
  * Site administrators get no implicit groups.
  */

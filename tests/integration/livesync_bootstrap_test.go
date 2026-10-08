@@ -22,9 +22,11 @@ import (
 
 	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
+	project_model "forgejo.org/models/project"
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	project_module "forgejo.org/modules/project"
 	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/protocol"
@@ -350,7 +352,16 @@ func livesyncExec(t *testing.T, query string, args ...any) {
 //     comment's reactions (user, content); attachments ⊆ its assets;
 //     dependencies ⊆ /issues/{n}/dependencies;
 //   - org:{id}: teams ⊆ /orgs/{org}/teams, members ⊆ /orgs/{org}/members
-//     (public_members for non-members), labels ⊆ /orgs/{org}/labels;
+//     (public_members for non-members);
+//   - owner:{id}: 404 unless the owner is visible (/orgs/{org} or
+//     /users/{name} 200) or the viewer reads the issues or pull requests of
+//     one of its repositories (the label page of such a repository lists
+//     the organization's labels); an organization's labels ⊆
+//     /orgs/{org}/labels when it is visible; and every organization label
+//     and owner project that a repository's IssueLabel / ProjectIssue
+//     names is in the owner group, which the repository's end.refs lists
+//     (B6 review round 2: also for user4, an outside collaborator of
+//     privated_org's repository 40, who may not see privated_org);
 //   - user:{id} (own): stars ⊆ /user/starred, tracked times ⊆ /user/times,
 //     notifications ⊆ /notifications?all=true;
 //   - the profile directories: every profile ⇒ /users/{name} is 200; every
@@ -385,7 +396,33 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 	for _, dep := range []map[string]any{{"owner": "user2", "repo": "repo1", "index": 2}, {"owner": "user2", "repo": "repo2", "index": 1}} {
 		MakeRequest(t, NewRequestWithJSON(t, "POST", repo1+"/issues/1/dependencies", dep).AddTokenAuth(owner), http.StatusCreated)
 	}
+	// An organization label and an organization project on an issue of
+	// privated_org's public repository 40, whose outside collaborator
+	// user4 may not see privated_org (B6 review round 2).
+	admin := livesyncToken(t, &user_model.User{ID: 1})
+	const repo40 = "/api/v1/repos/privated_org/public_repo_on_private_org"
+	var orgLabel, contract map[string]any
+	DecodeJSON(t, MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/orgs/privated_org/labels", map[string]any{"name": "contract", "color": "#ee0701"}).AddTokenAuth(admin), http.StatusCreated), &orgLabel)
+	DecodeJSON(t, MakeRequest(t, NewRequestWithJSON(t, "POST", repo40+"/issues", map[string]any{"title": "contract work"}).AddTokenAuth(admin), http.StatusCreated), &contract)
+	MakeRequest(t, NewRequestWithJSON(t, "POST", fmt.Sprintf("%s/issues/%d/labels", repo40, livesyncNum(contract, "number")), map[string]any{"labels": []int64{livesyncNum(orgLabel, "id")}}).AddTokenAuth(admin), http.StatusOK)
+	orgProject := &project_model.Project{Title: "roadmap", OwnerID: 23, Type: project_module.TypeOrganization, CreatorID: 1, TemplateType: project_module.TemplateTypeNone}
+	require.NoError(t, db.Insert(ctx, orgProject))
+	orgColumn := &project_model.Column{ProjectID: orgProject.ID, Title: "todo", CreatorID: 1}
+	require.NoError(t, db.Insert(ctx, orgColumn))
+	require.NoError(t, db.Insert(ctx, &project_model.ProjectIssue{IssueID: livesyncNum(contract, "id"), ProjectID: orgProject.ID, ProjectColumnID: orgColumn.ID}))
 	livesyncSettle(t)
+	var allLabels []*issues_model.Label
+	require.NoError(t, db.GetEngine(ctx).Find(&allLabels))
+	labelOrg := map[int64]int64{}
+	for _, l := range allLabels {
+		labelOrg[l.ID] = l.OrgID
+	}
+	var allProjects []*project_model.Project
+	require.NoError(t, db.GetEngine(ctx).Find(&allProjects))
+	projectRepo, projectOwner := map[int64]int64{}, map[int64]int64{}
+	for _, p := range allProjects {
+		projectRepo[p.ID], projectOwner[p.ID] = p.RepoID, p.OwnerID
+	}
 
 	var users []*user_model.User
 	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&users))
@@ -445,11 +482,23 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 
 	groups := 0
 	profiles := 0
+	hiddenOwnerRefs := 0
 	for _, viewer := range users {
 		if viewer.IsOrganization() || !viewer.IsActive || viewer.ProhibitLogin {
 			continue
 		}
 		token := livesyncToken(t, viewer)
+		// issueReader: the owners of the repositories whose issues or
+		// pull requests the viewer reads; ownerSnaps: the owner groups
+		// bootstrapped.
+		issueReader := map[int64]bool{}
+		ownerSnaps := map[string]*livesyncSnapshot{}
+		ownerSnap := func(group string) *livesyncSnapshot {
+			if ownerSnaps[group] == nil {
+				ownerSnaps[group] = livesyncBootstrap(t, token, "/-/sync/bootstrap?group="+group)
+			}
+			return ownerSnaps[group]
+		}
 		for _, repo := range repos {
 			group := protocol.RepoGroup(repo.ID)
 			grant, _ := livesyncGrant(t, token, group)
@@ -497,6 +546,36 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			}
 			for _, ia := range s.objs(group, protocol.ModelIssueAssignee) {
 				assert.Contains(t, related(livesyncNum(ia, "issue_id"), "assignees"), livesyncNum(ia, "assignee_id"), "%s issue assignee %v", what, ia)
+			}
+			// What the issues name in the owner's group: organization
+			// labels and owner projects, reachable through end.refs.
+			// Upstream only attaches the repository owner's (NewIssueLabel,
+			// Project.CanBeAccessedByOwnerRepo); a few fixture rows name
+			// another owner's (label 4 of org3 on user2/repo1's issue 1,
+			// user2's project 4 on org3's repository 32): left out.
+			if slices.Contains(s.header.Units, protocol.UnitIssues) || slices.Contains(s.header.Units, protocol.UnitPulls) {
+				issueReader[repo.OwnerID] = true
+			}
+			var ownerLabels, ownerProjects []int64
+			for _, il := range s.objs(group, protocol.ModelIssueLabel) {
+				if id := livesyncNum(il, "label_id"); labelOrg[id] == repo.OwnerID {
+					ownerLabels = append(ownerLabels, id)
+				}
+			}
+			for _, pi := range s.objs(group, protocol.ModelProjectIssue) {
+				if id := livesyncNum(pi, "project_id"); projectRepo[id] == 0 && projectOwner[id] == repo.OwnerID {
+					ownerProjects = append(ownerProjects, id)
+				}
+			}
+			if len(ownerLabels)+len(ownerProjects) > 0 {
+				og := protocol.OwnerGroup(repo.OwnerID)
+				require.Contains(t, s.end.Refs, og, "%s refers to the owner's labels/projects", what)
+				os := ownerSnap(og)
+				subset(what+" owner labels", ownerLabels, os.ids(og, protocol.ModelLabel, nil))
+				subset(what+" owner projects", ownerProjects, os.ids(og, protocol.ModelProject, nil))
+				if code, _ := livesyncGrant(t, token, protocol.OrgGroup(repo.OwnerID)); code != http.StatusOK && userByID[repo.OwnerID].IsOrganization() {
+					hiddenOwnerRefs++
+				}
 			}
 			// Through the issue's JSON: API v1's pull request JSON logs
 			// errors for fixture pull requests whose git refs are missing.
@@ -627,7 +706,6 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			embedded(what, token, s)
 			base := "/api/v1/orgs/" + org.Name
 			subset(what+" teams", s.ids(group, protocol.ModelTeam, nil), livesyncAPIIDs(t, token, base+"/teams"))
-			subset(what+" labels", s.ids(group, protocol.ModelLabel, nil), livesyncAPIIDs(t, token, base+"/labels"))
 			members := base + "/public_members"
 			if slices.Contains(units, protocol.UnitMembers) {
 				members = base + "/members"
@@ -641,6 +719,29 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 					}
 					assert.Contains(t, apiMembers, uid, "%s member %d", what, uid)
 				}
+			}
+			groups++
+		}
+
+		for _, o := range users {
+			group := protocol.OwnerGroup(o.ID)
+			grant, _ := livesyncGrant(t, token, group)
+			if grant != http.StatusOK {
+				assert.Equal(t, http.StatusNotFound, livesyncStatus(t, token, "/-/sync/bootstrap?group="+group))
+				continue
+			}
+			what := fmt.Sprintf("viewer %d %s", viewer.ID, group)
+			profile := "/api/v1/users/" + o.Name
+			if o.IsOrganization() {
+				profile = "/api/v1/orgs/" + o.Name
+			}
+			visible := livesyncStatus(t, token, profile) == http.StatusOK
+			assert.True(t, visible || issueReader[o.ID], "%s: the owner is visible or the viewer reads its repositories' issues", what)
+			s := ownerSnap(group)
+			count(s)
+			embedded(what, token, s)
+			if labels := s.ids(group, protocol.ModelLabel, nil); len(labels) > 0 && visible {
+				subset(what+" labels", labels, livesyncAPIIDs(t, token, "/api/v1/orgs/"+o.Name+"/labels"))
 			}
 			groups++
 		}
@@ -671,6 +772,7 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 		}
 	}
 	assert.Greater(t, groups, 100, "readable groups compared")
+	assert.Positive(t, hiddenOwnerRefs, "an organization's labels/projects reached by a viewer who may not see it")
 	t.Logf("entities compared per model: %v", compared)
 	// Every model a bootstrap serves was compared at least once (the
 	// fixtures have no auto-merge, commit status or action rows that

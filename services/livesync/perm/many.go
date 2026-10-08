@@ -6,6 +6,7 @@ package perm
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"forgejo.org/models/db"
 	repo_model "forgejo.org/models/repo"
@@ -19,11 +20,13 @@ import (
 // CheckGroups is Check for many groups at once: it returns the decisions of
 // the readable ones (the others are absent). Groups of the viewer's cached
 // grants are decided from them; the others in one read transaction with a
-// fixed number of queries — the user rows of the profiles and
-// organizations, the viewer's memberships among those organizations, and
-// per 500 repositories their rows, owners and units with the viewer's
-// inputs (as Grants: repoPermission) — instead of one transaction and
-// several queries per group. issue:{id} groups are checked one by one.
+// fixed number of queries — the user rows of the profiles, organizations
+// and owners, the viewer's memberships among those organizations and
+// owners, the viewer's collaborations on the repositories of owners the
+// viewer may not see, and per 500 repositories their rows, owners and units
+// with the viewer's inputs (as Grants: repoPermission) — instead of one
+// transaction and several queries per group. issue:{id} groups are
+// checked one by one.
 // The decisions are Check's (TestCheckGroups compares them for every
 // fixture user and group); use it whenever a response needs more than a
 // few groups decided (the profiles a bootstrap refers to, a workspace's
@@ -46,11 +49,7 @@ func (c *Cache) CheckGroups(ctx context.Context, viewerID int64, groups []string
 		}
 		seen[group] = true
 		if grants != nil {
-			if units, ok := grants.Units(group); ok {
-				d := Decision{Units: units, Basis: grants.basisFor(group)}
-				if kind, id := parseGroup(group); kind == kindRepo {
-					d.RepoID = id
-				}
+			if d, ok := grants.decision(group); ok {
 				res[group] = d
 				continue
 			}
@@ -86,13 +85,15 @@ func checkGroups(ctx context.Context, viewer *user_model.User, groups []string, 
 		d.Basis.addUser(viewer)
 		res[group] = d
 	}
-	var profiles, orgs, repos []int64
+	var profiles, orgs, owners, repos []int64
 	for _, group := range groups {
 		switch kind, id := parseGroup(group); kind {
 		case kindProfile:
 			profiles = append(profiles, id)
 		case kindOrg:
 			orgs = append(orgs, id)
+		case kindOwner:
+			owners = append(owners, id)
 		case kindRepo:
 			repos = append(repos, id)
 		case kindInvalid:
@@ -107,9 +108,19 @@ func checkGroups(ctx context.Context, viewer *user_model.User, groups []string, 
 		}
 	}
 
-	users, err := usersByID(ctx, append(profiles, orgs...))
+	users, err := usersByID(ctx, slices.Concat(profiles, orgs, owners))
 	if err != nil {
 		return err
+	}
+	var inputs *viewerInputs
+	loadInputs := func() (*viewerInputs, error) {
+		if inputs == nil {
+			var err error
+			if inputs, err = loadViewerInputs(ctx, viewer.ID); err != nil {
+				return nil, err
+			}
+		}
+		return inputs, nil
 	}
 	for _, id := range profiles {
 		if u := users[id]; u != nil && !u.IsOrganization() && profileVisible(ctx, u, viewer) {
@@ -118,18 +129,24 @@ func checkGroups(ctx context.Context, viewer *user_model.User, groups []string, 
 			add(protocol.ProfileGroup(id), d)
 		}
 	}
+	// The viewer's memberships among the organizations and owners
+	// (checkOrg, checkOwner: HasOrgOrUserVisible and IsOrganizationMember
+	// read org_user).
+	member := map[int64]bool{}
+	if candidates := slices.Concat(orgs, owners); len(candidates) > 0 {
+		for start := 0; start < len(candidates); start += inChunk {
+			var memberOf []int64
+			if err := db.GetEngine(ctx).Table("org_user").Cols("org_id").
+				Where(builder.Eq{"uid": viewer.ID}.And(builder.In("org_id", candidates[start:min(start+inChunk, len(candidates))]))).
+				Find(&memberOf); err != nil {
+				return fmt.Errorf("livesync: check organizations: %w", err)
+			}
+			for _, id := range memberOf {
+				member[id] = true
+			}
+		}
+	}
 	if len(orgs) > 0 {
-		// The viewer's memberships among them (checkOrg:
-		// HasOrgOrUserVisible and IsOrganizationMember read org_user).
-		var memberOf []int64
-		if err := db.GetEngine(ctx).Table("org_user").Cols("org_id").
-			Where(builder.Eq{"uid": viewer.ID}.And(builder.In("org_id", orgs))).Find(&memberOf); err != nil {
-			return fmt.Errorf("livesync: check organizations: %w", err)
-		}
-		member := map[int64]bool{}
-		for _, id := range memberOf {
-			member[id] = true
-		}
 		for _, id := range orgs {
 			org := users[id]
 			if org == nil || !org.IsOrganization() {
@@ -149,10 +166,14 @@ func checkGroups(ctx context.Context, viewer *user_model.User, groups []string, 
 		}
 	}
 
+	if err := checkOwners(ctx, viewer, owners, users, member, loadInputs, add); err != nil {
+		return err
+	}
+
 	if len(repos) == 0 {
 		return nil
 	}
-	in, err := loadViewerInputs(ctx, viewer.ID)
+	in, err := loadInputs()
 	if err != nil {
 		return err
 	}

@@ -72,6 +72,11 @@ func livesyncStatus(t *testing.T, token, path string) int {
 //   - org:{id} ⇔ GET /orgs/{org}; unit members ⇔ GET /orgs/{org}/teams;
 //   - the profile of a user (the directory of their visibility, or their
 //     profile group when private) ⇔ GET /users/{name};
+//   - owner:{id} (an organization's labels, a user's or organization's
+//     projects; B6 review round 2) ⇔ GET /orgs/{org} or /users/{name}, or
+//     the viewer reads the issues or pull requests of one of the owner's
+//     repositories (as above), whose label page lists the organization's
+//     labels;
 //
 // and every implicit grant (GET /-/sync/grants) is one of these with the
 // same units. Users who may not sign in get 403 from both.
@@ -116,6 +121,7 @@ func TestLivesyncPermDifferential(t *testing.T) {
 		}
 		implicit := livesyncGrants(t, token)
 		seen := map[string]bool{}
+		issueReader := map[int64]bool{} // owners of repositories whose issues or pulls the viewer reads
 		for _, repo := range repos {
 			group := protocol.RepoGroup(repo.ID)
 			base := fmt.Sprintf("/api/v1/repos/%s/%s", repo.OwnerName, repo.Name)
@@ -131,6 +137,9 @@ func TestLivesyncPermDifferential(t *testing.T) {
 				continue
 			}
 			checked++
+			if slices.Contains(units, protocol.UnitIssues) || slices.Contains(units, protocol.UnitPulls) {
+				issueReader[repo.OwnerID] = true
+			}
 			for _, up := range unitPaths {
 				code := livesyncStatus(t, token, base+up.path)
 				require.Contains(t, []int{http.StatusOK, http.StatusForbidden, http.StatusNotFound}, code, "viewer %d %s%s", viewer.ID, base, up.path)
@@ -149,10 +158,21 @@ func TestLivesyncPermDifferential(t *testing.T) {
 			}
 		}
 
+		ownerGroup := func(target *user_model.User, visible bool) {
+			t.Helper()
+			group := protocol.OwnerGroup(target.ID)
+			status, units := livesyncGrant(t, token, group)
+			assert.Equal(t, visible || issueReader[target.ID], status == http.StatusOK, "viewer %d %s: visible %v, reads issues of a repository %v, livesync %d", viewer.ID, group, visible, issueReader[target.ID], status)
+			if want, ok := implicit[group]; ok {
+				seen[group] = true
+				assert.Equal(t, want, units, "viewer %d %s", viewer.ID, group)
+			}
+		}
 		for _, target := range users {
 			if target.IsOrganization() {
 				group := protocol.OrgGroup(target.ID)
 				api := livesyncStatus(t, token, "/api/v1/orgs/"+target.Name)
+				ownerGroup(target, api == http.StatusOK)
 				status, units := livesyncGrant(t, token, group)
 				require.Equal(t, api == http.StatusOK, status == http.StatusOK, "viewer %d %s: API v1 %d, livesync %d", viewer.ID, group, api, status)
 				if api == http.StatusOK {
@@ -167,6 +187,7 @@ func TestLivesyncPermDifferential(t *testing.T) {
 			}
 			api := livesyncStatus(t, token, "/api/v1/users/"+target.Name)
 			require.Contains(t, []int{http.StatusOK, http.StatusNotFound}, api)
+			ownerGroup(target, api == http.StatusOK)
 			var group string
 			switch target.Visibility {
 			case structs.VisibleTypePublic:

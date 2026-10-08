@@ -44,10 +44,14 @@ const MetaPlacementPrefix = "materialized_placement."
 // Version 1 of reaction (B6 review): reactions of a type that is not
 // allowed are in no group (see placementVersion). Version 1 of
 // issue_dependency (B6 review): in no group, sent per viewer by issue
-// loads (Conditionals).
+// loads (Conditionals). Version 1 of label and 2 of project (B6 review
+// round 2): organization labels and user/organization projects moved from
+// org:{id} / profile:{id} to owner:{id}, which readers of the owner's
+// repositories' issues may read too (their columns stayed).
 var placementVersions = map[string]int64{
+	"label":            1,
 	"user":             1,
-	"project":          1,
+	"project":          2,
 	"project_board":    1,
 	"release":          1,
 	"tracked_time":     1,

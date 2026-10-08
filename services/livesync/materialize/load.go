@@ -309,6 +309,25 @@ func (l *loader) projectPlace(projectID int64) (string, protocol.Unit) {
 		return "", protocol.UnitNone
 	case p.RepoID != 0:
 		return protocol.RepoGroup(p.RepoID), protocol.UnitProjects
+	case p.OwnerID != 0:
+		// The readers of the owner's repositories' issues see its
+		// projects too (protocol.OwnerGroup).
+		return protocol.OwnerGroup(p.OwnerID), protocol.UnitNone
+	}
+	return "", protocol.UnitNone
+}
+
+// columnPlace is the group and unit of a column of project projectID: its
+// repository's, or for a user's or organization's project the owner's own
+// group (profile:{id}, org:{id}). Unlike the projects themselves, upstream
+// shows an owner's project boards only to those who may see the owner.
+func (l *loader) columnPlace(projectID int64) (string, protocol.Unit) {
+	p := l.projects[projectID]
+	switch {
+	case p == nil:
+		return "", protocol.UnitNone
+	case p.RepoID != 0:
+		return protocol.RepoGroup(p.RepoID), protocol.UnitProjects
 	case p.Type == project_module.TypeOrganization:
 		return protocol.OrgGroup(p.OwnerID), protocol.UnitNone
 	case p.OwnerID != 0:

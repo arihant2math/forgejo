@@ -8,9 +8,11 @@
 // organization.HasOrgOrUserVisible and IsOrganizationMember (API v1's org
 // routes), users' profiles like API v1's GET /users/{name} (profileVisible).
 //
-//   - Grants: the groups granted without asking (the viewer's own user and
-//     profile groups, the profile directories, member organizations and the
-//     repositories the viewer owns or was given access to). Site
+//   - Grants: the groups granted without asking (the viewer's own user,
+//     profile and owner groups, the profile directories, member
+//     organizations and their owner groups, the repositories the viewer
+//     owns or was given access to, and the owner groups of those whose
+//     issues or pull requests the viewer may read — see owner.go). Site
 //     administrators get no implicit groups; public repositories and
 //     organizations, other users' profiles and issues are checked on demand
 //     (Check), where administrators are treated as upstream treats them.
@@ -49,6 +51,10 @@ type Grants struct {
 	basis Basis
 	// owners: the owner of every repository the grants evaluated.
 	owners map[int64]int64
+	// ownerRepos: for the owner:{id} groups granted through a repository
+	// (the viewer may not see the owner itself, see ownerGroup), the
+	// smallest such repository's id, by owner id.
+	ownerRepos map[int64]int64
 }
 
 // basisFor is the part of the grants' basis that decided group: the
@@ -73,6 +79,11 @@ func (g *Grants) basisFor(group string) Basis {
 		}
 	case kindOrg, kindProfile:
 		take(protocol.TouchUser, id)
+	case kindOwner:
+		take(protocol.TouchUser, id)
+		if r, ok := g.ownerRepos[id]; ok {
+			take(protocol.TouchRepository, r)
+		}
 	}
 	return b
 }
@@ -81,6 +92,22 @@ func (g *Grants) basisFor(group string) Basis {
 func (g *Grants) Units(group string) (UnitSet, bool) {
 	u, ok := g.groups[group]
 	return u, ok
+}
+
+// decision returns the decision of a granted group taken from the grants.
+func (g *Grants) decision(group string) (Decision, bool) {
+	units, ok := g.groups[group]
+	if !ok {
+		return Decision{}, false
+	}
+	d := Decision{Units: units, Basis: g.basisFor(group)}
+	switch kind, id := parseGroup(group); kind {
+	case kindRepo:
+		d.RepoID = id
+	case kindOwner:
+		d.RepoID = g.ownerRepos[id]
+	}
+	return d, true
 }
 
 // Wire returns the grants as sent to clients, sorted by group.
@@ -123,6 +150,7 @@ const (
 	kindProfilesPublic
 	kindProfilesLimited
 	kindOrg
+	kindOwner
 	kindRepo
 	kindIssue
 )
@@ -147,6 +175,8 @@ func parseGroup(group string) (groupKind, int64) {
 		return kindProfile, id
 	case protocol.GroupPrefixOrg:
 		return kindOrg, id
+	case protocol.GroupPrefixOwner:
+		return kindOwner, id
 	case protocol.GroupPrefixRepo:
 		return kindRepo, id
 	case protocol.GroupPrefixIssue:
@@ -177,13 +207,17 @@ func lookupUser(ctx context.Context, id int64) (u user_model.User, ok bool, err 
 // them (repoPermission), from inputs read with a fixed number of queries
 // (viewerInputs), not ≈ 5 queries per repository.
 func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Grants, error) {
-	g := &Grants{ViewerID: viewerID, groups: map[string]UnitSet{}, basis: Basis{}, owners: map[int64]int64{}}
+	g := &Grants{
+		ViewerID: viewerID, groups: map[string]UnitSet{}, basis: Basis{}, owners: map[int64]int64{},
+		ownerRepos: map[int64]int64{},
+	}
 	g.basis.addUser(viewer)
 	if !usable(viewer) {
 		return g, nil
 	}
 	g.groups[protocol.UserGroup(viewer.ID)] = unitBase | unitSelf
 	g.groups[protocol.ProfileGroup(viewer.ID)] = unitBase
+	g.groups[protocol.OwnerGroup(viewer.ID)] = unitBase
 	g.groups[protocol.GroupProfilesPublic] = unitBase
 	if !viewer.IsRestricted {
 		g.groups[protocol.GroupProfilesLimited] = unitBase
@@ -195,6 +229,7 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 	}
 	for id := range in.orgs {
 		g.groups[protocol.OrgGroup(id)] = unitBase | unitMembers
+		g.groups[protocol.OwnerGroup(id)] = unitBase
 	}
 	repoIDs, err := in.relatedRepos(ctx, viewer.ID)
 	if err != nil {
@@ -223,11 +258,33 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 			g.basis.addUser(repo.Owner)
 			p := in.repoPermission(viewer, repo, units[repo.ID])
 			if p.HasAccess() {
-				g.groups[protocol.RepoGroup(repo.ID)] = repoUnits(&p)
+				units := repoUnits(&p)
+				g.groups[protocol.RepoGroup(repo.ID)] = units
+				if units&ownerUnits != 0 {
+					g.addOwner(ctx, viewer, repo, in.orgs[repo.OwnerID])
+				}
 			}
 		}
 	}
 	return g, nil
+}
+
+// addOwner grants the owner:{id} group of repo's owner, whose issues or
+// pull requests the viewer may read (see ownerGroup): through the
+// repository with the smallest id when the viewer may not see the owner.
+// member: the viewer is a member of the owner.
+func (g *Grants) addOwner(ctx context.Context, viewer *user_model.User, repo *repo_model.Repository, member bool) {
+	group := protocol.OwnerGroup(repo.OwnerID)
+	if _, ok := g.groups[group]; ok {
+		if r, via := g.ownerRepos[repo.OwnerID]; via && repo.ID < r {
+			g.ownerRepos[repo.OwnerID] = repo.ID
+		}
+		return
+	}
+	g.groups[group] = unitBase
+	if !ownerVisible(ctx, repo.Owner, viewer, member) {
+		g.ownerRepos[repo.OwnerID] = repo.ID
+	}
 }
 
 // inChunk bounds the ids of one IN (...) list.
@@ -516,6 +573,8 @@ func checkGroup(ctx context.Context, viewer *user_model.User, group string) (d D
 		return Decision{Units: unitBase, Basis: basis}, profileVisible(ctx, &u, viewer), nil
 	case kindOrg:
 		return checkOrg(ctx, viewer, id)
+	case kindOwner:
+		return checkOwner(ctx, viewer, id)
 	case kindRepo:
 		repo, err := repo_model.GetRepositoryByID(ctx, id)
 		if repo_model.IsErrRepoNotExist(err) {

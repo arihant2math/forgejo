@@ -331,7 +331,9 @@ var specs = func() map[string]*spec {
 				case r.RepoID != 0:
 					return protocol.RepoGroup(r.RepoID), protocol.UnitIssuesOrPulls
 				case r.OrgID != 0:
-					return protocol.OrgGroup(r.OrgID), protocol.UnitNone
+					// Readers of the organization's repositories' issues
+					// see its labels too (protocol.OwnerGroup).
+					return protocol.OwnerGroup(r.OrgID), protocol.UnitNone
 				}
 				return "", protocol.UnitNone
 			},
@@ -392,7 +394,7 @@ var specs = func() map[string]*spec {
 			prepare: func(ctx context.Context, l *loader, rows []*project_model.Column) error {
 				return l.loadProjects(ctx, ids(rows, func(r *project_model.Column) int64 { return r.ProjectID }))
 			},
-			place: func(l *loader, r *project_model.Column) (string, protocol.Unit) { return l.projectPlace(r.ProjectID) },
+			place: func(l *loader, r *project_model.Column) (string, protocol.Unit) { return l.columnPlace(r.ProjectID) },
 			dto: func(_ context.Context, _ *loader, r *project_model.Column) (any, error) {
 				return &protocol.ProjectColumn{
 					ID: r.ID, ProjectID: r.ProjectID, Title: r.Title, Default: r.Default, Sorting: int(r.Sorting),

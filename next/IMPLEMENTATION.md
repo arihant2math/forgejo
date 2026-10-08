@@ -2506,7 +2506,7 @@ does) **and** MySQL 8.0 (binlog on).
     Also fixed: `[data-active]` is instant-in (tested); the shared `hasUser`; the reload screen after a second boot failure.
 
 #### F2 — Data layer
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08. `npm run check` is green: lint, typecheck, 193 Vitest tests, build, and the budget, which is unchanged (boot 81.8 KB br JS / 4.5 KB br CSS). All 14 Playwright tests pass, the hydration benchmark included. The integration test (3) passes against a dev Forgejo on PG with livesync enabled. Four review rounds (correctness, protocol, performance); the last found no remaining blocker or major.
 - **Scope:** `src/data`: IDB schema (one DB per origin+userId; store per model with
   `group` + hot-field indexes; `meta`, `intents`, `drafts`, `blobs`), per-model schema
   versions (drop/re-bootstrap one model, never `intents`/`drafts`), MobX object pool with
@@ -2789,7 +2789,8 @@ does) **and** MySQL 8.0 (binlog on).
       re-held group's *current* state, i.e. a new position ahead of its deferred records. Fixed: the drop transaction
       writes a sanitized state (no position, watermark or units; `needs: all`), and the real state goes with the
       records. A throwing request now aborts its flush transaction.
-    * **Round 4** (verification of that fix): see the status line.
+    * **Round 4** (verification of that fix): no blocker or major. One cosmetic minor: `needs.reason` `'dropped'` is a
+      client-only label, not a protocol `BootstrapReason`.
     * The reviewers' reproductions are ported as regression tests (`client.test.ts` "review regressions",
       `data.test.ts`, `startup.test.ts`, `idb.test.ts`, `pool.test.ts`).
     * Merged the B6 follow-up (`ProjectRef`, `Label` schema 2) before the PR; the catalogue gained `ProjectRef` (kind

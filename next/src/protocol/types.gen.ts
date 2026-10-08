@@ -6,12 +6,14 @@
 // change the Go types and re-run the script (--check verifies it in CI).
 
 /** A message a client sends (services/livesync/protocol/messages.go). */
-export type ClientMessage = HelloMessage | SubscribeMessage | UnsubscribeMessage | BarrierMessage | PingMessage;
+export type ClientMessage =
+  | HelloMessage | SubscribeMessage | UnsubscribeMessage | BarrierMessage | PingMessage | LogTailMessage
+  | LogUntailMessage;
 /** A message the server sends, discriminated by `type`. */
 export type ServerMessage =
   | WelcomeMessage | SubscribedMessage | DeltaMessage | CaughtUpMessage | BootstrapRequiredMessage
   | GroupRevokedMessage | BarrierOKMessage | SessionInvalidMessage | NoticeMessage | PongMessage
-  | GrantsMessage | ResumeFromCursorMessage | ErrorMessage | SessionMessage;
+  | GrantsMessage | ResumeFromCursorMessage | ErrorMessage | SessionMessage | LogMessage | LogClosedMessage;
 /** Why a requested group was refused (Refusal.reason). */
 export type RefusalReason = typeof RefusedForbidden | typeof RefusedLimit;
 /** Why a group must be loaded again (BootstrapRequiredMessage.reason). */
@@ -24,6 +26,224 @@ export type NoticeKind = typeof NoticeNewBuild | typeof NoticeShutdown;
 export type ErrorCode =
   | typeof ErrorBadMessage | typeof ErrorHelloRequired | typeof ErrorTooManyBarriers
   | typeof ErrorTooManyConnections | typeof ErrorInternal;
+/** LogClosedMessage.reason. */
+export type LogClosedReason = typeof LogClosedForbidden | typeof LogClosedLimit | typeof LogClosedError;
+/** A file's state in APIViewedFiles.files. */
+export type ViewedState = typeof ViewedViewed | typeof ViewedUnviewed | typeof ViewedHasChanged;
+
+//////////
+// source: api.go
+
+/**
+ * APIPrefix is the path prefix of the gap endpoints.
+ */
+export const APIPrefix = "/-/sync/api";
+/**
+ * CacheImmutable is the Cache-Control of the SHA-addressed responses.
+ */
+export const CacheImmutable = "private, max-age=31536000, immutable";
+/**
+ * APIError is the body of an error response.
+ */
+export interface APIError {
+  message: string;
+}
+/**
+ * APICreated acknowledges a create or edit: the id of the object (the
+ * entity follows as a delta).
+ */
+export interface APICreated {
+  id: number /* int64 */;
+}
+/**
+ * APIColumnCreate adds a column at the end of a project board.
+ * Permission (as the classic board): a repository project needs write
+ * access to the repository's projects unit (and an unarchived repository);
+ * an organization project needs the projects unit with write access in one
+ * of the viewer's teams; a user's project its owner. Color is "" or
+ * "#rrggbb".
+ */
+export interface APIColumnCreate {
+  title: string;
+  color?: string;
+}
+/**
+ * APIColumnEdit changes a column; absent fields stay. Default true makes
+ * the column the board's default (the others lose it; false is ignored).
+ * Color "" removes the colour.
+ */
+export interface APIColumnEdit {
+  title?: string;
+  color?: string;
+  default?: boolean;
+}
+/**
+ * APIColumnOrder orders a board's columns: every column of the project,
+ * exactly once, in the new order (a request that misses one is 409: the
+ * client's view is stale; load the board again).
+ */
+export interface APIColumnOrder {
+  column_ids: number /* int64 */[];
+}
+/**
+ * APICardMove moves cards into a column (or within it). Either IssueID
+ * (one card) with Position — its 0-based index in the target column after
+ * the move, computed against the column's current cards (absent or past
+ * the end: last) — or Cards, the target column's complete new order
+ * (sorting values ascending; cards of the column that are not listed go
+ * after them, as the classic board does). Every issue must already be on
+ * the project's board (409 otherwise) and readable by the viewer (404).
+ */
+export interface APICardMove {
+  issue_id?: number /* int64 */;
+  position?: number /* int */;
+  cards?: APICard[];
+}
+/**
+ * APICard is a card's position in APICardMove.Cards.
+ */
+export interface APICard {
+  issue_id: number /* int64 */;
+  sorting: number /* int64 */;
+}
+/**
+ * APIBodyEdit replaces the body of an issue / pull request or of a
+ * comment if its content_version (IssueBody.content_version,
+ * Comment.content_version) is still ExpectedVersion. API v1 has no such
+ * check (it overwrites whatever is there): offline edits need it to
+ * merge (PLAN §5.4).
+ * Permission (as the classic UI): the poster, or a writer of the issues
+ * (pull requests) unit; the repository must not be archived; only
+ * comments with content (comment, code comment, review) can be edited
+ * (422 otherwise).
+ */
+export interface APIBodyEdit {
+  body: string;
+  expected_version: number /* int */;
+}
+/**
+ * APIBodyEdited answers a successful body edit: the new content_version.
+ */
+export interface APIBodyEdited {
+  content_version: number /* int */;
+}
+/**
+ * APIBodyConflict is the 409 body of a body edit whose ExpectedVersion is
+ * stale: the current text and version, the client's 3-way merge base for
+ * the next attempt.
+ */
+export interface APIBodyConflict {
+  message: string;
+  body: string;
+  content_version: number /* int */;
+}
+/**
+ * APIViewedFiles is the viewer's newest "viewed files" state of a pull
+ * request (the ReviewState entity of user:{viewer}, as the classic files
+ * view reads it). CommitSHA is the head commit the state was saved for
+ * ("" with no state). With ?head=<sha> (another commit), the files that
+ * changed between CommitSHA and head are reported as ViewedHasChanged
+ * (nothing is stored; the classic view stores that when it renders).
+ */
+export interface APIViewedFiles {
+  pull_id: number /* int64 */;
+  commit_sha: string;
+  files: { [path: string]: ViewedState };
+}
+export const ViewedViewed = "viewed";
+export const ViewedUnviewed = "unviewed";
+export const ViewedHasChanged = "has_changed";
+/**
+ * APIViewedUpdate marks files of a pull request viewed (true) or not
+ * (false) for the viewer at the head commit CommitSHA (a full SHA; default:
+ * the pull request's current head). Other files keep their state (merged
+ * as the classic UI does). Permission: read access to the pull request.
+ */
+export interface APIViewedUpdate {
+  commit_sha?: string;
+  files: { [key: string]: boolean};
+}
+/**
+ * APIMarkdownRequest renders markdown previews in one request (at most 64
+ * items and 1 MiB of text). With RepoID (a repository the viewer may read)
+ * references, SHAs and links resolve as in that repository's issues; the
+ * HTML is exactly what the sync log's body_html of an issue or comment
+ * with that text would be (rendered without a viewer: @mentions link
+ * public users only, see materialize.renderMarkdown). Without RepoID the
+ * text is rendered as plain markdown. It does not write: an
+ * Idempotency-Key is ignored.
+ */
+export interface APIMarkdownRequest {
+  repo_id?: number /* int64 */;
+  items: string[];
+}
+/**
+ * APIMarkdownResponse holds the rendered HTML of each item, in order.
+ */
+export interface APIMarkdownResponse {
+  html: string[];
+}
+/**
+ * APITree lists a directory of a commit (not recursive). Path is "" for
+ * the root; SHA is the tree's object id.
+ */
+export interface APITree {
+  commit: string;
+  path: string;
+  sha: string;
+  entries: APITreeEntry[];
+}
+/**
+ * APITreeEntry is one entry of APITree. Type is "blob", "tree", "commit"
+ * (a submodule) or "symlink"; Mode the git file mode in octal ("100644");
+ * Size the blob size in bytes (blobs and symlinks only).
+ */
+export interface APITreeEntry {
+  name: string;
+  type: string;
+  mode: string;
+  sha: string;
+  size?: number /* int64 */;
+}
+/**
+ * APIBlame is the blame of a file at a commit, as consecutive parts: Lines
+ * lines (from StartLine, 1-based) last changed by commit SHA. The line text
+ * is the file's (raw/{commit}/{path}). Commits holds each part commit once.
+ * PreviousSHA/PreviousPath name the commit before it that touched the
+ * lines (for "blame prior to this change"). UsesIgnoreRevs: the file's
+ * .git-blame-ignore-revs was applied (?bypass_ignore=1 turns it off);
+ * FaultyIgnoreRevsFile: it could not be applied.
+ */
+export interface APIBlame {
+  commit: string;
+  path: string;
+  parts: APIBlamePart[];
+  commits: { [key: string]: APIBlameCommit};
+  uses_ignore_revs: boolean;
+  faulty_ignore_revs_file: boolean;
+}
+/**
+ * APIBlamePart is a run of lines of APIBlame.
+ */
+export interface APIBlamePart {
+  sha: string;
+  start_line: number /* int */;
+  lines: number /* int */;
+  previous_sha?: string;
+  previous_path?: string;
+}
+/**
+ * APIBlameCommit describes a commit of APIBlame. AuthorID is the Forgejo
+ * user whose email matches the author's (0: none).
+ */
+export interface APIBlameCommit {
+  summary: string;
+  author_name: string;
+  author_email: string;
+  author_id: number /* int64 */;
+  authored_at: string;
+  committed_at: string;
+}
 
 //////////
 // source: bootstrap.go
@@ -946,6 +1166,93 @@ export interface ContentHistory {
 }
 
 //////////
+// source: logs.go
+
+/**
+ * LogTailMessage starts (or restarts) tailing a job's log.
+ */
+export interface LogTailMessage {
+  type: 'log_tail';
+  job_id: number /* int64 */;
+  /**
+   * TaskID and Offset resume a tail: when TaskID is still the job's
+   * current task, lines are sent from Offset; otherwise from 0 of the
+   * current task.
+   */
+  task_id?: number /* int64 */;
+  offset?: number /* int64 */;
+}
+/**
+ * LogUntailMessage stops tailing a job's log (no answer; LogMessages
+ * already on their way may still arrive).
+ */
+export interface LogUntailMessage {
+  type: 'log_untail';
+  job_id: number /* int64 */;
+}
+/**
+ * LogMessage carries lines of a job's log. Lines[i] is line Offset+i of
+ * task TaskID. TaskID is 0 while the job waits for a runner (no lines
+ * yet). Steps is set when the steps changed since the previous LogMessage
+ * of the tail (always in the first one). Done: the task finished and every
+ * line was sent; the tail ends. Expired: the log was removed (log
+ * retention); no lines are sent, the tail ends (Done is set too).
+ */
+export interface LogMessage {
+  type: 'log';
+  job_id: number /* int64 */;
+  task_id: number /* int64 */;
+  offset: number /* int64 */;
+  lines: LogLine[];
+  steps?: LogStep[];
+  done?: boolean;
+  expired?: boolean;
+}
+/**
+ * LogLine is one log line: its time in Unix milliseconds and its text.
+ */
+export interface LogLine {
+  t: number /* int64 */;
+  c: string;
+}
+/**
+ * LogStep is a step of the task (the classic job page's steps, including
+ * "Set up job" and "Complete job"): its lines are [LogIndex, LogIndex +
+ * LogLength) of the task's log. Status is the step's status ("success",
+ * "failure", "running", "waiting", "skipped", "cancelled", …), Started and
+ * Stopped Unix seconds (0: not yet).
+ */
+export interface LogStep {
+  name: string;
+  status: string;
+  log_index: number /* int64 */;
+  log_length: number /* int64 */;
+  started: number /* int64 */;
+  stopped: number /* int64 */;
+}
+/**
+ * LogClosedMessage says that the server ended a tail.
+ */
+export interface LogClosedMessage {
+  type: 'log_closed';
+  job_id: number /* int64 */;
+  reason: LogClosedReason;
+}
+/**
+ * LogClosedForbidden: the job does not exist or its log may not (any
+ * more) be read.
+ */
+export const LogClosedForbidden = "forbidden";
+/**
+ * LogClosedLimit: the session tails too many jobs.
+ */
+export const LogClosedLimit = "limit";
+/**
+ * LogClosedError: the log could not be read; tail again later.
+ */
+export const LogClosedError = "error";
+
+//////////
 // source: messages.go
 
 /**
@@ -963,6 +1270,8 @@ export const MsgSubscribe: MessageType = "subscribe";
 export const MsgUnsubscribe: MessageType = "unsubscribe";
 export const MsgBarrier: MessageType = "barrier";
 export const MsgPing: MessageType = "ping";
+export const MsgLogTail: MessageType = "log_tail";
+export const MsgLogUntail: MessageType = "log_untail";
 export const MsgWelcome: MessageType = "welcome";
 export const MsgSubscribed: MessageType = "subscribed";
 export const MsgDelta: MessageType = "delta";
@@ -981,6 +1290,11 @@ export const MsgError: MessageType = "error";
  * session id the client sends its messages with.
  */
 export const MsgSession: MessageType = "session";
+/**
+ * MsgLog and MsgLogClosed stream an Actions job's log (logs.go).
+ */
+export const MsgLog: MessageType = "log";
+export const MsgLogClosed: MessageType = "log_closed";
 /**
  * GroupRequest asks for a group. Since is the position the client already
  * holds in it (the server replays the entries after it, then streams live

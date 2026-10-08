@@ -134,6 +134,8 @@ func TestTypeScriptUnions(t *testing.T) {
 	assert.ElementsMatch(t, consts(blockOf("BootstrapCursorTrimmed"), blockOf("RebootstrapTriggerRepaired")), union("BootstrapReason"))
 	assert.ElementsMatch(t, consts(blockOf("NoticeNewBuild")), union("NoticeKind"))
 	assert.ElementsMatch(t, consts(blockOf("ErrorBadMessage")), union("ErrorCode"))
+	assert.ElementsMatch(t, consts(blockOf("LogClosedForbidden")), union("LogClosedReason"))
+	assert.ElementsMatch(t, consts(blockOf("ViewedViewed")), union("ViewedState"))
 	assert.Len(t, slices.Concat(messages(blockOf("MsgHello")), messages(blockOf("MsgWelcome"))), len(structOf), "a message struct without a type constant")
 
 	// The fields use the unions.
@@ -146,6 +148,8 @@ func TestTypeScriptUnions(t *testing.T) {
 		{BootstrapRequiredMessage{}, "Reason", "BootstrapReason"},
 		{NoticeMessage{}, "Kind", "NoticeKind"},
 		{ErrorMessage{}, "Code", "ErrorCode"},
+		{LogClosedMessage{}, "Reason", "LogClosedReason"},
+		{APIViewedFiles{}, "Files", "{ [path: string]: ViewedState }"},
 	} {
 		f, ok := reflect.TypeOf(tc.v).FieldByName(tc.field)
 		require.True(t, ok)

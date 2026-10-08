@@ -18,12 +18,14 @@ packages:
       // change the Go types and re-run the script (--check verifies it in CI).
 
       /** A message a client sends (services/livesync/protocol/messages.go). */
-      export type ClientMessage = HelloMessage | SubscribeMessage | UnsubscribeMessage | BarrierMessage | PingMessage;
+      export type ClientMessage =
+        | HelloMessage | SubscribeMessage | UnsubscribeMessage | BarrierMessage | PingMessage | LogTailMessage
+        | LogUntailMessage;
       /** A message the server sends, discriminated by `type`. */
       export type ServerMessage =
         | WelcomeMessage | SubscribedMessage | DeltaMessage | CaughtUpMessage | BootstrapRequiredMessage
         | GroupRevokedMessage | BarrierOKMessage | SessionInvalidMessage | NoticeMessage | PongMessage
-        | GrantsMessage | ResumeFromCursorMessage | ErrorMessage | SessionMessage;
+        | GrantsMessage | ResumeFromCursorMessage | ErrorMessage | SessionMessage | LogMessage | LogClosedMessage;
       /** Why a requested group was refused (Refusal.reason). */
       export type RefusalReason = typeof RefusedForbidden | typeof RefusedLimit;
       /** Why a group must be loaded again (BootstrapRequiredMessage.reason). */
@@ -36,3 +38,7 @@ packages:
       export type ErrorCode =
         | typeof ErrorBadMessage | typeof ErrorHelloRequired | typeof ErrorTooManyBarriers
         | typeof ErrorTooManyConnections | typeof ErrorInternal;
+      /** LogClosedMessage.reason. */
+      export type LogClosedReason = typeof LogClosedForbidden | typeof LogClosedLimit | typeof LogClosedError;
+      /** A file's state in APIViewedFiles.files. */
+      export type ViewedState = typeof ViewedViewed | typeof ViewedUnviewed | typeof ViewedHasChanged;

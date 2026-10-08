@@ -51,6 +51,8 @@ const (
 	MsgUnsubscribe MessageType = "unsubscribe"
 	MsgBarrier     MessageType = "barrier"
 	MsgPing        MessageType = "ping"
+	MsgLogTail     MessageType = "log_tail"
+	MsgLogUntail   MessageType = "log_untail"
 )
 
 // Server → client messages (the TypeScript union ServerMessage).
@@ -72,6 +74,9 @@ const (
 	// MsgSession is the first event of the fallback transport (SSE): the
 	// session id the client sends its messages with.
 	MsgSession MessageType = "session"
+	// MsgLog and MsgLogClosed stream an Actions job's log (logs.go).
+	MsgLog       MessageType = "log"
+	MsgLogClosed MessageType = "log_closed"
 )
 
 // GroupRequest asks for a group. Since is the position the client already

@@ -444,21 +444,23 @@ func livesyncHubScenario(t *testing.T, u *url.URL, transport string) {
 
 // A client that does not keep up with its live changes is disconnected
 // with resume_from_cursor: it stops reading, comments arrive in deliveries
-// of ≈ 200 KB until its socket is full and the queue behind it passes the
-// send buffer (1 MiB). When the client reads again it gets what was
-// written before the overflow, then resume_from_cursor at a position it
-// was sent (its resume point), then the session is closed (WS 1013); the
-// rest was dropped. (A writer blocked by a full socket is
-// TestSlowConsumer's case: here the kernel first buffers about 4 MB, the
-// server's send buffer (net.ipv4.tcp_wmem's maximum) and the client's
-// receive buffer at its initial size (tcp_rmem's default; autotuning
-// grows it only as the application reads). The client's receive buffer is
-// not made smaller: a 4 KiB window drains at about 100 KB/s on loopback
-// (delayed ACKs) and stays slow after it is raised again, so the server's
-// write timeout cut a frame before the client caught up.)
+// of ≈ 200 KB until its socket is full; the queue behind it fills up (its
+// subscription then catches up from the log instead of queueing more) and
+// once the queued messages waited longer than DRAIN_TIMEOUT (2s here) the
+// session is found too slow. When the client reads again it gets what was
+// written before, then resume_from_cursor at a position it was sent (its
+// resume point), then the session is closed (WS 1013); the rest was
+// dropped. (A writer blocked by a full socket is TestSlowConsumer's case:
+// here the kernel first buffers about 4 MB, the server's send buffer
+// (net.ipv4.tcp_wmem's maximum) and the client's receive buffer at its
+// initial size (tcp_rmem's default; autotuning grows it only as the
+// application reads). The client's receive buffer is not made smaller: a
+// 4 KiB window drains at about 100 KB/s on loopback (delayed ACKs) and
+// stays slow after it is raised again, so the server's write timeout cut a
+// frame before the client caught up.)
 func TestLivesyncHubSlowConsumer(t *testing.T) {
 	livesyncSkipSQLite(t)
-	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "1048576"})
+	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "1048576", "DRAIN_TIMEOUT": "2s"})
 	onApplicationRun(t, func(t *testing.T, u *url.URL) {
 		livesyncWaitBackfill(t)
 		livesyncSettle(t)
@@ -479,8 +481,8 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 				// one the test also waits for its frame to be taken by the
 				// writer, so the client is sure to receive something. The
 				// writer writes them until the sockets are full (the kernel
-				// absorbs a few MB first), then the queue grows past
-				// SEND_BUFFER and the session is closed.
+				// absorbs a few MB first), then the queue fills up and,
+				// DRAIN_TIMEOUT later, the session is closed.
 				// Root cause of the B6/B7 flake: the old test inserted the
 				// comments as fast as it could, and when the tailer, behind
 				// under load, handed the hub more than SEND_BUFFER of them in
@@ -488,12 +490,10 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 				// writers are woken only once Deliver is done (B5 final review)
 				// — so not a single frame was written ("frames were written
 				// until the socket was full" failed with 0 comments received).
-				// B8's first fix waited on a log head read right after the
-				// commit, i.e. not at all (materialization is asynchronous),
-				// so its sessions overflowed that same way, just less often.
-				// That bound is by design (a burst above SEND_BUFFER in one
-				// tailer batch disconnects even a reading client, which
-				// resumes from its position), not what this test is about.
+				// Such a burst no longer closes a session (its subscriptions
+				// catch up from the log: TestLivesyncHubBurst), but the pacing
+				// keeps what this test checks — some frames were written
+				// before the client was found too slow — deterministic.
 				slow, _ := livesyncMetric(t, "forgejo_livesync_slow_consumer_disconnects_total")
 				random := make([]byte, 2<<10)
 				written := 0
@@ -555,6 +555,76 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 				if transport == "ws" {
 					assert.Equal(t, int(websocket.StatusTryAgainLater), status)
 				}
+			})
+		}
+	})
+}
+
+// A burst of several times SEND_BUFFER in one transaction (one tailer
+// batch, one Deliver) reaches clients that read, over WebSocket and SSE,
+// without closing their sessions. It used to overflow every subscriber's
+// queue inside that one Deliver (the writers are woken after it) and
+// disconnect them all with resume_from_cursor (B8's product note); now the
+// subscriptions whose changes do not fit catch up from the sync log as the
+// clients read — paged, so a burst beyond MAX_REPLAY does not end in
+// bootstrap_required either.
+func TestLivesyncHubBurst(t *testing.T) {
+	livesyncSkipSQLite(t)
+	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "262144", "MAX_REPLAY": "50"})
+	onApplicationRun(t, func(t *testing.T, u *url.URL) {
+		livesyncWaitBackfill(t)
+		livesyncSettle(t)
+		token := livesyncToken(t, &user_model.User{ID: 2})
+		for _, transport := range []string{"ws", "sse"} {
+			t.Run(transport, func(t *testing.T) {
+				// Two subscribers of the group.
+				cls := []*livesyncSyncClient{livesyncDial(t, u, transport), livesyncDial(t, u, transport)}
+				for _, cl := range cls {
+					cl.send(livesyncHello(token, protocol.GroupRequest{Group: "issue:1"}))
+					cl.waitType(protocol.MsgWelcome)
+					cl.waitType(protocol.MsgCaughtUp)
+				}
+				catchUps, _ := livesyncMetric(t, "forgejo_livesync_send_buffer_catch_ups_total")
+				slow, _ := livesyncMetric(t, "forgejo_livesync_slow_consumer_disconnects_total")
+
+				// 150 comments of ≈ 17 KB with their HTML: ≈ 2.5 MB, about
+				// ten times SEND_BUFFER, in one transaction.
+				const n = 150
+				random := make([]byte, 4<<10)
+				wanted := map[int64]bool{}
+				require.NoError(t, db.WithTx(t.Context(), func(ctx context.Context) error {
+					for i := range n {
+						_, _ = rand.Read(random)
+						c := &issues_model.Comment{Type: issues_model.CommentTypeComment, IssueID: 1, PosterID: 2, Content: fmt.Sprintf("burst %s %d %x", transport, i, random)}
+						if err := db.Insert(ctx, c); err != nil {
+							return err
+						}
+						wanted[c.ID] = true
+					}
+					return nil
+				}))
+				start := time.Now()
+				for i, cl := range cls {
+					got := map[int64]bool{}
+					for len(got) < n {
+						m := cl.waitFor("the burst's comments", func(m *livesyncMsg) bool {
+							return m.Type != protocol.MsgPong && m.Type != protocol.MsgGrants
+						})
+						require.Equal(t, protocol.MsgDelta, m.Type, "client %d: %s %s after %d of %d comments", i, m.Type, m.Reason, len(got), n)
+						for _, ch := range m.Changes {
+							if ch.M == protocol.ModelComment && wanted[ch.ID] {
+								got[ch.ID] = true
+							}
+						}
+					}
+					cl.send(&protocol.BarrierMessage{Type: protocol.MsgBarrier, ID: "after"})
+					cl.waitType(protocol.MsgBarrierOK)
+				}
+				t.Logf("%s: %d comments reached both clients in %s", transport, n, time.Since(start))
+				after, _ := livesyncMetric(t, "forgejo_livesync_send_buffer_catch_ups_total")
+				assert.Greater(t, after, catchUps, "the burst did not fit in a session's send buffer")
+				slowAfter, _ := livesyncMetric(t, "forgejo_livesync_slow_consumer_disconnects_total")
+				assert.InDelta(t, slow, slowAfter, 0, "no session was found too slow")
 			})
 		}
 	})

@@ -71,10 +71,18 @@ var (
 		Help: "Sync sessions opened, by transport.",
 	}, []string{"transport"})
 	// SlowConsumers counts sessions closed with resume_from_cursor because
-	// their send buffer overflowed.
+	// they did not keep up: their queued messages waited longer than
+	// DRAIN_TIMEOUT, or their control messages overflowed SEND_BUFFER.
 	SlowConsumers = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace, Name: "slow_consumer_disconnects_total",
-		Help: "Sync sessions closed because their send buffer ([livesync] SEND_BUFFER) overflowed.",
+		Help: "Sync sessions closed with resume_from_cursor because they did not read fast enough ([livesync] DRAIN_TIMEOUT, SEND_BUFFER).",
+	})
+	// CatchUps counts subscriptions whose live changes did not fit in their
+	// session's send buffer (a burst) and that caught up from the sync log
+	// instead.
+	CatchUps = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace, Name: "send_buffer_catch_ups_total",
+		Help: "Subscriptions whose live changes did not fit in the session's send buffer and that caught up from the sync log.",
 	})
 	// Frames counts the delta frames written, FrameBytes their size
 	// (before WebSocket compression).
@@ -167,7 +175,7 @@ var registerOnce sync.Once
 func Register(extra ...prometheus.Collector) {
 	registerOnce.Do(func() {
 		all := []prometheus.Collector{
-			MaterializeLag, Materialized, LogEntries, FanOut, Delivered, SessionsOpened, SlowConsumers, Frames, FrameBytes,
+			MaterializeLag, Materialized, LogEntries, FanOut, Delivered, SessionsOpened, SlowConsumers, CatchUps, Frames, FrameBytes,
 			Replays, BootstrapRequired, GroupsRevoked, Bootstraps, BootstrapBytes, BootstrapDuration,
 			Idempotency, SyncWait, SyncWaitTimeouts, RUM, RUMEvents, RUMRejected,
 		}

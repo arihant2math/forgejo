@@ -51,6 +51,10 @@ func (c *conn) stop() {
 	c.cancel()
 	c.mu.Lock()
 	c.room.Broadcast()
+	if c.drainTimer != nil {
+		c.drainTimer.Stop()
+		c.drainTimer = nil
+	}
 	c.mu.Unlock()
 	// Wait for a message being handled; later ones are dropped (handle).
 	c.handleMu.Lock()
@@ -328,6 +332,7 @@ func (h *Hub) subscribeLocked(c *conn, reqs []request, at checkpoint) (granted [
 				c.busy++
 			}
 			h.dropHeldLocked(s) // held entries start after the old cursor
+			s.behind = false    // a replay the client asked for (MaxReplay)
 			s.cursor = *since
 			s.gen++
 			h.queueLocked(s)
@@ -441,7 +446,7 @@ func (c *conn) hello(m *protocol.HelloMessage) {
 	c.grants = welcome.Grants
 	c.welcomed = true
 	for _, ch := range c.selfPending {
-		c.enqueueChange(ch, false)
+		c.enqueueChange(ch)
 	}
 	c.selfPending = nil
 	if c.revalidate {
@@ -607,6 +612,7 @@ func (h *Hub) goLiveLocked(s *sub, from int64) {
 	}
 	s.state = stateLive
 	s.liveFrom = from
+	s.behind = false
 	h.dropHeldLocked(s)
 	s.c.busy--
 	s.c.clearHold(s)

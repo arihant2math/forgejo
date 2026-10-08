@@ -27,8 +27,12 @@
 //     (protocol.OpRebootstrap) become bootstrap_required for the subscribed
 //     groups that can hold the marker's model.
 //   - Outgoing changes are batched into frames of at most FrameInterval
-//     (16 ms); each session's send buffer is bounded: a session that does
-//     not keep up is closed with resume_from_cursor.
+//     (16 ms). Each session's queue is bounded (SendBuffer): a
+//     subscription whose live change does not fit falls behind and catches
+//     up by paging through the log, so a burst larger than the buffer
+//     reaches a client that reads fast; a session whose queued messages
+//     wait longer than DrainTimeout (the client does not keep up) is
+//     closed with resume_from_cursor.
 package hub
 
 import (
@@ -59,6 +63,7 @@ const (
 	DefaultKeepAlive          = 25 * time.Second
 	DefaultRevalidateInterval = 5 * time.Minute
 	DefaultWriteTimeout       = 10 * time.Second
+	DefaultDrainTimeout       = 5 * time.Second
 )
 
 // Limits that are not settings.
@@ -101,8 +106,11 @@ type Config struct {
 	// Schemas are the models' schema versions (WelcomeMessage.Schemas).
 	Schemas map[protocol.Model]int
 	// SendBuffer bounds the bytes queued for a session (changes and
-	// control messages); a session that exceeds it is closed with
-	// resume_from_cursor. Replays wait for room instead.
+	// control messages). Live changes fill at most three quarters of it: a
+	// subscription whose change does not fit catches up from the log
+	// instead (a burst larger than the buffer reaches a client that reads
+	// fast); replays wait for room. Control messages that would exceed it
+	// close the session with resume_from_cursor.
 	SendBuffer int
 	// MaxSubscriptions bounds the subscriptions of one viewer (all of the
 	// viewer's sessions on this instance).
@@ -123,8 +131,13 @@ type Config struct {
 	// RevalidateInterval: how often a session's token and account are
 	// checked again (and its implicit grants refreshed).
 	RevalidateInterval time.Duration
-	// WriteTimeout bounds one write to a client.
+	// WriteTimeout bounds one write to a client (at least twice
+	// DrainTimeout).
 	WriteTimeout time.Duration
+	// DrainTimeout: a session whose oldest queued message waited longer
+	// than this for the writer (the client did not read what was sent
+	// before it) is too slow: closed with resume_from_cursor.
+	DrainTimeout time.Duration
 	// Logs reads Actions job logs for log tails (optional: without it
 	// every log_tail is closed as forbidden).
 	Logs LogSource
@@ -152,6 +165,10 @@ func (cfg *Config) setDefaults() {
 	defDur(&cfg.KeepAlive, DefaultKeepAlive)
 	defDur(&cfg.RevalidateInterval, DefaultRevalidateInterval)
 	defDur(&cfg.WriteTimeout, DefaultWriteTimeout)
+	defDur(&cfg.DrainTimeout, DefaultDrainTimeout)
+	// A client that stopped reading gets resume_from_cursor (once it reads
+	// again) before a write blocked on it times out.
+	cfg.WriteTimeout = max(cfg.WriteTimeout, 2*cfg.DrainTimeout)
 	defDur(&cfg.LogInterval, DefaultLogInterval)
 }
 
@@ -326,7 +343,10 @@ func (h *Hub) fanOutLocked(e *livesync_model.LogEntry) {
 			if ch == nil {
 				ch = change(e)
 			}
-			h.enqueueDeliveredLocked(s.c, ch)
+			if !s.c.enqueueDelivered(*ch, true) {
+				h.fallBehindLocked(s, e.SyncID)
+			}
+			h.delivered[s.c] = struct{}{}
 		case s.state == stateRecheck && s.holding && e.SyncID > s.cursor:
 			// Held unfiltered: the check may change the units.
 			if ch == nil {
@@ -338,8 +358,14 @@ func (h *Hub) fanOutLocked(e *livesync_model.LogEntry) {
 	if protocol.Model(e.Model) == protocol.ModelUser {
 		// A viewer always gets their own profile (WelcomeMessage.Profile).
 		for c := range h.byUser[e.EntityID] {
-			if s := c.subs[e.Grp]; s != nil && s.state == stateLive {
-				continue // got it above (or may not, by unit)
+			if c.subs[e.Grp] != nil {
+				// Its subscription sends it (or may not, by unit): live
+				// above, else in order with the group's other entries
+				// (held, replayed, caught up). Sent here as well, it would
+				// arrive before older entries of the group the
+				// subscription has not sent yet, and a client resuming the
+				// group from the highest v it got would skip those.
+				continue
 			}
 			if ch == nil {
 				ch = change(e)
@@ -349,17 +375,31 @@ func (h *Hub) fanOutLocked(e *livesync_model.LogEntry) {
 				c.selfPending = append(c.selfPending, *ch)
 				continue
 			}
-			h.enqueueDeliveredLocked(c, ch)
+			c.enqueueDelivered(*ch, false)
+			h.delivered[c] = struct{}{}
 		}
 	}
 }
 
-// enqueueDeliveredLocked queues a live change of the current Deliver for
-// session c (its writer is woken at the end of Deliver, see
-// conn.enqueueDelivered).
-func (h *Hub) enqueueDeliveredLocked(c *conn, ch *protocol.Change) {
-	c.enqueueDelivered(*ch)
-	h.delivered[c] = struct{}{}
+// fallBehindLocked handles a live change of s at sync id v that did not
+// fit in its session's queue (the client has not read what is queued yet,
+// e.g. a burst larger than the send buffer in one delivery): instead of
+// closing the session, s stops receiving live changes and catches up from
+// the log after v-1 (everything of its group up to there is queued),
+// paging through it as the client reads (Hub.catchUp; no entry is held in
+// memory meanwhile). For the client the group stays caught up: frames
+// claim no more than s's hold, v-1 at first, raised as the pages are
+// queued. Whether the client is too slow is decided by time, not by the
+// size of a burst (conn.checkDrain).
+func (h *Hub) fallBehindLocked(s *sub, v int64) {
+	s.state = stateRecheck
+	s.cursor = v - 1
+	s.behind = true
+	s.holding = false
+	s.c.busy++
+	s.c.setHold(s, v-1)
+	h.queueLocked(s)
+	metrics.CatchUps.Inc()
 }
 
 // markerLocked turns a re-bootstrap marker into bootstrap_required for the
@@ -389,10 +429,12 @@ func (h *Hub) markerLocked(e *livesync_model.LogEntry) {
 
 // holdLocked keeps an entry for s while its permission is checked again.
 // When the session's held entries would exceed the send buffer, s drops
-// what it holds and catches up from the log after the check.
+// what it holds and catches up from the log after the check (behind).
 func (h *Hub) holdLocked(s *sub, it heldItem, size int) {
 	if s.c.heldBytes+size > h.cfg.SendBuffer {
 		h.dropHeldLocked(s)
+		s.behind = true
+		metrics.CatchUps.Inc()
 		return
 	}
 	s.held = append(s.held, it)
@@ -421,9 +463,17 @@ func (h *Hub) dropHeldLocked(s *sub) {
 // client that resumed from that frame's to would never get them. A
 // marker's bootstrap_required caps the frame queued before it, as live
 // (markerLocked).
-func (h *Hub) releaseHeldLocked(s *sub) {
+//
+// False when the held changes do not fit in the session's queue (see
+// conn.fitsLocked): nothing was released, s still holds them and stays
+// suspended.
+func (h *Hub) releaseHeldLocked(s *sub) bool {
 	c := s.c
 	c.mu.Lock()
+	if !c.ending && !c.fitsLocked(s.heldSize) {
+		c.mu.Unlock()
+		return false
+	}
 	delete(c.holds, s)
 	for _, it := range s.held {
 		switch {
@@ -437,6 +487,7 @@ func (h *Hub) releaseHeldLocked(s *sub) {
 	c.unlock()
 	h.dropHeldLocked(s)
 	h.goLiveLocked(s, h.pos.Load())
+	return true
 }
 
 func bootstrapFor(group string, marker *protocol.RebootstrapMarker, model protocol.Model) *protocol.BootstrapRequiredMessage {

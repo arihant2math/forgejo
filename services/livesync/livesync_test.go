@@ -26,8 +26,8 @@ func TestLoadSettings(t *testing.T) {
 			LogRetention: 30 * 24 * time.Hour, LogMaxRows: 1_000_000, HotCoalesce: time.Second,
 			PermCacheTTL: 10 * time.Minute,
 			SendBuffer:   4 << 20, MaxSubscriptions: 1000, MaxConnections: 16, MaxReplay: 10000,
-			SessionCheckInterval: 5 * time.Minute,
-			SummaryRecency:       90 * 24 * time.Hour, WorkspaceMaxRepos: 200,
+			SessionCheckInterval: 5 * time.Minute, DrainTimeout: 5 * time.Second,
+			SummaryRecency: 90 * 24 * time.Hour, WorkspaceMaxRepos: 200,
 			IdempotencyTTL: 7 * 24 * time.Hour, IdempotencySyncWait: 2 * time.Second,
 			TriggerCheckInterval: time.Minute, LogTailInterval: time.Second,
 		}
@@ -63,6 +63,9 @@ func TestLoadSettings(t *testing.T) {
 			s.SendBuffer, s.MaxSubscriptions, s.MaxConnections, s.MaxReplay, s.SessionCheckInterval = 65536, 10, 2, 50, time.Minute
 		}), false},
 		{"[livesync]\nSEND_BUFFER = 0\n", Settings{}, true},
+		{"[livesync]\nDRAIN_TIMEOUT = 30s\n", def(func(s *Settings) { s.DrainTimeout = 30 * time.Second }), false},
+		{"[livesync]\nDRAIN_TIMEOUT = 0\n", Settings{}, true},
+		{"[livesync]\nDRAIN_TIMEOUT = soon\n", Settings{}, true},
 		{"[livesync]\nMAX_SUBSCRIPTIONS = -1\n", Settings{}, true},
 		{"[livesync]\nSESSION_CHECK_INTERVAL = never\n", Settings{}, true},
 		{"[livesync]\nSUMMARY_RECENCY = 720h\nWORKSPACE_MAX_REPOS = 20\n", def(func(s *Settings) { s.SummaryRecency, s.WorkspaceMaxRepos = 720*time.Hour, 20 }), false},

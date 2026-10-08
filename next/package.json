@@ -16,6 +16,7 @@
     "test": "vitest run --project unit",
     "test:watch": "vitest",
     "test:integration": "vitest run --project integration",
+    "test:conformance": "vitest run --config conformance/vitest.config.ts",
     "test:browser": "playwright test",
     "budget": "node tools/budget.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run budget"

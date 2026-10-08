@@ -202,6 +202,9 @@ type conn struct {
 	// writer that takes the queue at every chance it gets (right after
 	// mu was released).
 	onWake func()
+	// onStep, when set (tests; before start), runs whenever the worker
+	// decides whether to do another step (conn.next).
+	onStep func()
 	// lastFrame: when the last delta was encoded (the writer's own).
 	lastFrame time.Time
 
@@ -486,9 +489,20 @@ func (c *conn) checkDrain() {
 	}
 }
 
+// ended reports whether the session ends: ending (the final message is
+// queued, nothing more will be) or its context cancelled. Call with or
+// without Hub.mu held, not with mu.
+func (c *conn) ended() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ending || c.ctx.Err() != nil
+}
+
 // waitRoom blocks a replay or a log tail until the queue is at most half
 // full; false when the session ended or ctx (the session's, or a log
-// tail's, derived from it) was cancelled.
+// tail's, derived from it) was cancelled. False is final: the caller must
+// give up, not retry (the session is not over yet when it is ending: the
+// writer may still be writing its last frames).
 func (c *conn) waitRoom(ctx context.Context) bool {
 	if ctx != c.ctx {
 		// c.stop wakes the waiters of the session's context; a tail's

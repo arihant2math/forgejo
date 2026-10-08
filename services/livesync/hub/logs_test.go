@@ -30,10 +30,13 @@ type fakeLogs struct {
 	// database read) until it is closed; inJob counts the calls inside.
 	gate  chan struct{}
 	inJob int
+	// polls counts the calls of Job.
+	polls int
 }
 
 func (f *fakeLogs) Job(_ context.Context, jobID int64) (*LogJob, error) {
 	f.mu.Lock()
+	f.polls++
 	if gate := f.gate; gate != nil {
 		f.inJob++
 		f.mu.Unlock()

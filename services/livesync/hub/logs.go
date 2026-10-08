@@ -172,11 +172,15 @@ func (c *conn) logTailEnd(t *logTail) {
 
 // logSend queues a message of tail t, unless t was stopped or replaced
 // meanwhile (a restarted tail's old goroutine must not send after the new
-// one started). False when t is no longer current.
+// one started), or the session ends. False when t is no longer current
+// or the session ends.
 func (c *conn) logSend(ctx context.Context, t *logTail, msg any) bool {
 	c.tailMu.Lock()
 	defer c.tailMu.Unlock()
-	if ctx.Err() != nil || c.tails[t.jobID] != t {
+	if ctx.Err() != nil || c.tails[t.jobID] != t || c.ended() {
+		// Stopped, replaced, or the session ends (nothing it sends would
+		// be queued: the tail stops instead of polling the job until the
+		// writer returns).
 		return false
 	}
 	c.send(msg)
@@ -206,7 +210,7 @@ func (c *conn) runLogTail(ctx context.Context, t *logTail) {
 	var lastCheck time.Time
 	var sentSteps []protocol.LogStep
 	first, quiet := true, 0
-	for {
+	for !c.ended() {
 		var job *LogJob
 		err := c.withTailSlot(ctx, func() error {
 			var err error

@@ -2385,7 +2385,7 @@ does) **and** MySQL 8.0 (binlog on).
     MySQL 8.0 42 pass / 1 skip**, no testlogger "FATAL ERROR"; fork-diff check unchanged.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
-- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; its issue round 3 (a permanently behind subscription blocked the session's worker: no token re-validation, no replays for new subscriptions, no `caught_up`/`barrier_ok`) fixed 2026-10-08 — see *Burst backpressure, issue round 3*; its re-review left **1 open item** (major, pre-existing: an ending session's worker busy-spins until the writer gives up) — see *Open items (issue round 3 re-review)*)
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; its issue round 3 (a permanently behind subscription blocked the session's worker: no token re-validation, no replays for new subscriptions, no `caught_up`/`barrier_ok`) fixed 2026-10-08 — see *Burst backpressure, issue round 3*; its re-review's open item (major, pre-existing: an ending session's worker busy-spins until the writer gives up) fixed 2026-10-08 — see *Burst backpressure, issue round 4*; no open items)
 - **Scope:** `services/livesync/oauthapp` (ensure a public client, redirect
   `{AppURL}-/next/callback`, PKCE; confirm scope behaviour with/without
   `ENABLE_ADDITIONAL_GRANT_SCOPES`; expose client_id to the SPA via the inlined config).
@@ -2727,28 +2727,47 @@ does) **and** MySQL 8.0 (binlog on).
       (one reader per job feeding sessions with different offsets/tasks, per-session permission checks every 10 s, per-session
       room waits and pending lines, restarts handed between goroutines) — a new concurrency surface, not a cheap change; still
       noted in B9's known gaps.
-  - **Open items (issue round 3 re-review, 2026-10-08).** The re-review confirmed the round-3 fix (new tests green with
+  - **Open items (issue round 3 re-review, 2026-10-08):** none left. The re-review confirmed the round-3 fix (new tests green with
     `-race -count=2`, `TestBehind*` `-race -count=10` under 4 CPU burners, `TestLivesyncHub*` `-test.count 2` on PG 16 and MySQL 8.0;
     a second, actively written group's replay still got `caught_up`/`barrier_ok` within ≈ 0.3–6.5 s while `repo:1` stayed behind;
-    no defect found in the round-robin, `replaying`, `position()` or barrier logic). One item stays open:
-    1. **[major, pre-existing since B5, kept by round 3] An ending session's worker busy-spins until the writer gives up**
-       (`services/livesync/hub/replay.go`, `process` / `drainWork`). *Mechanism:* `endLocked` sets `c.ending` and broadcasts `room`
-       (slowLocked / `DRAIN_TIMEOUT`, `session_invalid`, shutdown notice, …), but `c.ctx` is cancelled only when `writeLoop` returns —
-       after the writer has written or failed its current frame, i.e. up to `WriteTimeout` (10 s default) for a client that does not
-       read. In that window `waitRoom` returns false at once, so `catchUp` (and `sendKeys` for replays) return ok=false, `process`
-       re-queues `s` (its only guard is `c.ctx.Err() == nil`) and `drainWork` loops straight back into `process` with nothing
-       blocking: on the catch-up path every iteration takes the global `h.mu` twice plus `c.mu`; on the replay path it also runs
-       `synclog.ReadKeys` (≤ `MaxReplay`+1 rows) and `ReadEntries` (≤ 500 payloads) in a check slot. *Evidence (scratch overlay
-       tests, `replay.go` instrumented with a call counter):* a live `repo:1` client slowed to ≈ 1 B/ms, a 200 × 1 KiB burst
-       (SEND_BUFFER 64 KiB, DRAIN_TIMEOUT 300 ms, WriteTimeout 3 s) ⇒ close 1011 after 3.0 s with **14,606,219 `process` calls**, all
-       after `ending`; the same client with a hello replay of 300 × 1 KiB entries ⇒ close 1013 after 2.0 s with **667 replay retries
-       after ending**, each re-reading 300 keys + 300 payloads (≈ 300 KB of DB reads). Against the pre-fix hub (`4aa86e9~1`): 52 M
-       iterations / 655 retries — so it predates round 3. *Impact:* exactly the slow-consumer close `DRAIN_TIMEOUT` exists for, and
-       `Hub.Shutdown` (ends every session at once): each affected session pins a core for up to `WriteTimeout`, hammers the global hub
-       mutex `Deliver` needs for all sessions, and (replay path) floods the DB through the shared check-slot semaphore; at PLAN §4.11
-       scale (3k sockets) a network blip or a shutdown multiplies it. *Suggested fix:* once the session is ending, `process` must not
-       re-queue and `drainWork` must return — check `c.ending` under `c.mu`, or let `waitRoom`'s false result end the step for good;
-       add a regression test counting worker steps after `slowLocked` while the writer is stuck in a write.
+    no defect found in the round-robin, `replaying`, `position()` or barrier logic). Its one open item (an ending session's worker
+    busy-spins until the writer gives up; reviewer's evidence: 14.6 M `process` calls in 3 s after one slow-consumer close, 667
+    full replay re-reads of ≈ 300 KB in 2 s; 52 M / 655 against the pre-burst-fix hub) is fixed by issue round 4 below.
+    - **Issue round 4 (2026-10-08): an ending session's worker busy-spun until the writer gave up.** *Root cause:* the worker's
+      only stop condition was `c.ctx.Err()`, but `endLocked` (slowLocked / `DRAIN_TIMEOUT`, `session_invalid`, shutdown notice, no
+      hello, …) only sets `c.ending` and broadcasts `room`; the context is cancelled when `writeLoop` returns, after the frame it is
+      writing (up to `WriteTimeout`, 10 s default, for a client that does not read). In that window `waitRoom` returns false at once,
+      so a catch-up page (`catchUp`) or a replay (`sendKeys`) failed, `process` handed `s` back (guard `c.ctx.Err() == nil`) and
+      `drainWork` took it again with nothing blocking: `h.mu` twice + `c.mu` per step on the catch-up path, plus `synclog.ReadKeys`
+      (≤ `MaxReplay`+1 rows) and `ReadEntries` (≤ 500 payloads) through the shared check slots on the replay path. Pre-existing since
+      B5. *Fix (`services/livesync/hub`):* **`conn.ended()`** (under `c.mu`: `ending || ctx.Err() != nil`) is the worker's stop
+      condition: `drainWork` checks it (via `conn.next`) on entry — before `skipIdle`'s log read — and after every step, and returns;
+      `process` no longer re-queues a subscription once the session ended. `waitRoom`'s false is documented as final (callers give
+      up). The session's remaining work is dropped (nothing queued after the final message is sent anyway; `stop` removes the
+      subscriptions). *Audit of the other loops:* every other `ok=false` step of `process` blocks or progresses — a permission check
+      (one DB check; on error `retryLater` pauses `retryPause`), a stale `gen` (a new replay), a trimmed cursor / `MAX_REPLAY`
+      (`restartLive`: live, or a check next), a read error (`retryLater`); `ok=true` steps advance the cursor (a full page ends at its
+      last key > cursor). `workLoop` only re-enters `drainWork` on a tick or a kick (nothing kicks an ending session: `Deliver` queues
+      nothing for it, `fallBehindLocked` is skipped when ending), so the worker blocks. **Log tails**: `waitRoom` false already
+      returned, but a tail with nothing new kept polling its job (`LogSource.Job` + a permission check every `logRecheck`) every
+      `LogInterval` until the context ended, its `logSend` silently dropped — `runLogTail` now loops `for !c.ended()` and `logSend`
+      returns false once the session ended. Writer (`writeLoop`) and keep-alive were already bounded (they block on the transport).
+      New test hook `conn.onStep` (tests only, set before `start`, like `onWake`; called by `conn.next`). No wire, setting or
+      metric change.
+      *Tests (`hub/ending_test.go`):* **`TestEndingWorkerStops/catch-up`** (SEND_BUFFER 64 KiB, DRAIN_TIMEOUT 200 ms, WriteTimeout
+      10 s; a caught-up `repo:1` client stops reading, a 200 × 1 KiB burst: `repo:1` behind, `slowLocked` while the catch-up waits
+      for room; over 300 ms with the writer still stuck — context alive — the worker takes ≤ 2 decisions while ending; actual 1),
+      **`TestEndingWorkerStops/replay`** (300 × 1 KiB entries, gate before the hello, hello replay since 0: same bound),
+      **`TestEndingWorkerShutdown`** (24 sessions replaying with a stuck writer, `Hub.Shutdown`: ≤ n + 4 decisions in all over
+      300 ms; actual 24; every session closed 1001 once the writers are released), **`TestEndingLogTailStops`** (a tail polling
+      every 5 ms, the writer stuck on `session_invalid`: no `Job` poll over 300 ms; `fakeLogs.polls` added). Against the old
+      `replay.go` (`go test -overlay`, hook placed at the top of the old loop): 1.8 M decisions (catch-up; ≈ 140 k under `-race`),
+      111 (replay; 22 under `-race`), 330 (shutdown; ≈ 180 under `-race`); against the old `logs.go`: 57 polls in 300 ms.
+      *Commands:* hub package `-race -count=20` green (378 s), `TestEnding*` `-race -count=5`; every livesync / `routers/livesync` /
+      `models/livesync` unit test package `-race`; `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 50 pass, 3 MySQL-only skips)
+      and MySQL 8.0 binlog on (52 pass, 1 skip), `TestLivesyncHub*` `-test.count 3` on both; gofumpt, `go vet`, golangci-lint
+      (`services/livesync/...`, `routers/livesync/...`, `models/livesync/...`: 0 issues), deadcode diff clean; fork diff unchanged
+      (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change); protocol untouched.
   - **Settings added:** `TRIGGER_CHECK_INTERVAL` (1m, ≥ 0), `ASSETS_DIR` (""), `OAUTH_REDIRECT_URIS` ("").
   - **livesync_meta names added:** `oauth_client_id`, `oauth_scope`.
   - **APIs for later milestones.** `livesync_service.{Disable, State, InitError, OAuthApp, CollectStatus}`, `StateRunning/
@@ -3027,7 +3046,7 @@ does) **and** MySQL 8.0 (binlog on).
     both.
 
 #### B10 — Headless TS conformance suite (Phase 1 exit)
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08 (final check: `next/tools/dev-forgejo.sh conformance all` green, 48/48 on PG 16 and MySQL 8.0 binlog on, 0 `[E]`/`[F]` server log lines; `npm run typecheck` and ESLint on `conformance/` clean; `package-lock.json` unchanged, `package.json` +1 script line; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review round 1 closed, no open findings). **PLAN Phase 1 exit met.**
 - **Scope:** create the first `next/package.json` (private, `"type": "module"`, npm
   lockfile), `next/tsconfig.json` and a `test:conformance` script (Vitest, Node env).
   `next/conformance/`: a minimal raw client (fetch + WebSocket, using
@@ -3041,6 +3060,178 @@ does) **and** MySQL 8.0 (binlog on).
 - **Acceptance:** suite green on PG and MySQL; fork diff is still exactly 1 line + go.mod
   / go.sum / go-licenses.json. Tick PLAN Phase 1 exit in notes.
 - **Notes/decisions:**
+  - **PLAN Phase 1 exit: met (2026-10-08).** The suite (35 scenario tests; 48 with the oracle self-tests added in review
+    round 1) is green against a real Forgejo binary on PG 16 and
+    MySQL 8.0 (binlog on): bootstrap → live → reconnect from cursor → `group_revoked` purge → idempotent replay → no
+    duplicates after a forced crash between the commit and the idempotency record, plus everything listed below. Fork diff
+    unchanged: `cmd/web.go` (1 line + import), `go.mod`, `go.sum`, `assets/go-licenses.json`.
+  - **The one command.** `next/tools/dev-forgejo.sh conformance all` (or `pg` / `mysql`): builds its binary, starts the dev
+    DBs if needed, `npm ci` in `next/` if `node_modules` is missing, then per database starts a **fresh, isolated** Forgejo
+    with the suite's settings (`conformance_ini`), runs `npm run test:conformance` against it and stops it (≈ 1.7 min for
+    both; ≈ 37 s of tests per database). **It never touches the dev servers of §1.2** (other sessions' Playwright /
+    integration runs use them): its own binary and work dirs under `/var/tmp/forgejo-next-conformance`
+    (`NEXT_CONFORMANCE_ROOT`), ports **3020** (pg) / **3030** (mysql) (`NEXT_CONFORMANCE_PG_PORT` / `_MYSQL_PORT`), database
+    **`forgejo_conformance`**, dropped and created again at the start of every run (the work dir is wiped too). A passing run
+    drops the database and the work dir except its logs and prints the server log's `[E]`/`[F]` count; a failing run keeps
+    everything for debugging; `NEXT_CONFORMANCE_KEEP=1` leaves the instance running. Arguments after the database go to
+    Vitest (a file filter: `… conformance pg 7-restart`); `NEXT_CONFORMANCE_NO_BUILD=1` reuses the binary. The suite's
+    kill/stop/start hooks name that instance explicitly (`env NEXT_DEV_ROOT=… NEXT_FORGEJO_PORT=… NEXT_FORGEJO_DB_NAME=…
+    dev-forgejo.sh kill pg`), and `conformance-one` refuses to run on the dev root or the `forgejo` database. For that,
+    `dev-forgejo.sh` gained `NEXT_FORGEJO_DB_NAME` (default `forgejo`; created when missing). New
+    `dev-forgejo.sh kill [pg|mysql]` = SIGKILL (a crash). Settings the suite expects (in `conformance_ini`, extended by
+    `NEXT_FORGEJO_EXTRA_INI`): `[livesync] ENABLED, MAX_REPLAY = 100, TRIGGER_CHECK_INTERVAL = 2s, IDEMPOTENCY_SYNC_WAIT =
+    30s`, `[actions] ENABLED`. Manual run against any server: `FORGEJO_URL=… npm run test:conformance` in `next/` (other
+    variables in `conformance/env.ts`; without `FORGEJO_URL` the run fails with instructions instead of passing empty).
+  - **In the Go harness (as the Scope asked):** `tests/integration/livesync_conformance_test.go` `TestLivesyncConformance`
+    (`make 'test-pgsql#TestLivesyncConformance'` / `test-mysql#…`): `livesyncServeWith(MAX_REPLAY 100, TRIGGER_CHECK_INTERVAL
+    2s)` + `onApplicationRun`, runs `npm run test:conformance` with `FORGEJO_URL`, fixture admin `user1/password`, and
+    `CONFORMANCE_SQL` built from `setting.Database` (psql with `PGOPTIONS=-c search_path=<schema>` for `gtestschema`; mysql
+    with the DSN's `?…` stripped). Skipped without `next/node_modules` (or npm) and on SQLite. `7-restart.test.ts` is skipped
+    there (the in-process server cannot be stopped or killed): 33 pass / 2 skipped, ≈ 23 s.
+  - **Files.** `next/conformance/`: `vitest.config.ts` (own config, `name: conformance`, Node, `fileParallelism: false`,
+    a name-order sequencer so `7-restart` runs last, `cacheDir` = `next/node_modules/.vite` — with the root at
+    `conformance/` Vitest otherwise writes `conformance/node_modules/`, which `/node_modules/` in `.gitignore` does not
+    cover), `setup.ts`, `env.ts` (capabilities: `canSQL`, `canCrash`, `canRestart`), `forgejo.ts` (API v1 helpers, users
+    via the admin API with `all`-scope PATs, repositories, `WebSession` for classic-UI forms, `eventually`), `sync.ts`
+    (`Session`: raw protocol client), `sse.ts` (`FetchEventSource`: Node has no EventSource), `replica.ts` (`load` of
+    bootstrap/load NDJSON with the 503 gate retried, read by `parseLoaded` as strictly as the app's loader: one header of
+    the group asked for first, one end line last, nothing after it, a cut response throws; `Replica`, `stateOf`),
+    `forgejo.ts` `keyed()` (a keyed API v1 write that must succeed: body + echo), `sql.ts` (psql/mysql CLI: `run`, `OpenTx`,
+    `sql.meta/setMeta/dropLabelTrigger/holdLogHead/count`), seven scenario files and `0-oracle.test.ts` (the suite's own
+    oracles without the server: `deltaViolations`, `parseLoaded`). `setup.ts` is only the `FORGEJO_URL` guard; the Node
+    stubs of `window`/`localStorage` come from F2's `integration/setup.ts`, listed first in `setupFiles` (reused, not
+    copied). `next/package.json`: one script line
+    (`"test:conformance": "vitest run --config conformance/vitest.config.ts"`). `next/tools/dev-forgejo.sh` (`kill`,
+    `conformance`, `conformance-one`). **No new dependency; `package-lock.json` unchanged; no other `next/` source touched.**
+  - **Deviations from the Scope text.** (1) `next/package.json`/`tsconfig` already existed (F1); `conformance/` was already in
+    `tsconfig.node.json` and the ESLint node block, so lint/typecheck cover the suite. (2) Its own Vitest config instead of
+    the F1 note's project in `vitest.config.ts` (orchestrator: keep clear of F5's edits; `npm test` = unit only, unchanged).
+    (3) "a minimal raw client, not the app's sync client" — kept for the wire assertions, but **built on the app's code where
+    that adds no interpretation**: the transports are F2's `openWebSocket`/`openSSE` (`src/sync/transport.ts`), NDJSON lines
+    come from F2's `ndjsonLines`, all wire shapes from `types.gen.ts`; and `6-client.test.ts` drives F2's `openData`
+    (SyncClient + pool + IndexedDB via fake-indexeddb) unmodified (orchestrator's preference). Nothing of `src/` was changed
+    or copied.
+  - **The raw client (`sync.ts`).** Keeps every message; `next(type, pred, {from, timeout})` / `change(pred)` wait for a
+    message at or after an index (`mark`); tracks grants, caught-up groups and **positions per the B5 contract** (highest `v`
+    received, raised by `delta.to`/`caught_up`/`pong`/`barrier_ok`/`resume_from_cursor` for caught-up groups). It checks
+    invariants on every delta (`violations`, asserted empty by every file): no `*`/`!…` group, no change of a group the
+    session does not hold (except an upsert of the viewer's own `User`, `id === welcome.viewer_id` — anyone else's profile
+    outside a held group is a leak), sync-id order per group within a frame, payload iff upsert (`deltaViolations`).
+    `closedAfterAll()` gives a file its session list: after the file all are closed, then the violations of all of them
+    are asserted together. `expectConverged(s, replica, token, group)` is the convergence check (see below).
+    `Replica` applies changes (`v` newer only, tombstones), complete bootstraps (lines authoritative at the watermark,
+    replacement of the group / its `models` scope) and purges; scenarios compare it with a fresh bootstrap (`stateOf`).
+  - **Scenarios.** `1-protocol` (WS and SSE each): invalid token ⇒ `session_invalid` + close (1008 on WS); a message before
+    the hello ⇒ `error{hello_required}` + close; welcome (viewer, implicit grants with units, own profile, schemas); bootstrap
+    (summary header, `v` = watermark, `end.count`) → subscribe `since` = watermark (grant units = header units) → keyed write
+    ⇒ echo > watermark, delta with watermark < `v` ≤ echo, `barrier_ok` ≥ echo, position ≥ echo; unkeyed write ⇒ no echo;
+    ping/pong; lazy `issue:` load; **reconnect from a cursor** (offline: create, three renames, create + delete; hello with
+    `since` ⇒ each entity once at its newest state, the deleted label as one `D`, then live; replica = fresh bootstrap).
+    `bootstrap_required` (WS): `cursor_unknown` (subscription stays live), `replay_too_long` (MAX_REPLAY + 1 labels; nothing
+    of the group replayed; the re-bootstrap has them), `cursor_trimmed` (SQL: `log_floor` set to the head, restored after),
+    `trigger_repaired` (SQL: the label insert trigger dropped; a label created meanwhile is not captured; the 2 s trigger watch
+    repairs ⇒ `bootstrap_required{model: Label}` ⇒ `?model=Label` re-bootstrap contains the lost label; captured again).
+    `2-permissions`: unreadable / missing / `!perm` / `*` refused alike (`forbidden`), bootstrap 404 bodies identical;
+    collaborator added ⇒ `grants`; bootstrap + subscribe; issues unit disabled ⇒ `bootstrap_required{permission_changed}`,
+    re-bootstrap without Issues; **units rule on resume** (unit re-enabled while away: the resumed grant's units differ from
+    those held); collaborator removed ⇒ `group_revoked`, purge, nothing of the group after it (barrier), bootstrap 404,
+    subscribe refused; public repo made private ⇒ `group_revoked` for `repo:` and `issue:` of an on-demand subscriber, the
+    owner still gets comments. `3-idempotency`: same key twice (one issue, same bytes/Content-Type/echo, replay header, one
+    delta, `v` ≤ echo); key reused with another body ⇒ 422; 8 concurrent duplicates ⇒ exactly one run, the rest 409 +
+    Retry-After or replay, a later retry gets the stored answer, one issue; keyed delete replayed (204, same echo, `D` with
+    `v` ≤ echo); no key / GET with a key ⇒ untouched; keyed write without token ⇒ 401. `4-gap`: issue body edit (200 +
+    `content_version + 1`, echo ≥ the IssueBody delta with rendered HTML; stale ⇒ 409 with current text/version; reader ⇒
+    403; keyed replay), **board** (project created through the classic form — Forgejo uses Go's cross-origin protection, no
+    CSRF token — and the issue put on it with `/{o}/{r}/issues/projects`; column create 201 + delta ≤ echo; card move 204 +
+    `ProjectIssue.column_id` delta; column order 204, incomplete 409; reader 403; keyed create replayed), viewed files
+    (`ReviewState` delta in `user:{me}` ≤ echo; per viewer: bob's state does not reach alice), immutable tree/raw/blob/blame/
+    diff (Cache-Control, ETag = SHA, 304, nosniff, raw = API v1 raw, non-SHA / abbreviated / unreadable / missing ⇒ 404),
+    markdown preview = the IssueBody `body_html`. `5-logtail`: a runner registered with `POST /repos/{o}/{r}/actions/runners`
+    speaks the runner protocol (Connect JSON: `Declare`, `FetchTask`, `UpdateLog`, `UpdateTask`) for a workflow pushed via
+    the contents API; the job id comes from its `ActionRunJob` delta; `log_tail` ⇒ steps, lines by offset as uploaded, `done`
+    after the result + `noMore`; resume over SSE from `task_id`/`offset` 1 ⇒ the rest; another user / a missing job ⇒
+    `log_closed{forbidden}`. `6-client` (WS and SSE): F2's `openData`: workspace bootstrap → live; keyed write ⇒
+    `whenSynced(group, echo)` resolves with the issue in the pool; a second session on the same IndexedDB resumes from the
+    persisted positions and has the offline edits (asserted as a resume: the persisted issues are in the pool once hydrated,
+    and the data layer, given a recording `fetch`, never bootstraps the group again; a client without persisted positions
+    fails both); collaborator added ⇒ appears in the pool, removed ⇒ `revoked` event and
+    purged. `7-restart`: graceful stop ⇒ `notice{shutdown}` + close 1001, resume after the restart converges (nothing lost of
+    writes made just before); **forced crash**: below.
+  - **How the crash is forced.** A SQL session holds `livesync_meta` `log_head` `FOR UPDATE` (every writer transaction locks
+    it to append, B3), so the materializer stalls; a keyed issue create commits (visible through API v1) and then waits in
+    `WaitSynced` (`IDEMPOTENCY_SYNC_WAIT` 30 s) with its `livesync_idempotency` row in flight (`state = 0`, asserted);
+    `dev-forgejo.sh kill` (SIGKILL); the client's request fails; the SQL session rolls back; start. The retry with the same
+    key ⇒ 201 with the created issue (B7's crash-window path: the log shows the synthetic GET), exactly one issue in API v1,
+    the record completed (`state = 1`), a further retry is a replay with the same echo, a session resuming from its pre-crash
+    position gets that one issue (`v` ≤ echo), and its replica equals a fresh bootstrap. **Sensitivity checked:** with B7's
+    crash-window lookup disabled (`if res.Recovered && false` in `routers/livesync/idempotency.go`, reverted) the scenario
+    fails (`expected [165, 164] to deeply equal [165]`: a duplicate issue).
+  - **Contract detail learnt (for F2/F5/F8 tests):** "a replay sends each entity once, at its newest state" holds up to the
+    hub's position when the subscription goes live. If the tailer has not delivered the client's latest writes yet, the replay
+    stops before them and they follow live (an entity can then arrive as a replayed `U` and a live `D`). The first
+    reconnect scenario failed once on MySQL in the Go harness for exactly that reason (the deletes were unkeyed, so not yet
+    in the log at their response). A test that wants "one state per entity" first makes its writes keyed (in the log at the
+    response) and lets the hub catch up (`barrier_ok` in any session) before resuming — as `1-protocol` now does. Not a
+    server bug. **Corrected in review round 1 — two more things a test must know:**
+    (a) *A barrier covers only what is in the sync log when it arrives* (`barrier_ok.sync_id` = the head read then). An
+    unkeyed API v1 write is answered before the materializer has logged it, so "write, barrier, assert nothing arrived"
+    is vacuous whenever the barrier wins the race (reproduced: ≈ 1 run in 6). Every negative check after a write
+    (`group_revoked`, repo made private, `4-gap`'s per-viewer state) now uses a keyed (or gap) write and asserts
+    `barrier_ok.sync_id ≥ echo`; `replay_too_long` keys its last create (MAX_REPLAY + 1 entries must all be in the log at
+    subscribe time; the hub needs strictly more than MAX_REPLAY), and `cursor_trimmed` keys the write that moves the head
+    above the watermark (it failed once on PG for that reason during this round).
+    (b) *Some writes are followed by asynchronous writes of the same entity.* `UpdateLabel` queues a label stats
+    recalculation (`stats.QueueRecalcLabelByID`); the queue's `Update(&Label{})` ~1–2 s later bumps `updated_unix`
+    (`xorm:"updated"`), a second captured change with its own sync id, logged after the keyed rename's echo and possibly
+    after any barrier (milestones and other `stats.Queue*` users likewise). So "the replica after barrier B equals a
+    bootstrap taken later" is a race (the MySQL failure: replica `updated_at` :48, bootstrap :49). Convergence is now
+    asserted only over a quiet window (`expectConverged`): barrier B1, bootstrap (watermark W, B1 ≤ W), barrier B2
+    (W ≤ B2); if no change of the group arrived between B1 and B2, the replica (state at B1) must equal the bootstrap
+    (state at W); otherwise try again (until 20 s, then the last comparison fails with its diff — a lost change never
+    converges). Used by `1-protocol`'s reconnect and both `7-restart` scenarios. F5/F8: compare a client with a bootstrap
+    the same way, never "after a barrier".
+  - **Data.** Every file creates its own users (`<prefix>-<base36 time+seq>`, via the admin API) and repositories, so files
+    are independent; with `dev-forgejo.sh conformance` they live in `forgejo_conformance`, dropped at the start of the next
+    run (or at the end of a passing one). Pointed at another server (`FORGEJO_URL`), the suite leaves them, a PAT per file
+    on the admin, a dropped-and-repaired label trigger and a raised-then-restored `log_floor` behind: use a throwaway one.
+  - **Known gaps.** (1) Slow consumers (`resume_from_cursor`, 1013) are not exercised: a Node client cannot stop reading a
+    WebSocket, and the kernel absorbs ≈ 4 MB; B5/B8's Go tests cover it. (2) OAuth tokens are not used (PATs with `all`
+    scopes; B8's `TestLivesyncOAuth` covers the PKCE flow and that its token passes `hello`). (3) Crash *before* the commit
+    (runs once) is B7's Go test only. (4) MariaDB not run. (5) In the Go harness `7-restart` is skipped (in-process
+    server). (6) No permessage-deflate assertion (Node's WebSocket client negotiates what it supports; B5's Go client
+    covers compression). (7) **Follow-up (duplication):** `conformance/sse.ts` `FetchEventSource` is a near copy of the
+    class inside F2's `integration/sync.test.ts` (they already differ: the suite's accepts `data:` without the space, as
+    the SSE spec allows, and treats a non-2xx response as an error). It cannot be shared without editing F2's test file,
+    which B10 was told not to touch; whoever next edits `integration/` should move it to one module (e.g.
+    `integration/sse.ts`) that both import.
+  - **For F5/F8.** Reuse `conformance/sync.ts` (`Session`, positions, invariant checks, `closedAfterAll`,
+    `expectConverged`), `replica.ts` and `forgejo.ts`
+    (`WebSession` for classic-UI forms) rather than re-writing them; `dev-forgejo.sh kill/stop/start` and `sql.holdLogHead()`
+    are the fault-injection hooks; the Go wrapper shows how a Node suite runs in the harness.
+  - **Commands run.** `next/tools/dev-forgejo.sh conformance all` three times (34/34 per database before the graceful-restart
+    scenario was added, then 35/35 twice; ≈ 31–39 s of tests per database; no `[E]`/`[F]` line in either server log);
+    single files during development; `./integrations.pgsql.test -test.run TestLivesyncConformance` with `tests/pgsql.ini`
+    and `tests/mysql.ini` (3× each after the replay fix, last with the final suite: 33 pass, the 2 `7-restart` tests
+    skipped, ≈ 23 s; no testlogger "FATAL ERROR"); the sensitivity check above; in `next/`: `npm run lint`, `npm run typecheck`, `npm test` (292 unit tests, unchanged);
+    gofumpt, `go vet` and golangci-lint (`./tests/integration/...`, 0 issues) on the Go test; `git diff package-lock.json`
+    empty; fork-diff check (§2.2) unchanged.
+  - **Review round 1 (2026-10-08), all seven findings fixed.** (1) Reconnect convergence flaked on async label recalcs ⇒
+    `expectConverged` (quiet window), contract note corrected (above). (2) `conformance` took over the shared dev server
+    (same port/work dir/pidfile/database, rewrote its `app.ini`, killed and stopped it, left data behind) ⇒ isolated
+    instances (above); verified the §1.2 dev `app.ini` and `forgejo` database untouched by a run. (3) The leak invariant
+    exempted every `User` upsert ⇒ only the viewer's own (`viewer_id` stored from the welcome); `0-oracle.test.ts` tests it.
+    (4) Unkeyed write + barrier negative checks ⇒ keyed writes, `barrier_ok ≥ echo` asserted (also `cursor_trimmed`,
+    `4-gap`), `replay_too_long` keys its last create. (5) `6-client`'s resume could not tell a resume from a re-bootstrap ⇒
+    asserts the persisted issues after hydration and no bootstrap of the group (recording `fetch` passed through
+    `env.transport.fetch`); **sensitivity checked**: with the second session on a fresh `IDBFactory` both assertions fail
+    (`expected [] to deeply equal ArrayContaining ["two"]`; `expected [ 'repo:1', … ] to not include 'repo:1'`), WS and SSE.
+    (6) `load` accepted framing the app rejects ⇒ `parseLoaded` (strict, self-tested with 8 malformed bodies). (7)
+    Duplicated harness ⇒ `integration/setup.ts` reused via `setupFiles`, one `closedAfterAll()` (closes every session
+    first, then asserts all violations) replaces the five copied `afterAll` blocks; `FetchEventSource` recorded as a
+    follow-up (Known gaps 7). Commands: `dev-forgejo.sh conformance all` 3× (the last two with the final code; 48/48 per database, 0 `[E]`/`[F]` lines),
+    `1-protocol` + `7-restart` 4× per database (one `cursor_trimmed` failure on PG led to (4)'s fix there), the sensitivity
+    check above; `TestLivesyncConformance` on PG and MySQL (46 pass, 2 `7-restart` skipped); `npm run typecheck`, ESLint
+    on `conformance/`, `npm test` (292, unchanged); `package.json`/`package-lock.json` unchanged.
 
 ### Frontend
 

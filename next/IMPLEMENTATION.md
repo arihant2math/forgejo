@@ -2663,9 +2663,10 @@ does) **and** MySQL 8.0 (binlog on).
     columns), `PATCH …/columns/{column}` (`APIColumnEdit{title?, color?, default?}` → 200 `APICreated`), `DELETE
     …/columns/{column}` (204; 422 for the default column; its cards move to the default column), `PUT
     /-/sync/api/projects/{id}/column-order` (`APIColumnOrder{column_ids}` = every column once, else 409), `POST
-    …/columns/{column}/cards` (`APICardMove{issue_id, position?}` — index in the target column computed against its
-    current cards, or `{cards:[{issue_id, sorting}]}` = the column's full order as the classic board sends it; every issue
-    must already be on the board (409) and readable (404)), `PATCH /-/sync/api/issues/{id}/body` and
+    …/columns/{column}/cards` (`APICardMove{issue_id, position?}` — index among the target column's cards **the viewer may
+    read**, applied to the column as it is when the move runs (review round 1), or `{cards:[{issue_id, sorting}]}` = the
+    column's full order as the classic board sends it; every issue must already be on the board (409) and readable (404);
+    503 + Retry-After when concurrent moves kept it failing), `PATCH /-/sync/api/issues/{id}/body` and
     `/comments/{id}/body` (`APIBodyEdit{body, expected_version}` → 200 `APIBodyEdited{content_version}`, **409
     `APIBodyConflict{message, body, content_version}`** = the current text/version, the 3-way-merge base), `GET
     /-/sync/api/issues/{id}/viewed[?head=sha]` and `PUT …/viewed` (`APIViewedUpdate{commit_sha?, files:{path: bool}}` →
@@ -2707,7 +2708,8 @@ does) **and** MySQL 8.0 (binlog on).
   - **Immutable responses.** `Cache-Control: private, max-age=31536000, immutable` + **`Vary: Authorization`** (a
     browser cache shared by two accounts must not serve one's private blobs to the other; the HTTP cache therefore keys by
     token, i.e. per access-token lifetime — F7's IDB/SW cache by SHA is the real cache) + strong ETags: tree = tree SHA,
-    raw/blobs = blob SHA, blame = `commit:path` (`:bypass`), diff = commit or `base..head`; `If-None-Match` ⇒ 304 after the
+    raw/blobs = blob SHA, blame = hex SHA-256 of commit, path and bypass flag (review round 1), diff = commit or
+    `base..head`; `If-None-Match` ⇒ 304 after the
     permission check and before reading content (trees/raw resolve the path first). A blob SHA is checked to be a blob
     (cat-file batch-check type). SHA-256 repositories accept 64-hex ids. Blame refuses files ≥ `[ui]
     MAX_DISPLAY_FILE_SIZE` (422); diffs and blobs are streamed without a size limit.
@@ -2737,10 +2739,14 @@ does) **and** MySQL 8.0 (binlog on).
     the `content_version` the intent's `baseText` came from (IssueBody/Comment DTOs carry it); on 409 merge `baseText` /
     `body` / local and retry with the conflict's `content_version` (and a **new** Idempotency-Key — a retry with the same key
     replays the 409); drop the overlay at `X-Livesync-Sync-Id`. F6: boards — move-card intents send `{issue_id,
-    position}` (computed by the server against the freshest column, so concurrent moves commute better than a full
-    order), column CRUD/order as above; created column ids come back as `{id}` for temp-id remapping; markdown preview for
-    the composer (batch up to 64). F7: tree/raw/blob/blame/diff by `(repo_id, sha)` with the head SHA from the synced
-    `Branch`; cache by SHA in IDB/SW forever (the responses never change); viewed files via `PUT …/viewed` (offline intent;
+    position}` with `position` = the index among the cards the pool shows in that column (the server applies it to the
+    column as it is then: cards the viewer cannot read keep their places, a card moved out meanwhile stays out — a full
+    `cards` order would overwrite concurrent moves); on 503 retry after Retry-After; column CRUD/order as above; created
+    column ids come back as `{id}` for temp-id remapping; markdown preview for the composer (batch up to 64). F7:
+    tree/raw/blob/blame/diff by `(repo_id, sha)` with the head SHA from the synced `Branch`; cache by SHA in IDB/SW forever
+    **only responses read to their end without an error** (a diff git fails mid-stream is cut: reading the body rejects);
+    blame's `author_id` is a display hint resolved at response time (may go stale; nothing else changes); viewed files via
+    `PUT …/viewed` (offline intent;
     `GET ?head=` for the has-changed marks); logs over the session with `log_tail`. F3–F7 still extend `spaRoutes` (B8)
     for their routes; B9 adds none.
   - **Settings added:** `LOG_TAIL_INTERVAL` (1s, > 0).
@@ -2785,11 +2791,69 @@ does) **and** MySQL 8.0 (binlog on).
     crash-window dedupe for gap creates (columns). (3) No project create/edit/close endpoints (scope was columns, cards,
     ordering; projects themselves are edited in the classic UI). (4) Tree entries' sizes cost one batch-check round trip
     per blob (fine for directories of hundreds; immutable, so cached). Diffs and blobs are streamed without a size limit
-    (the client should not fetch huge ones eagerly); an error mid-stream cuts the response. (5) The markdown preview
+    (the client should not fetch huge ones eagerly); an error mid-stream cuts the response (not under FastCGI; review
+    round 1). (5) The markdown preview
     renders anonymously like the materializer (limited/private @mentions are not linked; the classic preview links them
     for a signed-in viewer) — by design, preview = synced HTML. (6) The browser HTTP cache keys immutable responses by
     token (`Vary: Authorization`), so it only helps within one access token's lifetime. (7) Org projects whose owner is
     a user's project of another type, or issues moved between repositories, follow upstream's checks (plus readability).
+  - **Review round 1 (2026-10-08).** Nine findings, all fixed:
+    1. *Diffs cached broken.* `apiDiff` streamed git into the response after the immutable headers: a git failure before
+       the first byte gave 200 + an empty body cached forever, a later one a short body that ended cleanly. Now
+       `apiRequest.stream` runs git into a pipe and peeks: failure before the first byte ⇒ 500 without Cache-Control/ETag;
+       after it ⇒ `abortResponse`. **Forgejo's `ProtocolMiddlewares` recovers every panic, also `http.ErrAbortHandler`, and
+       would append an error page to the started body**, so the handler only sets a per-request flag (context value,
+       `abortable`) and `handler.ServeHTTP` panics with `http.ErrAbortHandler` after livesync's router returned, where
+       net/http aborts (HTTP/1.1: no final chunk; HTTP/2: stream reset). Not under FastCGI: `net/http/fcgi` recovers no
+       panic (Forgejo would crash) and cannot abort; there a cut diff is only logged (documented in `protocol/api.go`).
+       `TestStream` (real server through `newRouter`'s middlewares): ok, empty, early failure ⇒ 500 / no-store, late
+       failure ⇒ `io.ErrUnexpectedEOF` (fails without the panic). The reviewer's `git mktree --missing` repro is not an
+       integration test: its 500 is a genuine `log.Error` (a broken repository), which the harness reports as "FATAL ERROR".
+    2. *Log tail re-read O(n²).* `LogSource.Lines` takes a byte budget: `actionslog.linesWithin` bounds the read by the line
+       index (`LogIndexes`, `LogSize`) to ~128 KiB before the file is opened; the hub keeps lines it read but did not send
+       (`pending`) for the next message instead of reading them again. `TestLogTailLongLines` (40 × 64 KiB lines from a
+       source that ignores the budget: 40 messages, one read, each line read once), `TestLinesWithin`, a budget case in
+       `TestSource`.
+    3. *Card move lost update / MySQL 500s.* The position move read the target column outside any transaction and wrote
+       every card back. Now `boardTx` runs the move in one transaction that first locks the moved cards **and** the target
+       column's cards in one `SELECT … FOR UPDATE` ordered by id (two moves between the same columns lock their common
+       cards in the same order, so they do not deadlock each other: none seen in 4 runs × 12 concurrent pairs per DB),
+       checks that the cards are on the board (409; before, a concurrent change gave the model's error ⇒ 500), computes the
+       order from the locked rows and calls `MoveIssuesOnProjectColumn` inside it (`db.WithTx` nests). The column order
+       locks the project's columns before its comparison the same way. Deadlocks, serialization failures, lock wait
+       timeouts and duplicate sortings (a classic board move does not lock) are retried (3 attempts), then **503 +
+       Retry-After** (`concurrencyFailure`, `uniqueViolation`). `concurrent card moves` subtest (the reviewer's scenario, 12
+       iterations over the real listener; the old code fails it on both DBs: a 500 on PG, issue 3 moved back on MySQL).
+    4. *Tail restarts unbounded.* One goroutine per job (`runTails`): a restart, or a tail after an untail, while the job's
+       goroutine still finishes the stopped tail is handed to that goroutine (the newest request wins). `tailRunners` counts
+       goroutines (≤ `maxLogTailRunners` = 16, else `limit`); `maxLogTails` = 8 still counts wanted tails. Tails wait for
+       slots and room with **their own** ctx (`withSlotCtx`; `waitRoom(ctx)` wakes on the tail's cancellation through
+       `context.AfterFunc`), and a session's tails take turns for the hub's check slots (`tailSlot`: one read at a time, as
+       replays are serialised). `TestLogTailRestarts` (a source whose read hangs ignoring ctx: 50 restarts ⇒ one goroutine;
+       tail/untail of 47 jobs ⇒ never > 16 goroutines, back to 1 while the read hangs; ≤ 1 hub slot).
+    5. *Positions vs hidden cards.* `position` counts the cards the viewer may read as the synced pool decides it
+       (`perm.Cache.CheckGroups`, issues / pulls unit); the card goes right before the readable card at `position`, hidden
+       cards keep their places. `cardIssues` no longer loads the whole project (the on-board check is the locked lookup of
+       the moved ids). `board positions` subtest (user project 4: issue 18 of repo55, which has no issues unit, stays first).
+    6. *Webhook payload of body edits.* `apiIssueBody` calls `issue.LoadAttributes` before `ChangeContent` (as
+       `GetActionIssue`); the subtest activates webhook 1 and checks that the `issues` payload carries the poster's
+       permission (admin; it was anonymous).
+    7. *Pending-review comment 403/404.* The pending check runs before `bodyIssue`: another user's draft is 404 for every
+       viewer (comment 4: user5 and user2 ⇒ 404).
+    8. *Blame ETag / author_id.* ETag = hex SHA-256 of (commit, path, bypass) (`blameETag`: paths with `,`, `"`, non-ASCII;
+       `TestBlameETag`; subtest: 64 hex digits, 304 inside a list, bypass differs). `author_id` stays (the client has no
+       users' emails to resolve it) but is **documented as a display hint resolved at response time that may go stale in a
+       cached copy** (`APIBlameCommit`); the F7 note above no longer says the responses never change.
+    9. *Missing contract tests.* viewed `?head=` after an API commit that changes README.md (README.md `has_changed`,
+       other.txt `viewed`, nothing stored) and `TestViewedFiles` with a state; expired log (`log_expired` ⇒ `log{expired,
+       done}`) in `TestLivesyncAPILogTail`, task row gone ⇒ expired in `TestSource`; user5 404 / owner 200 for each of tree,
+       raw, blobs, blame and diff of private repo2; commitsonpr without its code unit ⇒ 404 for every immutable read by
+       its owner (once the permission change reached the cache).
+    *Commands run:* gofumpt, golangci-lint (`./routers/livesync/... ./services/livesync/... ./tests/integration/...`: 0
+    issues), go vet, deadcode diff (clean), `next/tools/gen-protocol.sh --check` (regenerated: doc comments), unit tests of
+    every livesync package with `-race` (`TestLogTail*` `-race -count=10`), `TestLivesyncAPI*` on PG 16 (`gtestschema`)
+    and MySQL 8.0 binlog on (several runs, no testlogger "FATAL ERROR"), full `-test.run 'TestLivesync|TestVersion'` on
+    both.
 
 #### B10 — Headless TS conformance suite (Phase 1 exit)
 - [ ] **Status**

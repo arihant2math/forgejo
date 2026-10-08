@@ -27,7 +27,7 @@ export function Badge({tone = 'neutral', children}: {tone?: BadgeTone; children:
 export function LabelChip({name, color}: {name: string; color: string}) {
   return (
     <span className={cx(chip, 'rounded-full border border-border-strong text-fg-muted')} style={labelColor(color)}>
-      <span aria-hidden className="size-2 rounded-full bg-label"/>
+      <LabelDot color={color}/>
       {name}
     </span>
   );
@@ -37,7 +37,7 @@ const labelColor = (color: string) => ({'--label-color': color} as CSSProperties
 
 /** A label's colour as a small dot (pickers, filters). */
 export function LabelDot({color}: {color: string}) {
-  return <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-label" style={labelColor(color)}/>;
+  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-label" style={labelColor(color)}/>;
 }
 
 /** An icon in a label's colour (a status or priority shown by its scoped label). */

@@ -8,8 +8,9 @@
 // ListControls above it.
 
 import {SearchX} from 'lucide-react';
+import {autorun, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useLayoutEffect, useState} from 'react';
+import {type ReactNode, useCallback, useEffect, useLayoutEffect, useState} from 'react';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -19,6 +20,9 @@ import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel, type ListSource} from './list.ts';
 import type {Group} from './query.ts';
+
+/** Below this many rows a list that shows closed issues keeps loading older pages. */
+const SHORT = 60;
 
 /**
  * A list's live query. The controls change it directly (the list updates in
@@ -33,7 +37,7 @@ export function useListModel(source: ListSource, search: ListSearch, defaultGrou
     return m;
   });
   useLayoutEffect(() => {
-    model.setSearch(search);
+    model.fromUrl(search);
   }, [model, search]);
   useEffect(() => () => {
     model.dispose();
@@ -59,9 +63,20 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
   // Older closed issues are not in the summary (B6): load them when the list can show them.
   const pager = src.kind === 'repo' ? closedPager(data, `repo:${String(src.repoId)}`) : undefined;
   const wantsClosed = q.filter.state !== 'open' || Boolean(q.filter.q?.trim());
+  // Keep paging while the list is short (a search that matches nothing yet) or the cursor/scroll is near its end.
+  const [nearEnd] = useState(() => observable.box(false));
   useEffect(() => {
-    if (wantsClosed) pager?.more();
-  }, [wantsClosed, pager]);
+    if (!pager || !wantsClosed) return undefined;
+    return autorun(() => {
+      if (pager.done || pager.loading) return;
+      if (nearEnd.get() || model.result.get().ids.length < SHORT) pager.more();
+    });
+  }, [pager, wantsClosed, model, nearEnd]);
+  const onNearEnd = useCallback((near: boolean) => {
+    if (near !== nearEnd.get()) runInAction(() => {
+      nearEnd.set(near);
+    });
+  }, [nearEnd]);
   const filtered = q.filter.state !== 'open' || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
     q.filter.poster !== undefined || q.filter.milestone !== undefined;
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
@@ -71,16 +86,14 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
   return (
     <PageBody ref={setScroller}>
       <IssueList model={model} scroller={scroller} empty={none} showRepo={showRepo} label={label}
-        onNearEnd={pager && wantsClosed ? () => {
-          pager.more();
-        } : undefined}/>
+        onNearEnd={onNearEnd}/>
       {pager && wantsClosed && <ClosedFooter pager={pager}/>}
     </PageBody>
   );
 });
 
 const ClosedFooter = observer(function ClosedFooter({pager}: {pager: ReturnType<typeof closedPager>}) {
-  if (pager.done && !pager.pages) return null;
+  if (pager.done && !pager.count) return null;
   const text = pager.loading ?
     'Loading older closed items…' :
     pager.done ? `All older closed items are here (${String(pager.count)} loaded).` : `${String(pager.count)} older closed items loaded; more load as you scroll.`;

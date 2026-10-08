@@ -3,10 +3,10 @@
 
 // The edits the issue UI makes (S/L/A/M/P, the context menu, the palette),
 // on one issue or a selection: each becomes one intent per issue
-// (intents/), applied to the overlay at once. Reads are untracked (these run
-// in event handlers).
+// (intents/), applied to the overlay at once. Each runs as one action (reads
+// untracked; a bulk edit of many issues notifies observers once).
 
-import {untracked} from 'mobx';
+import {runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -35,7 +35,7 @@ export function commonRepo(issues: readonly Entity<'Issue'>[]): number | undefin
 
 export function setState(app: App, issues: readonly Entity<'Issue'>[], state: 'open' | 'closed'): void {
   const {intents, overlay} = editing(app);
-  untracked(() => {
+  runInAction(() => {
     for (const i of issues) {
       const base = issueState(overlay, i);
       if (base === state) continue;
@@ -49,7 +49,7 @@ export function setLabel(app: App, issues: readonly Entity<'Issue'>[], label: La
   const p = pool(app);
   const {intents, overlay} = editing(app);
   const scope = exclusiveScope(label);
-  untracked(() => {
+  runInAction(() => {
     for (const i of issues) {
       const current = issueLabelIds(p, overlay, i.id);
       if (current.includes(label.id) === add) continue;
@@ -63,7 +63,7 @@ export function setLabel(app: App, issues: readonly Entity<'Issue'>[], label: La
 export function clearScope(app: App, issues: readonly Entity<'Issue'>[], scope: string): void {
   const p = pool(app);
   const {overlay} = editing(app);
-  untracked(() => {
+  runInAction(() => {
     for (const i of issues) {
       for (const id of issueLabelIds(p, overlay, i.id)) {
         const l = p.model('Label').get(id)?.data;
@@ -76,7 +76,7 @@ export function clearScope(app: App, issues: readonly Entity<'Issue'>[], scope: 
 export function setAssignee(app: App, issues: readonly Entity<'Issue'>[], userId: number, add: boolean): void {
   const p = pool(app);
   const {intents, overlay} = editing(app);
-  untracked(() => {
+  runInAction(() => {
     for (const i of issues) {
       if (issueAssigneeIds(p, overlay, i.id).includes(userId) === add) continue;
       intents.submit({kind: 'issue.assignee', issueId: i.id, repoId: i.data.repo_id, userId, add});
@@ -86,7 +86,7 @@ export function setAssignee(app: App, issues: readonly Entity<'Issue'>[], userId
 
 export function setMilestone(app: App, issues: readonly Entity<'Issue'>[], milestoneId: number): void {
   const {intents, overlay} = editing(app);
-  untracked(() => {
+  runInAction(() => {
     for (const i of issues) {
       const base = issueMilestone(overlay, i);
       if (base === milestoneId) continue;

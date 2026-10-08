@@ -16,7 +16,7 @@ import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLab
 import type {IssueListModel} from './list.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Button, Input, LabelDot, Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  Badge, Button, Input, LabelDot, Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
   MenuSub, MenuTrigger,
 } from '../../ui/index.ts';
 import {usePool} from './cells.tsx';
@@ -55,6 +55,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
     if (url) updateUrl(next);
   };
   const updateUrl = (next: ListSearch) => {
+    model.pushed = next;
     void navigate({
       to: '.',
       replace: true,
@@ -65,8 +66,10 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
   const setState = (s: ListState) => {
     set({state: s === 'open' ? undefined : s});
   };
+  const selected = model.cursor.selected.size;
   return (
     <>
+      {selected > 0 && <Badge tone="accent">{selected} selected · Esc clears</Badge>}
       {stateButtons && STATES.map((s) => (
         <Button key={s.state} size="sm" variant={state === s.state ? 'secondary' : 'ghost'} aria-pressed={state === s.state} onClick={() => {
           setState(s.state);
@@ -144,7 +147,7 @@ function SearchField({value, onChange, onSettle}: {value: string; onChange: (q: 
     }, 300);
   };
   return (
-    <Input size="sm" icon={Search} type="search" aria-label="Search titles" placeholder="Search…" value={text} className="ml-1 w-48"
+    <Input size="sm" icon={Search} type="search" aria-label="Search titles" placeholder="Search…" value={text} className="ml-1 w-48 min-w-24 shrink"
       onChange={(e) => {
         change(e.target.value);
       }}
@@ -196,6 +199,8 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: 
   const app = useApp();
   const me = app.session?.userId ?? 0;
   const active = activeFilters(pool, search, set);
+  // Across repositories there is nothing to offer but the filters a link brought along.
+  if (repoId === undefined && !active.length) return null;
   return (
     <Menu>
       <MenuTrigger asChild>

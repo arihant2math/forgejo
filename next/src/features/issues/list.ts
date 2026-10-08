@@ -27,6 +27,7 @@ import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueLabelIds} from '../../intents/view.ts';
 import type {Issue} from '../../protocol/types.gen.ts';
+import {ListCursor} from './flags.ts';
 import {type Group, type Query, type QueryContext, type QueryResult, type Row, runQuery, type Sort} from './query.ts';
 
 export type ListSource =
@@ -56,11 +57,24 @@ export function queryOf(s: ListSearch, defaults: {group?: Group; sort?: Sort} = 
 export function poolContext(pool: Pool, overlay: Overlay): QueryContext {
   const labels = pool.model('Label');
   const users = pool.model('User');
+  // Untracked reads (the list observes overlay.revision): with no pending
+  // edit, the server's values are read directly.
+  const bare = untracked(() => overlay.size === 0);
+  const issueLabels = pool.model('IssueLabel');
+  const issueAssignees = pool.model('IssueAssignee');
   return {
-    state: (i) => (overlay.field('Issue', i.id, 'state')?.value as string | undefined) ?? i.state,
-    milestone: (i) => (overlay.field('Issue', i.id, 'milestone_id')?.value as number | undefined) ?? i.milestone_id,
-    labels: (i) => issueLabelIds(pool, overlay, i.id),
-    assignees: (i) => issueAssigneeIds(pool, overlay, i.id),
+    state: bare ? (i) => i.state : (i) => (overlay.field('Issue', i.id, 'state')?.value as string | undefined) ?? i.state,
+    milestone: bare ? (i) => i.milestone_id : (i) => (overlay.field('Issue', i.id, 'milestone_id')?.value as number | undefined) ?? i.milestone_id,
+    labels: bare ? (i) => {
+      const out: number[] = [];
+      for (const e of issueLabels.by('issue_id', i.id)) out.push(e.data.label_id);
+      return out;
+    } : (i) => issueLabelIds(pool, overlay, i.id),
+    assignees: bare ? (i) => {
+      const out: number[] = [];
+      for (const e of issueAssignees.by('issue_id', i.id)) out.push(e.data.assignee_id);
+      return out;
+    } : (i) => issueAssigneeIds(pool, overlay, i.id),
     label: (id) => labels.get(id)?.data,
     milestoneOf: (id) => pool.model('Milestone').get(id)?.data,
     userName: (id) => {
@@ -100,6 +114,10 @@ export class IssueListModel {
   private readonly serverIds = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
   private serverAsked = '';
   readonly result: IComputedValue<QueryResult>;
+  /** The keyboard cursor (J/K) and the selection (X). */
+  readonly cursor = new ListCursor();
+  /** The issues of the last computation (moves away from a repository are relevant to its list). */
+  private listed: ReadonlySet<number> = new Set();
   /** The last computation's duration (ms), for the perf checks. */
   lastMs = 0;
   disposed = false;
@@ -136,12 +154,16 @@ export class IssueListModel {
    */
   private concerns(c: Applied): boolean {
     if (!RELEVANT.has(c.model)) return false;
+    // A user's name orders and labels only the assignee groups.
+    if (c.model === 'User') return untracked(() => queryOf(this.view.get(), {group: this.defaultGroup}).group) === 'assignee';
     const src = this.source;
     if (src.kind !== 'repo' || !c.entity) return true;
     // Plain reads (not in a reaction): nothing is observed.
     const d = c.entity.data as {repo_id?: number; issue_id?: number};
     switch (c.model) {
       case 'Issue':
+        // Also an issue that moved away (its new repo_id is another's): it is still among the rows.
+        return d.repo_id === src.repoId || this.listed.has(c.id);
       case 'Milestone':
         return d.repo_id === src.repoId;
       case 'Label':
@@ -153,6 +175,8 @@ export class IssueListModel {
       }
       case 'Repository':
         return c.id === src.repoId;
+      case 'Review':
+        return false; // only the viewer's "review requested" list reads reviews
       default:
         return true;
     }
@@ -163,9 +187,25 @@ export class IssueListModel {
     return this.view.get();
   }
 
-  /** The query the view describes. */
+  /** The query the view describes (the "assigned" list also filters on the viewer as assignee, through the overlay). */
   get query(): Query {
-    return queryOf(this.view.get(), {group: this.defaultGroup});
+    const q = queryOf(this.view.get(), {group: this.defaultGroup});
+    if (this.source.kind === 'my' && this.source.type === 'assigned') q.filter = {...q.filter, assignee: this.app.session?.userId};
+    return q;
+  }
+
+  /** The search params this model last wrote to the URL (ListControls), see `fromUrl`. */
+  pushed: ListSearch | undefined;
+
+  /**
+   * The URL's search params changed: shows them — unless they are what this model wrote itself and
+   * the view has moved on since (typing continued while the URL caught up).
+   */
+  fromUrl(s: ListSearch): void {
+    const own = this.pushed && JSON.stringify(s) === JSON.stringify(this.pushed);
+    this.pushed = undefined;
+    if (own) return;
+    this.setSearch(s);
   }
 
   /** Shows another view (recomputed on the next read: in the same frame). */
@@ -196,6 +236,7 @@ export class IssueListModel {
       const t0 = performance.now();
       const out = runQuery(this.candidates(server), query, poolContext(this.pool, this.overlay));
       this.lastMs = performance.now() - t0;
+      this.listed = new Set(out.ids);
       try {
         performance.measure('list:query', {start: t0, end: t0 + this.lastMs, detail: {rows: out.rows.length, overlay: overlayRev}});
       } catch {
@@ -205,13 +246,22 @@ export class IssueListModel {
     });
   }
 
-  private *candidates(server: ReadonlySet<number> | undefined): Generator<Issue> {
+  private candidates(server: ReadonlySet<number> | undefined): Iterable<Issue> {
     const src = this.source;
-    const issues = this.pool.model('Issue');
     if (src.kind === 'repo') {
-      for (const e of issues.by('repo_id', src.repoId)) if (e.data.is_pull === src.pulls) yield e.data;
-      return;
+      // The common case, in a plain loop (no generator per issue).
+      const out: Issue[] = [];
+      for (const e of this.pool.model('Issue').by('repo_id', src.repoId)) {
+        const d = e.data;
+        if (d.is_pull === src.pulls) out.push(d);
+      }
+      return out;
     }
+    return this.myCandidates(src, server);
+  }
+
+  private *myCandidates(src: Extract<ListSource, {kind: 'my'}>, server: ReadonlySet<number> | undefined): Generator<Issue> {
+    const issues = this.pool.model('Issue');
     const me = this.app.session?.userId ?? 0;
     const yieldIds = function* (ids: Iterable<number>, pulls: boolean): Generator<Issue> {
       const seen = new Set<number>();
@@ -223,9 +273,13 @@ export class IssueListModel {
       }
     };
     switch (src.type) {
-      case 'assigned':
-        yield* yieldIds([...this.pool.model('IssueAssignee').by('assignee_id', me)].map((e) => e.data.issue_id), src.pulls);
+      case 'assigned': {
+        // The pool's assignments and the overlay's (an optimistic self-assignment shows at once; the query's
+        // assignee filter, set below, drops an optimistic unassignment).
+        const ids = [...this.pool.model('IssueAssignee').by('assignee_id', me)].map((e) => e.data.issue_id);
+        yield* yieldIds([...ids, ...this.overlay.ownersWith('IssueAssignee', me)], src.pulls);
         return;
+      }
       case 'created_by':
         for (const e of issues.by('poster_id', me)) if (e.data.is_pull === src.pulls) yield e.data;
         return;

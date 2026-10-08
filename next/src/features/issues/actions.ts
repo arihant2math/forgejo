@@ -68,10 +68,10 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
       {id: 'priority', label: 'Set priority…', icon: SignalHigh, shortcut: 'issue.priority', run: () => {
         openPicker(app, 'priority', ids);
       }},
-      {id: 'labels', label: 'Labels…', icon: Tag, shortcut: 'issue.labels', keywords: 'tag', run: () => {
+      {id: 'labels', label: 'Change labels…', icon: Tag, shortcut: 'issue.labels', keywords: 'tag', run: () => {
         openPicker(app, 'labels', ids);
       }},
-      {id: 'assignees', label: 'Assign…', icon: Users, shortcut: 'issue.assignee', keywords: 'assignee people', run: () => {
+      {id: 'assignees', label: 'Change assignees…', icon: Users, shortcut: 'issue.assignee', keywords: 'assignee people', run: () => {
         openPicker(app, 'assignees', ids);
       }},
       mine ?

@@ -50,7 +50,7 @@ const GLOBAL_ATTRS = new Set(['title', 'lang', 'dir', 'align']);
 const ATTRS: Record<string, Set<string>> = {
   a: new Set(['href', 'rel', 'target', 'name']),
   img: new Set(['src', 'alt', 'width', 'height', 'loading']),
-  video: new Set(['src', 'controls', 'poster', 'width', 'height']),
+  video: new Set(['src', 'controls', 'poster', 'width', 'height', 'preload']),
   source: new Set(['src', 'srcset', 'type', 'media']),
   td: new Set(['colspan', 'rowspan']),
   th: new Set(['colspan', 'rowspan', 'scope']),
@@ -106,12 +106,15 @@ export function scrub(root: DocumentFragment | Element): void {
     }
     const allowed = ATTRS[tag];
     for (const {name, value} of [...el.attributes]) {
-      const ok = (GLOBAL_ATTRS.has(name) || (allowed?.has(name) ?? false) || (name === 'id' && value.startsWith('user-content-')) || name.startsWith('aria-')) &&
+      // ARIA: names and hiding only — references (aria-labelledby, -owns, …) could point at the app's own elements.
+      const ok = (GLOBAL_ATTRS.has(name) || (allowed?.has(name) ?? false) || (name === 'id' && value.startsWith('user-content-')) || name === 'aria-label' || name === 'aria-hidden') &&
         (!URL_ATTRS.has(name) || safeUrl(name, tag, value));
       if (!ok) el.removeAttribute(name);
     }
     if (tag === 'a' && el.hasAttribute('target')) el.setAttribute('rel', 'noopener noreferrer');
     if (tag === 'img' && !el.hasAttribute('loading')) el.setAttribute('loading', 'lazy');
+    // A video's source loads when played, not when the page renders (it may be on another host).
+    if (tag === 'video') el.setAttribute('preload', 'none');
   }
 }
 

@@ -62,6 +62,8 @@ interface Item {
   issue: Issue;
   sortKey: number;
   group: GroupKey | undefined;
+  /** The group's place among the run's groups (set before sorting). */
+  order: number;
 }
 
 interface GroupKey {
@@ -77,6 +79,26 @@ interface GroupKey {
 
 const time = (s: string | undefined) => (s ? Date.parse(s) : Number.NaN);
 
+/** Parsed timestamps per issue version (an Issue object is immutable: a delta replaces it). */
+const times = new WeakMap<Issue, {created: number; updated: number; due: number}>();
+function timesOf(issue: Issue): {created: number; updated: number; due: number} {
+  let t = times.get(issue);
+  if (!t) times.set(issue, t = {created: time(issue.created_at), updated: time(issue.updated_at), due: time(issue.due_date)});
+  return t;
+}
+
+const collator = new Intl.Collator();
+
+/** A label's kind and rank, computed once per label and run. */
+type LabelInfo = {label: Label; kind: ScopeKind | undefined; rank: number} | null;
+
+/** Per-run caches: label facts and group keys are shared by every issue that has them. */
+interface Run {
+  ctx: QueryContext;
+  labels: Map<number, LabelInfo>;
+  groups: Map<string, GroupKey>;
+}
+
 /** Lower-cased words of a search, and the issue number it names (if any). */
 export function parseSearch(q: string | undefined): {words: string[]; number: number | undefined} {
   const words = (q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -91,6 +113,7 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   const must = filter.labels.filter((l) => l > 0);
   const mustNot = filter.labels.filter((l) => l < 0).map((l) => -l);
   const items: Item[] = [];
+  const run: Run = {ctx, labels: new Map(), groups: new Map()};
   for (const issue of candidates) {
     const state = ctx.state(issue);
     if (filter.state !== 'all' && state !== filter.state) continue;
@@ -108,13 +131,18 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
       if (filter.assignee === -1 ? as.length > 0 : !as.includes(filter.assignee)) continue;
     }
     if (search.words.length && !matches(issue, search)) continue;
-    items.push({issue, sortKey: sortKey(issue, sort, ctx), group: group === 'none' ? undefined : groupOf(issue, group, state, ctx)});
+    items.push({issue, sortKey: sortKey(issue, sort, run), group: group === 'none' ? undefined : groupOf(issue, group, state, run), order: 0});
+  }
+  // The groups are ordered once (a handful of them), then the sort compares numbers only.
+  if (group !== 'none') {
+    const keys = [...new Set(items.map((it) => it.group))].filter((g): g is GroupKey => g !== undefined);
+    keys.sort((a, b) => a.rank - b.rank || collator.compare(a.name, b.name) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const order = new Map(keys.map((g, n) => [g, n]));
+    for (const it of items) it.order = it.group ? order.get(it.group) ?? 0 : 0;
   }
   const desc = sort === 'newest' || sort === 'recentupdate' || sort === 'mostcomment' || sort === 'farduedate';
   items.sort((a, b) => {
-    if (a.group && b.group && a.group.key !== b.group.key) {
-      return a.group.rank - b.group.rank || a.group.name.localeCompare(b.group.name) || a.group.key.localeCompare(b.group.key);
-    }
+    if (a.order !== b.order) return a.order - b.order;
     const x = a.sortKey;
     const y = b.sortKey;
     // Missing values (no due date) go last either way.
@@ -145,23 +173,44 @@ function matches(issue: Issue, s: {words: string[]; number: number | undefined})
   return s.words.every((w) => title.includes(w.replace(/^#/, '')) || `#${String(issue.number)}` === w);
 }
 
-function sortKey(issue: Issue, sort: Sort, ctx: QueryContext): number {
+function sortKey(issue: Issue, sort: Sort, run: Run): number {
   switch (sort) {
     case 'newest':
     case 'oldest':
-      return time(issue.created_at);
+      return timesOf(issue).created;
     case 'recentupdate':
     case 'leastupdate':
-      return time(issue.updated_at);
+      return timesOf(issue).updated;
     case 'mostcomment':
     case 'leastcomment':
       return issue.comments;
     case 'nearduedate':
     case 'farduedate':
-      return time(issue.due_date);
+      return timesOf(issue).due;
     case 'priority':
-      return kindLabel(issue, 'priority', ctx)?.rank ?? 9;
+      return runKindLabel(issue, 'priority', run)?.rank ?? 9;
   }
+}
+
+function runKindLabel(issue: Issue, kind: ScopeKind, run: Run): {label: Label; rank: number} | undefined {
+  for (const id of run.ctx.labels(issue)) {
+    let info = run.labels.get(id);
+    if (info === undefined) {
+      const l = run.ctx.label(id);
+      const k = l ? labelKind(l) : undefined;
+      info = l ? {label: l, kind: k, rank: k ? kindRank(k, l.name) : 0} : null;
+      run.labels.set(id, info);
+    }
+    if (info?.kind === kind) return info;
+  }
+  return undefined;
+}
+
+/** The run's shared group key for `key` (made once). */
+function interned(run: Run, key: string, make: () => GroupKey): GroupKey {
+  let g = run.groups.get(key);
+  if (!g) run.groups.set(key, g = make());
+  return g;
 }
 
 /** The issue's label of a kind (status, priority) with its rank. */
@@ -173,46 +222,56 @@ export function kindLabel(issue: Issue, kind: ScopeKind, ctx: Pick<QueryContext,
   return undefined;
 }
 
-function groupOf(issue: Issue, group: Group, state: string, ctx: QueryContext): GroupKey {
+// Groups that stand for nothing (shared by every run).
+const OPEN: GroupKey = {key: 'open', label: 'Open', rank: 1.5, name: '', value: 0};
+const CLOSED: GroupKey = {key: 'closed', label: 'Closed', rank: 4.5, name: '', value: 0};
+const NO_PRIORITY: GroupKey = {key: 'none', label: 'No priority', rank: 9, name: '', value: 0};
+const UNASSIGNED: GroupKey = {key: 'none', label: 'Unassigned', rank: 1, name: '', value: 0};
+const NO_MILESTONE: GroupKey = {key: 'none', label: 'No milestone', rank: Number.MAX_SAFE_INTEGER, name: '', value: 0};
+const NONE: GroupKey = {key: '', label: '', rank: 0, name: '', value: 0};
+
+function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey {
+  const {ctx} = run;
   switch (group) {
     case 'status': {
-      const k = kindLabel(issue, 'status', ctx);
-      if (k) return {key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id};
+      const k = runKindLabel(issue, 'status', run);
+      if (k) return interned(run, `l${String(k.label.id)}`, () => ({key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id}));
       // No status label: Forgejo's own state places it (before "in progress", or with "done").
-      return state === 'closed' ?
-        {key: 'closed', label: 'Closed', rank: 4.5, name: '', value: 0} :
-        {key: 'open', label: 'Open', rank: 1.5, name: '', value: 0};
+      return state === 'closed' ? CLOSED : OPEN;
     }
     case 'priority': {
-      const k = kindLabel(issue, 'priority', ctx);
+      const k = runKindLabel(issue, 'priority', run);
       return k ?
-        {key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id} :
-        {key: 'none', label: 'No priority', rank: 9, name: '', value: 0};
+        interned(run, `l${String(k.label.id)}`, () => ({key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id})) :
+        NO_PRIORITY;
     }
     case 'assignee': {
       let best: {id: number; name: string} | undefined;
       for (const id of ctx.assignees(issue)) {
         const name = ctx.userName(id) ?? `#${String(id)}`;
-        if (!best || name.localeCompare(best.name) < 0) best = {id, name};
+        if (!best || collator.compare(name, best.name) < 0) best = {id, name};
       }
-      return best ?
-        {key: `u${String(best.id)}`, label: best.name, rank: 0, name: best.name.toLowerCase(), value: best.id} :
-        {key: 'none', label: 'Unassigned', rank: 1, name: '', value: 0};
+      if (!best) return UNASSIGNED;
+      const b = best;
+      return interned(run, `u${String(b.id)}`, () => ({key: `u${String(b.id)}`, label: b.name, rank: 0, name: b.name.toLowerCase(), value: b.id}));
     }
     case 'milestone': {
       const id = ctx.milestone(issue);
       const m = id ? ctx.milestoneOf(id) : undefined;
-      if (!m) return {key: 'none', label: 'No milestone', rank: Number.MAX_SAFE_INTEGER, name: '', value: 0};
-      // Milestones with a due date first, soonest first (a cycle, PLAN §7.3).
-      const due = time(m.due_on);
-      return {key: `m${String(m.id)}`, label: m.title, rank: Number.isNaN(due) ? Number.MAX_SAFE_INTEGER - 1 : due, name: m.title.toLowerCase(), value: m.id};
+      if (!m) return NO_MILESTONE;
+      return interned(run, `m${String(m.id)}`, () => {
+        // Milestones with a due date first, soonest first (a cycle, PLAN §7.3).
+        const due = time(m.due_on);
+        return {key: `m${String(m.id)}`, label: m.title, rank: Number.isNaN(due) ? Number.MAX_SAFE_INTEGER - 1 : due, name: m.title.toLowerCase(), value: m.id};
+      });
     }
     case 'repo': {
-      const r = ctx.repo(issue.repo_id);
-      const name = r?.full_name ?? `#${String(issue.repo_id)}`;
-      return {key: `r${String(issue.repo_id)}`, label: name, rank: 0, name: name.toLowerCase(), value: issue.repo_id};
+      return interned(run, `r${String(issue.repo_id)}`, () => {
+        const name = ctx.repo(issue.repo_id)?.full_name ?? `#${String(issue.repo_id)}`;
+        return {key: `r${String(issue.repo_id)}`, label: name, rank: 0, name: name.toLowerCase(), value: issue.repo_id};
+      });
     }
     case 'none':
-      return {key: '', label: '', rank: 0, name: '', value: 0};
+      return NONE;
   }
 }

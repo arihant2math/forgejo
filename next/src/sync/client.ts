@@ -232,13 +232,26 @@ export class SyncClient {
    * X-Livesync-Sync-Id is `v` has its effect in the pool). Never rejects; a
    * group that is not held may never get there (callers bound the wait).
    */
-  whenAt(group: string, v: number): Promise<void> {
+  whenAt(group: string, v: number, signal?: AbortSignal): Promise<void> {
     if ((this.position(group) ?? -1) >= v) return Promise.resolve();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let list = this.positionWaiters.get(group);
       if (!list) this.positionWaiters.set(group, list = []);
-      list.push({v, resolve});
+      const w = {v, resolve};
+      list.push(w);
+      signal?.addEventListener('abort', () => {
+        const l = this.positionWaiters.get(group);
+        const i = l?.indexOf(w) ?? -1;
+        if (l && i >= 0) l.splice(i, 1);
+        if (l?.length === 0) this.positionWaiters.delete(group);
+        reject(new Error('aborted'));
+      }, {once: true});
     });
+  }
+
+  /** Resolves once no load of the group is queued or running (its state is persisted with the next flush). */
+  async loadsDone(group: string): Promise<void> {
+    for (let lock = this.groupLocks.get(group); lock; lock = this.groupLocks.get(group)) await lock;
   }
 
   private positionReached(group: string, pos: number): void {
@@ -723,7 +736,9 @@ export class SyncClient {
   }
 
   private updateConnection(session: Session): void {
-    if (this.session !== session || !session.welcomed) return;
+    // Offline stays offline (messages still in flight when the browser went offline must not
+    // overwrite it); going online calls this again.
+    if (this.session !== session || !session.welcomed || offline()) return;
     let waiting = false;
     for (const sub of session.subs.values()) {
       if (!sub.caughtUp) waiting = true;

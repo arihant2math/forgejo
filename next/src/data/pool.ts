@@ -102,6 +102,8 @@ export class ModelStore<M extends ModelName = ModelName> {
     if (!index) throw new Error(`${this.model}.${field} is not indexed`);
     let bucket = index.get(value);
     if (!bucket) {
+      // Nothing to observe outside a derivation: no bucket to create.
+      if (!_isComputingDerivation()) return EMPTY;
       // Created for the observer only; dropped again once nothing observes it and it is empty.
       bucket = {set: new Set(), atoms: undefined};
       index.set(value, bucket);

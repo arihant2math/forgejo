@@ -30,7 +30,8 @@ export function Markdown({html}: {html: string}) {
     const sub = app.config.app_sub_url;
     if (url.origin !== location.origin || !url.pathname.startsWith(`${sub}/`)) return;
     const path = url.pathname.slice(sub.length);
-    if (!LOCAL.some((re) => re.test(path))) return;
+    // Encoded dots, slashes and backslashes would be decoded by the router into another path than the one checked.
+    if (/%(?:2e|2f|5c)/i.test(path) || !LOCAL.some((re) => re.test(path))) return;
     e.preventDefault();
     void router.navigate({to: path, search: Object.fromEntries(url.searchParams) as never, hash: url.hash.slice(1)});
   };

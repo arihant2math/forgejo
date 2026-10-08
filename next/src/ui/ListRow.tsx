@@ -20,6 +20,9 @@ export interface ListRowProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role
 
 const slot = 'flex shrink-0 items-center gap-2';
 
+/** The geometry every list row shares (rows and group headers): fixed height, so virtualized lists never measure. */
+const rowBase = 'flex h-row items-center gap-2 border-b border-border-subtle px-3 contain-content';
+
 /**
  * One compact list row (issues, PRs, notifications). Fixed height and layout
  * containment, so virtualized lists can position rows without measuring. The
@@ -35,8 +38,9 @@ export function ListRow({role, selected, active, leading, trailing, children, ..
       data-active={active ? '' : undefined}
       aria-selected={role === 'presentation' ? undefined : Boolean(selected)}
       className={cx(
-        'interactive flex h-row items-center gap-2 border-b border-border-subtle px-3 text-base text-fg contain-content',
-        'hover:bg-hover focus-visible:focus-inset data-active:bg-hover data-selected:bg-selected',
+        rowBase,
+        // The cursor (J/K) is an accent edge, the selection (X) an accent tint: both distinct from the pointer's hover.
+        'interactive row-cursor text-base text-fg hover:bg-hover focus-visible:focus-inset data-selected:bg-accent-subtle',
       )}
       {...rest}
     >
@@ -60,7 +64,7 @@ export interface ListGroupHeaderProps {
  */
 export function ListGroupHeader({leading, label, count}: ListGroupHeaderProps) {
   return (
-    <div role="presentation" className="flex h-row items-center gap-2 border-b border-border-subtle bg-canvas px-3 text-sm font-medium text-fg contain-content">
+    <div role="presentation" className={cx(rowBase, 'bg-canvas text-sm font-medium text-fg')}>
       {leading && <span className={cx(slot, 'text-fg-muted')}>{leading}</span>}
       <span className="min-w-0 truncate">{label}</span>
       <span className="text-fg-subtle tabular-nums">{count}</span>

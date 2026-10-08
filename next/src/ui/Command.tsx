@@ -6,13 +6,13 @@
 // (shouldFilter is off), so the list renders only what is shown.
 
 import {Command as K} from 'cmdk';
-import {Search} from 'lucide-react';
+import {Check, Minus, Search} from 'lucide-react';
 import {Dialog as D} from 'radix-ui';
 import type {ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {ItemBody} from './ItemBody.tsx';
-import {dialogPanel, menuRow, overlay, sectionLabel} from './recipes.ts';
+import {dialogPanel, iconSlot, menuRow, overlay, sectionLabel} from './recipes.ts';
 import {useReturnFocus} from './returnFocus.ts';
 
 export interface CommandDialogProps {
@@ -88,15 +88,20 @@ export interface CommandItemProps {
   /** Muted text after the title (a repository name, a state). */
   meta?: ReactNode;
   shortcut?: string | undefined;
+  /** A choice that is on (true), on for some (mixed) or off (false): a check slot and aria-checked. */
+  checked?: boolean | 'mixed' | undefined;
   children: ReactNode;
 }
 
 // cmdk writes data-selected / data-disabled as "true" or "false".
 const item = cx(menuRow, 'text-fg data-[selected=true]:bg-raised-hover data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-subtle');
 
-export function CommandItem({value, onSelect, icon, leading, meta, shortcut, children}: CommandItemProps) {
+export function CommandItem({value, onSelect, icon, leading, meta, shortcut, checked, children}: CommandItemProps) {
   return (
-    <K.Item value={value} onSelect={onSelect} className={item}>
+    <K.Item value={value} onSelect={onSelect} className={item} aria-checked={checked}>
+      {checked !== undefined && (
+        <span className={iconSlot}>{checked && <Icon icon={checked === 'mixed' ? Minus : Check}/>}</span>
+      )}
       <ItemBody icon={icon} leading={leading} meta={meta ?? ''} shortcut={shortcut}>{children}</ItemBody>
     </K.Item>
   );

@@ -9,7 +9,7 @@ import {Link, useLoaderData, useParams} from '@tanstack/react-router';
 import {CloudOff, Slash} from 'lucide-react';
 import {type RepoMatch, useHold} from '../../app/repo.ts';
 import {useSession} from '../../app/store.ts';
-import {EmptyState, Icon} from '../../ui/index.ts';
+import {EmptyState, Icon, TextLink} from '../../ui/index.ts';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
@@ -21,12 +21,13 @@ export function useRepoPage(): {owner: string; repo: string; repoId: number | un
   return {owner, repo, repoId, group};
 }
 
-export function RepoContext({owner, repo}: {owner: string; repo: string}) {
+/** The breadcrumb: owner / repository (a link to its issues, or its pull requests on pull request pages). */
+export function RepoContext({owner, repo, pulls = false}: {owner: string; repo: string; pulls?: boolean}) {
   return (
     <>
       <span className="min-w-0 truncate">{owner}</span>
       <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-      <Link to="/$owner/$repo/issues" params={{owner, repo}} className="interactive min-w-0 truncate hover:text-fg">{repo}</Link>
+      <TextLink><Link to={pulls ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}}>{repo}</Link></TextLink>
     </>
   );
 }

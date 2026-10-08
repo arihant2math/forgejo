@@ -7,7 +7,7 @@
 // the multi-value ones (labels, assignees) stay open for more. Its own
 // chunk, loaded when a picker first opens (or when idle).
 
-import {Check, Minus, SignalZero} from 'lucide-react';
+import {SignalZero} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
@@ -25,7 +25,7 @@ import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone, s
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
 
 const TITLES: Record<PickerKind, string> = {
-  status: 'Change status', priority: 'Set priority', labels: 'Labels', assignees: 'Assign', milestone: 'Set milestone',
+  status: 'Change status', priority: 'Set priority', labels: 'Change labels', assignees: 'Change assignees', milestone: 'Set milestone',
 };
 
 const PLACEHOLDERS: Record<PickerKind, string> = {
@@ -72,11 +72,6 @@ interface Option {
   run(): void;
 }
 
-function Mark({checked}: {checked: Option['checked']}) {
-  if (checked === 'none') return <span aria-hidden className="size-4 shrink-0"/>;
-  return <Icon icon={checked === 'all' ? Check : Minus} className="text-fg"/>;
-}
-
 /** How many of the issues have a property. */
 function coverage(issues: readonly Entity<'Issue'>[], has: (i: Entity<'Issue'>) => boolean): Option['checked'] {
   const n = issues.filter(has).length;
@@ -101,7 +96,7 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     const checked = coverage(issues, hasLabel(l.id));
     return {
       key: `l${String(l.id)}`, label: kind === 'labels' ? l.name : scopedValue(l.name), words: l.description, checked, keepOpen,
-      leading: <span className="flex items-center gap-2"><Mark checked={checked}/>{icon ? <LabelIcon icon={icon} color={l.color}/> : <LabelDot color={l.color}/>}</span>,
+      leading: icon ? <LabelIcon icon={icon} color={l.color}/> : <LabelDot color={l.color}/>,
       run: done(() => {
         setLabel(app, issues, l, checked !== 'all');
       }),
@@ -116,10 +111,10 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     const closed: Option['checked'] = state === 'all' ? 'none' : state === 'none' ? 'all' : 'some';
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     options.push(
-      {key: 'open', label: 'Open', checked: state, leading: <span className="flex items-center gap-2"><Mark checked={state}/><StateGlyph look={stateLook('open', pull, false)}/></span>, run: done(() => {
+      {key: 'open', label: 'Open', checked: state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, run: done(() => {
         setState(app, issues, 'open');
       })},
-      {key: 'closed', label: 'Closed', checked: closed, leading: <span className="flex items-center gap-2"><Mark checked={closed}/><StateGlyph look={stateLook('closed', pull, false)}/></span>, run: done(() => {
+      {key: 'closed', label: 'Closed', checked: closed, leading: <StateGlyph look={stateLook('closed', pull, false)}/>, run: done(() => {
         setState(app, issues, 'closed');
       })},
     );
@@ -131,12 +126,13 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     const priorities = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'priority').sort((a, b) => kindRank('priority', a.name) - kindRank('priority', b.name));
     const scopes = new Set(priorities.map(exclusiveScope));
     const none = coverage(issues, (i) => !priorities.some((l) => hasLabel(l.id)(i)));
-    options.push({key: 'none', label: 'No priority', checked: none, leading: <span className="flex items-center gap-2"><Mark checked={none}/><Icon icon={SignalZero} className="text-fg-subtle"/></span>, run: done(() => {
+    options.push({key: 'none', label: 'No priority', checked: none, leading: <Icon icon={SignalZero} className="text-fg-subtle"/>, run: done(() => {
       for (const scope of scopes) clearScope(app, issues, scope);
     })});
     for (const l of priorities) options.push(labelOption(l, priorityIcon(l.name), false));
   } else if (kind === 'labels' && repoId !== undefined) {
-    for (const l of repoLabels(pool, repoId)) options.push(labelOption(l, undefined, true));
+    // Status and priority labels have their own pickers (S, P).
+    for (const l of repoLabels(pool, repoId)) if (!labelKind(l)) options.push(labelOption(l, undefined, true));
   } else if (kind === 'assignees' && repoId !== undefined) {
     const users = pool.model('User');
     const ids = new Set(assigneeCandidates(pool, repoId, s.userId));
@@ -147,7 +143,7 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
       const checked = coverage(issues, (i) => issueAssigneeIds(pool, overlay, i.id).includes(u.id));
       options.push({
         key: `u${String(u.id)}`, label: u.id === s.userId ? `${u.full_name || u.login} (you)` : u.full_name || u.login, words: u.login, checked, keepOpen: true,
-        leading: <span className="flex items-center gap-2"><Mark checked={checked}/><Avatar name={u.full_name || u.login} src={u.avatar_url || undefined} size="sm"/></span>,
+        leading: <Avatar name={u.full_name || u.login} src={u.avatar_url || undefined} size="sm"/>,
         run: done(() => {
           setAssignee(app, issues, u.id, checked !== 'all');
         }),
@@ -156,7 +152,7 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
   } else if (kind === 'milestone' && repoId !== undefined) {
     const current = (id: number) => coverage(issues, (i) => issueMilestone(overlay, i) === id);
     const none = current(0);
-    options.push({key: 'none', label: 'No milestone', checked: none, leading: <span className="flex items-center gap-2"><Mark checked={none}/></span>, run: done(() => {
+    options.push({key: 'none', label: 'No milestone', checked: none, leading: undefined, run: done(() => {
       setMilestone(app, issues, 0);
     })});
     const ms = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data)
@@ -165,7 +161,7 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
       const checked = current(m.id);
       options.push({
         key: `m${String(m.id)}`, label: m.title, words: m.state === 'closed' ? 'closed' : '', checked,
-        leading: <span className="flex items-center gap-2"><Mark checked={checked}/></span>,
+        leading: undefined,
         run: done(() => {
           setMilestone(app, issues, m.id);
         }),
@@ -175,7 +171,8 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = words.length ? options.filter((o) => words.every((w) => `${o.label} ${o.words ?? ''}`.toLowerCase().includes(w))) : options;
-  const noun = issues.length > 1 ? `${String(issues.length)} issues` : '';
+  const allPulls = issues.every((i) => untracked(() => i.data.is_pull));
+  const noun = issues.length > 1 ? `${String(issues.length)} ${allPulls ? 'pull requests' : 'issues'}` : '';
   return (
     <>
       <CommandInput value={query} onValueChange={setQuery} placeholder={noun ? `${PLACEHOLDERS[kind]} (${noun})` : PLACEHOLDERS[kind]}/>
@@ -186,7 +183,7 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
         {groupTitle && shown.length > 0 && (
           <CommandGroup heading={groupTitle}>
             {shown.map((o) => (
-              <CommandItem key={o.key} value={o.key} leading={o.leading} onSelect={() => {
+              <CommandItem key={o.key} value={o.key} leading={o.leading} checked={o.checked === 'some' ? 'mixed' : o.checked === 'all'} onSelect={() => {
                 o.run();
                 if (!o.keepOpen) close(app);
               }}>

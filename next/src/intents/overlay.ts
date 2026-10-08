@@ -136,6 +136,18 @@ export class Overlay {
     return out;
   }
 
+  /** Untracked: the owners (issues) whose set has a pending override adding `member` (e.g. issues assigned to me). */
+  ownersWith(model: SetModel, member: number): number[] {
+    const out: number[] = [];
+    for (const [k, members] of this.sets) {
+      if (!k.startsWith(`${model}\0`)) continue;
+      const top = members.get(member)?.at(-1);
+      if (!top) continue;
+      for (const op of top.ops) if (op.t === 'member' && op.model === model && op.member === member && op.present) out.push(op.owner);
+    }
+    return out;
+  }
+
   /**
    * The overrides of a set made by the layers added before `layer` (and by
    * `layer` itself when `inclusive`): what the set looked like to the user

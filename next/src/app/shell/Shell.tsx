@@ -10,7 +10,7 @@ import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {markOnce} from '../../sync/rum.ts';
-import {TooltipProvider} from '../../ui/index.ts';
+import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {LoggedOut} from '../LoggedOut.tsx';
 import {signInHere} from '../session.ts';
@@ -48,7 +48,7 @@ const Overlays = observer(function Overlays({app}: {app: App}) {
       <PickerHost app={app}/>
       {app.ui.shortcutsOpen && <ShortcutsDialog/>}
       {app.ui.signOut && <SignOutDialog pending={app.ui.signOut.pending}/>}
-      {app.ui.notices.length > 0 && <Notices/>}
+      <NoticeViewport>{app.ui.notices.length > 0 && <Notices/>}</NoticeViewport>
     </>
   );
 });

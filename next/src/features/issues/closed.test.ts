@@ -38,22 +38,23 @@ describe('closed tier pager', () => {
     expect(closedPager(data, 'repo:901')).toBe(p); // one pager per group
   });
 
-  test('a page that fails (summary not loaded yet) is tried again later, then given up', async () => {
+  test('a page that fails (the summary is not loaded yet) is tried again with a backoff, never given up', async () => {
     vi.useFakeTimers();
     try {
-      const {data, calls} = fakeData([new Error('not loaded yet'), {next: undefined, count: 3}]);
+      const {data, calls} = fakeData([new Error('not loaded yet'), new Error('not loaded yet'), {next: undefined, count: 3}]);
       const p = closedPager(data, 'repo:902');
-      p.more();
+      // Callers ask as often as they like (an effect re-running on every change): one request at a time.
+      for (let i = 0; i < 10; i++) p.more();
+      await vi.advanceTimersByTimeAsync(10);
+      for (let i = 0; i < 10; i++) p.more();
+      expect(calls).toHaveLength(1);
+      expect(p.done).toBe(false);
       await vi.advanceTimersByTimeAsync(2100);
       expect(calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(calls).toHaveLength(3);
       expect(p.done).toBe(true);
       expect(p.count).toBe(3);
-      const failing = fakeData(Array.from({length: 12}, () => new Error('down')));
-      const q = closedPager(failing.data, 'repo:903');
-      q.more();
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(failing.calls).toHaveLength(10);
-      expect(q.done).toBe(true);
     } finally {
       vi.useRealTimers();
     }

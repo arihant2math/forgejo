@@ -108,9 +108,10 @@ export function describeIntent(i: Intent, names: {label?: (id: number) => string
  * implements this over IndexedDB's `intents` store and replays them.
  */
 export interface IntentStore {
-  put(i: Intent): void;
-  delete(id: string): void;
-  list(): Intent[];
+  /** Resolves once the intent is stored (F5: in IndexedDB); it is sent only then. */
+  put(i: Intent): void | Promise<void>;
+  delete(id: string): void | Promise<void>;
+  list(): Intent[] | Promise<Intent[]>;
 }
 
 export class MemoryIntentStore implements IntentStore {

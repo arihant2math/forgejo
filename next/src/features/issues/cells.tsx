@@ -9,7 +9,7 @@
 // mount per cell for every row scrolled into view.
 
 import {
-  Circle, CircleCheck, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
+  Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
   GitPullRequestClosed, OctagonAlert, SignalHigh, SignalLow, SignalMedium, SignalZero,
 } from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
@@ -77,8 +77,14 @@ export function useLabelView(issue: Entity<'Issue'>): LabelView {
 }
 
 const STAGE_ICONS: Record<StatusStage, LucideIcon> = {
-  backlog: CircleDashed, todo: Circle, started: CircleDotDashed, review: CircleEllipsis, done: CircleCheck, canceled: CircleX,
+  backlog: CircleDashed, todo: Circle, started: CircleDotDashed, review: CircleEllipsis, done: CircleCheckBig, canceled: CircleX,
 };
+
+/** Whether a status label means the work ended (done, canceled). */
+export function terminal(name: string): boolean {
+  const stage = statusStage(scopedValue(name));
+  return stage === 'done' || stage === 'canceled';
+}
 
 export function statusIcon(name: string): LucideIcon {
   const stage = statusStage(scopedValue(name));
@@ -128,10 +134,14 @@ export const StateIcon = observer(function StateIcon({issue}: {issue: Entity<'Is
   return <Hint label={look.label}><StateGlyph look={look}/></Hint>;
 });
 
-/** The workflow status: the status label's icon in its colour, else Forgejo's state icon. */
+/**
+ * The workflow status: the status label's icon in its colour, else Forgejo's state icon — also for a
+ * closed issue whose status label still says it is in progress (the state wins: closed is closed).
+ */
 export const StatusCell = observer(function StatusCell({issue}: {issue: Entity<'Issue'>}) {
   const {status} = useLabelView(issue);
-  if (!status) return <StateIcon issue={issue}/>;
+  const open = issueState(useOverlay(), issue) === 'open';
+  if (!status || (!open && !terminal(status.name))) return <StateIcon issue={issue}/>;
   return (
     <Hint label={scopedValue(status.name)}><LabelIcon icon={statusIcon(status.name)} color={status.color}/></Hint>
   );

@@ -32,6 +32,7 @@ describe('markdown into the DOM', () => {
       '<iframe src="https://evil"></iframe><form action="/x"><input name="a"/><button>b</button></form><svg><script>alert(1)</script></svg>' +
       '<math><mi xlink:href="javascript:alert(1)">x</mi></math><style>body{display:none}</style><object data="x"></object><embed src="x"/>' +
       '<div role="dialog" id="root">r</div><img src="data:image/svg+xml,<svg onload=alert(1)>"/><img src="data:image/png;base64,iVBOR"/>' +
+      '<a href="https://ok" aria-labelledby="root" aria-owns="root" aria-label="named">t</a><video src="https://x/v.mp4" controls></video>' +
       '<a href="https://ok" target="_blank">t</a><meta http-equiv="refresh" content="0;url=https://evil"><base href="https://evil/">');
     const html = el.innerHTML;
     expect(html).not.toMatch(/script|onclick|onerror|style=|javascript|iframe|<form|<button|<svg|<math|<object|<embed|<meta|<base|class=|role=|id="root"|svg\+xml|text\/html/i);
@@ -39,6 +40,9 @@ describe('markdown into the DOM', () => {
     expect([...el.querySelectorAll('img')].map((i) => i.getAttribute('src')?.slice(0, 15) ?? null)).toEqual(['x', null, 'data:image/png;']);
     expect(el.querySelector('img[src^="data:image/png"]')).not.toBeNull();
     expect(el.querySelector('a[target]')?.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(el.querySelector('[aria-labelledby], [aria-owns]')).toBeNull();
+    expect(el.querySelector('a[aria-label="named"]')).not.toBeNull();
+    expect(el.querySelector('video')?.getAttribute('preload')).toBe('none');
     expect(el.textContent).toContain('r'); // the dialog div's text stays, as a plain div
   });
 

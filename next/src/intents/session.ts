@@ -29,7 +29,8 @@ export function editing(app: App): Editing {
     const intents: Intents = new Intents({
       pool: s.data.pool,
       overlay,
-      whenSynced: (g, v) => s.data.whenSynced(g, v),
+      whenSynced: (g, v, signal) => s.data.whenSynced(g, v, signal),
+      barrier: () => s.data.barrier(),
       token: () => s.auth.token(),
       refresh: () => s.auth.refresh(),
       apiBase: sitePath(app.config, '/api/v1'),

@@ -14,12 +14,12 @@ import {
 } from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import type {ReactNode} from 'react';
-import {Virtuoso} from 'react-virtuoso';
+import {lazy, type ReactNode, Suspense} from 'react';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Badge, type BadgeTone, Icon, LabelChip, type LucideIcon} from '../../ui/index.ts';
-import {firstOf, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
+import {Badge, type BadgeTone, Code, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
+import {firstOf, priorityIcon, statusIcon, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
+import {labelKind, scopedValue} from '../issues/labels.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {Markdown} from './Markdown.tsx';
 import {Reactions} from './Reactions.tsx';
@@ -37,8 +37,8 @@ function useItems(issueId: number): Item[] {
   return untracked(() => {
     const out: Item[] = [];
     for (const c of comments) {
-      // Code comments show under their review; a pending review's are only in the reviewer's own group.
-      if (c.data.type === 'code' && c.data.review_id) continue;
+      // A review's own comment (type review) and its code comments show in the review's card.
+      if ((c.data.type === 'code' || c.data.type === 'review') && c.data.review_id) continue;
       out.push({kind: 'comment', id: c.id, at: c.data.created_at});
     }
     for (const r of reviews) {
@@ -50,6 +50,9 @@ function useItems(issueId: number): Item[] {
   });
 }
 
+// Loaded only for a long timeline (most are short: plain rows).
+const Virtuoso = lazy(() => import('react-virtuoso').then((m) => ({default: m.Virtuoso as typeof m.Virtuoso<Item>})));
+
 export const Timeline = observer(function Timeline({issueId, scroller}: {issueId: number; scroller: HTMLDivElement | null}) {
   const items = useItems(issueId);
   if (!items.length) return null;
@@ -58,8 +61,10 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
     <section aria-label="Activity" className="flex flex-col">
       {items.length < VIRTUALIZE_FROM || !scroller ?
         items.map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>) :
-        <Virtuoso customScrollParent={scroller} data={items} increaseViewportBy={600}
-          computeItemKey={(_, it) => `${it.kind}${String(it.id)}`} itemContent={(_, it) => render(it)}/>}
+        <Suspense fallback={items.slice(0, 20).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>)}>
+          <Virtuoso customScrollParent={scroller} data={items} increaseViewportBy={600}
+            computeItemKey={(_, it) => `${it.kind}${String(it.id)}`} itemContent={(_, it) => render(it)}/>
+        </Suspense>}
     </section>
   );
 });
@@ -102,7 +107,7 @@ const CommentItem = observer(function CommentItem({id}: {id: number}) {
       <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
         badge={type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
         footer={<Reactions issueId={c.get('issue_id')} commentId={id}/>}>
-        {html ? <Markdown html={html}/> : <p className="text-base text-fg-subtle">No description.</p>}
+        {html ? <Markdown html={html}/> : <p className="text-base text-fg-subtle">No text.</p>}
       </Card>
     );
   }
@@ -121,7 +126,7 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   if (!r) return null;
   const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'neutral' as const, text: 'reviewed'};
   const html = r.get('body_html');
-  const codes = [...pool.model('Comment').by('review_id', id)];
+  const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code');
   return (
     <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')}
       badge={<Badge tone={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Badge>}>
@@ -134,7 +139,7 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
 const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border p-3">
-      <span className="text-sm text-fg-muted"><Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on <code className="text-sm">{c.get('path')}</code> line {Math.abs(c.get('line'))}</span>
+      <span className="text-sm text-fg-muted"><Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on <Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</span>
       <Markdown html={c.get('body_html')}/>
     </div>
   );
@@ -145,8 +150,8 @@ const EventLine = observer(function EventLine({comment: c}: {comment: Entity<'Co
   const d = c.data as Comment;
   const ev = describeEvent(d);
   return (
-    <div className="flex min-h-control items-center gap-2 py-1 pl-1.5 text-base text-fg-muted">
-      <span className="flex size-5 shrink-0 items-center justify-center"><Icon icon={ev.icon} size="sm"/></span>
+    <div className="flex min-h-control items-center gap-3 py-1 text-base text-fg-muted">
+      <span className="flex size-6 shrink-0 items-center justify-center"><Icon icon={ev.icon} size="sm"/></span>
       <span className="min-w-0">
         <Who id={d.poster_id} fallback={d.original_author}/> {ev.text} <When at={d.created_at}/>
       </span>
@@ -156,7 +161,18 @@ const EventLine = observer(function EventLine({comment: c}: {comment: Entity<'Co
 
 const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const l = usePool().model('Label').get(id);
-  return l ? <LabelChip name={l.get('name')} color={l.get('color')}/> : <span>a label</span>;
+  if (!l) return <span>a label</span>;
+  const kind = labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
+  // A status or priority label reads as such ("In progress" with its icon), as in the list and the sidebar.
+  if (kind) {
+    return (
+      <span className="inline-flex items-center gap-1 align-middle text-fg">
+        <LabelIcon icon={kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')} size="sm"/>
+        {scopedValue(l.get('name'))}
+      </span>
+    );
+  }
+  return <LabelChip name={l.get('name')} color={l.get('color')}/>;
 });
 
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
@@ -215,9 +231,9 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'unpin':
       return {icon: PinOff, text: 'unpinned this'};
     case 'delete_branch':
-      return {icon: GitBranch, text: <>deleted the branch <code className="text-sm">{d.old_ref}</code></>};
+      return {icon: GitBranch, text: <>deleted the branch <Code>{d.old_ref}</Code></>};
     case 'change_target_branch':
-      return {icon: ArrowRightLeft, text: <>changed the target branch from <code className="text-sm">{d.old_ref}</code> to <code className="text-sm">{d.new_ref}</code></>};
+      return {icon: ArrowRightLeft, text: <>changed the target branch from <Code>{d.old_ref}</Code> to <Code>{d.new_ref}</Code></>};
     case 'pull_push':
       return {icon: GitPullRequestArrow, text: 'pushed commits'};
     case 'project':

@@ -16,15 +16,6 @@ const tones = {
 
 export type NoticeTone = keyof typeof tones;
 
-/** Where notices stack (bottom right, above the page and dialogs). Render it once, around the notices. */
-export function NoticeViewport({children}: {children: ReactNode}) {
-  return (
-    <section aria-label="Notices" className="pointer-events-none fixed right-4 bottom-4 z-popover flex w-80 flex-col items-stretch gap-2">
-      {children}
-    </section>
-  );
-}
-
 export interface NoticeProps {
   tone?: NoticeTone | undefined;
   title: string;
@@ -35,6 +26,8 @@ export interface NoticeProps {
   /** Leaving: fades out (then onClosed). */
   closing?: boolean | undefined;
   onClosed?: (() => void) | undefined;
+  /** The pointer or focus entered / left the notice (pause its timer). */
+  onHold?: ((held: boolean) => void) | undefined;
 }
 
 /**
@@ -42,13 +35,17 @@ export interface NoticeProps {
  * the server refused, a reconnect). Appears instantly, fades out when closed.
  * Danger notices are announced at once (role alert), the others politely.
  */
-export function Notice({tone = 'neutral', title, description, action, onDismiss, closing, onClosed}: NoticeProps) {
+export function Notice({tone = 'neutral', title, description, action, onDismiss, closing, onClosed, onHold}: NoticeProps) {
   const t = tones[tone];
   return (
     <div
       role={tone === 'danger' ? 'alert' : 'status'}
       data-state={closing ? 'closed' : 'open'}
       onAnimationEnd={closing ? onClosed : undefined}
+      onPointerEnter={() => onHold?.(true)}
+      onPointerLeave={() => onHold?.(false)}
+      onFocus={() => onHold?.(true)}
+      onBlur={() => onHold?.(false)}
       className={cx(floating, 'pointer-events-auto flex items-start gap-2 p-3')}
     >
       <Icon icon={t.icon} className={cx('mt-0.5', t.text)}/>

@@ -270,4 +270,85 @@ describe('executor', () => {
     expect(issueLabelIds(w.pool, w.overlay, 7)).toEqual([50]);
     expect(issueAssigneeIds(w.pool, w.overlay, 7)).toEqual([1]);
   });
+
+  // Review regressions (correctness review round 1).
+  test('no sync id: a change elsewhere (another issue’s label deleted) keeps the layer', async () => {
+    const w = world();
+    w.pool.batch(() => {
+      w.pool.put('Issue', 8, 'repo:10', ++v, issue(8, 10, 4, 'Other'));
+      w.pool.put('IssueLabel', 800, 'repo:10', ++v, {id: 800, issue_id: 8, label_id: 50});
+    });
+    const {intents} = executor(w, server([ok()]).fetch);
+    intents.submit({kind: 'issue.label', issueId: 7, repoId: 10, labelId: 50, add: true, drop: []});
+    await vi.waitFor(() => {
+      expect([...intents.phases.values()]).toEqual(['confirming']);
+    });
+    w.pool.batch(() => w.pool.del('IssueLabel', 800, 'repo:10', ++v));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(w.overlay.size).toBe(1);
+    expect(issueLabelIds(w.pool, w.overlay, 7)).toEqual([50]);
+  });
+
+  test('no sync id: the echo of an earlier intent of the issue does not drop a later layer', async () => {
+    const w = world();
+    const {intents, synced} = executor(w, server([ok(500), ok()]).fetch);
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'closed', base: 'open'});
+    intents.submit({kind: 'issue.label', issueId: 7, repoId: 10, labelId: 50, add: true, drop: []});
+    await vi.waitFor(() => {
+      expect([...intents.phases.values()]).toEqual(['confirming', 'confirming']);
+    });
+    w.pool.batch(() => w.pool.put('Issue', 7, 'repo:10', 500, issue(7, 10, 3, 'Crash', {state: 'closed'})));
+    synced[0]?.resolve();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(issueLabelIds(w.pool, w.overlay, 7)).toEqual([50]);
+  });
+
+  test('a retry under the same key sends the same request, even if the pool changed meanwhile (B7: else 422)', async () => {
+    const w = world();
+    w.pool.batch(() => w.pool.put('User', 3, 'profiles:public', ++v, user(3, 'bob')));
+    const calls: RequestInit[] = [];
+    const fetch = vi.fn((_u: string, init: RequestInit) => {
+      calls.push(init);
+      if (calls.length === 1) {
+        w.pool.batch(() => w.pool.put('IssueAssignee', 901, 'repo:10', ++v, {id: 901, issue_id: 7, assignee_id: 3}));
+        return Promise.resolve(new Response('', {status: 409, headers: {'Retry-After': '1'}}));
+      }
+      return Promise.resolve(ok(600));
+    }) as unknown as typeof globalThis.fetch;
+    const {intents, synced} = executor(w, fetch);
+    intents.submit({kind: 'issue.assignee', issueId: 7, repoId: 10, userId: 2, add: true});
+    await vi.waitFor(() => {
+      expect(synced).toHaveLength(1);
+    });
+    const key = (i: RequestInit | undefined) => new Headers(i?.headers).get('Idempotency-Key');
+    expect(key(calls[1])).toBe(key(calls[0]));
+    expect(calls[1]?.body).toBe(calls[0]?.body);
+  });
+
+  test('a slow echo asks for a barrier; the confirm timeout drops the layer in the end', async () => {
+    const w = world();
+    const barrier = vi.fn(() => Promise.resolve(0));
+    const {intents} = executor(w, server([ok(700)]).fetch, {barrier, barrierAfter: 5, confirmTimeout: 40});
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'closed', base: 'open'});
+    await vi.waitFor(() => {
+      expect(barrier).toHaveBeenCalled();
+    });
+    await vi.waitFor(() => {
+      expect(w.overlay.size).toBe(0);
+    });
+  });
+
+  test('a rejected intent below a pending one: the pending one still shows', async () => {
+    const w = world();
+    const {intents, rejected} = executor(w, server([new Response('{}', {status: 403}), ok(800)]).fetch);
+    const issue7 = w.pool.model('Issue').get(7);
+    if (!issue7) throw new Error('fixture');
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'closed', base: 'open'});
+    intents.submit({kind: 'issue.label', issueId: 7, repoId: 10, labelId: 50, add: true, drop: []});
+    await vi.waitFor(() => {
+      expect(rejected).toHaveLength(1);
+    });
+    expect(issueState(w.overlay, issue7)).toBe('open');
+    expect(issueLabelIds(w.pool, w.overlay, 7)).toEqual([50]);
+  });
 });

@@ -137,7 +137,7 @@ test('warm boot renders from IndexedDB with the network to Forgejo\'s data block
   // Only the UI's own files may load: API, sync and token endpoints fail.
   await page.route(/\/(api\/v1|-\/sync|login\/oauth)\//, (r) => r.abort('internetdisconnected'));
   await page.goto(`${BASE}/dev/next-e2e/issues/1`);
-  await expect(page.getByRole('heading', {name: /Crash when saving the settings page/})).toBeVisible();
+  await expect(page.getByRole('heading', {level: 1, name: /Crash when saving the settings page/})).toBeVisible();
   await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible();
   await expect(status(page)).not.toContainText('Live');
   expect(await page.evaluate(() => performance.getEntriesByName('firstPaintFromCache').length)).toBe(1);
@@ -207,6 +207,8 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   const problems = watch(page);
   await signIn(page);
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
+  // The palette searches what is in the pool when the query changes: wait for the repository it looks for.
+  await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible({timeout: 15_000});
   await page.keyboard.press('ControlOrMeta+k');
   const input = page.getByPlaceholder('Search repositories, issues and commands…');
   await expect(input).toBeFocused();
@@ -219,7 +221,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   expect(Math.max(...searches)).toBeLessThan(16);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/dev\/next-e2e\/issues\/\d+$/);
-  await expect(page.getByRole('heading', {name: /Add dark mode to the dashboard/})).toBeVisible();
+  await expect(page.getByRole('heading', {level: 1, name: /Add dark mode to the dashboard/})).toBeVisible();
   // Esc closes; ⌘K toggles.
   await page.keyboard.press('ControlOrMeta+k');
   await expect(input).toBeVisible();

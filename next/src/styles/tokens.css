@@ -149,6 +149,12 @@
   --speed-out: 0.15s;
   --speed-quick: 0.1s;
 
+  /* A label colour used as an icon colour (text-label): mixed towards the text colour for contrast. */
+  --label-ink: 50%;
+
+  /* The keyboard cursor's edge on a list row (row-cursor). */
+  --cursor-width: 2px;
+
   /* Disabled controls. */
   --opacity-disabled: 0.5;
 

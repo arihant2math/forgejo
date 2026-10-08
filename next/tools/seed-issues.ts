@@ -28,18 +28,25 @@ const N = Number(values.issues);
 const auth = (user: string, password: string) => `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
 const admin = auth(OWNER, values.password);
 
-async function api<T = unknown>(method: string, path: string, body?: unknown, as = admin): Promise<{status: number; json: T}> {
+async function api(method: string, path: string, body?: unknown, as = admin): Promise<{status: number; json: unknown}> {
   const res = await fetch(`${BASE}/api/v1${path}`, {
     method, headers: {'Authorization': as, 'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   });
   const text = await res.text();
-  return {status: res.status, json: (text ? JSON.parse(text) : undefined) as T};
+  return {status: res.status, json: text ? JSON.parse(text) as unknown : undefined};
+}
+
+/** api() with the JSON answer typed by the caller (a seed script trusts its own server). */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names the JSON shape
+async function apiAs<T>(method: string, path: string, body?: unknown): Promise<{status: number; json: T}> {
+  const r = await api(method, path, body);
+  return {status: r.status, json: r.json as T};
 }
 
 async function ensureUser(login: string): Promise<void> {
   const {status} = await api('GET', `/users/${login}`);
   if (status === 200) return;
-  const r = await api('POST', '/admin/users', {username: login, email: `${login}@example.com`, password: 'alicealice1', must_change_password: false, full_name: login[0]?.toUpperCase() + login.slice(1)});
+  const r = await api('POST', '/admin/users', {username: login, email: `${login}@example.com`, password: 'alicealice1', must_change_password: false, full_name: `${login.slice(0, 1).toUpperCase()}${login.slice(1)}`});
   if (r.status !== 201) throw new Error(`create user ${login}: ${String(r.status)} ${JSON.stringify(r.json)}`);
 }
 
@@ -66,7 +73,7 @@ async function pool<T>(items: T[], n: number, fn: (x: T, i: number) => Promise<v
 
 async function main(): Promise<void> {
   await ensureUser('alice');
-  const repo = await api<{id: number; open_issues_count: number}>('GET', `/repos/${OWNER}/${REPO}`);
+  const repo = await apiAs<{id: number; open_issues_count: number}>('GET', `/repos/${OWNER}/${REPO}`);
   if (repo.status === 404) {
     const r = await api('POST', '/user/repos', {name: REPO, auto_init: true, description: 'A large repository for the list checks'});
     if (r.status !== 201) throw new Error(`create repo: ${String(r.status)}`);
@@ -74,7 +81,7 @@ async function main(): Promise<void> {
   await api('PUT', `/repos/${OWNER}/${REPO}/collaborators/alice`, {permission: 'write'});
 
   // Labels (create the missing ones).
-  const existing = (await api<{id: number; name: string}[]>('GET', `/repos/${OWNER}/${REPO}/labels?limit=100`)).json;
+  const existing = (await apiAs<{id: number; name: string}[]>('GET', `/repos/${OWNER}/${REPO}/labels?limit=100`)).json;
   const labelId = new Map(existing.map((l) => [l.name, l.id]));
   const want: {name: string; color: string; exclusive: boolean}[] = [
     ...STATUS.map((v, i) => ({name: `status/${v}`, color: COLORS[(i + 2) % COLORS.length] ?? '#888888', exclusive: true})),
@@ -83,15 +90,15 @@ async function main(): Promise<void> {
   ];
   for (const l of want) {
     if (labelId.has(l.name)) continue;
-    const r = await api<{id: number}>('POST', `/repos/${OWNER}/${REPO}/labels`, l);
+    const r = await apiAs<{id: number}>('POST', `/repos/${OWNER}/${REPO}/labels`, l);
     labelId.set(l.name, r.json.id);
   }
-  const milestones = (await api<{id: number; title: string}[]>('GET', `/repos/${OWNER}/${REPO}/milestones?state=all&limit=50`)).json;
+  const milestones = (await apiAs<{id: number; title: string}[]>('GET', `/repos/${OWNER}/${REPO}/milestones?state=all&limit=50`)).json;
   const msId = new Map(milestones.map((m) => [m.title, m.id]));
   for (const [i, t] of ['Cycle 41', 'Cycle 42', 'Cycle 43', 'v2.0'].entries()) {
     if (msId.has(t)) continue;
     const due = new Date(Date.UTC(2026, 9, 1 + i * 14)).toISOString();
-    const r = await api<{id: number}>('POST', `/repos/${OWNER}/${REPO}/milestones`, {title: t, due_on: due});
+    const r = await apiAs<{id: number}>('POST', `/repos/${OWNER}/${REPO}/milestones`, {title: t, due_on: due});
     msId.set(t, r.json.id);
   }
 
@@ -114,7 +121,7 @@ async function main(): Promise<void> {
       milestone: [...msId.values()][i % (msId.size + 1)] ?? 0,
       closed: i % 7 === 0,
     };
-    const r = await api<{number: number}>('POST', `/repos/${OWNER}/${REPO}/issues`, body);
+    const r = await apiAs<{number: number}>('POST', `/repos/${OWNER}/${REPO}/issues`, body);
     if (r.status !== 201) throw new Error(`issue ${String(i)}: ${String(r.status)} ${JSON.stringify(r.json)}`);
     if (i % 50 === 0) {
       for (let c = 0; c < 3; c++) await api('POST', `/repos/${OWNER}/${REPO}/issues/${String(r.json.number)}/comments`, {body: `Comment ${String(c)} on ${String(i)}: looks like the \`${WORDS[c] ?? ''}\` code path.`});

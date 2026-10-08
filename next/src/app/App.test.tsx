@@ -172,7 +172,7 @@ describe('signed in', () => {
       expect(router.state.location.pathname).toBe('/acme/website/issues/7');
     });
     expect(app.ui.paletteOpen).toBe(false);
-    expect(await screen.findByRole('heading', {name: /Footer links are broken/})).toBeTruthy();
+    expect(await screen.findByRole('heading', {level: 1, name: /Footer links are broken/})).toBeTruthy();
     expect(performance.getEntriesByName('palette:search').length).toBeGreaterThan(0);
   });
 

@@ -8,7 +8,7 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {useParams} from '@tanstack/react-router';
+import {useLocation, useParams} from '@tanstack/react-router';
 import {CircleDot, SearchX} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -41,7 +41,8 @@ export function IssueView() {
   const {owner, repo, repoId} = useRepoPage();
   const {index: raw = ''} = useParams({strict: false});
   const index = /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;
-  const context = <RepoContext owner={owner} repo={repo}/>;
+  const pulls = useLocation({select: (l) => /\/pulls\/[^/]+\/?$/.test(l.pathname)});
+  const context = <RepoContext owner={owner} repo={repo} pulls={pulls}/>;
   if (repoId === undefined) {
     return (
       <>
@@ -60,7 +61,7 @@ const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId:
   if (!issue) return <NotHere repoId={repoId} index={index} context={context}/>;
   return (
     <>
-      <PageHeader context={context} title={<span className="flex items-center gap-2"><StateIcon issue={issue}/>#{index}</span>}/>
+      <PageHeader context={context} title={<IssueTitle issue={issue} index={index}/>}/>
       <PageBody ref={setScroller}>
         <IssueContent issue={issue} scroller={scroller}/>
       </PageBody>
@@ -111,6 +112,16 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
     </div>
   );
 }
+
+/** The header's title: the state icon, the number and the title (the page's h1; the body repeats the title large). */
+const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'Issue'>; index: number}) {
+  return (
+    <>
+      <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
+      <span className="text-fg-subtle tabular-nums">#{index}</span> {issue.get('title')}
+    </>
+  );
+});
 
 const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
   const author = useUser(issue.get('poster_id'));

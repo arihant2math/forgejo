@@ -22,7 +22,8 @@ export {
   Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub,
   MenuTrigger,
 } from './Menu.tsx';
-export {Notice, NoticeViewport, type NoticeTone} from './Notice.tsx';
+export {Notice, type NoticeTone} from './Notice.tsx';
+export {NoticeViewport} from './NoticeViewport.tsx';
 export {Popover, PopoverClose, PopoverContent, PopoverTrigger} from './Popover.tsx';
 export {Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue} from './Property.tsx';
 export {Prose} from './Prose.tsx';
@@ -30,4 +31,5 @@ export {ResizeHandle} from './ResizeHandle.tsx';
 export {Skeleton} from './Skeleton.tsx';
 export {SectionHeading} from './SectionHeading.tsx';
 export {Status, StatusDot, type StatusTone} from './StatusDot.tsx';
+export {Code, TextLink} from './Text.tsx';
 export {Tooltip, TooltipProvider} from './Tooltip.tsx';

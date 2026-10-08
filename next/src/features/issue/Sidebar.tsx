@@ -14,9 +14,9 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueMilestone, issueState} from '../../intents/view.ts';
-import {Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue} from '../../ui/index.ts';
+import {Code, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue, TextLink} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
-import {isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
+import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
@@ -57,17 +57,17 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
   const pull = issue.get('is_pull');
   const look = stateLook(state, pull, pull && isMerged(pool, issue.id));
   const {status} = useLabelView(issue);
-  // A workflow status shows as such; Forgejo's own state then only when it says more (closed, merged).
-  if (status) {
+  // One status: the workflow label while open (or when it says the work ended); Forgejo's state otherwise,
+  // with the label it was left at (a closed issue still labelled "In progress").
+  if (status && (state === 'open' || terminal(status.name))) {
     return (
       <>
         <LabelIcon icon={statusIcon(status.name)} color={status.color}/>
         <span>{scopedValue(status.name)}</span>
-        {state !== 'open' && <span className="text-fg-subtle">· {look.label}</span>}
       </>
     );
   }
-  return <><StateGlyph look={look}/><span>{look.label}</span></>;
+  return <><StateGlyph look={look}/><span>{look.label}</span>{status && <span className="truncate text-fg-subtle">({scopedValue(status.name)})</span>}</>;
 });
 
 const PriorityValue = observer(function PriorityValue({issue}: {issue: Entity<'Issue'>}) {
@@ -146,7 +146,7 @@ const IssueLink = observer(function IssueLink({id, repoId}: {id: number; repoId:
   const ref = `${i.get('repo_id') === repoId ? '' : repo?.get('full_name') ?? ''}#${String(i.get('number'))}`;
   const path = issuePath(app, i);
   const text = <><span className="text-fg-subtle tabular-nums">{ref}</span> {i.get('title')}</>;
-  return path ? <Link to={path} className="interactive truncate text-fg hover:text-accent-fg">{text}</Link> : <span className="truncate">{text}</span>;
+  return path ? <TextLink><Link to={path}>{text}</Link></TextLink> : <span className="truncate">{text}</span>;
 });
 
 const DueValue = observer(function DueValue({issue}: {issue: Entity<'Issue'>}) {
@@ -171,7 +171,7 @@ const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'I
       <PropertyValue tone="muted">
         <span className="flex min-w-0 items-center gap-1 text-sm">
           <Icon icon={GitBranch} size="sm"/>
-          <code className="truncate">{pr.get('head_branch')}</code>→<code className="truncate">{pr.get('base_branch')}</code>
+          <Code>{pr.get('head_branch')}</Code>→<Code>{pr.get('base_branch')}</Code>
         </span>
       </PropertyValue>
     </Property>

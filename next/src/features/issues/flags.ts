@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {createAtom, type IAtom, runInAction} from 'mobx';
+import {createAtom, type IAtom, runInAction, untracked} from 'mobx';
 import {observeLazy} from '../../data/entity.ts';
 
 /**
@@ -60,5 +60,32 @@ export class KeyedFlags {
 
   clear(): void {
     this.replace([]);
+  }
+}
+
+/** The cursor (J/K) and the selection (X) of a list. */
+export class ListCursor {
+  readonly active = new KeyedFlags();
+  readonly selected = new KeyedFlags();
+  /** The cursor's issue (not observable; `active` is). */
+  activeId: number | undefined;
+
+  setActive(id: number | undefined): void {
+    this.activeId = id;
+    this.active.replace(id === undefined ? [] : [id]);
+  }
+
+  /** What actions apply to: the selection, else the cursor's issue. */
+  targets(): number[] {
+    const sel = untracked(() => this.selected.values());
+    if (sel.length) return sel;
+    return this.activeId === undefined ? [] : [this.activeId];
+  }
+
+  /** Keeps only issues that are listed (a closed or filtered-out issue leaves the cursor and the selection). */
+  keep(listed: ReadonlySet<number>): void {
+    if (this.activeId !== undefined && !listed.has(this.activeId)) this.setActive(undefined);
+    const sel = untracked(() => this.selected.values());
+    if (sel.some((id) => !listed.has(id))) this.selected.replace(sel.filter((id) => listed.has(id)));
   }
 }

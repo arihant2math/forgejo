@@ -22,7 +22,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {CircleDashed, FolderGit2, User as UserIcon} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -33,31 +33,11 @@ import {
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {AssigneesCell, LabelsCell, priorityIcon, PriorityCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar, usePool} from './cells.tsx';
 import {issuePath, issuesOf} from './edits.ts';
-import {KeyedFlags} from './flags.ts';
+import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
 
 const ROW = 32; // ListRow's h-row (tokens.css --spacing-row)
-
-/** The cursor (J/K) and the selection (X) of a list. */
-export class ListCursor {
-  readonly active = new KeyedFlags();
-  readonly selected = new KeyedFlags();
-  /** The cursor's issue (not observable; `active` is). */
-  activeId: number | undefined;
-
-  setActive(id: number | undefined): void {
-    this.activeId = id;
-    this.active.replace(id === undefined ? [] : [id]);
-  }
-
-  /** What actions apply to: the selection, else the cursor's issue. */
-  targets(): number[] {
-    const sel = untracked(() => this.selected.values());
-    if (sel.length) return sel;
-    return this.activeId === undefined ? [] : [this.activeId];
-  }
-}
 
 export interface IssueListProps {
   model: IssueListModel;
@@ -67,8 +47,8 @@ export interface IssueListProps {
   empty: ReactNode;
   /** Name the repository in each row (lists across repositories). */
   showRepo?: boolean | undefined;
-  /** Called when the cursor nears the end (load more). */
-  onNearEnd?: (() => void) | undefined;
+  /** Told whether the rows in view are near the end of the list (load more). */
+  onNearEnd?: ((near: boolean) => void) | undefined;
   /** Accessible name of the list. */
   label: string;
 }
@@ -77,20 +57,22 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   const app = useApp();
   const navigate = useNavigate();
   const {rows} = model.result.get();
-  const [cursor] = useState(() => new ListCursor());
+  const cursor = model.cursor;
   const listRef = useRef<HTMLDivElement>(null);
   const [menuIds, setMenuIds] = useState<number[]>([]);
 
   const hasRows = rows.length > 0;
+  // Stable while the rows are (the virtualizer re-measures when it changes).
+  const getItemKey = useCallback((i: number) => {
+    const r = rows[i];
+    return r ? (r.type === 'issue' ? r.id : `g:${r.key}`) : i;
+  }, [rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller,
     estimateSize: () => ROW,
     overscan: 8,
-    getItemKey: (i) => {
-      const r = rows[i];
-      return r ? (r.type === 'issue' ? r.id : `g:${r.key}`) : i;
-    },
+    getItemKey,
   });
 
   // The splash's skeleton rows for the next boot on this page.
@@ -99,10 +81,12 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     rememberListRows(visible);
   }, [visible]);
 
-  // Keep the cursor on an issue that is still listed; the keyboard's targets go to the palette.
+  // The cursor and the selection stay on listed issues (closing or filtering one out drops it), so actions
+  // never reach rows the user cannot see; the keyboard's targets go to the palette.
+  const {ids} = model.result.get();
   useLayoutEffect(() => {
-    if (cursor.activeId !== undefined && !rows.some((r) => r.type === 'issue' && r.id === cursor.activeId)) cursor.setActive(undefined);
-  }, [rows, cursor]);
+    cursor.keep(new Set(ids));
+  }, [ids, cursor]);
   useEffect(() => autorun(() => {
     const sel = cursor.selected.values();
     const active = cursor.active.values();
@@ -128,7 +112,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   const items = virtualizer.getVirtualItems();
   const last = items.at(-1)?.index ?? 0;
   useEffect(() => {
-    if (onNearEnd && rows.length && last >= rows.length - 15) onNearEnd();
+    onNearEnd?.(rows.length > 0 && last >= rows.length - 15);
   }, [last, rows.length, onNearEnd]);
 
   const open = (id: number, newTab = false) => {
@@ -232,6 +216,12 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
           data-shortcuts
           tabIndex={0}
           onKeyDown={onKeyDown}
+          onFocus={(e) => {
+            // Focus arriving by keyboard (Tab) puts the cursor on the first row in view: focus always shows.
+            if (e.target !== e.currentTarget || cursor.activeId !== undefined) return;
+            const first = items.map((it) => rows[it.index]).find((r) => r?.type === 'issue');
+            if (first?.type === 'issue') cursor.setActive(first.id);
+          }}
           onContextMenuCapture={(e) => {
             const el = (e.target as Element).closest('[data-issue]');
             const id = el ? Number(el.getAttribute('data-issue')) : cursor.activeId;
@@ -305,7 +295,9 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
       leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
       trailing={<><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
     >
-      <span className="mr-2 text-fg-subtle tabular-nums">{showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}</span>
+      <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
+        {showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
+      </span>{' '}
       <TitleCell issue={issue}/>
     </ListRow>
   );

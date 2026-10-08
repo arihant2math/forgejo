@@ -18,8 +18,8 @@ export interface PageHeaderProps {
 
 /**
  * Every page's header bar: where you are, the page's controls, and the sync
- * indicator. The breadcrumb and the title give way (ellipsis) before the
- * controls and the indicator do.
+ * indicator. The breadcrumb gives way first (ellipsis), then the controls;
+ * the title (up to max-w-sm) and the indicator stay.
  */
 export function PageHeader({title, icon, context, children}: PageHeaderProps) {
   return (
@@ -31,8 +31,9 @@ export function PageHeader({title, icon, context, children}: PageHeaderProps) {
           <Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/>
         </nav>
       )}
-      <h1 className="min-w-0 truncate text-base font-medium text-fg">{title}</h1>
-      {children && <div className="flex shrink-0 items-center gap-1">{children}</div>}
+      <h1 className="max-w-sm min-w-0 shrink-0 truncate text-base font-medium text-fg">{title}</h1>
+      {/* Controls give way on narrow screens (the search narrows, the rest clips) before the title and the indicator do. */}
+      {children && <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden">{children}</div>}
       <div className="ml-auto flex shrink-0 items-center pl-2"><SyncIndicator/></div>
     </HeaderBar>
   );

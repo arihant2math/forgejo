@@ -47,7 +47,7 @@ export function PropertyButton({onClick, label, shortcut, disabled, children, re
         aria-labelledby={name ? `${name} ${id}` : undefined}
         disabled={disabled}
         onClick={onClick}
-        className="interactive flex min-h-control w-full flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left text-base text-fg hover:bg-hover disabled:pointer-events-none"
+        className="interactive flex min-h-control w-full flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left text-base text-fg hover:bg-hover disabled:pointer-events-none disabled:opacity-disabled"
       >
         {children}
       </button>

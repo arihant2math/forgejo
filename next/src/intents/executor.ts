@@ -65,6 +65,9 @@ export interface IntentEnv {
 /** Attempts for answers of unknown outcome (network errors, 5xx); the key makes each retry safe. */
 const MAX_RETRIES = 4;
 
+/** Requests in flight at once, across issues (a bulk edit of many issues queues behind them). */
+const MAX_SENDS = 6;
+
 /** The phase of an intent in flight (observable through Intents.phases). */
 export type IntentPhase = 'sending' | 'confirming';
 
@@ -75,6 +78,14 @@ export class Intents {
   private readonly chains = new Map<number, Promise<void>>();
   /** The intents not confirmed or rejected yet, with their phase. */
   readonly phases = observable.map<string, IntentPhase>({}, {deep: false});
+  /** Submission order of the pending intents. */
+  private readonly order = new Map<string, number>();
+  private submitted = 0;
+  /** Intents confirmed without a sync id, waiting for their own effect: released early by a later echo of their issue. */
+  private readonly awaitingEffect = new Map<string, {issueId: number; release: () => void}>();
+  private sending = 0;
+  private readonly sendQueue: (() => void)[] = [];
+  private barrierPending: Promise<unknown> | undefined;
 
   constructor(env: IntentEnv) {
     this.env = env;
@@ -84,6 +95,7 @@ export class Intents {
   /** Applies an intent to the overlay at once and sends it (once stored); returns it. */
   submit(input: IntentInput): Intent {
     const i = newIntent(input);
+    this.order.set(i.id, ++this.submitted);
     this.env.overlay.add(i.id, intentOps(i));
     runInAction(() => this.phases.set(i.id, 'sending'));
     const stored = Promise.resolve(this.store.put(i));
@@ -106,11 +118,16 @@ export class Intents {
 
   private async run(i: Intent): Promise<void> {
     let res: Response;
+    if (this.sending >= MAX_SENDS) await new Promise<void>((resolve) => this.sendQueue.push(resolve));
+    this.sending++;
     try {
       res = await this.send(i);
     } catch (err) {
       this.reject(i, err instanceof RejectedError ? err.rejection : {reason: 'failed', message: String(err)});
       return;
+    } finally {
+      this.sending--;
+      this.sendQueue.shift()?.();
     }
     const v = Number(res.headers.get(HeaderSyncID));
     runInAction(() => this.phases.set(i.id, 'confirming'));
@@ -159,15 +176,18 @@ export class Intents {
           },
           ...(body === undefined ? {} : {body}),
           credentials: 'omit',
+          // The API answers writes directly: never follow a redirect with the token.
+          redirect: 'manual',
           signal: AbortSignal.timeout(30_000),
         });
       } catch {
         // The same key makes the retry safe whether or not the attempt reached the server.
-        if (!env.online()) throw offline();
+        if (!env.online()) throw new RejectedError({reason: 'offline', message: 'The connection dropped while saving: the change may not have been made.'});
         if (++failures > MAX_RETRIES) throw new RejectedError({reason: 'failed', message: 'Forgejo could not be reached.'});
         await sleep(backoff * 2 ** (failures - 1));
         continue;
       }
+      if (res.type === 'opaqueredirect') throw new RejectedError({reason: 'failed', message: 'Forgejo answered with a redirect.'});
       if (res.ok) return res;
       if (res.status === 401 && !refreshed) {
         refreshed = true;
@@ -210,7 +230,7 @@ export class Intents {
       arrived = env.whenSynced(group, v, ctrl.signal);
       if (env.barrier) {
         timers.push(setTimeout(() => {
-          void env.barrier?.().catch(() => undefined);
+          this.barrier();
         }, env.barrierAfter ?? 3000));
       }
     } else {
@@ -220,19 +240,35 @@ export class Intents {
           resolve();
           return;
         }
-        off = env.pool.onApplied(() => {
-          if (effectHeld(env.pool, i)) resolve();
+        this.awaitingEffect.set(i.id, {issueId: i.issueId, release: resolve});
+        off = env.pool.onApplied((changes) => {
+          if (changes.some((c) => c.model === 'Issue' || c.model === 'IssueLabel' || c.model === 'IssueAssignee') && effectHeld(env.pool, i)) resolve();
         });
       });
     }
     try {
-      await Promise.race([arrived.catch(() => undefined), timeout]);
+      const echoed = await Promise.race([arrived.then(() => v !== undefined, () => false), timeout.then(() => false)]);
+      // The pool holds the state after this write: earlier intents of the issue still waiting for their own effect
+      // are behind it (a later change may have hidden that effect for good), so their layers go too.
+      if (echoed) {
+        const mine = this.order.get(i.id) ?? 0;
+        for (const [id, w] of this.awaitingEffect) if (w.issueId === i.issueId && (this.order.get(id) ?? 0) < mine) w.release();
+      }
     } finally {
+      this.awaitingEffect.delete(i.id);
       for (const t of timers) clearTimeout(t);
       ctrl.abort();
       off?.();
       this.done(i);
     }
+  }
+
+  /** One barrier at a time for every slow echo. */
+  private barrier(): void {
+    if (this.barrierPending || !this.env.barrier) return;
+    this.barrierPending = this.env.barrier().catch(() => undefined).finally(() => {
+      this.barrierPending = undefined;
+    });
   }
 
   private reject(i: Intent, r: Rejection): void {
@@ -242,6 +278,7 @@ export class Intents {
   }
 
   private done(i: Intent): void {
+    this.order.delete(i.id);
     this.env.overlay.remove(i.id);
     void Promise.resolve(this.store.delete(i.id)).catch(() => undefined);
     runInAction(() => this.phases.delete(i.id));

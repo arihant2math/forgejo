@@ -297,7 +297,7 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
     >
       <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
         {showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
-      </span>{' '}
+      </span>
       <TitleCell issue={issue}/>
     </ListRow>
   );

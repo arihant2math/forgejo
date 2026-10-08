@@ -29,6 +29,8 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
     const repo = pool.model('Repository').get(i.repoId)?.data;
     const issue = pool.model('Issue').get(i.issueId)?.data;
     if (!repo || !issue) throw new UnsendableIntent('the issue is not on this device any more');
+    // "." and ".." would be resolved away by the URL parser (Forgejo refuses such names; never send one).
+    if ([repo.owner_name, repo.name].some((n) => n === '.' || n === '..')) throw new UnsendableIntent('the repository name cannot be used in a request');
     const base = `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/issues/${String(issue.number)}`;
     switch (i.kind) {
       case 'issue.state':

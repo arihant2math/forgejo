@@ -40,7 +40,7 @@ export function ListRow({role, selected, active, leading, trailing, children, ..
       className={cx(
         rowBase,
         // The cursor (J/K) is an accent edge, the selection (X) an accent tint: both distinct from the pointer's hover.
-        'interactive row-cursor text-base text-fg hover:bg-hover focus-visible:focus-inset data-selected:bg-accent-subtle',
+        'interactive row-cursor text-base text-fg hover:bg-hover data-selected:bg-accent-subtle',
       )}
       {...rest}
     >

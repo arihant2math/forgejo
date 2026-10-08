@@ -96,7 +96,10 @@ type LabelInfo = {label: Label; kind: ScopeKind | undefined; rank: number} | nul
 interface Run {
   ctx: QueryContext;
   labels: Map<number, LabelInfo>;
-  groups: Map<string, GroupKey>;
+  /** The run's groups by the id of what they stand for (a run groups by one thing). */
+  groups: Map<number, GroupKey>;
+  /** Users' display names. */
+  names: Map<number, string>;
 }
 
 /** Lower-cased words of a search, and the issue number it names (if any). */
@@ -113,7 +116,7 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   const must = filter.labels.filter((l) => l > 0);
   const mustNot = filter.labels.filter((l) => l < 0).map((l) => -l);
   const items: Item[] = [];
-  const run: Run = {ctx, labels: new Map(), groups: new Map()};
+  const run: Run = {ctx, labels: new Map(), groups: new Map(), names: new Map()};
   for (const issue of candidates) {
     const state = ctx.state(issue);
     if (filter.state !== 'all' && state !== filter.state) continue;
@@ -135,7 +138,9 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   }
   // The groups are ordered once (a handful of them), then the sort compares numbers only.
   if (group !== 'none') {
-    const keys = [...new Set(items.map((it) => it.group))].filter((g): g is GroupKey => g !== undefined);
+    const used = new Set<GroupKey>();
+    for (const it of items) if (it.group) used.add(it.group);
+    const keys = [...used];
     keys.sort((a, b) => a.rank - b.rank || collator.compare(a.name, b.name) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     const order = new Map(keys.map((g, n) => [g, n]));
     for (const it of items) it.order = it.group ? order.get(it.group) ?? 0 : 0;
@@ -206,11 +211,20 @@ function runKindLabel(issue: Issue, kind: ScopeKind, run: Run): {label: Label; r
   return undefined;
 }
 
-/** The run's shared group key for `key` (made once). */
-function interned(run: Run, key: string, make: () => GroupKey): GroupKey {
-  let g = run.groups.get(key);
-  if (!g) run.groups.set(key, g = make());
+/** The run's shared group for the entity `id` (made once). */
+function interned(run: Run, id: number, make: (id: number) => GroupKey): GroupKey {
+  let g = run.groups.get(id);
+  if (!g) run.groups.set(id, g = make(id));
   return g;
+}
+
+const labelGroup = (k: {label: Label; rank: number}): GroupKey =>
+  ({key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id});
+
+function userName(run: Run, id: number): string {
+  let n = run.names.get(id);
+  if (n === undefined) run.names.set(id, n = run.ctx.userName(id) ?? `#${String(id)}`);
+  return n;
 }
 
 /** The issue's label of a kind (status, priority) with its rank. */
@@ -235,38 +249,40 @@ function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey 
   switch (group) {
     case 'status': {
       const k = runKindLabel(issue, 'status', run);
-      if (k) return interned(run, `l${String(k.label.id)}`, () => ({key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id}));
+      if (k) return interned(run, k.label.id, () => labelGroup(k));
       // No status label: Forgejo's own state places it (before "in progress", or with "done").
       return state === 'closed' ? CLOSED : OPEN;
     }
     case 'priority': {
       const k = runKindLabel(issue, 'priority', run);
       return k ?
-        interned(run, `l${String(k.label.id)}`, () => ({key: `l${String(k.label.id)}`, label: scopedValue(k.label.name), rank: k.rank, name: k.label.name, value: k.label.id})) :
+        interned(run, k.label.id, () => labelGroup(k)) :
         NO_PRIORITY;
     }
     case 'assignee': {
-      let best: {id: number; name: string} | undefined;
+      // The first assignee by name.
+      let best = 0;
       for (const id of ctx.assignees(issue)) {
-        const name = ctx.userName(id) ?? `#${String(id)}`;
-        if (!best || collator.compare(name, best.name) < 0) best = {id, name};
+        if (!best || collator.compare(userName(run, id), userName(run, best)) < 0) best = id;
       }
       if (!best) return UNASSIGNED;
-      const b = best;
-      return interned(run, `u${String(b.id)}`, () => ({key: `u${String(b.id)}`, label: b.name, rank: 0, name: b.name.toLowerCase(), value: b.id}));
+      return interned(run, best, (id) => {
+        const name = userName(run, id);
+        return {key: `u${String(id)}`, label: name, rank: 0, name: name.toLowerCase(), value: id};
+      });
     }
     case 'milestone': {
       const id = ctx.milestone(issue);
       const m = id ? ctx.milestoneOf(id) : undefined;
       if (!m) return NO_MILESTONE;
-      return interned(run, `m${String(m.id)}`, () => {
+      return interned(run, m.id, () => {
         // Milestones with a due date first, soonest first (a cycle, PLAN §7.3).
         const due = time(m.due_on);
         return {key: `m${String(m.id)}`, label: m.title, rank: Number.isNaN(due) ? Number.MAX_SAFE_INTEGER - 1 : due, name: m.title.toLowerCase(), value: m.id};
       });
     }
     case 'repo': {
-      return interned(run, `r${String(issue.repo_id)}`, () => {
+      return interned(run, issue.repo_id, () => {
         const name = ctx.repo(issue.repo_id)?.full_name ?? `#${String(issue.repo_id)}`;
         return {key: `r${String(issue.repo_id)}`, label: name, rank: 0, name: name.toLowerCase(), value: issue.repo_id};
       });

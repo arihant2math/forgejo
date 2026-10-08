@@ -53,6 +53,8 @@ export class Overlay {
   /** set key → member → layers overriding it, oldest first. */
   private readonly sets = new Map<string, Map<number, Layer[]>>();
   private readonly atoms = new Map<string, IAtom>();
+  /** Issue id → ops of pending layers on it (an issue's fields or sets): untracked `touches`. */
+  private readonly issues = new Map<number, number>();
   private readonly rev = createAtom('overlay');
   private seq = 0;
 
@@ -67,6 +69,11 @@ export class Overlay {
     return this.seq;
   }
 
+  /** Untracked: whether any layer overrides something of this issue (else its server values stand). */
+  touches(issueId: number): boolean {
+    return this.issues.has(issueId);
+  }
+
   has(layer: string): boolean {
     return this.layers.has(layer);
   }
@@ -78,6 +85,7 @@ export class Overlay {
       const layer: Layer = {id, ops, seq: ++this.seq};
       this.layers.set(id, layer);
       for (const op of ops) {
+        this.count(op, 1);
         if (op.t === 'field') {
           const k = fieldKey(op.model, op.id, op.field);
           push(this.fields, k, layer);
@@ -171,6 +179,7 @@ export class Overlay {
     if (!layer) return;
     this.layers.delete(id);
     for (const op of layer.ops) {
+      this.count(op, -1);
       if (op.t === 'field') {
         const k = fieldKey(op.model, op.id, op.field);
         pull(this.fields, k, layer);
@@ -185,6 +194,14 @@ export class Overlay {
         this.changed(k);
       }
     }
+  }
+
+  private count(op: OverlayOp, by: 1 | -1): void {
+    const issue = op.t === 'field' ? (op.model === 'Issue' ? op.id : undefined) : op.owner;
+    if (issue === undefined) return;
+    const n = (this.issues.get(issue) ?? 0) + by;
+    if (n > 0) this.issues.set(issue, n);
+    else this.issues.delete(issue);
   }
 
   private changed(k: string): void {

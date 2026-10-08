@@ -303,6 +303,54 @@ describe('executor', () => {
     expect(issueLabelIds(w.pool, w.overlay, 7)).toEqual([50]);
   });
 
+  test('no sync id, then a later intent echoed: the earlier layer goes with it (its effect may never show)', async () => {
+    const w = world();
+    const {intents, synced} = executor(w, server([ok(), ok(600)]).fetch);
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'closed', base: 'open'});
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'open', base: 'closed'});
+    await vi.waitFor(() => {
+      expect(synced).toHaveLength(1);
+    });
+    // Both writes reached the pool as one change: "closed" was never seen.
+    w.pool.batch(() => w.pool.put('Issue', 7, 'repo:10', 600, issue(7, 10, 3, 'Crash', {state: 'open'})));
+    synced[0]?.resolve();
+    await vi.waitFor(() => {
+      expect(w.overlay.size).toBe(0);
+    });
+    const issue7 = w.pool.model('Issue').get(7);
+    if (issue7) expect(issueState(w.overlay, issue7)).toBe('open');
+  });
+
+  test('at most 6 requests in flight across issues (a bulk edit queues)', async () => {
+    const w = world();
+    w.pool.batch(() => {
+      for (let n = 100; n < 120; n++) w.pool.put('Issue', n, 'repo:10', ++v, issue(n, 10, n, `I${String(n)}`));
+    });
+    let inFlight = 0;
+    let most = 0;
+    const releases: (() => void)[] = [];
+    const fetch = vi.fn(() => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      return new Promise<Response>((r) => releases.push(() => {
+        inFlight--;
+        r(ok(700));
+      }));
+    }) as unknown as typeof globalThis.fetch;
+    const {intents} = executor(w, fetch);
+    for (let n = 100; n < 120; n++) intents.submit({kind: 'issue.state', issueId: n, repoId: 10, state: 'closed', base: 'open'});
+    for (let k = 0; k < 20; k++) {
+      await vi.waitFor(() => {
+        expect(releases.length).toBeGreaterThan(0);
+      });
+      releases.shift()?.();
+    }
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(20);
+    });
+    expect(most).toBe(6);
+  });
+
   test('a retry under the same key sends the same request, even if the pool changed meanwhile (B7: else 422)', async () => {
     const w = world();
     w.pool.batch(() => w.pool.put('User', 3, 'profiles:public', ++v, user(3, 'bob')));

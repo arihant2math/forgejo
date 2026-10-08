@@ -33,7 +33,8 @@ export function LabelChip({name, color}: {name: string; color: string}) {
   );
 }
 
-const labelColor = (color: string) => ({'--label-color': color} as CSSProperties);
+// Only hex colours (Forgejo stores labels' colours as #rgb / #rrggbb) or a colour token reach the style; anything else is neutral.
+const labelColor = (color: string) => ({'--label-color': /^(?:#[\da-f]{3,8}|var\(--color-[a-z-]+\))$/i.test(color) ? color : 'var(--color-fg-subtle)'} as CSSProperties);
 
 /** A label's colour as a small dot (pickers, filters). */
 export function LabelDot({color}: {color: string}) {

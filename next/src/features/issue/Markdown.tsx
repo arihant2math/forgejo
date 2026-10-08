@@ -13,7 +13,10 @@ import {setMarkup} from '../../app/trusted.ts';
 import {Prose} from '../../ui/index.ts';
 
 /** Site paths the router renders (B8's spaRoutes, minus the dashboard). */
-const LOCAL = [/^\/[^/]+\/[^/]+\/(?:issues|pulls)(?:\/[1-9]\d*)?\/?$/, /^\/(?:issues|pulls|notifications)\/?$/];
+// Owner and repository segments as Forgejo names them ([\w.-], not starting with "." or "-"; not "api"): no
+// router parameter syntax ("$owner"), no API path.
+const NAME = '(?!api/)(?![.-])[\\w.-]+';
+const LOCAL = [new RegExp(`^/${NAME}/${NAME}/(?:issues|pulls)(?:/[1-9]\\d*)?/?$`), /^\/(?:issues|pulls|notifications)\/?$/];
 
 export function Markdown({html}: {html: string}) {
   const ref = useRef<HTMLDivElement>(null);

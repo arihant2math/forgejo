@@ -109,7 +109,7 @@ export function scrub(root: DocumentFragment | Element): void {
       // ARIA: names and hiding only — references (aria-labelledby, -owns, …) could point at the app's own elements.
       const ok = (GLOBAL_ATTRS.has(name) || (allowed?.has(name) ?? false) || (name === 'id' && value.startsWith('user-content-')) || name === 'aria-label' || name === 'aria-hidden') &&
         (!URL_ATTRS.has(name) || safeUrl(name, tag, value));
-      if (!ok) el.removeAttribute(name);
+      if (!ok || (name === 'target' && value !== '_blank')) el.removeAttribute(name);
     }
     if (tag === 'a' && el.hasAttribute('target')) el.setAttribute('rel', 'noopener noreferrer');
     if (tag === 'img' && !el.hasAttribute('loading')) el.setAttribute('loading', 'lazy');

@@ -57,24 +57,26 @@ export function queryOf(s: ListSearch, defaults: {group?: Group; sort?: Sort} = 
 export function poolContext(pool: Pool, overlay: Overlay): QueryContext {
   const labels = pool.model('Label');
   const users = pool.model('User');
-  // Untracked reads (the list observes overlay.revision): with no pending
-  // edit, the server's values are read directly.
-  const bare = untracked(() => overlay.size === 0);
+  // Untracked reads (the list observes overlay.revision): the server's values
+  // are read directly for every issue no pending edit touches.
   const issueLabels = pool.model('IssueLabel');
   const issueAssignees = pool.model('IssueAssignee');
+  const edited = (i: Issue) => overlay.touches(i.id);
   return {
-    state: bare ? (i) => i.state : (i) => (overlay.field('Issue', i.id, 'state')?.value as string | undefined) ?? i.state,
-    milestone: bare ? (i) => i.milestone_id : (i) => (overlay.field('Issue', i.id, 'milestone_id')?.value as number | undefined) ?? i.milestone_id,
-    labels: bare ? (i) => {
+    state: (i) => (edited(i) ? (overlay.field('Issue', i.id, 'state')?.value as string | undefined) ?? i.state : i.state),
+    milestone: (i) => (edited(i) ? (overlay.field('Issue', i.id, 'milestone_id')?.value as number | undefined) ?? i.milestone_id : i.milestone_id),
+    labels: (i) => {
+      if (edited(i)) return issueLabelIds(pool, overlay, i.id);
       const out: number[] = [];
       for (const e of issueLabels.by('issue_id', i.id)) out.push(e.data.label_id);
       return out;
-    } : (i) => issueLabelIds(pool, overlay, i.id),
-    assignees: bare ? (i) => {
+    },
+    assignees: (i) => {
+      if (edited(i)) return issueAssigneeIds(pool, overlay, i.id);
       const out: number[] = [];
       for (const e of issueAssignees.by('issue_id', i.id)) out.push(e.data.assignee_id);
       return out;
-    } : (i) => issueAssigneeIds(pool, overlay, i.id),
+    },
     label: (id) => labels.get(id)?.data,
     milestoneOf: (id) => pool.model('Milestone').get(id)?.data,
     userName: (id) => {
@@ -320,7 +322,7 @@ export class IssueListModel {
         for (let page = 1; page <= 10; page++) {
           params.set('page', String(page));
           const res = await fetch(sitePath(this.app.config, `/api/v1/repos/issues/search?${params.toString()}`), {
-            headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', signal: AbortSignal.timeout(15_000),
+            headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15_000),
           });
           if (!res.ok) break;
           const list = await res.json() as {id?: unknown}[];

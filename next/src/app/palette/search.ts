@@ -168,7 +168,11 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   };
   const issues: Ranked<Issue>[] = [];
   const prev = opts.narrow;
-  const narrowed = prev && number === undefined && terms(prev.query).number === undefined && query.toLowerCase().startsWith(prev.query.toLowerCase());
+  // A query that extends the previous one matches a subset of its matches — except from one word
+  // to several: one word must be in the title, while with several the rest may name the repository.
+  const before = prev ? terms(prev.query) : undefined;
+  const narrowed = prev && before && number === undefined && before.number === undefined &&
+    query.toLowerCase().startsWith(prev.query.toLowerCase()) && (before.words.length > 1 || words.length === 1);
   const candidates: Iterable<Issue> = narrowed ? prev.matched : dataOf(pool.model('Issue').all());
   let matched: Issue[] | undefined = [];
   for (const issue of candidates) {

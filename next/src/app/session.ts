@@ -11,9 +11,10 @@ import {resumeWipes, signOut} from '../auth/signout.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {openData} from '../sync/data.ts';
 import {sitePath, uiPath} from './config.ts';
-import {reloadOnce} from './reload.ts';
 import {hasUser, readSplash} from './splash.ts';
 import type {App, Session} from './store.ts';
+
+const LEADER_RETRY = 'forgejo-next:leaderRetry';
 
 /**
  * The session of the user whose data is on this device (splash `user`),
@@ -32,9 +33,17 @@ export async function openSession(config: NextConfig): Promise<Session | undefin
   const data = await openData({
     userId, auth, endpoint: sitePath(config, '/-/sync'), ...(config.version ? {buildId: config.version} : {}),
     onFatal: (err) => {
-      // The sync modules of this build are gone (a deploy) or unreachable: reload once.
+      // The sync modules of this build are gone (a deploy) or unreachable: reload, at most once a
+      // minute (boot itself succeeds without them, so the boot retry guard does not apply).
       console.error('livesync: this tab cannot sync', err);
-      reloadOnce();
+      try {
+        const last = Number(sessionStorage.getItem(LEADER_RETRY) ?? 0);
+        if (Date.now() - last < 60_000) return;
+        sessionStorage.setItem(LEADER_RETRY, String(Date.now()));
+      } catch {
+        return;
+      }
+      location.reload();
     },
   });
   await data.firstRoute;
@@ -53,7 +62,9 @@ export async function performSignOut(app: App): Promise<void> {
     auth: s.auth, close: () => s.data.close(),
     // Forgejo's classic sign-out (same-origin POST passes its cross-origin protection).
     endWebSession: async () => {
-      await fetch(sitePath(app.config, '/user/logout'), {method: 'POST', credentials: 'same-origin', redirect: 'manual', cache: 'no-store'});
+      await fetch(sitePath(app.config, '/user/logout'), {
+        method: 'POST', credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(3000),
+      });
     },
   });
   location.replace(app.config.base);

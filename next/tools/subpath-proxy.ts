@@ -24,6 +24,8 @@ const server = http.createServer((req, res) => {
     res.writeHead(404).end(`outside /${prefix}/`);
     return;
   }
+  req.on('error', () => undefined);
+  res.on('error', () => undefined);
   const up = http.request({host: '127.0.0.1', port: Number(target), path, method: req.method, headers: req.headers}, (r) => {
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
@@ -33,6 +35,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
+  socket.on('error', () => undefined);
   const path = strip(req.url);
   if (path === undefined) {
     socket.destroy();

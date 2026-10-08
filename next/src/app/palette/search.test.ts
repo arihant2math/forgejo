@@ -76,6 +76,11 @@ test('narrowing from the previous keystroke gives the full scan\'s results', () 
     expect(narrowed.issues.map((x) => x.issue.id), q).toEqual(full.issues.map((x) => x.issue.id));
     prev = narrowed.matched ? {query: q, matched: narrowed.matched} : undefined;
   }
+  // From one word to two the second may name the repository: no narrowing then (round-2 review).
+  const one = searchPool(p, 'website', {issueLimit: 50});
+  const two = searchPool(p, 'website footer', {issueLimit: 50, narrow: {query: 'website', matched: one.matched ?? []}});
+  expect(two.issues.map((x) => x.issue.id)).toEqual(searchPool(p, 'website footer', {issueLimit: 50}).issues.map((x) => x.issue.id));
+  expect(two.issues.length).toBeGreaterThan(0);
   // A number query is never narrowed from a text one (its matches are not a subset).
   const r = searchPool(p, '#7', {narrow: {query: '#', matched: []}});
   expect(r.issues[0]?.issue.number).toBe(7);

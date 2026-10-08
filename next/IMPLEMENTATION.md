@@ -2183,7 +2183,7 @@ does) **and** MySQL 8.0 (binlog on).
     `FLUSH BINARY LOGS; PURGE BINARY LOGS TO '<newest>'`. A full disk shows up as `collect2: ld returned 1 exit status` / `[build failed]`.
 
 #### B7 — Idempotency layer for API v1
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08 (final check after rebasing onto F2: `TestLivesyncIdempotency*` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, vet, gofumpt clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; all 13 review round 1 findings fixed, none open)
 - **Scope:** `services/livesync/idempotency` + Wrap interception of `/api/v1/*` with
   `Idempotency-Key`: reserve `(user_id,key)`, replay completed responses, `409` for
   in-flight, buffered in-process call to `inner`, wait (bounded) for the materializer to

@@ -3234,6 +3234,7 @@ does) **and** MySQL 8.0 (binlog on).
   renders from cache on reload with network blocked; logout wipes IDB; `⌘K` finds a repo
   and an issue from the pool in < 16 ms (perf mark).
 - **Notes/decisions:**
+  * (draft — completed at the end of F3)
 
 #### F4 — Lists, issue detail (read), online optimistic edits
 - [ ] **Status**

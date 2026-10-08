@@ -173,7 +173,6 @@ export class Intents {
   private readonly nextAt = new Map<string, number>();
   private wake: ReturnType<typeof setTimeout> | undefined;
   private pumpQueued = false;
-  private caughtUp = false;
   /** Signed out: nothing is sent until the session is live again (the queue is held, PLAN §4.9). */
   private held = false;
   private barrierPending: Promise<unknown> | undefined;
@@ -189,7 +188,6 @@ export class Intents {
     }));
     this.ready = this.reread();
     this.cleanups.push(env.onCaughtUp(() => {
-      this.caughtUp = true;
       this.kick();
     }));
     this.cleanups.push(env.onRevoked((group) => {
@@ -201,7 +199,6 @@ export class Intents {
       }));
     }
     this.cleanups.push(reaction(() => [env.isLeader(), env.connection()] as const, ([leader, connection], prev) => {
-      if (connection !== 'live' && connection !== 'catching_up') this.caughtUp = false;
       if (connection === 'live') this.held = false;
       if (leader && !prev[0]) this.takeOver();
       else this.kick();
@@ -504,9 +501,14 @@ export class Intents {
     return (this.env.now ?? Date.now)();
   }
 
-  /** Whether the leader may send now (PLAN §5.4 rule 1, §4.9). */
+  /**
+   * Whether the leader may send now (PLAN §5.4 rule 1, §4.9). The sync client
+   * is `live` only once every subscription of its session caught up
+   * (caught_up), and stays so across a short offline spell its socket
+   * survives: the base state is current then.
+   */
   private get open(): boolean {
-    return !this.closed && !this.held && this.caughtUp && this.env.isLeader() && this.env.connection() === 'live' && this.env.online();
+    return !this.closed && !this.held && this.env.isLeader() && this.env.connection() === 'live' && this.env.online();
   }
 
   /** Runs the pump soon (coalesced). */
@@ -556,6 +558,31 @@ export class Intents {
     }
   }
 
+  /**
+   * Adds the stored intents this tab did not know; whether an intent of the
+   * same entity queued before `rec` is still unsent (it goes first: the pump
+   * picks it next). Read from IndexedDB, the queue's truth, right before
+   * sending: a take-over re-read may have taken place meanwhile.
+   */
+  private async unknownBefore(rec: IntentRecord): Promise<boolean> {
+    const stored = await this.env.db.list();
+    if (this.closed) return true;
+    if (rec.seq !== undefined && !stored.some((r) => r.id === rec.id)) {
+      // Finished by another tab (its message lost): nothing to send.
+      this.finishLocal(rec.id);
+      return true;
+    }
+    const unknown = stored.filter((r) => !this.records.has(r.id));
+    if (unknown.length) {
+      this.apply(() => {
+        for (const r of unknown) this.track(r);
+      });
+    }
+    const chain = chainOf(rec.intent);
+    const mine = rec.seq ?? Number.MAX_SAFE_INTEGER;
+    return stored.some((r) => r.id !== rec.id && r.state !== 'acked' && chainOf(r.intent) === chain && (r.seq ?? 0) < mine);
+  }
+
   /** Whether an earlier intent of the same entity is still in the queue (sent, waiting for its echo). */
   private earlierIn(rec: IntentRecord): boolean {
     const chain = chainOf(rec.intent);
@@ -597,6 +624,9 @@ export class Intents {
     let rec = rec0;
     this.sending.add(rec.id);
     try {
+      // IndexedDB is the queue: an intent stored by a tab that died before announcing it (or announced to a
+      // leader that died) is learnt here, and one of the same entity queued before this one goes first.
+      if (await this.unknownBefore(rec)) return;
       const i = rec.intent;
       // Nothing to do: the server already shows it (a remote change did the same). Not while an earlier
       // intent of the entity is unconfirmed: the pool does not show that one yet, and it may undo this.

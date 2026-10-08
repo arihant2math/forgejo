@@ -80,8 +80,12 @@ function AppShell({app}: {app: App}) {
     markOnce('firstPaintFromCache');
     whenIdle(() => {
       void Palette.preload().catch(() => undefined);
+      // After the first paint: the service worker precaches this build (offline boots, PLAN §5.2 step 5).
+      void import('../sw.ts').then((m) => {
+        m.startServiceWorker(app);
+      }).catch(() => undefined);
     });
-  }, []);
+  }, [app]);
   return (
     <TooltipProvider>
       <GlobalShortcuts app={app}/>

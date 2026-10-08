@@ -277,6 +277,21 @@ async function scenario(steps: Step[]): Promise<void> {
 }
 
 describe('convergence (PLAN §8 Phase 3 exit)', () => {
+  test('regression: two tabs change one title, a tab opens, the leader dies before announcing its intent', async () => {
+    for (let k = 0; k < 20; k++) {
+      await scenario([
+        {t: 'online'},
+        {t: 'local', tab: 2, op: {t: 'title', issue: 2}},
+        {t: 'local', tab: 1, op: {t: 'title', issue: 2}},
+        {t: 'local', tab: 1, op: {t: 'comment', issue: 2}},
+        {t: 'spawn'},
+        {t: 'crash'},
+        {t: 'run'},
+        {t: 'deliver', tab: 0},
+      ]);
+    }
+  }, 60_000);
+
 
   test('a create whose answer is lost, then the leader dies: retried under its key, one comment', async () => {
     await scenario([

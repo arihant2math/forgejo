@@ -13,6 +13,7 @@ import {CircleDot, SearchX} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
+import {AvailableOffline} from '../../app/Available.tsx';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
@@ -144,14 +145,18 @@ const NotHere = observer(function NotHere({repoId, index, context}: {repoId: num
   useEffect(() => {
     if (!pager.done && !pager.loading) pager.more();
   }, [pager, pager.loading, pager.done]);
-  const searching = !pager.done || data.status.loading > 0;
+  // Offline nothing more can arrive: say so at once (no placeholder that never resolves).
+  const offline = data.status.connection === 'offline' || !navigator.onLine;
+  const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>
       <PageHeader icon={CircleDot} context={context} title={`#${String(index)}`}/>
       <PageBody>
         {searching ?
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><Skeleton className="h-3 w-full"/><Skeleton className="h-3 w-2/3"/></div> :
-          <EmptyState icon={SearchX} title="Not found" description="This issue does not exist, or it is not available on this device."/>}
+          !offline ?
+            <EmptyState icon={SearchX} title="Not found" description="This issue does not exist, or you cannot see it."/> :
+            <EmptyState icon={SearchX} title="Not available offline" description="This issue is not on this device. Connect to load it, or open one of these:" action={<AvailableOffline/>}/>}
       </PageBody>
     </>
   );

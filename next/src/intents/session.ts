@@ -67,8 +67,10 @@ export function editing(app: App): Editing {
     onFailed: (d) => {
       notify(app, {
         tone: 'danger', title: `${d.title} failed`,
-        description: `${d.reason ?? ''} ${d.text ? 'Your text is kept' : 'It is kept'} in Unsynced changes.`.trim(),
-        action: {label: 'Review', run: () => {
+        description: `${d.reason ?? ''} It was undone and kept in Unsynced changes.`.trim(),
+        action: d.intent ? {label: 'Retry', run: () => {
+          intents.retry(d.key);
+        }} : {label: 'Review', run: () => {
           openUnsynced(app);
         }},
       });

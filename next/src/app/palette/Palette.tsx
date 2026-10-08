@@ -11,6 +11,8 @@ import {runInAction, untracked} from 'mobx';
 import {useDeferredValue, useMemo, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '../../ui/Command.tsx';
 import type {LucideIcon} from '../../ui/index.ts';
+import {notify} from '../notices.ts';
+import {connectivity, onlineOnly} from '../online.ts';
 import {requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint, type ShortcutId} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
@@ -51,7 +53,9 @@ const COMMANDS: PaletteCommand[] = [
     setThemePreference('system');
   }},
   {id: 'classic', label: 'Switch to the classic UI', icon: Monitor, keywords: 'old forgejo', run: (app) => {
-    switchToClassic(app);
+    // Online only (never queued): offline it says why instead.
+    if (!connectivity.online) notify(app, {tone: 'neutral', title: onlineOnly('The classic UI')});
+    else switchToClassic(app);
   }},
   {id: 'sign-out', label: 'Sign out', icon: LogOut, keywords: 'log out logout', run: (app) => {
     void requestSignOut(app);

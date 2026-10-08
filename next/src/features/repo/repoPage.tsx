@@ -8,6 +8,7 @@
 import {Link, useLoaderData, useParams} from '@tanstack/react-router';
 import {CloudOff, Slash} from 'lucide-react';
 import {type RepoMatch, useHold} from '../../app/repo.ts';
+import {AvailableOffline} from '../../app/Available.tsx';
 import {useSession} from '../../app/store.ts';
 import {EmptyState, Icon, TextLink} from '../../ui/index.ts';
 
@@ -33,11 +34,13 @@ export function RepoContext({owner, repo, pulls = false}: {owner: string; repo: 
 }
 
 export function Unavailable() {
+  const offline = !navigator.onLine;
   return (
     <EmptyState
       icon={CloudOff}
-      title="Not available here"
-      description={navigator.onLine ? 'This repository does not exist, or you cannot see it.' : 'This repository is not on this device. Connect to load it.'}
+      title={offline ? 'Not available offline' : 'Not available here'}
+      description={offline ? 'This repository is not on this device. Connect to load it, or open one of these:' : 'This repository does not exist, or you cannot see it.'}
+      action={offline ? <AvailableOffline/> : undefined}
     />
   );
 }

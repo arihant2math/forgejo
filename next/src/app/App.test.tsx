@@ -200,13 +200,14 @@ describe('signed in', () => {
     expect(s.data.held.has('repo:20')).toBe(false);
   });
 
-  test('an unknown repository offline: not available here', async () => {
+  test('an unknown repository offline: not available offline, with what is', async () => {
     const s = signedIn();
     const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
     Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => false});
     try {
       await renderApp('/nobody/nothing/issues', s);
-      expect(screen.getByText('Not available here')).toBeTruthy();
+      expect(screen.getByText('Not available offline')).toBeTruthy();
+      expect(screen.getByRole('navigation', {name: 'Available on this device'}).textContent).toContain('My issues');
     } finally {
       if (online) Object.defineProperty(navigator, 'onLine', online);
     }

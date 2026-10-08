@@ -413,7 +413,7 @@ test('a change the server refuses is rolled back with a notice', async ({browser
   await expect(sidebarProp(page, 'Labels')).toContainText('ux');
   const notice = page.getByRole('alert').filter({hasText: 'failed'});
   await expect(notice).toContainText('Adding the label “ux” failed');
-  await expect(notice).toContainText('You may not change labels here. The change was undone.');
+  await expect(notice).toContainText('You may not change labels here. It was undone and kept in Unsynced changes.');
   await expect(sidebarProp(page, 'Labels')).not.toContainText('ux');
   expect(key).toMatch(/^[\da-f-]{36}$/);
   // Retry is a new intent (a new key); this time the server takes it.

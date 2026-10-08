@@ -13,11 +13,11 @@ import {useState, type ReactNode} from 'react';
 import {getThemePreference, setThemePreference} from '../../app/theme.ts';
 import type {ThemePreference} from '../../app/splash.ts';
 import {
-  Avatar, AvatarGroup, Badge, Button, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
+  Avatar, AvatarGroup, Badge, Button, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuTrigger, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
-  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TooltipProvider,
+  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TextArea, TooltipProvider,
 } from '../../ui/index.ts';
 
 const swatches = [
@@ -98,6 +98,8 @@ export default function Gallery() {
           <div className="w-64"><Input placeholder="Invalid" invalid defaultValue="not-a-number"/></div>
           <div className="w-48"><Input size="sm" placeholder="Small"/></div>
           <Input size="sm" icon={Search} placeholder="Search…" className="w-48"/>
+          <div className="w-96"><TextArea aria-label="Comment" placeholder="Leave a comment" rows={3}/></div>
+          <div className="w-96"><TextArea aria-label="Conflict" invalid rows={3} defaultValue={'<<<<<<< yours\nmine\n=======\ntheirs\n>>>>>>> theirs'}/></div>
         </Section>
 
         <Section title="Keys, badges, labels, avatars">
@@ -137,6 +139,20 @@ export default function Gallery() {
             <Notice tone="danger" title="Adding the label “bug” failed" description="Forbidden. The change was undone." action={<Button size="sm">Retry</Button>} onDismiss={() => undefined}/>
           </div>
           <Notice tone="success" title="Link copied" onDismiss={() => undefined}/>
+          <Notice tone="warning" title="Your edit conflicts with a newer change" action={<Button size="sm">Review</Button>} onDismiss={() => undefined}/>
+          <div className="flex w-96 flex-col gap-2">
+            <Callout tone="warning" title="Your edit conflicts with a newer change" actions={<><Button size="sm">Keep mine</Button><Button size="sm">Use theirs</Button></>}>Both changed the same lines.</Callout>
+            <Callout title="You overrode @alice’s change to the status" actions={<Button size="sm">Undo</Button>}>Your change was applied last.</Callout>
+            <Callout tone="offline" title="Not available offline">Connect to load it.</Callout>
+            <Callout tone="danger" title="Not sent">Forbidden.</Callout>
+            <ProseSource text={'Typed **markdown**, not synced yet.\n\nSecond paragraph.'}/>
+          </div>
+          <div className="w-96">
+            <EntryList label="Unsynced changes">
+              <Entry leading={<Icon icon={Inbox}/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton size="sm" icon={Search} label="Discard"/>}/>
+              <Entry title="Posting a comment" meta="#3 · dev/big" description="Forbidden."/>
+            </EntryList>
+          </div>
         </Section>
 
         <Section title="Menus, popover, dialog">
@@ -251,6 +267,7 @@ export default function Gallery() {
           <Status tone="muted">Catching up</Status>
           <Status tone="warning">Signed out</Status>
           <Status tone="danger">Error</Status>
+          <Status tone="muted" onClick={() => undefined} label="Offline, 3 pending">Offline <span className="tabular-nums">· 3 pending</span></Status>
           <SectionHeading>Section heading</SectionHeading>
         </Section>
 

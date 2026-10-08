@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {Link, type ErrorComponentProps} from '@tanstack/react-router';
-import {FileQuestion, RefreshCw} from 'lucide-react';
+import {CloudOff, FileQuestion, RefreshCw} from 'lucide-react';
 import {useEffect} from 'react';
 import {Button, EmptyState} from '../ui/index.ts';
+import {AvailableOffline} from './Available.tsx';
 import {CenteredScreen} from './LoggedOut.tsx';
 import {isChunkError, reloadOnce} from './reload.ts';
 
@@ -26,8 +27,24 @@ export function RouteError({error}: ErrorComponentProps) {
   );
 }
 
-/** A path the app has no page for. */
+/**
+ * A path the app has no page for. Offline, the service worker answers every
+ * navigation with the app: a classic page is then "not available offline",
+ * and what is available is listed.
+ */
 export function RouteNotFound() {
+  if (!navigator.onLine) {
+    return (
+      <CenteredScreen>
+        <EmptyState
+          icon={CloudOff}
+          title="Not available offline"
+          description="This page needs a connection. These work offline:"
+          action={<div className="flex flex-col items-center gap-4"><AvailableOffline/><Button onClick={() => { location.reload(); }}>Try again</Button></div>}
+        />
+      </CenteredScreen>
+    );
+  }
   return (
     <CenteredScreen>
       <EmptyState

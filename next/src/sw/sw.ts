@@ -170,7 +170,16 @@ async function navigate(e: FetchEvent): Promise<Response> {
   const path = new URL(e.request.url).pathname;
   const app = appPage(path);
   if (!navigator.onLine) return offline();
-  const net = e.preloadResponse.then((r) => r ?? (app ? fetch(SHELL, {cache: 'no-cache', credentials: 'same-origin'}) : fetch(e.request)));
+  // Without preload an app page gets the app's document whatever the opt-in cookie says: marked like the
+  // cached shell (no opt-in from it), and never read as the server's choice (no kill).
+  const via = {preload: true};
+  const net = e.preloadResponse.then(async (r: Response | undefined) => {
+    if (r) return r;
+    via.preload = false;
+    if (!app) return await fetch(e.request);
+    const res = await fetch(SHELL, {cache: 'no-cache', credentials: 'same-origin'});
+    return res.ok ? cachedShell(await res.text(), res) : res;
+  });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     if (app) {
@@ -188,7 +197,7 @@ async function navigate(e: FetchEvent): Promise<Response> {
       }
     }
     const res = await net;
-    e.waitUntil(afterOnline(path, app, res));
+    if (via.preload) e.waitUntil(afterOnline(path, app, res));
     return res;
   } catch {
     return await offline();
@@ -205,7 +214,7 @@ async function navigate(e: FetchEvent): Promise<Response> {
 function cachedShell(html: string, from: Response): Response {
   const headers = new Headers(from.headers);
   for (const h of ['Content-Encoding', 'Content-Length', 'Set-Cookie']) headers.delete(h);
-  return new Response(html.replace(/<meta charset="utf-8">/i, (m) => `${m}<meta name="forgejo-next-cached" content="1">`), {status: 200, headers});
+  return new Response(html.replace(/<head[^>]*>/i, (m) => `${m}<meta name="forgejo-next-cached" content="1">`), {status: 200, headers});
 }
 
 async function offline(): Promise<Response> {

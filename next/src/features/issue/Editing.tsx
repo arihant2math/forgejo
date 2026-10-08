@@ -74,6 +74,9 @@ interface TextEditorProps {
 }
 
 /** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
+/** The draft keys of the editors open on this page. */
+const openEditors = new Set<string>();
+
 export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen}: TextEditorProps) {
   const app = useApp();
   const {intents} = editing(app);
@@ -86,9 +89,13 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   const done = useRef(false);
   const dirty = text !== initial;
   const blocked = markers === true && hasConflictMarkers(text);
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-  }, []);
+  useEffect(() => {
+    openEditors.add(draftKey);
+    return () => {
+      openEditors.delete(draftKey);
+      clearTimeout(timer.current);
+    };
+  }, [draftKey]);
   const change = (t: string) => {
     setText(t);
     done.current = false;
@@ -122,7 +129,12 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       const kept = {key: draftKey, kind: 'text' as const, title, issueId, repoId, text, at: Date.now(), ...(base ? {base} : {})};
       void intents.discardDraft(draftKey);
       notify(app, {tone: 'neutral', title: 'Edit discarded', action: {label: 'Undo', run: () => {
-        void intents.restoreDraft(kept).then(() => onReopen?.());
+        // Opened again meanwhile: its text is not overwritten; the discarded one goes to the Unsynced drafts.
+        if (openEditors.has(draftKey)) {
+          void intents.restoreDraft({...kept, key: `${draftKey}:undo:${String(kept.at)}`}).then(() => {
+            notify(app, {tone: 'neutral', title: 'Kept in Unsynced changes', description: 'The editor is open again: your discarded text is in the drafts there.'});
+          });
+        } else void intents.restoreDraft(kept).then(() => onReopen?.());
       }}});
     } else forget();
     onCancel?.();
@@ -236,15 +248,21 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
   const app = useApp();
   const {userId} = useSession();
   const {intents} = editing(app);
+  /** Edit was chosen: the editor that opens keeps the focus. */
+  const chose = useRef(false);
   if (untracked(() => c.data.poster_id) !== userId) return null;
   return (
     <Menu>
       <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
-      {/* The editor that opens takes the focus (Radix would return it to the trigger). */}
+      {/* After Edit the editor takes the focus (Radix would return it to the trigger); otherwise the trigger has it. */}
       <MenuContent align="end" onCloseAutoFocus={(e) => {
-        e.preventDefault();
+        if (chose.current) e.preventDefault();
+        chose.current = false;
       }}>
-        <MenuItem icon={Pencil} onSelect={onEdit}>Edit</MenuItem>
+        <MenuItem icon={Pencil} onSelect={() => {
+          chose.current = true;
+          onEdit();
+        }}>Edit</MenuItem>
         <MenuItem icon={Trash2} danger onSelect={() => {
           const {issue_id: issueId} = untracked(() => c.data);
           intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});

@@ -88,7 +88,7 @@ function started(app: App, router: AppRouter): void {
   // Nor from the service worker's cached shell (marked): only a document the server sent proves the opt-in.
   const site = sitePathOf(location.pathname, app.config.app_sub_url);
   const cached = document.querySelector('meta[name="forgejo-next-cached"]') !== null;
-  if (!cached && (location.pathname === app.config.base || (site !== undefined && isSpaRoute(site)))) void optIn(app.config);
+  if (!cached && (location.pathname.replace(/\/$/, '') === app.config.base.replace(/\/$/, '') || (site !== undefined && isSpaRoute(site)))) void optIn(app.config);
   // The splash for the next boot: the route and the shape of its page.
   const remember = () => {
     const leaf = router.state.matches.at(-1);

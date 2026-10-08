@@ -57,6 +57,13 @@ import type {Overlay} from './overlay.ts';
 import {type ApiRequest, NotReady, requestFor, UnsendableIntent} from './rest.ts';
 import {type Conflict, type DraftRecord, failedKey, type IntentDb, type IntentRecord} from './store.ts';
 
+/**
+ * What a discard did: `discarded`; `sending` (in flight or no longer
+ * queued: not taken back); `kept` (still queued: try again); `unknown` (the
+ * leader died: it may have been sent or discarded).
+ */
+export type Discarded = 'discarded' | 'sending' | 'kept' | 'unknown';
+
 /** Messages between the tabs of one user (a BroadcastChannel per user). */
 export type IntentMessage =
   | {t: 'added'; rec: IntentRecord}
@@ -69,6 +76,8 @@ export type IntentMessage =
   | {t: 'override'; override: Override}
   /** A tab asks the leader to take a queued intent back (discard). */
   | {t: 'discard'; id: string}
+  /** The leader's answer to `discard`: taken back, or not (being sent, or no longer queued). */
+  | {t: 'discarded'; id: string; ok: boolean}
   /** A tab took over: the others re-read the queue (the old leader's last messages may be lost). */
   | {t: 'leader'}
   /** An override notice was undone or dismissed. */
@@ -167,7 +176,9 @@ export class Intents {
   /** Parked conflicts by text target (`body:<issue>`, `comment:<id>`) → record id (the editors observe one key). */
   private readonly parked = observable.map<string, string>({}, {deep: false});
   /** Discards asked of the leader by this follower, waiting for its `done`. */
-  private readonly discards = new Map<string, () => void>();
+  private readonly discards = new Map<string, (ok: boolean) => void>();
+  /** Being discarded by this (leader) tab: not sent meanwhile. */
+  private readonly discarding = new Set<string>();
   /** Intents whose storing failed: kept in memory (a re-read must not drop them). */
   private readonly memoryOnly = new Set<string>();
   /** Resolves once the stored queue is in the overlay. */
@@ -340,17 +351,19 @@ export class Intents {
    * Takes back a queued intent the user no longer wants (never attempted, or
    * parked: see `discardable`). The leader does it (it knows what is in flight).
    */
-  discard(id: string, again = true): Promise<boolean> {
+  discard(id: string, again = true): Promise<Discarded> {
     if (!this.env.isLeader()) {
-      // The leader decides (and answers with `done` when it did); no answer in 3 s: not discarded.
+      // The leader decides and answers (`discarded`); no answer in 3 s (it died): the queue says.
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
           this.discards.delete(id);
-          resolve(false);
+          void this.reread().then(() => {
+            resolve(this.records.has(id) ? 'kept' : 'unknown');
+          });
         }, 3000);
-        this.discards.set(id, () => {
+        this.discards.set(id, (ok) => {
           clearTimeout(timer);
-          resolve(true);
+          resolve(ok ? 'discarded' : 'sending');
         });
         this.env.channel.post({t: 'discard', id});
       });
@@ -358,12 +371,16 @@ export class Intents {
     const rec = this.records.get(id);
     // Not known yet (a take-over, a follower's intent just stored): read the queue, then decide.
     if (!rec && again) return this.reread().then(() => this.discard(id, false));
-    if (!rec || this.sending.has(id) || !discardable(rec)) return Promise.resolve(false);
+    if (!rec || this.sending.has(id) || this.discarding.has(id) || !discardable(rec)) return Promise.resolve(rec ? 'sending' : 'unknown');
+    // Not sent while it is removed (a kick in between would start it).
+    this.discarding.add(id);
     return this.env.db.remove(id).then(() => {
       this.finishLocal(id);
       this.env.channel.post({t: 'done', id});
+      return 'discarded' as const;
+    }, () => 'kept' as const).finally(() => {
+      this.discarding.delete(id);
       this.kick();
-      return true;
     });
   }
 
@@ -513,8 +530,6 @@ export class Intents {
         if (m.rec.state === 'parked' && this.visible()) this.env.onConflict?.(m.rec);
         break;
       case 'done':
-        this.discards.get(m.id)?.();
-        this.discards.delete(m.id);
         // The leader's pool holds the write; this tab's once it mirrored that state (no flicker).
         if (m.group !== undefined && m.v !== undefined && this.env.pool.groupEntities(m.group).size > 0) {
           void Promise.race([this.env.whenSynced(m.group, m.v, AbortSignal.timeout(this.env.confirmTimeout ?? 60_000)), sleepMs(this.env.confirmTimeout ?? 60_000)])
@@ -548,7 +563,15 @@ export class Intents {
         if (this.visible()) this.env.onOverride?.(m.override);
         break;
       case 'discard':
-        if (this.env.isLeader()) void this.discard(m.id);
+        if (this.env.isLeader()) {
+          void this.discard(m.id).then((r) => {
+            this.env.channel.post({t: 'discarded', id: m.id, ok: r === 'discarded'});
+          });
+        }
+        break;
+      case 'discarded':
+        this.discards.get(m.id)?.(m.ok);
+        this.discards.delete(m.id);
         break;
       case 'leader':
         if (!this.env.isLeader()) void this.reread();
@@ -637,7 +660,7 @@ export class Intents {
       }
       blocked.add(chain);
       // Acked: the entity's next intent waits for its echo (it is prepared against the state that includes it).
-      if (rec.state === 'acked' || this.sending.has(rec.id) || this.unstored.has(rec.id) || this.sending.size >= MAX_SENDS) continue;
+      if (rec.state === 'acked' || this.sending.has(rec.id) || this.discarding.has(rec.id) || this.unstored.has(rec.id) || this.sending.size >= MAX_SENDS) continue;
       const at = this.nextAt.get(rec.id) ?? 0;
       if (at > now) {
         soonest = Math.min(soonest, at);

@@ -556,10 +556,34 @@ describe('tabs', () => {
     for (const t of world.tabs) t.setConnection('offline');
     const i = follower.intents.submit({...ref, kind: 'issue.state', state: 'closed', base: 'open'});
     await world.settle(10);
-    void follower.intents.discard(i.id);
+    const result = follower.intents.discard(i.id);
     await world.settle(10);
+    expect(await result).toBe('discarded');
     expect(follower.intents.pending).toBe(0);
     expect(await new IntentDb(world.db).list()).toEqual([]);
+    world.close();
+  });
+
+  test('a follower’s discard of an intent in flight is refused: not reported as discarded, sent once', async () => {
+    const server = new FakeForgejo();
+    let open: () => void = () => undefined;
+    server.gate = new Promise((resolve) => {
+      open = resolve;
+    });
+    const world = new World(server, 2);
+    const [leader, follower] = world.tabs;
+    if (!leader || !follower) throw new Error('no tabs');
+    const i = follower.intents.submit({...ref, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'once'});
+    await vi.waitFor(() => {
+      expect(leader.intents.records.has(i.id)).toBe(true);
+    });
+    await new Promise((r) => setTimeout(r, 20)); // the leader is sending it (held at the gate)
+    const result = follower.intents.discard(i.id);
+    expect(await result).toBe('sending');
+    server.gate = undefined;
+    open();
+    await world.settle();
+    expect([...server.comments.values()].filter((c) => c.body === 'once')).toHaveLength(1);
     world.close();
   });
 

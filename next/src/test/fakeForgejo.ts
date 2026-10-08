@@ -68,6 +68,8 @@ export class FakeForgejo {
   lose = 0;
   fail = 0;
   online = true;
+  /** While set, requests wait for it (a request in flight). */
+  gate: Promise<void> | undefined;
 
   constructor(issueCount = 3, labelCount = 4) {
     for (let n = 1; n <= issueCount; n++) {
@@ -173,6 +175,7 @@ export class FakeForgejo {
   readonly fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
     await Promise.resolve();
     if (!this.online) throw new TypeError('Failed to fetch (offline)');
+    if (this.gate) await this.gate;
     const headers = new Headers(init.headers);
     const key = headers.get('Idempotency-Key') ?? '';
     const method = init.method ?? 'GET';

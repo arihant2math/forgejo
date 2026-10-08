@@ -24,6 +24,7 @@ export interface ModelTypes {
   Label: P.Label;
   Milestone: P.Milestone;
   Project: P.Project;
+  ProjectRef: P.ProjectRef;
   ProjectColumn: P.ProjectColumn;
   ProjectIssue: P.ProjectIssue;
   Issue: P.Issue;
@@ -85,6 +86,7 @@ const defs = {
   Label: {schema: P.SchemaLabel, kinds: ['repo', 'owner', 'org'], index: ['repo_id', 'org_id']},
   Milestone: {schema: P.SchemaMilestone, kinds: ['repo'], index: ['repo_id']},
   Project: {schema: P.SchemaProject, kinds: ['repo', 'owner', 'org', 'profile'], index: ['repo_id', 'owner_id']},
+  ProjectRef: {schema: P.SchemaProjectRef, kinds: ['owner'], index: ['owner_id']},
   ProjectColumn: {schema: P.SchemaProjectColumn, kinds: ['repo', 'org', 'profile'], index: ['project_id']},
   ProjectIssue: {schema: P.SchemaProjectIssue, kinds: ['repo'], index: ['issue_id', 'project_id']},
   Issue: {schema: P.SchemaIssue, kinds: ['repo'], index: ['repo_id']},

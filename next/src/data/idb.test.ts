@@ -7,6 +7,7 @@ import {IDBFactory} from 'fake-indexeddb';
 import {describe, expect, test} from 'vitest';
 import type {Issue} from '../protocol/types.gen.ts';
 import {Hydrator} from './hydrate.ts';
+import {MODEL_NAMES} from './models.ts';
 import {BLOBS, DRAFTS, IDB_VERSION, INTENTS, type Layout, layout, META, modelStore, openDatabase, readMeta, request} from './idb.ts';
 import {MetaCache} from './meta.ts';
 import {CHUNK_VALUES, type Commit, Persister} from './persist.ts';
@@ -60,7 +61,7 @@ describe('schema', () => {
     const db = await openDatabase(1, {factory: new IDBFactory()});
     const names = [...db.objectStoreNames];
     expect(names).toEqual(expect.arrayContaining([META, INTENTS, DRAFTS, BLOBS, modelStore('Issue'), modelStore('Comment')]));
-    expect(names.filter((n) => n.startsWith('m:'))).toHaveLength(40);
+    expect(names.filter((n) => n.startsWith('m:'))).toHaveLength(MODEL_NAMES.length);
     const store = db.transaction(modelStore('Issue'), 'readonly').objectStore(modelStore('Issue'));
     expect(store.keyPath).toEqual(['g', 'b']);
     expect([...store.indexNames]).toEqual([]);
@@ -105,7 +106,7 @@ describe('schema', () => {
     const db2 = await openDatabase(9, {factory});
     expect(await all(db2, modelStore('Label'))).toEqual([]);
     expect(await all(db2, DRAFTS)).toHaveLength(1);
-    expect(((await readMeta(db2)).get('droppedModels') as string[]).length).toBe(40);
+    expect(((await readMeta(db2)).get('droppedModels') as string[]).length).toBe(MODEL_NAMES.length);
     db2.close();
   });
 

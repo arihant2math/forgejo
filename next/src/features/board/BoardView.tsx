@@ -248,6 +248,8 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     },
   }));
   const onKeyDown = (e: KeyboardEvent) => {
+    // Only a column's own keys (not Enter in the new column's name field, or in a menu).
+    if ((e.target as Element).getAttribute('role') !== 'listbox') return;
     if (e.key === 'Enter' && model.cursor.activeId !== undefined) {
       e.preventDefault();
       open(model.cursor.activeId, e.metaKey || e.ctrlKey);

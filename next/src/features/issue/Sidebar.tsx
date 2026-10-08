@@ -16,7 +16,7 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueDeadline, issueMilestone, issueState, viewMembers} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueMilestone, issueState, issueSubscribed} from '../../intents/view.ts';
 import {Code, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue, TextLink} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
@@ -182,15 +182,11 @@ const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'I
   );
 });
 
-/**
- * Subscribing (Shift+S): an offline-capable intent. What shows is the
- * viewer's explicit choice (IssueWatch); Forgejo also subscribes posters and
- * participants without one, which the sync does not carry.
- */
+/** Subscribing (Shift+S): an offline-capable intent; the state as Forgejo decides it (issueSubscribed). */
 const SubscribeValue = observer(function SubscribeValue({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const {userId} = useSession();
-  const on = viewMembers(usePool(), useOverlay(), 'IssueSubscriber', issue.id).has(userId);
+  const on = issueSubscribed(usePool(), useOverlay(), issue, userId);
   const toggle = () => {
     if (isTemp(issue.id)) return;
     runInAction(() => {

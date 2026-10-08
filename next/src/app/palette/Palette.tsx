@@ -259,7 +259,8 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     const timer = q.length >= 2 && connectivity.online ? setTimeout(() => {
       void searchServer(app, q, ctl.signal).then((hits) => {
         if (ctl.signal.aborted) return;
-        const known = (h: ServerHit) => shown.has(h.id) || local.some((r) => r.issue.id === h.id) || untracked(() => Boolean(pool.model('Issue').get(h.id)));
+        // What the local results already list; an issue on this device that only the server matched (its body, say) still shows.
+        const known = (h: ServerHit) => shown.has(h.id) || local.some((r) => r.issue.id === h.id);
         setMore((m) => ({query, value: {local: m.query === query ? m.value.local : local, server: hits.filter((h) => !known(h))}}));
       }).catch(() => undefined);
     }, SERVER_DELAY) : undefined;

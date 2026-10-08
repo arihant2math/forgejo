@@ -180,6 +180,16 @@ describe('viewed files', async () => {
     expect([...o.paths].sort()).toEqual(['b', 'z']);
     expect(viewedAt(undefined, A, undefined).paths.size).toBe(0);
   });
+
+  test('marks at a new head: changed files reset once, never over a pending mark', async () => {
+    const {viewedMarks} = await import('./viewed.ts');
+    const changed = new Set(['a', 'b']);
+    expect(viewedMarks({commit: A, changed}, A, 'a', true)).toEqual({a: true});
+    // First mark at B: the changed files go as not viewed, the marked one as viewed.
+    expect(viewedMarks({commit: A, changed}, B, 'a', true)).toEqual({a: true, b: false});
+    // A second mark before the server's state for B is back: 'a' has a pending mark, it is not reset.
+    expect(viewedMarks({commit: A, changed}, B, 'b', true, new Map([['a', true], ['b', false]]))).toEqual({b: true});
+  });
 });
 
 describe('compare merge base', async () => {

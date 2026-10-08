@@ -143,6 +143,11 @@ function classOf(color: string | undefined): number {
   return (m?.[1] ? VARS[m[1]] : undefined) ?? SYN.plain;
 }
 
+/** Starts Shiki and loads a grammar (rejects when it does not load). */
+export async function prepare(lang: Lang): Promise<void> {
+  if (lang in LOADERS) await loadLang(await highlighter(), lang);
+}
+
 /** Highlights text (lines split on \n; a \r before it is part of the line). null: plain (unknown grammar, too big); rejects when the grammar does not load. */
 export async function highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
   if (!lang || !(lang in LOADERS) || text.length > MAX_CHARS) return null;

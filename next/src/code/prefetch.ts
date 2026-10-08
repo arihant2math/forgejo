@@ -84,11 +84,14 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
     if (!c) continue;
     report.pulls.push(issueId);
     try {
-      // Already on this device: fetched by an earlier run (or opened). Nothing is read back into memory.
-      if (await src.hasDiff(pr.base_repo_id, c.base, c.head)) continue;
+      // Already done by an earlier run (diff and files): nothing is read back into memory. A run cut short
+      // leaves no mark, and the next one finishes it (what is cached costs nothing).
+      const done = `prefetched:${String(pr.base_repo_id)}:${c.base}:${c.head}`;
+      if (await src.cache.has(done)) continue;
+      const had = await src.hasDiff(pr.base_repo_id, c.base, c.head);
       // Parsed here, not kept: the page parses it again when it is opened.
       const files = parseDiff(await src.diffText(pr.base_repo_id, c.base, c.head));
-      report.diffs++;
+      if (!had) report.diffs++;
       let bytes = 0;
       for (const f of files.slice(0, MAX_FILES)) {
         if (signal?.aborted || f.binary || f.status === 'deleted') continue;
@@ -101,6 +104,7 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
         report.files++;
         if (bytes > MAX_BYTES) break;
       }
+      if (!signal?.aborted) src.cache.put(done, true);
     } catch {
       // Next pull request (an unreadable head repository, a dropped connection).
     }

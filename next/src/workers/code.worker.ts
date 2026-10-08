@@ -9,7 +9,7 @@
 import {expose, transfer} from 'comlink';
 import {DEL, type DiffFile, filePath} from '../code/diff.ts';
 import {type Lang, langOf} from '../code/lang.ts';
-import {highlight, type Highlight} from './highlight.ts';
+import {highlight, type Highlight, prepare} from './highlight.ts';
 
 export type {Highlight} from './highlight.ts';
 
@@ -62,6 +62,11 @@ async function highlightFile(f: DiffFile): Promise<Highlight | null> {
 // A highlight that runs away (a grammar backtracking on crafted text) is stopped by terminating
 // the worker (src/code/source.ts).
 const api = {
+  /** Starts Shiki and loads a grammar (the page times highlights only after this). */
+  prepare(lang: Lang): Promise<void> {
+    return prepare(lang);
+  },
+
   /** Highlights a file's text (null: plain). */
   async highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
     return out(await highlight(text, lang));

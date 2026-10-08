@@ -23,8 +23,8 @@ import {APIPrefix, type APIBlame, type APITree, type APITreeEntry} from '../prot
 import type {CodeWorkerApi, Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
-import {type DiffFile, parseDiff} from './diff.ts';
-import {HIGHLIGHT_MAX_CHARS, langOf} from './lang.ts';
+import {type DiffFile, filePath, parseDiff} from './diff.ts';
+import {HIGHLIGHT_MAX_CHARS, type Lang, langOf} from './lang.ts';
 
 export type {Highlight} from '../workers/code.worker.ts';
 
@@ -38,8 +38,22 @@ export const MAX_FILE = 4 * 1024 * 1024;
  */
 export const MAX_DIFF = 8 * 1024 * 1024;
 
-/** A highlight running longer than this is stopped (the text stays plain). */
-const HIGHLIGHT_LIMIT = 6000;
+/**
+ * A highlight running longer than this is stopped (the text stays plain): 4 s
+ * plus 2 ms a line, at most 20 s (a 5k-line TypeScript file takes ≈ 7 s in
+ * this worker; a runaway grammar spins far longer).
+ */
+function highlightLimit(lines: number): number {
+  return Math.min(20_000, 4000 + 2 * lines);
+}
+
+/** A highlight stopped by the watchdog. */
+class TimedOut extends Error {
+  override name = 'TimedOut';
+}
+
+/** Starting the worker and loading a grammar longer than this fails the highlight (not cached: asked again). */
+const PREPARE_LIMIT = 30_000;
 
 /** Content too large to show here (status 413 for the views). */
 export class TooLarge extends RequestFailed {
@@ -49,13 +63,26 @@ export class TooLarge extends RequestFailed {
   }
 }
 
+/** JSON answers (trees, blames, commit lists, compares) above this are refused: unrelated histories compare to every commit. */
+const MAX_JSON = 16 * 1024 * 1024;
+
+/** Reads a JSON answer, stopping (TooLarge) beyond MAX_JSON. */
+async function readJson(res: Response): Promise<unknown> {
+  return JSON.parse(await readCapped(res, MAX_JSON));
+}
+
 /** Reads a text answer, stopping (TooLarge) beyond `max` bytes. */
 async function readCapped(res: Response, max: number): Promise<string> {
+  return new TextDecoder().decode(await readBytesCapped(res, max));
+}
+
+/** Reads an answer's bytes, stopping (TooLarge) beyond `max` (whether or not it declares its length). */
+async function readBytesCapped(res: Response, max: number): Promise<ArrayBuffer> {
   const declared = Number(res.headers.get('Content-Length') ?? 0);
   if (declared > max || !res.body) {
     void res.body?.cancel();
-    if (declared > max) throw new TooLarge('This diff');
-    return res.text();
+    if (declared > max) throw new TooLarge('This content');
+    return res.arrayBuffer();
   }
   const reader = res.body.getReader();
   const parts: Uint8Array[] = [];
@@ -66,7 +93,7 @@ async function readCapped(res: Response, max: number): Promise<string> {
     n += value.byteLength;
     if (n > max) {
       void reader.cancel();
-      throw new TooLarge('This diff');
+      throw new TooLarge('This content');
     }
     parts.push(value);
   }
@@ -76,7 +103,7 @@ async function readCapped(res: Response, max: number): Promise<string> {
     all.set(p, at);
     at += p.byteLength;
   }
-  return new TextDecoder().decode(all);
+  return all.buffer;
 }
 
 export type FileContent =
@@ -144,6 +171,8 @@ export class CodeSource {
   readonly cache: CodeCache;
   /** The highlighter (stopped and replaced when a highlight runs away or the worker fails). */
   private highlighter: Highlighter | undefined;
+  /** The highlights waiting their turn (one runs at a time: see watched). */
+  private queue: Promise<unknown> = Promise.resolve();
   private readonly inflight = new Map<string, Promise<unknown>>();
   /** Diffs parsed this session (key → files). */
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
@@ -186,26 +215,41 @@ export class CodeSource {
 
   /**
    * Runs a highlight with a watchdog: a TextMate grammar can backtrack for
-   * minutes on crafted text (a file in a pull request). Past HIGHLIGHT_LIMIT
-   * the highlighter is terminated (a new one starts with the next call) and
-   * the text is plain (null, cached: it would run away again). A failure (a
-   * grammar or the worker not loading, the highlighter stopped under the call)
-   * rejects: not cached, asked again later.
+   * minutes on crafted text (a file in a pull request). Highlights run one at
+   * a time, and the clock starts once the worker and the grammar are ready,
+   * so only tokenizing is timed (not starting Shiki, a slow grammar chunk, or
+   * waiting behind other files). Past HIGHLIGHT_LIMIT the highlighter is
+   * terminated (a new one starts with the next call) and the call rejects
+   * with TimedOut (callers keep the text plain for this session: it would run
+   * away again; not stored, a faster device may manage). A failure (a grammar or the
+   * worker not loading in PREPARE_LIMIT, the worker failing) rejects: not
+   * cached, asked again later.
    */
-  private async watched(run: (api: Remote<CodeWorkerApi>) => Promise<Highlight | null>): Promise<Highlight | null> {
+  private watched(lang: Lang, lines: number, run: (api: Remote<CodeWorkerApi>) => Promise<Highlight | null>): Promise<Highlight | null> {
+    const p = this.queue.then(() => this.watchedNow(lang, lines, run));
+    this.queue = p.catch(() => undefined);
+    return p;
+  }
+
+  private async watchedNow(lang: Lang, lines: number, run: (api: Remote<CodeWorkerApi>) => Promise<Highlight | null>): Promise<Highlight | null> {
     this.highlighter ??= this.spawn();
     const h = this.highlighter;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<'timeout'>((resolve) => {
+    const after = <T>(ms: number, v: T) => new Promise<T>((resolve) => {
       timer = setTimeout(() => {
-        resolve('timeout');
-      }, HIGHLIGHT_LIMIT);
+        resolve(v);
+      }, ms);
     });
     try {
-      const r = await Promise.race([run(h.api), timeout, h.failed]);
+      if (await Promise.race([h.api.prepare(lang), h.failed, after(PREPARE_LIMIT, 'timeout' as const)]) === 'timeout') {
+        h.stop();
+        throw new Error('The highlighter did not start.');
+      }
+      clearTimeout(timer);
+      const r = await Promise.race([run(h.api), h.failed, after(highlightLimit(lines), 'timeout' as const)]);
       if (r !== 'timeout') return r;
       h.stop();
-      return null;
+      throw new TimedOut('The highlight took too long.');
     } finally {
       clearTimeout(timer);
     }
@@ -253,7 +297,7 @@ export class CodeSource {
     if (!res.ok) {
       let msg = '';
       try {
-        msg = (await res.json() as {message?: string}).message ?? '';
+        msg = (await readJson(res) as {message?: string}).message ?? '';
       } catch {
         // not JSON
       }
@@ -271,7 +315,7 @@ export class CodeSource {
   tree(repoId: number, commit: string, path: string): Promise<APITree> {
     return this.cached(CodeSource.treeKey(repoId, commit, path), async () => {
       const res = await this.request('sync', `/repos/${String(repoId)}/tree/${commit}${path ? `/${encodePath(path)}` : ''}`);
-      return await res.json() as APITree;
+      return await readJson(res) as APITree;
     });
   }
 
@@ -301,18 +345,19 @@ export class CodeSource {
     return this.cached(`raw:${String(repoId)}:${commit}:${path}`, async () => {
       const res = await this.request('sync', `/repos/${String(repoId)}/raw/${commit}/${encodePath(path)}`);
       const len = Number(res.headers.get('Content-Length') ?? 0);
-      if (len > MAX_FILE) {
-        void res.body?.cancel();
-        return {kind: 'large', size: len} satisfies FileContent;
+      try {
+        return decodeFile(await readBytesCapped(res, MAX_FILE), path);
+      } catch (err) {
+        if (err instanceof TooLarge) return {kind: 'large', size: len} satisfies FileContent;
+        throw err;
       }
-      return decodeFile(await res.arrayBuffer(), path);
     });
   }
 
   blame(repoId: number, commit: string, path: string): Promise<APIBlame> {
     return this.cached(`blame:${String(repoId)}:${commit}:${path}`, async () => {
       const res = await this.request('sync', `/repos/${String(repoId)}/blame/${commit}/${encodePath(path)}`);
-      return await res.json() as APIBlame;
+      return await readJson(res) as APIBlame;
     });
   }
 
@@ -362,16 +407,46 @@ export class CodeSource {
 
   /** One file of a parsed diff, highlighted per diff line (null: plain). */
   async diffHighlight(repoId: number, base: string, head: string, index: number): Promise<Highlight | null> {
+    const key = CodeSource.diffHlKey(repoId, base, head, index);
+    const hit = this.cache.peek<Highlight | null>(key);
+    if (hit !== undefined) return hit;
     const file = (await this.diff(repoId, base, head))[index];
-    return file ? this.watched((api) => api.highlightDiffFile(file)) : null;
+    const lang = file && langOf(filePath(file));
+    if (!file || !lang) return null;
+    let h: Highlight | null;
+    try {
+      h = await this.watched(lang, file.lines.length, (api) => api.highlightDiffFile(file));
+    } catch (err) {
+      if (!(err instanceof TimedOut)) throw err;
+      h = null;
+    }
+    // In memory: a diff opened again in this session paints highlighted (not stored: cheap to redo).
+    this.cache.remember(key, h);
+    return h;
+  }
+
+  static diffHlKey(repoId: number, base: string, head: string, index: number): string {
+    return `dhl:${String(repoId)}:${base}:${head}:${String(index)}`;
+  }
+
+  /** A diff file's highlighting already in memory. */
+  peekDiffHighlight(repoId: number, base: string, head: string, index: number): Highlight | null | undefined {
+    return this.cache.peek(CodeSource.diffHlKey(repoId, base, head, index));
   }
 
   /** A file's highlighting, cached by blob SHA (null: plain). */
   highlight(repoId: number, blobSha: string, path: string, text: string): Promise<Highlight | null> {
     const lang = langOf(path);
     if (!lang || text.length > HIGHLIGHT_MAX_CHARS) return Promise.resolve(null);
-    // A timeout caches null: this content stays plain on this device (it would run away again).
-    return this.cached(`hl:${String(repoId)}:${blobSha}:${lang}`, () => this.watched((api) => api.highlight(text, lang)));
+    const key = `hl:${String(repoId)}:${blobSha}:${lang}`;
+    let lines = 1;
+    for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) lines++;
+    return this.cached(key, () => this.watched(lang, lines, (api) => api.highlight(text, lang))).catch((err: unknown) => {
+      if (!(err instanceof TimedOut)) throw err;
+      // Plain for this session (it would run away again), not stored.
+      this.cache.remember(key, null);
+      return null;
+    });
   }
 
   /** Highlighting already in memory (a file switched back to paints highlighted in its first frame). */
@@ -395,14 +470,14 @@ export class CodeSource {
       const q = new URLSearchParams({sha, page: String(page), limit: '50', stat: 'false', verification: 'false', files: 'false'});
       if (path) q.set('path', path);
       const res = await this.request('v1', `${this.repoPath(repoId)}/commits?${q.toString()}`);
-      return (await res.json() as ApiCommit[]).map(commitInfo);
+      return (await readJson(res) as ApiCommit[]).map(commitInfo);
     });
   }
 
   commit(repoId: number, sha: string): Promise<CommitInfo> {
     return this.cached(`commit:${String(repoId)}:${sha}`, async () => {
       const res = await this.request('v1', `${this.repoPath(repoId)}/git/commits/${sha}?stat=false&verification=false&files=false`);
-      return commitInfo(await res.json() as ApiCommit);
+      return commitInfo(await readJson(res) as ApiCommit);
     });
   }
 
@@ -410,7 +485,7 @@ export class CodeSource {
   compare(repoId: number, base: string, head: string): Promise<CompareInfo> {
     return this.cached(`compare:${String(repoId)}:${base}:${head}`, async () => {
       const res = await this.request('v1', `${this.repoPath(repoId)}/compare/${base}...${head}`);
-      const j = await res.json() as {total_commits?: number; commits?: ApiCommit[] | null};
+      const j = await readJson(res) as {total_commits?: number; commits?: ApiCommit[] | null};
       const commits = (j.commits ?? []).map(commitInfo);
       return {commits, total: j.total_commits ?? commits.length};
     });

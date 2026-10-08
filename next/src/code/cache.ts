@@ -145,6 +145,8 @@ export class CodeCache {
   private evictTimer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
   private readonly db: IDBDatabase;
+  /** Repositories purged this session (see put). */
+  private readonly revoked = new Set<number>();
 
   constructor(db: IDBDatabase, opts: CodeCacheOptions = {}) {
     this.db = db;
@@ -178,6 +180,12 @@ export class CodeCache {
     return rec.v;
   }
 
+  /** Keeps a value in memory only (this session: recomputable, or not worth storing). */
+  remember(key: string, v: unknown, size = sizeOf(v)): void {
+    if (this.revoked.has(keyRepo(key))) return;
+    this.mem.set(key, v, size);
+  }
+
   /** Whether an entry is stored (its small metadata record only: the value is not read). */
   async has(key: string): Promise<boolean> {
     if (this.mem.has(key)) return true;
@@ -191,6 +199,8 @@ export class CodeCache {
 
   /** Stores a value (memory at once, IndexedDB in the background). Only immutable content, or a hint that says so. */
   put(key: string, v: unknown, size = sizeOf(v)): void {
+    // A request that was running when the repository was revoked does not put its answer back.
+    if (this.revoked.has(keyRepo(key))) return;
     this.mem.set(key, v, size);
     if (this.closed) return;
     const at = this.now();
@@ -267,6 +277,7 @@ export class CodeCache {
 
   /** Deletes everything of a repository (its group was revoked: the viewer may no longer read it). */
   async purgeRepo(repoId: number): Promise<void> {
+    this.revoked.add(repoId);
     this.mem.deleteWhere((k) => keyRepo(k) === repoId);
     if (this.closed) return;
     const keys = (await this.entries()).filter((e) => e.repo === repoId).map((e) => e.key);

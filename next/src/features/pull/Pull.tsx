@@ -17,7 +17,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Trash2, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useMemo, useRef, useState} from 'react';
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -26,11 +26,11 @@ import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {anchor, type Anchor, commentAnchor, lineAnchor, lineKey} from '../../code/anchor.ts';
 import {type DiffFile, filePath} from '../../code/diff.ts';
-import {fetchCommits, poolCommits, pullOf, type PullCommits} from '../../code/pull.ts';
+import {fetchCommits, poolCommits, poolHead, pullOf, type PullCommits} from '../../code/pull.ts';
 import {shortSha} from '../../code/refs.ts';
 import {partition, type ReviewDraft, reviewDrafts, type ReviewEvent, saveDraft, submitReview} from '../../code/review.ts';
 import {type CompareInfo, NotCached} from '../../code/source.ts';
-import {newestState, viewedAt} from '../../code/viewed.ts';
+import {newestState, viewedAt, viewedMarks} from '../../code/viewed.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
@@ -92,9 +92,16 @@ export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {ta
 
 type Item = {kind: 'comment'; c: Comment; pending: boolean} | {kind: 'draft'; d: ReviewDraft};
 
+/** Identifies a composer (its line, and the draft it edits): where ReviewDiff keeps its text. */
+const composerKey = (c: Composing) => `${String(c.f)}:${String(c.l)}:${c.key ?? ''}`;
+
 const itemAnchor = (it: Item): Anchor => (it.kind === 'draft' ? it.d.anchor : commentAnchor(it.c));
 
-/** The open composer: its line, and the draft it edits (or a new one). Its text lives in the thread (typing re-renders that thread only). */
+/**
+ * The open composer: its line, and the draft it edits (or a new one). Its text lives in the thread (typing
+ * re-renders that thread only), kept by ReviewDiff too: a thread scrolled out of the virtual list and back,
+ * or a new head, does not lose it.
+ */
 interface Composing {
   f: number;
   l: number;
@@ -104,8 +111,13 @@ interface Composing {
 
 const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
   const diff = useDiff(pr.base_repo_id, commits.base, commits.head);
-  if (diff.state !== 'ready') return <Unloaded loaded={diff} what="This pull request's changes"/>;
-  return <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={commits} files={diff.value}/>;
+  // A new head (a push) keeps the diff on screen until the new one is here (or for good offline): the
+  // review in progress — an open composer, the submit dialog — is not unmounted under the user.
+  const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]}>();
+  if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value});
+  const view = diff.state === 'ready' ? {commits, files: diff.value} : diff.state === 'error' ? undefined : shown;
+  if (!view) return <Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/>;
+  return <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files}/>;
 });
 
 /** The viewer's viewed files at the head on screen (newest state; B9 `?head=` for files changed since an older one). */
@@ -131,7 +143,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   const app = useApp();
   const pool = usePool();
   const {data, userId: me} = useSession();
-  const {intents} = editing(app);
+  const {intents, overlay} = editing(app);
   // Comments are in the issue's group (and pending ones in the viewer's): hold it while the diff is open.
   useHold(data, `issue:${String(issue.id)}`);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -141,6 +153,32 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   const [composing, setComposing] = useState<Composing | undefined>();
   const [reviewing, setReviewing] = useState(false);
   const head = commits.head;
+  // The open composer's text by composer (see Composing).
+  const kept = useRef(new Map<string, string>());
+  const keepText = useCallback((k: string, t: string | undefined) => {
+    if (t === undefined) kept.current.delete(k);
+    else kept.current.set(k, t);
+  }, []);
+  const keptText = useCallback((k: string) => kept.current.get(k), []);
+  // A new head: the line numbers of the open composer may name other lines now. Its text becomes a draft on
+  // the head it was written on (shown with the file's notes, quoted into the review: code/review.ts).
+  const [composeHead, setComposeHead] = useState(head);
+  if (composeHead !== head) {
+    setComposeHead(head);
+    setComposing(undefined);
+  }
+  const before = useRef<{head: string; files: DiffFile[]; composing: Composing | undefined}>(undefined);
+  useEffect(() => {
+    const prev = before.current;
+    before.current = {head, files, composing};
+    const c = prev?.composing;
+    if (!prev || prev.head === head || !c) return;
+    const text = kept.current.get(composerKey(c));
+    const file = prev.files[c.f];
+    const a = file && lineAnchor(file, c.l, prev.head);
+    if (a && text?.trim()) saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: c.key});
+    kept.current.delete(composerKey(c));
+  });
 
   const comments: Item[] = [];
   for (const e of pool.model('Comment').by('issue_id', issue.id)) {
@@ -173,14 +211,10 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   const setViewed = useCallback((f: number, on: boolean) => {
     const file = files[f];
     if (!file) return;
-    // The first mark at a new head: Forgejo seeds the head's state from the previous one, so files that
-    // changed since are sent as not viewed (the classic files view stores that when it renders).
-    const marks: Record<string, boolean> = {};
-    if (viewed.commit && viewed.commit !== head) for (const p of viewed.changed ?? []) marks[p] = false;
-    marks[filePath(file)] = on;
+    const marks = viewedMarks(viewed, head, filePath(file), on, overlay.members('ViewedFile', issue.id));
     intents.submit({kind: 'pr.viewed', issueId: issue.id, repoId: pr.base_repo_id, commitSha: head, files: marks});
     setToggled((t) => new Map(t).set(f, on));
-  }, [files, intents, issue.id, pr.base_repo_id, head, viewed.commit, viewed.changed]);
+  }, [files, intents, overlay, issue.id, pr.base_repo_id, head, viewed]);
 
   const startComment = useCallback((f: number, l: number) => {
     setComposing({f, l, initial: ''});
@@ -197,6 +231,9 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   if (composing) threadKeys.add(lineKey(composing.f, composing.l));
   const threadsSig = [...threadKeys].sort().join(',');
   const notesSig = [...anchored.files.keys()].join(',');
+  // What the threads show (read through the ref): an edited comment, a review leaving PENDING, a draft edited
+  // in another tab re-render them.
+  const itemsSig = items.map((it) => (it.kind === 'comment' ? `${String(it.c.id)}.${String(it.c.content_version)}.${it.c.updated_at}.${String(it.pending)}.${String(it.c.invalidated)}` : `${it.d.key}.${String(it.d.at)}`)).join(',');
   const anchoredRef = useRef(anchored);
   anchoredRef.current = anchored;
 
@@ -205,7 +242,8 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     notes: new Set(notesSig ? notesSig.split(',').map(Number) : []),
     collapsed,
     thread: (f, l) => <Thread issue={issue} pr={pr} f={f} l={l} file={files[f]} head={head} items={anchoredRef.current.lines.get(lineKey(f, l)) ?? []}
-      composing={composing?.f === f && composing.l === l ? composing : undefined} setComposing={setComposing} onDone={closeComposer}/>,
+      composing={composing?.f === f && composing.l === l ? composing : undefined} setComposing={setComposing} onDone={closeComposer}
+      keepText={keepText} keptText={keptText}/>,
     notesOf: (f) => <FileNotes items={anchoredRef.current.files.get(f) ?? []}/>,
     onComment: startComment,
     fileActions: (f) => {
@@ -224,7 +262,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     },
   // The items are read through the ref; what changes rows is in the signatures.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, closeComposer, drafts.length, comments.length]);
+  }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, closeComposer, itemsSig, keepText, keptText]);
 
   useShortcut('review.start', () => {
     setReviewing(true);
@@ -301,24 +339,34 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
 });
 
 /** A line's thread: comments (posted, pending in Forgejo, drafted here) and the composer. */
-const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing, onDone}: {
+const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing, onDone, keepText, keptText}: {
   issue: Entity<'Issue'>; pr: PullRequest; f: number; l: number; file: DiffFile | undefined; head: string; items: Item[];
   composing: Composing | undefined; setComposing: (c: Composing | undefined) => void; onDone: () => void;
+  keepText: (k: string, t: string | undefined) => void; keptText: (k: string) => string | undefined;
 }) {
   const app = useApp();
   const {intents} = editing(app);
-  const [text, setText] = useState(composing?.initial ?? '');
+  // The text kept for this composer (it was scrolled out of the list and back), else what it edits.
+  const [text, setText] = useState(() => (composing ? keptText(composerKey(composing)) ?? composing.initial : ''));
   const [was, setWas] = useState(composing);
   // Another composer opened on this line (a draft to edit): its text.
   if (was !== composing) {
     setWas(composing);
-    setText(composing?.initial ?? '');
+    setText(composing ? keptText(composerKey(composing)) ?? composing.initial : '');
   }
+  const edit = (t: string) => {
+    setText(t);
+    if (composing) keepText(composerKey(composing), t);
+  };
+  const done = () => {
+    if (composing) keepText(composerKey(composing), undefined);
+    onDone();
+  };
   const save = () => {
     const a = file && lineAnchor(file, l, head);
     if (!a || !text.trim()) return;
     saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: composing?.key});
-    onDone();
+    done();
   };
   return (
     <div className="flex flex-col gap-2 border-y border-border-subtle bg-canvas py-3 pr-4 pl-thread">
@@ -331,9 +379,9 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
         }}/>))}
       {composing && (
         <Card label="New review comment">
-          <MarkdownField repoId={pr.base_repo_id} label="Review comment" value={text} autoFocus rows={3} onChange={setText} onSubmit={save} onCancel={onDone}/>
+          <MarkdownField repoId={pr.base_repo_id} label="Review comment" value={text} autoFocus rows={3} onChange={edit} onSubmit={save} onCancel={done}/>
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>
+            <Button size="sm" variant="ghost" onClick={done}>Cancel</Button>
             <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={save}>{composing.key ? 'Update comment' : 'Add review comment'}</Button>
           </div>
         </Card>
@@ -561,6 +609,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
     });
   };
   const offlineWhy = (action: string) => (isOnline ? undefined : onlineOnly(action));
+  // The head on screen: Forgejo refuses the merge if a push landed since (nothing unseen is merged).
+  const headSeen = poolHead(pool, pr);
+  const seen = headSeen ? {head_commit_id: headSeen} : {};
   let state: ReactNode;
   if (pr.merged) state = <><Icon icon={GitMerge} className="text-done"/> Merged{pr.merged_at ? ` ${ago(pr.merged_at)}` : ''}</>;
   else if (closed) state = 'Closed without merging';
@@ -580,7 +631,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             <MenuContent>
               {STYLES.map(([style, label]) => (
                 <MenuItem key={style} onSelect={() => {
-                  run('Merge', {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style}, timeout: 60_000});
+                  run('Merge', {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style, ...seen}, timeout: 60_000});
                 }}>{label}</MenuItem>
               ))}
             </MenuContent>
@@ -590,7 +641,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               run('Cancel auto-merge', {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</Button> :
             <Button disabled={!isOnline || busy} tooltip={offlineWhy('Scheduling the merge') ?? 'Merge when all checks succeed'} onClick={() => {
-              run('Auto-merge', {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: 'merge', merge_when_checks_succeed: true}});
+              run('Auto-merge', {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: 'merge', merge_when_checks_succeed: true, ...seen}});
             }}>Merge when checks succeed</Button>}
           {pr.commits_behind > 0 && (
             <Button disabled={!isOnline || busy} tooltip={offlineWhy('Updating the branch') ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {

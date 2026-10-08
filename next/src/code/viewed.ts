@@ -60,3 +60,18 @@ export function viewedAt(state: ReviewState | undefined, head: string, changed: 
   }
   return {paths, older, commit: state?.commit_sha ?? ''};
 }
+
+/**
+ * What one "viewed" toggle sends at `head`. The first mark at a new head also
+ * sends the files changed since the state's commit as not viewed (Forgejo
+ * seeds the head's state from the previous one; the classic files view stores
+ * that when it renders) — once per path: a path with a pending mark keeps it,
+ * so a second file marked before the server's state for this head is back
+ * does not un-view the first.
+ */
+export function viewedMarks(viewed: Pick<Viewed, 'commit'> & {changed?: ReadonlySet<string> | undefined}, head: string, path: string, on: boolean, pending?: ReadonlyMap<unknown, boolean>): Record<string, boolean> {
+  const marks: Record<string, boolean> = {};
+  if (viewed.commit && viewed.commit !== head) for (const p of viewed.changed ?? []) if (!pending?.has(p)) marks[p] = false;
+  marks[path] = on;
+  return marks;
+}

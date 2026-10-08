@@ -61,6 +61,11 @@ test('a revoked repository\'s content is purged, in memory and in IndexedDB', as
   c.put('blob:8:y', 'other');
   await flush();
   await c.purgeRepo(7);
+  // An answer that was in flight when the repository was revoked is not put back.
+  c.put('blob:7:late', 'late');
+  c.remember('dhl:7:x', 'late');
+  expect(c.peek('blob:7:late')).toBeUndefined();
+  expect(c.peek('dhl:7:x')).toBeUndefined();
   expect(c.peek('blob:7:x')).toBeUndefined();
   expect(await new CodeCache(d).get('blob:7:x')).toBeUndefined();
   expect(await new CodeCache(d).get('blob:8:y')).toBe('other');

@@ -69,8 +69,9 @@ const STATUS: Record<DiffFile['status'], string | undefined> = {added: 'added', 
 /** Per-file highlighting, asked of the worker for the files near the view. */
 function useHighlights(repoId: number, base: string, head: string, count: number) {
   const src = useSource();
-  const [hl, setHl] = useState<(Highlight | null | undefined)[]>(() => new Array<Highlight | null | undefined>(count).fill(undefined));
-  const [asked] = useState(() => new Set<number>());
+  // Files highlighted earlier this session paint highlighted in the first frame.
+  const [hl, setHl] = useState<(Highlight | null | undefined)[]>(() => Array.from({length: count}, (_, f) => src.peekDiffHighlight(repoId, base, head, f)));
+  const [asked] = useState(() => new Set<number>(hl.flatMap((h, f) => (h === undefined ? [] : [f]))));
   const want = useCallback((f: number) => {
     if (asked.has(f)) return;
     asked.add(f);
@@ -190,7 +191,7 @@ export const DiffView = observer(function DiffView({repoId, base, head, files, s
       <div ref={listRef} role="list" aria-label="Changes" tabIndex={0} onKeyDown={onKeyDown}
         aria-activedescendant={active?.t === 'line' ? `${listId}-${String(cursor)}` : undefined}
         aria-keyshortcuts={extras?.onComment ? 'ArrowUp ArrowDown Enter' : 'ArrowUp ArrowDown'}
-        className="relative outline-none focus-visible:outline-offset-0" style={{height: v.getTotalSize()}}>
+        className="relative focus-visible:outline-offset-0" style={{height: v.getTotalSize()}}>
         {items.map((it) => {
           const row = rows[it.index];
           if (!row) return null;

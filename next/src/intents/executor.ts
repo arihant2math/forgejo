@@ -28,8 +28,8 @@ import {requestFor, UnsendableIntent} from './rest.ts';
 import {serverMembers} from './view.ts';
 
 export interface Rejection {
-  /** offline: no connection (F5 will queue instead); refused: the server said no (status); failed: anything else. */
-  reason: 'offline' | 'refused' | 'failed';
+  /** offline: no connection (F5 will queue instead); refused: the server said no (status); unknown: the connection dropped mid-request; failed: anything else. */
+  reason: 'offline' | 'refused' | 'failed' | 'unknown';
   status?: number;
   message: string;
 }
@@ -82,10 +82,12 @@ export class Intents {
   private readonly order = new Map<string, number>();
   private submitted = 0;
   /** Intents confirmed without a sync id, waiting for their own effect: released early by a later echo of their issue. */
-  private readonly awaitingEffect = new Map<string, {issueId: number; release: () => void}>();
+  private readonly awaitingEffect = new Map<string, {issueId: number; keys: Set<string>; release: () => void}>();
   private sending = 0;
   private readonly sendQueue: (() => void)[] = [];
   private barrierPending: Promise<unknown> | undefined;
+  /** A barrier was asked for while one was pending: one more follows (it may have started before that write). */
+  private barrierAgain = false;
 
   constructor(env: IntentEnv) {
     this.env = env;
@@ -118,16 +120,18 @@ export class Intents {
 
   private async run(i: Intent): Promise<void> {
     let res: Response;
+    // A freed slot is handed to the next waiter directly (it is never free in between).
     if (this.sending >= MAX_SENDS) await new Promise<void>((resolve) => this.sendQueue.push(resolve));
-    this.sending++;
+    else this.sending++;
     try {
       res = await this.send(i);
     } catch (err) {
       this.reject(i, err instanceof RejectedError ? err.rejection : {reason: 'failed', message: String(err)});
       return;
     } finally {
-      this.sending--;
-      this.sendQueue.shift()?.();
+      const next = this.sendQueue.shift();
+      if (next) next();
+      else this.sending--;
     }
     const v = Number(res.headers.get(HeaderSyncID));
     runInAction(() => this.phases.set(i.id, 'confirming'));
@@ -182,7 +186,7 @@ export class Intents {
         });
       } catch {
         // The same key makes the retry safe whether or not the attempt reached the server.
-        if (!env.online()) throw new RejectedError({reason: 'offline', message: 'The connection dropped while saving: the change may not have been made.'});
+        if (!env.online()) throw new RejectedError({reason: 'unknown', message: 'The connection dropped while saving: the change may not have been made.'});
         if (++failures > MAX_RETRIES) throw new RejectedError({reason: 'failed', message: 'Forgejo could not be reached.'});
         await sleep(backoff * 2 ** (failures - 1));
         continue;
@@ -240,19 +244,25 @@ export class Intents {
           resolve();
           return;
         }
-        this.awaitingEffect.set(i.id, {issueId: i.issueId, release: resolve});
+        this.awaitingEffect.set(i.id, {issueId: i.issueId, keys: opKeys(i), release: resolve});
         off = env.pool.onApplied((changes) => {
           if (changes.some((c) => c.model === 'Issue' || c.model === 'IssueLabel' || c.model === 'IssueAssignee') && effectHeld(env.pool, i)) resolve();
         });
       });
     }
     try {
-      const echoed = await Promise.race([arrived.then(() => v !== undefined, () => false), timeout.then(() => false)]);
+      const held = await Promise.race([arrived.then(() => true, () => false), timeout.then(() => false)]);
       // The pool holds the state after this write: earlier intents of the issue still waiting for their own effect
-      // are behind it (a later change may have hidden that effect for good), so their layers go too.
-      if (echoed) {
+      // are behind it (a later change may have hidden that effect for good), so their layers go too — all of
+      // them after an echo; without one (only this intent's own effect was seen), those whose fields and
+      // members this intent sets as well (its value is the final one there).
+      if (held) {
         const mine = this.order.get(i.id) ?? 0;
-        for (const [id, w] of this.awaitingEffect) if (w.issueId === i.issueId && (this.order.get(id) ?? 0) < mine) w.release();
+        const keys = v === undefined ? opKeys(i) : undefined;
+        for (const [id, w] of this.awaitingEffect) {
+          if (id === i.id || w.issueId !== i.issueId || (this.order.get(id) ?? 0) >= mine) continue;
+          if (!keys || [...w.keys].every((k) => keys.has(k))) w.release();
+        }
       }
     } finally {
       this.awaitingEffect.delete(i.id);
@@ -265,9 +275,18 @@ export class Intents {
 
   /** One barrier at a time for every slow echo. */
   private barrier(): void {
-    if (this.barrierPending || !this.env.barrier) return;
+    if (!this.env.barrier) return;
+    if (this.barrierPending) {
+      this.barrierAgain = true;
+      return;
+    }
     this.barrierPending = this.env.barrier().catch(() => undefined).finally(() => {
       this.barrierPending = undefined;
+      if (this.barrierAgain && this.phases.size) {
+        this.barrierAgain = false;
+        this.barrier();
+      }
+      this.barrierAgain = false;
     });
   }
 
@@ -291,6 +310,11 @@ class RejectedError extends Error {
     super(r.message);
     this.rejection = r;
   }
+}
+
+/** The overlay keys an intent sets (fields, set members). */
+function opKeys(i: Intent): Set<string> {
+  return new Set(intentOps(i).map((op) => (op.t === 'field' ? `f:${op.model}:${String(op.id)}:${op.field}` : `m:${op.model}:${String(op.owner)}:${String(op.member)}`)));
 }
 
 /** Whether the pool's server state shows the intent's effect. Untracked plain reads. */

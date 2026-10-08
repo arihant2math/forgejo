@@ -321,6 +321,21 @@ describe('executor', () => {
     if (issue7) expect(issueState(w.overlay, issue7)).toBe('open');
   });
 
+  test('no sync id for both: the later intent’s own effect also drops the earlier layer it covers', async () => {
+    const w = world();
+    const {intents} = executor(w, server([ok(), ok()]).fetch);
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'closed', base: 'open'});
+    intents.submit({kind: 'issue.state', issueId: 7, repoId: 10, state: 'open', base: 'closed'});
+    // The server ends open (the pool never shows "closed"): the reopen's effect is there at once, and it
+    // covers the close's only field.
+    await vi.waitFor(() => {
+      expect(w.overlay.size).toBe(0);
+    });
+    expect(intents.phases.size).toBe(0);
+    const issue7 = w.pool.model('Issue').get(7);
+    if (issue7) expect(issueState(w.overlay, issue7)).toBe('open');
+  });
+
   test('at most 6 requests in flight across issues (a bulk edit queues)', async () => {
     const w = world();
     w.pool.batch(() => {

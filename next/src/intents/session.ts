@@ -40,8 +40,8 @@ export function editing(app: App): Editing {
         notify(app, {
           tone: 'danger',
           title: `${what} failed`,
-          description: `${r.message} The change was undone.`,
-          ...(r.reason === 'offline' ? {} : {action: {label: 'Retry', run: () => {
+          description: r.reason === 'unknown' ? `${r.message} It shows again once Forgejo has it.` : `${r.message} The change was undone.`,
+          ...(r.reason === 'offline' || r.reason === 'unknown' ? {} : {action: {label: 'Retry', run: () => {
             intents.submit(retryOf(i));
           }}}),
         });

@@ -407,6 +407,7 @@ test('a change the server refuses is rolled back with a notice', async ({browser
   });
   await page.keyboard.press('l');
   await page.getByPlaceholder('Add or remove labels…').fill('ux');
+  await expect(page.getByRole('option', {name: /^ux\b/})).toBeVisible(); // the picker's candidates are there
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   await expect(sidebarProp(page, 'Labels')).toContainText('ux');

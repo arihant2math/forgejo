@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -94,26 +93,8 @@ func (cl *livesyncSyncClient) waitIfPaused() {
 	}
 }
 
-// livesyncSmallBuffers is an HTTP client whose connections have a small
-// socket receive buffer, so that a client that stops reading blocks the
-// server's writes soon.
-func livesyncSmallBuffers() *http.Client {
-	return &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
-		if err == nil {
-			_ = conn.(*net.TCPConn).SetReadBuffer(4096)
-		}
-		return conn, err
-	}}}
-}
-
 // livesyncDial opens a sync session over transport "ws" or "sse".
 func livesyncDial(t *testing.T, u *url.URL, transport string) *livesyncSyncClient {
-	t.Helper()
-	return livesyncDialWith(t, u, transport, http.DefaultClient)
-}
-
-func livesyncDialWith(t *testing.T, u *url.URL, transport string, httpClient *http.Client) *livesyncSyncClient {
 	t.Helper()
 	cl := &livesyncSyncClient{t: t, msgs: make(chan livesyncMsg, 10000)}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -128,7 +109,7 @@ func livesyncDialWith(t *testing.T, u *url.URL, transport string, httpClient *ht
 	}
 	switch transport {
 	case "ws":
-		ws, resp, err := websocket.Dial(ctx, "ws://"+u.Host+"/-/sync/ws", &websocket.DialOptions{CompressionMode: websocket.CompressionNoContextTakeover, HTTPClient: httpClient})
+		ws, resp, err := websocket.Dial(ctx, "ws://"+u.Host+"/-/sync/ws", &websocket.DialOptions{CompressionMode: websocket.CompressionNoContextTakeover})
 		require.NoError(t, err)
 		assert.Contains(t, resp.Header.Get("Sec-WebSocket-Extensions"), "permessage-deflate")
 		ws.SetReadLimit(64 << 20)
@@ -155,7 +136,7 @@ func livesyncDialWith(t *testing.T, u *url.URL, transport string, httpClient *ht
 	case "sse":
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+u.Host+"/-/sync/sse", nil)
 		require.NoError(t, err)
-		resp, err := httpClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
@@ -454,43 +435,57 @@ func livesyncHubScenario(t *testing.T, u *url.URL, transport string) {
 }
 
 // A client that does not keep up with its live changes is disconnected
-// with resume_from_cursor: it stops reading, 400 comments of 4 KB arrive in
-// a few materializer batches, each far beyond the send buffer (64 KiB)
-// while the frame before it is being written. When the client reads again
-// it gets what was written before the overflow, then resume_from_cursor at
-// a position it was sent (its resume point), then the session is closed
-// (WS 1013); the rest was dropped. (A writer blocked by a full socket is
-// TestSlowConsumer's case: here the kernel would first buffer up to
-// net.ipv4.tcp_wmem's maximum, 4 MiB by default, per connection.)
+// with resume_from_cursor: it stops reading, comments arrive in deliveries
+// of ≈ 200 KB until its socket is full and the queue behind it passes the
+// send buffer (1 MiB). When the client reads again it gets what was
+// written before the overflow, then resume_from_cursor at a position it
+// was sent (its resume point), then the session is closed (WS 1013); the
+// rest was dropped. (A writer blocked by a full socket is
+// TestSlowConsumer's case: here the kernel first buffers about 4 MB, the
+// server's send buffer (net.ipv4.tcp_wmem's maximum) and the client's
+// receive buffer at its initial size (tcp_rmem's default; autotuning
+// grows it only as the application reads). The client's receive buffer is
+// not made smaller: a 4 KiB window drains at about 100 KB/s on loopback
+// (delayed ACKs) and stays slow after it is raised again, so the server's
+// write timeout cut a frame before the client caught up.)
 func TestLivesyncHubSlowConsumer(t *testing.T) {
 	livesyncSkipSQLite(t)
-	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "65536"})
+	livesyncServeWith(t, map[string]string{"SEND_BUFFER": "1048576"})
 	onApplicationRun(t, func(t *testing.T, u *url.URL) {
 		livesyncWaitBackfill(t)
 		livesyncSettle(t)
 		for _, transport := range []string{"ws", "sse"} {
 			t.Run(transport, func(t *testing.T) {
-				cl := livesyncDialWith(t, u, transport, livesyncSmallBuffers())
+				cl := livesyncDial(t, u, transport)
 				cl.send(livesyncHello(livesyncToken(t, &user_model.User{ID: 2}), protocol.GroupRequest{Group: "issue:1"}))
 				cl.waitType(protocol.MsgWelcome)
 				caughtUp := cl.waitType(protocol.MsgCaughtUp)
 				cl.pause()
 
-				// The comments arrive in deliveries of 3 (≈ 26 KB of changes,
-				// well below SEND_BUFFER even when two land in one 16 ms frame
-				// window): the writer writes them until the sockets are full
-				// (the kernel absorbs a few MB first), then the queue grows
-				// past SEND_BUFFER and the session is closed. Root cause of
-				// the B6/B7 flake: the old test inserted the 400 comments as
-				// fast as it could, and when the tailer, behind under load,
-				// handed the hub more than SEND_BUFFER of them in one Deliver,
-				// the queue overflowed inside that one call — the writers are
-				// woken only once Deliver is done (B5 final review) — so not
-				// a single frame was written ("frames were written until the
-				// socket was full" failed with 0 comments received). That is
-				// the designed bound (a burst above SEND_BUFFER in one tailer
-				// batch disconnects even a reading client, which resumes from
-				// its position), not what this test is about.
+				// Each transaction of 24 comments (≈ 200 KB of changes, a
+				// fifth of SEND_BUFFER) is committed, materialized and
+				// handed to the hub (livesyncWaitHub, a real barrier) before
+				// the next one, so no Deliver carries more than one, and
+				// the queue holds a few at most while the writer can write
+				// (it batches changes for FrameInterval). After the first
+				// one the test also waits for its frame to be taken by the
+				// writer, so the client is sure to receive something. The
+				// writer writes them until the sockets are full (the kernel
+				// absorbs a few MB first), then the queue grows past
+				// SEND_BUFFER and the session is closed.
+				// Root cause of the B6/B7 flake: the old test inserted the
+				// comments as fast as it could, and when the tailer, behind
+				// under load, handed the hub more than SEND_BUFFER of them in
+				// one Deliver, the queue overflowed inside that one call — the
+				// writers are woken only once Deliver is done (B5 final review)
+				// — so not a single frame was written ("frames were written
+				// until the socket was full" failed with 0 comments received).
+				// B8's first fix waited on a log head read right after the
+				// commit, i.e. not at all (materialization is asynchronous),
+				// so its sessions overflowed that same way, just less often.
+				// That bound is by design (a burst above SEND_BUFFER in one
+				// tailer batch disconnects even a reading client, which
+				// resumes from its position), not what this test is about.
 				slow, _ := livesyncMetric(t, "forgejo_livesync_slow_consumer_disconnects_total")
 				random := make([]byte, 2<<10)
 				written := 0
@@ -499,9 +494,10 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 					if overflowed > slow {
 						break
 					}
-					require.Less(t, written, 3000, "the session never overflowed")
+					require.Less(t, written, 6000, "the session never overflowed")
+					frames, _ := livesyncMetric(t, "forgejo_livesync_frames_total")
 					require.NoError(t, db.WithTx(t.Context(), func(ctx context.Context) error {
-						for range 3 {
+						for range 24 {
 							_, _ = rand.Read(random)
 							content := fmt.Sprintf("slow %s %d %x", transport, written, random) // hardly compressible
 							written++
@@ -512,6 +508,12 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 						return nil
 					}))
 					livesyncWaitHub(t)
+					if written == 24 {
+						assert.Eventually(t, func() bool {
+							n, _ := livesyncMetric(t, "forgejo_livesync_frames_total")
+							return n > frames
+						}, livesyncWait, 2*time.Millisecond, "the first delivery was taken by the writer")
+					}
 				}
 				livesyncSettle(t)
 				last := livesyncLogHead(t)
@@ -550,16 +552,24 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 	})
 }
 
-// livesyncWaitHub waits until the hub has received every sync log entry
-// written so far.
+// livesyncWaitHub is a barrier after a committed write: it waits until
+// every outbox row assigned so far is materialized (Consume deletes the
+// rows it consumed in the transaction that appends their log entries) and
+// then until the hub has received the log up to the head read after that.
+// Reading only the log head right after the write does not wait at all:
+// materialization is asynchronous, so the head is still the previous one.
 func livesyncWaitHub(t *testing.T) {
 	t.Helper()
+	last, err := capture.LastAssignedID(t.Context())
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool {
+		n, err := livesyncMaster(t).Where("id <= ?", last).Count(new(livesync_model.Change))
+		require.NoError(t, err)
+		return n == 0
+	}, livesyncWait, 2*time.Millisecond, "the outbox up to %d was materialized", last)
 	head := livesyncLogHead(t)
 	assert.Eventually(t, func() bool {
-		if h := livesyncLogHead(t); h > head {
-			head = h
-		}
 		hub := livesync_service.Hub()
 		return hub != nil && hub.Stats(0).Position >= head
-	}, livesyncWait, 2*time.Millisecond, "the hub received the log")
+	}, livesyncWait, 2*time.Millisecond, "the hub received the log up to %d", head)
 }

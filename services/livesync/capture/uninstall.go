@@ -145,40 +145,56 @@ func Uninstall(ctx context.Context) (*UninstallReport, error) {
 		if err != nil {
 			return fmt.Errorf("livesync: read the outbox: %w", err)
 		}
-		if has {
-			table := quoteTable(livesync_model.Change{}.TableName())
-			stmts = append(stmts, "TRUNCATE TABLE "+table)
-			if setting.Database.Type.IsMySQL() {
-				// TRUNCATE resets MySQL's AUTO_INCREMENT (PostgreSQL's
-				// sequence is kept): put it back, so that outbox ids stay
-				// monotonic for readers and the idempotency layer's ranges
-				// on instances that still run.
-				last, err := LastAssignedID(ctx)
-				if err != nil {
-					return err
-				}
-				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s AUTO_INCREMENT = %d", table, last+1))
-			}
-			report.Cleared = true
-		}
-		if len(stmts) == 0 {
+		if len(stmts) == 0 && !has {
 			return nil
 		}
-		run := func(ctx context.Context) error { return execStatements(ctx, stmts) }
+		// The outbox is emptied even if it looked empty: triggers that
+		// are not dropped yet may still write rows.
+		table := quoteTable(livesync_model.Change{}.TableName())
 		if setting.Database.Type.IsPostgreSQL() {
-			err = db.WithTx(ctx, run) // DDL is transactional: all or nothing
+			// DDL is transactional: all or nothing. TRUNCATE keeps the
+			// sequence, so outbox ids stay monotonic.
+			stmts = append(stmts, "TRUNCATE TABLE "+table)
+			err = db.WithTx(ctx, func(ctx context.Context) error { return execStatements(ctx, stmts) })
 		} else {
-			err = run(ctx)
+			err = mysqlUninstall(ctx, stmts, table)
 		}
 		if err != nil {
 			return fmt.Errorf("livesync: remove the capture triggers: %w", err)
 		}
+		report.Cleared = true
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return report, err
+	return report, nil
+}
+
+// mysqlUninstall runs the DROP TRIGGER statements one by one (MySQL DDL
+// commits implicitly), then empties the outbox. TRUNCATE resets MySQL's
+// AUTO_INCREMENT (PostgreSQL's sequence is kept), so it is put back to the
+// last assigned id + 1 for outbox ids to stay monotonic for the readers and
+// the idempotency layer's ranges of instances that still run (they reinstall
+// the triggers, TRIGGER_CHECK_INTERVAL). The counter is read only after the
+// last trigger is gone: until then the remaining triggers keep assigning
+// ids, and a value read before would set the counter below them. Once every
+// DROP TRIGGER returned, no transaction that fired a trigger is still open
+// (DROP TRIGGER waits for the metadata lock of its table), and none can
+// assign an outbox id until the triggers are installed again, which needs
+// the schema lock this runs under.
+func mysqlUninstall(ctx context.Context, drops []string, table string) error {
+	if err := execStatements(ctx, drops); err != nil {
+		return err
+	}
+	last, err := LastAssignedID(ctx)
+	if err != nil {
+		return err
+	}
+	return execStatements(ctx, []string{
+		"TRUNCATE TABLE " + table,
+		fmt.Sprintf("ALTER TABLE %s AUTO_INCREMENT = %d", table, last+1),
+	})
 }
 
 func quoteTable(name string) string {

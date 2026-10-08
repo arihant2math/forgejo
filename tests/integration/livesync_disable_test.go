@@ -6,12 +6,14 @@ package integration
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
+	user_model "forgejo.org/models/user"
 	"forgejo.org/routers"
 	livesync_router "forgejo.org/routers/livesync"
 	livesync_service "forgejo.org/services/livesync"
@@ -129,4 +131,71 @@ func TestLivesyncTriggerWatch(t *testing.T) {
 	})
 	id := livesyncInsertLabel(t)
 	livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelLabel, id, protocol.OpUpsert))
+}
+
+// Uninstalling while other connections write keeps outbox ids monotonic.
+// On MySQL the DROP TRIGGER statements run one by one and TRUNCATE resets
+// AUTO_INCREMENT: the counter must be put back above every id the
+// remaining triggers assigned while the others were being dropped (B8
+// review: it was read before the drops and went back by hundreds), or the
+// rows captured once a running instance reinstalls the triggers get ids at
+// or below its reader's cursor. The writer updates a user (the user table's
+// triggers are among the last dropped) and records the outbox counter after
+// each committed update.
+func TestLivesyncUninstallMonotonicIDs(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	ctx := context.Background()
+	livesyncInstallCapture(t)
+
+	var seen, writes atomic.Int64
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			if _, err := db.GetEngine(ctx).ID(2).NoAutoTime().Incr("num_stars").Update(new(user_model.User)); err != nil {
+				done <- err
+				return
+			}
+			last, err := capture.LastAssignedID(ctx)
+			if err != nil {
+				done <- err
+				return
+			}
+			if last > seen.Load() {
+				seen.Store(last)
+			}
+			writes.Add(1)
+		}
+	}()
+	require.Eventually(t, func() bool { return writes.Load() >= 20 }, livesyncWait, time.Millisecond, "the writer runs")
+	before := writes.Load()
+	report, err := capture.Uninstall(ctx)
+	close(stop)
+	require.NoError(t, <-done)
+	require.NoError(t, err)
+	assert.Positive(t, report.Dropped)
+	assert.True(t, report.Cleared)
+	t.Logf("%d updates during the uninstall", writes.Load()-before)
+	assert.Empty(t, livesyncOutbox(t))
+
+	last, err := capture.LastAssignedID(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, last, seen.Load(), "the outbox counter did not go back")
+
+	// Installed again (what a running instance's trigger check does): the
+	// next captured change has an id above every earlier one.
+	_, err = capture.Ensure(ctx, true)
+	require.NoError(t, err)
+	id := livesyncInsertLabel(t)
+	var rows []livesync_model.Change
+	require.NoError(t, livesyncMaster(t).Where("tbl = ? AND row_id = ?", "label", id).Find(&rows))
+	require.NotEmpty(t, rows)
+	assert.Greater(t, rows[0].ID, seen.Load())
 }

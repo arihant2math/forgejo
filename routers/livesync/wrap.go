@@ -31,8 +31,9 @@ const (
 // them) or Init fails otherwise, it logs why and returns inner itself,
 // unchanged: Forgejo then behaves
 // exactly as upstream. Otherwise it registers livesync's graceful-shutdown hook
-// and returns a handler that serves /-/sync/* and /-/next/* itself and passes
-// every other request to inner untouched.
+// and returns a handler that serves /-/sync/* and /-/next/* itself, runs the
+// API v1 writes that carry an Idempotency-Key through the idempotency layer
+// (idempotency.go) and passes every other request to inner untouched.
 func Wrap(inner http.Handler) http.Handler {
 	if err := livesync_service.Init(graceful.GetManager().HammerContext()); err != nil {
 		var notInstalled *capture.NotInstalledError
@@ -66,6 +67,10 @@ type handler struct {
 func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	p, ok := ownPath(req.URL.Path)
 	if !ok {
+		if path, ok := keyed(req); ok {
+			h.serveKeyed(w, req, path)
+			return
+		}
 		h.inner.ServeHTTP(w, req)
 		return
 	}

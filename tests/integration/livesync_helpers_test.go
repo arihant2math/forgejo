@@ -125,16 +125,17 @@ func livesyncTableSchemas(t *testing.T) map[string][]string {
 	return res
 }
 
-// livesyncResetCapture empties the outbox, the sync log and the entity index
-// and forgets every state kept in livesync_meta (reader cursor, schema
-// epochs, pending repairs, log head/writer/floor, handled epochs, backfill
-// progress) except the tables version, creating livesync's tables if needed.
+// livesyncResetCapture empties the outbox, the sync log, the entity index and
+// the idempotency records and forgets every state kept in livesync_meta
+// (reader cursor, schema epochs, pending repairs, log head/writer/floor,
+// handled epochs, backfill progress) except the tables version, creating
+// livesync's tables if needed.
 func livesyncResetCapture(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, livesync_service.EnsureTables(ctx))
 	master := livesyncMaster(t)
-	for _, table := range []string{"livesync_change", "livesync_log", "livesync_entity"} {
+	for _, table := range []string{"livesync_change", "livesync_log", "livesync_entity", "livesync_idempotency"} {
 		_, err := master.Exec("DELETE FROM " + table)
 		require.NoError(t, err)
 	}

@@ -16,7 +16,7 @@ import {serviceWorker} from './tools/vite-plugin-sw.ts';
 // ("x is not a function"; e2e/boot.spec.ts catches it). The cost: internals
 // only a lazy route uses (menu/dialog ones) load at boot too (~5 KB br today).
 // floating-ui and react-remove-scroll's dependency tree are each one chunk.
-const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover']);
+const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover', 'toggle-group', 'toggle']);
 // Radix internals only menus and dialogs use (focus trapping, roving focus): their own chunk, off the boot
 // route (the tooltip, which the shell needs at boot, uses none of them). They import the shared internals,
 // never the other way round, so no chunk cycle (budget.ts fails on one; e2e/boot.spec.ts runs the build).
@@ -53,6 +53,18 @@ export default defineConfig({
   ],
   css: {
     transformer: 'lightningcss',
+  },
+  // Module workers (they are started with {type: 'module'}): the code worker's Shiki grammars are
+  // dynamic imports, one lazy chunk each (an IIFE worker would inline all of them).
+  worker: {
+    format: 'es',
+    // Grammar chunks are named lang-*: the service worker caches them on first use instead of at install
+    // (≈ 3 MB: precaching them held up the offline install of everything else; tools/vite-plugin-sw.ts).
+    rolldownOptions: {
+      output: {
+        chunkFileNames: (c) => (c.moduleIds.length > 0 && c.moduleIds.every((id) => id.includes('/@shikijs/langs/')) ? 'assets/lang-[name]-[hash].js' : 'assets/[name]-[hash].js'),
+      },
+    },
   },
   build: {
     target: 'esnext',

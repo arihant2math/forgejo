@@ -20,7 +20,7 @@ import {MetaCache} from '../data/meta.ts';
 import {groupKind, type ModelName, type ModelTypes, STRUCTURE_KINDS} from '../data/models.ts';
 import type {Persister} from '../data/persist.ts';
 import {Pool} from '../data/pool.ts';
-import type {Workspace} from '../protocol/types.gen.ts';
+import type {LogClosedMessage, LogMessage, Workspace} from '../protocol/types.gen.ts';
 import type {SyncAuth, SyncClient, SyncEvents, SyncStatus} from './client.ts';
 import {markOnce, measure} from './rum.ts';
 import {type TabMessage, Tabs, type TabsEnv} from './tabs.ts';
@@ -90,6 +90,11 @@ export interface Data {
   whenSynced(group: string, v: number, signal?: AbortSignal): Promise<void>;
   /** See SyncClient.loadClosedPage. */
   loadClosedPage(group: string, before?: string, limit?: number): Promise<{next: string | undefined; count: number}>;
+  /**
+   * Tails a job's log over the leader's session (B9): `fn` gets its messages
+   * (with repeats: code/logs.ts merges). `from` resumes a task's lines. Returns the untail.
+   */
+  tailLog(jobId: number, from: {taskId: number; offset: number} | undefined, fn: (msg: LogMessage | LogClosedMessage) => void): () => void;
   on<K extends keyof SyncEvents>(name: K, fn: (e: SyncEvents[K]) => void): () => void;
   /** Flushes and stops (the tab gives up leadership). */
   close(): Promise<void>;
@@ -143,10 +148,13 @@ export async function openData(opts: DataOptions): Promise<Data> {
   }]));
 
   const emit = <K extends keyof SyncEvents>(name: K, e: SyncEvents[K]) => {
-    for (const fn of listeners.get(name) ?? []) (fn as (e: SyncEvents[K]) => void)(e);
+    // A copy: a listener may subscribe another while this runs (a log tail restarting), which must not hear this event.
+    for (const fn of [...listeners.get(name) ?? []]) (fn as (e: SyncEvents[K]) => void)(e);
   };
   const myHolds = new Map<string, number>();
   const holder = `tab:${tabs.id}`;
+  /** Jobs this tab tails: asked again of a new leader (the old one's tails died with it; lines repeat, logs.ts merges). */
+  const myTails = new Set<number>();
   /** Another tab led at some point: this tab's pool mirrored it and may have missed an announcement. */
   let sawLeader = !tabs.hasChannel && tabs.hasLocks;
   /** This tab took over (set before the client exists: hydration then loads instead of mirroring). */
@@ -210,6 +218,11 @@ export async function openData(opts: DataOptions): Promise<Data> {
       case 'pin':
         client.pin(args[0] as string, args[1] as boolean);
         return Promise.resolve();
+      case 'log':
+        // [job, holder, from | undefined | null (untail)]
+        if (args[2] === null) client.untailLog(args[0] as number, args[1] as string);
+        else client.tailLog(args[0] as number, args[1] as string, args[2] as {taskId: number; offset: number} | undefined);
+        return Promise.resolve();
       case 'synced': {
         // A follower asks: the state at v must be in IndexedDB, announced (commit) before the answer.
         // Not while the group loads: the persister defers its buckets then, and the answer would come
@@ -246,6 +259,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
           tabs.post({t: 'alive', tab: tabs.id, holds: [...myHolds.keys()]});
           // Requests to the previous leader may be lost: ask the new one (they are idempotent).
           for (const [id, r] of requests) tabs.post({t: 'req', tab: tabs.id, id, op: r.op, args: r.args});
+          for (const job of myTails) void ask('log', job, holder, undefined);
         }
         break;
       case 'res':
@@ -400,7 +414,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       role.leader = true;
     });
     runPendingLocally();
-    for (const name of ['revoked', 'issueDropped', 'newBuild', 'schemaMismatch', 'caughtUp', 'wrongUser', 'workspace'] as const) {
+    for (const name of ['revoked', 'issueDropped', 'newBuild', 'schemaMismatch', 'caughtUp', 'wrongUser', 'workspace', 'log'] as const) {
       cleanups.push(c.on(name, (e) => {
         emit(name, e as never);
         tabs.post({t: 'event', name, e});
@@ -412,6 +426,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       tabs.post({t: 'status', status: s});
     }));
     for (const g of myHolds.keys()) c.hold(g, holder);
+    for (const job of myTails) c.tailLog(job, holder);
     const sweep = setInterval(() => {
       const now = Date.now();
       for (const [tab, at] of tabSeen) {
@@ -484,6 +499,18 @@ export async function openData(opts: DataOptions): Promise<Data> {
       return ask<undefined>('synced', group, v).then(() => undefined);
     },
     loadClosedPage: (group, before, limit) => ask('closedPage', group, before, limit),
+    tailLog(jobId, from, fn) {
+      const off = data.on('log', ({msg}) => {
+        if (msg.job_id === jobId) fn(msg);
+      });
+      myTails.add(jobId);
+      void ask('log', jobId, holder, from);
+      return () => {
+        off();
+        myTails.delete(jobId);
+        void ask('log', jobId, holder, null);
+      };
+    },
     on(name, fn) {
       let set = listeners.get(name);
       if (!set) listeners.set(name, set = new Set());

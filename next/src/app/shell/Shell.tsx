@@ -90,10 +90,21 @@ function GlobalShortcuts({app}: {app: App}) {
     const id = app.session && lastBoard(app.session.userId);
     void navigate(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
   });
+  useShortcut('go.code', () => {
+    const r = app.session?.data.pool.model('Repository').get(app.ui.repoOpen)?.data;
+    if (r) void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
+  });
   return null;
 }
 
 function AppShell({app}: {app: App}) {
+  // A repository the viewer may no longer read: its git content leaves this device's code cache (F7),
+  // whether or not a code view ever opened in this tab.
+  useEffect(() => app.session?.data.on('revoked', ({group}) => {
+    if (!group.startsWith('repo:') || !app.session) return;
+    const db = app.session.data.db;
+    void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(Number(group.slice(5)))).catch(() => undefined);
+  }), [app]);
   useEffect(() => {
     // The first frame rendered from local data (PLAN §5.2 step 3).
     markOnce('firstPaintFromCache');
@@ -102,6 +113,10 @@ function AppShell({app}: {app: App}) {
       // After the first paint: the service worker precaches this build (offline boots, PLAN §5.2 step 5).
       void import('../sw.ts').then((m) => {
         m.startServiceWorker(app);
+      }).catch(() => undefined);
+      // Pull requests awaiting the viewer's review: their diffs and files onto this device (PLAN §5.5, F7).
+      void import('../../code/prefetch.ts').then((m) => {
+        m.startPrefetch(app);
       }).catch(() => undefined);
     });
   }, [app]);

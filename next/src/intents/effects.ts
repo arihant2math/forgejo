@@ -59,8 +59,13 @@ export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
         // The column alone does not show the position asked for: always sent (a repeat changes nothing).
         return false;
       case 'pr.viewed': {
-        const viewed = serverMembers(pool, 'ViewedFile', i.issueId, me);
-        return Object.entries(i.files).every(([path, v]) => viewed.has(path) === v);
+        // The viewer's state saved for the intent's head only: a file viewed at an older head may have
+        // changed since (and must be sent again), F7.
+        const pull = [...pool.model('PullRequest').by('issue_id', i.issueId)][0];
+        if (!pull) return false;
+        const state = [...pool.model('ReviewState').by('pull_id', pull.id)].find((s) => s.data.user_id === me && s.data.commit_sha === i.commitSha);
+        if (!state) return false;
+        return Object.entries(i.files).every(([path, v]) => (state.data.updated_files[path] === 2) === v);
       }
     }
   });

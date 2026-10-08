@@ -19,7 +19,7 @@ test('group kinds mirror services/livesync/hub/models.go', () => {
   const body = src.slice(src.indexOf('var modelKinds'), src.indexOf('\n}\n', src.indexOf('var modelKinds')));
   const prefixes: Record<string, string> = {
     GroupPrefixRepo: 'repo', GroupPrefixOrg: 'org', GroupPrefixUser: 'user', GroupPrefixIssue: 'issue',
-    GroupPrefixProfile: 'profile', GroupPrefixProfiles: 'profiles', GroupPrefixOwner: 'owner',
+    GroupPrefixProfile: 'profile', GroupPrefixProfiles: 'profiles', GroupPrefixOwner: 'owner', GroupPrefixTeam: 'team',
   };
   const go = new Map<string, string[]>();
   for (const m of body.matchAll(/protocol\.Model(\w+):\s*\{([^}]*)\}/g)) {
@@ -38,7 +38,7 @@ test('group names parse like protocol.ParseGroup', () => {
   expect(groupKind('repo:0')).toBeUndefined();
   expect(groupKind('*')).toBeUndefined();
   expect(groupKind('!perm')).toBeUndefined();
-  expect(groupKind('team:1')).toBeUndefined();
+  expect(groupKind('team:1')).toBe('team');
   expect(groupId('issue:7')).toBe(7);
   expect(groupId('profiles:limited')).toBe(0);
   expect(canHold('repo', 'Issue')).toBe(true);

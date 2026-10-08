@@ -6,7 +6,7 @@
 // chunk, preloaded when the app is idle.
 
 import {useNavigate} from '@tanstack/react-router';
-import {BookMarked, CircleCheck, CircleDot, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home, Inbox, KanbanSquare, Layers, Keyboard, LogOut, Monitor, Moon, SquarePen, Sun, SunMoon} from 'lucide-react';
+import {BookMarked, CircleCheck, Code2, CircleDot, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home, Inbox, KanbanSquare, Layers, Keyboard, LogOut, Monitor, Moon, SquarePen, Sun, SunMoon} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {useDeferredValue, useEffect, useMemo, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '../../ui/Command.tsx';
@@ -55,6 +55,11 @@ const COMMANDS: PaletteCommand[] = [
   {id: 'boards', label: 'Go to the board', icon: KanbanSquare, shortcut: 'go.board', keywords: 'project kanban boards', run: (app, nav) => {
     const id = app.session && lastBoard(app.session.userId);
     void nav(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
+  }},
+  {id: 'code', label: 'Go to the code of this repository', icon: Code2, shortcut: 'go.code', keywords: 'source files tree browse', run: (app, nav) => {
+    const r = app.session?.data.pool.model('Repository').get(app.ui.repoOpen)?.data;
+    if (r) void nav({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
+    else notify(app, {tone: 'neutral', title: 'Open a repository first', description: 'The code view is per repository.'});
   }},
   {id: 'home', label: 'Go home', icon: Home, keywords: 'dashboard', run: (_, nav) => void nav({to: '/'})},
   {id: 'shortcuts', label: 'Keyboard shortcuts', icon: Keyboard, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {

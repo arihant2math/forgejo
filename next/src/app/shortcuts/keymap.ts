@@ -36,6 +36,7 @@ export const KEYMAP = {
   'go.pulls': {keys: 'g p', label: 'Go to my pull requests', scope: 'global'},
   'go.inbox': {keys: 'g n', label: 'Go to the inbox', scope: 'global'},
   'go.board': {keys: 'g b', label: 'Go to the board', scope: 'global'},
+  'go.code': {keys: 'g c', label: 'Go to the code of this repository', scope: 'global'},
   'submit': {keys: 'mod+enter', label: 'Submit', scope: 'global', anywhere: true},
   'list.next': {keys: 'j', label: 'Next item', scope: 'list'},
   'list.prev': {keys: 'k', label: 'Previous item', scope: 'list'},
@@ -63,6 +64,7 @@ export const KEYMAP = {
   'diff.prevFile': {keys: '[', label: 'Previous file', scope: 'diff'},
   'diff.nextFile': {keys: ']', label: 'Next file', scope: 'diff'},
   'review.start': {keys: 'r', label: 'Start a review', scope: 'diff'},
+  'diff.viewed': {keys: 'v', label: 'Mark the file viewed', scope: 'diff'},
 } as const satisfies Record<string, KeyDef>;
 
 export type ShortcutId = keyof typeof KEYMAP;

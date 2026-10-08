@@ -8,7 +8,9 @@
 //
 //   install    caches this build: the app shell (index.html, checked to be
 //              this build's) and every hashed asset — all or nothing, so an
-//              offline boot never misses a chunk. It waits (versioned
+//              offline boot never misses a chunk — but the code worker's
+//              grammars, cached when first used (prefetch warms the ones a
+//              prefetched pull request needs: src/code/prefetch.ts). It waits (versioned
 //              activation): the page offers "Reload" when a new build is
 //              ready, and the new worker activates then, or once every tab of
 //              the old one is closed.
@@ -33,6 +35,8 @@ interface Build {
   base: string;
   /** Asset paths below the base. */
   assets: string[];
+  /** Of those, the ones cached on first use, not at install (the code worker's grammars: ≈ 3 MB). */
+  lazy: string[];
   kill: boolean;
 }
 
@@ -91,7 +95,8 @@ async function precache(): Promise<void> {
   // The server may already run a newer build: then this worker's assets are not what the shell needs (the next sw.js is).
   if (buildOf(html) !== build.version) throw new Error(`the shell is build ${buildOf(html) ?? '?'}, not ${build.version}`);
   const cache = await caches.open(CACHE);
-  await cache.addAll(build.assets.map((a) => build.base + a));
+  const lazy = new Set(build.lazy);
+  await cache.addAll(build.assets.filter((a) => !lazy.has(a)).map((a) => build.base + a));
   // Last: a failed install leaves no shell that could be served without its assets.
   await cache.put(SHELL, cachedShell(html, shell));
 }

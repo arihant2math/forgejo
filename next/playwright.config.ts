@@ -28,7 +28,7 @@ export default defineConfig({
     // F5 (offline.spec.ts): offline edits, conflicts, the service worker, two tabs.
     // F6 (f6.spec.ts): inbox, boards, offline create, search, saved views, the composer.
     // One worker: both files share the server's users and issues (and timings are measured).
-    {name: 'forgejo', testMatch: ['forgejo.spec.ts', 'issues.spec.ts', 'offline.spec.ts', 'f6.spec.ts'], dependencies: ['build'], timeout: 180_000, workers: 1},
+    {name: 'forgejo', testMatch: ['forgejo.spec.ts', 'issues.spec.ts', 'offline.spec.ts', 'f6.spec.ts', 'f7.spec.ts'], dependencies: ['build'], timeout: 180_000, workers: 1},
   ],
   // NEXT_E2E_NO_SERVERS=1: run only against what is already up (e.g. --project forgejo against a
   // Forgejo serving next/dist: the build server would rebuild dist under it).

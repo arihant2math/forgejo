@@ -25,7 +25,8 @@ import {canHold, clientSchemas, groupKind, isModel, MODEL_NAMES, type ModelName,
 import type {Persister} from '../data/persist.ts';
 import type {Applied, Pool} from '../data/pool.ts';
 import type {
-  BootstrapRequiredMessage, ClientMessage, DeltaMessage, Grant, GroupRequest, Refusal, ServerMessage, WelcomeMessage, Workspace,
+  BootstrapRequiredMessage, ClientMessage, DeltaMessage, Grant, GroupRequest, LogClosedMessage, LogMessage, Refusal, ServerMessage,
+  WelcomeMessage, Workspace,
 } from '../protocol/types.gen.ts';
 import {ProtocolVersion} from '../protocol/types.gen.ts';
 import {HttpError, load, type LoadResult} from './bootstrap.ts';
@@ -74,6 +75,8 @@ export interface SyncEvents {
   wrongUser: {viewerId: number};
   /** GET /-/sync/workspace answered (every session): the groups the viewer's workspace is made of. */
   workspace: {workspace: Workspace};
+  /** A job log tail's message (B9: `log`, `log_closed`), for every tab that tails the job (Data.tailLog). */
+  log: {msg: LogMessage | LogClosedMessage};
 }
 
 type Listener<K extends keyof SyncEvents> = (e: SyncEvents[K]) => void;
@@ -135,6 +138,13 @@ interface Session {
   reqSeq: number;
 }
 
+/** A tailed job log: who wants it, and where the session resumes it (the lines received so far of a task). */
+interface Tail {
+  holders: Set<string>;
+  taskId: number;
+  offset: number;
+}
+
 const RECENT = 'recent';
 const MAX_BARRIERS = 16;
 const WORKSPACE = 'workspace';
@@ -174,6 +184,8 @@ export class SyncClient {
   private readonly offPool: () => void;
   /** whenAt: groups → waiters for a position (resolved when the group's position reaches it). */
   private readonly positionWaiters = new Map<string, {v: number; resolve: () => void}[]>();
+  /** Job logs tailed over the session (B9), by job id; resumed after a reconnect. */
+  private readonly tails = new Map<number, Tail>();
   private readonly onOnline = () => {
     if (this.stopped || this.status.connection === 'unauthorized') return;
     this.attempts = 0;
@@ -360,12 +372,62 @@ export class SyncClient {
 
   /** Drops every hold of a tab (it closed or stopped answering). */
   releaseHolder(holder: string): void {
+    for (const job of [...this.tails.keys()]) this.untailLog(job, holder);
     let changed = false;
     for (const [g, set] of this.ephemeral) {
       if (set.delete(holder)) changed = true;
       if (!set.size) this.ephemeral.delete(g);
     }
     if (changed) this.recompute();
+  }
+
+  /**
+   * Tails a job's log for a holder (a tab). One tail per job on the session;
+   * `from` (the lines a holder already has of a task) restarts it there —
+   * a tab that joins late or saw a gap asks from 0 or from its gap, and the
+   * others drop the repeated lines (code/logs.ts). Messages arrive as `log`
+   * events; the tail is sent again after a reconnect, from the lines received.
+   */
+  tailLog(jobId: number, holder: string, from?: {taskId: number; offset: number}): void {
+    let t = this.tails.get(jobId);
+    if (!t) this.tails.set(jobId, t = {holders: new Set(), taskId: 0, offset: 0});
+    t.holders.add(holder);
+    if (from) {
+      t.taskId = from.taskId;
+      t.offset = from.offset;
+    } else {
+      t.taskId = 0;
+      t.offset = 0;
+    }
+    this.sendTail(jobId, t);
+  }
+
+  untailLog(jobId: number, holder: string): void {
+    const t = this.tails.get(jobId);
+    if (!t?.holders.delete(holder) || t.holders.size) return;
+    this.tails.delete(jobId);
+    if (this.session?.welcomed) this.send({type: 'log_untail', job_id: jobId});
+  }
+
+  private sendTail(jobId: number, t: Tail): void {
+    if (!this.session?.welcomed) return; // sent with the others after the welcome
+    this.send(t.taskId ? {type: 'log_tail', job_id: jobId, task_id: t.taskId, offset: t.offset} : {type: 'log_tail', job_id: jobId});
+  }
+
+  private logMessage(msg: LogMessage | LogClosedMessage): void {
+    const t = this.tails.get(msg.job_id);
+    if (msg.type === 'log_closed') {
+      this.tails.delete(msg.job_id);
+    } else if (t) {
+      if (msg.task_id !== t.taskId) {
+        t.taskId = msg.task_id;
+        t.offset = 0;
+      }
+      if (msg.offset <= t.offset) t.offset = Math.max(t.offset, msg.offset + msg.lines.length);
+      // Finished: the server ended the tail (a later tail answers at once from the archived log).
+      if (msg.done) this.tails.delete(msg.job_id);
+    }
+    if (t || msg.type === 'log_closed') this.emit('log', {msg});
   }
 
   /** Pins or unpins a group (kept offline, never dropped by the LRU). */
@@ -596,6 +658,10 @@ export class SyncClient {
           console.error('livesync:', msg.code, msg.message);
         }
         break;
+      case 'log':
+      case 'log_closed':
+        this.logMessage(msg);
+        return;
       case 'session':
         break;
     }
@@ -633,6 +699,7 @@ export class SyncClient {
       if (s?.position !== undefined && !session.subs.has(g) && !session.limited.has(g)) late.push({group: g, since: s.position});
     }
     this.subscribe(session, late);
+    for (const [job, t] of this.tails) this.sendTail(job, t);
     session.ping = setInterval(() => {
       this.probe(session);
     }, this.o.pingInterval);

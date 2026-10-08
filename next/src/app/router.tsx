@@ -25,7 +25,7 @@ import {isLocalPath, sitePath} from './config.ts';
 import {lazyView} from './lazy.tsx';
 import {RouteError, RouteNotFound} from './RouteStatus.tsx';
 import {loadRepo, type RepoMatch} from './repo.ts';
-import {type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch} from './search.ts';
+import {type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch, type PullSearch, pullSearch} from './search.ts';
 import {Shell} from './shell/Shell.tsx';
 import {readSplash, type SkeletonShape} from './splash.ts';
 import type {App} from './store.ts';
@@ -145,6 +145,7 @@ const repoPullRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/pulls/$index',
   loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  validateSearch: (s): PullSearch => pullSearch(s),
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
@@ -165,6 +166,16 @@ const boardRoute = createRoute({
   component: lazyView(() => import('../features/board/BoardView.tsx'), 'BoardPage'),
 });
 
+// Code (F7): one route for every code view of a repository; the path after it mirrors Forgejo's
+// (`src/branch/main/…`, `commit/<sha>`, `compare/a...b`, …), parsed by the view (code/refs.ts).
+const codeRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/code/$owner/$repo/$',
+  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  staticData: {skeleton: 'detail'},
+  component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
+});
+
 // Dev-only pages: `import.meta.env.DEV` is false in production builds, so
 // they and their chunks are not shipped.
 const devRoutes = import.meta.env.DEV ?
@@ -178,7 +189,7 @@ const routeTree = rootRoute.addChildren([
   callbackRoute,
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute,
-    repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, boardsRoute, boardRoute,
+    repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, boardsRoute, boardRoute, codeRoute,
   ]),
   ...devRoutes,
 ]);
@@ -211,4 +222,5 @@ export const ROUTES = {
   repoPull: repoPullRoute.id,
   myIssues: myIssuesRoute.id,
   myPulls: myPullsRoute.id,
+  code: codeRoute.id,
 } as const;

@@ -637,3 +637,48 @@ describe('whenAt (the B7 sync-id echo)', () => {
     });
   });
 });
+
+describe('job log tails (B9)', () => {
+  test('one tail per job across holders; resumed after a reconnect from the lines received; untail by the last holder', async () => {
+    const t = setup();
+    const got: unknown[] = [];
+    t.c.on('log', ({msg}) => got.push(msg));
+    // Asked before the session is welcomed: sent after the welcome.
+    t.c.tailLog(42, 'tab:a');
+    const ws = await connected(t);
+    expect(ws.sent.filter((m) => m.type === 'log_tail')).toEqual([]);
+    ws.emit(welcome());
+    await vi.waitFor(() => {
+      expect(ws.sent.filter((m) => m.type === 'log_tail')).toEqual([{type: 'log_tail', job_id: 42}]);
+    });
+    ws.emit({type: 'log', job_id: 42, task_id: 7, offset: 0, lines: [{t: 1, c: 'a'}, {t: 2, c: 'b'}]});
+    ws.emit({type: 'log', job_id: 99, task_id: 1, offset: 0, lines: [{t: 1, c: 'not tailed'}]});
+    expect(got).toHaveLength(1);
+    // A second tab joins: the tail restarts from 0 (it needs every line; the first tab drops repeats).
+    t.c.tailLog(42, 'tab:b');
+    expect(ws.sent.filter((m) => m.type === 'log_tail').at(-1)).toEqual({type: 'log_tail', job_id: 42});
+    ws.emit({type: 'log', job_id: 42, task_id: 7, offset: 0, lines: [{t: 1, c: 'a'}, {t: 2, c: 'b'}, {t: 3, c: 'c'}]});
+    // The connection drops: the new session resumes from the 3 lines received.
+    ws.close(1006);
+    await vi.waitFor(() => {
+      expect(FakeWS.all.length).toBe(2);
+    });
+    const ws2 = t.ws();
+    ws2.open();
+    await vi.waitFor(() => {
+      expect(ws2.last('hello')).toBeDefined();
+    });
+    ws2.emit(welcome());
+    await vi.waitFor(() => {
+      expect(ws2.sent.filter((m) => m.type === 'log_tail')).toEqual([{type: 'log_tail', job_id: 42, task_id: 7, offset: 3}]);
+    });
+    // One holder leaves: still tailed; the tab closing drops the other.
+    t.c.untailLog(42, 'tab:a');
+    expect(ws2.sent.filter((m) => m.type === 'log_untail')).toEqual([]);
+    t.c.releaseHolder('tab:b');
+    expect(ws2.sent.filter((m) => m.type === 'log_untail')).toEqual([{type: 'log_untail', job_id: 42}]);
+    // log_closed always reaches the listeners.
+    ws2.emit({type: 'log_closed', job_id: 42, reason: 'forbidden'});
+    expect(got.at(-1)).toEqual({type: 'log_closed', job_id: 42, reason: 'forbidden'});
+  });
+});

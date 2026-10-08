@@ -17,6 +17,9 @@ import {rolldown} from 'rolldown';
 import type {Plugin} from 'vite';
 import {BUILD_META} from '../src/sw/routes.ts';
 
+/** Assets cached on first use (grammar chunks of the code worker). */
+const LAZY = 'assets/lang-';
+
 export function serviceWorker(): Plugin {
   let base = '/';
   let root = '';
@@ -35,6 +38,8 @@ export function serviceWorker(): Plugin {
         const page = bundle['index.html'];
         if (page?.type !== 'asset') return;
         const assets = Object.keys(bundle).filter((f) => f.startsWith('assets/') && !f.endsWith('.map')).sort();
+        // Cached on first use, not at install (the code worker's grammars: see vite.config.ts).
+        const lazy = assets.filter((f) => f.startsWith(LAZY));
         const html = String(page.source);
         const version = createHash('sha256').update(html).update(assets.join('\n')).digest('hex').slice(0, 16);
         const marked = html.replace(/<meta charset="UTF-8">/i, (m) => `${m}<meta name="${BUILD_META}" content="${version}">`);
@@ -43,7 +48,7 @@ export function serviceWorker(): Plugin {
         const kill = process.env.NEXT_SW_KILL === '1';
         const worker = await rolldown({
           input: resolve(root, 'src/sw/sw.ts'),
-          transform: {define: {__NEXT_BUILD__: JSON.stringify({version, base, assets, kill})}},
+          transform: {define: {__NEXT_BUILD__: JSON.stringify({version, base, assets, lazy, kill})}},
           platform: 'browser',
         });
         const {output} = await worker.generate({format: 'iife', minify: true});

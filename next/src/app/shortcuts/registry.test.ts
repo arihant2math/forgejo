@@ -167,7 +167,7 @@ test('scopes a view pushes together: the innermost decides a key they share (a b
 
 test('views that push several scopes: every key two of them share is meant, and the innermost one wins', () => {
   // [scopes from outer to inner, keys the inner one takes over on purpose]
-  const views: [string[], string[]][] = [[['list', 'issue'], []], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['l']]];
+  const views: [string[], string[]][] = [[['list', 'issue'], []], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['l']], [['list', 'diff'], []]];
   for (const [scopes, intended] of views) {
     const byKey = new Map<string, string[]>();
     for (const [id, def] of Object.entries(KEYMAP)) {

@@ -116,7 +116,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const mirrorCommit = (c: Extract<TabMessage, {t: 'commit'}>) => {
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
-      for (const g of c.dropped) for (const e of [...pool.groupEntities(g)]) pool.mirror(e.model, e.id, null, c.seq);
+      for (const g of c.dropped) pool.mirrorDropGroup(g, c.seq);
       for (const w of c.buckets) pool.mirrorBucket(w.m, w.g, w.b, w.r, c.seq);
     });
   };

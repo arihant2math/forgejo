@@ -27,7 +27,14 @@
 import type {EntityRecord} from './entity.ts';
 import {MODEL_NAMES, type ModelName} from './models.ts';
 
-export const IDB_VERSION = 1;
+export const IDB_VERSION = 2;
+
+/**
+ * Model stores written by an older layout than this are recreated (and their
+ * models re-bootstrapped) even when their keys and indexes look the same:
+ * 2 = buckets per group kind (pool.ts KIND_BUCKETS); 1 = id mod 512.
+ */
+const MODEL_LAYOUT = 2;
 
 export const META = 'meta';
 export const INTENTS = 'intents';
@@ -95,8 +102,15 @@ function createStore(db: IDBDatabase, name: string, l: StoreLayout): IDBObjectSt
 }
 
 /** Brings the database to `want` inside a versionchange transaction; returns the dropped models. */
-export function reconcile(db: IDBDatabase, tx: IDBTransaction, want: Layout): string[] {
+export function reconcile(db: IDBDatabase, tx: IDBTransaction, want: Layout, oldVersion = IDB_VERSION): string[] {
   const dropped: string[] = [];
+  if (oldVersion > 0 && oldVersion < MODEL_LAYOUT) {
+    for (const name of [...db.objectStoreNames]) {
+      if (!name.startsWith(MODEL_PREFIX)) continue;
+      db.deleteObjectStore(name);
+      dropped.push(name.slice(MODEL_PREFIX.length));
+    }
+  }
   for (const name of [...db.objectStoreNames]) {
     if (Object.hasOwn(want, name)) continue;
     if (PRESERVED.has(name)) continue; // never delete user data, even if a later layout forgets a store
@@ -146,9 +160,9 @@ export function openDatabase(userId: number, opts: OpenOptions = {}): Promise<ID
   const want = opts.layout ?? layout();
   return new Promise((resolve, reject) => {
     const req = factory.open(dbName(userId), opts.version ?? IDB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev: IDBVersionChangeEvent) => {
       const tx = req.transaction;
-      if (tx) reconcile(req.result, tx, want);
+      if (tx) reconcile(req.result, tx, want, ev.oldVersion);
     };
     req.onsuccess = () => {
       const db = req.result;

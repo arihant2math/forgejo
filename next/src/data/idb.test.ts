@@ -7,7 +7,7 @@ import {IDBFactory} from 'fake-indexeddb';
 import {describe, expect, test} from 'vitest';
 import type {Issue} from '../protocol/types.gen.ts';
 import {Hydrator} from './hydrate.ts';
-import {BLOBS, DRAFTS, INTENTS, type Layout, layout, META, modelStore, openDatabase, readMeta, request} from './idb.ts';
+import {BLOBS, DRAFTS, IDB_VERSION, INTENTS, type Layout, layout, META, modelStore, openDatabase, readMeta, request} from './idb.ts';
 import {MetaCache} from './meta.ts';
 import {CHUNK_VALUES, type Commit, Persister} from './persist.ts';
 import {bucketOf, Pool} from './pool.ts';
@@ -84,7 +84,7 @@ describe('schema', () => {
     next[modelStore('Issue')] = {...issueLayout, indexes: {...issueLayout.indexes, state: 'r.d.state'}};
     next[INTENTS] = {keyPath: 'seq', autoIncrement: true, indexes: {key: 'key'}};
     Reflect.deleteProperty(next, modelStore('Star'));
-    const db2 = await openDatabase(7, {factory, layout: next, version: 2});
+    const db2 = await openDatabase(7, {factory, layout: next, version: IDB_VERSION + 1});
     expect(await all(db2, modelStore('Issue'))).toEqual([]);
     expect(await all(db2, modelStore('Label'))).toHaveLength(1);
     expect(await all(db2, INTENTS)).toEqual([{kind: 'issue.addLabel', key: 'k1', seq: 1}, {kind: 'issue.editBody', key: 'k2', seq: 2}]);
@@ -96,6 +96,19 @@ describe('schema', () => {
     db2.close();
   });
 
+  test('a database of the version-1 layout (id mod 512 buckets) gets new model stores, keeps the rest', async () => {
+    const factory = new IDBFactory();
+    const db1 = await openDatabase(9, {factory, version: 1});
+    await putRaw(db1, modelStore('Label'), [{g: 'repo:1', b: 300, r: [{id: 300, g: 'repo:1', v: 1, d: {id: 300}}]}]);
+    await putRaw(db1, DRAFTS, [{key: 'd', text: 'x'}]);
+    db1.close();
+    const db2 = await openDatabase(9, {factory});
+    expect(await all(db2, modelStore('Label'))).toEqual([]);
+    expect(await all(db2, DRAFTS)).toHaveLength(1);
+    expect(((await readMeta(db2)).get('droppedModels') as string[]).length).toBe(40);
+    db2.close();
+  });
+
   test('a layout that forgets intents or drafts does not delete them', async () => {
     const factory = new IDBFactory();
     const db1 = await openDatabase(8, {factory});
@@ -103,7 +116,7 @@ describe('schema', () => {
     db1.close();
     const next = layout();
     Reflect.deleteProperty(next, DRAFTS);
-    const db2 = await openDatabase(8, {factory, layout: next, version: 2});
+    const db2 = await openDatabase(8, {factory, layout: next, version: IDB_VERSION + 1});
     expect(await all(db2, DRAFTS)).toHaveLength(1);
     db2.close();
   });

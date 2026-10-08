@@ -158,8 +158,15 @@ export class Persister {
       const drops = [...this.drops];
       this.clears = new Set();
       this.drops = new Set();
+      // A dropped group's meta (its state removed, or reset) goes in the same transaction as the
+      // drop, deferred or not: a position must never outlive the records it covers.
+      const dropMeta = this.meta.takeKeys(drops.map((g) => `group:${g}`));
       try {
-        const tx = writeTx(this.db, MODEL_NAMES.map(modelStore));
+        const tx = writeTx(this.db, [...MODEL_NAMES.map(modelStore), META]);
+        for (const [k, v] of dropMeta) {
+          if (v === undefined) tx.objectStore(META).delete(k);
+          else tx.objectStore(META).put({k, v});
+        }
         for (const m of clears) tx.objectStore(modelStore(m)).clear();
         for (const g of drops) {
           const kind = groupKind(g);
@@ -172,6 +179,7 @@ export class Persister {
       } catch (err) {
         for (const m of clears) this.clears.add(m);
         for (const g of drops) this.drops.add(g);
+        this.meta.restoreDirty(dropMeta);
         this.failures++;
         this.opts.onError?.(err);
         this.schedule();

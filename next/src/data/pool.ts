@@ -264,6 +264,14 @@ export class Pool {
   private readonly seqs: IdMap<number> = new Map();
   /** Follower mode: the flush that emptied a model's store (older states are gone). */
   private readonly clearedAt = new Map<ModelName, number>();
+  /** Follower mode: the flush that deleted a group's buckets. */
+  private readonly droppedAt = new Map<string, number>();
+  /**
+   * Leader: groups purged or reset and models cleared in this session. What
+   * IndexedDB held of them is gone (or going): hydration still reading it
+   * must not bring it back (`load` skips it).
+   */
+  private readonly unloadable = {groups: new Set<string>(), models: new Set<ModelName>()};
   private readonly listeners = new Set<(changes: readonly Applied[]) => void>();
   private pending: Applied[] = [];
   private depth = 0;
@@ -401,6 +409,7 @@ export class Pool {
    */
   purgeGroup(group: string): number {
     const maxV = this.maxSeen;
+    this.unloadable.groups.add(group);
     const prev = this.purged.get(group);
     if (prev === undefined || prev < maxV) this.purged.set(group, maxV);
     this.dropTombs(group, maxV);
@@ -432,6 +441,7 @@ export class Pool {
     this.dropTombs(group, Number.POSITIVE_INFINITY);
     this.purged.delete(group);
     this.floors.delete(group);
+    this.unloadable.groups.add(group);
     return n;
   }
 
@@ -442,8 +452,11 @@ export class Pool {
    */
   load<M extends ModelName>(m: M, records: readonly EntityRecord<M>[]): number {
     const store = this.stores[m];
+    if (this.unloadable.models.has(m)) return 0;
+    const skipGroups = this.unloadable.groups.size ? this.unloadable.groups : undefined;
     let n = 0;
     for (const r of records) {
+      if (skipGroups?.has(r.g)) continue;
       this.seen(r.v);
       const held = store._map.get(r.id);
       const t = this.tombs.size || this.tombsOld.size ? this.getTomb(tombKey(m, r.id, r.g)) : undefined;
@@ -477,6 +490,10 @@ export class Pool {
     if (last !== undefined && seq < last) return;
     const cleared = this.clearedAt.get(m);
     if (cleared !== undefined && seq < cleared) return;
+    if (rec) {
+      const dropped = this.droppedAt.get(rec.g);
+      if (dropped !== undefined && seq < dropped) return;
+    }
     seqs.set(id, seq);
     const store = this.stores[m];
     const held = store._map.get(id);
@@ -552,6 +569,13 @@ export class Pool {
     this.dirty.delete(m);
     this.seqs.delete(m);
     if (seq !== undefined) this.clearedAt.set(m, Math.max(this.clearedAt.get(m) ?? 0, seq));
+    else this.unloadable.models.add(m);
+  }
+
+  /** Follower mode: the group's buckets were deleted by flush `seq`. */
+  mirrorDropGroup(g: string, seq: number): void {
+    this.droppedAt.set(g, Math.max(this.droppedAt.get(g) ?? 0, seq));
+    for (const e of [...this.byGroup.get(g) ?? []]) this.mirror(e.model, e.id, null, seq);
   }
 
   // ---- internals ----

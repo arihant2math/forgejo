@@ -125,10 +125,10 @@
   }
 }
 
-/* A container that shows the focus outline while a descendant has keyboard focus (a board column whose
- * listbox has it: visible even when the column is empty). */
+/* A container that shows the focus outline while its listbox has keyboard focus (a board column: visible even
+ * when the column is empty; its menu button keeps its own ring only). */
 @utility focus-visible-within {
-  &:has(:focus-visible) {
+  &:has([role="listbox"]:focus-visible) {
     outline: var(--focus-ring-width) solid var(--color-focus);
     outline-offset: 0;
   }

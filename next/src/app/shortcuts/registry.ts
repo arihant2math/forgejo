@@ -108,6 +108,21 @@ export class ShortcutRegistry {
     return [...seen];
   }
 
+  /**
+   * Whether a shortcut's keys run something else now: another binding with
+   * the same keys in a deeper active scope (on a board, L is the next
+   * column, not labels). Its hint must not be shown then.
+   */
+  shadowed(id: ShortcutId): boolean {
+    const def = this.keymap[id];
+    if (!def) return false;
+    const mine = this.depth(def.scope);
+    return this.bindings.some((b) => {
+      const other = this.keymap[b.id];
+      return b.id !== id && other?.keys === def.keys && this.depth(other.scope) > mine;
+    });
+  }
+
   /** Runs what a shortcut is bound to now (as if its keys were typed); false when nothing is. */
   run(id: ShortcutId): boolean {
     let best: Binding | undefined;

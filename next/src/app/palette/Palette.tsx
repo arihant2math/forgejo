@@ -16,7 +16,7 @@ import {lastBoard} from '../lastBoard.ts';
 import {notify} from '../notices.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {requestSignOut, switchToClassic} from '../session.ts';
-import {KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
+import {activeHint, KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
@@ -168,7 +168,7 @@ function PaletteBody({app}: {app: App}) {
         {actions.length > 0 && (
           <CommandGroup heading={targetName}>
             {actions.map((a) => (
-              <CommandItem key={a.id} value={`act:${a.id}`} icon={a.icon} shortcut={a.shortcut && shortcutHint(a.shortcut)} onSelect={run(() => {
+              <CommandItem key={a.id} value={`act:${a.id}`} icon={a.icon} shortcut={a.shortcut && activeHint(a.shortcut)} onSelect={run(() => {
                 a.run();
               })}>
                 {a.label}

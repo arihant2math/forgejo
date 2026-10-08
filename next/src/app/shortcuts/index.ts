@@ -8,13 +8,18 @@
 //   <Button shortcut={shortcutHint('create')}>…    // hints come from the keymap
 
 import {useEffect, useLayoutEffect, useRef} from 'react';
-import type {Scope, ShortcutId} from './keymap.ts';
+import {type Scope, shortcutHint, type ShortcutId} from './keymap.ts';
 import {ShortcutRegistry} from './registry.ts';
 
 export {formatKeys, KEYMAP, SCOPE_LABELS, shortcutHint, type Scope, type ShortcutId} from './keymap.ts';
 
 /** The app's registry (attached to the window by the shell). */
 export const shortcuts = new ShortcutRegistry();
+
+/** A shortcut's hint, unless its keys do something else on this page now (menus and the palette, read when they open). */
+export function activeHint(id: ShortcutId): string | undefined {
+  return shortcuts.shadowed(id) ? undefined : shortcutHint(id);
+}
 
 /**
  * Binds `run` to a shortcut while the component is mounted (and `enabled`).

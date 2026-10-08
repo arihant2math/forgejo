@@ -29,7 +29,7 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {
-  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, EmptyState, Hint, Icon, ListGroupHeader, ListRow, Menu,
+  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, EmptyState, Icon, ListGroupHeader, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuTrigger, StatusDot,
 } from '../../ui/index.ts';
 import {AgoCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
@@ -241,7 +241,13 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
   };
   /** Triage keeps the cursor moving: after E/U/pin on the cursor's row, J goes on from there. */
   const triage = (to: (st: string) => 'read' | 'unread' | 'pinned' | undefined) => () => {
-    setStatus(app, cursor.targets(), to);
+    // Without a cursor (from the palette, before J): the first row, which then has the cursor.
+    let targets = cursor.targets();
+    if (!targets.length && ids[0] !== undefined) {
+      cursor.setActive(ids[0]);
+      targets = [ids[0]];
+    }
+    setStatus(app, targets, to);
   };
   useShortcutScope('list');
   useShortcut('list.next', () => {
@@ -295,44 +301,44 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
       if (!o) setMenuId(undefined);
     }}>
       <ContextMenuTrigger asChild>
-    <div
-      ref={listRef}
-      role="listbox"
-      aria-label="Notifications"
-      aria-multiselectable
-      data-shortcuts
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      onFocus={(e) => {
-        if (e.target !== e.currentTarget || cursor.activeId !== undefined) return;
-        const first = items.map((it) => rows[it.index]).find((r) => r?.type === 'note');
-        if (first?.type === 'note') cursor.setActive(first.id);
-      }}
-      onContextMenuCapture={(e) => {
-        const el = (e.target as Element).closest('[data-note]');
-        const id = el ? Number(el.getAttribute('data-note')) : cursor.activeId;
-        if (id === undefined) {
-          e.preventDefault();
-          return;
-        }
-        setMenuId(id);
-        cursor.setActive(id);
-      }}
-      className="relative w-full outline-none"
-      style={{height: virtualizer.getTotalSize()}}
-    >
-      {items.map((it) => {
-        const r = rows[it.index];
-        if (!r) return null;
-        return (
-          <div key={it.key} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
-            {r.type === 'note' ?
-              <NoteRow id={r.id} cursor={cursor} onClick={click}/> :
-              <ListGroupHeader leading={r.key === 'pinned' ? <Icon icon={Pin}/> : r.key.startsWith('repo:') ? <Icon icon={FolderGit2}/> : null} label={r.label} count={r.count}/>}
-          </div>
-        );
-      })}
-    </div>
+        <div
+          ref={listRef}
+          role="listbox"
+          aria-label="Notifications"
+          aria-multiselectable
+          data-shortcuts
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onFocus={(e) => {
+            if (e.target !== e.currentTarget || cursor.activeId !== undefined) return;
+            const first = items.map((it) => rows[it.index]).find((r) => r?.type === 'note');
+            if (first?.type === 'note') cursor.setActive(first.id);
+          }}
+          onContextMenuCapture={(e) => {
+            const el = (e.target as Element).closest('[data-note]');
+            const id = el ? Number(el.getAttribute('data-note')) : cursor.activeId;
+            if (id === undefined) {
+              e.preventDefault();
+              return;
+            }
+            setMenuId(id);
+            cursor.setActive(id);
+          }}
+          className="relative w-full outline-none"
+          style={{height: virtualizer.getTotalSize()}}
+        >
+          {items.map((it) => {
+            const r = rows[it.index];
+            if (!r) return null;
+            return (
+              <div key={it.key} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
+                {r.type === 'note' ?
+                  <NoteRow id={r.id} cursor={cursor} onClick={click}/> :
+                  <ListGroupHeader leading={r.key === 'pinned' ? <Icon icon={Pin}/> : r.key.startsWith('repo:') ? <Icon icon={FolderGit2}/> : null} label={r.label} count={r.count}/>}
+              </div>
+            );
+          })}
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
         {menuId !== undefined && (
@@ -386,7 +392,7 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick}: {n: Enti
         {issue ? <StateIcon issue={issue}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitHorizontal : InboxIcon}/>}
       </>}
       trailing={<>
-        {status === 'pinned' && <Hint label="Pinned"><Icon icon={Pin} size="sm"/></Hint>}
+        {status === 'pinned' && <Icon icon={Pin} size="sm"/>}
         <span className="truncate">{repo?.get('full_name') ?? ''}{issue ? `#${String(issue.get('number'))}` : ''}</span>
         <AgoCell at={at}/>
       </>}

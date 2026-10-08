@@ -13,7 +13,8 @@
 // Scopes: `global` bindings work everywhere; the others only while a view
 // that pushed that scope is mounted (useShortcutScope), innermost first.
 
-export type Scope = 'global' | 'list' | 'issue' | 'inbox' | 'board' | 'diff' | 'palette';
+/** `editor`: keys a markdown field handles itself while it has the focus (not through the registry). */
+export type Scope = 'global' | 'list' | 'issue' | 'inbox' | 'board' | 'editor' | 'diff' | 'palette';
 
 export interface KeyDef {
   keys: string;
@@ -58,7 +59,7 @@ export const KEYMAP = {
   'issue.edit': {keys: 'e', label: 'Edit', scope: 'issue'},
   'issue.subscribe': {keys: 'shift+s', label: 'Subscribe or unsubscribe', scope: 'issue'},
   'issue.comment': {keys: 'r', label: 'Comment', scope: 'issue'},
-  'editor.preview': {keys: 'mod+shift+p', label: 'Toggle the preview', scope: 'global', anywhere: true},
+  'editor.preview': {keys: 'mod+shift+p', label: 'Toggle the preview', scope: 'editor', anywhere: true},
   'diff.prevFile': {keys: '[', label: 'Previous file', scope: 'diff'},
   'diff.nextFile': {keys: ']', label: 'Next file', scope: 'diff'},
   'review.start': {keys: 'r', label: 'Start a review', scope: 'diff'},
@@ -72,6 +73,7 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   issue: 'Issues and pull requests',
   inbox: 'Inbox',
   board: 'Boards',
+  editor: 'Markdown editor',
   diff: 'Diffs',
   palette: 'Command menu',
 };

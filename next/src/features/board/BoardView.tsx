@@ -22,7 +22,7 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {activeHint, formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
@@ -32,8 +32,7 @@ import {
   TextLink,
 } from '../../ui/index.ts';
 import {closedPager} from '../issues/closed.ts';
-import {issueActions} from '../issues/actions.ts';
-import {openPicker} from '../issues/actions.ts';
+import {issueActions, openPicker} from '../issues/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StatusCell, TitleCell, usePool} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {KeyedFlags} from '../issues/flags.ts';
@@ -300,7 +299,9 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
               const fromKeys = (e.target as Element).getAttribute('role') === 'listbox' ? model.cursor.activeId : undefined;
               const id = el ? Number(el.getAttribute('data-card')) : fromKeys;
               if (id === undefined) {
-                e.preventDefault();
+                // The browser's own menu stays in text fields and on selected text.
+                const t = e.target as HTMLElement;
+                if (!t.closest('input,textarea,[contenteditable="true"]') && !document.getSelection()?.toString()) e.preventDefault();
                 return;
               }
               setMenuCard(id);
@@ -355,7 +356,7 @@ function CardMenu({model, issueId, open}: {model: BoardModel; issueId: number; o
       </ContextMenuSub>
       {actions.length > 0 && <ContextMenuSeparator/>}
       {actions.map((a) => (
-        <ContextMenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && shortcutHint(a.shortcut)} onSelect={() => {
+        <ContextMenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && activeHint(a.shortcut)} onSelect={() => {
           a.run();
         }}>{a.label}</ContextMenuItem>
       ))}

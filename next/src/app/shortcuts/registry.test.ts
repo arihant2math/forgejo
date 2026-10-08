@@ -194,3 +194,16 @@ test('available() lists the bound shortcuts of active scopes; run() runs the inn
   expect(r.run('create')).toBe(true);
   expect(ran).toEqual(['read', 'create']);
 });
+
+test('shadowed(): a key an inner scope has taken does not advertise the outer binding (no "Labels L" on a board)', () => {
+  const r = new ShortcutRegistry({apple: false});
+  r.bind('issue.labels', () => undefined);
+  r.pushScope('issue');
+  expect(r.shadowed('issue.labels')).toBe(false);
+  r.bind('board.right', () => undefined);
+  const pop = r.pushScope('board');
+  expect(r.shadowed('issue.labels')).toBe(true);
+  expect(r.shadowed('board.right')).toBe(false);
+  pop();
+  expect(r.shadowed('issue.labels')).toBe(false);
+});

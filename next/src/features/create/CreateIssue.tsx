@@ -7,8 +7,9 @@
 // queue sends it — the page's URL is then replaced (IssueView). Title,
 // description (the markdown composer), labels (status and priority are
 // exclusive scoped labels), assignee and milestone; ⌘↵ creates. What is
-// typed is kept as one draft (with its repository) until it is created or
-// discarded, also when the dialog closes before the debounce.
+// typed is kept as a draft of that repository until it is created or
+// discarded (also when the dialog closes before the debounce); the dialog
+// opens on the page's repository and says when it brought a draft back.
 //
 // The form is a small observable model: typing re-renders the field typed
 // in, not the menus.
@@ -33,8 +34,8 @@ import {assigneeCandidates, repoLabels} from '../issues/candidates.ts';
 import {usePool} from '../issues/cells.tsx';
 import {exclusiveScope} from '../issues/labels.ts';
 
-/** The one draft of the dialog (its repository is in the record). */
-const DRAFT = 'text:new-issue';
+/** The dialog's draft in a repository. */
+const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
 const LAST_REPO = 'forgejo-next:create';
 
 function rememberRepo(repoId: number): void {
@@ -69,6 +70,8 @@ class Form {
   labels: number[] = [];
   assignee = 0;
   milestone = 0;
+  /** The text came back from a draft (the footer offers to discard it). */
+  restored = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
   private readonly app: App;
@@ -76,12 +79,12 @@ class Form {
   constructor(app: App, initialRepo: number) {
     this.app = app;
     const repos = repoChoices(app);
-    const d = untracked(() => editing(app).intents.drafts.get(DRAFT));
-    const repo = d?.repoId && repos.some((r) => r.id === d.repoId) ? d.repoId : initialRepo;
-    this.repoId = repos.some((r) => r.id === repo) ? repo : repos[0]?.id ?? 0;
-    const text = d?.text ?? '';
+    // The page's repository (or the one last used); its own draft, if any.
+    this.repoId = repos.some((r) => r.id === initialRepo) ? initialRepo : repos[0]?.id ?? 0;
+    const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
     this.title = text.split('\n')[0] ?? '';
     this.body = text.split('\n').slice(2).join('\n');
+    this.restored = Boolean(text.trim());
     makeAutoObservable<Form, 'timer' | 'done' | 'app'>(this, {timer: false, done: false, app: false}, {autoBind: true});
   }
 
@@ -96,6 +99,8 @@ class Form {
   }
 
   setRepo(id: number): void {
+    // The text goes along: its draft moves to the new repository.
+    void editing(this.app).intents.discardDraft(draftKey(this.repoId));
     this.repoId = id;
     this.labels = [];
     this.assignee = 0;
@@ -133,14 +138,23 @@ class Form {
     }, 400);
   }
 
+  /** Empties the form and forgets its draft. */
+  discard(): void {
+    clearTimeout(this.timer);
+    void editing(this.app).intents.discardDraft(draftKey(this.repoId));
+    this.title = '';
+    this.body = '';
+    this.restored = false;
+  }
+
   /** Writes the draft now (the dialog closes before the debounce). */
   flush(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
     if (this.done) return;
     const {intents} = editing(this.app);
-    if (!this.title.trim() && !this.body.trim()) void intents.discardDraft(DRAFT);
-    else void intents.keepText({key: DRAFT, title: 'A new issue', issueId: 0, repoId: this.repoId, text: `${this.title}\n\n${this.body}`});
+    if (!this.title.trim() && !this.body.trim()) void intents.discardDraft(draftKey(this.repoId));
+    else void intents.keepText({key: draftKey(this.repoId), title: 'A new issue', issueId: 0, repoId: this.repoId, text: `${this.title}\n\n${this.body}`});
   }
 
   /** Creates the issue (an intent) and forgets the draft; returns its page, or undefined when it cannot be made. */
@@ -151,7 +165,7 @@ class Form {
     this.done = true;
     clearTimeout(this.timer);
     const {intents} = editing(this.app);
-    void intents.discardDraft(DRAFT);
+    void intents.discardDraft(draftKey(this.repoId));
     const tempId = uuid();
     intents.submit({
       kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: [...this.labels],
@@ -313,10 +327,15 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
   const ready = Boolean(form.title.trim()) && form.repoId > 0;
   return (
     <>
-      {!connectivity.online && <span className="mr-auto self-center text-sm text-fg-subtle">Offline: it syncs when you are back.</span>}
+      <span className="mr-auto flex items-center gap-1 self-center text-sm text-fg-subtle">
+        {form.restored && <>Draft restored<Button size="sm" variant="ghost" onClick={() => {
+          form.discard();
+        }}>Discard</Button></>}
+        {!connectivity.online && <span>Offline: it syncs when you are back.</span>}
+      </span>
       <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-      {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows; clicking does nothing until there is a title. */}
-      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip="Create the issue (works offline)" aria-disabled={!ready} onClick={() => {
+      {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
+      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={() => {
         if (ready) onCreate();
       }}>
         Create issue

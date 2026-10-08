@@ -13,7 +13,7 @@
 // Scopes: `global` bindings work everywhere; the others only while a view
 // that pushed that scope is mounted (useShortcutScope), innermost first.
 
-export type Scope = 'global' | 'list' | 'issue' | 'diff' | 'palette';
+export type Scope = 'global' | 'list' | 'issue' | 'inbox' | 'board' | 'diff' | 'palette';
 
 export interface KeyDef {
   keys: string;
@@ -39,12 +39,26 @@ export const KEYMAP = {
   'list.next': {keys: 'j', label: 'Next item', scope: 'list'},
   'list.prev': {keys: 'k', label: 'Previous item', scope: 'list'},
   'list.select': {keys: 'x', label: 'Select', scope: 'list'},
+  'view.save': {keys: 'shift+v', label: 'Save the view', scope: 'list'},
+  'inbox.read': {keys: 'e', label: 'Mark read', scope: 'inbox'},
+  'inbox.unread': {keys: 'u', label: 'Mark unread', scope: 'inbox'},
+  'inbox.pin': {keys: 'shift+p', label: 'Pin or unpin', scope: 'inbox'},
+  'inbox.readAll': {keys: 'shift+e', label: 'Mark all read', scope: 'inbox'},
+  'board.left': {keys: 'h', label: 'Previous column', scope: 'board'},
+  'board.right': {keys: 'l', label: 'Next column', scope: 'board'},
+  'board.moveLeft': {keys: 'shift+h', label: 'Move the card to the previous column', scope: 'board'},
+  'board.moveRight': {keys: 'shift+l', label: 'Move the card to the next column', scope: 'board'},
+  'board.moveUp': {keys: 'shift+k', label: 'Move the card up', scope: 'board'},
+  'board.moveDown': {keys: 'shift+j', label: 'Move the card down', scope: 'board'},
   'issue.state': {keys: 's', label: 'Change the state', scope: 'issue'},
   'issue.labels': {keys: 'l', label: 'Labels', scope: 'issue'},
   'issue.assignee': {keys: 'a', label: 'Assignees', scope: 'issue'},
   'issue.milestone': {keys: 'm', label: 'Milestone', scope: 'issue'},
   'issue.priority': {keys: 'p', label: 'Priority', scope: 'issue'},
   'issue.edit': {keys: 'e', label: 'Edit', scope: 'issue'},
+  'issue.subscribe': {keys: 'shift+s', label: 'Subscribe or unsubscribe', scope: 'issue'},
+  'issue.comment': {keys: 'r', label: 'Comment', scope: 'issue'},
+  'editor.preview': {keys: 'mod+shift+p', label: 'Toggle the preview', scope: 'global', anywhere: true},
   'diff.prevFile': {keys: '[', label: 'Previous file', scope: 'diff'},
   'diff.nextFile': {keys: ']', label: 'Next file', scope: 'diff'},
   'review.start': {keys: 'r', label: 'Start a review', scope: 'diff'},
@@ -56,6 +70,8 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   global: 'General',
   list: 'Lists',
   issue: 'Issues and pull requests',
+  inbox: 'Inbox',
+  board: 'Boards',
   diff: 'Diffs',
   palette: 'Command menu',
 };

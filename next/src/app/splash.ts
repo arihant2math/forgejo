@@ -97,7 +97,7 @@ export function writeSplash(patch: Partial<Splash>): void {
 }
 
 /** Other localStorage keys that remember something about a user (cleared at sign-out). */
-export const LOCAL_PREFS = ['forgejo-next:sidebar'] as const;
+export const LOCAL_PREFS = ['forgejo-next:sidebar', 'forgejo-next:board', 'forgejo-next:views'] as const;
 
 /** Removes the local DB marker and what it says about the user (sign-out): the next boot shows the logged-out shell. */
 export function forgetUser(): void {

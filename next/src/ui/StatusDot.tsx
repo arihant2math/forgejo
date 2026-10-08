@@ -10,6 +10,7 @@ const tones = {
   warning: 'bg-warning',
   danger: 'bg-danger',
   muted: 'bg-fg-subtle',
+  accent: 'bg-accent',
 } as const;
 
 export type StatusTone = keyof typeof tones;

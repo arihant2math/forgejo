@@ -7,22 +7,23 @@
 // rendering arrives) and is sent when the leader tab can. A conflicting
 // edit is resolved here, in the editor: the 3-way merge with markers, or
 // either side whole. While typing, the text is kept in IndexedDB (drafts),
-// so a reload or a crash never loses it. F6 replaces the plain text area
-// with the CodeMirror composer; these components keep the intent plumbing.
+// so a reload or a crash never loses it. The field is the CodeMirror
+// composer with Forgejo's preview (editor/Composer.tsx).
 
 import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type Ref, useEffect, useId, useRef, useState} from 'react';
+import {type Ref, useEffect, useId, useRef, useState} from 'react';
 import {notify} from '../../app/notices.ts';
-import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
+import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing} from '../../intents/session.ts';
 import {commentBody, issueBody} from '../../intents/view.ts';
-import {Button, Callout, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, Skeleton, TextArea} from '../../ui/index.ts';
+import {Button, Callout, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, Skeleton} from '../../ui/index.ts';
+import {MarkdownField} from '../editor/Composer.tsx';
 import {useUser} from '../issues/cells.tsx';
 import {Markdown} from './Markdown.tsx';
 
@@ -71,13 +72,15 @@ interface TextEditorProps {
   describedBy?: string | undefined;
   /** After Esc/Cancel, the Undo notice reopens the editor (with the text) through this. */
   onReopen?: (() => void) | undefined;
+  /** A shortcut that focuses the editor (R: the comment box). */
+  focusShortcut?: ShortcutId | undefined;
 }
 
 /** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
 /** The draft keys of the editors open on this page. */
 const openEditors = new Set<string>();
 
-export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen}: TextEditorProps) {
+export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut}: TextEditorProps) {
   const app = useApp();
   const {intents} = editing(app);
   const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
@@ -139,23 +142,12 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     } else forget();
     onCancel?.();
   };
-  // ⌘↵ saves the editor that has the focus (handled here, not by the global shortcut table: several
-  // editors can be open at once).
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      save();
-    } else if (e.key === 'Escape' && onCancel) {
-      e.preventDefault();
-      cancel();
-    }
-  };
+  // ⌘↵ saves the editor that has the focus (handled by the editor, not by the global shortcut table: several
+  // editors can be open at once); Esc cancels.
   return (
     <div className="flex flex-col gap-2">
-      <TextArea aria-label={label} aria-describedby={describedBy} placeholder={label} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
-        onChange={(e) => {
-          change(e.target.value);
-        }} onKeyDown={onKeyDown}/>
+      <MarkdownField repoId={repoId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
+        onChange={change} onSubmit={save} onCancel={onCancel ? cancel : undefined} focusShortcut={focusShortcut}/>
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
         {onCancel && <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>}
@@ -339,7 +331,7 @@ export function CommentComposer({issueId, repoId}: {issueId: number; repoId: num
     <div className="flex flex-col gap-2 pt-3">
       <span id={who} className="sr-only">Commenting as {me.login}</span>
       <TextEditor describedBy={who} draftKey={`text:new-comment:${String(issueId)}`} title="A new comment" issueId={issueId} repoId={repoId} initial=""
-        label="Leave a comment" saveLabel="Comment" rows={4}
+        label="Leave a comment" saveLabel="Comment" rows={4} focusShortcut="issue.comment"
         onSave={(body) => {
           runInAction(() => {
             intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});

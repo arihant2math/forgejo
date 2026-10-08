@@ -25,7 +25,7 @@ import {isLocalPath, sitePath} from './config.ts';
 import {lazyView} from './lazy.tsx';
 import {RouteError, RouteNotFound} from './RouteStatus.tsx';
 import {loadRepo, type RepoMatch} from './repo.ts';
-import {type IssueListSearch, issueListSearch, type MyListSearch, myListSearch} from './search.ts';
+import {type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch} from './search.ts';
 import {Shell} from './shell/Shell.tsx';
 import {readSplash, type SkeletonShape} from './splash.ts';
 import type {App} from './store.ts';
@@ -108,6 +108,7 @@ const myPullsRoute = createRoute({
 const inboxRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/notifications',
+  validateSearch: (s): InboxSearch => inboxSearch(s),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/inbox/Inbox.tsx')),
 });
@@ -148,6 +149,22 @@ const repoPullRoute = createRoute({
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
 
+// The UI's own pages inside the shell (no canonical Forgejo URL serves them yet: B8's spaRoutes would need
+// `/{owner}/{repo}/projects/{id}` etc., a backend change; below the base they reload into the app anyway).
+const boardsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/boards',
+  staticData: {skeleton: 'list'},
+  component: lazyView(() => import('../features/board/BoardsList.tsx'), 'BoardsList'),
+});
+
+const boardRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/projects/$id',
+  staticData: {skeleton: 'list'},
+  component: lazyView(() => import('../features/board/BoardView.tsx'), 'BoardPage'),
+});
+
 // Dev-only pages: `import.meta.env.DEV` is false in production builds, so
 // they and their chunks are not shipped.
 const devRoutes = import.meta.env.DEV ?
@@ -161,7 +178,7 @@ const routeTree = rootRoute.addChildren([
   callbackRoute,
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute,
-    repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute,
+    repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, boardsRoute, boardRoute,
   ]),
   ...devRoutes,
 ]);

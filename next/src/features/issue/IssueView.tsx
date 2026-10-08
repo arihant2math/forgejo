@@ -14,6 +14,8 @@ import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
+import {whenIdle} from '../../app/lazy.tsx';
+import {preloadEditor} from '../editor/Composer.tsx';
 import {connectivity} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
@@ -23,6 +25,7 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
+import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
 import {EmptyState, Skeleton} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
@@ -58,14 +61,6 @@ export function IssueView() {
     );
   }
   return <IssuePage key={`${String(repoId)}#${String(index)}`} repoId={repoId} index={index} context={context}/>;
-}
-
-/** The path segment of an issue created offline (see `tempIssuePath`). */
-const TEMP_PATH = /^new-([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/;
-
-/** The page of an issue created offline, before Forgejo numbers it ("…/issues/new-<tempId>"). */
-export function tempIssuePath(owner: string, repo: string, tempId: string): string {
-  return `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/new-${tempId}`;
 }
 
 const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId: number; index: number; context: ReactNode}) {
@@ -114,6 +109,12 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
   const pick = (kind: PickerKind) => () => {
     openPicker(app, kind, [issue.id]);
   };
+  // The comment box's editor (CodeMirror, its own chunk) is usually wanted next.
+  useEffect(() => {
+    whenIdle(() => {
+      void preloadEditor().catch(() => undefined);
+    });
+  }, []);
   useShortcutScope('issue');
   useShortcut('issue.state', pick('status'));
   useShortcut('issue.labels', pick('labels'));

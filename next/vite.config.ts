@@ -17,6 +17,10 @@ import {serviceWorker} from './tools/vite-plugin-sw.ts';
 // only a lazy route uses (menu/dialog ones) load at boot too (~5 KB br today).
 // floating-ui and react-remove-scroll's dependency tree are each one chunk.
 const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover']);
+// Radix internals only menus and dialogs use (focus trapping, roving focus): their own chunk, off the boot
+// route (the tooltip, which the shell needs at boot, uses none of them). They import the shared internals,
+// never the other way round, so no chunk cycle (budget.ts fails on one; e2e/boot.spec.ts runs the build).
+const radixFocus = new Set(['react-focus-scope', 'react-focus-guards', 'react-roving-focus', 'react-collection', 'react-direction', 'react-use-previous']);
 const removeScroll = new Set(['react-remove-scroll', 'react-remove-scroll-bar', 'react-style-singleton', 'use-callback-ref', 'use-sidecar', 'get-nonce', 'detect-node-es', 'tslib']);
 
 /**
@@ -31,7 +35,7 @@ export function vendorChunk(id: string): string | null {
   if (pkg === 'lucide-react' && /[\\/]icons[\\/]/.test(id)) return null;
   const radix = /^@radix-ui\/react-(.+)$/.exec(pkg);
   if (radix?.[1] && radixPrimitives.has(radix[1])) return `vendor-radix-ui-${radix[1]}`;
-  if (pkg.startsWith('@radix-ui/')) return 'vendor-radix-ui-internal';
+  if (pkg.startsWith('@radix-ui/')) return radixFocus.has(pkg.slice('@radix-ui/'.length)) ? 'vendor-radix-ui-focus' : 'vendor-radix-ui-internal';
   if (pkg.startsWith('@floating-ui/')) return 'vendor-floating-ui';
   if (removeScroll.has(pkg)) return 'vendor-react-remove-scroll';
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;

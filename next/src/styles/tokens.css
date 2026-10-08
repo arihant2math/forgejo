@@ -98,6 +98,8 @@
   --spacing-header: 44px;
   --spacing-sidebar: var(--sidebar-width);
   --spacing-pane: 280px; /* detail side pane */
+  --spacing-card: 96px; /* a board card (fixed: columns virtualize without measuring) */
+  --spacing-column: 288px; /* a board column */
 
   /* Max widths (max-w-xs = tooltips, max-w-sm = menus, max-w-md = dialogs, max-w-lg = prose). */
   --container-xs: 280px;
@@ -161,6 +163,9 @@
 
   /* A label colour used as an icon colour (text-label): mixed towards the text colour for contrast. */
   --label-ink: 50%;
+
+  /* A board card's title wraps to at most this many lines (clamp-title). */
+  --card-title-lines: 2;
 
   /* The keyboard cursor's edge on a list row (row-cursor). */
   --cursor-width: 2px;

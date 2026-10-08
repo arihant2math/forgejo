@@ -97,6 +97,34 @@
   }
 }
 
+/* A dragged board card's ghost: follows the pointer by transform only (set per frame), above everything,
+ * never a hit target. The drop indicator is the same kind of layer: a line moved by transform. */
+@utility drag-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-popover);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* A board card's title: wraps, cut after --card-title-lines lines. */
+@utility clamp-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--card-title-lines);
+}
+
+/* A composite field (the markdown editor's frame) shows the focus ring while something inside has focus,
+ * as an input does (offset 0, like `field`). */
+@utility focus-ring-within {
+  &:focus-within {
+    outline: var(--focus-ring-width) solid var(--color-focus);
+    outline-offset: 0;
+  }
+}
+
 /* Focus ring inside the element, for full-width rows where an outside ring is clipped. */
 @utility focus-inset {
   outline-offset: var(--focus-ring-inset);

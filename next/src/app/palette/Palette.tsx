@@ -6,11 +6,13 @@
 // chunk, preloaded when the app is idle.
 
 import {useNavigate} from '@tanstack/react-router';
-import {CircleDot, CircleCheck, GitPullRequest, GitPullRequestClosed, Home, Inbox, Keyboard, LogOut, Monitor, Moon, SunMoon, Sun, BookMarked} from 'lucide-react';
+import {BookMarked, CircleCheck, CircleDot, GitPullRequest, GitPullRequestClosed, Globe, Home, Inbox, KanbanSquare, Layers, Keyboard, LogOut, Monitor, Moon, SquarePen, Sun, SunMoon} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
-import {useDeferredValue, useMemo, useState} from 'react';
+import {useDeferredValue, useEffect, useMemo, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '../../ui/Command.tsx';
 import type {LucideIcon} from '../../ui/index.ts';
+import {openCreate} from '../create.ts';
+import {lastBoard} from '../lastBoard.ts';
 import {notify} from '../notices.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {requestSignOut, switchToClassic} from '../session.ts';
@@ -19,6 +21,10 @@ import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
 import {issuesOf} from '../../features/issues/edits.ts';
+import {localSearch} from '../../features/search/local.ts';
+import {searchServer, type ServerHit} from '../../features/search/server.ts';
+import {viewStore} from '../../features/views/views.ts';
+import type {Issue, Repository} from '../../protocol/types.gen.ts';
 import {type Narrowing, score, searchPool, type SearchResults} from './search.ts';
 
 type Navigate = ReturnType<typeof useNavigate>;
@@ -37,6 +43,13 @@ const COMMANDS: PaletteCommand[] = [
   {id: 'inbox', label: 'Go to the inbox', icon: Inbox, shortcut: 'go.inbox', keywords: 'notifications', run: (_, nav) => void nav({to: '/notifications'})},
   {id: 'issues', label: 'Go to my issues', icon: CircleDot, shortcut: 'go.issues', run: (_, nav) => void nav({to: '/issues'})},
   {id: 'pulls', label: 'Go to my pull requests', icon: GitPullRequest, shortcut: 'go.pulls', keywords: 'pr', run: (_, nav) => void nav({to: '/pulls'})},
+  {id: 'create', label: 'Create an issue', icon: SquarePen, shortcut: 'create', keywords: 'new issue', run: (app) => {
+    openCreate(app);
+  }},
+  {id: 'boards', label: 'Go to the board', icon: KanbanSquare, shortcut: 'go.board', keywords: 'project kanban boards', run: (app, nav) => {
+    const id = app.session && lastBoard(app.session.userId);
+    void nav(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
+  }},
   {id: 'home', label: 'Go home', icon: Home, keywords: 'dashboard', run: (_, nav) => void nav({to: '/'})},
   {id: 'shortcuts', label: 'Keyboard shortcuts', icon: Keyboard, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {
     runInAction(() => {
@@ -114,6 +127,7 @@ function PaletteBody({app}: {app: App}) {
   const deferred = useDeferredValue(query);
   const [searcher] = useState(() => new Searcher(app));
   const results = useMemo(() => searcher.run(deferred), [searcher, deferred]);
+  const more = useMoreResults(app, deferred, results);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const commands = words.length ? COMMANDS.filter((c) => score(`${c.label} ${c.keywords ?? ''}`.toLowerCase(), words) >= 0) : COMMANDS;
   const close = () => {
@@ -130,7 +144,13 @@ function PaletteBody({app}: {app: App}) {
   const actions = untracked(() => issueActions(app, target, {navigate: (path) => void navigate({to: path})}))
     .filter((a) => !words.length || score(`${a.label} ${a.keywords ?? ''}`.toLowerCase(), words) >= 0);
   const targetName = untracked(() => (target.length === 1 ? `#${String(target[0]?.data.number)} ${target[0]?.data.title ?? ''}` : `${String(target.length)} selected`));
-  const nothing = !commands.length && !actions.length && !results.repos.length && !results.issues.length;
+  const views = untracked(() => (app.session ? viewStore(app.session.userId).views.slice() : []))
+    .filter((v) => !words.length || score(v.name.toLowerCase(), words) >= 0);
+  const nothing = !views.length && !commands.length && !actions.length && !results.repos.length && !results.issues.length && !more.local.length && !more.server.length;
+  const openIssue = (issue: Issue, repo: Repository) => run(() => void navigate({
+    to: issue.is_pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
+    params: {owner: repo.owner_name, repo: repo.name, index: String(issue.number)},
+  }));
   return (
     <>
       <CommandInput value={query} onValueChange={setQuery} placeholder="Search repositories, issues and commands…"/>
@@ -157,17 +177,36 @@ function PaletteBody({app}: {app: App}) {
             ))}
           </CommandGroup>
         )}
-        {results.issues.length > 0 && (
+        {(results.issues.length > 0 || more.local.length > 0) && (
           <CommandGroup heading="Issues and pull requests">
-            {results.issues.map(({issue, repo}) => repo && (
+            {[...results.issues, ...more.local].map(({issue, repo}) => repo && (
               <CommandItem key={issue.id} value={`issue:${String(issue.id)}`}
                 icon={issue.is_pull ? (issue.state === 'open' ? GitPullRequest : GitPullRequestClosed) : (issue.state === 'open' ? CircleDot : CircleCheck)}
                 meta={`${repo.full_name}#${String(issue.number)}`}
-                onSelect={run(() => void navigate({
-                  to: issue.is_pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
-                  params: {owner: repo.owner_name, repo: repo.name, index: String(issue.number)},
-                }))}>
+                onSelect={openIssue(issue, repo)}>
                 {issue.title}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+        {more.server.length > 0 && (
+          <CommandGroup heading="On Forgejo">
+            {more.server.map((h) => (
+              <CommandItem key={`s${String(h.id)}`} value={`server:${String(h.id)}`} icon={Globe} meta={`${h.fullName}#${String(h.number)}`}
+                onSelect={run(() => void navigate({
+                  to: h.pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
+                  params: {owner: h.owner, repo: h.repo, index: String(h.number)},
+                }))}>
+                {h.title}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+        {views.length > 0 && (
+          <CommandGroup heading="Views">
+            {views.map((v) => (
+              <CommandItem key={v.id} value={`view:${v.id}`} icon={Layers} onSelect={run(() => void navigate({to: v.path, search: v.search as never}))}>
+                {v.name}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -186,4 +225,48 @@ function PaletteBody({app}: {app: App}) {
       </CommandList>
     </>
   );
+}
+
+/** Local matches beyond the pool scan's (MiniSearch: prefixes, typos), then the server's beyond both. */
+interface More {
+  local: {issue: Issue; repo: Repository | undefined}[];
+  server: ServerHit[];
+}
+
+const NONE: More = {local: [], server: []};
+/** Typing pauses this long before the server is asked. */
+const SERVER_DELAY = 300;
+
+function useMoreResults(app: App, query: string, scan: SearchResults): More {
+  const [more, setMore] = useState<{query: string; value: More}>({query: '', value: NONE});
+  useEffect(() => {
+    const q = query.trim();
+    const s = app.session;
+    if (!q || !s) return undefined;
+    const ctl = new AbortController();
+    const shown = new Set(scan.issues.map((r) => r.issue.id));
+    const pool = s.data.pool;
+    const repoOf = (id: number) => pool.model('Repository').get(id)?.data ?? s.data.peek('Repository').get(id);
+    let local: More['local'] = [];
+    const ix = localSearch(app);
+    void ix?.search(q, 20).then((a) => {
+      if (ctl.signal.aborted) return;
+      local = untracked(() => a.hits.filter((h) => !shown.has(h.id)).map((h) => pool.model('Issue').get(h.id)?.data)
+        .filter((i) => i !== undefined).map((issue) => ({issue, repo: repoOf(issue.repo_id)})).filter((r) => r.repo !== undefined)
+        .slice(0, Math.max(0, 12 - shown.size)));
+      setMore((m) => ({query, value: {local, server: m.query === query ? m.value.server : []}}));
+    }).catch(() => undefined);
+    const timer = q.length >= 2 && connectivity.online ? setTimeout(() => {
+      void searchServer(app, q, ctl.signal).then((hits) => {
+        if (ctl.signal.aborted) return;
+        const known = (h: ServerHit) => shown.has(h.id) || local.some((r) => r.issue.id === h.id) || untracked(() => Boolean(pool.model('Issue').get(h.id)));
+        setMore((m) => ({query, value: {local: m.query === query ? m.value.local : local, server: hits.filter((h) => !known(h))}}));
+      }).catch(() => undefined);
+    }, SERVER_DELAY) : undefined;
+    return () => {
+      ctl.abort();
+      clearTimeout(timer);
+    };
+  }, [app, query, scan]);
+  return more.query === query ? more.value : NONE;
 }

@@ -24,8 +24,8 @@ interface Policy {
 
 let policy: Policy | null | undefined;
 
-/** The one script URL the policy lets through: the service worker's (app/sw.ts), set before it is used. */
-let workerUrl: string | undefined;
+/** The script URLs the policy lets through: the service worker's (app/sw.ts) and the app's own workers, set before use. */
+const scriptUrls = new Set<string>();
 
 function getPolicy(): Policy | null {
   if (policy !== undefined) return policy;
@@ -34,7 +34,7 @@ function getPolicy(): Policy | null {
   policy = tt ? tt.createPolicy('forgejo-next', {
     createHTML: (s) => s,
     createScriptURL: (s) => {
-      if (workerUrl === undefined || s !== workerUrl) throw new TypeError(`forgejo-next: script URL refused: ${s}`);
+      if (!scriptUrls.has(s)) throw new TypeError(`forgejo-next: script URL refused: ${s}`);
       return s;
     },
   }) : null;
@@ -49,7 +49,20 @@ function getPolicy(): Policy | null {
 export function workerScriptURL(base: string): string {
   const url = `${base}sw.js`;
   if (!url.startsWith('/') || url.startsWith('//')) throw new TypeError('forgejo-next: the service worker must be same-origin');
-  workerUrl = url;
+  scriptUrls.add(url);
+  const p = getPolicy();
+  return (p ? p.createScriptURL(url) : url) as string;
+}
+
+/**
+ * A dedicated worker's URL as a TrustedScriptURL (`new Worker` is a sink):
+ * only a module of this build — a same-origin path below the app's base
+ * ending in ".js" (a dev server's source path in development).
+ */
+export function appWorkerURL(base: string, url: string): string {
+  const ok = url.startsWith(base) && !url.includes('..') && !url.includes('//') && (url.endsWith('.js') || import.meta.env.DEV);
+  if (!ok && !(import.meta.env.DEV && url.startsWith('/'))) throw new TypeError(`forgejo-next: worker URL refused: ${url}`);
+  scriptUrls.add(url);
   const p = getPolicy();
   return (p ? p.createScriptURL(url) : url) as string;
 }

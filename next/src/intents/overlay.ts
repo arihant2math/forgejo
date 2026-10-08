@@ -184,6 +184,25 @@ export class Overlay {
   }
 
   /**
+   * Every override of one field of a model, as id → value (the inbox's
+   * statuses). Observing it reacts to every change of the overlay (few
+   * layers: one scan of the field keys).
+   */
+  fieldOverrides(model: ModelName, field: string): Map<number, unknown> {
+    this.rev.reportObserved();
+    const out = new Map<number, unknown>();
+    const prefix = `${model}\0`;
+    const suffix = `\0${field}`;
+    for (const [k, list] of this.fields) {
+      if (!k.startsWith(prefix) || !k.endsWith(suffix)) continue;
+      const id = Number(k.slice(prefix.length, k.length - suffix.length));
+      const top = list.at(-1);
+      for (const op of top?.ops ?? []) if (op.t === 'field' && op.model === model && op.id === id && op.field === field) out.set(id, op.value);
+    }
+    return out;
+  }
+
+  /**
    * The overrides of a set made by the layers added before `layer` (and by
    * `layer` itself when `inclusive`): what the set looked like to the user
    * when that intent was made. Untracked.

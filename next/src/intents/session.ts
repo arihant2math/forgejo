@@ -107,6 +107,20 @@ export function editing(app: App): Editing {
       app.ui.pendingIntents = n;
     });
   });
+  // The inbox's unread count as the user sees it (the sidebar is on the boot route and does not load the overlay).
+  autorun(() => {
+    const base = data.pool.model('Notification').by('status', 'unread').size;
+    let n = base;
+    for (const [id, status] of overlay.fieldOverrides('Notification', 'status')) {
+      const server = data.pool.model('Notification').get(id)?.get('status');
+      if (server === undefined) continue;
+      if (server === 'unread' && status !== 'unread') n--;
+      else if (server !== 'unread' && status === 'unread') n++;
+    }
+    runInAction(() => {
+      app.ui.unread = n;
+    });
+  });
   // Back in the foreground: what other tabs did while this one slept (bfcache, frozen tabs).
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void intents.reread();

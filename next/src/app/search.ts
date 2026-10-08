@@ -87,3 +87,13 @@ export function myListSearch(s: Record<string, unknown>): MyListSearch {
 export function issueListSearch(s: Record<string, unknown>): IssueListSearch {
   return listSearch(s);
 }
+
+/** /notifications: unread only, grouped by repository (both off by default). */
+export interface InboxSearch {
+  filter?: 'unread';
+  group?: 'repo';
+}
+
+export function inboxSearch(s: Record<string, unknown>): InboxSearch {
+  return {...(s.filter === 'unread' ? {filter: 'unread' as const} : {}), ...(s.group === 'repo' ? {group: 'repo' as const} : {})};
+}

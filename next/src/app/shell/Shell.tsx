@@ -12,6 +12,8 @@ import {useEffect, useState} from 'react';
 import {markOnce} from '../../sync/rum.ts';
 import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
+import {openCreate} from '../create.ts';
+import {lastBoard} from '../lastBoard.ts';
 import {LoggedOut} from '../LoggedOut.tsx';
 import {signInHere} from '../session.ts';
 import {shortcuts, useShortcut} from '../shortcuts/index.ts';
@@ -24,6 +26,7 @@ const ShortcutsDialog = lazyComponent(() => import('./Overlays.tsx').then((m) =>
 const SignOutDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.SignOutDialog));
 const UnsyncedPanel = lazyComponent(() => import('./Unsynced.tsx').then((m) => m.UnsyncedPanel));
 const Notices = lazyComponent(() => import('./Notices.tsx').then((m) => m.Notices));
+const CreateIssue = lazyComponent(() => import('../../features/create/CreateIssue.tsx').then((m) => m.CreateIssue));
 const IssuePicker = lazyComponent(() => import('../../features/issues/Picker.tsx').then((m) => m.IssuePicker));
 
 /** Stays mounted once opened, so that closing can fade out. */
@@ -42,11 +45,20 @@ const PickerHost = observer(function PickerHost({app}: {app: App}) {
   return open || used ? <IssuePicker/> : null;
 });
 
+/** The new-issue dialog (C), mounted from its first use on (it fades out). */
+const CreateHost = observer(function CreateHost({app}: {app: App}) {
+  const open = Boolean(app.ui.create);
+  const [used, setUsed] = useState(false);
+  if (open && !used) setUsed(true);
+  return open || used ? <CreateIssue/> : null;
+});
+
 const Overlays = observer(function Overlays({app}: {app: App}) {
   return (
     <>
       <PaletteHost app={app}/>
       <PickerHost app={app}/>
+      <CreateHost app={app}/>
       {app.ui.shortcutsOpen && <ShortcutsDialog/>}
       {app.ui.signOut && <SignOutDialog pending={app.ui.signOut.pending}/>}
       {app.ui.unsyncedOpen && <UnsyncedPanel/>}
@@ -71,6 +83,13 @@ function GlobalShortcuts({app}: {app: App}) {
   useShortcut('go.inbox', () => void navigate({to: '/notifications'}));
   useShortcut('go.issues', () => void navigate({to: '/issues'}));
   useShortcut('go.pulls', () => void navigate({to: '/pulls'}));
+  useShortcut('create', () => {
+    openCreate(app);
+  });
+  useShortcut('go.board', () => {
+    const id = app.session && lastBoard(app.session.userId);
+    void navigate(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
+  });
   return null;
 }
 

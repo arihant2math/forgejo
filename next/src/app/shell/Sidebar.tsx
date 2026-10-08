@@ -6,7 +6,7 @@
 // leaf, so a delta re-renders the row it changed and nothing else.
 
 import {Link} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest, Inbox, Search} from 'lucide-react';
+import {CircleDot, GitPullRequest, Inbox, KanbanSquare, Search} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useState} from 'react';
@@ -15,6 +15,7 @@ import {Avatar, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/inde
 import {shortcutHint} from '../shortcuts/index.ts';
 import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
+import {lazyComponent} from '../lazy.tsx';
 import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
 
@@ -31,7 +32,9 @@ const SidebarSearch = function SidebarSearch() {
 
 const InboxItem = observer(function InboxItem() {
   const {data} = useSession();
-  const unread = data.pool.model('Notification').by('status', 'unread').size;
+  const {ui} = useApp();
+  // The overlay-aware count once the queue runs (a read marked offline counts at once), else the pool's.
+  const unread = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
   return <NavItem asChild icon={Inbox} label="Inbox" count={unread} shortcut={shortcutHint('go.inbox')}><Link to="/notifications"/></NavItem>;
 });
 
@@ -155,6 +158,9 @@ const Workspace = observer(function Workspace() {
   );
 });
 
+/** Saved views: their own chunk (rendered once it is here; below everything else, so nothing moves). */
+const SidebarViews = lazyComponent(() => import('../../features/views/SidebarViews.tsx').then((m) => m.SidebarViews));
+
 // ── Width ────────────────────────────────────────────────────────────────
 
 function currentWidth(): number {
@@ -201,7 +207,11 @@ export function Sidebar() {
         <NavItem asChild icon={GitPullRequest} label="My pull requests" shortcut={shortcutHint('go.pulls')}>
           <Link to="/pulls" activeOptions={{includeSearch: false}}/>
         </NavItem>
+        <NavItem asChild icon={KanbanSquare} label="Boards" shortcut={shortcutHint('go.board')}>
+          <Link to="/-/next/boards"/>
+        </NavItem>
         <Workspace/>
+        <SidebarViews/>
       </SidebarBody>
       <SidebarResize/>
     </>

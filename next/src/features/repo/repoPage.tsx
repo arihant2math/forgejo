@@ -11,7 +11,9 @@ import {type RepoMatch, useHold} from '../../app/repo.ts';
 import {AvailableOffline} from '../../app/Available.tsx';
 import {connectivity} from '../../app/online.ts';
 import {observer} from 'mobx-react-lite';
-import {useSession} from '../../app/store.ts';
+import {useApp, useSession} from '../../app/store.ts';
+import {runInAction} from 'mobx';
+import {useEffect} from 'react';
 import {EmptyState, Icon, TextLink} from '../../ui/index.ts';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
@@ -21,6 +23,19 @@ export function useRepoPage(): {owner: string; repo: string; repoId: number | un
   const {data} = useSession();
   const group = repoId === undefined ? undefined : `repo:${String(repoId)}`;
   useHold(data, group);
+  // The new-issue dialog (C) creates in the repository on screen.
+  const app = useApp();
+  useEffect(() => {
+    if (repoId === undefined) return undefined;
+    runInAction(() => {
+      app.ui.repoOpen = repoId;
+    });
+    return () => {
+      runInAction(() => {
+        if (app.ui.repoOpen === repoId) app.ui.repoOpen = 0;
+      });
+    };
+  }, [app, repoId]);
   return {owner, repo, repoId, group};
 }
 

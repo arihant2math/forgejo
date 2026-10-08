@@ -2633,7 +2633,7 @@ does) **and** MySQL 8.0 (binlog on).
     (SURFACE.md).
 
 #### B9 — Gap endpoints
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncAPI` + `TestLivesyncAPILogTail` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on (17 pass / 0 skip each), no testlogger "FATAL ERROR"; unit tests of every livesync package, `go vet` clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 (9 findings) fixed, no open items)
 - **Scope:** under `/-/sync/api/`: project boards (columns CRUD, move card, ordering)
   via `services/project` / models; conflict-checked issue/PR/comment body edit
   (`expectedVersion` → 409 with current text/version); PR viewed files (`review_state`)

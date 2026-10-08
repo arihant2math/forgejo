@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,10 +26,14 @@ import (
 	project_model "forgejo.org/models/project"
 	pull_model "forgejo.org/models/pull"
 	repo_model "forgejo.org/models/repo"
+	unit_model "forgejo.org/models/unit"
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
+	webhook_model "forgejo.org/models/webhook"
 	actions_module "forgejo.org/modules/actions"
 	"forgejo.org/modules/json"
+	api "forgejo.org/modules/structs"
+	webhook_module "forgejo.org/modules/webhook"
 	"forgejo.org/services/livesync/protocol"
 
 	runnerv1 "code.forgejo.org/forgejo/actions-proto/runner/v1"
@@ -128,6 +133,8 @@ func livesyncAPIScenario(t *testing.T, u *url.URL) {
 	}
 
 	t.Run("boards", func(t *testing.T) { livesyncAPIBoards(t, user2, user5, read2, delta) })
+	t.Run("board positions", func(t *testing.T) { livesyncAPIBoardPositions(t, user2) })
+	t.Run("concurrent card moves", func(t *testing.T) { livesyncAPIConcurrentMoves(t, u, user2) })
 	t.Run("body", func(t *testing.T) { livesyncAPIBody(t, user2, user5, read2, delta) })
 	t.Run("viewed", func(t *testing.T) { livesyncAPIViewed(t, user2, user5, read2, delta) })
 	t.Run("git", func(t *testing.T) { livesyncAPIGit(t, user2, user5) })
@@ -266,9 +273,82 @@ func livesyncAPIBoards(t *testing.T, user2, user5, read2 string, delta func(prot
 	MakeRequest(t, livesyncAPI(t, "POST", "/projects/1/columns", user2, protocol.APIColumnCreate{Title: "other"}).SetHeader(protocol.HeaderIdempotencyKey, "board-keyed"), http.StatusUnprocessableEntity)
 }
 
+// livesyncAPIBoardPositions: a card's position counts the cards the viewer
+// may read (as the board shows them); the others keep their places.
+func livesyncAPIBoardPositions(t *testing.T, user2 string) {
+	ctx := t.Context()
+	// User project 4 of user2, column 4: issue 18 (repo55: user2's, but
+	// without an issues unit, so user2 does not see it on the board),
+	// issue 10 (glob), issue 19 (commitsonpr); issue 24 (repo256) in the
+	// default column 6.
+	_, err := db.GetEngine(ctx).Where("project_id = 4").Delete(&project_model.ProjectIssue{})
+	require.NoError(t, err)
+	for i, id := range []int64{18, 10, 19} {
+		require.NoError(t, db.Insert(ctx, &project_model.ProjectIssue{IssueID: id, ProjectID: 4, ProjectColumnID: 4, Sorting: int64(i)}))
+	}
+	require.NoError(t, db.Insert(ctx, &project_model.ProjectIssue{IssueID: 24, ProjectID: 4, ProjectColumnID: 6}))
+	order := func() []int64 {
+		cards, err := db.Find[project_model.ProjectIssue](ctx, project_model.FindProjectIssueOptions{ListOptions: db.ListOptionsAll, ProjectID: 4, ProjectColumnID: 4})
+		require.NoError(t, err)
+		res := []int64{}
+		for _, c := range cards {
+			res = append(res, c.IssueID)
+		}
+		return res
+	}
+	// user2 sees [10, 19] and drops 24 between them (position 1).
+	MakeRequest(t, livesyncAPI(t, "POST", "/projects/4/columns/4/cards", user2, protocol.APICardMove{IssueID: 24, Position: new(1)}), http.StatusNoContent)
+	assert.Equal(t, []int64{18, 10, 24, 19}, order())
+	// At the top of what user2 sees: before 10 (18 stays first).
+	MakeRequest(t, livesyncAPI(t, "POST", "/projects/4/columns/4/cards", user2, protocol.APICardMove{IssueID: 24, Position: new(0)}), http.StatusNoContent)
+	assert.Equal(t, []int64{18, 24, 10, 19}, order())
+	// Past the readable cards: last.
+	MakeRequest(t, livesyncAPI(t, "POST", "/projects/4/columns/4/cards", user2, protocol.APICardMove{IssueID: 24, Position: new(2)}), http.StatusNoContent)
+	assert.Equal(t, []int64{18, 10, 19, 24}, order())
+}
+
+// livesyncAPIConcurrentMoves: a card moved by position while another
+// request moves a card out of the same column is not written back into it
+// (the column is read in the move's transaction, locked), and concurrent
+// moves never answer 500.
+func livesyncAPIConcurrentMoves(t *testing.T, u *url.URL, user2 string) {
+	card := func(issueID int64) project_model.ProjectIssue {
+		return *unittest.AssertExistsAndLoadBean(t, &project_model.ProjectIssue{ProjectID: 1, IssueID: issueID})
+	}
+	move := func(column, issueID int64, position *int) int {
+		return livesyncHTTP(t, u, user2, "POST", fmt.Sprintf("%s/projects/1/columns/%d/cards", protocol.APIPrefix, column), protocol.APICardMove{IssueID: issueID, Position: position}, nil)
+	}
+	for i := range 12 {
+		// Issue 3 in column 1, issue 1 in column 2.
+		MakeRequest(t, livesyncAPI(t, "POST", "/projects/1/columns/1/cards", user2, protocol.APICardMove{IssueID: 3}), http.StatusNoContent)
+		MakeRequest(t, livesyncAPI(t, "POST", "/projects/1/columns/2/cards", user2, protocol.APICardMove{IssueID: 1}), http.StatusNoContent)
+		// A: issue 1 to the top of column 1; B: issue 3 to column 2.
+		var wg sync.WaitGroup
+		var statusA, statusB int
+		wg.Go(func() { statusA = move(1, 1, new(0)) })
+		wg.Go(func() { statusB = move(2, 3, nil) })
+		wg.Wait()
+		for _, status := range []int{statusA, statusB} {
+			require.Contains(t, []int{http.StatusNoContent, http.StatusServiceUnavailable}, status, "iteration %d", i)
+		}
+		if statusB == http.StatusNoContent {
+			require.EqualValues(t, 2, card(3).ProjectColumnID, "iteration %d: issue 3 moved back into column 1", i)
+		}
+		if statusA == http.StatusNoContent {
+			require.EqualValues(t, 1, card(1).ProjectColumnID, "iteration %d", i)
+		}
+	}
+}
+
 func livesyncAPIBody(t *testing.T, user2, user5, read2 string, delta func(protocol.Model, int64, func(map[string]any) bool)) {
 	issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 1})
 	version := issue.ContentVersion
+	// Webhook 1 of repo1, for every event.
+	hook := unittest.AssertExistsAndLoadBean(t, &webhook_model.Webhook{ID: 1})
+	hook.HookEvent = &webhook_module.HookEvent{SendEverything: true}
+	require.NoError(t, hook.UpdateEvent())
+	require.NoError(t, webhook_model.UpdateWebhook(t.Context(), hook))
+	retrieveHookTasks(t, hook.ID, true)
 
 	cursor := livesyncLogHead(t)
 	var edited protocol.APIBodyEdited
@@ -279,6 +359,24 @@ func livesyncAPIBody(t *testing.T, user2, user5, read2 string, delta func(protoc
 	delta(protocol.ModelIssueBody, 1, func(d map[string]any) bool {
 		return d["body"] == "edited **body**" && d["content_version"] == float64(version+1) && strings.Contains(d["body_html"].(string), "<strong>body</strong>")
 	})
+
+	// The notifiers get the issue as the classic UI's edit gives it: the
+	// webhook payload carries the poster's (user1, a site admin)
+	// permission in the repository.
+	tasks := retrieveHookTasks(t, hook.ID, false)
+	require.NotEmpty(t, tasks)
+	assert.Equal(t, webhook_module.HookEventIssues, tasks[0].EventType)
+	var payload api.IssuePayload
+	require.NoError(t, json.Unmarshal([]byte(tasks[0].PayloadContent), &payload))
+	assert.Equal(t, api.HookIssueEdited, payload.Action)
+	assert.Equal(t, "edited **body**", payload.Issue.Body)
+	assert.True(t, payload.Repository.Permissions.Admin, "the poster's permission, not an anonymous one")
+	// Off again once delivered (its receiver ends with this test).
+	_, err := db.GetEngine(t.Context()).ID(hook.ID).Cols("is_active").Update(&webhook_model.Webhook{IsActive: false})
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool {
+		return unittest.AssertExistsAndLoadBean(t, &webhook_model.HookTask{ID: tasks[0].ID}).IsDelivered
+	}, livesyncWait, 10*time.Millisecond)
 
 	// A stale version: 409 with the current text and version, nothing
 	// changed.
@@ -315,6 +413,11 @@ func livesyncAPIBody(t *testing.T, user2, user5, read2 string, delta func(protoc
 	// A label event has no content to edit.
 	MakeRequest(t, livesyncAPI(t, "PATCH", "/comments/2021/body", user2, protocol.APIBodyEdit{Body: "x"}), http.StatusUnprocessableEntity)
 	MakeRequest(t, livesyncAPI(t, "PATCH", "/comments/999999/body", user2, protocol.APIBodyEdit{Body: "x"}), http.StatusNotFound)
+	// Comment 4 is user1's in a pending review (a draft) on public repo1's
+	// pull request: 404 for a reader (user5), as for a missing comment —
+	// not 403, which would tell that it exists —, and for the owner.
+	MakeRequest(t, livesyncAPI(t, "PATCH", "/comments/4/body", user5, protocol.APIBodyEdit{Body: "x", ExpectedVersion: 1}), http.StatusNotFound)
+	MakeRequest(t, livesyncAPI(t, "PATCH", "/comments/4/body", user2, protocol.APIBodyEdit{Body: "x", ExpectedVersion: 1}), http.StatusNotFound)
 
 	// With an Idempotency-Key: a retry after the edit replays the success
 	// instead of answering 409.
@@ -352,6 +455,19 @@ func livesyncAPIViewed(t *testing.T, user2, user5, read2 string, delta func(prot
 	DecodeJSON(t, MakeRequest(t, livesyncAPI(t, "GET", "/issues/2/viewed?head="+head, user2, nil), http.StatusOK), &files)
 	assert.Equal(t, protocol.ViewedViewed, files.Files["README.md"])
 	MakeRequest(t, livesyncAPI(t, "GET", "/issues/2/viewed?head=master", user2, nil), http.StatusBadRequest)
+	// A commit after the state's that changes README.md: README.md has
+	// changed since it was viewed, other.txt has not; nothing is stored.
+	var readme struct{ SHA string }
+	DecodeJSON(t, MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1/contents/README.md").AddTokenAuth(user2), http.StatusOK), &readme)
+	var change struct {
+		Commit struct{ SHA string } `json:"commit"`
+	}
+	DecodeJSON(t, MakeRequest(t, NewRequestWithJSON(t, "PUT", "/api/v1/repos/user2/repo1/contents/README.md", map[string]string{
+		"content": base64.StdEncoding.EncodeToString([]byte("changed\n")), "message": "change README", "sha": readme.SHA,
+	}).AddTokenAuth(user2), http.StatusOK), &change)
+	DecodeJSON(t, MakeRequest(t, livesyncAPI(t, "GET", "/issues/2/viewed?head="+change.Commit.SHA, user2, nil), http.StatusOK), &files)
+	assert.Equal(t, protocol.APIViewedFiles{PullID: 1, CommitSHA: head, Files: map[string]string{"README.md": protocol.ViewedHasChanged, "other.txt": protocol.ViewedViewed}}, files)
+	assert.Equal(t, pull_model.Viewed, unittest.AssertExistsAndLoadBean(t, &pull_model.ReviewState{UserID: 2, PullID: 1, CommitSHA: head}).UpdatedFiles["README.md"])
 	MakeRequest(t, livesyncAPI(t, "PUT", "/issues/2/viewed", user2, protocol.APIViewedUpdate{CommitSHA: "master", Files: map[string]bool{"a": true}}), http.StatusBadRequest)
 
 	// Each viewer has their own state; a reader of the pull request may
@@ -460,7 +576,12 @@ func livesyncAPIGit(t *testing.T, user2, user5 string) {
 	var blame protocol.APIBlame
 	resp = MakeRequest(t, livesyncAPI(t, "GET", "/repos/1/blame/"+last+"/blame.txt", user2, nil), http.StatusOK)
 	DecodeJSON(t, resp, &blame)
-	immutable(t, resp, last+":blame.txt")
+	etag := resp.Header().Get("ETag")
+	assert.Regexp(t, `^"[0-9a-f]{64}"$`, etag, "a hash of the address")
+	immutable(t, resp, strings.Trim(etag, `"`))
+	MakeRequest(t, livesyncAPI(t, "GET", "/repos/1/blame/"+last+"/blame.txt", user2, nil).SetHeader("If-None-Match", `"other", `+etag), http.StatusNotModified)
+	bypass := MakeRequest(t, livesyncAPI(t, "GET", "/repos/1/blame/"+last+"/blame.txt?bypass_ignore=1", user2, nil), http.StatusOK)
+	assert.NotEqual(t, etag, bypass.Header().Get("ETag"))
 	assert.Equal(t, last, blame.Commit)
 	assert.Equal(t, []protocol.APIBlamePart{
 		{SHA: firstCommit, StartLine: 1, Lines: 1},
@@ -479,10 +600,25 @@ func livesyncAPIGit(t *testing.T, user2, user5 string) {
 	// owner; an unknown repository is 404.
 	repo2 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
 	head2 := strings.TrimSpace(livesyncGit(t, repo2, "rev-parse", "HEAD"))
-	MakeRequest(t, livesyncAPI(t, "GET", "/repos/2/tree/"+head2, user5, nil), http.StatusNotFound)
-	MakeRequest(t, livesyncAPI(t, "GET", "/repos/2/diff/"+head2, user5, nil), http.StatusNotFound)
-	MakeRequest(t, livesyncAPI(t, "GET", "/repos/2/tree/"+head2, user2, nil), http.StatusOK)
+	home2 := strings.TrimSpace(livesyncGit(t, repo2, "rev-parse", head2+":Home.md"))
+	for _, path := range []string{"/tree/" + head2, "/raw/" + head2 + "/Home.md", "/blobs/" + home2, "/blame/" + head2 + "/Home.md", "/diff/" + head2} {
+		MakeRequest(t, livesyncAPI(t, "GET", "/repos/2"+path, user5, nil), http.StatusNotFound)
+		MakeRequest(t, livesyncAPI(t, "GET", "/repos/2"+path, user2, nil), http.StatusOK)
+	}
 	MakeRequest(t, livesyncAPI(t, "GET", "/repos/999999/tree/"+head2, user2, nil), http.StatusNotFound)
+
+	// A repository the viewer reads without its code unit: commitsonpr
+	// without the code unit is 404 for every immutable read, also for its
+	// owner (once the permission change reached livesync's cache).
+	_, err := db.GetEngine(t.Context()).Where("repo_id = 58 AND type = ?", unit_model.TypeCode).Delete(&repo_model.RepoUnit{})
+	require.NoError(t, err)
+	readme58 := strings.TrimSpace(livesyncGit(t, repo58, "rev-parse", head+":README.md"))
+	assert.Eventually(t, func() bool {
+		return MakeRequest(t, livesyncAPI(t, "GET", "/repos/58/tree/"+head, user2, nil), NoExpectedStatus).Code == http.StatusNotFound
+	}, livesyncWait, 50*time.Millisecond)
+	for _, path := range []string{"/raw/" + head + "/README.md", "/blobs/" + readme58, "/blame/" + head + "/README.md", "/diff/" + head, "/diff/" + base + "/" + head} {
+		MakeRequest(t, livesyncAPI(t, "GET", "/repos/58"+path, user2, nil), http.StatusNotFound)
+	}
 }
 
 func livesyncAPIMarkdown(t *testing.T, user2, user5 string) {
@@ -627,4 +763,15 @@ func livesyncLogTailScenario(t *testing.T, u *url.URL) {
 	other.send(&protocol.LogTailMessage{Type: protocol.MsgLogTail, JobID: job.ID})
 	m = other.waitType(protocol.MsgLog)
 	assert.Len(t, m.Lines, 4)
+
+	// An expired log (removed by the cleanup): log{expired, done}, no
+	// lines.
+	_, err = db.GetEngine(ctx).Exec("UPDATE action_task SET log_expired = ? WHERE id = ?", true, task.ID)
+	require.NoError(t, err)
+	cl.send(&protocol.LogTailMessage{Type: protocol.MsgLogTail, JobID: job.ID})
+	m = cl.waitType(protocol.MsgLog)
+	assert.True(t, m.Expired)
+	assert.True(t, m.Done)
+	assert.Empty(t, m.Lines)
+	assert.Equal(t, task.ID, m.TaskID)
 }

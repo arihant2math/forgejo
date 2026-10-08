@@ -37,7 +37,7 @@ package protocol
 //	PATCH  /-/sync/api/projects/{id}/columns/{column}       APIColumnEdit   → 200 APICreated   (write:issue)
 //	DELETE /-/sync/api/projects/{id}/columns/{column}       → 204; 422 for the default column   (write:issue)
 //	PUT    /-/sync/api/projects/{id}/column-order           APIColumnOrder  → 204              (write:issue)
-//	POST   /-/sync/api/projects/{id}/columns/{column}/cards APICardMove     → 204              (write:issue)
+//	POST   /-/sync/api/projects/{id}/columns/{column}/cards APICardMove     → 204; 503 + Retry-After when concurrent moves kept it from completing (write:issue)
 //	PATCH  /-/sync/api/issues/{id}/body                     APIBodyEdit     → 200 APIBodyEdited, 409 APIBodyConflict (write:issue)
 //	PATCH  /-/sync/api/comments/{id}/body                   APIBodyEdit     → 200 APIBodyEdited, 409 APIBodyConflict (write:issue)
 //	GET    /-/sync/api/issues/{id}/viewed[?head={sha}]      → 200 APIViewedFiles (a pull request's issue)
@@ -52,13 +52,22 @@ package protocol
 //
 // Immutable responses (HeaderImmutable): "Cache-Control: private,
 // max-age=31536000, immutable", "Vary: Authorization", a strong ETag (tree:
-// the tree's SHA; raw and blobs: the blob's SHA; blame: "commit:path"
-// (":bypass" appended with ?bypass_ignore=1); diff: the commit, or
-// "base..head") and 304 for a matching If-None-Match. They need the code unit of the repository (as
+// the tree's SHA; raw and blobs: the blob's SHA; blame: a hex SHA-256 of
+// the commit, the path and ?bypass_ignore — paths may hold characters an
+// entity tag cannot; diff: the commit, or "base..head") and 304 for a
+// matching If-None-Match. They need the code unit of the repository (as
 // the classic file view). Abbreviated SHAs, branch and tag names are 404:
 // the address must be content-addressed. Raw and blob bodies are sent as
 // application/octet-stream with "X-Content-Type-Options: nosniff" and a
-// sandboxing CSP; their size is in Content-Length.
+// sandboxing CSP; their size is in Content-Length. Diffs are streamed
+// (no Content-Length): when git fails before its first byte the answer is
+// a 500 without the immutable headers; when it fails later the response is
+// cut (the connection closed without the final chunk, an HTTP/2 stream
+// reset), so reading the body fails — a body that was read to its end
+// without an error is the complete diff. (Forgejo served over FastCGI
+// cannot cut a response: there a diff cut by a git failure, logged, ends
+// like a complete one.) Only a complete response may be cached. The body
+// of a blame is immutable except APIBlameCommit.AuthorID (see there).
 const (
 	// APIPrefix is the path prefix of the gap endpoints.
 	APIPrefix = "/-/sync/api"
@@ -106,12 +115,19 @@ type APIColumnOrder struct {
 }
 
 // APICardMove moves cards into a column (or within it). Either IssueID
-// (one card) with Position — its 0-based index in the target column after
-// the move, computed against the column's current cards (absent or past
-// the end: last) — or Cards, the target column's complete new order
-// (sorting values ascending; cards of the column that are not listed go
-// after them, as the classic board does). Every issue must already be on
-// the project's board (409 otherwise) and readable by the viewer (404).
+// (one card) with Position — its 0-based index among the column's cards
+// that the viewer may read (the ones the board and the synced pool show),
+// after the move; absent or past the end: last — or Cards, the target
+// column's complete new order (sorting values ascending; cards of the
+// column that are not listed go after them, as the classic board does).
+// A position is applied to the column as it is when the move runs (read
+// and written in one transaction, its cards locked): the card goes right
+// before the readable card at Position, and the cards the viewer may not
+// read keep their places; a card another request moved out of the column
+// meanwhile stays out. Every issue must already be on the project's board
+// (409 otherwise) and readable by the viewer (404). A move that concurrent
+// changes of the same cards kept failing (deadlocks, retried by the
+// server) is 503 with Retry-After: send it again.
 type APICardMove struct {
 	IssueID  int64     `json:"issue_id,omitempty"`
 	Position *int      `json:"position,omitempty"`
@@ -246,7 +262,11 @@ type APIBlamePart struct {
 }
 
 // APIBlameCommit describes a commit of APIBlame. AuthorID is the Forgejo
-// user whose email matches the author's (0: none).
+// user whose activated email matched the author's when the response was
+// made (0: none), as the classic blame page links it: a display hint (an
+// avatar, a profile link), not an identity. It can go stale in a cached
+// copy (the address added to or removed from an account, the account
+// deleted); the rest of the response cannot.
 type APIBlameCommit struct {
 	Summary     string `json:"summary"`
 	AuthorName  string `json:"author_name"`

@@ -87,12 +87,19 @@ export interface APIColumnOrder {
 }
 /**
  * APICardMove moves cards into a column (or within it). Either IssueID
- * (one card) with Position — its 0-based index in the target column after
- * the move, computed against the column's current cards (absent or past
- * the end: last) — or Cards, the target column's complete new order
- * (sorting values ascending; cards of the column that are not listed go
- * after them, as the classic board does). Every issue must already be on
- * the project's board (409 otherwise) and readable by the viewer (404).
+ * (one card) with Position — its 0-based index among the column's cards
+ * that the viewer may read (the ones the board and the synced pool show),
+ * after the move; absent or past the end: last — or Cards, the target
+ * column's complete new order (sorting values ascending; cards of the
+ * column that are not listed go after them, as the classic board does).
+ * A position is applied to the column as it is when the move runs (read
+ * and written in one transaction, its cards locked): the card goes right
+ * before the readable card at Position, and the cards the viewer may not
+ * read keep their places; a card another request moved out of the column
+ * meanwhile stays out. Every issue must already be on the project's board
+ * (409 otherwise) and readable by the viewer (404). A move that concurrent
+ * changes of the same cards kept failing (deadlocks, retried by the
+ * server) is 503 with Retry-After: send it again.
  */
 export interface APICardMove {
   issue_id?: number /* int64 */;
@@ -234,7 +241,11 @@ export interface APIBlamePart {
 }
 /**
  * APIBlameCommit describes a commit of APIBlame. AuthorID is the Forgejo
- * user whose email matches the author's (0: none).
+ * user whose activated email matched the author's when the response was
+ * made (0: none), as the classic blame page links it: a display hint (an
+ * avatar, a profile link), not an identity. It can go stale in a cached
+ * copy (the address added to or removed from an account, the account
+ * deleted); the rest of the response cannot.
  */
 export interface APIBlameCommit {
   summary: string;
@@ -1244,7 +1255,8 @@ export interface LogClosedMessage {
  */
 export const LogClosedForbidden = "forbidden";
 /**
- * LogClosedLimit: the session tails too many jobs.
+ * LogClosedLimit: the session tails too many jobs (untail one, then
+ * tail again).
  */
 export const LogClosedLimit = "limit";
 /**

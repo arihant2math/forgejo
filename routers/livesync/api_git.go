@@ -5,6 +5,8 @@ package livesync
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -339,14 +341,60 @@ func apiDiff(w http.ResponseWriter, req *http.Request) {
 	if immutable(w, req, etag) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	// Streamed: an error after the first bytes can only cut the response
-	// (the client then has no complete diff: no trailing newline, or a
-	// broken connection).
-	if err := git.GetRepoRawDiffForFile(gitRepo, base, head.ID.String(), git.RawDiffNormal, "", w); err != nil && a.ctx.Err() == nil {
-		a.internalLogged("diff", err)
+	a.stream("text/plain; charset=utf-8", func(out io.Writer) error {
+		return git.GetRepoRawDiffForFile(gitRepo, base, head.ID.String(), git.RawDiffNormal, "", out)
+	})
+}
+
+// stream answers an immutable response (its headers set) with what run
+// writes, through a pipe: the status and the headers are only sent once
+// run wrote its first byte or returned without error (an empty body). A
+// failure before is a 500 without the immutable headers; a failure after
+// cannot change the status, so the response is cut (abortResponse): the
+// client must never take a partial body for a complete one, which it
+// would cache forever. stream returns once run returned.
+func (a *apiRequest) stream(contentType string, run func(io.Writer) error) {
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pw.CloseWithError(run(pw))
+	}()
+	defer func() {
+		_ = pr.Close() // run's writes fail when the client went away
+		<-done
+	}()
+	out := bufio.NewReaderSize(pr, 32<<10)
+	h := a.w.Header()
+	if _, err := out.Peek(1); err != nil && err != io.EOF {
+		h.Del("ETag")
+		h.Del("Cache-Control")
+		a.internal("stream", err)
+		return
 	}
+	h.Set("Content-Type", contentType)
+	h.Set("X-Content-Type-Options", "nosniff")
+	a.w.WriteHeader(http.StatusOK)
+	cw := &clientWriter{w: a.w}
+	if _, err := out.WriteTo(cw); err != nil && cw.err == nil {
+		a.internalLogged("stream", err)
+		abortResponse(a.req)
+	}
+}
+
+// clientWriter remembers the error of a write to the client (which went
+// away), to tell it from a failure of the source being copied.
+type clientWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (c *clientWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	if err != nil {
+		c.err = err
+	}
+	return n, err
 }
 
 // internalLogged logs an error after the response started.
@@ -390,11 +438,7 @@ func apiBlame(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	bypass := req.URL.Query().Get("bypass_ignore") == "1"
-	etag := commit.ID.String() + ":" + path
-	if bypass {
-		etag += ":bypass"
-	}
-	if immutable(w, req, etag) {
+	if immutable(w, req, blameETag(commit.ID.String(), path, bypass)) {
 		return
 	}
 	res, err := blame(a, repo, gitRepo, commit, path, bypass)
@@ -407,6 +451,15 @@ func apiBlame(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeImmutableJSON(w, res)
+}
+
+// blameETag is the ETag of a blame: a hash of its address, since a path
+// may hold characters an entity tag cannot (", non-ASCII) or that
+// If-None-Match lists separate (,).
+func blameETag(commit, path string, bypass bool) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "blame\x00%s\x00%s\x00%t", commit, path, bypass)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // blame runs git blame as the classic blame page does (performBlame: when

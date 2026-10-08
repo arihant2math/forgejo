@@ -6,9 +6,11 @@
 package livesync
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"forgejo.org/modules/graceful"
 	"forgejo.org/modules/log"
@@ -134,7 +136,36 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	}
+	req, abort := abortable(req)
 	h.own.ServeHTTP(w, req)
+	if abort.Load() && setting.Protocol != setting.FCGI && setting.Protocol != setting.FCGIUnix {
+		// Out here, past Forgejo's panic recovery (ProtocolMiddlewares
+		// recovers every panic and would append an error page to the
+		// started response), net/http aborts the response: the
+		// connection is closed without the final chunk (HTTP/1.1) or the
+		// stream reset (HTTP/2). net/http/fcgi neither recovers panics
+		// nor can abort a response: there the cut response is logged
+		// only.
+		panic(http.ErrAbortHandler)
+	}
+}
+
+// abortKey is the context key of a request's abort flag (abortable).
+type abortKey struct{}
+
+// abortable returns req with a flag that abortResponse sets.
+func abortable(req *http.Request) (*http.Request, *atomic.Bool) {
+	flag := new(atomic.Bool)
+	return req.WithContext(context.WithValue(req.Context(), abortKey{}, flag)), flag
+}
+
+// abortResponse asks handler.ServeHTTP to abort a response that already
+// started (its status and headers were sent) when the handler returns:
+// the body is incomplete and the client must not take it for complete.
+func abortResponse(req *http.Request) {
+	if flag, ok := req.Context().Value(abortKey{}).(*atomic.Bool); ok {
+		flag.Store(true)
+	}
 }
 
 // ownPath reports whether path belongs to livesync and returns it relative to

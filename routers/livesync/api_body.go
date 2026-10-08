@@ -78,6 +78,13 @@ func apiIssueBody(w http.ResponseWriter, req *http.Request) {
 	if !ok {
 		return
 	}
+	// As the classic UpdateIssueContent (GetActionIssue) and API v1's
+	// EditIssue: the notifiers (webhooks: the poster's permission in the
+	// payload's repository) read the issue's attributes.
+	if err := issue.LoadAttributes(a.ctx); err != nil {
+		a.internal("load the issue's attributes", err)
+		return
+	}
 	var body protocol.APIBodyEdit
 	if !a.decode(&body) {
 		return
@@ -120,20 +127,25 @@ func apiCommentBody(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	}
-	issue, ok := a.bodyIssue(comment.IssueID, comment.PosterID)
-	if !ok {
-		return
-	}
-	comment.Issue = issue
+	// Another user's draft (a comment of a pending review) is not
+	// readable (the classic UI shows a pending review to its author
+	// only): 404 as for a comment that does not exist, before the checks
+	// that would tell the viewer it exists (403).
 	if err := comment.LoadReview(a.ctx); err != nil {
 		a.internal("load the comment's review", err)
 		return
 	}
 	if comment.Review != nil && comment.Review.Type == issues_model.ReviewTypePending && comment.PosterID != a.viewer.ID {
-		// Another user's draft: not readable (the classic UI shows a
-		// pending review to its author only).
 		a.notFound()
 		return
+	}
+	issue, ok := a.bodyIssue(comment.IssueID, comment.PosterID)
+	if !ok {
+		return
+	}
+	comment.Issue = issue
+	if comment.Review != nil {
+		comment.Review.Issue = issue
 	}
 	if !comment.Type.HasContentSupport() {
 		a.error(http.StatusUnprocessableEntity, "this comment has no editable content")

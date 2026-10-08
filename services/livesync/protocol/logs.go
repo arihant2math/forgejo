@@ -22,7 +22,10 @@ package protocol
 // job page), checked when the tail starts and again while it runs; a tail
 // whose permission is gone, or of a job that does not exist, is closed
 // with LogClosedForbidden (never told apart). A session tails at most 8
-// jobs at once (LogClosedLimit beyond).
+// jobs at once (LogClosedLimit beyond; also while more than 16 stopped
+// tails are still finishing, which only a client that tails and untails
+// many jobs in a loop sees). Tailing a job again restarts its tail (the
+// newest request wins; requests sent in between may be skipped).
 
 // LogTailMessage starts (or restarts) tailing a job's log.
 type LogTailMessage struct {
@@ -92,7 +95,8 @@ const (
 	// LogClosedForbidden: the job does not exist or its log may not (any
 	// more) be read.
 	LogClosedForbidden = "forbidden"
-	// LogClosedLimit: the session tails too many jobs.
+	// LogClosedLimit: the session tails too many jobs (untail one, then
+	// tail again).
 	LogClosedLimit = "limit"
 	// LogClosedError: the log could not be read; tail again later.
 	LogClosedError = "error"

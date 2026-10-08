@@ -2227,7 +2227,8 @@ does) **and** MySQL 8.0 (binlog on).
     id>` (`models/livesync.TryLease`; PG advisory / MySQL `GET_LOCK`, pinned connection, pinged every 30 s and re-taken if lost) for its
     lifetime; an owner of this process is alive iff its token is in the in-process `running` set (registered *before* the insert/CAS);
     another instance's owner is alive iff its lock is held (try-lock; errors count as alive). So a crash is detected **immediately** by a
-    retry on the restarted server (no heartbeat timeout). One extra pinned DB connection per instance. On shutdown the lock is kept until
+    retry on the restarted server (no heartbeat timeout). One extra pinned DB connection per instance (two on the writer
+    instance with its writer lease: livesync needs `MAX_OPEN_CONNS` 0 or ≥ 3, see review round 1). On shutdown the lock is kept until
     the running attempts finished (≤ 10 s, `drain`), so a graceful restart does not let a retry run them twice. `Complete` (state
     completed, status, headers JSON, body, sync id, `outbox_high`, owner cleared) and `Release` (owner cleared, nothing stored) are CAS
     on the owner: an attempt that was taken over stores nothing (logged). **What is stored:** every response with status < 500; ≥ 500 ⇒
@@ -2310,6 +2311,73 @@ does) **and** MySQL 8.0 (binlog on).
   - **Environment note (disk).** The sandbox disk filled up during B6. `~/.cache/go-build` had grown to 18 GB; deleting entries not
     used for 4 h (`find ~/.cache/go-build -type f -mmin +240 -delete`, Go re-creates what it needs) freed 12 GB, and old `*.test`
     binaries in the session scratchpad another 1.4 GB. A full `go test -c` of `tests/integration` is ≈ 165 MB.
+  - **Review round 1 (13 findings, all fixed; the notes above are amended by these):**
+    1. *Connection pool* (major). An instance pins **two** pooled connections, not one: the idempotency instance lock (every
+       instance) and the sync log writer lease (the writer); with `[database] MAX_OPEN_CONNS = 2` nothing was left for the
+       materializer, the reader and API v1, and everything hung. `livesync_model.MinOpenConns = 3` (two pinned + one to work on;
+       `alive()`'s try-lock and the schema lock at start need one more briefly, they take turns with the rest), checked by
+       `livesync_model.CheckPool` first thing in `Init` (clear error, livesync does not start) and in `TryLease`/`WithSchemaLock`
+       (were `== 1`). `0` (unlimited, the default) is fine. `TestLivesyncIdempotencyPool`: 2 ⇒ Init refused; 3 ⇒ a keyed write
+       completes with its sync id.
+    2. *Credential-issuing routes* (major). `POST /user/applications/oauth2`, `PATCH /user/applications/oauth2/{id}`,
+       `POST /users/{u}/tokens`, `POST /admin/users/{u}/tokens`, `POST /{user,orgs/{o},repos/{o}/{r},admin}/actions/runners` return a
+       secret upstream keeps only hashed: with `Idempotency-Key` they are refused (**400**, nothing runs, nothing stored) rather than
+       stored without body (a replay without the secret is useless, and a retry that runs again would create a second credential).
+       List in `credentialRoutes` + SURFACE.md (re-check on upstream merges). Also: the recorder now drops bodies for statuses that
+       allow none (1xx/204/304, as net/http does), so e.g. a team-invite accept's 204 body (with its token) is not stored.
+    3. *Sudo*. The `Sudo` header is part of the request hash (`?sudo=` and a form `sudo` already were, via query/body); the
+       crash-window check looks for entities of the user API v1 acts as (`dedupeUser`: `?sudo=` then the header, as `sudo()` reads
+       them for a JSON body; none if the token's user is not an admin or the sudo user is unknown — API v1 refuses then). Chosen over
+       refusing sudo: it costs nothing and keeps admin tooling working.
+    4. *Tokens in the query / form*. API v1 reads `token`/`access_token` from the query or a urlencoded body **before** the
+       Authorization header; keyed requests carrying one are refused (400 "send the token in the Authorization header"). So the token
+       is never hashed, the synthetic crash-window GET (headers only) carries the credentials API v1 uses, and the user the key is
+       scoped to is the one API v1 acts as. Refused even with `DISABLE_QUERY_AUTH_TOKEN = true` (simpler than mirroring it).
+    5. *Path storage*. `storedPath`: `strings.ToValidUTF8` (a decoded `%FF`) then `util.SplitStringAtByteN(…, 1024)` (rune
+       boundary). Was `path[:1024]`, which PG/MySQL rejected ⇒ 500 on every attempt.
+    6. *Shutdown race*. `Service.Enter()` registers a keyed request as soon as the layer has the store (before body and auth);
+       `drain` waits for entered requests as well as running attempts; after the instance context is done `Enter` fails and
+       `Begin` returns `ErrUnavailable` (also while the instance lock is lost) ⇒ 503 + `Retry-After: 2`. So the lock is released only
+       when no keyed request can still reserve or run (bounded by the 10 s drain as before).
+    7. *Sync wait and deferred hot rows*. `capture.Batch.Commit` now marks the rows the consumer deferred
+       (`livesync_change.deferred`, new column `BOOL NOT NULL DEFAULT false`, added by Sync, triggers unchanged, `TablesVersion`
+       stays 1; one `UPDATE … WHERE id IN` only in batches that deferred something); `WaitSynced` ignores marked rows, so an unrelated
+       hot-row update in the global range (L, H] no longer holds a write for up to HOT_COALESCE. **Contract change:** a change to a
+       hot row that the materializer deferred is not covered by the header (its entry follows within HOT_COALESCE, above the value);
+       this replaces the "changed again by someone else" carve-out and the earlier claim that deferral made notification writes
+       covered. Error responses (status ≥ 400) no longer wait: one check (`SyncedNow`), header only if the range is already in the log.
+    8. *Account checks*. `checkAccount` (B4) runs right after authentication for every keyed request: replays, 409s and 422s of a
+       prohibited / deactivated / must-change-password / 2FA-required account get API v1's 403.
+    9. *Body after auth*. The request is authenticated (header token, on a clone without body) before the body is read; an
+       unauthenticated keyed write gets 401 without its body being read (tested with a counting reader).
+    10. *Middlewares*. The layer's own answers (503/400/401/403/413/409/422/500, replays, crash-window answers) go through a second
+        router with `common.ProtocolMiddlewares()` (`newAnswers`, handler `idempotencyAnswer`): access log, router log, process entry,
+        panic recovery. A request that runs is logged once, by API v1's own router. A crash-window duplicate logs the synthetic GET
+        (API v1) **and** the POST (the layer's answer). Not inside the middlewares: the authentication and `Begin` queries before the
+        answer (no process entry for them).
+    11. *Position read failure*. When the outbox position cannot be read after the write, the record stores `outbox_high = -1`
+        (unknown) and `sync_id = -1`; a replay reads the current position as the upper bound (above everything the write committed)
+        instead of using `max(0, low)`.
+    12. *Round trips*. `capture.PositionQuery` caches the PG sequence name (per host/db/schema). `Begin` reserves in **one** statement
+        on PostgreSQL (`INSERT … VALUES (…, (SELECT … FROM <seq>), …) ON CONFLICT DO NOTHING RETURNING id, outbox_low`; was
+        2 position + insert + select = 4), on MySQL position + insert (affected rows / `LastInsertId`, no read-back; was 3); the record is
+        read back only when the key exists. MySQL still reads the position (`SHOW CREATE TABLE`) before learning the key exists — one
+        wasted query on retries, chosen to keep first attempts at two. After the write: one query on PG (was two). Measured
+        (`TestLivesyncIdempotencyDelta`, sandbox): PG 6.5 ms plain → 14.4 ms keyed, MySQL 8.3 → 22.3 ms.
+    13. *Tests*. `TestLivesyncIdempotencyServerErrors` (inner that fails on purpose): 502 after the issue was committed ⇒ record
+        released, the retry is recovered and answers with the existing issue (one issue); 500 before the commit ⇒ the retry runs; a
+        panic in inner ⇒ released, re-panicked, the retry runs once; a deferred hot row in the write's range ⇒ header at once (HOT_COALESCE
+        1 h). `TestLivesyncIdempotencyLateMaterializer`: `IDEMPOTENCY_SYNC_WAIT = 0`, the test holds the writer lease (no
+        materializer) ⇒ 201 without header, record `sync_id -1` with `outbox_high > outbox_low`, replay still without; lease released
+        ⇒ a replay gets the header, which covers the issue's entry, and stores it. New subtests of `TestLivesyncIdempotency`:
+        credential routes, query/form token, auth before body, sudo (422 for another sudo user; crash-window found for the sudo user),
+        long non-ASCII and `%FF` paths, prohibited account replay ⇒ 403. Unit: `TestStopDrainsEntered`, `TestStoredPath`,
+        deferred/`SyncedNow` cases in `TestWaitSynced`, `TestReaderDefer` checks the mark; routers: `TestIssuesCredentials`,
+        `TestFormToken`, `TestAnswersMiddlewares`, `TestRecorderNoBody`.
+    **Round 1 commands:** gofumpt clean; golangci-lint (livesync packages + `tests/integration` with sqlite tags) 0 issues; `go vet`;
+    deadcode diff clean; `go mod tidy -diff` clean; `gen-protocol.sh --check` up to date (only doc comments changed); unit tests of
+    every livesync package with `-race`; full `-test.run 'TestLivesync|TestVersion'`: **PG 16 (`gtestschema`) 40 pass / 3 skips,
+    MySQL 8.0 42 pass / 1 skip**, no testlogger "FATAL ERROR"; fork-diff check unchanged.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
 - [ ] **Status**

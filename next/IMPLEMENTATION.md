@@ -2385,7 +2385,7 @@ does) **and** MySQL 8.0 (binlog on).
     MySQL 8.0 42 pass / 1 skip**, no testlogger "FATAL ERROR"; fork-diff check unchanged.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
-- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; its issue round 3 (a permanently behind subscription blocked the session's worker: no token re-validation, no replays for new subscriptions, no `caught_up`/`barrier_ok`) fixed 2026-10-08 — see *Burst backpressure, issue round 3*; no open items)
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; its issue round 3 (a permanently behind subscription blocked the session's worker: no token re-validation, no replays for new subscriptions, no `caught_up`/`barrier_ok`) fixed 2026-10-08 — see *Burst backpressure, issue round 3*; its re-review left **1 open item** (major, pre-existing: an ending session's worker busy-spins until the writer gives up) — see *Open items (issue round 3 re-review)*)
 - **Scope:** `services/livesync/oauthapp` (ensure a public client, redirect
   `{AppURL}-/next/callback`, PKCE; confirm scope behaviour with/without
   `ENABLE_ADDITIONAL_GRANT_SCOPES`; expose client_id to the SPA via the inlined config).
@@ -2727,6 +2727,28 @@ does) **and** MySQL 8.0 (binlog on).
       (one reader per job feeding sessions with different offsets/tasks, per-session permission checks every 10 s, per-session
       room waits and pending lines, restarts handed between goroutines) — a new concurrency surface, not a cheap change; still
       noted in B9's known gaps.
+  - **Open items (issue round 3 re-review, 2026-10-08).** The re-review confirmed the round-3 fix (new tests green with
+    `-race -count=2`, `TestBehind*` `-race -count=10` under 4 CPU burners, `TestLivesyncHub*` `-test.count 2` on PG 16 and MySQL 8.0;
+    a second, actively written group's replay still got `caught_up`/`barrier_ok` within ≈ 0.3–6.5 s while `repo:1` stayed behind;
+    no defect found in the round-robin, `replaying`, `position()` or barrier logic). One item stays open:
+    1. **[major, pre-existing since B5, kept by round 3] An ending session's worker busy-spins until the writer gives up**
+       (`services/livesync/hub/replay.go`, `process` / `drainWork`). *Mechanism:* `endLocked` sets `c.ending` and broadcasts `room`
+       (slowLocked / `DRAIN_TIMEOUT`, `session_invalid`, shutdown notice, …), but `c.ctx` is cancelled only when `writeLoop` returns —
+       after the writer has written or failed its current frame, i.e. up to `WriteTimeout` (10 s default) for a client that does not
+       read. In that window `waitRoom` returns false at once, so `catchUp` (and `sendKeys` for replays) return ok=false, `process`
+       re-queues `s` (its only guard is `c.ctx.Err() == nil`) and `drainWork` loops straight back into `process` with nothing
+       blocking: on the catch-up path every iteration takes the global `h.mu` twice plus `c.mu`; on the replay path it also runs
+       `synclog.ReadKeys` (≤ `MaxReplay`+1 rows) and `ReadEntries` (≤ 500 payloads) in a check slot. *Evidence (scratch overlay
+       tests, `replay.go` instrumented with a call counter):* a live `repo:1` client slowed to ≈ 1 B/ms, a 200 × 1 KiB burst
+       (SEND_BUFFER 64 KiB, DRAIN_TIMEOUT 300 ms, WriteTimeout 3 s) ⇒ close 1011 after 3.0 s with **14,606,219 `process` calls**, all
+       after `ending`; the same client with a hello replay of 300 × 1 KiB entries ⇒ close 1013 after 2.0 s with **667 replay retries
+       after ending**, each re-reading 300 keys + 300 payloads (≈ 300 KB of DB reads). Against the pre-fix hub (`4aa86e9~1`): 52 M
+       iterations / 655 retries — so it predates round 3. *Impact:* exactly the slow-consumer close `DRAIN_TIMEOUT` exists for, and
+       `Hub.Shutdown` (ends every session at once): each affected session pins a core for up to `WriteTimeout`, hammers the global hub
+       mutex `Deliver` needs for all sessions, and (replay path) floods the DB through the shared check-slot semaphore; at PLAN §4.11
+       scale (3k sockets) a network blip or a shutdown multiplies it. *Suggested fix:* once the session is ending, `process` must not
+       re-queue and `drainWork` must return — check `c.ending` under `c.mu`, or let `waitRoom`'s false result end the step for good;
+       add a regression test counting worker steps after `slowLocked` while the writer is stuck in a write.
   - **Settings added:** `TRIGGER_CHECK_INTERVAL` (1m, ≥ 0), `ASSETS_DIR` (""), `OAUTH_REDIRECT_URIS` ("").
   - **livesync_meta names added:** `oauth_client_id`, `oauth_scope`.
   - **APIs for later milestones.** `livesync_service.{Disable, State, InitError, OAuthApp, CollectStatus}`, `StateRunning/

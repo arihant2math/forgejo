@@ -150,6 +150,15 @@ func TestHandlerRouting(t *testing.T) {
 		{"", http.MethodGet, "/-/sync/load?group=issue:1", http.StatusServiceUnavailable},
 		{"", http.MethodGet, "/-/sync/workspace", http.StatusServiceUnavailable},
 		{"/forge", http.MethodGet, "/forge/-/sync/workspace/", http.StatusServiceUnavailable},
+		// Gap endpoints (B9): reads and writes (with and without a key)
+		// answer 503 while stopped; unknown ones 404.
+		{"", http.MethodGet, "/-/sync/api/repos/1/tree/" + strings.Repeat("a", 40), http.StatusServiceUnavailable},
+		{"", http.MethodPost, "/-/sync/api/markdown", http.StatusServiceUnavailable},
+		{"", http.MethodPatch, "/-/sync/api/issues/1/body", http.StatusServiceUnavailable},
+		{"", http.MethodPut, "/-/sync/api/projects/1/column-order", http.StatusServiceUnavailable},
+		{"", http.MethodGet, "/-/sync/api/issues/1/body", http.StatusMethodNotAllowed},
+		{"", http.MethodGet, "/-/sync/api/nope", http.StatusNotFound},
+		{"/forge", http.MethodDelete, "/forge/-/sync/api/projects/1/columns/2", http.StatusServiceUnavailable},
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.sub+c.path, func(t *testing.T) {

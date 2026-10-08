@@ -119,3 +119,33 @@ func closeGitRepos(repos map[int64]*git.Repository) {
 		}
 	}
 }
+
+// RenderPreview renders markdown previews (the gap endpoint POST
+// /-/sync/api/markdown) exactly as the materializer renders the body_html
+// of an issue or comment of repo with that text (renderMarkdown: the same
+// links base and metas, without a viewer), so that a preview equals what
+// the sync log will carry. Without repo the texts are rendered as plain
+// markdown (no repository links or metas).
+func RenderPreview(ctx context.Context, repo *repo_model.Repository, texts []string) []string {
+	res := make([]string, len(texts))
+	if repo == nil {
+		for i, text := range texts {
+			if text == "" {
+				continue
+			}
+			html, err := markdown.RenderString(&markup.RenderContext{Ctx: ctx}, text)
+			if err != nil {
+				log.Warn("livesync: render a markdown preview: %v", err)
+				continue
+			}
+			res[i] = string(html)
+		}
+		return res
+	}
+	l := newLoader()
+	defer l.close()
+	for i, text := range texts {
+		res[i] = l.renderMarkdown(ctx, repo, text)
+	}
+	return res
+}

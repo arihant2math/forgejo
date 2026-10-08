@@ -39,6 +39,7 @@ func newRoutes(inner http.Handler, s *spa) http.Handler {
 	r.Get(syncPrefix+"/workspace", serveWorkspace)
 	r.Get(adminPath, serveAdmin(inner, s))
 	r.Post(syncPrefix+"/rum", serveRUM)
+	registerAPI(r) // the gap endpoints (api*.go)
 
 	// The Next UI (spa.go).
 	r.Methods("GET,HEAD", nextPrefix+"/assets/*", s.serveAsset)

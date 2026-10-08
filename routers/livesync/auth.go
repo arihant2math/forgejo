@@ -49,27 +49,34 @@ type authError struct {
 // authenticate returns the viewer of a livesync request. The WebSocket
 // hello (B5) validates its token the same way.
 func authenticate(req *http.Request) (*user_model.User, *authError) {
+	u, _, aerr := authenticateResult(req)
+	return u, aerr
+}
+
+// authenticateResult is authenticate that also returns the token's
+// authentication result (its scope, for the writes of the gap endpoints).
+func authenticateResult(req *http.Request) (*user_model.User, auth.AuthenticationResult, *authError) {
 	var result auth.AuthenticationResult
 	switch out := authMethods.Verify(req, nil, nil).(type) {
 	case *auth.AuthenticationSuccess:
 		result = out.Result
 	case *auth.AuthenticationError:
 		log.Error("livesync: authentication: %v", out.Error)
-		return nil, &authError{http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)}
+		return nil, nil, &authError{http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)}
 	default:
-		return nil, &authError{http.StatusUnauthorized, "a valid access token is required"}
+		return nil, nil, &authError{http.StatusUnauthorized, "a valid access token is required"}
 	}
 	u := result.User()
 	if u == nil {
-		return nil, &authError{http.StatusUnauthorized, "a valid access token is required"}
+		return nil, nil, &authError{http.StatusUnauthorized, "a valid access token is required"}
 	}
 	if aerr := checkAccount(req.Context(), u); aerr != nil {
-		return nil, aerr
+		return nil, nil, aerr
 	}
 	if err := checkTokenAccess(result); err != nil {
-		return nil, &authError{http.StatusForbidden, err.Error()}
+		return nil, nil, &authError{http.StatusForbidden, err.Error()}
 	}
-	return u, nil
+	return u, result, nil
 }
 
 // checkAccount refuses accounts that API v1 refuses (verifyAuthWithOptions
@@ -118,4 +125,21 @@ func checkTokenAccess(result auth.AuthenticationResult) error {
 		return nil
 	}
 	return errTokenAccess
+}
+
+// errWriteScope is the message of a gap endpoint's write with a token that
+// lacks the write scope.
+func errWriteScope(scope auth_model.AccessTokenScope) string {
+	return "this request needs a token with the " + string(scope) + " scope"
+}
+
+// hasScope reports whether the token of result has scope (a token without
+// scopes, e.g. a session, has every scope).
+func hasScope(result auth.AuthenticationResult, scope auth_model.AccessTokenScope) bool {
+	has, s := result.Scope().Get()
+	if !has {
+		return true
+	}
+	ok, err := s.HasScope(scope)
+	return err == nil && ok
 }

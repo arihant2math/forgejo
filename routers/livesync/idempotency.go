@@ -239,15 +239,20 @@ var (
 
 // keyedWrite is a keyed request that may run.
 type keyedWrite struct {
-	svc  *idempotency.Service
-	user *user_model.User
-	path string
-	body []byte
-	res  *idempotency.Reservation
+	// target runs the request: API v1 (upstream's handler) or livesync's
+	// own router (the gap endpoints).
+	target http.Handler
+	svc    *idempotency.Service
+	user   *user_model.User
+	path   string
+	body   []byte
+	res    *idempotency.Reservation
 }
 
-// serveKeyed handles an API v1 write with an Idempotency-Key.
-func (h *handler) serveKeyed(w http.ResponseWriter, req *http.Request, path string) {
+// serveKeyed handles a write with an Idempotency-Key: an API v1 write
+// (target = upstream's handler) or a gap endpoint write (target =
+// livesync's router; path is below /-/sync/api/).
+func (h *handler) serveKeyed(w http.ResponseWriter, req *http.Request, path string, target http.Handler) {
 	svc := h.idempotency()
 	var release func()
 	if svc != nil {
@@ -269,6 +274,7 @@ func (h *handler) serveKeyed(w http.ResponseWriter, req *http.Request, path stri
 		h.answer(w, req, ans)
 		return
 	}
+	kw.target = target
 	h.run(w, req, kw)
 }
 
@@ -421,7 +427,7 @@ func (h *handler) run(w http.ResponseWriter, req *http.Request, kw *keyedWrite) 
 	}
 	if rec == nil {
 		rec = newRecorder(w)
-		h.inner.ServeHTTP(rec, withBody(req, kw.body))
+		kw.target.ServeHTTP(rec, withBody(req, kw.body))
 	}
 
 	status := rec.code()
@@ -680,4 +686,37 @@ func (r *recorder) code() int {
 // net/http decides: not 1xx, 204 or 304).
 func bodyAllowed(status int) bool {
 	return (status < 100 || status > 199) && status != http.StatusNoContent && status != http.StatusNotModified
+}
+
+// serveSynced runs a gap endpoint write without an Idempotency-Key and
+// answers with X-Livesync-Sync-Id like a keyed write (protocol/api.go):
+// the outbox position is read before and after the write and the response
+// waits (bounded) for the materializer, as Service.WaitSynced describes.
+// When livesync is stopping or the position cannot be read, the write
+// answers without the header.
+func (h *handler) serveSynced(w http.ResponseWriter, req *http.Request) {
+	svc := h.idempotency()
+	if svc == nil {
+		h.own.ServeHTTP(w, req)
+		return
+	}
+	ctx := req.Context()
+	low, err := idempotency.Position(ctx)
+	if err != nil {
+		log.Error("livesync: gap endpoint write: %v", err)
+		h.own.ServeHTTP(w, req)
+		return
+	}
+	rec := newRecorder(w)
+	h.own.ServeHTTP(rec, req)
+	if rec.streaming {
+		return
+	}
+	status, syncID := rec.code(), int64(-1)
+	if high, err := idempotency.Position(context.WithoutCancel(ctx)); err != nil {
+		log.Error("livesync: gap endpoint write: %v", err)
+	} else if id, ok := synced(ctx, svc, status, low, high); ok {
+		syncID = id
+	}
+	writeResponse(w, rec.header, status, rec.body.Bytes(), syncID, false)
 }

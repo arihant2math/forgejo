@@ -16,6 +16,7 @@ import (
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/idempotency"
+	"forgejo.org/services/livesync/protocol"
 )
 
 // Path prefixes owned by livesync. Requests below them never reach the
@@ -97,7 +98,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	p, ok := ownPath(req.URL.Path)
 	if !ok {
 		if path, ok := keyed(req); ok {
-			h.serveKeyed(w, req, path)
+			h.serveKeyed(w, req, path, h.inner)
 			return
 		}
 		if h.spa.document(req) {
@@ -121,6 +122,16 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	case syncPrefix + "/sse":
 		serveSSE(w, req)
+		return
+	}
+	if strings.HasPrefix(p, protocol.APIPrefix+"/") && apiWrite(req.Method, p) {
+		// Gap endpoint writes: through the idempotency layer with a key,
+		// else with the sync id echo (idempotency.go).
+		if _, ok := req.Header[protocol.HeaderIdempotencyKey]; ok {
+			h.serveKeyed(w, req, p, h.own)
+		} else {
+			h.serveSynced(w, req)
+		}
 		return
 	}
 	h.own.ServeHTTP(w, req)

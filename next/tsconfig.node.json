@@ -39,6 +39,7 @@
     "lint",
     "e2e",
     "conformance",
+    "integration",
     "*.ts"
   ]
 }

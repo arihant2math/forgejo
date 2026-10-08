@@ -61,7 +61,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['*.ts', 'tools/**/*.ts', 'lint/**/*.ts', 'e2e/**/*.ts', 'conformance/**/*.ts'],
+    files: ['*.ts', 'tools/**/*.ts', 'lint/**/*.ts', 'e2e/**/*.ts', 'conformance/**/*.ts', 'integration/**/*.ts'],
     languageOptions: {globals: globals.node},
     rules: {'no-console': 'off'},
   },

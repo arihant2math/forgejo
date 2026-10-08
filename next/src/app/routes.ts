@@ -22,7 +22,10 @@ const home = () => import('../features/home/Home.tsx');
 const routes: Record<string, () => Promise<RouteModule>> = {'': home};
 // Dev-only: `import.meta.env.DEV` is false in production builds, so the gallery
 // and its chunk are not part of the shipped app.
-if (import.meta.env.DEV) routes.gallery = () => import('../dev/gallery/Gallery.tsx');
+if (import.meta.env.DEV) {
+  routes.gallery = () => import('../dev/gallery/Gallery.tsx');
+  routes['dev/hydrate'] = () => import('../dev/bench/HydrateBench.tsx');
+}
 
 export function loadRoute(pathname: string): Promise<RouteModule> {
   const path = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname.replace(/^\//, '');

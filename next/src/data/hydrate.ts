@@ -7,10 +7,13 @@
 //      store's group index in one transaction (the structure groups and the
 //      current route's repository and issue). This is what the first frame
 //      needs.
-//   2. `rest()`: every store, in primary-key chunks of CHUNK records, one
-//      transaction per chunk, yielding to the browser between chunks (idle
-//      time unless `eager`). Records of groups phase 1 already read are
-//      skipped.
+//   2. `rest()`: every store, in primary-key chunks of HYDRATE_CHUNK bucket
+//      values, one transaction per chunk, yielding to the browser between
+//      chunks (idle time unless `eager`). Buckets of groups phase 1 already
+//      read are skipped.
+//
+// A group is one key range of a model store (keys are [group, bucket],
+// see idb.ts), so phase 1 needs no index.
 //
 // Each read transaction also reads meta "flushedSeq": the records it returns
 // are at least as new as that flush. Followers use the label to order reads
@@ -19,10 +22,12 @@
 // IndexedDB (no copy): `d` becomes the entity's state.
 
 import type {EntityRecord} from './entity.ts';
-import {META, modelStore, request} from './idb.ts';
+import {type BucketValue, META, modelStore, request} from './idb.ts';
 import {canHold, groupKind, MODEL_NAMES, type ModelName} from './models.ts';
+import {BUCKETS} from './pool.ts';
 
-export const HYDRATE_CHUNK = 2000;
+/** Bucket values per read transaction of phase 2. */
+export const HYDRATE_CHUNK = 64;
 
 /** Receives records read with the flush sequence they are at least as new as. */
 export type Sink = (m: ModelName, records: EntityRecord[], seq: number) => void;
@@ -60,9 +65,13 @@ export class Hydrator {
   private minSeq = Number.POSITIVE_INFINITY;
   trackSeen = false;
 
-  constructor(db: IDBDatabase, sink: Sink) {
+  private readonly range: typeof IDBKeyRange;
+
+  /** `keyRange`: the IDBKeyRange of the factory that opened `db` (default: the global one). */
+  constructor(db: IDBDatabase, sink: Sink, keyRange: typeof IDBKeyRange = IDBKeyRange) {
     this.db = db;
     this.sink = sink;
+    this.range = keyRange;
   }
 
   get complete(): boolean {
@@ -92,8 +101,10 @@ export class Hydrator {
     }
     const tx = this.db.transaction([META, ...[...models].map(modelStore)], 'readonly');
     const seqP = flushedSeq(tx);
-    const results = await Promise.all(reqs.map(([m, g]) =>
-      request(tx.objectStore(modelStore(m)).index('g').getAll(g) as IDBRequest<EntityRecord[]>)));
+    const results = await Promise.all(reqs.map(async ([m, g]) => {
+      const values = await request(tx.objectStore(modelStore(m)).getAll(this.range.bound([g, 0], [g, BUCKETS])) as IDBRequest<BucketValue[]>);
+      return values.flatMap((v) => v.r);
+    }));
     const seq = await seqP;
     let records = 0;
     // Mark first: a concurrent phase 2 chunk must skip them from now on.
@@ -124,21 +135,25 @@ export class Hydrator {
     const t0 = performance.now();
     let records = 0;
     for (const m of MODEL_NAMES) {
-      let after: number | undefined;
+      let after: IDBValidKey | undefined;
       for (;;) {
         await yieldToBrowser(!this.eager);
         const tx = this.db.transaction([META, modelStore(m)], 'readonly');
         const seqP = flushedSeq(tx);
-        const range = after === undefined ? null : IDBKeyRange.lowerBound(after, true);
-        const recs = await request(tx.objectStore(modelStore(m)).getAll(range, HYDRATE_CHUNK) as IDBRequest<EntityRecord[]>);
+        const range = after === undefined ? null : this.range.lowerBound(after, true);
+        const values = await request(tx.objectStore(modelStore(m)).getAll(range, HYDRATE_CHUNK) as IDBRequest<BucketValue[]>);
         const seq = await seqP;
-        const last = recs.at(-1);
+        const last = values.at(-1);
         if (!last) break;
-        after = last.id;
-        const keep = skipHydrated && this.hydrated.size ? recs.filter((r) => !this.hydrated.has(r.g)) : recs;
-        records += keep.length;
-        if (keep.length) this.deliver(m, keep, seq);
-        if (recs.length < HYDRATE_CHUNK) break;
+        after = [last.g, last.b];
+        const recs: EntityRecord[] = [];
+        for (const v of values) {
+          if (skipHydrated && this.hydrated.has(v.g)) continue;
+          for (const r of v.r) recs.push(r);
+        }
+        records += recs.length;
+        if (recs.length) this.deliver(m, recs, seq);
+        if (values.length < HYDRATE_CHUNK) break;
       }
     }
     this.restDone = true;

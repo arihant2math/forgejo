@@ -3,10 +3,20 @@
 
 // The IndexedDB schema (PLAN §5.3): one database per (origin, user) —
 // IndexedDB is per origin already, the name carries the user id. One object
-// store per model ("m:<Model>", records `{id, g, v, d}` = EntityRecord),
-// indexed on the group and on the model's hot fields; plus `meta` (group
-// positions, units, schemas, workspace, the flush sequence), `intents` (the
-// offline queue, F5), `drafts` and `blobs` (the SHA cache, F7).
+// store per model ("m:<Model>"); plus `meta` (group positions, units,
+// schemas, workspace, the flush sequence), `intents` (the offline queue,
+// F5), `drafts` and `blobs` (the SHA cache, F7).
+//
+// A model store does not hold one value per entity but one per bucket:
+// `{g, b, r}` with key [g, b] — the entities (EntityRecord {id, g, v, d}) of
+// group g whose id mod BUCKETS (pool.ts) is b. Measured in Chromium (F2
+// notes): a put of one value per record costs 85 µs per record, 150–190 µs
+// with a group and a hot-field index; the same records written as values of
+// a thousand cost 3 µs each and read back 4× faster. The key makes a group
+// one key range (hydration by group needs no secondary index), and a live
+// change rewrites one bucket (~100 records for a 50 000-entity group). Hot
+// query fields are indexed in the pool, which every read goes through; an
+// IndexedDB index on them would cost every write and serve no reader.
 //
 // Upgrades reconcile the stores with this file's layout: a model store whose
 // indexes changed is dropped and created again (its model is re-bootstrapped:
@@ -14,7 +24,8 @@
 // and `intents` / `drafts` are never dropped (their indexes may be added or
 // removed, the records stay). Bump IDB_VERSION whenever the layout changes.
 
-import {MODEL_NAMES, MODELS, type ModelName} from './models.ts';
+import type {EntityRecord} from './entity.ts';
+import {MODEL_NAMES, type ModelName} from './models.ts';
 
 export const IDB_VERSION = 1;
 
@@ -33,8 +44,15 @@ export function dbName(userId: number): string {
   return `forgejo-next:${userId}`;
 }
 
+/** A model store's value: one bucket of a group. */
+export interface BucketValue {
+  g: string;
+  b: number;
+  r: EntityRecord[];
+}
+
 export interface StoreLayout {
-  keyPath: string;
+  keyPath: string | string[];
   autoIncrement?: boolean;
   /** Index name → key path. */
   indexes: Record<string, string>;
@@ -51,17 +69,16 @@ export function layout(): Layout {
     [DRAFTS]: {keyPath: 'key', indexes: {}},
     [BLOBS]: {keyPath: 'sha', indexes: {atime: 'atime'}},
   };
-  for (const m of MODEL_NAMES) {
-    const def: {idbIndex?: readonly string[]} = MODELS[m];
-    const indexes: Record<string, string> = {g: 'g'};
-    for (const f of def.idbIndex ?? []) indexes[f] = `d.${f}`;
-    out[modelStore(m)] = {keyPath: 'id', indexes};
-  }
+  for (const m of MODEL_NAMES) out[modelStore(m)] = {keyPath: ['g', 'b'], indexes: {}};
   return out;
 }
 
 /** Stores that keep their records across every upgrade. */
 const PRESERVED = new Set([INTENTS, DRAFTS, BLOBS, META]);
+
+function sameKey(a: string | string[] | null, b: string | string[]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 function sameIndexes(store: IDBObjectStore, want: Record<string, string>): boolean {
   const names = [...store.indexNames];
@@ -91,8 +108,8 @@ export function reconcile(db: IDBDatabase, tx: IDBTransaction, want: Layout): st
       continue;
     }
     const store = tx.objectStore(name);
-    if (store.keyPath === l.keyPath && store.autoIncrement === Boolean(l.autoIncrement) && sameIndexes(store, l.indexes)) continue;
-    if (PRESERVED.has(name) && store.keyPath === l.keyPath && store.autoIncrement === Boolean(l.autoIncrement)) {
+    if (sameKey(store.keyPath, l.keyPath) && store.autoIncrement === Boolean(l.autoIncrement) && sameIndexes(store, l.indexes)) continue;
+    if (PRESERVED.has(name) && sameKey(store.keyPath, l.keyPath) && store.autoIncrement === Boolean(l.autoIncrement)) {
       // Keep the records, fix the indexes.
       for (const n of [...store.indexNames]) if (store.index(n).keyPath !== l.indexes[n]) store.deleteIndex(n);
       for (const [n, kp] of Object.entries(l.indexes)) if (!store.indexNames.contains(n)) store.createIndex(n, kp);

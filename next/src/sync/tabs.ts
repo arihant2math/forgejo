@@ -11,12 +11,12 @@
 // Without Web Locks (very old browsers, tests) every tab is its own leader;
 // without BroadcastChannel tabs do not hear each other.
 
-import type {EntityRecord} from '../data/entity.ts';
+import type {BucketWrite} from '../data/persist.ts';
 import type {ModelName} from '../data/models.ts';
 import type {SyncEvents, SyncStatus} from './client.ts';
 
 export type TabMessage =
-  | {t: 'commit'; seq: number; puts: [ModelName, EntityRecord[]][]; dels: [ModelName, number[]][]; cleared: ModelName[]}
+  | {t: 'commit'; seq: number; buckets: BucketWrite[]; cleared: ModelName[]}
   | {t: 'leader'; tab: string}
   | {t: 'status'; status: SyncStatus}
   | {t: 'event'; name: keyof SyncEvents; e: SyncEvents[keyof SyncEvents]}

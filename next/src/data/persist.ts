@@ -1,36 +1,46 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Write-behind persistence (leader tab only): the pool marks what changed;
-// a flush writes those entities as they are *now* (or deletes them) plus the
-// changed meta entries. Large flushes are split into transactions of
-// CHUNK records so no single structured-clone pass blocks the main thread
-// for long; the meta entries and the flush sequence go into the last one,
-// so a crash in between leaves entities newer than the persisted positions
-// (safe: they are replayed again), never the other way round.
+// Write-behind persistence (leader tab only): the pool marks the buckets
+// whose content changed (idb.ts: one value per model, group and id bucket);
+// a flush writes those buckets as they are *now* (or deletes them when
+// empty) plus the changed meta entries. Large flushes are split into
+// transactions of about CHUNK records so no single structured-clone pass
+// blocks the main thread for long; the meta entries and the flush sequence
+// go into the last one, so a crash in between leaves entities newer than the
+// persisted positions (safe: they are replayed again), never the other way
+// round.
 //
 // Every committed transaction is announced to follower tabs (`onCommit`)
-// with the records it wrote, labelled with the flush sequence; followers
-// mirror IndexedDB from that (see Pool.mirror).
+// with the buckets it wrote, labelled with the flush sequence; followers
+// mirror IndexedDB from that (see Pool.mirrorBucket).
 
 import type {EntityRecord} from './entity.ts';
 import {done, META, modelStore, writeTx} from './idb.ts';
 import type {MetaCache} from './meta.ts';
 import type {ModelName} from './models.ts';
-import type {Pool} from './pool.ts';
+import type {ModelStore, Pool} from './pool.ts';
+
+/** A bucket as written: its records (none: the bucket was deleted). */
+export interface BucketWrite {
+  m: ModelName;
+  g: string;
+  b: number;
+  r: EntityRecord[];
+}
 
 /** What one committed transaction of a flush wrote. */
 export interface Commit {
   seq: number;
-  puts: [ModelName, EntityRecord[]][];
-  dels: [ModelName, number[]][];
+  buckets: BucketWrite[];
   /** Model stores emptied (before the puts). */
   cleared: ModelName[];
   /** The last transaction of the flush (meta and the sequence were written). */
   last: boolean;
 }
 
-export const CHUNK = 1000;
+/** Records per transaction (a bucket is never split). */
+export const CHUNK = 5000;
 /** Debounce of a flush after a change. */
 export const FLUSH_DELAY = 40;
 /** A flush is not postponed longer than this under continuous changes. */
@@ -41,12 +51,6 @@ export interface PersisterOptions {
   onError?: (err: unknown) => void;
   /** The last flush sequence persisted (meta "flushedSeq"). */
   seq?: number;
-}
-
-interface Op {
-  m: ModelName;
-  put?: EntityRecord;
-  del?: number;
 }
 
 export class Persister {
@@ -130,7 +134,7 @@ export class Persister {
         const tx = writeTx(this.db, clears.map(modelStore));
         for (const m of clears) tx.objectStore(modelStore(m)).clear();
         await done(tx);
-        this.opts.onCommit?.({seq: this.seq + 1, puts: [], dels: [], cleared: clears, last: false});
+        this.opts.onCommit?.({seq: this.seq + 1, buckets: [], cleared: clears, last: false});
       } catch (err) {
         for (const m of clears) this.clears.add(m);
         this.failures++;
@@ -142,39 +146,37 @@ export class Persister {
     if (!this.pool.dirtyCount && !this.meta.isDirty) return;
     const dirty = this.pool.takeDirty();
     const meta = this.meta.takeDirty();
-    const ops: Op[] = [];
-    for (const [m, ids] of dirty) {
-      const store = this.pool.stores[m];
-      for (const id of ids.keys()) {
-        const e = store._map.get(id);
-        ops.push(e ? {m, put: e.record()} : {m, del: id});
+    const writes: BucketWrite[] = [];
+    for (const [m, groups] of dirty) {
+      const store: ModelStore = this.pool.stores[m];
+      for (const [g, bs] of groups) {
+        for (const b of bs) {
+          const r: EntityRecord[] = [];
+          for (const e of store._slot(g, b)) r.push(e.record());
+          writes.push({m, g, b, r});
+        }
       }
     }
     const seq = this.seq + 1;
     let i = 0;
     try {
       do {
-        const chunk = ops.slice(i, i + CHUNK);
-        i += CHUNK;
-        const last = i >= ops.length;
-        const names = new Set(chunk.map((o) => modelStore(o.m)));
+        const chunk: BucketWrite[] = [];
+        let n = 0;
+        while (i < writes.length && (n === 0 || n + (writes[i]?.r.length ?? 0) <= CHUNK)) {
+          const w = writes[i++];
+          if (!w) break;
+          chunk.push(w);
+          n += Math.max(1, w.r.length);
+        }
+        const last = i >= writes.length;
+        const names = new Set(chunk.map((w) => modelStore(w.m)));
         if (last) names.add(META);
         const tx = writeTx(this.db, [...names]);
-        const puts = new Map<ModelName, EntityRecord[]>();
-        const dels = new Map<ModelName, number[]>();
-        for (const o of chunk) {
-          const store = tx.objectStore(modelStore(o.m));
-          if (o.put) {
-            store.put(o.put);
-            let l = puts.get(o.m);
-            if (!l) puts.set(o.m, l = []);
-            l.push(o.put);
-          } else if (o.del !== undefined) {
-            store.delete(o.del);
-            let l = dels.get(o.m);
-            if (!l) dels.set(o.m, l = []);
-            l.push(o.del);
-          }
+        for (const w of chunk) {
+          const store = tx.objectStore(modelStore(w.m));
+          if (w.r.length) store.put({g: w.g, b: w.b, r: w.r});
+          else store.delete([w.g, w.b]);
         }
         if (last) {
           const ms = tx.objectStore(META);
@@ -186,8 +188,8 @@ export class Persister {
         }
         await done(tx);
         if (last) this.seq = seq;
-        this.opts.onCommit?.({seq, puts: [...puts], dels: [...dels], cleared: [], last});
-      } while (i < ops.length);
+        this.opts.onCommit?.({seq, buckets: chunk, cleared: [], last});
+      } while (i < writes.length);
       this.failures = 0;
     } catch (err) {
       // Write everything again (idempotent): the entities as they are by then.

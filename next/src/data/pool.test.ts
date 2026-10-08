@@ -75,10 +75,15 @@ describe('write primitives', () => {
     p.put('Issue', 1, 'repo:1', 5, issue(1, 1, 'a'));
     p.put('Label', 2, 'repo:1', 5, {id: 2, repo_id: 1, org_id: 0, name: 'x', exclusive: false, description: '', color: '', num_issues: 0, num_closed_issues: 0, created_at: '', updated_at: ''});
     p.del('Issue', 1, 'repo:1', 6);
+    p.put('Issue', 513, 'repo:1', 7, issue(513, 1, 'same bucket as 1'));
+    p.put('Issue', 3, 'repo:2', 7, issue(3, 2, 'c'));
+    p.put('Issue', 3, 'repo:3', 8, issue(3, 3, 'moved'));
     const d = p.takeDirty();
-    expect([...d.get('Issue')?.keys() ?? []]).toEqual([1]);
-    expect([...d.get('Label')?.keys() ?? []]).toEqual([2]);
+    expect(d.get('Issue')).toEqual(new Map([['repo:1', new Set([1])], ['repo:2', new Set([3])], ['repo:3', new Set([3])]]));
+    expect(d.get('Label')).toEqual(new Map([['repo:1', new Set([2])]]));
     expect(p.dirtyCount).toBe(0);
+    expect([...p.model('Issue')._slot('repo:1', 1)].map((e) => e.id)).toEqual([513]);
+    expect([...p.model('Issue')._slot('repo:2', 3)]).toEqual([]);
     p.load('Issue', [{id: 7, g: 'repo:1', v: 3, d: issue(7, 1, 'loaded')}]);
     expect(p.dirtyCount).toBe(0);
   });
@@ -187,6 +192,22 @@ describe('follower mirror', () => {
     p.mirror('Issue', 3, {id: 3, g: 'repo:1', v: 1, d: issue(3, 1, 'c')}, 9);
     p.retainSeen(new Map([['Issue', new Set([1])]]), 5);
     expect([...p.model('Issue').all()].map((e) => e.id).sort()).toEqual([1, 3]);
+  });
+
+  test('mirrorBucket replaces a bucket\'s content, and a move across groups survives either order', () => {
+    const p = new Pool();
+    const rec = (id: number, g: string, v: number) => ({id, g, v, d: issue(id, Number(g.slice(5)), `t${v}`)});
+    p.mirrorBucket('Issue', 'repo:1', 1, [rec(1, 'repo:1', 1), rec(513, 'repo:1', 1)], 1);
+    expect(p.model('Issue').size).toBe(2);
+    // Flush 2: issue 1 moved to repo:2 (both buckets written), 513 deleted.
+    p.mirrorBucket('Issue', 'repo:2', 1, [rec(1, 'repo:2', 2)], 2);
+    p.mirrorBucket('Issue', 'repo:1', 1, [], 2);
+    expect([...p.model('Issue').all()].map((e) => [e.id, e.group])).toEqual([[1, 'repo:2']]);
+    const q = new Pool();
+    q.mirrorBucket('Issue', 'repo:1', 1, [rec(1, 'repo:1', 1)], 1);
+    q.mirrorBucket('Issue', 'repo:1', 1, [], 2);
+    q.mirrorBucket('Issue', 'repo:2', 1, [rec(1, 'repo:2', 2)], 2);
+    expect([...q.model('Issue').all()].map((e) => [e.id, e.group])).toEqual([[1, 'repo:2']]);
   });
 
   test('a cleared model ignores older reads', () => {

@@ -9,8 +9,8 @@ import type {Issue} from '../protocol/types.gen.ts';
 import {Hydrator} from './hydrate.ts';
 import {BLOBS, DRAFTS, INTENTS, type Layout, layout, META, modelStore, openDatabase, readMeta, request} from './idb.ts';
 import {MetaCache} from './meta.ts';
-import {CHUNK, type Commit, Persister} from './persist.ts';
-import {Pool} from './pool.ts';
+import {type Commit, Persister} from './persist.ts';
+import {BUCKETS, bucketOf, Pool} from './pool.ts';
 
 function issue(id: number, repo: number, title: string): Issue {
   return {
@@ -37,6 +37,18 @@ async function putRaw(db: IDBDatabase, store: string, values: unknown[]): Promis
   });
 }
 
+/** Records as bucket values (what the persister writes). */
+function buckets(recs: {id: number; g: string; v: number; d: unknown}[]): {g: string; b: number; r: unknown[]}[] {
+  const m = new Map<string, {g: string; b: number; r: unknown[]}>();
+  for (const r of recs) {
+    const k = `${r.g}#${bucketOf(r.id)}`;
+    let v = m.get(k);
+    if (!v) m.set(k, v = {g: r.g, b: bucketOf(r.id), r: []});
+    v.r.push(r);
+  }
+  return [...m.values()];
+}
+
 function hydrateInto(db: IDBDatabase, pool: Pool): Hydrator {
   return new Hydrator(db, (m, recs) => {
     pool.batch(() => pool.load(m, recs));
@@ -44,14 +56,14 @@ function hydrateInto(db: IDBDatabase, pool: Pool): Hydrator {
 }
 
 describe('schema', () => {
-  test('the layout: a store per model indexed on the group and hot fields, plus meta, intents, drafts, blobs', async () => {
+  test('the layout: a store per model keyed by [group, bucket], plus meta, intents, drafts, blobs', async () => {
     const db = await openDatabase(1, {factory: new IDBFactory()});
     const names = [...db.objectStoreNames];
     expect(names).toEqual(expect.arrayContaining([META, INTENTS, DRAFTS, BLOBS, modelStore('Issue'), modelStore('Comment')]));
-    const tx = db.transaction([modelStore('Issue'), modelStore('Label')], 'readonly');
-    expect([...tx.objectStore(modelStore('Issue')).indexNames].sort()).toEqual(['g', 'repo_id']);
-    expect(tx.objectStore(modelStore('Issue')).index('repo_id').keyPath).toBe('d.repo_id');
-    expect([...tx.objectStore(modelStore('Label')).indexNames]).toEqual(['g']);
+    expect(names.filter((n) => n.startsWith('m:'))).toHaveLength(40);
+    const store = db.transaction(modelStore('Issue'), 'readonly').objectStore(modelStore('Issue'));
+    expect(store.keyPath).toEqual(['g', 'b']);
+    expect([...store.indexNames]).toEqual([]);
     db.close();
   });
 
@@ -61,15 +73,15 @@ describe('schema', () => {
     await putRaw(db1, INTENTS, [{kind: 'issue.addLabel', key: 'k1'}, {kind: 'issue.editBody', key: 'k2'}]);
     await putRaw(db1, DRAFTS, [{key: 'issue:1/body', text: 'unsent'}]);
     await putRaw(db1, BLOBS, [{sha: 'abc', atime: 1}]);
-    await putRaw(db1, modelStore('Issue'), [{id: 1, g: 'repo:1', v: 1, d: issue(1, 1, 'a')}]);
-    await putRaw(db1, modelStore('Label'), [{id: 1, g: 'repo:1', v: 1, d: {id: 1}}]);
+    await putRaw(db1, modelStore('Issue'), [{g: 'repo:1', b: 1, r: [{id: 1, g: 'repo:1', v: 1, d: issue(1, 1, 'a')}]}]);
+    await putRaw(db1, modelStore('Label'), [{g: 'repo:1', b: 1, r: [{id: 1, g: 'repo:1', v: 1, d: {id: 1}}]}]);
     db1.close();
 
     // Next build: Issue gets another index, intents get an index, a model store is gone.
     const next: Layout = layout();
     const issueLayout = next[modelStore('Issue')];
     if (!issueLayout) throw new Error('no Issue store');
-    next[modelStore('Issue')] = {...issueLayout, indexes: {...issueLayout.indexes, state: 'd.state'}};
+    next[modelStore('Issue')] = {...issueLayout, indexes: {...issueLayout.indexes, state: 'r.d.state'}};
     next[INTENTS] = {keyPath: 'seq', autoIncrement: true, indexes: {key: 'key'}};
     Reflect.deleteProperty(next, modelStore('Star'));
     const db2 = await openDatabase(7, {factory, layout: next, version: 2});
@@ -141,20 +153,35 @@ describe('persistence', () => {
     const meta = new MetaCache();
     const commits: Commit[] = [];
     const p = new Persister(db, pool, meta, {onCommit: (c) => commits.push(c)});
+    // 512 buckets of 25 records = 12 800 records: CHUNK (5000) = 200 buckets per transaction.
+    const n = BUCKETS * 25;
     pool.batch(() => {
-      for (let i = 1; i <= CHUNK * 2 + 5; i++) pool.put('Issue', i, 'repo:1', i, issue(i, 1, 't'));
+      for (let i = 1; i <= n; i++) pool.put('Issue', i, 'repo:1', i, issue(i, 1, 't'));
     });
     meta.set('x', 1);
     await p.flush();
-    expect(commits.map((c) => [c.seq, c.last, c.puts[0]?.[1].length])).toEqual([[1, false, CHUNK], [1, false, CHUNK], [1, true, 5]]);
+    expect(commits.map((c) => [c.seq, c.last, c.buckets.length, c.buckets.reduce((s, w) => s + w.r.length, 0)])).toEqual([
+      [1, false, 200, 5000], [1, false, 200, 5000], [1, true, 112, 2800],
+    ]);
     expect(p.flushedSeq).toBe(1);
     const m = await readMeta(db);
     expect(m.get('flushedSeq')).toBe(1);
     expect(m.get('x')).toBe(1);
-    pool.batch(() => pool.del('Issue', 1, 'repo:1', 10_000));
+    pool.batch(() => pool.del('Issue', 1, 'repo:1', 100_000));
     await p.flush();
-    expect(commits.at(-1)).toMatchObject({seq: 2, last: true, dels: [['Issue', [1]]]});
-    expect(await all(db, modelStore('Issue'))).toHaveLength(CHUNK * 2 + 4);
+    const last = commits.at(-1);
+    expect(last).toMatchObject({seq: 2, last: true});
+    expect(last?.buckets.map((w) => [w.g, w.b, w.r.length])).toEqual([['repo:1', 1, 24]]);
+    const values = await all<{r: unknown[]}>(db, modelStore('Issue'));
+    expect(values).toHaveLength(BUCKETS);
+    expect(values.reduce((s, v) => s + v.r.length, 0)).toBe(n - 1);
+    // An emptied bucket is deleted.
+    pool.batch(() => {
+      for (let i = 2; i <= n; i += BUCKETS) pool.del('Issue', i, 'repo:1', 100_000);
+    });
+    await p.flush();
+    expect(await all(db, modelStore('Issue'))).toHaveLength(BUCKETS - 1);
+    expect(commits.at(-1)?.buckets).toEqual([{m: 'Issue', g: 'repo:1', b: 2, r: []}]);
     db.close();
   });
 
@@ -183,7 +210,7 @@ describe('persistence', () => {
     p.clearModels(['Issue']);
     pool.batch(() => pool.put('Issue', 2, 'repo:1', 2, issue(2, 1, 'b')));
     await p.flush();
-    expect((await all<{id: number}>(db, modelStore('Issue'))).map((r) => r.id)).toEqual([2]);
+    expect((await all<{r: {id: number}[]}>(db, modelStore('Issue'))).flatMap((v) => v.r.map((r) => r.id))).toEqual([2]);
     expect(commits.map((c) => [c.seq, c.cleared])).toEqual([[1, []], [2, ['Issue']], [2, []]]);
     p.close();
     db.close();
@@ -193,11 +220,11 @@ describe('persistence', () => {
 describe('hydration', () => {
   test('groups first, then the rest without reading them again', async () => {
     const db = await openDatabase(1, {factory: new IDBFactory()});
-    await putRaw(db, modelStore('Issue'), [
+    await putRaw(db, modelStore('Issue'), buckets([
       {id: 1, g: 'repo:1', v: 1, d: issue(1, 1, 'a')},
       {id: 2, g: 'repo:2', v: 1, d: issue(2, 2, 'b')},
-    ]);
-    await putRaw(db, modelStore('User'), [{id: 9, g: 'profiles:public', v: 1, d: {id: 9, login: 'u'}}]);
+    ]));
+    await putRaw(db, modelStore('User'), buckets([{id: 9, g: 'profiles:public', v: 1, d: {id: 9, login: 'u'}}]));
     await putRaw(db, META, [{k: 'flushedSeq', v: 4}]);
     const seen: [string, number[], number][] = [];
     const h = new Hydrator(db, (m, recs, seq) => seen.push([m, recs.map((r) => r.id), seq]));
@@ -216,13 +243,13 @@ describe('hydration', () => {
   test('chunks of a big store', async () => {
     const db = await openDatabase(1, {factory: new IDBFactory()});
     const n = 4500;
-    await putRaw(db, modelStore('Issue'), Array.from({length: n}, (_, i) => ({id: i + 1, g: 'repo:1', v: 1, d: issue(i + 1, 1, 't')})));
+    await putRaw(db, modelStore('Issue'), buckets(Array.from({length: n}, (_, i) => ({id: i + 1, g: i % 3 ? 'repo:1' : 'repo:2', v: 1, d: issue(i + 1, i % 3 ? 1 : 2, 't')}))));
     const pool = new Pool();
     const h = hydrateInto(db, pool);
     h.eager = true;
     await h.rest();
     expect(pool.model('Issue').size).toBe(n);
-    expect(pool.model('Issue').by('repo_id', 1).size).toBe(n);
+    expect(pool.model('Issue').by('repo_id', 1).size + pool.model('Issue').by('repo_id', 2).size).toBe(n);
     db.close();
   });
 });

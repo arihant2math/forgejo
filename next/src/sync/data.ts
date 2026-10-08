@@ -36,7 +36,7 @@ export interface DataOptions {
   route?: string[];
   /** Ask the browser not to evict the database (default true). */
   persistStorage?: boolean;
-  env?: TabsEnv & {indexedDB?: IDBFactory; transport?: TransportEnv};
+  env?: TabsEnv & {indexedDB?: IDBFactory; IDBKeyRange?: typeof IDBKeyRange; transport?: TransportEnv};
   /** Tab holds of tabs not heard from for this long are dropped (ms, default 60 s). */
   tabTimeout?: number;
 }
@@ -107,15 +107,14 @@ export async function openData(opts: DataOptions): Promise<Data> {
       if (role.leader) pool.load(m, recs);
       else for (const r of recs) pool.mirror(m, r.id, r, seq);
     });
-  });
+  }, opts.env?.IDBKeyRange);
   hydrator.trackSeen = true;
 
   const mirrorCommit = (c: Extract<TabMessage, {t: 'commit'}>) => {
     commits++;
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
-      for (const [m, recs] of c.puts) for (const r of recs) pool.mirror(m, r.id, r, c.seq);
-      for (const [m, ids] of c.dels) for (const id of ids) pool.mirror(m, id, null, c.seq);
+      for (const w of c.buckets) pool.mirrorBucket(w.m, w.g, w.b, w.r, c.seq);
     });
   };
 
@@ -268,7 +267,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
     const p = new Persister(db, pool, meta, {
       seq: meta.get<number>('flushedSeq') ?? 0,
       onCommit: (c) => {
-        tabs.post({t: 'commit', seq: c.seq, puts: c.puts, dels: c.dels, cleared: c.cleared});
+        tabs.post({t: 'commit', seq: c.seq, buckets: c.buckets, cleared: c.cleared});
       },
       onError: (err) => {
         console.error('livesync: persisting failed', err);

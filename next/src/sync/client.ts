@@ -310,7 +310,7 @@ export class SyncClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (offline()) {
       this.setStatus({connection: 'offline'});
       return; // the online event reconnects
     }
@@ -384,7 +384,7 @@ export class SyncClient {
     s.barriers.clear();
     s.transport.close();
     if (!this.stopped && this.status.connection !== 'unauthorized') {
-      this.setStatus({connection: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connecting'});
+      this.setStatus({connection: offline() ? 'offline' : 'connecting'});
     }
   }
 
@@ -830,7 +830,7 @@ export class SyncClient {
 
   private pump(): void {
     if (this.stopped) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (offline()) return;
     const now = this.now();
     let nextRetry = Number.POSITIVE_INFINITY;
     while (this.running.size < this.o.maxBootstraps) {
@@ -994,4 +994,10 @@ export class SyncClient {
 /** A list from the wire: Go encodes an empty (nil) slice as null. */
 function list<T>(x: readonly T[] | null | undefined): readonly T[] {
   return x ?? [];
+}
+
+/** The browser says it is offline (an unknown state counts as online). */
+function offline(): boolean {
+  const nav = (globalThis as {navigator?: {onLine?: boolean}}).navigator;
+  return nav?.onLine === false;
 }

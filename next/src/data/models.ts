@@ -65,8 +65,6 @@ interface ModelDef {
   kinds: readonly GroupKind[];
   /** Fields indexed in the pool (`ModelStore.by`). */
   index?: readonly string[];
-  /** Fields indexed in IndexedDB besides the group (hot query fields). */
-  idbIndex?: readonly string[];
 }
 
 // Keep `kinds` in sync with services/livesync/hub/models.go (models.test.ts
@@ -89,7 +87,7 @@ const defs = {
   Project: {schema: P.SchemaProject, kinds: ['repo', 'owner', 'org', 'profile'], index: ['repo_id', 'owner_id']},
   ProjectColumn: {schema: P.SchemaProjectColumn, kinds: ['repo', 'org', 'profile'], index: ['project_id']},
   ProjectIssue: {schema: P.SchemaProjectIssue, kinds: ['repo'], index: ['issue_id', 'project_id']},
-  Issue: {schema: P.SchemaIssue, kinds: ['repo'], index: ['repo_id'], idbIndex: ['repo_id']},
+  Issue: {schema: P.SchemaIssue, kinds: ['repo'], index: ['repo_id']},
   IssueBody: {schema: P.SchemaIssueBody, kinds: ['issue']},
   IssueLabel: {schema: P.SchemaIssueLabel, kinds: ['repo'], index: ['issue_id', 'label_id']},
   IssueAssignee: {schema: P.SchemaIssueAssignee, kinds: ['repo'], index: ['issue_id', 'assignee_id']},
@@ -106,7 +104,7 @@ const defs = {
   Watch: {schema: P.SchemaWatch, kinds: ['user'], index: ['repo_id']},
   Star: {schema: P.SchemaStar, kinds: ['user'], index: ['repo_id']},
   BlockedUser: {schema: P.SchemaBlockedUser, kinds: ['user'], index: ['block_id']},
-  Comment: {schema: P.SchemaComment, kinds: ['issue', 'user'], index: ['issue_id', 'review_id'], idbIndex: ['issue_id']},
+  Comment: {schema: P.SchemaComment, kinds: ['issue', 'user'], index: ['issue_id', 'review_id']},
   Reaction: {schema: P.SchemaReaction, kinds: ['issue', 'user'], index: ['issue_id', 'comment_id']},
   Review: {schema: P.SchemaReview, kinds: ['issue', 'user'], index: ['issue_id']},
   ReviewState: {schema: P.SchemaReviewState, kinds: ['user'], index: ['pull_id']},

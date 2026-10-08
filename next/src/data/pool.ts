@@ -63,6 +63,8 @@ export class ModelStore<M extends ModelName = ModelName> {
   private readonly membership = createAtom('pool');
   private readonly indexes = new Map<string, Map<unknown, Bucket<M>>>();
   private readonly fields: readonly string[];
+  /** Group → persistence bucket → entities (what one IndexedDB value holds, see idb.ts). */
+  private readonly slots = new Map<string, Map<number, Set<Entity<M>>>>();
 
   constructor(model: M) {
     this.model = model;
@@ -109,6 +111,37 @@ export class ModelStore<M extends ModelName = ModelName> {
     });
     if (b.set.size === 0 && b.atoms.size === 0) index.delete(value);
     return b.set;
+  }
+
+  /** @internal The entities of one persistence bucket of a group. */
+  _slot(g: string, b: number): ReadonlySet<Entity<M>> {
+    return this.slots.get(g)?.get(b) ?? EMPTY;
+  }
+
+  /** @internal The persistence buckets of a group that hold entities. */
+  _slots(g: string): IterableIterator<number> {
+    return (this.slots.get(g) ?? new Map<number, unknown>()).keys();
+  }
+
+  /** @internal */
+  _slotAdd(g: string, e: Entity<M>): void {
+    let byB = this.slots.get(g);
+    if (!byB) this.slots.set(g, byB = new Map<number, Set<Entity<M>>>());
+    const b = bucketOf(e.id);
+    let set = byB.get(b);
+    if (!set) byB.set(b, set = new Set());
+    set.add(e);
+  }
+
+  /** @internal */
+  _slotRemove(g: string, e: Entity<M>): void {
+    const byB = this.slots.get(g);
+    const b = bucketOf(e.id);
+    const set = byB?.get(b);
+    if (!byB || !set) return;
+    set.delete(e);
+    if (!set.size) byB.delete(b);
+    if (!byB.size) this.slots.delete(g);
   }
 
   /** @internal */
@@ -160,8 +193,22 @@ export class ModelStore<M extends ModelName = ModelName> {
   }
 }
 
-/** A key of the dirty set and of the follower's sequence map: one per model. */
+/** Per model: the follower's flush sequence of each entity. */
 type IdMap<T> = Map<ModelName, Map<number, T>>;
+
+/** Per model, per group: the persistence buckets whose content changed. */
+export type DirtyBuckets = Map<ModelName, Map<string, Set<number>>>;
+
+/**
+ * Entities are persisted in buckets: one IndexedDB value per (model, group,
+ * id mod BUCKETS). Writing one value of many records is ~30× cheaper per
+ * record in Chromium than one value per record (see idb.ts).
+ */
+export const BUCKETS = 512;
+
+export function bucketOf(id: number): number {
+  return ((id % BUCKETS) + BUCKETS) % BUCKETS;
+}
 
 /** The maximum number of tombstones kept; the oldest go first. */
 export const MAX_TOMBSTONES = 200_000;
@@ -180,8 +227,8 @@ export class Pool {
   private readonly tombs = new Map<string, number>();
   private readonly purged = new Map<string, number>();
   private readonly floors = new Map<string, Floor>();
-  /** Entities changed since the last `takeDirty` (the persister's work list). */
-  private dirty: IdMap<true> = new Map();
+  /** Buckets changed since the last `takeDirty` (the persister's work list). */
+  private dirty: DirtyBuckets = new Map();
   /** Follower mode: the flush sequence each entity's state is from. */
   private readonly seqs: IdMap<number> = new Map();
   /** Follower mode: the flush that emptied a model's store (older states are gone). */
@@ -254,8 +301,7 @@ export class Pool {
     const p = this.purged.get(g);
     if (p !== undefined && v <= p) return false;
     if (this.belowFloor(m, g, v, d)) return false;
-    this.upsert(store, held, id, g, v, d);
-    this.markDirty(m, id);
+    this.upsert(store, held, id, g, v, d, true);
     return true;
   }
 
@@ -291,8 +337,7 @@ export class Pool {
     const store = this.stores[m];
     const held = store._map.get(id);
     if (!held || held._v >= v) return false;
-    this.remove(store, held);
-    this.markDirty(m, id);
+    this.remove(store, held, true);
     return true;
   }
 
@@ -302,8 +347,7 @@ export class Pool {
     const store = this.stores[m];
     const held = store._map.get(id);
     if (held?._g !== g || held._v > maxV) return false;
-    this.remove(store, held);
-    this.markDirty(m, id);
+    this.remove(store, held, true);
     return true;
   }
 
@@ -321,8 +365,7 @@ export class Pool {
     let n = 0;
     for (const e of [...held]) {
       if (e._v <= maxV) {
-        this.remove(this.stores[e.model], e);
-        this.markDirty(e.model, e.id);
+        this.remove(this.stores[e.model], e, true);
         n++;
       }
     }
@@ -346,7 +389,7 @@ export class Pool {
       const p = this.purged.size ? this.purged.get(r.g) : undefined;
       if (p !== undefined && r.v <= p) continue;
       if (this.belowFloor(m, r.g, r.v, r.d)) continue;
-      this.upsert(store, held, r.id, r.g, r.v, r.d);
+      this.upsert(store, held, r.id, r.g, r.v, r.d, false);
       n++;
     }
     return n;
@@ -376,9 +419,9 @@ export class Pool {
     if (rec) {
       this.seen(rec.v);
       if (held?._v === rec.v && held._g === rec.g) return;
-      this.upsert(store, held, id, rec.g, rec.v, rec.d);
+      this.upsert(store, held, id, rec.g, rec.v, rec.d, false);
     } else if (held) {
-      this.remove(store, held);
+      this.remove(store, held, false);
     }
   }
 
@@ -394,29 +437,42 @@ export class Pool {
       for (const e of [...store._map.values()]) {
         if (ids?.has(e.id)) continue;
         if ((seqs?.get(e.id) ?? -1) > seq) continue;
-        this.remove(store, e);
+        this.remove(store, e, false);
       }
     }
   }
 
   // ---- persistence bookkeeping ----
 
-  /** Takes the set of entities changed since the last call (model → ids). */
-  takeDirty(): IdMap<true> {
+  /** Takes the buckets changed since the last call. */
+  takeDirty(): DirtyBuckets {
     const d = this.dirty;
     this.dirty = new Map();
     return d;
   }
 
-  /** Marks entities dirty again (a failed flush). */
-  restoreDirty(d: IdMap<true>): void {
-    for (const [m, ids] of d) for (const id of ids.keys()) this.markDirty(m, id);
+  /** Marks buckets dirty again (a failed flush). */
+  restoreDirty(d: DirtyBuckets): void {
+    for (const [m, groups] of d) for (const [g, bs] of groups) for (const b of bs) this.markBucket(m, g, b);
   }
 
+  /** The number of dirty buckets. */
   get dirtyCount(): number {
     let n = 0;
-    for (const ids of this.dirty.values()) n += ids.size;
+    for (const groups of this.dirty.values()) for (const bs of groups.values()) n += bs.size;
     return n;
+  }
+
+  /**
+   * Follower mode: sets a persisted bucket to its content as of flush `seq`
+   * (entities of the bucket not in `records` are gone, unless a newer flush
+   * set them).
+   */
+  mirrorBucket<M extends ModelName>(m: M, g: string, b: number, records: readonly EntityRecord<M>[], seq: number): void {
+    const store = this.stores[m];
+    const keep = new Set(records.map((r) => r.id));
+    for (const e of [...store._slot(g, b)]) if (!keep.has(e.id)) this.mirror(m, e.id, null, seq);
+    for (const r of records) this.mirror(m, r.id, r, seq);
   }
 
   /**
@@ -426,7 +482,7 @@ export class Pool {
    */
   clearModel(m: ModelName, seq?: number): void {
     const store = this.stores[m];
-    for (const e of [...store._map.values()]) this.remove(store, e);
+    for (const e of [...store._map.values()]) this.remove(store, e, false);
     this.dirty.delete(m);
     this.seqs.delete(m);
     if (seq !== undefined) this.clearedAt.set(m, Math.max(this.clearedAt.get(m) ?? 0, seq));
@@ -452,24 +508,27 @@ export class Pool {
     }
   }
 
-  private markDirty(m: ModelName, id: number): void {
-    let ids = this.dirty.get(m);
-    if (!ids) {
-      ids = new Map();
-      this.dirty.set(m, ids);
-    }
-    ids.set(id, true);
+  private markBucket(m: ModelName, g: string, b: number): void {
+    let groups = this.dirty.get(m);
+    if (!groups) this.dirty.set(m, groups = new Map<string, Set<number>>());
+    let bs = groups.get(g);
+    if (!bs) groups.set(g, bs = new Set());
+    bs.add(b);
   }
 
-  private upsert<M extends ModelName>(store: ModelStore<M>, held: Entity<M> | undefined, id: number, g: string, v: number, d: ModelTypes[M]): void {
+  private upsert<M extends ModelName>(store: ModelStore<M>, held: Entity<M> | undefined, id: number, g: string, v: number, d: ModelTypes[M], dirty: boolean): void {
+    if (dirty) this.markBucket(store.model, g, bucketOf(id));
     if (held) {
       const old = held._d;
       const oldG = held._g;
       held._set(g, v, d);
       store._reindex(held, old);
       if (oldG !== g) {
+        if (dirty) this.markBucket(store.model, oldG, bucketOf(id));
         this.groupRemove(oldG, held);
+        store._slotRemove(oldG, held);
         this.groupAdd(g, held);
+        store._slotAdd(g, held);
       }
       this.record(store.model, id, held);
       return;
@@ -477,12 +536,15 @@ export class Pool {
     const e = new Entity(store.model, id, g, v, d);
     store._insert(e);
     this.groupAdd(g, e);
+    store._slotAdd(g, e);
     this.record(store.model, id, e);
   }
 
-  private remove<M extends ModelName>(store: ModelStore<M>, e: Entity<M>): void {
+  private remove<M extends ModelName>(store: ModelStore<M>, e: Entity<M>, dirty: boolean): void {
+    if (dirty) this.markBucket(store.model, e._g, bucketOf(e.id));
     store._delete(e);
     this.groupRemove(e._g, e);
+    store._slotRemove(e._g, e);
     this.record(store.model, e.id, undefined);
   }
 

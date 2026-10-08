@@ -2398,6 +2398,183 @@ does) **and** MySQL 8.0 (binlog on).
   served with immutable headers (fixture dist dir); admin page 403 for non-admins;
   metrics visible on `/metrics`.
 - **Notes/decisions:**
+  - **Files.** `services/livesync/oauthapp/oauthapp.go`; `services/livesync/metrics/metrics.go`; `services/livesync/{disable,status}.go`
+    (+ `livesync.go` (`InitError`, `OAuthApp`, `ErrInvalidSettings`, metrics registration), `settings.go`, `writer.go`
+    (`watchTriggers`, writer flag), `livesync_test.go`); `services/livesync/capture/uninstall.go` (+ `reader.go` `Batch.Seen`,
+    `ddl_test.go`); `services/livesync/hub/{hub,conn,replay,ws,sse}.go` (`Hub.Stats`, metric hooks);
+    `services/livesync/materialize/materializer.go` (metric hooks); `services/livesync/protocol/next.go` (+ regenerated
+    `next/src/protocol/types.gen.ts`, the only `next/` file touched besides this one); `routers/livesync/{spa,spa_embed,spa_noembed,
+    admin,rum}.go` (+ `spa_test.go`, `spa_embed_test.go` (tag `livesync_embed`), `admin_test.go`), `routes.go` (`newRouter`,
+    `newRoutes(inner, spa)`), `wrap.go`, `bootstrap.go` and `idempotency.go` (metric hooks), `routers/livesync/.gitignore`
+    (`/next_dist/`); `tests/integration/livesync_{oauth,spa,admin,disable}_test.go`, `livesync_hub_test.go` (slow consumer
+    rewritten, `livesyncWaitHub`), `livesync_capture_test.go`/`livesync_privileges_test.go` (degraded instead of `Wrap(h)==h`);
+    `SURFACE.md`.
+  - **Kill switch / uninstall (B2 ops note (a)).** `ENABLED = false` is now safe: `Wrap` calls **`livesync_service.Disable`** when
+    `Init` returns `ErrDisabled` (Init itself still touches no database when disabled). On PG/MySQL it checks whether livesync ever ran
+    (`livesync_meta` exists — one query per start for deployments that never enabled it; nothing else happens then). In
+    `INSTALL_MODE = auto` it runs **`capture.Uninstall`**: under the schema lock, every livesync trigger (any state, extras included)
+    and the PG function are dropped (`Status.UninstallStatements`; function without `CASCADE`) and the outbox is `TRUNCATE`d, each
+    statement under `DDLLockTimeout`, on PG in one transaction; MySQL's `TRUNCATE` resets `AUTO_INCREMENT`, so it is put back to
+    last + 1 (outbox ids stay monotonic for other instances and B7's ranges). In `verify` mode it only logs (Warn) the uninstall
+    script. Failures are a Warn; Forgejo serves the classic UI either way (`Wrap(h) == h`). Enabling again = a repair of every table
+    (epochs bumped, `B` markers, clients re-bootstrap; B2/B3 machinery, `TestLivesyncDisable`). `Status.UninstallScript()` (also on
+    the admin page) adds the `DROP TABLE` statements of livesync's own tables, commented out (only after the triggers are gone).
+    Schema epochs are not touched by the uninstall. **Multi-instance:** all instances must agree on `ENABLED`; a running writer
+    re-checks the triggers every **`[livesync] TRIGGER_CHECK_INTERVAL`** (default 1m, 0 = off; `watchTriggers` in `writer.go`, runs
+    `capture.Ensure` like Init: auto reinstalls + bumps epochs, verify records `capture_pending` and logs the DDL once per state),
+    so a peer that starts disabled (or a DBA, or a migration that recreates a table) cannot silently stop capture for long
+    (`TestLivesyncTriggerWatch`: `capture.Uninstall` under a running instance ⇒ triggers back, every epoch +1, `B` marker, captures again).
+  - **Degraded mode (B2's "for B8").** When livesync is enabled with valid settings but `Init` fails (capture triggers missing/stale,
+    e.g. verify mode; anything else), `Wrap` now returns **`degraded`** (`admin.go`): `/-/sync/admin` and `/-/sync/health`
+    (503 `{"status":"degraded"}`) are livesync's, every other request goes to `inner` untouched (`/-/next/*` and the rest of
+    `/-/sync/*` get upstream's 404). Disabled, SQLite and **invalid settings** (`ErrInvalidSettings`, new) still return `inner` itself.
+    `livesync_service.State()` = running | degraded | stopped, `InitError()` (last Init's error). A degraded instance does **not**
+    retry Init: restart after the DBA ran the DDL (as before). B2's `TestLivesyncCaptureVerifyMode` / B2's privilege test now assert
+    the degraded handler instead of `Wrap(h) == h`.
+  - **Admin page `GET /-/sync/admin`** (HTML; JSON with `?format=json` or `Accept: application/json`). Shows state + Init error,
+    install mode, writer flag, Next UI source, OAuth client; capture triggers (dialect, schema, MySQL account, health, counts by
+    state, the objects that are not ok, warnings, `capture_pending`), **the install/repair DDL (`Status.Script()`) and the uninstall
+    DDL** with kill-switch instructions; outbox (last assigned id, cursor, backlog), sync log (head, floor, writer token, hub
+    position, lag), entity backfill still running, hub sessions by transport, subscriptions, top 20 viewers. Data:
+    `livesync_service.CollectStatus(ctx)` (read-only; parts that fail are listed in `errors`). **Who:** a site administrator —
+    either a token in `Authorization` (OAuth2 / PAT) with `read:admin` (403 otherwise; account checks as API v1), or the classic
+    UI session: livesync never reads sessions (with Forgejo's default `memory` session provider a second session manager would not
+    see upstream's sessions), it asks upstream (`inner`) for the admin-only `GET /admin/system_status` with the request's cookies:
+    200 + body starting with `<dl` = admin; redirect to `/user/login` = signed out ⇒ 303 to `/user/login?redirect_to=…` (401 for
+    JSON); anything else (403, upstream's 200 "prohibited/activate" pages, change-password/2FA redirects) = 403. Fails closed if
+    upstream reshapes that page (SURFACE.md). Read-only page (no POST, so no CSRF surface); `Cache-Control: no-store`, own CSP
+    (`default-src 'none'; style-src 'unsafe-inline'`), `X-Frame-Options: DENY`.
+  - **Metrics** (`services/livesync/metrics`, registered with Prometheus' **default registry** at the first *enabled* Init —
+    degraded included —, so Forgejo's own `/metrics` (`[metrics] ENABLED = true`, optional `TOKEN`) serves them; no route of ours).
+    Names `forgejo_livesync_*`, labels with fixed value sets only. Scrape-time gauges (collector in `status.go`, DB reads ≤ 2 s):
+    `up{state}`, `outbox_backlog` (last assigned outbox id − capture cursor = **capture lag** in changes), `log_head`,
+    `hub_position` (head − position = fan-out lag in entries), `writer`, `sessions{transport}`, `subscriptions`. Event metrics:
+    `materialize_lag_seconds` (reader first saw the change — or the gap a late transaction fills, `capture.Batch.Seen` — until its
+    log entries committed; sweep/deferred rows not observed), `materialized_changes_total`, `log_entries_total`, `fanout_seconds`
+    (one `Hub.Deliver`), `delivered_entries_total`, `sessions_opened_total{transport}`, `slow_consumer_disconnects_total`,
+    `frames_total`, `frame_bytes_total`, `replays_total`, `bootstrap_required_total{reason}`, `group_revoked_total`,
+    `bootstrap_requests_total{endpoint,status}`, `bootstrap_bytes_total{endpoint}` (on the wire, compressed),
+    `bootstrap_seconds{endpoint}`, `idempotency_requests_total{outcome=run|recovered|duplicate|replay|in_flight|mismatch|refused}`,
+    `idempotency_sync_wait_seconds`, `idempotency_sync_wait_timeouts_total`, `rum_seconds{mark}`, `rum_events_total{event}`,
+    `rum_rejected_total{reason}`. Not measured: commit → outbox-reader delay (the outbox has no timestamp; adding one would change
+    `livesync_change` for every captured write — not done), cross-instance log-commit → fan-out time (`created_unix` is seconds).
+  - **RUM sink `POST /-/sync/rum`** (`rum.go`, contract `protocol.RUMReport`): `application/json` only (415 otherwise: a cross-site
+    page cannot post it without a CORS preflight, which is not answered), ≤ 8 KiB (413), anonymous allowed (the boot shell reports
+    before sign-in), token bucket per client address (10/min, burst 10; map ≤ 10 000 keys) and per instance (200/s, burst 400) ⇒
+    429 + `Retry-After: 60`; known marks (ms, 0–10 min: `firstPaintFromCache dataOpen wsOpen caughtUp hydrateRoute hydrateAll
+    mutationLocal mutationAcked mutationConfirmed inp`) and events (counts 0–1000: `intentFlushed intentRetried intentFailed
+    conflictMerged conflictOverride conflictDiscarded`) feed the histograms/counters; anything else is ignored and counted as
+    rejected; 204. Nothing stored or logged. **F8:** post these names; add new ones to `protocol/next.go` + `rum.go` together.
+  - **OAuth app (`services/livesync/oauthapp`).** `Ensure` at every Init (after the capture check, under the schema lock, in one
+    transaction on the master): an instance-wide (UID 0) **public** client "Forgejo Next", redirect URI `{AppURL}-/next/callback`
+    (+ `[livesync] OAUTH_REDIRECT_URIS`, comma-separated, e.g. `http://127.0.0.1/-/next/callback` for a dev server — any port for
+    http loopback), client id kept in `livesync_meta` `oauth_client_id`; edited fields are put back, a deleted application is
+    created again (new client id, Warn). Failure (e.g. `[oauth2] ENABLED = false` ⇒ `ErrOAuth2Disabled`) is a Warn: livesync runs,
+    the config's `oauth` is `null`. **Scope** `oauthapp.Scope = "write:issue write:repository write:organization write:user
+    write:notification"` — **deviation from PLAN §4.9** (+ `write:organization` for org labels/projects, `write:user` for stars,
+    follows, blocks): a grant's scope cannot be changed later without every user consenting again, so it is chosen complete now.
+    **Confirmed behaviour (`TestLivesyncOAuth`, both values of `ENABLE_ADDITIONAL_GRANT_SCOPES`):** the token's API scope is the
+    grant's scope in both modes (the setting only affects the userinfo `groups` claim) — e.g. `GET /api/v1/packages/user2` is 403;
+    PKCE is mandatory for public clients; **the consent page is shown at every authorization** of a public client (upstream, RFC
+    6749 §10.2: one consent per sign-in, not "one-time" as PLAN says); an authorization whose scope string differs from the user's
+    existing grant fails ("a grant exists with different scope"), so `Ensure` deletes the client's grants with another scope when
+    `oauthapp.Scope` changes (meta `oauth_scope`); refresh works without a secret; there is no revocation endpoint (logout forgets
+    the tokens; the grant stays in the user's settings). The token passes livesync's scope rule (hello, `/-/sync/*`) and API v1.
+  - **SPA serving (`routers/livesync/spa.go`; contract in `protocol/next.go`, regenerated into `types.gen.ts`).** Build source:
+    **`[livesync] ASSETS_DIR`** (the Vite output `next/dist`; relative to the work path), else the copy embedded with build tag
+    **`livesync_embed`** (`rm -rf routers/livesync/next_dist && cp -r next/dist routers/livesync/next_dist && go build -tags
+    'livesync_embed …'`; directory git-ignored; `TestSPAEmbedded` runs only with the tag), else none (`/-/next/*` 404, opted-in
+    browsers get the classic UI). Routes: `GET|HEAD /-/next/assets/*` (`Cache-Control: public, max-age=31536000, immutable`;
+    `*.map`, dot files and `.vite/` never served), `/-/next/sw.js` (`Service-Worker-Allowed: {AppSubURL}/`, `no-cache`; 404 until F5
+    ships one), other files at the build root (`no-cache`), `GET|POST /-/next/opt-in|opt-out[?redirect=<path on this site>]` (cookie
+    `ui=next`, Path `{AppSubURL}/`, 1 year, SameSite Lax, Secure on https; 303; no CSRF protection needed — it only picks the UI),
+    `GET /-/next/config` (the config JSON, for dev servers), and **index.html for every other path below `/-/next`** without an
+    extension (the SPA's own routes: `/-/next/callback`, the gallery…; `no-cache` + ETag). **Canonical URLs:** a GET/HEAD with
+    `Sec-Fetch-Dest: document` and cookie `ui=next` to a route of **`spaRoutes`** (the one table: `/`, `/notifications`, `/issues`,
+    `/pulls`, `/{owner}/{repo}/issues[/{n}]`, `/{owner}/{repo}/pulls[/{n}]`; owner/repo must be usable names (`IsUsableUsername`,
+    `IsUsableRepoName`), `{n}` > 0) gets index.html (`private, no-cache`, `Vary: Cookie, Sec-Fetch-Dest`) through the protocol
+    middlewares; everything else (no cookie, XHR/fetch, iframes, POST, other routes) is upstream's. **F3–F7 extend `spaRoutes`**
+    when the UI renders a route. Text files (js, css, html, json, webmanifest, svg, wasm ≤ 8 MiB) are cached in memory with brotli
+    (q11) and gzip variants computed once (warmed in the background at start), `Vary: Accept-Encoding`, weak ETag + 304; binary
+    files via `http.ServeContent`.
+    **index.html as served:** (1) under an AppSubURL every *string literal that is exactly* `"/-/next/"` (any quote) in JS, every
+    HTML attribute value / CSS `url(` starting with `/-/next/`, and JSON strings starting with it are rewritten to
+    `{AppSubURL}/-/next/` (also in assets and sw.js); (2) F1's `<link rel="icon" href="data:,">` becomes Forgejo's
+    `{AppSubURL}/assets/img/favicon.svg`; (3) **the config block** `<script type="application/json" id="forgejo-next-config">`
+    (`protocol.NextConfig`: `app_url`, `app_sub_url`, `base`, `app_name`, `version`, `protocol`, `oauth: {client_id, redirect_uri,
+    scope, authorize_url, token_url} | null`) right after `<meta charset>`; (4) **CSP** (PLAN §4.9): `default-src 'self'; script-src
+    'self' 'sha256-…'` (a hash of each inline script, computed when served — so F1 needs no build-time hashing; JSON data blocks are
+    not scripts), `style-src 'self' 'unsafe-inline'` (F1's splash inserts a `<style>` element at boot, which a hash cannot allow;
+    switching it to a constructable stylesheet would allow dropping `unsafe-inline`), `img-src * data: blob:`, `media-src * data:
+    blob:` (avatars, markdown), `font-src 'self' data:`, `connect-src 'self'`, `worker-src 'self' blob:`, `manifest-src 'self'`,
+    `frame-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'self'`,
+    **`require-trusted-types-for 'script'; trusted-types forgejo-next default`**. Verified with the real F1 build (`next/dist`)
+    in Chromium 1243 (Playwright 1.63, scratch harness, not committed): boots with no console error or CSP/TT violation, with and
+    without an AppSubURL.
+    **Contract for F3 (and F4/F5):** read the config from `#forgejo-next-config` (or `GET /-/next/config` in dev); use exactly
+    `oauth.scope`; build URLs from `app_sub_url`/`import.meta.env.BASE_URL`, never by concatenating `"/-/next"` with something
+    (only exact base literals are rewritten — F1's router currently does `startsWith('/-/next/') … slice(8)`, which breaks under an
+    AppSubURL: F3 must use the router basepath = `base`); create DOM sinks' values through a Trusted Types policy named
+    `forgejo-next` (e.g. server-rendered `body_html`, F4); `/-/next/callback` receives `code`+`state`. **For F5:** when livesync is
+    disabled or degraded, `/-/next/sw.js` and `/-/next/*` fall through to upstream (404) and canonical URLs serve the classic UI:
+    the service worker must not answer navigations from cache while online without checking the network (self-unregister on a
+    404 of sw.js / of the document is the kill switch). The classic-UI "Try Forgejo Next" toggle (PLAN §4.10, `custom/templates`) is
+    not added (it is deployment configuration: link to `/-/next/opt-in?redirect=…`).
+  - **Flake `TestLivesyncHubSlowConsumer/sse` — root cause.** The failing assertion was `received > 0` ("frames were written until
+    the socket was full"). The test inserted 400 comments of ≈ 8.5 KB (with their HTML) as fast as it could; when the tailer was
+    behind (full runs under load), one `Hub.Deliver` received more than `SEND_BUFFER` (64 KiB in the test) of them for the
+    session: the queue overflowed **inside that one call** — B5's final review made `Deliver` wake the writers only after the
+    hub position is stored — so the session ended with `resume_from_cursor` before a single frame was written. Reproduced
+    deterministically with a scratch test inserting the 400 comments in one transaction (one `Deliver`): 0 comments received on
+    both WS and SSE, on PG. Not a hub bug: the bound is per session and a delivery larger than it disconnects (by design; the
+    client resumes from its position, replays wait for room). The test was wrong to assume the writer runs between the test's
+    inserts. **Fix (test):** comments arrive in deliveries of 3 (one transaction each, ≈ 26 KB, so even two in one 16 ms frame
+    window fit), the test waits for the hub to receive each (`livesyncWaitHub`, `Hub.Stats().Position`), until
+    `forgejo_livesync_slow_consumer_disconnects_total` increases; then the same assertions (received > 0, < written,
+    `resume_from_cursor` at a position the client was sent, below the head, WS 1013). Typical run: 3 of ~35 comments received.
+    **Product note (later milestone / Phase 5 load test):** a burst above `SEND_BUFFER` (default 4 MiB) for one session in one
+    tailer batch (≤ 500 entries) disconnects even a client that reads fast (bulk imports with large bodies); the metric above
+    shows it; a fix would turn such an overflow into a log catch-up for that session instead of a disconnect.
+  - **Settings added:** `TRIGGER_CHECK_INTERVAL` (1m, ≥ 0), `ASSETS_DIR` (""), `OAUTH_REDIRECT_URIS` ("").
+  - **livesync_meta names added:** `oauth_client_id`, `oauth_scope`.
+  - **APIs for later milestones.** `livesync_service.{Disable, State, InitError, OAuthApp, CollectStatus}`, `StateRunning/
+    Degraded/Stopped`, `ErrInvalidSettings`; `capture.{Uninstall, UninstallReport, TablesScript}`, `Status.{Installed,
+    UninstallStatements, UninstallScript}`, `Batch.Seen`; `hub.Hub.Stats(top)` (`Stats`, `UserStats`, `TransportWebSocket/SSE`);
+    `metrics.*` (add a metric there and register it in `Register`); `oauthapp.{Ensure, Scope, Name, RedirectURIs, App,
+    ErrOAuth2Disabled}`; `protocol.{NextConfig, NextOAuth, NextConfigElementID, NextUICookie(Value), TrustedTypesPolicy, RUMReport,
+    RUMMark*, RUMEvent*}`; `routers/livesync.spaRoutes` (the route table). Test helpers: `livesyncMetric(t, name, labels…)`
+    (default registry), `livesyncWaitHub(t)`, `livesyncScopedToken`, `livesyncPKCE`, `livesyncDist`.
+  - **Tests.** Unit: `routers/livesync` — `TestSPARoute`, `TestRewriteBase`, `TestDocumentCSP`, `TestSPAServing` (fixture dist,
+    with and without AppSubURL: immutable/compressed/304 assets, no maps or manifest, sw.js header, document + config + CSP hash,
+    canonical route only with cookie + `Sec-Fetch-Dest: document` + GET), `TestSPANoBuild`, `TestOptInOut` (+ `localRedirect`),
+    `TestInsertConfig`, `TestAdminSessionAuth` (fake upstream probe: admin, user, anonymous, prohibited 200 page, password redirect),
+    `TestDegradedHandler`, `TestRUM`, `TestRateLimiter`, `TestSPAEmbedded` (tag `livesync_embed`); `services/livesync` — settings,
+    `TestInitWithoutDatabase/{invalid,degraded}`; `capture` — `TestUninstallStatements`. Integration (**PG 16 `gtestschema` and
+    MySQL 8.0 binlog on**): **`TestLivesyncOAuth`** (provisioned once, idempotent across 2 restarts, edits put back, extra dev
+    redirect URI, full PKCE flow from the classic consent page for both `ENABLE_ADDITIONAL_GRANT_SCOPES` values ⇒ token works for
+    API v1 GET/POST and a WebSocket `hello` (welcome, `repo:1` granted), package scope 403, refresh without secret, no-PKCE refused,
+    grant scope; scope change revokes old grants; deleted ⇒ recreated; OAuth2 off ⇒ livesync runs, config `oauth: null`),
+    **`TestLivesyncSPA`** (ASSETS_DIR fixture: immutable asset, map 404, sw.js, `/-/next/callback` document with the client id and
+    CSP hash; `/user2/repo1/issues/1` classic without cookie / with fetch dest / without dest, SPA after `/-/next/opt-in`, classic
+    for unsupported routes and after opt-out), **`TestLivesyncAdminDegraded`** (verify mode, label trigger dropped: degraded handler,
+    health 503 degraded, anonymous ⇒ login redirect, non-admin session / non-admin token / admin token without `read:admin` ⇒ 403,
+    bad token 401, admin session ⇒ HTML with the repair and uninstall DDL, admin token ⇒ JSON (problems, scripts = `Script()` /
+    `UninstallScript()`, pending), metric `up{state="degraded"}`), **`TestLivesyncAdminRunning`** (sessions, writer, OAuth, `/metrics`
+    via `routers/web.Metrics` lists every livesync family after real traffic, a keyed replay counts as `replay`),
+    **`TestLivesyncDisable`**, **`TestLivesyncTriggerWatch`**, `TestLivesyncHubSlowConsumer` (rewritten, see above).
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...` and
+    `./tests/integration/...` (0 issues), `go vet` (also with `-tags livesync_embed`), deadcode diff (clean), `go mod tidy -diff`
+    (clean; no go.mod change), unit tests of every livesync package with `-race`, `next/tools/gen-protocol.sh --check` (up to date)
+    + `npm run typecheck` in `next/` (needs `npm ci`; removed again afterwards), full `-test.run 'TestLivesync|TestVersion'` on PG 16
+    (`gtestschema`) and MySQL 8.0: **all pass, no testlogger "FATAL ERROR"**; `TestLivesyncHubSlowConsumer|TestLivesyncTriggerWatch|
+    TestLivesyncDisable` `-test.count 3` on both (green); the scratch burst repro (above); the real `next/dist` in Chromium under the
+    CSP (above); fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (the
+    uninstall's `ALTER TABLE … AUTO_INCREMENT` is plain MySQL syntax MariaDB shares; no trigger body change).
+  - **Not done / known gaps.** A degraded instance does not retry Init (restart after the DBA's DDL). No admin action buttons
+    (read-only page; the kill switch is the setting). No classic-UI "Try Forgejo Next" link (deployment template). The burst
+    limitation of `SEND_BUFFER` (flake section). Commit → reader delay not measured (no outbox timestamp). No concurrent-bootstrap
+    limit (B6's note) — the bootstrap metrics show the load. Session-based admin access depends on upstream's `/admin/system_status`
+    (SURFACE.md).
 
 #### B9 — Gap endpoints
 - [ ] **Status**

@@ -69,10 +69,19 @@ type fakeTransport struct {
 	msgs chan message
 	raw  chan string
 	gate chan struct{} // when not nil, writes wait for it
-	// bytesPerMs, when set, makes writes take that long (a slow reader).
+	mu   sync.Mutex
+	// bytesPerMs, when set, makes writes take that long (a slow reader;
+	// setRate).
 	bytesPerMs int
-	mu         sync.Mutex
 	closed     int
+}
+
+// setRate makes the client read bytesPerMs bytes per millisecond from now
+// on (0: at once).
+func (f *fakeTransport) setRate(bytesPerMs int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.bytesPerMs = bytesPerMs
 }
 
 func newFakeTransport() *fakeTransport {
@@ -87,9 +96,12 @@ func (f *fakeTransport) write(ctx context.Context, data []byte) error {
 			return ctx.Err()
 		}
 	}
-	if f.bytesPerMs > 0 {
+	f.mu.Lock()
+	rate := f.bytesPerMs
+	f.mu.Unlock()
+	if rate > 0 {
 		select {
-		case <-time.After(time.Duration(len(data)/f.bytesPerMs) * time.Millisecond):
+		case <-time.After(time.Duration(len(data)/rate) * time.Millisecond):
 		case <-ctx.Done():
 			return ctx.Err()
 		}

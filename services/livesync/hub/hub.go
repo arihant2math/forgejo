@@ -30,9 +30,10 @@
 //     (16 ms). Each session's queue is bounded (SendBuffer): a
 //     subscription whose live change does not fit falls behind and catches
 //     up by paging through the log, so a burst larger than the buffer
-//     reaches a client that reads fast; a session whose queued messages
-//     wait longer than DrainTimeout (the client does not keep up) is
-//     closed with resume_from_cursor.
+//     reaches a client that reads; a session whose queued messages wait
+//     while the writer does not finish a frame for longer than
+//     DrainTimeout (the client does not read) is closed with
+//     resume_from_cursor.
 package hub
 
 import (
@@ -134,9 +135,9 @@ type Config struct {
 	// WriteTimeout bounds one write to a client (at least twice
 	// DrainTimeout).
 	WriteTimeout time.Duration
-	// DrainTimeout: a session whose oldest queued message waited longer
-	// than this for the writer (the client did not read what was sent
-	// before it) is too slow: closed with resume_from_cursor.
+	// DrainTimeout: a session whose queued messages waited longer than
+	// this while the writer did not finish a single frame (the client did
+	// not read it) is too slow: closed with resume_from_cursor.
 	DrainTimeout time.Duration
 	// Logs reads Actions job logs for log tails (optional: without it
 	// every log_tail is closed as forbidden).

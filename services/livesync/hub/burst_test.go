@@ -4,6 +4,8 @@
 package hub
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -288,16 +290,19 @@ func TestSlowConsumer(t *testing.T) {
 	cl.quiet(50 * time.Millisecond)
 }
 
-// A client that reads, but slower than the server produces, is closed too:
-// its queue's messages wait longer than DrainTimeout. Its memory stays
-// bounded meanwhile.
+// A client that reads, but slower than the server produces, is closed when
+// it does not read a frame within DrainTimeout while messages wait (here
+// the frame of 1500 bytes needs 300ms). Its memory stays bounded meanwhile.
 func TestSlowReader(t *testing.T) {
 	x := newHarness(t, Config{SendBuffer: 2000, DrainTimeout: 200 * time.Millisecond})
 	tr := newFakeTransport()
-	tr.bytesPerMs = 5 // the 1500 bytes of changes a frame may take need 300ms
 	cl := x.connect(tr)
 	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
 	cl.expect(protocol.MsgCaughtUp)
+	// The 1500 bytes of changes a frame may take need 300ms. (Not before:
+	// the welcome, ≈ 2000 bytes, would need 400ms, and caught_up may have
+	// to wait for it.)
+	tr.setRate(5)
 	peak := queueSampler(t, cl.c)
 	for i := range 100 {
 		x.append(label(int64(i+1), "l"))
@@ -380,4 +385,143 @@ func TestSelfProfileInOrderWhileBehind(t *testing.T) {
 	}
 	assert.Equal(t, want, got, "every entry once, in order")
 	cl.quiet(30 * time.Millisecond)
+}
+
+// bigLabel is a label entry of group whose payload is about size bytes.
+func bigLabel(group string, id int64, size int) synclog.Entry {
+	e := upsert(group, protocol.ModelLabel, id, protocol.UnitIssuesOrPulls)
+	e.Payload = `{"id":` + strconv.FormatInt(id, 10) + `,"description":"` + strings.Repeat("x", size) + `"}`
+	return e
+}
+
+// slowSteady is the client of the slow-but-steady tests: it reads 2000
+// bytes per ms, so one frame (at most maxFrameBytes, 2 changes of 100 KiB)
+// takes ≈ 100ms, well within DrainTimeout, but what the writer takes in
+// one step (half the 2 MiB send buffer for replays, catch-ups and log
+// tails; up to three quarters for live changes) takes 500ms or more.
+func slowSteady(t *testing.T, cfg Config) (*harness, *fakeTransport) {
+	t.Helper()
+	cfg.SendBuffer, cfg.DrainTimeout = 2<<20, 250*time.Millisecond
+	x := newHarness(t, cfg)
+	tr := newFakeTransport()
+	tr.setRate(2000)
+	return x, tr
+}
+
+// A replay to a client that reads slowly but steadily completes: the
+// writer finishes a frame within DrainTimeout, so the client is not too
+// slow, however long it takes to read all the writer took in one step
+// (the replay refills the queue to half the send buffer each time; the
+// messages queued meanwhile wait for the whole step).
+func TestSlowSteadyReplay(t *testing.T) {
+	x, tr := slowSteady(t, Config{})
+	const n = 24 // ≈ 2.4 MB
+	var entries []synclog.Entry
+	for i := range n {
+		entries = append(entries, bigLabel("repo:1", int64(i+1), 100<<10))
+	}
+	first := x.append(entries...)
+	x.deliver()
+	slow := counterValue(t, metrics.SlowConsumers)
+
+	cl := x.connect(tr)
+	cl.hello(2, protocol.GroupRequest{Group: "repo:1", Since: since(0)})
+	var got []int64
+	for {
+		m := cl.next()
+		if m.Type == protocol.MsgCaughtUp {
+			break
+		}
+		require.Equal(t, protocol.MsgDelta, m.Type, "after %d of %d changes: %+v", len(got), n, m)
+		got = append(got, versions(m.Changes)...)
+	}
+	want := make([]int64, n)
+	for i := range want {
+		want[i] = first + int64(i)
+	}
+	assert.Equal(t, want, got)
+	cl.quiet(30 * time.Millisecond)
+	assert.Zero(t, tr.closeCode())
+	assert.InDelta(t, slow, counterValue(t, metrics.SlowConsumers), 0)
+}
+
+// A live burst that fits in the send buffer reaches a client that reads
+// slowly but steadily, also when more messages queue behind it while the
+// writer writes it (the writer took all of it in one step).
+func TestSlowSteadyBurst(t *testing.T) {
+	x, tr := slowSteady(t, Config{})
+	cl := x.connect(tr)
+	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
+	cl.expect(protocol.MsgCaughtUp)
+	slow := counterValue(t, metrics.SlowConsumers)
+
+	const n = 12 // ≈ 1.2 MB: fits in three quarters of the send buffer
+	var entries []synclog.Entry
+	for i := range n {
+		entries = append(entries, bigLabel("repo:1", int64(i+1), 100<<10))
+	}
+	first := x.append(entries...)
+	x.deliver()
+	x.h.mu.Lock()
+	behind := cl.c.subs["repo:1"].behind
+	x.h.mu.Unlock()
+	require.False(t, behind, "the burst fits in the queue")
+	time.Sleep(50 * time.Millisecond)
+	last := x.append(label(100, "after")) // waits behind the burst
+	x.deliver()
+	cl.send(&protocol.PingMessage{Type: protocol.MsgPing, ID: "p"})
+
+	var got []int64
+	pong := false
+	for len(got) < n+1 || !pong {
+		m := cl.next()
+		switch m.Type {
+		case protocol.MsgDelta:
+			got = append(got, versions(m.Changes)...)
+		case protocol.MsgPong:
+			pong = true
+		default:
+			require.Failf(t, "unexpected message", "after %d of %d changes: %+v", len(got), n+1, m)
+		}
+	}
+	want := make([]int64, 0, n+1)
+	for i := range n {
+		want = append(want, first+int64(i))
+	}
+	assert.Equal(t, append(want, last), got)
+	cl.quiet(30 * time.Millisecond)
+	assert.Zero(t, tr.closeCode())
+	assert.InDelta(t, slow, counterValue(t, metrics.SlowConsumers), 0)
+}
+
+// A log tail to a client that reads slowly but steadily completes (like a
+// replay, it refills the queue to half the send buffer each time).
+func TestSlowSteadyLogTail(t *testing.T) {
+	logs := &fakeLogs{jobs: map[int64]LogJob{}, lines: map[int64][]string{}}
+	const n = 100 // ≈ 2 MB: 16 messages of ≈ 128 KiB
+	for i := range n {
+		logs.add(10, strconv.Itoa(i)+strings.Repeat("x", 20<<10))
+	}
+	logs.set(1, LogJob{RepoID: 1, TaskID: 10, Done: true, Final: true})
+	x, tr := slowSteady(t, Config{Logs: logs, LogInterval: 5 * time.Millisecond})
+	cl := x.connect(tr)
+	cl.hello(5)
+	cl.expect(protocol.MsgCaughtUp)
+	slow := counterValue(t, metrics.SlowConsumers)
+
+	cl.send(&protocol.LogTailMessage{Type: protocol.MsgLogTail, JobID: 1})
+	lines := 0
+	for {
+		m := cl.next()
+		require.Equal(t, protocol.MsgLog, m.Type, "after %d of %d lines: %+v", lines, n, m)
+		assert.EqualValues(t, lines, m.Offset)
+		lines += len(m.Lines)
+		if m.Done {
+			break
+		}
+	}
+	assert.Equal(t, n, lines)
+	cl.quiet(30 * time.Millisecond)
+	assert.Zero(t, tr.closeCode())
+	assert.InDelta(t, slow, counterValue(t, metrics.SlowConsumers), 0)
 }

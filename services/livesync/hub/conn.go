@@ -174,9 +174,11 @@ type conn struct {
 	// wake: the current critical section of mu queued something or ended
 	// the session; unlock wakes the writer after releasing mu.
 	wake bool
-	// pendingSince: when the oldest message in the queue was queued (zero:
-	// the queue is empty); drainTimer ends the session when it waits
-	// longer than Config.DrainTimeout (checkDrain).
+	// pendingSince: when the writer last made progress while something
+	// was queued (zero: the queue is empty): when the oldest message in
+	// the queue was queued, or the writer finished a frame since then,
+	// whichever is later. drainTimer ends the session when that is longer
+	// ago than Config.DrainTimeout (checkDrain).
 	pendingSince time.Time
 	drainTimer   *time.Timer
 	// holds: the subscriptions in stateRecheck and the position up to
@@ -447,13 +449,17 @@ func (c *conn) slowLocked() {
 	c.endLocked(closeTryAgain, "client too slow", &protocol.ResumeFromCursorMessage{Type: protocol.MsgResumeFromCursor, SyncID: c.lastTo})
 }
 
-// checkDrain (drainTimer) ends the session when the oldest message in its
-// queue has waited longer than DrainTimeout for the writer, i.e. the
-// client did not drain what the writer took before within that time: a
-// slow consumer. The queue's size does not decide that (a burst larger
-// than the send buffer makes subscriptions catch up from the log instead),
-// how long the client takes to read it does. A writer stuck in one write
-// is ended by WriteTimeout, which is longer.
+// checkDrain (drainTimer) ends the session when messages wait in its
+// queue and the writer has not finished writing a frame for longer than
+// DrainTimeout (pendingSince), i.e. the client did not read one frame
+// (at most maxFrameBytes) within that time: a slow consumer. The queue's
+// size does not decide that (a burst larger than the send buffer makes
+// subscriptions catch up from the log instead), nor how long the client
+// takes to read all the writer took in one step (up to half the send
+// buffer for replays, catch-ups and log tails, three quarters during a
+// burst): a client that reads steadily, however slowly, makes progress
+// frame by frame. A writer stuck in one write with nothing queued behind
+// it is ended by WriteTimeout, which is longer.
 func (c *conn) checkDrain() {
 	c.mu.Lock()
 	defer c.unlock()
@@ -658,7 +664,8 @@ func onlyChanges(items []outItem) bool {
 
 // write sends one encoded message that makes the client's caught-up
 // groups complete up to pos (0: a message without a position); false when
-// the session is broken.
+// the session is broken. A frame written is progress (pendingSince, see
+// checkDrain).
 func (c *conn) write(data []byte, pos int64) bool {
 	ctx, cancel := context.WithTimeout(c.ctx, c.h.cfg.WriteTimeout)
 	defer cancel()
@@ -666,10 +673,14 @@ func (c *conn) write(data []byte, pos int64) bool {
 		log.Debug("livesync: sync session of user %d: write: %v", c.viewer, err)
 		return false
 	}
+	c.mu.Lock()
 	if pos > 0 {
-		c.mu.Lock()
 		c.lastTo = max(c.lastTo, pos)
-		c.mu.Unlock()
 	}
+	if !c.pendingSince.IsZero() {
+		// Progress: what waits behind the frame waits from now on.
+		c.pendingSince = time.Now()
+	}
+	c.mu.Unlock()
 	return true
 }

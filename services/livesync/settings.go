@@ -66,9 +66,12 @@ type Settings struct {
 	// larger than that does not disconnect the client: its subscriptions
 	// catch up from the sync log as it reads (B5; flake/product note of B8).
 	SendBuffer int
-	// DRAIN_TIMEOUT (default 5s): a sync session whose queued messages wait
-	// longer than this for the client to read what was sent before is too
-	// slow: it is disconnected with resume_from_cursor.
+	// DRAIN_TIMEOUT (default 5s): a sync session is too slow when messages
+	// wait in its queue and the client has not read one more frame (at most
+	// 256 KiB) for this long: it is disconnected with resume_from_cursor. A
+	// client that reads steadily is not (≈ 52 KB/s with full frames, which
+	// only large replays, catch-ups and log tails write); raise it for
+	// slower links.
 	DrainTimeout time.Duration
 	// MAX_SUBSCRIPTIONS (default 1000): the groups one user may subscribe
 	// at once on an instance, over all of their sessions (B5).

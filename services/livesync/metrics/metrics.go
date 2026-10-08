@@ -72,7 +72,8 @@ var (
 	}, []string{"transport"})
 	// SlowConsumers counts sessions closed with resume_from_cursor because
 	// they did not keep up: their queued messages waited longer than
-	// DRAIN_TIMEOUT, or their control messages overflowed SEND_BUFFER.
+	// DRAIN_TIMEOUT without the client reading a frame, or their control
+	// messages overflowed SEND_BUFFER.
 	SlowConsumers = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace, Name: "slow_consumer_disconnects_total",
 		Help: "Sync sessions closed with resume_from_cursor because they did not read fast enough ([livesync] DRAIN_TIMEOUT, SEND_BUFFER).",

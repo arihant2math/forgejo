@@ -11,7 +11,7 @@
 // are written once per animation frame; reads (rects, scroll positions)
 // come before writes in that frame, so a frame forces no extra layout.
 // Near a column's top or bottom edge the column scrolls; near the board's
-// sides, the board. Escape cancels. The drop is one `board.move` intent
+// sides, the board. Escape, or releasing outside the board, cancels. The drop is one `board.move` intent
 // (BoardModel.move): it shows at once, offline too.
 //
 // Geometry: cards sit in fixed slots (SLOT = the card's height plus the
@@ -179,6 +179,8 @@ export class BoardDnd {
       }
     }
     const boardRect = board?.getBoundingClientRect();
+    // Outside the board (the sidebar, the header): no target; releasing there drops nothing.
+    if (!boardRect || d.x < boardRect.left || d.x > boardRect.right || d.y < boardRect.top || d.y > boardRect.bottom) hit = undefined;
     let scrollY = 0;
     let scrollX = 0;
     let target: DropTarget | undefined;

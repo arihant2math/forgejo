@@ -56,9 +56,7 @@ export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
         return set.has(i.content) === i.add;
       }
       case 'board.move':
-        for (const pi of pool.model('ProjectIssue').by('issue_id', i.issueId)) {
-          if (pi.data.project_id === i.projectId) return pi.data.column_id === i.columnId && i.columnId !== i.baseColumn;
-        }
+        // The column alone does not show the position asked for: always sent (a repeat changes nothing).
         return false;
       case 'pr.viewed': {
         const viewed = serverMembers(pool, 'ViewedFile', i.issueId, me);

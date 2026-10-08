@@ -6,7 +6,7 @@
 // chunk, preloaded when the app is idle.
 
 import {useNavigate} from '@tanstack/react-router';
-import {BookMarked, CircleCheck, CircleDot, GitPullRequest, GitPullRequestClosed, Globe, Home, Inbox, KanbanSquare, Layers, Keyboard, LogOut, Monitor, Moon, SquarePen, Sun, SunMoon} from 'lucide-react';
+import {BookMarked, CircleCheck, CircleDot, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home, Inbox, KanbanSquare, Layers, Keyboard, LogOut, Monitor, Moon, SquarePen, Sun, SunMoon} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {useDeferredValue, useEffect, useMemo, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '../../ui/Command.tsx';
@@ -16,7 +16,7 @@ import {lastBoard} from '../lastBoard.ts';
 import {notify} from '../notices.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {requestSignOut, switchToClassic} from '../session.ts';
-import {shortcutHint, type ShortcutId} from '../shortcuts/index.ts';
+import {KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
@@ -38,6 +38,12 @@ interface PaletteCommand {
   keywords?: string;
   run: (app: App, navigate: Navigate) => void;
 }
+
+/** Bound shortcuts not listed as page commands: movement (J/K/X/H/L), and the issue pickers (the issue's own group has them). */
+const PAGE_SKIP = new Set<ShortcutId>([
+  'list.next', 'list.prev', 'list.select', 'board.left', 'board.right',
+  'issue.state', 'issue.labels', 'issue.assignee', 'issue.milestone', 'issue.priority',
+]);
 
 const COMMANDS: PaletteCommand[] = [
   {id: 'inbox', label: 'Go to the inbox', icon: Inbox, shortcut: 'go.inbox', keywords: 'notifications', run: (_, nav) => void nav({to: '/notifications'})},
@@ -144,9 +150,12 @@ function PaletteBody({app}: {app: App}) {
   const actions = untracked(() => issueActions(app, target, {navigate: (path) => void navigate({to: path})}))
     .filter((a) => !words.length || score(`${a.label} ${a.keywords ?? ''}`.toLowerCase(), words) >= 0);
   const targetName = untracked(() => (target.length === 1 ? `#${String(target[0]?.data.number)} ${target[0]?.data.title ?? ''}` : `${String(target.length)} selected`));
+  // What the page on screen offers by key (inbox triage, board moves, save the view, comment…), as commands.
+  const [onPage] = useState(() => shortcuts.available().filter((id) => !PAGE_SKIP.has(id)));
+  const pageCommands = onPage.filter((id) => !words.length || score(KEYMAP[id].label.toLowerCase(), words) >= 0);
   const views = untracked(() => (app.session ? viewStore(app.session.userId).views.slice() : []))
     .filter((v) => !words.length || score(v.name.toLowerCase(), words) >= 0);
-  const nothing = !views.length && !commands.length && !actions.length && !results.repos.length && !results.issues.length && !more.local.length && !more.server.length;
+  const nothing = !pageCommands.length && !views.length && !commands.length && !actions.length && !results.repos.length && !results.issues.length && !more.local.length && !more.server.length;
   const openIssue = (issue: Issue, repo: Repository) => run(() => void navigate({
     to: issue.is_pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
     params: {owner: repo.owner_name, repo: repo.name, index: String(issue.number)},
@@ -202,6 +211,20 @@ function PaletteBody({app}: {app: App}) {
             ))}
           </CommandGroup>
         )}
+        {pageCommands.length > 0 && (
+          <CommandGroup heading="On this page">
+            {pageCommands.map((id) => (
+              <CommandItem key={id} value={`page:${id}`} icon={CornerDownRight} shortcut={shortcutHint(id)} onSelect={run(() => {
+                // After the palette closed (focus back on the page), as the key would.
+                requestAnimationFrame(() => {
+                  shortcuts.run(id);
+                });
+              })}>
+                {KEYMAP[id].label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
         {views.length > 0 && (
           <CommandGroup heading="Views">
             {views.map((v) => (
@@ -238,7 +261,7 @@ const NONE: More = {local: [], server: []};
 const SERVER_DELAY = 300;
 
 function useMoreResults(app: App, query: string, scan: SearchResults): More {
-  const [more, setMore] = useState<{query: string; value: More}>({query: '', value: NONE});
+  const [answer, setAnswer] = useState<{query: string; value: More}>({query: '', value: NONE});
   useEffect(() => {
     const q = query.trim();
     const s = app.session;
@@ -247,21 +270,20 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     const shown = new Set(scan.issues.map((r) => r.issue.id));
     const pool = s.data.pool;
     const repoOf = (id: number) => pool.model('Repository').get(id)?.data ?? s.data.peek('Repository').get(id);
-    let local: More['local'] = [];
+    const same = (a: {query: string}) => a.query === query;
     const ix = localSearch(app);
     void ix?.search(q, 20).then((a) => {
       if (ctl.signal.aborted) return;
-      local = untracked(() => a.hits.filter((h) => !shown.has(h.id)).map((h) => pool.model('Issue').get(h.id)?.data)
+      const local = untracked(() => a.hits.filter((h) => !shown.has(h.id)).map((h) => pool.model('Issue').get(h.id)?.data)
         .filter((i) => i !== undefined).map((issue) => ({issue, repo: repoOf(issue.repo_id)})).filter((r) => r.repo !== undefined)
         .slice(0, Math.max(0, 12 - shown.size)));
-      setMore((m) => ({query, value: {local, server: m.query === query ? m.value.server : []}}));
+      // Nothing new (the scan filled the slots, as it usually does): no render.
+      setAnswer((m) => (same(m) && !local.length && !m.value.local.length ? m : {query, value: {local, server: same(m) ? m.value.server : []}}));
     }).catch(() => undefined);
     const timer = q.length >= 2 && connectivity.online ? setTimeout(() => {
-      void searchServer(app, q, ctl.signal).then((hits) => {
+      void searchServer(app, q, ctl.signal).then((server) => {
         if (ctl.signal.aborted) return;
-        // What the local results already list; an issue on this device that only the server matched (its body, say) still shows.
-        const known = (h: ServerHit) => shown.has(h.id) || local.some((r) => r.issue.id === h.id);
-        setMore((m) => ({query, value: {local: m.query === query ? m.value.local : local, server: hits.filter((h) => !known(h))}}));
+        setAnswer((m) => (same(m) && !server.length && !m.value.server.length ? m : {query, value: {local: same(m) ? m.value.local : [], server}}));
       }).catch(() => undefined);
     }, SERVER_DELAY) : undefined;
     return () => {
@@ -269,5 +291,16 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
       clearTimeout(timer);
     };
   }, [app, query, scan]);
-  return more.query === query ? more.value : NONE;
+  // The last answers while the next ones are on their way (typing narrows or widens the same query: no flicker), minus
+  // what the scan lists now; each issue once (an issue on this device that only the server matched, its body say, shows).
+  return useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const a = answer.query.trim().toLowerCase();
+    if (!q || !a || !(q.startsWith(a) || a.startsWith(q))) return NONE;
+    const shown = new Set(scan.issues.map((r) => r.issue.id));
+    const local = answer.value.local.filter((r) => !shown.has(r.issue.id));
+    for (const r of local) shown.add(r.issue.id);
+    const server = answer.value.server.filter((h) => !shown.has(h.id));
+    return local.length || server.length ? {local, server} : NONE;
+  }, [answer, query, scan]);
 }

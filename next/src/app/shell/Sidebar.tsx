@@ -5,19 +5,28 @@
 // owners and repositories. Each part that reads the pool is its own observer
 // leaf, so a delta re-renders the row it changed and nothing else.
 
-import {Link} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest, Inbox, KanbanSquare, Search} from 'lucide-react';
+import {Link, useRouterState} from '@tanstack/react-router';
+import {CircleDot, GitPullRequest, Inbox, KanbanSquare, Search, SquarePen} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {memo, useCallback, useState} from 'react';
+import {memo, useCallback, useEffect, useState} from 'react';
 import {groupId, groupKind} from '../../data/models.ts';
 import {Avatar, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
-import {lazyComponent} from '../lazy.tsx';
+import {openCreate} from '../create.ts';
+import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
+
+/** New issue (C): Linear's compose button, at the top. */
+function SidebarCreate() {
+  const app = useApp();
+  return <NavItem icon={SquarePen} label="New issue" shortcut={shortcutHint('create')} onClick={() => {
+    openCreate(app);
+  }}/>;
+}
 
 const SidebarSearch = function SidebarSearch() {
   const {ui} = useApp();
@@ -161,6 +170,27 @@ const Workspace = observer(function Workspace() {
 /** Saved views: their own chunk (rendered once it is here; below everything else, so nothing moves). */
 const SidebarViews = lazyComponent(() => import('../../features/views/SidebarViews.tsx').then((m) => m.SidebarViews));
 
+/** Mounted when the app is idle (the views chunk is not fetched with the first paint). */
+function IdleViews() {
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    whenIdle(() => {
+      setIdle(true);
+    });
+  }, []);
+  return idle ? <SidebarViews/> : null;
+}
+
+/** Boards: current on the list of boards and on a board. */
+function BoardsItem() {
+  const onBoard = useRouterState({select: (s) => s.location.pathname.startsWith('/-/next/projects/')});
+  return (
+    <NavItem asChild icon={KanbanSquare} label="Boards" shortcut={shortcutHint('go.board')}>
+      <Link to="/-/next/boards" {...(onBoard ? {'aria-current': 'page' as const} : {})}/>
+    </NavItem>
+  );
+}
+
 // ── Width ────────────────────────────────────────────────────────────────
 
 function currentWidth(): number {
@@ -197,6 +227,7 @@ export function Sidebar() {
     <>
       <SidebarTop>
         <AccountMenu/>
+        <SidebarCreate/>
         <SidebarSearch/>
       </SidebarTop>
       <SidebarBody>
@@ -207,11 +238,9 @@ export function Sidebar() {
         <NavItem asChild icon={GitPullRequest} label="My pull requests" shortcut={shortcutHint('go.pulls')}>
           <Link to="/pulls" activeOptions={{includeSearch: false}}/>
         </NavItem>
-        <NavItem asChild icon={KanbanSquare} label="Boards" shortcut={shortcutHint('go.board')}>
-          <Link to="/-/next/boards"/>
-        </NavItem>
+        <BoardsItem/>
         <Workspace/>
-        <SidebarViews/>
+        <IdleViews/>
       </SidebarBody>
       <SidebarResize/>
     </>

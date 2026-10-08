@@ -108,6 +108,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
   const [ready, setReady] = useState(Boolean(Loaded));
   const editor = useRef<MarkdownEditorHandle>(null);
   const area = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ready) return;
     void preloadEditor().then(() => {
@@ -126,8 +127,11 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
     if (e.key.toLowerCase() === 'p' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       toggle();
-      // Back in Write: the caret where it was.
-      if (preview) requestAnimationFrame(() => editor.current?.focus());
+      // Back in Write: the caret where it was; in Preview the preview keeps the focus (and these keys) so they toggle back.
+      requestAnimationFrame(() => {
+        if (preview) editor.current?.focus();
+        else previewRef.current?.focus();
+      });
     }
   };
   const hint = shortcutHint('editor.preview');
@@ -142,16 +146,16 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
         });
       }}/>}
       <div className="flex items-center gap-1" role="group" aria-label="Editor mode">
-        <Button size="sm" variant={preview ? 'ghost' : 'secondary'} aria-pressed={!preview} shortcut={hint} tooltip="Write" onClick={() => {
+        <Button size="sm" pressed={!preview} shortcut={hint} tooltip="Write" onClick={() => {
           setPreview(false);
           requestAnimationFrame(() => editor.current?.focus());
         }}>Write</Button>
-        <Button size="sm" variant={preview ? 'secondary' : 'ghost'} aria-pressed={preview} shortcut={hint} tooltip="Preview as Forgejo renders it" onClick={() => {
+        <Button size="sm" pressed={preview} shortcut={hint} tooltip="Preview as Forgejo renders it" onClick={() => {
           setPreview(true);
         }}>Preview</Button>
       </div>
       {preview ?
-        <Preview repoId={repoId} text={props.value}/> :
+        <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region"><Preview repoId={repoId} text={props.value}/></div> :
         Editor ?
           <Editor {...props} ref={editor} autoFocus={props.autoFocus === true || hadFocus.current}/> :
           <TextArea ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}

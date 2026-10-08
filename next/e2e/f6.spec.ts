@@ -102,7 +102,7 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   const row = (p: Page, title: string) => p.getByRole('listbox', {name: 'Notifications'}).getByRole('option').filter({hasText: title});
   await expect(row(page, b.title)).toBeVisible({timeout: 20_000});
   await expect(row(page, a.title)).toBeVisible();
-  await expect(row(page, b.title)).toHaveAttribute('aria-label', 'Unread');
+  await expect(row(page, b.title)).toContainText('Unread:');
   const unread = async () => Number(await page.getByRole('navigation', {name: 'Main'}).getByRole('link', {name: /Inbox/}).innerText().then((t) => /\d+/.exec(t)?.[0] ?? '0'));
   const before = await unread();
 
@@ -118,12 +118,12 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   await expect(row(page, b.title)).toHaveAttribute('data-active', '');
   const t0 = await page.evaluate(() => performance.now());
   await page.keyboard.press('e');
-  await expect(row(page, b.title)).not.toHaveAttribute('aria-label', 'Unread');
+  await expect(row(page, b.title)).not.toContainText('Unread:');
   const applied = await page.evaluate((s) => performance.now() - s, t0);
   record('inbox: E → row repainted (ms, incl. Playwright round trip)', [applied]);
   expect(await unread()).toBe(before - 1);
   await expect(row(other, b.title)).toBeVisible();
-  await expect(row(other, b.title)).not.toHaveAttribute('aria-label', 'Unread', {timeout: 15_000});
+  await expect(row(other, b.title)).not.toContainText('Unread:', {timeout: 15_000});
   await expect.poll(async () => {
     const l = await (await api('GET', '/notifications?status-types=read&limit=50')).json() as {subject: {title: string}}[];
     return l.some((n) => n.subject.title === b.title);
@@ -131,16 +131,16 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
 
   // U: unread again. Shift+P: pinned (its own group). K / J move between rows.
   await page.keyboard.press('u');
-  await expect(row(page, b.title)).toHaveAttribute('aria-label', 'Unread');
+  await expect(row(page, b.title)).toContainText('Unread:');
   await page.keyboard.press('Shift+P');
   await expect(list.getByText('Pinned', {exact: true})).toBeVisible();
-  await expect(row(page, b.title)).toHaveAttribute('aria-label', 'Pinned');
+  await expect(row(page, b.title)).toContainText('Pinned:');
   await expect.poll(async () => {
     const l = await (await api('GET', '/notifications?status-types=pinned&limit=50')).json() as {subject: {title: string}}[];
     return l.some((n) => n.subject.title === b.title);
   }, {timeout: 15_000}).toBe(true);
   await page.keyboard.press('Shift+P');
-  await expect(row(page, b.title)).not.toHaveAttribute('aria-label', 'Pinned');
+  await expect(row(page, b.title)).not.toContainText('Pinned:');
 
   // Enter opens the issue (and reads it).
   await row(page, a.title).click();
@@ -238,7 +238,25 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await expect(column(other, target).getByRole('option').filter({hasText: cards[0]?.title ?? ''})).toBeVisible({timeout: 15_000});
   await expect.poll(() => classicColumn(page, pid, first), {timeout: 15_000}).toBe(target);
 
-  // Keyboard: J/K/H/L move the cursor, Shift+L moves card B one column right.
+  // Released outside the board (over the sidebar): nothing moves.
+  const before = await column(page, target).getByRole('option').allInnerTexts();
+  const a2 = await card(page, first.title).boundingBox();
+  if (!a2) throw new Error('no geometry');
+  await page.mouse.move(a2.x + a2.width / 2, a2.y + a2.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(a2.x + a2.width / 2 - i * 60, a2.y + 20);
+  await page.mouse.move(20, 200);
+  await page.mouse.up();
+  expect(await column(page, target).getByRole('option').allInnerTexts()).toEqual(before);
+
+  // Keyboard: plain L/H move the cursor between columns (L is not the labels picker on a board).
+  await column(page, target).getByRole('listbox').focus();
+  await page.keyboard.press('h');
+  await expect(fromCol.locator('[data-active]')).toHaveCount(1);
+  await page.keyboard.press('l');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(column(page, target).locator('[data-active]')).toHaveCount(1);
+  // Keyboard: Shift+L moves a card one column right.
   // (The drag focused the column it started in; focusing another column puts the cursor on its first card.)
   await column(page, target).getByRole('listbox').focus();
   await column(page, titles[0] ?? '').getByRole('listbox').focus();
@@ -258,12 +276,23 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await goOffline(devCtx, page);
   await expect(page.getByRole('button', {name: 'Add column'})).toBeDisabled();
   const lastCard = column(page, target).getByRole('option').first();
-  const lastTitle = (await lastCard.innerText()).split('\n').find((l) => l.includes(stamp)) ?? '';
+  const lastText = await lastCard.innerText();
+  const lastTitle = lastText.split('\n').find((l) => l.includes(stamp)) ?? '';
   await column(page, target).getByRole('listbox').focus();
   await page.keyboard.press('Shift+H');
   await expect(column(page, titles[0] ?? '').getByRole('option').filter({hasText: lastTitle})).toBeVisible();
   await goOnline(devCtx, page);
   await expect(column(other, titles[0] ?? '').getByRole('option').filter({hasText: lastTitle})).toBeVisible({timeout: 30_000});
+  // Reordering within a column (Shift+K: up): the second user ends with the same order, card for card.
+  const order = (p: Page) => column(p, titles[0] ?? '').getByRole('option').evaluateAll((els) => els.map((e) => /#\d+/.exec(e.textContent)?.[0] ?? ''));
+  const start = await order(page);
+  const moved = /#\d+/.exec(lastText)?.[0] ?? '';
+  if (start.indexOf(moved) > 0) {
+    await page.keyboard.press('Shift+K');
+    await expect.poll(() => order(page)).not.toEqual(start);
+  }
+  const mine = await order(page);
+  await expect.poll(() => order(other), {timeout: 30_000}).toEqual(mine);
   // G B comes back to this board.
   await page.goto(`${BASE}/issues`);
   await expect(page.getByRole('heading', {level: 1})).toBeVisible();
@@ -440,7 +469,7 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
 
   // A reaction on the issue: counted at once, then on the server.
   await page.getByRole('button', {name: 'Add a reaction'}).first().click();
-  await page.getByRole('menuitem', {name: /:rocket:/}).click();
+  await page.getByRole('menuitem', {name: 'Rocket', exact: true}).click();
   await expect(page.getByRole('button', {name: /you reacted with rocket/})).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/reactions`)).json() as {content: string}[]).map((r) => r.content), {timeout: 15_000})
     .toEqual(['rocket']);
@@ -449,12 +478,18 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
 
   // Subscribing (Shift+S), then unsubscribing.
   const checkSub = async () => ((await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/subscriptions/check`)).json()) as {subscribed: boolean}).subscribed;
-  const sub = page.getByRole('complementary', {name: 'Properties'}).getByRole('button', {name: /subscribed/i});
+  const props = page.getByRole('complementary', {name: 'Properties'});
+  // The poster is subscribed (Forgejo's rule, without an explicit choice): the sidebar agrees with the server.
   const was = await checkSub();
+  expect(was).toBe(true);
+  await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();
   await page.locator('body').click({position: {x: 1, y: 1}}).catch(() => undefined);
   await page.keyboard.press('Shift+S');
-  await expect.poll(checkSub, {timeout: 15_000}).toBe(!was);
-  await expect(sub).toBeVisible();
+  await expect(props.getByText('Not subscribed', {exact: true})).toBeVisible();
+  await expect.poll(checkSub, {timeout: 15_000}).toBe(false);
+  await page.keyboard.press('Shift+S');
+  await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();
+  await expect.poll(checkSub, {timeout: 15_000}).toBe(true);
   expect(dialogs).toBe(0);
   expect(problems).toEqual([]);
   await ctx.close();

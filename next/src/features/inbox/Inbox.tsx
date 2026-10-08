@@ -13,7 +13,7 @@
 
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {BellOff, CheckCheck, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, Pin, Rows3} from 'lucide-react';
+import {BellOff, CheckCheck, ExternalLink, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, Mail, MailOpen, Pin, Rows3} from 'lucide-react';
 import {autorun, computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
@@ -21,7 +21,7 @@ import {rememberListRows} from '../../app/boot.ts';
 import type {InboxSearch} from '../../app/search.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -29,12 +29,12 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {
-  Badge, Button, EmptyState, Hint, Icon, ListGroupHeader, ListRow, Menu, MenuCheckboxItem, MenuContent, MenuTrigger, StatusDot,
+  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, EmptyState, Hint, Icon, ListGroupHeader, ListRow, Menu,
+  MenuCheckboxItem, MenuContent, MenuTrigger, StatusDot,
 } from '../../ui/index.ts';
-import {StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {AgoCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {ListCursor} from '../issues/flags.ts';
-import {ago, fullDate} from '../issues/format.ts';
 import {setStatus} from './actions.ts';
 import {type InboxResult, inboxRows, togglePin} from './inbox.ts';
 
@@ -74,16 +74,21 @@ class InboxModel {
     })});
   }
 
-  private compute(): InboxResult {
+  /** Every notification, newest first: sorted again only when notifications change (not on triage). */
+  private readonly sorted = computed(() => {
     this.rev.reportObserved();
+    const all = [...this.pool.model('Notification').all()];
+    return untracked(() => all.map((e) => e.data).sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : b.id - a.id)));
+  });
+
+  private compute(): InboxResult {
     const v = this.view();
     const statuses = this.overlay.fieldOverrides('Notification', 'status');
-    const notes = this.pool.model('Notification');
-    // Observes the membership only (statuses arrive through the revision above).
-    const all = [...notes.all()];
+    const all = this.sorted.get();
     return untracked(() => {
       const t0 = performance.now();
-      const out = inboxRows(all.map((e) => e.data), {unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
+      // Already in order: inboxRows' own sort of a sorted list is linear.
+      const out = inboxRows(all, {unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
         status: (n) => (statuses.get(n.id) as string | undefined) ?? n.status,
         repoName: (id) => this.pool.model('Repository').get(id)?.data.full_name ?? '',
       });
@@ -130,10 +135,9 @@ export default function Inbox() {
   return (
     <>
       <PageHeader icon={InboxIcon} title="Inbox">
-        <Unread/>
-        <Button size="sm" variant={search.filter === 'unread' ? 'secondary' : 'ghost'} aria-pressed={search.filter === 'unread'} onClick={() => {
+        <Button size="sm" pressed={search.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
           set({filter: search.filter === 'unread' ? undefined : 'unread'});
-        }}>Unread</Button>
+        }}>Unread<UnreadCount/></Button>
         <Menu>
           <MenuTrigger asChild><Button size="sm" variant="ghost" icon={Rows3}>Display</Button></MenuTrigger>
           <MenuContent>
@@ -149,11 +153,11 @@ export default function Inbox() {
   );
 }
 
-const Unread = observer(function Unread() {
+const UnreadCount = observer(function UnreadCount() {
   const {ui} = useApp();
   const {data} = useSession();
   const n = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
-  return n ? <Badge tone="accent">{n} unread</Badge> : null;
+  return n ? <span className="text-fg-subtle tabular-nums">{n}</span> : null;
 });
 
 const InboxBody = observer(function InboxBody({model, unreadOnly}: {model: InboxModel; unreadOnly: boolean}) {
@@ -191,8 +195,20 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
   useEffect(() => {
     rememberListRows(visible);
   }, [visible]);
+  // A row that leaves the list (read in the Unread view) hands the cursor to the row that followed it, so J/E
+  // triage goes on from there.
+  const prevIds = useRef<readonly number[]>(ids);
   useLayoutEffect(() => {
-    cursor.keep(new Set(ids));
+    const listed = new Set(ids);
+    const active = cursor.activeId;
+    if (active !== undefined && !listed.has(active)) {
+      const old = prevIds.current;
+      const at = old.indexOf(active);
+      const next = [...old.slice(at + 1), ...old.slice(0, Math.max(0, at)).reverse()].find((id) => listed.has(id));
+      cursor.setActive(next);
+    }
+    cursor.keep(listed);
+    prevIds.current = ids;
   }, [ids, cursor]);
   useEffect(() => autorun(() => {
     const [id] = cursor.active.values();
@@ -268,7 +284,17 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
   });
 
   const items = virtualizer.getVirtualItems();
+  const status = (id: number) => {
+    const n = untracked(() => app.session?.data.pool.model('Notification').get(id));
+    return n ? untracked(() => notificationStatus(editing(app).overlay, n)) : undefined;
+  };
+  const [menuId, setMenuId] = useState<number | undefined>();
+  const menuStatus = menuId === undefined ? undefined : status(menuId);
   return (
+    <ContextMenu onOpenChange={(o) => {
+      if (!o) setMenuId(undefined);
+    }}>
+      <ContextMenuTrigger asChild>
     <div
       ref={listRef}
       role="listbox"
@@ -281,6 +307,16 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
         if (e.target !== e.currentTarget || cursor.activeId !== undefined) return;
         const first = items.map((it) => rows[it.index]).find((r) => r?.type === 'note');
         if (first?.type === 'note') cursor.setActive(first.id);
+      }}
+      onContextMenuCapture={(e) => {
+        const el = (e.target as Element).closest('[data-note]');
+        const id = el ? Number(el.getAttribute('data-note')) : cursor.activeId;
+        if (id === undefined) {
+          e.preventDefault();
+          return;
+        }
+        setMenuId(id);
+        cursor.setActive(id);
       }}
       className="relative w-full outline-none"
       style={{height: virtualizer.getTotalSize()}}
@@ -297,6 +333,27 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
         );
       })}
     </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {menuId !== undefined && (
+          <>
+            <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
+              open(menuId);
+            }}>Open</ContextMenuItem>
+            <ContextMenuSeparator/>
+            <ContextMenuItem icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={menuStatus !== 'unread'} onSelect={() => {
+              setStatus(app, [menuId], (st) => (st === 'unread' ? 'read' : undefined));
+            }}>Mark read</ContextMenuItem>
+            <ContextMenuItem icon={Mail} shortcut={shortcutHint('inbox.unread')} disabled={menuStatus === 'unread'} onSelect={() => {
+              setStatus(app, [menuId], () => 'unread');
+            }}>Mark unread</ContextMenuItem>
+            <ContextMenuItem icon={Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
+              setStatus(app, [menuId], togglePin);
+            }}>{menuStatus === 'pinned' ? 'Unpin' : 'Pin'}</ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 
@@ -318,22 +375,23 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick}: {n: Enti
     <ListRow
       role="option"
       id={rowId(n.id)}
+      data-note={n.id}
       active={cursor.active.has(n.id)}
       selected={cursor.selected.has(n.id)}
-      aria-label={unread ? 'Unread' : status === 'pinned' ? 'Pinned' : undefined}
       onClick={(e) => {
         onClick(n.id, e);
       }}
       leading={<>
-        {unread ? <Hint label="Unread"><StatusDot tone="accent"/></Hint> : <span aria-hidden className="size-2 shrink-0"/>}
+        <StatusDot tone="accent" off={!unread}/>
         {issue ? <StateIcon issue={issue}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitHorizontal : InboxIcon}/>}
       </>}
       trailing={<>
         {status === 'pinned' && <Hint label="Pinned"><Icon icon={Pin} size="sm"/></Hint>}
         <span className="truncate">{repo?.get('full_name') ?? ''}{issue ? `#${String(issue.get('number'))}` : ''}</span>
-        <span title={fullDate(at)} className="w-10 text-right tabular-nums">{ago(at)}</span>
+        <AgoCell at={at}/>
       </>}
     >
+      {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
       <span className={unread ? 'font-medium text-fg' : 'text-fg-muted'}>
         {issue ? <TitleCell issue={issue}/> : subjectWords(n.get('subject'))}
       </span>

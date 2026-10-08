@@ -7,13 +7,17 @@
 // queue sends it — the page's URL is then replaced (IssueView). Title,
 // description (the markdown composer), labels (status and priority are
 // exclusive scoped labels), assignee and milestone; ⌘↵ creates. What is
-// typed is kept as a draft until it is created or discarded.
+// typed is kept as one draft (with its repository) until it is created or
+// discarded, also when the dialog closes before the debounce.
+//
+// The form is a small observable model: typing re-renders the field typed
+// in, not the menus.
 
 import {useNavigate} from '@tanstack/react-router';
 import {BookMarked, Milestone as MilestoneIcon, Tag, User} from 'lucide-react';
-import {runInAction, untracked} from 'mobx';
+import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
@@ -29,6 +33,8 @@ import {assigneeCandidates, repoLabels} from '../issues/candidates.ts';
 import {usePool} from '../issues/cells.tsx';
 import {exclusiveScope} from '../issues/labels.ts';
 
+/** The one draft of the dialog (its repository is in the record). */
+const DRAFT = 'text:new-issue';
 const LAST_REPO = 'forgejo-next:create';
 
 function rememberRepo(repoId: number): void {
@@ -47,7 +53,7 @@ function lastRepo(): number {
   }
 }
 
-/** The repositories on this device the viewer can open issues in (not archived), by name. */
+/** The repositories on this device that are not archived, by name. */
 function repoChoices(app: App): {id: number; name: string}[] {
   const pool = app.session?.data.pool;
   if (!pool) return [];
@@ -55,179 +61,266 @@ function repoChoices(app: App): {id: number; name: string}[] {
     .map((r) => ({id: r.id, name: r.full_name})).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** One opening's form. */
+class Form {
+  repoId: number;
+  title: string;
+  body: string;
+  labels: number[] = [];
+  assignee = 0;
+  milestone = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private done = false;
+  private readonly app: App;
+
+  constructor(app: App, initialRepo: number) {
+    this.app = app;
+    const repos = repoChoices(app);
+    const d = untracked(() => editing(app).intents.drafts.get(DRAFT));
+    const repo = d?.repoId && repos.some((r) => r.id === d.repoId) ? d.repoId : initialRepo;
+    this.repoId = repos.some((r) => r.id === repo) ? repo : repos[0]?.id ?? 0;
+    const text = d?.text ?? '';
+    this.title = text.split('\n')[0] ?? '';
+    this.body = text.split('\n').slice(2).join('\n');
+    makeAutoObservable<Form, 'timer' | 'done' | 'app'>(this, {timer: false, done: false, app: false}, {autoBind: true});
+  }
+
+  setTitle(t: string): void {
+    this.title = t;
+    this.keep();
+  }
+
+  setBody(b: string): void {
+    this.body = b;
+    this.keep();
+  }
+
+  setRepo(id: number): void {
+    this.repoId = id;
+    this.labels = [];
+    this.assignee = 0;
+    this.milestone = 0;
+    this.keep();
+  }
+
+  setAssignee(id: number): void {
+    this.assignee = id;
+  }
+
+  setMilestone(id: number): void {
+    this.milestone = id;
+  }
+
+  toggleLabel(l: Label, on: boolean, all: readonly Label[]): void {
+    if (!on) {
+      this.labels = this.labels.filter((x) => x !== l.id);
+      return;
+    }
+    // An exclusive scoped label replaces its siblings (status, priority), as Forgejo does.
+    const scope = exclusiveScope(l);
+    const keep = scope ? this.labels.filter((x) => {
+      const other = all.find((y) => y.id === x);
+      return !other || exclusiveScope(other) !== scope;
+    }) : this.labels;
+    this.labels = [...keep, l.id];
+  }
+
+  /** Kept while typing (a reload or a crash never loses it), like every editor. */
+  private keep(): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.flush();
+    }, 400);
+  }
+
+  /** Writes the draft now (the dialog closes before the debounce). */
+  flush(): void {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if (this.done) return;
+    const {intents} = editing(this.app);
+    if (!this.title.trim() && !this.body.trim()) void intents.discardDraft(DRAFT);
+    else void intents.keepText({key: DRAFT, title: 'A new issue', issueId: 0, repoId: this.repoId, text: `${this.title}\n\n${this.body}`});
+  }
+
+  /** Creates the issue (an intent) and forgets the draft; returns its page, or undefined when it cannot be made. */
+  create(): string | undefined {
+    const t = this.title.trim();
+    const repo = untracked(() => this.app.session?.data.pool.model('Repository').get(this.repoId)?.data);
+    if (!t || !repo) return undefined;
+    this.done = true;
+    clearTimeout(this.timer);
+    const {intents} = editing(this.app);
+    void intents.discardDraft(DRAFT);
+    const tempId = uuid();
+    intents.submit({
+      kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: [...this.labels],
+      assigneeIds: this.assignee ? [this.assignee] : [], milestoneId: this.milestone,
+    });
+    rememberRepo(this.repoId);
+    return tempIssuePath(repo.owner_name, repo.name, tempId);
+  }
+}
+
 export const CreateIssue = observer(function CreateIssue() {
   const app = useApp();
+  const navigate = useNavigate();
   const req = app.ui.create;
+  // A fresh form for each opening (the draft brings the text back).
+  const [form, setForm] = useState<Form | undefined>();
+  const [wasOpen, setWasOpen] = useState(false);
+  if (Boolean(req) !== wasOpen) {
+    setWasOpen(Boolean(req));
+    if (req) setForm(new Form(app, req.repoId || lastRepo()));
+  }
   const close = () => {
+    form?.flush();
     runInAction(() => {
       app.ui.create = undefined;
     });
   };
-  // A fresh form for each opening (the draft brings the text back).
-  const [n, setN] = useState(0);
-  const [wasOpen, setWasOpen] = useState(false);
-  if (Boolean(req) !== wasOpen) {
-    setWasOpen(Boolean(req));
-    if (req) setN(n + 1);
-  }
+  const create = () => {
+    const path = form?.create();
+    if (!path) return;
+    runInAction(() => {
+      app.ui.create = undefined;
+    });
+    void navigate({to: path});
+  };
   return (
     <Dialog open={Boolean(req)} onOpenChange={(o) => {
       if (!o) close();
-    }} title="New issue" size="lg">
-      {req && <CreateForm key={n} initialRepo={req.repoId || lastRepo()} onDone={close}/>}
+    }} title="New issue" size="lg" footer={form && <Footer form={form} onCancel={close} onCreate={create}/>}>
+      {form && <Fields form={form} onCreate={create}/>}
     </Dialog>
   );
 });
 
-const CreateForm = observer(function CreateForm({initialRepo, onDone}: {initialRepo: number; onDone: () => void}) {
+const Fields = observer(function Fields({form, onCreate}: {form: Form; onCreate: () => void}) {
+  const app = useApp();
+  // Written on the way out (Esc, the overlay, a route change).
+  useEffect(() => () => {
+    form.flush();
+  }, [form]);
+  if (!repoChoices(app).length) return <p className="text-base text-fg-muted">No repository is on this device yet: issues are created in one.</p>;
+  return (
+    <div className="flex flex-col gap-3">
+      <Properties form={form}/>
+      <Title form={form} onCreate={onCreate}/>
+      <Description form={form} onCreate={onCreate}/>
+    </div>
+  );
+});
+
+const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: () => void}) {
+  return (
+    <Input aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255}
+      onChange={(e) => {
+        form.setTitle(e.target.value);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          onCreate();
+        }
+      }}/>
+  );
+});
+
+const Description = observer(function Description({form, onCreate}: {form: Form; onCreate: () => void}) {
+  return (
+    <MarkdownField repoId={form.repoId} label="Description" placeholder="Add a description…" value={form.body} rows={6}
+      onChange={(b) => {
+        form.setBody(b);
+      }} onSubmit={onCreate}/>
+  );
+});
+
+/** Repository, labels, assignee, milestone: observes those only (typing does not re-render it). */
+const Properties = observer(function Properties({form}: {form: Form}) {
   const app = useApp();
   const {userId} = useSession();
   const pool = usePool();
-  const navigate = useNavigate();
-  const {intents} = editing(app);
+  const repoId = form.repoId;
   const repos = repoChoices(app);
-  const [repoId, setRepoId] = useState(() => (repos.some((r) => r.id === initialRepo) ? initialRepo : repos[0]?.id ?? 0));
-  const draftKey = `text:new-issue:${String(repoId)}`;
-  const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
-  const [title, setTitle] = useState(() => (restored?.text ?? '').split('\n')[0] ?? '');
-  const [body, setBody] = useState(() => (restored?.text ?? '').split('\n').slice(2).join('\n'));
-  const [labels, setLabels] = useState<number[]>([]);
-  const [assignee, setAssignee] = useState(0);
-  const [milestone, setMilestone] = useState(0);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const done = useRef(false);
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-  }, []);
-  // Kept while typing (a reload or a crash never loses it), like every editor.
-  const keep = (t: string, b: string) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      if (done.current) return;
-      if (!t.trim() && !b.trim()) void intents.discardDraft(draftKey);
-      else void intents.keepText({key: draftKey, title: 'A new issue', issueId: 0, repoId, text: `${t}\n\n${b}`});
-    }, 400);
-  };
   const repo = pool.model('Repository').get(repoId)?.data;
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
   const people = repoId ? assigneeCandidates(pool, repoId, userId).map((id) => pool.model('User').get(id)?.data).filter((u) => u !== undefined)
     .sort((a, b) => a.login.localeCompare(b.login)) : [];
   const milestones = repoId ? [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).filter((m) => m.state === 'open')
     .sort((a, b) => a.title.localeCompare(b.title)) : [];
-  const toggleLabel = (l: Label, on: boolean) => {
-    setLabels((cur) => {
-      if (!on) return cur.filter((x) => x !== l.id);
-      // An exclusive scoped label replaces its siblings (status, priority), as Forgejo does.
-      const scope = exclusiveScope(l);
-      const keep = scope ? cur.filter((x) => {
-        const other = allLabels.find((y) => y.id === x);
-        return !other || exclusiveScope(other) !== scope;
-      }) : cur;
-      return [...keep, l.id];
-    });
-  };
-  const create = () => {
-    const t = title.trim();
-    if (!t || !repo) return;
-    done.current = true;
-    clearTimeout(timer.current);
-    void intents.discardDraft(draftKey);
-    const tempId = uuid();
-    runInAction(() => {
-      intents.submit({
-        kind: 'issue.create', issueId: tempNum(tempId), repoId, tempId, title: t, body, labelIds: labels,
-        assigneeIds: assignee ? [assignee] : [], milestoneId: milestone,
-      });
-    });
-    rememberRepo(repoId);
-    onDone();
-    void navigate({to: tempIssuePath(repo.owner_name, repo.name, tempId)});
-  };
-  const chosenLabels = allLabels.filter((l) => labels.includes(l.id));
-  const who = people.find((u) => u.id === assignee);
-  const ms = milestones.find((m) => m.id === milestone);
-  if (!repos.length) return <p className="text-base text-fg-muted">No repository is on this device yet: issues are created in one.</p>;
+  const chosenLabels = allLabels.filter((l) => form.labels.includes(l.id));
+  const who = people.find((u) => u.id === form.assignee);
+  const ms = milestones.find((m) => m.id === form.milestone);
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-1">
-        <Menu>
-          <MenuTrigger asChild><Button size="sm" variant="secondary" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button></MenuTrigger>
-          <MenuContent>
-            <MenuRadioGroup value={String(repoId)} onValueChange={(v) => {
-              setRepoId(Number(v));
-              setLabels([]);
-              setAssignee(0);
-              setMilestone(0);
+    <div className="flex flex-wrap items-center gap-1">
+      <Menu>
+        <MenuTrigger asChild><Button size="sm" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button></MenuTrigger>
+        <MenuContent>
+          <MenuRadioGroup value={String(repoId)} onValueChange={(v) => {
+            form.setRepo(Number(v));
+          }}>
+            {repos.map((r) => <MenuRadioItem key={r.id} value={String(r.id)}>{r.name}</MenuRadioItem>)}
+          </MenuRadioGroup>
+        </MenuContent>
+      </Menu>
+      <Menu>
+        <MenuTrigger asChild>
+          <Button size="sm" pressed={chosenLabels.length > 0} icon={Tag} tooltip="Labels, status and priority">
+            {chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
+          </Button>
+        </MenuTrigger>
+        <MenuContent>
+          {allLabels.length === 0 && <MenuItem disabled>No labels</MenuItem>}
+          {allLabels.map((l) => (
+            <MenuCheckboxItem key={l.id} checked={form.labels.includes(l.id)} onSelect={(e) => {
+              e.preventDefault();
+            }} onCheckedChange={(on) => {
+              form.toggleLabel(l, on, allLabels);
             }}>
-              {repos.map((r) => <MenuRadioItem key={r.id} value={String(r.id)}>{r.name}</MenuRadioItem>)}
-            </MenuRadioGroup>
-          </MenuContent>
-        </Menu>
-      </div>
-      <Input aria-label="Title" placeholder="Issue title" value={title} autoFocus className="w-full" maxLength={255}
-        onChange={(e) => {
-          setTitle(e.target.value);
-          keep(e.target.value, body);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            create();
-          }
-        }}/>
-      <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={6}
-        onChange={(b) => {
-          setBody(b);
-          keep(title, b);
-        }} onSubmit={create}/>
-      <div className="flex flex-wrap items-center gap-1">
-        <Menu>
-          <MenuTrigger asChild>
-            <Button size="sm" variant={chosenLabels.length ? 'secondary' : 'ghost'} icon={Tag} tooltip="Labels, status and priority">
-              {chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
-            </Button>
-          </MenuTrigger>
-          <MenuContent>
-            {allLabels.length === 0 && <MenuItem disabled>No labels</MenuItem>}
-            {allLabels.map((l) => (
-              <MenuCheckboxItem key={l.id} checked={labels.includes(l.id)} onSelect={(e) => {
-                e.preventDefault();
-              }} onCheckedChange={(on) => {
-                toggleLabel(l, on);
-              }}>
-                <span className="flex min-w-0 items-center gap-2"><LabelDot color={l.color}/><span className="truncate">{l.name}</span></span>
-              </MenuCheckboxItem>
-            ))}
-          </MenuContent>
-        </Menu>
-        <Menu>
-          <MenuTrigger asChild><Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button></MenuTrigger>
-          <MenuContent>
-            <MenuRadioGroup value={String(assignee)} onValueChange={(v) => {
-              setAssignee(Number(v));
-            }}>
-              <MenuRadioItem value="0">Nobody</MenuRadioItem>
-              {people.map((u) => <MenuRadioItem key={u.id} value={String(u.id)}>{u.id === userId ? `${u.login} (you)` : u.login}</MenuRadioItem>)}
-            </MenuRadioGroup>
-          </MenuContent>
-        </Menu>
-        <Menu>
-          <MenuTrigger asChild><Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button></MenuTrigger>
-          <MenuContent>
-            <MenuRadioGroup value={String(milestone)} onValueChange={(v) => {
-              setMilestone(Number(v));
-            }}>
-              <MenuRadioItem value="0">No milestone</MenuRadioItem>
-              {milestones.map((m) => <MenuRadioItem key={m.id} value={String(m.id)}>{m.title}</MenuRadioItem>)}
-            </MenuRadioGroup>
-          </MenuContent>
-        </Menu>
-        <span className="ml-auto text-sm text-fg-subtle">{connectivity.online ? '' : 'Offline: it syncs when you are back.'}</span>
-        <Button variant="ghost" onClick={onDone}>Cancel</Button>
-        <Button variant="primary" shortcut={shortcutHint('submit')} tooltip="Create the issue (works offline)" disabled={!title.trim() || !repo} onClick={create}>
-          Create issue
-        </Button>
-      </div>
+              <span className="flex min-w-0 items-center gap-2"><LabelDot color={l.color}/><span className="truncate">{l.name}</span></span>
+            </MenuCheckboxItem>
+          ))}
+        </MenuContent>
+      </Menu>
+      <Menu>
+        <MenuTrigger asChild><Button size="sm" pressed={Boolean(who)} icon={User}>{who?.login ?? 'Assignee'}</Button></MenuTrigger>
+        <MenuContent>
+          <MenuRadioGroup value={String(form.assignee)} onValueChange={(v) => {
+            form.setAssignee(Number(v));
+          }}>
+            <MenuRadioItem value="0">Nobody</MenuRadioItem>
+            {people.map((u) => <MenuRadioItem key={u.id} value={String(u.id)}>{u.id === userId ? `${u.login} (you)` : u.login}</MenuRadioItem>)}
+          </MenuRadioGroup>
+        </MenuContent>
+      </Menu>
+      <Menu>
+        <MenuTrigger asChild><Button size="sm" pressed={Boolean(ms)} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button></MenuTrigger>
+        <MenuContent>
+          <MenuRadioGroup value={String(form.milestone)} onValueChange={(v) => {
+            form.setMilestone(Number(v));
+          }}>
+            <MenuRadioItem value="0">No milestone</MenuRadioItem>
+            {milestones.map((m) => <MenuRadioItem key={m.id} value={String(m.id)}>{m.title}</MenuRadioItem>)}
+          </MenuRadioGroup>
+        </MenuContent>
+      </Menu>
     </div>
+  );
+});
+
+const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form; onCancel: () => void; onCreate: () => void}) {
+  const ready = Boolean(form.title.trim()) && form.repoId > 0;
+  return (
+    <>
+      {!connectivity.online && <span className="mr-auto self-center text-sm text-fg-subtle">Offline: it syncs when you are back.</span>}
+      <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+      {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows; clicking does nothing until there is a title. */}
+      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip="Create the issue (works offline)" aria-disabled={!ready} onClick={() => {
+        if (ready) onCreate();
+      }}>
+        Create issue
+      </Button>
+    </>
   );
 });

@@ -197,6 +197,8 @@ export function issueComments(pool: Pool, overlay: Overlay, issueId: number, rem
   return untracked(() => [...rows, ...created]);
 }
 
+const PARTICIPATION = new Set(['comment', 'code', 'review']);
+
 /**
  * Whether the viewer is subscribed to an issue, as Forgejo decides it
  * (models/issues CheckIssueWatch): a pending (un)subscribe; else their
@@ -210,6 +212,7 @@ export function issueSubscribed(pool: Pool, overlay: Overlay, issue: Entity<'Iss
   for (const w of pool.model('IssueWatch').by('issue_id', issue.id)) if (w.get('user_id') === me) return w.get('is_watching');
   for (const w of pool.model('Watch').by('repo_id', issue.get('repo_id'))) if (w.get('user_id') === me && w.get('issues')) return true;
   if (issue.get('poster_id') === me) return true;
-  for (const c of pool.model('Comment').by('issue_id', issue.id)) if (c.get('poster_id') === me && c.get('type') === 'comment') return true;
+  // Forgejo's participants: posters of comments, code comments and reviews.
+  for (const c of pool.model('Comment').by('issue_id', issue.id)) if (c.get('poster_id') === me && PARTICIPATION.has(c.get('type'))) return true;
   return false;
 }

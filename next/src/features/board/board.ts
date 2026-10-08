@@ -9,7 +9,9 @@
 // A card whose column is unknown or 0 sits in the default column, as in
 // Forgejo. A move's `position` is the index among the cards the user saw in
 // the target column, the moved card left out (B9 applies it the same way to
-// the readable cards).
+// the readable cards) — with the earlier pending moves already made, so the
+// moves are replayed in the order they were made (and sent in that order:
+// a board's moves are one queue, intents.ts chainOf).
 
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 
@@ -40,6 +42,7 @@ export function orderColumns(columns: Iterable<ProjectColumn>): ProjectColumn[] 
   return [...columns].sort((a, b) => a.sorting - b.sorting || a.id - b.id);
 }
 
+/** `moves`: pending moves by card, in the order they were made. */
 export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Card>, moves: ReadonlyMap<number, Move>, shown: (issueId: number) => boolean): BoardLayout {
   const cols = orderColumns(columns);
   const defaultColumn = (cols.find((c) => c.default) ?? cols[0])?.id;
@@ -55,9 +58,9 @@ export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Ca
     const col = out.has(c.column) ? c.column : defaultColumn;
     if (col !== undefined) out.get(col)?.push(c.issueId);
   }
-  // Pending moves, lowest position first, so that several moves into one column keep their places.
-  const pending = [...moves].filter(([issueId, m]) => shown(issueId) && out.has(m.column)).sort((a, b) => a[1].position - b[1].position || a[0] - b[0]);
-  for (const [issueId, m] of pending) {
+  // Pending moves in the order they were made (`moves` is in that order), each against the layout the earlier ones left.
+  for (const [issueId, m] of moves) {
+    if (!shown(issueId) || !out.has(m.column)) continue;
     const list = out.get(m.column);
     if (!list) continue;
     list.splice(Math.max(0, Math.min(m.position, list.length)), 0, issueId);

@@ -43,3 +43,12 @@ test('canonical ignores key order and empty values', () => {
   expect(canonical({a: 1, b: undefined, c: ''})).toBe(canonical({a: 1}));
   expect(canonical({b: 2, a: 1})).toBe(canonical({a: 1, b: 2}));
 });
+
+test('another tab saving a view shows here (the storage event)', () => {
+  const here = new ViewStore(7);
+  const other = new ViewStore(7);
+  other.save('From the other tab', '/issues', {});
+  expect(here.views).toHaveLength(0);
+  window.dispatchEvent(new StorageEvent('storage', {key: 'forgejo-next:views'}));
+  expect(here.views.map((v) => v.name)).toEqual(['From the other tab']);
+});

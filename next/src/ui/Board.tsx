@@ -26,7 +26,7 @@ export interface BoardColumnProps {
  */
 export function BoardColumn({title, count, leading, actions, children, bodyRef, columnId}: BoardColumnProps) {
   return (
-    <section data-column={columnId} className="flex w-column shrink-0 flex-col rounded-lg bg-canvas">
+    <section data-column={columnId} className="flex w-column shrink-0 flex-col rounded-lg bg-canvas focus-visible-within">
       <header className="flex h-control shrink-0 items-center gap-2 px-3 pt-1 text-base">
         {leading}
         <h2 className="min-w-0 truncate font-medium text-fg">{title}</h2>
@@ -66,7 +66,7 @@ export function BoardCard({active, dragging, meta, title, footer, ...rest}: Boar
       data-dragging={dragging ? '' : undefined}
       className={cx(
         'interactive flex h-card cursor-default flex-col gap-1 overflow-hidden rounded-md border border-border bg-surface px-2.5 py-1.5 contain-content select-none',
-        'hover:border-border-strong focus-visible:focus-inset data-active:border-accent data-dragging:opacity-disabled',
+        'hover:border-border-strong data-active:border-accent data-dragging:opacity-disabled',
       )}
       {...rest}
     >

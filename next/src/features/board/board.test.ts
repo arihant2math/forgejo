@@ -44,6 +44,23 @@ describe('boardLayout', () => {
     expect(boardLayout(cols, cards, new Map([[1, {column: 12, position: 50}]]), all).cards.get(12)).toEqual([3, 4, 1]);
   });
 
+  test('several pending moves: replayed in the order made, each against the layout the earlier ones left (as B9 applies them in turn)', () => {
+    const cards = [card(10, 12, 1), card(11, 12, 2), card(12, 12, 3), card(13, 12, 4), card(20, 10, 1), card(21, 10, 2)];
+    // 20 to gap 3 of [10,11,12,13], then 21 to gap 1 of [10,11,12,20,13].
+    const first = moveTo(boardLayout(cols, cards, new Map(), all), 20, 12, 3) ?? {column: 0, position: -1};
+    expect(first).toEqual({column: 12, position: 3});
+    const after1 = boardLayout(cols, cards, new Map([[20, first]]), all);
+    expect(after1.cards.get(12)).toEqual([10, 11, 12, 20, 13]);
+    const second = moveTo(after1, 21, 12, 1) ?? {column: 0, position: -1};
+    const both = boardLayout(cols, cards, new Map([[20, first], [21, second]]), all);
+    // The server, applying the positions one after the other to [10,11,12,13]:
+    const server = [10, 11, 12, 13];
+    server.splice(first.position, 0, 20);
+    server.splice(second.position, 0, 21);
+    expect(both.cards.get(12)).toEqual(server);
+    expect(both.cards.get(12)).toEqual([10, 21, 11, 12, 20, 13]);
+  });
+
   test('a move into a column that is gone leaves the card out until the server answers', () => {
     const l = boardLayout(cols, [card(1, 10, 1)], new Map([[1, {column: 77, position: 0}]]), all);
     expect([...l.cards.values()].flat()).toEqual([]);
@@ -111,4 +128,8 @@ test('Overlay.fieldOverrides: the top layer per entity, reacting to every change
   o.remove('b');
   expect([...o.fieldOverrides('Issue', '~board:7')]).toEqual([[1, {column: 1, position: 0}]]);
   expect([...o.fieldOverrides('Notification', 'status')]).toEqual([[1, 'read']]);
+  // In the order made.
+  o.add('e', [{t: 'field', model: 'Issue', id: 9, field: '~board:7', value: {column: 3, position: 0}}]);
+  o.add('f', [{t: 'field', model: 'Issue', id: 1, field: '~board:7', value: {column: 4, position: 1}}]);
+  expect([...o.fieldOverrides('Issue', '~board:7').keys()]).toEqual([9, 1]);
 });

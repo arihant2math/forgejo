@@ -152,3 +152,45 @@ test('a listbox keeps its keys unless it opts in to the app shortcuts (an issue 
   plain.remove();
   list.remove();
 });
+
+test('scopes a view pushes together: the innermost decides a key they share (a board: L is the next column, not labels)', () => {
+  const r = new ShortcutRegistry({apple: false});
+  const ran: string[] = [];
+  r.pushScope('list');
+  r.pushScope('issue');
+  r.pushScope('board');
+  r.bind('issue.labels', () => ran.push('labels'));
+  r.bind('board.right', () => ran.push('right'));
+  press(r, 'l');
+  expect(ran).toEqual(['right']);
+});
+
+test('views that push several scopes: every key two of them share is meant, and the innermost one wins', () => {
+  // [scopes from outer to inner, keys the inner one takes over on purpose]
+  const views: [string[], string[]][] = [[['list', 'issue'], []], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['l']]];
+  for (const [scopes, intended] of views) {
+    const byKey = new Map<string, string[]>();
+    for (const [id, def] of Object.entries(KEYMAP)) {
+      if (!scopes.includes(def.scope)) continue;
+      byKey.set(def.keys, [...byKey.get(def.keys) ?? [], id]);
+    }
+    const shared = [...byKey].filter(([, ids]) => ids.length > 1).map(([k]) => k);
+    expect(shared, scopes.join('+')).toEqual(intended);
+  }
+});
+
+test('available() lists the bound shortcuts of active scopes; run() runs the innermost binding', () => {
+  const r = new ShortcutRegistry({apple: false});
+  const ran: string[] = [];
+  const off = r.bind('inbox.read', () => ran.push('read'));
+  r.bind('create', () => ran.push('create'));
+  expect(r.available()).toEqual([]);
+  const pop = r.pushScope('inbox');
+  expect(r.available()).toEqual(['inbox.read']);
+  expect(r.run('inbox.read')).toBe(true);
+  pop();
+  expect(r.run('inbox.read')).toBe(false);
+  off();
+  expect(r.run('create')).toBe(true);
+  expect(ran).toEqual(['read', 'create']);
+});

@@ -39,6 +39,10 @@ export class LocalSearch {
   private readonly off: () => void;
   private pendingUpsert = new Set<number>();
   private pendingRemove = new Set<number>();
+  /** What is indexed of each issue ("title\0number\0repo"): unchanged issues are not sent again. */
+  private readonly indexed = new Map<number, string>();
+  /** Repository names as indexed: only a rename re-indexes a repository's issues. */
+  private readonly repoNames = new Map<number, string>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   /** Resolves when the documents on this device when it started are indexed. */
   readonly ready: Promise<void>;
@@ -55,7 +59,12 @@ export class LocalSearch {
           if (c.entity) this.pendingUpsert.add(c.id);
           else this.pendingRemove.add(c.id);
         } else if (c.model === 'Repository' && c.entity) {
-          // A rename: its issues' "owner/repo" changes.
+          // A rename (not a star or a push): its issues' "owner/repo" changes.
+          const name = (c.entity.data as Repository).full_name;
+          const was = this.repoNames.get(c.id);
+          // (First seen here: its issues may have been indexed without its name.)
+          if (was === name) continue;
+          this.repoNames.set(c.id, name);
           for (const e of untracked(() => [...this.pool.model('Issue').by('repo_id', c.id)])) this.pendingUpsert.add(e.id);
         }
       }
@@ -65,18 +74,29 @@ export class LocalSearch {
   }
 
   private repoName(id: number): string {
-    return this.pool.model('Repository').get(id)?.data.full_name ?? this.peek.get(id)?.full_name ?? '';
+    let n = this.repoNames.get(id);
+    if (n === undefined) {
+      n = this.pool.model('Repository').get(id)?.data.full_name ?? this.peek.get(id)?.full_name ?? '';
+      if (n) this.repoNames.set(id, n);
+    }
+    return n;
   }
 
-  private doc(i: Issue): SearchDoc {
-    return {id: i.id, title: i.title, repo: this.repoName(i.repo_id), number: i.number};
+  /** The issue's document, or undefined when what is indexed of it is unchanged. */
+  private doc(i: Issue): SearchDoc | undefined {
+    const d = {id: i.id, title: i.title, repo: this.repoName(i.repo_id), number: i.number};
+    const key = `${d.title}\0${String(d.number)}\0${d.repo}`;
+    if (this.indexed.get(i.id) === key) return undefined;
+    this.indexed.set(i.id, key);
+    return d;
   }
 
   private async loadAll(): Promise<void> {
-    const all = untracked(() => [...this.pool.model('Issue').all()].map((e) => this.doc(e.data)));
+    // Plain reads (no MobX tracking); documents are built and sent one batch at a time, the page breathing in between.
+    const all = untracked(() => [...this.pool.model('Issue').all()]);
     for (let i = 0; i < all.length; i += BATCH) {
-      this.size = await this.api.upsert(all.slice(i, i + BATCH));
-      // Let the page breathe between batches (the worker indexes; the page only clones).
+      const docs = all.slice(i, i + BATCH).map((e) => this.doc(e.data)).filter((d) => d !== undefined);
+      this.size = await this.api.upsert(docs);
       await new Promise((r) => setTimeout(r, 0));
     }
   }
@@ -91,12 +111,22 @@ export class LocalSearch {
 
   private async flush(): Promise<void> {
     await this.ready;
-    const up = [...this.pendingUpsert];
-    const rm = [...this.pendingRemove].filter((id) => !this.pendingUpsert.has(id));
+    const ids = new Set([...this.pendingUpsert, ...this.pendingRemove]);
     this.pendingUpsert = new Set();
     this.pendingRemove = new Set();
+    // What the pool holds now decides (an issue added and removed within one batch is removed).
     const issues = this.pool.model('Issue');
-    const docs = untracked(() => up.map((id) => issues.get(id)?.data).filter((d) => d !== undefined).map((d) => this.doc(d)));
+    const docs: SearchDoc[] = [];
+    const rm: number[] = [];
+    untracked(() => {
+      for (const id of ids) {
+        const d = issues.get(id)?.data;
+        if (d) {
+          const doc = this.doc(d);
+          if (doc) docs.push(doc);
+        } else if (this.indexed.delete(id)) rm.push(id);
+      }
+    });
     if (docs.length) this.size = await this.api.upsert(docs);
     if (rm.length) this.size = await this.api.remove(rm);
   }

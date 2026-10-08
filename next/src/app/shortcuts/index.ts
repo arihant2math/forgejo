@@ -11,7 +11,7 @@ import {useEffect, useLayoutEffect, useRef} from 'react';
 import type {Scope, ShortcutId} from './keymap.ts';
 import {ShortcutRegistry} from './registry.ts';
 
-export {KEYMAP, SCOPE_LABELS, shortcutHint, type Scope, type ShortcutId} from './keymap.ts';
+export {formatKeys, KEYMAP, SCOPE_LABELS, shortcutHint, type Scope, type ShortcutId} from './keymap.ts';
 
 /** The app's registry (attached to the window by the shell). */
 export const shortcuts = new ShortcutRegistry();

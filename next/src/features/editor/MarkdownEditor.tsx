@@ -12,7 +12,7 @@
 // `value` from the caller (cleared after a save, a restored draft) replaces
 // the document. ⌘↵ submits, Esc cancels.
 
-import {defaultKeymap, history, historyKeymap, indentLess, insertTab} from '@codemirror/commands';
+import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {defineLanguageFacet, Language, LanguageSupport, syntaxHighlighting} from '@codemirror/language';
 import {Compartment, EditorState} from '@codemirror/state';
 import {EditorView, keymap, placeholder as cmPlaceholder} from '@codemirror/view';
@@ -98,8 +98,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
               cb.current.onCancel?.();
               return Boolean(cb.current.onCancel);
             }},
-            // Tab indents (lists); Esc then Tab leaves the editor (CodeMirror's tab-focus escape).
-            {key: 'Tab', run: insertTab, shift: indentLess},
+            // Tab moves the focus on (as in a text area: no keyboard trap); lists indent with ⌘] / ⌘[ (defaultKeymap).
             ...historyKeymap,
             ...defaultKeymap,
           ]),

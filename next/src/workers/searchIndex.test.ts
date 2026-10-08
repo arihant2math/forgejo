@@ -30,7 +30,7 @@ test('replace and remove', () => {
   expect(ix.search('crash', 10).hits).toEqual([]);
 });
 
-test('10 000 issues: a query takes well under a frame', () => {
+test('10 000 issues: a query takes well under a frame (16 ms is asserted in the browser, e2e/f6.spec.ts)', () => {
   const words = ['crash', 'save', 'theme', 'login', 'api', 'sync', 'offline', 'board', 'label', 'search', 'render', 'cache'];
   const ix = createIndex();
   const docs: SearchDoc[] = [];

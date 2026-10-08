@@ -203,11 +203,13 @@ export const MilestoneName = observer(function MilestoneName({issue}: {issue: En
 
 /** When the issue was last updated, compact ("3d"), with the full date on hover. */
 export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity<'Issue'>}) {
-  const at = issue.get('updated_at');
-  return (
-    <span title={`Updated ${fullDate(at)}`} className="w-10 text-right tabular-nums">{ago(at)}</span>
-  );
+  return <AgoCell at={issue.get('updated_at')} label="Updated"/>;
 });
+
+/** A compact time in a row's trailing slot ("3d"), the full date on hover. */
+export function AgoCell({at, label}: {at: string; label?: string}) {
+  return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-10 text-right tabular-nums">{ago(at)}</span>;
+}
 
 export const TitleCell = observer(function TitleCell({issue}: {issue: Entity<'Issue'>}) {
   return <>{issueTitle(useOverlay(), issue)}</>;

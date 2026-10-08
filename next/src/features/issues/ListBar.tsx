@@ -88,7 +88,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       {saved && <Badge><Icon icon={Layers} size="sm"/>{saved.name}</Badge>}
       {selected > 0 && <Badge tone="accent">{selected} selected · Esc clears</Badge>}
       {stateButtons && STATES.map((s) => (
-        <Button key={s.state} size="sm" variant={state === s.state ? 'secondary' : 'ghost'} aria-pressed={state === s.state} onClick={() => {
+        <Button key={s.state} size="sm" pressed={state === s.state} onClick={() => {
           setState(s.state);
         }}>{s.label}</Button>
       ))}

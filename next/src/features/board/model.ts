@@ -3,20 +3,21 @@
 
 // A project board's live state: the layout (board.ts) over the pool and the
 // overlay, recomputed at most once a frame when something of the board
-// changes (its columns, its cards, its cards' issues) and at once when a
+// changes (its columns, its cards, its cards' issues arriving or leaving) and at once when a
 // pending move changes. Each column reads its own card list through a
 // computed with structural equality, so a move re-renders the two columns
 // concerned, not the board.
 
 import {computed, createAtom, type IComputedValue, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
-import type {Pool} from '../../data/pool.ts';
+import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {ListCursor} from '../issues/flags.ts';
 import {type BoardLayout, boardLayout, findCard, type Move, moveTo} from './board.ts';
 
+const sameColumns = (a: readonly ProjectColumn[], b: readonly ProjectColumn[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 const sameIds = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 export class BoardModel {
@@ -30,6 +31,12 @@ export class BoardModel {
   private readonly rev = createAtom('board');
   private readonly columnCards = new Map<number, IComputedValue<readonly number[]>>();
   private scheduled = false;
+  /** What the last layout held: this board's column and card (ProjectIssue) ids, the issues it showed. */
+  private columnIds = new Set<number>();
+  private cardIds = new Set<number>();
+  private shown = new Set<number>();
+  private readonly columnList: IComputedValue<ProjectColumn[]>;
+  private readonly hiddenValue: IComputedValue<number>;
   private disposed = false;
   private readonly off: () => void;
   /** The board's cards whose issue is not on this device (counted in the last layout). */
@@ -45,13 +52,7 @@ export class BoardModel {
     this.pool = s.data.pool;
     this.overlay = editing(app).overlay;
     this.off = this.pool.onApplied((changes) => {
-      if (this.scheduled) return;
-      const relevant = changes.some((c) => {
-        if (c.model === 'ProjectColumn' || c.model === 'ProjectIssue') return true;
-        // An issue of the board arriving or leaving (shown or not); its fields re-render its card alone.
-        return c.model === 'Issue' && (!c.entity || untracked(() => [...this.pool.model('ProjectIssue').by('issue_id', c.id)].some((p) => p.data.project_id === projectId)));
-      });
-      if (!relevant) return;
+      if (this.scheduled || !changes.some((c) => this.concerns(c))) return;
       this.scheduled = true;
       requestAnimationFrame(() => {
         this.scheduled = false;
@@ -61,6 +62,33 @@ export class BoardModel {
       });
     });
     this.layout = computed(() => this.compute());
+    this.columnList = computed(() => this.layout.get().columns, {equals: sameColumns});
+    this.hiddenValue = computed(() => {
+      this.layout.get();
+      return this.hidden;
+    });
+  }
+
+  /**
+   * Whether an applied change can change the layout: this board's columns and
+   * cards, and its cards' issues arriving or leaving. A field of a card's
+   * issue (its title, labels) re-renders that card alone (its observers);
+   * another board's changes nothing.
+   */
+  private concerns(c: Applied): boolean {
+    const d = c.entity?.data as {project_id?: number} | undefined;
+    switch (c.model) {
+      case 'ProjectColumn':
+        return d ? d.project_id === this.projectId : this.columnIds.has(c.id);
+      case 'ProjectIssue':
+        return d ? d.project_id === this.projectId : this.cardIds.has(c.id);
+      case 'Issue':
+        // Left (or arrived on the board: its ProjectIssue says so, and it was not shown).
+        if (!c.entity) return this.shown.has(c.id);
+        return !this.shown.has(c.id) && untracked(() => [...this.pool.model('ProjectIssue').by('issue_id', c.id)].some((p) => p.data.project_id === this.projectId));
+      default:
+        return false;
+    }
   }
 
   private compute(): BoardLayout {
@@ -75,7 +103,11 @@ export class BoardModel {
       }));
       let hidden = 0;
       for (const c of cards) if (!issues.get(c.issueId)) hidden++;
-      const out = boardLayout([...this.pool.model('ProjectColumn').by('project_id', this.projectId)].map((e) => e.data), cards, moves, (id) => Boolean(issues.get(id)));
+      const columns = [...this.pool.model('ProjectColumn').by('project_id', this.projectId)].map((e) => e.data);
+      const out = boardLayout(columns, cards, moves, (id) => Boolean(issues.get(id)));
+      this.columnIds = new Set(columns.map((c) => c.id));
+      this.cardIds = new Set(cards.map((c) => c.id));
+      this.shown = new Set([...out.cards.values()].flat());
       this.hidden = hidden;
       this.lastMs = performance.now() - t0;
       try {
@@ -87,9 +119,14 @@ export class BoardModel {
     });
   }
 
-  /** The columns in order (observes the layout). */
+  /** The board's cards not on this device (observing it reacts to the count changing). */
+  get hiddenCount(): number {
+    return this.hiddenValue.get();
+  }
+
+  /** The columns in order; observing it reacts to the columns changing, not to card moves. */
   get columns(): ProjectColumn[] {
-    return this.layout.get().columns;
+    return this.columnList.get();
   }
 
   /** One column's cards; observing it re-renders only when that column's order changes. */

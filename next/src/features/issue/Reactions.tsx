@@ -20,6 +20,10 @@ import {useOverlay, usePool} from '../issues/cells.tsx';
 const EMOJI: Record<string, string> = {
   '+1': '👍', '-1': '👎', 'laugh': '😄', 'hooray': '🎉', 'confused': '😕', 'heart': '❤️', 'rocket': '🚀', 'eyes': '👀',
 };
+/** Their names in words (the menu's accessible names). */
+const NAMES: Record<string, string> = {
+  '+1': 'Thumbs up', '-1': 'Thumbs down', 'laugh': 'Laugh', 'hooray': 'Hooray', 'confused': 'Confused', 'heart': 'Heart', 'rocket': 'Rocket', 'eyes': 'Eyes',
+};
 const DEFAULTS = Object.keys(EMOJI);
 
 export const Reactions = observer(function Reactions({issueId, commentId}: {issueId: number; commentId: number}) {
@@ -61,8 +65,8 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
             const names = [...(g.mine ? ['you'] : []), ...g.others.filter(Boolean)].join(', ');
             return (
               <li key={g.content}>
-                <ChipButton pressed={g.mine} label={`${names} reacted with ${g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
-                  if (canReact) toggle(g.content, !g.mine);
+                <ChipButton pressed={g.mine} disabled={!canReact} label={`${names} reacted with ${g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
+                  toggle(g.content, !g.mine);
                 }}>
                   <span aria-hidden>{EMOJI[g.content] ?? `:${g.content}:`}</span>
                   {g.count}
@@ -80,7 +84,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
               <MenuItem key={c} onSelect={() => {
                 toggle(c, !mine.has(c));
               }}>
-                <span aria-hidden>{EMOJI[c]}</span> {mine.has(c) ? `Remove :${c}:` : `:${c}:`}
+                <span aria-hidden>{EMOJI[c]}</span> {mine.has(c) ? `Remove ${NAMES[c] ?? c}` : NAMES[c] ?? c}
               </MenuItem>
             ))}
           </MenuContent>

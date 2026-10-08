@@ -95,6 +95,37 @@ export class ShortcutRegistry {
     return new Set(this.bindings.map((b) => b.id));
   }
 
+  /**
+   * The bound shortcuts whose scope is active now, outside global (what the
+   * view on screen offers: the palette lists them as commands).
+   */
+  available(): ShortcutId[] {
+    const seen = new Set<ShortcutId>();
+    for (const b of this.bindings) {
+      const def = this.keymap[b.id];
+      if (def && def.scope !== 'global' && this.depth(def.scope) >= 0) seen.add(b.id);
+    }
+    return [...seen];
+  }
+
+  /** Runs what a shortcut is bound to now (as if its keys were typed); false when nothing is. */
+  run(id: ShortcutId): boolean {
+    let best: Binding | undefined;
+    let depth = -1;
+    for (const b of this.bindings) {
+      if (b.id !== id) continue;
+      const def = this.keymap[b.id];
+      const d = def ? this.depth(def.scope) : -1;
+      if (d > depth || (d === depth && best && b.seq > best.seq)) {
+        best = b;
+        depth = d;
+      }
+    }
+    if (!best || depth < 0) return false;
+    best.run();
+    return true;
+  }
+
   /** Activates a scope while a view is mounted; returns the function that pops it. */
   pushScope(scope: Scope): () => void {
     const entry = {scope, token: ++this.scopeSeq};

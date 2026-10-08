@@ -156,9 +156,15 @@ export const POLICY: Record<IntentKind, 'set' | 'scalar' | 'text' | 'create' | '
   'notification.status': 'idempotent',
 };
 
-/** The serial queue an intent is in (PLAN §5.4 flush rule 2: per entity). Everything about an issue is one entity. */
+/**
+ * The serial queue an intent is in (PLAN §5.4 flush rule 2: per entity). Everything about an issue is one
+ * entity; a board is one too: a card move's position is counted with the earlier moves on the board done
+ * (B9 applies it to the column as it is), so the board's moves go one at a time, in the order made.
+ */
 export function chainOf(i: Intent): string {
-  return i.kind === 'notification.status' ? `n:${String(i.notificationId)}` : `i:${String(i.issueId)}`;
+  if (i.kind === 'notification.status') return `n:${String(i.notificationId)}`;
+  if (i.kind === 'board.move') return `b:${String(i.projectId)}`;
+  return `i:${String(i.issueId)}`;
 }
 
 /** The sync group whose position confirms the intent's write (X-Livesync-Sync-Id, B7). */

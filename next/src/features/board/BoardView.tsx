@@ -14,22 +14,25 @@
 
 import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Star, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, Star, Trash2} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, useEffect, useMemo, useRef, useState} from 'react';
+import {type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
   Badge, BoardCard, BoardColumn, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
-  EmptyState, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Skeleton,
+  ContextMenuSeparator, EmptyState, Icon, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
+  TextLink,
 } from '../../ui/index.ts';
+import {closedPager} from '../issues/closed.ts';
+import {issueActions} from '../issues/actions.ts';
 import {openPicker} from '../issues/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StatusCell, TitleCell, usePool} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
@@ -53,6 +56,15 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   const repoId = project?.get('repo_id') ?? 0;
   // A repository's project: its issues (the cards) are in the repository's group.
   useHold(data, repoId ? `repo:${String(repoId)}` : undefined);
+  // Cards of older closed issues are in the repository's closed tier (B6): the board shows every card (positions
+  // count them all, B9), so it pages that tier in while it is open.
+  useEffect(() => {
+    if (!repoId) return undefined;
+    const pager = closedPager(data, `repo:${String(repoId)}`);
+    return autorun(() => {
+      if (!pager.done && !pager.loading) pager.more();
+    });
+  }, [data, repoId]);
   useEffect(() => {
     if (project) rememberBoard(userId, projectId);
   }, [project, userId, projectId]);
@@ -80,8 +92,8 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
   const name = repo?.get('full_name') ?? owner?.get('login');
   return (
     <>
-      <Link to="/-/next/boards" className="hover:text-fg">Boards</Link>
-      {name && <><span aria-hidden>/</span><span className="truncate">{name}</span></>}
+      <TextLink><Link to="/-/next/boards">Boards</Link></TextLink>
+      {name && <><Icon icon={Slash} size="sm" className="text-fg-subtle"/><span className="min-w-0 truncate">{name}</span></>}
     </>
   );
 });
@@ -100,6 +112,10 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const boardRef = useRef<HTMLDivElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
   const handles = useRef(new Map<number, ColumnHandle>());
+  const register = useCallback((id: number, h: ColumnHandle | undefined) => {
+    if (h) handles.current.set(id, h);
+    else handles.current.delete(id);
+  }, []);
   const [dnd] = useState(() => new BoardDnd({
     board: () => boardRef.current,
     indicator: () => indicatorRef.current,
@@ -201,9 +217,10 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     const id = model.cursor.activeId;
     if (id !== undefined) openPicker(app, kind, [id]);
   };
+  // Board innermost: its H/L win over the issue scope's L (labels: the palette and the card menu offer them).
   useShortcutScope('list');
-  useShortcutScope('board');
   useShortcutScope('issue');
+  useShortcutScope('board');
   useShortcut('list.next', () => {
     step(0, 1);
   });
@@ -250,12 +267,18 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const onKeyDown = (e: KeyboardEvent) => {
     // Only a column's own keys (not Enter in the new column's name field, or in a menu).
     if ((e.target as Element).getAttribute('role') !== 'listbox') return;
-    if (e.key === 'Enter' && model.cursor.activeId !== undefined) {
+    const arrows: Record<string, [number, number]> = {ArrowDown: [0, 1], ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0]};
+    const dir = arrows[e.key];
+    if (dir && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (e.shiftKey) shift(dir[0], dir[1]);
+      else step(dir[0], dir[1]);
+    } else if (e.key === 'Enter' && model.cursor.activeId !== undefined) {
       e.preventDefault();
       open(model.cursor.activeId, e.metaKey || e.ctrlKey);
     }
   };
-  const hidden = model.hidden;
+  const hidden = model.hiddenCount;
   return (
     <>
       <PageHeader icon={KanbanSquare} context={<ProjectContext project={project}/>} title={project.get('title')}>
@@ -268,17 +291,19 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         <ContextMenuTrigger asChild>
           <div ref={boardRef} onKeyDown={onKeyDown} className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto p-3"
             onContextMenuCapture={(e) => {
+              // On a card, or (Shift+F10 / the menu key on a column) the cursor's card; elsewhere no menu.
               const el = (e.target as Element).closest('[data-card]');
-              const id = el ? Number(el.getAttribute('data-card')) : undefined;
+              const fromKeys = (e.target as Element).getAttribute('role') === 'listbox' ? model.cursor.activeId : undefined;
+              const id = el ? Number(el.getAttribute('data-card')) : fromKeys;
+              if (id === undefined) {
+                e.preventDefault();
+                return;
+              }
               setMenuCard(id);
-              if (id !== undefined) model.cursor.setActive(id);
+              model.cursor.setActive(id);
             }}>
             {columns.map((c, i) => (
-              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers}
-                register={(h) => {
-                  if (h) handles.current.set(c.id, h);
-                  else handles.current.delete(c.id);
-                }}/>
+              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register}/>
             ))}
             {columns.length === 0 && <EmptyState icon={Columns3} title="No columns yet" description="Add a column to start the board."/>}
             <AddColumn projectId={projectId}/>
@@ -293,15 +318,30 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   );
 });
 
-/** A card's menu: open it, move it to another column (the pointer-free way, touch included). */
+/** A card's menu: the issue's actions (as in lists and the palette) and moves to other columns (touch included). */
 function CardMenu({model, issueId, open}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void}) {
+  const app = useApp();
   const layout = untracked(() => model.layout.get());
   const at = findCard(layout, issueId);
+  const issue = untracked(() => app.session?.data.pool.model('Issue').get(issueId));
+  const ci = layout.columns.findIndex((c) => c.id === at?.column);
+  const actions = issue ? issueActions(app, [issue]).filter((a) => a.id !== 'open') : [];
+  const moveBy = (d: number) => {
+    const col = layout.columns[ci + d];
+    if (col) model.move(issueId, col.id, Math.min(at?.index ?? 0, layout.cards.get(col.id)?.length ?? 0));
+  };
   return (
     <>
-      <ContextMenuItem icon={ExternalLink} onSelect={() => {
+      <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
         open(issueId);
       }}>Open</ContextMenuItem>
+      <ContextMenuSeparator/>
+      <ContextMenuItem icon={ArrowLeft} shortcut={shortcutHint('board.moveLeft')} disabled={ci <= 0} onSelect={() => {
+        moveBy(-1);
+      }}>Move to the previous column</ContextMenuItem>
+      <ContextMenuItem icon={ArrowRight} shortcut={shortcutHint('board.moveRight')} disabled={ci < 0 || ci >= layout.columns.length - 1} onSelect={() => {
+        moveBy(1);
+      }}>Move to the next column</ContextMenuItem>
       <ContextMenuSub label="Move to" icon={Columns3}>
         {layout.columns.map((c) => (
           <ContextMenuItem key={c.id} disabled={c.id === at?.column} onSelect={() => {
@@ -309,6 +349,12 @@ function CardMenu({model, issueId, open}: {model: BoardModel; issueId: number; o
           }}>{c.title}</ContextMenuItem>
         ))}
       </ContextMenuSub>
+      {actions.length > 0 && <ContextMenuSeparator/>}
+      {actions.map((a) => (
+        <ContextMenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && shortcutHint(a.shortcut)} onSelect={() => {
+          a.run();
+        }}>{a.label}</ContextMenuItem>
+      ))}
     </>
   );
 }
@@ -322,7 +368,7 @@ const cardDomId = (id: number) => `card-${String(id)}`;
 
 const Column = observer(function Column({model, column, index, count, dragging, handlers, register}: {
   model: BoardModel; column: ProjectColumn; index: number; count: number; dragging: KeyedFlags; handlers: CardHandlers;
-  register: (h: ColumnHandle | undefined) => void;
+  register: (id: number, h: ColumnHandle | undefined) => void;
 }) {
   const cards = model.cards(column.id);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -335,29 +381,29 @@ const Column = observer(function Column({model, column, index, count, dragging, 
     getItemKey: (i) => cards[i] ?? i,
   });
   useEffect(() => {
-    register({
+    register(column.id, {
       focus: () => listRef.current?.focus({preventScroll: true}),
       scrollTo: (i) => {
         virtualizer.scrollToIndex(i, {align: 'auto'});
       },
     });
     return () => {
-      register(undefined);
+      register(column.id, undefined);
     };
-  }, [register, virtualizer]);
+  }, [register, virtualizer, column.id]);
   // The listbox names the cursor's card when it is in this column.
   useEffect(() => autorun(() => {
     const [id] = model.cursor.active.values();
     const el = listRef.current;
     if (!el) return;
-    if (id !== undefined && untracked(() => model.cards(column.id)).includes(id)) el.setAttribute('aria-activedescendant', cardDomId(id));
+    if (id !== undefined && model.cards(column.id).includes(id)) el.setAttribute('aria-activedescendant', cardDomId(id));
     else el.removeAttribute('aria-activedescendant');
   }), [model, column.id]);
   const items = virtualizer.getVirtualItems();
   return (
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
       leading={column.color ? <LabelDot color={column.color}/> : null}
-      actions={<ColumnMenu projectId={model.projectId} column={column} index={index} count={count} order={() => untracked(() => model.columns.map((c) => c.id))}/>}>
+      actions={<ColumnMenu model={model} column={column} index={index} count={count}/>}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative w-full outline-none"
         style={{height: virtualizer.getTotalSize()}}
         onFocus={(e) => {
@@ -415,10 +461,10 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
   );
 });
 
-const ColumnMenu = observer(function ColumnMenu({projectId, column, index, count, order}: {
-  projectId: number; column: ProjectColumn; index: number; count: number; order: () => number[];
-}) {
+const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {model: BoardModel; column: ProjectColumn; index: number; count: number}) {
   const app = useApp();
+  const projectId = model.projectId;
+  const order = () => untracked(() => model.columns.map((c) => c.id));
   const [dialog, setDialog] = useState<'rename' | 'delete' | undefined>();
   const offline = !connectivity.online;
   const reorder = (by: number) => {
@@ -452,7 +498,7 @@ const ColumnMenu = observer(function ColumnMenu({projectId, column, index, count
           }}>Delete…</MenuItem>
         </MenuContent>
       </Menu>
-      {dialog === 'rename' && <RenameDialog initial={column.title} onClose={() => {
+      {dialog === 'rename' && <PromptDialog title="Rename the column" label="Column name" initial={column.title} onClose={() => {
         setDialog(undefined);
       }} onSave={(title) => {
         void editColumn(app, projectId, column.id, {title});
@@ -473,33 +519,6 @@ const ColumnMenu = observer(function ColumnMenu({projectId, column, index, count
     </>
   );
 });
-
-function RenameDialog({initial, onClose, onSave}: {initial: string; onClose: () => void; onSave: (title: string) => void}) {
-  const [title, setTitle] = useState(initial);
-  const save = () => {
-    const t = title.trim();
-    if (!t) return;
-    onClose();
-    if (t !== initial) onSave(t);
-  };
-  return (
-    <Dialog open size="sm" title="Rename the column" onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={!title.trim()} onClick={save}>Save</Button>
-    </>}>
-      <Input aria-label="Column name" value={title} autoFocus className="w-full" maxLength={100} onChange={(e) => {
-        setTitle(e.target.value);
-      }} onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          save();
-        }
-      }}/>
-    </Dialog>
-  );
-}
 
 /** The lane after the last column: "Add column", then a name field (online only). */
 const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) {

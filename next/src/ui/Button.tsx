@@ -29,23 +29,27 @@ interface BaseProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export interface ButtonProps extends BaseProps {
   icon?: LucideIcon | undefined;
+  /** A toggle (a filter, a mode): pressed shows filled (secondary), released quiet (ghost); sets aria-pressed. Overrides `variant`. */
+  pressed?: boolean | undefined;
   /** Shown on hover/focus; also shows the shortcut. */
   tooltip?: ReactNode;
   children: ReactNode;
 }
 
-const base = cx(control, 'justify-center font-medium whitespace-nowrap select-none disabled:pointer-events-none disabled:opacity-disabled');
+const base = cx(control, 'justify-center font-medium whitespace-nowrap select-none disabled:pointer-events-none disabled:opacity-disabled aria-disabled:opacity-disabled');
 
 function withTooltip(el: ReactElement, content: ReactNode, shortcut: string | undefined) {
   return content ? <Tooltip content={content} shortcut={shortcut}>{el}</Tooltip> : el;
 }
 
-export function Button({variant = 'secondary', size = 'md', icon, tooltip, shortcut, asChild, children, className, ...rest}: ButtonProps) {
+export function Button({variant = 'secondary', size = 'md', icon, tooltip, shortcut, asChild, pressed, children, className, ...rest}: ButtonProps) {
   const Comp = asChild ? Slot.Root : 'button';
+  const look = pressed === undefined ? variant : pressed ? 'secondary' : 'ghost';
   const el = (
     <Comp
       {...(asChild ? {} : {type: 'button' as const})}
-      className={cx(base, controlHeight[size], size === 'sm' ? 'gap-1 px-2 text-sm' : 'gap-1.5 px-3 text-base', variants[variant], className)}
+      {...(pressed === undefined ? {} : {'aria-pressed': pressed})}
+      className={cx(base, controlHeight[size], size === 'sm' ? 'gap-1 px-2 text-sm' : 'gap-1.5 px-3 text-base', variants[look], className)}
       {...rest}
     >
       {asChild ? children : <>{icon && <Icon icon={icon} size={size}/>}{children}</>}

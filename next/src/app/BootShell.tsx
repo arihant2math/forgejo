@@ -19,20 +19,21 @@ import {HeaderBar, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './she
 import {SKELETON_MAX_ROWS} from './splash.ts';
 
 const navWidths = ['sm', 'md', 'xl'] as const;
-const repoWidths = ['lg', 'md', 'xl', 'sm', 'lg'] as const;
+const repoWidths = ['lg', 'md', 'xl'] as const;
 const rowWidths = ['w-64', 'w-48', 'w-72', 'w-56', 'w-40', 'w-60', 'w-52', 'w-44'];
 
 function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <NavSkeleton width="lg" leading={<Avatar fromSplash/>}/>
+        <NavSkeleton width="lg" leading={<Avatar size="sm" fromSplash/>}/>
         <NavSkeleton width="sm"/>
       </SidebarTop>
       <SidebarBody>
         {navWidths.map((w, i) => <NavSkeleton key={i} width={w}/>)}
         <div className="h-control"/>
-        {repoWidths.map((w, i) => <NavSkeleton key={i} width={w}/>)}
+        <NavSkeleton width="md" leading={<Skeleton round="full" className="size-4"/>}/>
+        {repoWidths.map((w, i) => <NavSkeleton key={i} width={w} inset/>)}
       </SidebarBody>
     </>
   );

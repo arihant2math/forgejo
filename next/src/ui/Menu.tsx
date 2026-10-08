@@ -10,8 +10,8 @@ import {ContextMenu as C, DropdownMenu as D} from 'radix-ui';
 import type {ComponentProps, ReactNode} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
-import {Shortcut} from './Kbd.tsx';
-import {floating, iconSlot, menuItem} from './recipes.ts';
+import {ItemBody} from './ItemBody.tsx';
+import {floating, iconSlot, menuItem, sectionLabel} from './recipes.ts';
 
 const content = cx(floating, 'z-popover max-h-popper min-w-48 max-w-sm overflow-y-auto p-1');
 
@@ -21,16 +21,6 @@ export interface MenuItemProps {
   /** Destructive actions are tinted. */
   danger?: boolean | undefined;
   children: ReactNode;
-}
-
-function ItemBody({icon, shortcut, children}: Omit<MenuItemProps, 'danger'>) {
-  return (
-    <>
-      {icon && <Icon icon={icon} className="text-fg-muted group-data-disabled:text-fg-subtle"/>}
-      <span className="flex-1 truncate">{children}</span>
-      {shortcut && <Shortcut keys={shortcut} className="group-data-disabled:opacity-disabled"/>}
-    </>
-  );
 }
 
 // The item parts of Radix's DropdownMenu and ContextMenu have identical props.
@@ -65,7 +55,7 @@ function makeItems(P: Parts) {
     );
   }
   function Label({children}: {children: ReactNode}) {
-    return <P.Label className="px-2 py-1 text-sm text-fg-subtle">{children}</P.Label>;
+    return <P.Label className={cx(sectionLabel, 'px-2 py-1')}>{children}</P.Label>;
   }
   function Separator() {
     return <P.Separator className="-mx-1 my-1 h-px bg-border"/>;

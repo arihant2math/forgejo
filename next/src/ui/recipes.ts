@@ -12,6 +12,9 @@ export const surface = 'rounded-lg border border-border bg-raised text-fg';
 /** A floating surface (menus, popovers, tooltips): appears instantly, fades and shrinks out. Add a z-* layer. */
 export const floating = `${surface} origin-popper shadow-popover data-[state=closed]:animate-exit-pop`;
 
+/** A small muted heading over a group of rows (menus, the palette, the sidebar, dialogs). */
+export const sectionLabel = 'text-sm text-fg-subtle';
+
 /** The layout of one row in a menu or a command list. */
 export const menuRow = 'interactive group flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none select-none';
 

@@ -7,7 +7,7 @@
 // the timeline.
 
 import {Link, useLoaderData, useParams} from '@tanstack/react-router';
-import {CircleCheck, CircleDot, CloudOff, GitPullRequest, GitPullRequestClosed} from 'lucide-react';
+import {CircleCheck, CircleDot, CloudOff, GitPullRequest, GitPullRequestClosed, Slash} from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
@@ -15,7 +15,7 @@ import {type RepoMatch, useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useSession} from '../../app/store.ts';
-import {Badge, EmptyState} from '../../ui/index.ts';
+import {Badge, EmptyState, Icon} from '../../ui/index.ts';
 
 function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
@@ -28,7 +28,13 @@ function useRepoPage(): {owner: string; repo: string; repoId: number | undefined
 }
 
 function RepoContext({owner, repo}: {owner: string; repo: string}) {
-  return <>{owner}<span aria-hidden>/</span><Link to="/$owner/$repo/issues" params={{owner, repo}} className="truncate">{repo}</Link></>;
+  return (
+    <>
+      <span className="min-w-0 truncate">{owner}</span>
+      <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+      <Link to="/$owner/$repo/issues" params={{owner, repo}} className="interactive min-w-0 truncate hover:text-fg">{repo}</Link>
+    </>
+  );
 }
 
 function Unavailable() {

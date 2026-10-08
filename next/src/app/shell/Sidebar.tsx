@@ -9,7 +9,7 @@ import {Link} from '@tanstack/react-router';
 import {CircleDot, GitPullRequest, Inbox, Search} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {memo, useState} from 'react';
+import {memo, useCallback, useState} from 'react';
 import {groupId, groupKind} from '../../data/models.ts';
 import {Avatar, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
@@ -113,38 +113,44 @@ const OwnerAvatar = observer(function OwnerAvatar({id, login}: {id: number; logi
   return <Avatar size="sm" name={login} src={src}/>;
 });
 
-function OwnerGroup({owner, open, onOpenChange}: {owner: Owner; open: boolean; onOpenChange: (open: boolean) => void}) {
+const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boolean}) =>
+  a.open === b.open && a.owner.id === b.owner.id && a.owner.login === b.owner.login && a.owner.repos.join('/') === b.owner.repos.join('/');
+
+/** Re-renders only when its owner, repositories or open state change (owners() builds new objects each time). */
+const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
   const [all, setAll] = useState(false);
   const shown = all ? owner.repos : owner.repos.slice(0, SHOWN);
   const more = owner.repos.length - shown.length;
   return (
-    <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} onOpenChange={onOpenChange}>
+    <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} onOpenChange={(o) => {
+      onToggle(owner.login, o);
+    }}>
       {shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
       {more > 0 && <NavItem inset label={`${String(more)} more`} onClick={() => {
         setAll(true);
       }}/>}
     </NavGroup>
   );
-}
+}, sameOwner);
 
 const Workspace = observer(function Workspace() {
   const session = useSession();
   const [closed, setClosed] = useState(readClosed);
+  const toggle = useCallback((login: string, open: boolean) => {
+    setClosed((prev) => {
+      const next = new Set(prev);
+      if (open) next.delete(login);
+      else next.add(login);
+      writeClosed(next);
+      return next;
+    });
+  }, []);
   const list = owners(session);
   if (!list.length) return null;
-  const toggle = (login: string, open: boolean) => {
-    const next = new Set(closed);
-    if (open) next.delete(login);
-    else next.add(login);
-    writeClosed(next);
-    setClosed(next);
-  };
   return (
     <>
       <NavHeading>Workspace</NavHeading>
-      {list.map((o) => <OwnerGroup key={o.id} owner={o} open={!closed.has(o.login)} onOpenChange={(open) => {
-        toggle(o.login, open);
-      }}/>)}
+      {list.map((o) => <OwnerGroup key={o.id} owner={o} open={!closed.has(o.login)} onToggle={toggle}/>)}
     </>
   );
 });

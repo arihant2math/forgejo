@@ -6,12 +6,12 @@
 // chunk, preloaded when the app is idle.
 
 import {useNavigate} from '@tanstack/react-router';
-import {CircleDot, CircleCheck, GitPullRequest, GitPullRequestClosed, Home, Inbox, Keyboard, LogOut, Moon, Sun, BookMarked} from 'lucide-react';
+import {CircleDot, CircleCheck, GitPullRequest, GitPullRequestClosed, Home, Inbox, Keyboard, LogOut, Monitor, Moon, SunMoon, Sun, BookMarked} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {useMemo, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '../../ui/Command.tsx';
 import type {LucideIcon} from '../../ui/index.ts';
-import {requestSignOut} from '../session.ts';
+import {requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint, type ShortcutId} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
@@ -44,6 +44,12 @@ const COMMANDS: PaletteCommand[] = [
   }},
   {id: 'theme-light', label: 'Switch to the light theme', icon: Sun, keywords: 'appearance', run: () => {
     setThemePreference('light');
+  }},
+  {id: 'theme-system', label: 'Follow the system theme', icon: SunMoon, keywords: 'appearance', run: () => {
+    setThemePreference('system');
+  }},
+  {id: 'classic', label: 'Switch to the classic UI', icon: Monitor, keywords: 'old forgejo', run: (app) => {
+    switchToClassic(app);
   }},
   {id: 'sign-out', label: 'Sign out', icon: LogOut, keywords: 'log out logout', run: (app) => {
     void requestSignOut(app);

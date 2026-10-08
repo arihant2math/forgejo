@@ -25,5 +25,6 @@ export {
 export {Popover, PopoverClose, PopoverContent, PopoverTrigger} from './Popover.tsx';
 export {ResizeHandle} from './ResizeHandle.tsx';
 export {Skeleton} from './Skeleton.tsx';
-export {StatusDot, type StatusTone} from './StatusDot.tsx';
+export {SectionHeading} from './SectionHeading.tsx';
+export {Status, StatusDot, type StatusTone} from './StatusDot.tsx';
 export {Tooltip, TooltipProvider} from './Tooltip.tsx';

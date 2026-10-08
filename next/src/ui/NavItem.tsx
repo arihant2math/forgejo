@@ -5,6 +5,7 @@ import {ChevronDown, ChevronRight} from 'lucide-react';
 import {Slot} from 'radix-ui';
 import type {ButtonHTMLAttributes, ReactElement, ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
+import {sectionLabel} from './recipes.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {Tooltip} from './Tooltip.tsx';
 
@@ -13,7 +14,7 @@ import {Tooltip} from './Tooltip.tsx';
 // which router links set themselves.
 const row =
   'interactive flex h-control w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-base text-fg-muted select-none ' +
-  'hover:bg-canvas-hover hover:text-fg aria-[current=page]:bg-canvas-selected aria-[current=page]:text-fg ' +
+  'hover:bg-canvas-hover hover:text-fg focus-visible:focus-inset aria-[current=page]:bg-canvas-selected aria-[current=page]:text-fg ' +
   'data-[state=open]:bg-canvas-hover data-[state=open]:text-fg';
 
 export interface NavItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'style' | 'children'> {
@@ -24,7 +25,7 @@ export interface NavItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElemen
   leading?: ReactNode;
   /** A count on the right (unread, open). Hidden when 0 or undefined. */
   count?: number | undefined;
-  /** One level in (an item of a NavGroup). */
+  /** One level in (an item of a NavGroup): its label lines up with the group's. */
   inset?: boolean | undefined;
   /** Shortcut hint, shown in a tooltip with the label. */
   shortcut?: string | undefined;
@@ -40,7 +41,7 @@ export function NavItem({label, icon, leading, count, inset, shortcut, asChild, 
   const lead = icon ? <Icon icon={icon} className="text-fg-subtle"/> : leading && <span aria-hidden className="flex shrink-0">{leading}</span>;
   const name = <span className="min-w-0 flex-1 truncate">{label}</span>;
   const tally = count ? <span className="text-sm text-fg-subtle tabular-nums">{count}</span> : null;
-  const cls = cx(row, inset && 'pl-7');
+  const cls = cx(row, inset && 'pl-8');
   // Slot needs the Slottable as a direct child (no fragment): the link becomes the row.
   const el = asChild ?
     <Slot.Root className={cls} {...rest}><Slot.Slottable>{children}</Slot.Slottable>{lead}{name}{tally}</Slot.Root> :
@@ -74,5 +75,5 @@ export function NavGroup({label, leading, open, onOpenChange, children}: NavGrou
 
 /** A small section heading in the sidebar. */
 export function NavHeading({children}: {children: string}) {
-  return <div className="flex h-control items-end px-2 pb-1 text-sm font-medium text-fg-subtle">{children}</div>;
+  return <h2 className={cx(sectionLabel, 'flex h-control items-end px-2 pb-1 font-medium')}>{children}</h2>;
 }

@@ -33,6 +33,7 @@ export function ResizeHandle({label, value, min, max, onResize, onCommit}: Resiz
     const d = drag.current;
     if (!d) return;
     d.last = clamp(d.start + e.clientX - d.x);
+    e.currentTarget.setAttribute('aria-valuenow', String(d.last));
     onResize(d.last);
   };
   const onPointerUp = () => {
@@ -41,10 +42,11 @@ export function ResizeHandle({label, value, min, max, onResize, onCommit}: Resiz
     if (d) onCommit(d.last);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const delta = e.key === 'ArrowLeft' ? -STEP : e.key === 'ArrowRight' ? STEP : 0;
-    if (!delta) return;
+    const keys: Record<string, number> = {ArrowLeft: value - STEP, ArrowRight: value + STEP, Home: min, End: max};
+    const next = keys[e.key];
+    if (next === undefined) return;
     e.preventDefault();
-    const v = clamp(value + delta);
+    const v = clamp(next);
     onResize(v);
     onCommit(v);
   };
@@ -62,9 +64,10 @@ export function ResizeHandle({label, value, min, max, onResize, onCommit}: Resiz
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onKeyDown={onKeyDown}
-      className="group absolute inset-y-0 -right-1 z-sticky w-2 cursor-col-resize outline-none"
+      className="group absolute inset-y-0 -right-1 z-sticky w-2 cursor-col-resize touch-none"
     >
-      <div className="interactive mx-auto h-full w-px group-hover:bg-border-strong group-focus-visible:bg-focus group-active:bg-accent"/>
+      {/* Instant in and out: the line follows the pointer, a fade would lag behind it. */}
+      <div className="mx-auto h-full w-px group-hover:bg-accent group-active:bg-accent"/>
     </div>
   );
 }

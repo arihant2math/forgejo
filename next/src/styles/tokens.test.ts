@@ -47,7 +47,7 @@ describe('tokens.css', () => {
       return v;
     };
     const text = ['fg', 'fg-muted', 'fg-subtle', 'accent-fg', 'success', 'warning', 'danger', 'done'];
-    const backgrounds = ['canvas', 'surface', 'raised', 'hover', 'selected', 'canvas-hover', 'canvas-selected'];
+    const backgrounds = ['canvas', 'surface', 'raised', 'hover', 'selected', 'raised-hover', 'canvas-hover', 'canvas-selected'];
     const failures: string[] = [];
     const need = (fg: string, bg: string, min: number) => {
       const r = contrast(color(`--color-${fg}`), color(`--color-${bg}`));

@@ -10,7 +10,7 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
-import {Button, EmptyState} from '../../ui/index.ts';
+import {Button, EmptyState, Shortcut} from '../../ui/index.ts';
 
 export default function Home() {
   const {ui, config} = useApp();
@@ -21,7 +21,12 @@ export default function Home() {
         <EmptyState
           icon={Command}
           title={config.app_name}
-          description={`Jump anywhere with ${shortcutHint('palette.open')}. ${shortcutHint('go.issues')} opens your issues, ${shortcutHint('go.pulls')} your pull requests, ${shortcutHint('go.inbox')} the inbox.`}
+          description={
+            <>
+              Jump anywhere with <Shortcut keys={shortcutHint('palette.open')}/>. <Shortcut keys={shortcutHint('go.issues')}/> opens your
+              issues, <Shortcut keys={shortcutHint('go.pulls')}/> your pull requests, <Shortcut keys={shortcutHint('go.inbox')}/> the inbox.
+            </>
+          }
           action={
             <Button variant="primary" shortcut={shortcutHint('palette.open')} tooltip="Search repositories, issues and commands" onClick={() => {
               runInAction(() => {

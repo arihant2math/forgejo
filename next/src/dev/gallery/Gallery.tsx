@@ -16,7 +16,7 @@ import {
   Avatar, Badge, Button, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuTrigger, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
-  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ResizeHandle, Shortcut, Skeleton, StatusDot, TooltipProvider,
+  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TooltipProvider,
 } from '../../ui/index.ts';
 
 const swatches = [
@@ -222,10 +222,11 @@ export default function Gallery() {
             </NavGroup>
             <ResizeHandle label="Resize" value={232} min={180} max={480} onResize={() => undefined} onCommit={() => undefined}/>
           </div>
-          <span className="flex items-center gap-1.5 text-sm text-fg-muted"><StatusDot tone="success"/>Live</span>
-          <span className="flex items-center gap-1.5 text-sm text-fg-muted"><StatusDot tone="muted"/>Catching up</span>
-          <span className="flex items-center gap-1.5 text-sm text-fg-muted"><StatusDot tone="warning"/>Signed out</span>
-          <span className="flex items-center gap-1.5 text-sm text-fg-muted"><StatusDot tone="danger"/>Error</span>
+          <Status tone="success">Live</Status>
+          <Status tone="muted">Catching up</Status>
+          <Status tone="warning">Signed out</Status>
+          <Status tone="danger">Error</Status>
+          <SectionHeading>Section heading</SectionHeading>
         </Section>
 
         <Section title="Skeleton and empty state">

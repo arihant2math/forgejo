@@ -5,6 +5,7 @@ import {Dialog as D} from 'radix-ui';
 import type {ReactNode} from 'react';
 import {cx} from './cx.ts';
 import {dialogPanel, overlay} from './recipes.ts';
+import {useReturnFocus} from './returnFocus.ts';
 
 export const DialogTrigger = D.Trigger;
 export const DialogClose = D.Close;
@@ -26,12 +27,14 @@ export interface DialogProps {
 
 /** A modal dialog near the top of the viewport; Esc and the overlay close it. */
 export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', children}: DialogProps) {
+  const focus = useReturnFocus();
   return (
     <D.Root {...(open === undefined ? {} : {open})} {...(onOpenChange ? {onOpenChange} : {})}>
       {trigger}
       <D.Portal>
         <D.Overlay className={overlay}>
           <D.Content
+            {...focus}
             {...(description ? {} : {'aria-describedby': undefined})}
             className={cx(dialogPanel, 'flex flex-col gap-3 p-4', widths[size])}>
             <div className="flex flex-col gap-1">

@@ -11,8 +11,9 @@ import {Dialog as D} from 'radix-ui';
 import type {ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
-import {Shortcut} from './Kbd.tsx';
-import {dialogPanel, menuRow, overlay} from './recipes.ts';
+import {ItemBody} from './ItemBody.tsx';
+import {dialogPanel, menuRow, overlay, sectionLabel} from './recipes.ts';
+import {useReturnFocus} from './returnFocus.ts';
 
 export interface CommandDialogProps {
   open: boolean;
@@ -24,11 +25,12 @@ export interface CommandDialogProps {
 
 /** A modal command menu near the top of the viewport. Esc and the overlay close it. */
 export function CommandDialog({open, onOpenChange, label, children}: CommandDialogProps) {
+  const focus = useReturnFocus();
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         <D.Overlay className={overlay}>
-          <D.Content aria-describedby={undefined} className={cx(dialogPanel, 'max-w-md overflow-hidden')}>
+          <D.Content {...focus} aria-describedby={undefined} className={cx(dialogPanel, 'max-w-md overflow-hidden')}>
             <D.Title className="sr-only">{label}</D.Title>
             <K label={label} shouldFilter={false} loop>{children}</K>
           </D.Content>
@@ -70,7 +72,7 @@ export function CommandEmpty({children}: {children: ReactNode}) {
 
 export function CommandGroup({heading, children}: {heading: string; children: ReactNode}) {
   return (
-    <K.Group heading={<span className="block px-2 pt-2 pb-1 text-sm text-fg-subtle">{heading}</span>}>
+    <K.Group heading={<span className={cx(sectionLabel, 'block px-2 pt-2 pb-1')}>{heading}</span>}>
       {children}
     </K.Group>
   );
@@ -95,10 +97,7 @@ const item = cx(menuRow, 'text-fg data-[selected=true]:bg-raised-hover data-[dis
 export function CommandItem({value, onSelect, icon, leading, meta, shortcut, children}: CommandItemProps) {
   return (
     <K.Item value={value} onSelect={onSelect} className={item}>
-      {icon ? <Icon icon={icon} className="text-fg-muted"/> : leading}
-      <span className="min-w-0 truncate">{children}</span>
-      <span className="min-w-0 flex-1 truncate text-sm text-fg-subtle">{meta}</span>
-      {shortcut && <Shortcut keys={shortcut}/>}
+      <ItemBody icon={icon} leading={leading} meta={meta ?? ''} shortcut={shortcut}>{children}</ItemBody>
     </K.Item>
   );
 }

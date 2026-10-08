@@ -5,7 +5,7 @@
 
 import {runInAction} from 'mobx';
 import {useState} from 'react';
-import {Button, Dialog, Shortcut} from '../../ui/index.ts';
+import {Button, Dialog, SectionHeading, Shortcut} from '../../ui/index.ts';
 import {performSignOut} from '../session.ts';
 import {KEYMAP, SCOPE_LABELS, type Scope, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {useApp} from '../store.ts';
@@ -29,7 +29,7 @@ export function ShortcutsDialog() {
       <div className="flex flex-col gap-3">
         {[...byScope].map(([scope, ids]) => (
           <section key={scope} className="flex flex-col gap-1">
-            <h3 className="text-sm text-fg-subtle">{SCOPE_LABELS[scope]}</h3>
+            <SectionHeading>{SCOPE_LABELS[scope]}</SectionHeading>
             <dl className="flex flex-col">
               {ids.map((id) => (
                 <div key={id} className="flex h-control items-center justify-between gap-4 text-base">

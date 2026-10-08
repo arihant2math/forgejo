@@ -166,6 +166,7 @@ describe('signed in', () => {
     fireEvent.change(input, {target: {value: 'footer'}});
     const option = await screen.findByRole('option', {name: /Footer links are broken/});
     expect(option.textContent).toContain('acme/website#7');
+    expect(classConflicts(document.body)).toEqual([]);
     fireEvent.click(option);
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/acme/website/issues/7');
@@ -173,6 +174,21 @@ describe('signed in', () => {
     expect(app.ui.paletteOpen).toBe(false);
     expect(await screen.findByRole('heading', {name: /Footer links are broken/})).toBeTruthy();
     expect(performance.getEntriesByName('palette:search').length).toBeGreaterThan(0);
+  });
+
+  test('closing the palette gives focus back to where it was', async () => {
+    await renderApp('/', signedIn());
+    const issues = screen.getByRole('link', {name: /My issues/});
+    issues.focus();
+    key('k', {ctrlKey: true});
+    const input = await screen.findByPlaceholderText('Search repositories, issues and commands…');
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
+    fireEvent.keyDown(input, {key: 'Escape'});
+    await waitFor(() => {
+      expect(document.activeElement).toBe(issues);
+    });
   });
 
   test('a repository page holds its group while open', async () => {

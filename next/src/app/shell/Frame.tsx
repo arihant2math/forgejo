@@ -41,10 +41,11 @@ export function PageBody({children}: {children: ReactNode}) {
 /** A sidebar row placeholder with a NavItem's geometry. */
 const labelWidths = {sm: 'h-3 w-16', md: 'h-3 w-20', lg: 'h-3 w-24', xl: 'h-3 w-28'} as const;
 
-export function NavSkeleton({width, leading}: {width: keyof typeof labelWidths; leading?: ReactNode}) {
+/** `inset`: a repository row (no icon, label lined up with its owner's). */
+export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelWidths; leading?: ReactNode; inset?: boolean}) {
   return (
-    <div className="flex h-control items-center gap-2 px-2">
-      {leading ?? <Skeleton className="size-4"/>}
+    <div className={inset ? 'flex h-control items-center gap-2 pr-2 pl-8' : 'flex h-control items-center gap-2 px-2'}>
+      {inset ? null : leading ?? <Skeleton className="size-4"/>}
       <Skeleton className={labelWidths[width]}/>
     </div>
   );

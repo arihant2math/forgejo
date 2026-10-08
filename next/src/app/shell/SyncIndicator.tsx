@@ -7,7 +7,7 @@
 // deltas and position updates do not re-render it.
 
 import {observer} from 'mobx-react-lite';
-import {Button, StatusDot, type StatusTone, Tooltip} from '../../ui/index.ts';
+import {Button, Status, type StatusTone, Tooltip} from '../../ui/index.ts';
 import {signInHere} from '../session.ts';
 import {useApp, useSession} from '../store.ts';
 
@@ -37,10 +37,11 @@ export const SyncIndicator = observer(function SyncIndicator() {
   return (
     <div className="flex items-center gap-2">
       <Tooltip content={pending ? `${v.detail} ${String(pending)} not synced yet.` : v.detail}>
-        <span role="status" tabIndex={0} className="flex h-control-sm items-center gap-1.5 rounded-sm px-1.5 text-sm text-fg-muted">
-          <StatusDot tone={v.tone}/>
-          {v.label}
-          {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
+        <span role="status">
+          <Status tone={v.tone}>
+            {v.label}
+            {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
+          </Status>
         </span>
       </Tooltip>
       {v.signIn && app.config.oauth && (

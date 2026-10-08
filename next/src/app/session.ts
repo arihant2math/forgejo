@@ -10,7 +10,7 @@ import {AUTH_CHANNEL, type AuthMessage, AuthSession} from '../auth/session.ts';
 import {resumeWipes, signOut} from '../auth/signout.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {openData} from '../sync/data.ts';
-import {sitePath} from './config.ts';
+import {sitePath, uiPath} from './config.ts';
 import {hasUser, readSplash} from './splash.ts';
 import type {App, Session} from './store.ts';
 
@@ -59,6 +59,16 @@ export async function requestSignOut(app: App): Promise<void> {
     return;
   }
   await performSignOut(app);
+}
+
+/**
+ * Turns the opt-in cookie off and opens this page in the classic UI (the UI's
+ * own pages have no classic counterpart: the dashboard then).
+ */
+export function switchToClassic(app: App): void {
+  const here = `${location.pathname}${location.search}`;
+  const back = location.pathname.startsWith(app.config.base) ? sitePath(app.config, '/') : here;
+  location.assign(`${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(back)}`);
 }
 
 /** Signs in again (session expired) or for the first time, coming back to this page. */

@@ -8,11 +8,13 @@
 // survive reloads and crashes, show in every tab and in "Unsynced changes",
 // and cost no request. Submitting is one offline intent, `review.submit`,
 // pinned to the head commit the user saw, that carries the comments: one
-// API v1 call (POST …/pulls/{n}/reviews, with one Idempotency-Key), so the
-// server never holds a half-sent review. (API v1 cannot create a server-side
-// pending review without a body, so drafts are not sent one by one; a
-// pending review started in the classic UI is submitted with this one, as
-// Forgejo does.)
+// API v1 call (POST …/pulls/{n}/reviews, with one Idempotency-Key: a retry
+// replays it, never posts twice). API v1 cannot create a server-side pending
+// review without a body, so drafts are not sent one by one; a pending review
+// started in the classic UI is submitted with this one, as Forgejo does.
+// Limit: Forgejo itself adds the comments one by one before submitting, so a
+// refusal half-way (422) leaves the earlier ones as a pending review there;
+// the failed intent keeps every text in "Unsynced changes".
 //
 // A draft written on another commit than the one submitted cannot be placed
 // by line number: it is not lost — it goes into the review's body, quoted

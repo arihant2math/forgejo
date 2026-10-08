@@ -105,7 +105,7 @@ export class MemoryLru<V> {
 /** Approximate bytes of a value (strings as UTF-16, typed arrays by length, the rest by its JSON). */
 export function sizeOf(v: unknown): number {
   if (typeof v === 'string') return v.length * 2;
-  if (ArrayBuffer.isView(v)) return v.byteLength;
+  if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v.byteLength;
   if (v && typeof v === 'object') {
     let n = 0;
     for (const x of Object.values(v as Record<string, unknown>)) n += sizeOf(x) + 16;

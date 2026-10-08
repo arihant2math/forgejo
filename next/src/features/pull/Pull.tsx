@@ -15,7 +15,7 @@
 //            offline with the reason), never queued.
 
 import {useNavigate} from '@tanstack/react-router';
-import {Check, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, Pencil, Trash2, Workflow} from 'lucide-react';
+import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Trash2, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useMemo, useRef, useState} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
@@ -35,16 +35,17 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Badge, Button, Callout, Dialog, EmptyState, Icon, IconButton, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, ProseSource,
-  SectionHeading, StatusDot, TextLink,
+  Badge, Button, Callout, Card, Dialog, DiffStat, EmptyState, Icon, IconButton, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, ProseSource,
+  SectionHeading, SegmentedControl, StatusDot, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {usePool, UserAvatar, useUser} from '../issues/cells.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {ago} from '../issues/format.ts';
 import {statusLook} from '../code/Actions.tsx';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
-import {summary, useDiff} from '../code/History.tsx';
+import {useDiff} from '../code/History.tsx';
+import {Ago, Column, commitRow, Sha} from '../code/bits.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, codeTo} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
@@ -59,12 +60,12 @@ interface TabProps {
 }
 
 /** The pull request's commits: from the pool, else API v1 (kept as a hint for offline). */
-function usePullCommits(issueId: number): {pr: PullRequest | undefined; commits: PullCommits | undefined; loading: ReturnType<typeof useLoad<PullCommits>>} {
+function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; commits: PullCommits | undefined; loading: ReturnType<typeof useLoad<PullCommits>>} {
   const pool = usePool();
   const app = useApp();
   const src = useSource();
-  const pr = pullOf(pool, issueId);
-  const fromPool = pr ? poolCommits(pool, pr) : undefined;
+  const pr = pullOf(pool, issue.id);
+  const fromPool = pr ? poolCommits(pool, pr, issue.get('state') === 'open') : undefined;
   const loading = useLoad<PullCommits>(pr && !fromPool ? `prhint:${String(pr.id)}:${pr.merge_base}` : undefined, () => undefined, async () => {
     const c = pr ? await fetchCommits(app, src, pr) : undefined;
     if (!c) throw new NotCached('the head commit is not known on this device');
@@ -74,7 +75,7 @@ function usePullCommits(issueId: number): {pr: PullRequest | undefined; commits:
 }
 
 export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {tab: PullTabName}) {
-  const {pr, commits, loading} = usePullCommits(props.issue.id);
+  const {pr, commits, loading} = usePullCommits(props.issue);
   if (!pr) return <EmptyState icon={GitPullRequest} title="Not on this device" description="This pull request's details have not arrived yet."/>;
   if (!commits) return <Unloaded loaded={loading.state === 'ready' ? {state: 'loading'} : loading} what="This pull request's head"/>;
   switch (tab) {
@@ -93,12 +94,12 @@ type Item = {kind: 'comment'; c: Comment; pending: boolean} | {kind: 'draft'; d:
 
 const itemAnchor = (it: Item): Anchor => (it.kind === 'draft' ? it.d.anchor : commentAnchor(it.c));
 
+/** The open composer: its line, and the draft it edits (or a new one). Its text lives in the thread (typing re-renders that thread only). */
 interface Composing {
   f: number;
   l: number;
-  /** Editing a draft (its key), or a new one. */
   key?: string | undefined;
-  text: string;
+  initial: string;
 }
 
 const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
@@ -122,7 +123,8 @@ function useViewed(issueId: number, pr: PullRequest, head: string, me: number) {
     if (key) src.cache.put(key, list);
     return list;
   });
-  return viewedAt(state, head, changed.state === 'ready' ? new Set(changed.value) : undefined, overlay.members('ViewedFile', issueId));
+  const changedSet = changed.state === 'ready' ? new Set(changed.value) : undefined;
+  return {...viewedAt(state, head, changedSet, overlay.members('ViewedFile', issueId)), changed: changedSet};
 }
 
 const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: TabProps & {pr: PullRequest; commits: PullCommits; files: DiffFile[]}) {
@@ -149,8 +151,14 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   }
   const drafts = reviewDrafts(intents, issue.id);
   const items = [...comments, ...drafts.map((d): Item => ({kind: 'draft', d}))];
-  const anchored = anchor(files, items, itemAnchor, head, (it) => it.kind === 'comment' && it.c.invalidated);
-  const viewed = useViewed(issue.id, pr, head, me);
+  // Drafts written on another head cannot be placed by line number (lines may have moved): with the file's
+  // notes, like outdated comments (submitting quotes them in the review's body: code/review.ts).
+  const anchored = anchor(files, items, itemAnchor, head, (it) => it.kind === 'draft' || it.c.invalidated);
+  const viewedNow = useViewed(issue.id, pr, head, me);
+  // Stable while the sets' contents are (a new Set each render would rebuild every diff row).
+  const viewedSig = `${viewedNow.commit}|${[...viewedNow.paths].sort().join('\0')}|${[...viewedNow.older].sort().join('\0')}|${[...viewedNow.changed ?? []].join('\0')}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed when the signature changes
+  const viewed = useMemo(() => viewedNow, [viewedSig]);
 
   // Viewed files start collapsed; the user's toggles win afterwards.
   const [toggled, setToggled] = useState<ReadonlyMap<number, boolean>>(() => new Map());
@@ -165,13 +173,25 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   const setViewed = useCallback((f: number, on: boolean) => {
     const file = files[f];
     if (!file) return;
-    intents.submit({kind: 'pr.viewed', issueId: issue.id, repoId: pr.base_repo_id, commitSha: head, files: {[filePath(file)]: on}});
+    // The first mark at a new head: Forgejo seeds the head's state from the previous one, so files that
+    // changed since are sent as not viewed (the classic files view stores that when it renders).
+    const marks: Record<string, boolean> = {};
+    if (viewed.commit && viewed.commit !== head) for (const p of viewed.changed ?? []) marks[p] = false;
+    marks[filePath(file)] = on;
+    intents.submit({kind: 'pr.viewed', issueId: issue.id, repoId: pr.base_repo_id, commitSha: head, files: marks});
     setToggled((t) => new Map(t).set(f, on));
-  }, [files, intents, issue.id, pr.base_repo_id, head]);
+  }, [files, intents, issue.id, pr.base_repo_id, head, viewed.commit, viewed.changed]);
 
   const startComment = useCallback((f: number, l: number) => {
-    setComposing({f, l, text: ''});
+    setComposing({f, l, initial: ''});
   }, []);
+  /** The composer closed: back to the diff's line cursor (focus never falls to the page). */
+  const closeComposer = useCallback(() => {
+    setComposing(undefined);
+    requestAnimationFrame(() => diffRef.current?.focus());
+  }, []);
+  const [listOpen, setListOpen] = useState(true);
+  const indexed = useMemo(() => files.map((f, i) => ({f, i})), [files]);
 
   const threadKeys = new Set(anchored.lines.keys());
   if (composing) threadKeys.add(lineKey(composing.f, composing.l));
@@ -185,7 +205,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     notes: new Set(notesSig ? notesSig.split(',').map(Number) : []),
     collapsed,
     thread: (f, l) => <Thread issue={issue} pr={pr} f={f} l={l} file={files[f]} head={head} items={anchoredRef.current.lines.get(lineKey(f, l)) ?? []}
-      composing={composing?.f === f && composing.l === l ? composing : undefined} setComposing={setComposing}/>,
+      composing={composing?.f === f && composing.l === l ? composing : undefined} setComposing={setComposing} onDone={closeComposer}/>,
     notesOf: (f) => <FileNotes items={anchoredRef.current.files.get(f) ?? []}/>,
     onComment: startComment,
     fileActions: (f) => {
@@ -204,7 +224,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     },
   // The items are read through the ref; what changes rows is in the signatures.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, drafts.length, comments.length]);
+  }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, closeComposer, drafts.length, comments.length]);
 
   useShortcut('review.start', () => {
     setReviewing(true);
@@ -228,32 +248,40 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
 
   return (
     <div className="flex h-full min-h-0">
-      <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-border">
-        <div className="flex h-control items-center gap-2 px-3 text-sm text-fg-subtle tabular-nums">
-          <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
-          <span className="text-success">+{additions}</span><span className="text-danger">−{deletions}</span>
-          <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
-        </div>
-        <RowList items={files} scroller={aside} label="Changed files" keyOf={(f) => filePath(f)}
-          row={(f) => {
-            const i = files.indexOf(f);
-            const n = counts.get(i);
-            return {
-              leading: <span className={i === current ? 'text-accent-fg' : undefined}><Icon icon={viewed.paths.has(filePath(f)) ? CircleCheck : FileDiff} size="sm"/></span>,
-              main: <span title={filePath(f)} className={i === current ? 'font-medium' : undefined}>{filePath(f)}</span>,
-              trailing: n ? <span className="flex items-center gap-1"><Icon icon={MessageSquare} size="sm"/>{n}</span> : undefined,
-            };
-          }}
-          onOpen={(f) => {
-            diffRef.current?.toFile(files.indexOf(f));
-          }}/>
-      </aside>
+      {listOpen && (
+        <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-border">
+          <div className="flex h-control items-center gap-2 px-3 text-sm text-fg-subtle tabular-nums">
+            <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
+            <DiffStat additions={additions} deletions={deletions}/>
+            <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
+          </div>
+          {/* One cursor with the diff: the file in view; J/K or ↑/↓ here (and [ ] in the diff) move both. */}
+          <RowList items={indexed} scroller={aside} label="Changed files" keyOf={({f}) => filePath(f)} cursor={current}
+            onCursor={(i) => {
+              diffRef.current?.toFile(i);
+            }}
+            row={({f, i}) => {
+              const n = counts.get(i);
+              return {
+                leading: <Icon icon={viewed.paths.has(filePath(f)) ? CircleCheck : FileDiff} size="sm"/>,
+                main: <span title={filePath(f)}>{filePath(f)}</span>,
+                trailing: n ? <span className="flex items-center gap-1"><Icon icon={MessageSquare} size="sm"/>{n}</span> : undefined,
+              };
+            }}
+            onOpen={({i}) => {
+              diffRef.current?.toFile(i);
+              diffRef.current?.focus();
+            }}/>
+        </aside>
+      )}
       <div ref={setScroller} className="min-w-0 flex-1 overflow-auto">
-        <ReviewBar pr={pr} head={head} drafts={drafts} onReview={() => {
+        <ReviewBar pr={pr} head={head} drafts={drafts} listOpen={listOpen} onList={() => {
+          setListOpen((o) => !o);
+        }} onReview={() => {
           setReviewing(true);
         }}/>
-        {anchored.elsewhere.length > 0 && <FileNotes items={anchored.elsewhere} title="Comments on files not in this diff"/>}
-        <DiffView ref={diffRef} repoId={pr.base_repo_id} base={commits.base} head={head} files={files} scroller={scroller} extras={extras} onFile={setCurrent}/>
+        {anchored.elsewhere.length > 0 && <div className="sticky left-0 w-view"><FileNotes items={anchored.elsewhere} title="Comments on files not in this diff"/></div>}
+        <DiffView key={`${commits.base}:${head}`} ref={diffRef} repoId={pr.base_repo_id} base={commits.base} head={head} files={files} scroller={scroller} extras={extras} onFile={setCurrent}/>
       </div>
       <ReviewDialog open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
     </div>
@@ -261,10 +289,11 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
 });
 
 /** Above the diff: the head on screen, the drafts, and the review button. */
-const ReviewBar = observer(function ReviewBar({pr, head, drafts, onReview}: {pr: PullRequest; head: string; drafts: ReviewDraft[]; onReview: () => void}) {
+const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview}: {pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void}) {
   return (
-    <div className="flex h-control items-center gap-3 border-b border-border-subtle px-4 text-sm text-fg-muted">
-      <span>Changes from <span className="font-mono">{shortSha(pr.merge_base)}</span> to <span className="font-mono">{shortSha(head)}</span></span>
+    <div className="sticky left-0 flex h-control w-view items-center gap-2 border-b border-border-subtle px-3 text-sm text-fg-muted">
+      <IconButton size="sm" icon={listOpen ? PanelLeftClose : PanelLeftOpen} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
+      <span className="min-w-0 truncate">Changes from <Sha sha={pr.merge_base}/> to <Sha sha={head}/></span>
       {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
       <span className="ml-auto"><Button size="sm" variant="primary" shortcut={shortcutHint('review.start')} tooltip="Submit a review (works offline: sent when you are back)" onClick={onReview}>Review</Button></span>
     </div>
@@ -272,44 +301,42 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, onReview}: {pr:
 });
 
 /** A line's thread: comments (posted, pending in Forgejo, drafted here) and the composer. */
-const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing}: {
+const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing, onDone}: {
   issue: Entity<'Issue'>; pr: PullRequest; f: number; l: number; file: DiffFile | undefined; head: string; items: Item[];
-  composing: Composing | undefined; setComposing: (c: Composing | undefined) => void;
+  composing: Composing | undefined; setComposing: (c: Composing | undefined) => void; onDone: () => void;
 }) {
   const app = useApp();
   const {intents} = editing(app);
+  const [text, setText] = useState(composing?.initial ?? '');
+  const [was, setWas] = useState(composing);
+  // Another composer opened on this line (a draft to edit): its text.
+  if (was !== composing) {
+    setWas(composing);
+    setText(composing?.initial ?? '');
+  }
   const save = () => {
     const a = file && lineAnchor(file, l, head);
-    if (!a || !composing?.text.trim()) return;
-    saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text: composing.text, key: composing.key});
-    setComposing(undefined);
+    if (!a || !text.trim()) return;
+    saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: composing?.key});
+    onDone();
   };
   return (
-    <div className="flex flex-col gap-2 border-y border-border-subtle bg-canvas px-4 py-3 pl-28">
+    <div className="flex flex-col gap-2 border-y border-border-subtle bg-canvas py-3 pr-4 pl-thread">
       {items.map((it) => (it.kind === 'comment' ?
         <CommentCard key={`c${String(it.c.id)}`} c={it.c} pending={it.pending}/> :
         composing?.key === it.d.key ? null : <DraftCard key={it.d.key} d={it.d} onEdit={() => {
-          setComposing({f, l, key: it.d.key, text: it.d.text});
+          setComposing({f, l, key: it.d.key, initial: it.d.text});
         }} onDelete={() => {
           void intents.discardDraft(it.d.key);
         }}/>))}
       {composing && (
-        <div className="flex max-w-lg flex-col gap-2 rounded-md border border-border bg-surface p-2">
-          <MarkdownField repoId={pr.base_repo_id} label="Review comment" value={composing.text} autoFocus rows={3}
-            onChange={(text) => {
-              setComposing({...composing, text});
-            }}
-            onSubmit={save}
-            onCancel={() => {
-              setComposing(undefined);
-            }}/>
+        <Card label="New review comment">
+          <MarkdownField repoId={pr.base_repo_id} label="Review comment" value={text} autoFocus rows={3} onChange={setText} onSubmit={save} onCancel={onDone}/>
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => {
-              setComposing(undefined);
-            }}>Cancel</Button>
-            <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!composing.text.trim()} onClick={save}>{composing.key ? 'Update comment' : 'Add review comment'}</Button>
+            <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>
+            <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={save}>{composing.key ? 'Update comment' : 'Add review comment'}</Button>
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -317,15 +344,15 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
 
 function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return (
-    <article className="flex max-w-lg flex-col gap-1.5 rounded-md border border-border bg-surface p-3">
+    <Card as="article">
       <header className="flex items-center gap-2 text-sm">
         {who}
-        {when && <time dateTime={when} title={fullDate(when)} className="text-fg-subtle">{ago(when)}</time>}
+        {when && <span className="text-fg-subtle"><Ago at={when}/></span>}
         {badge}
         {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
       </header>
       {children}
-    </article>
+    </Card>
   );
 }
 
@@ -339,11 +366,11 @@ const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pen
   );
 });
 
-function DraftCard({d, onEdit, onDelete}: {d: ReviewDraft; onEdit: () => void; onDelete: () => void}) {
+function DraftCard({d, onEdit, onDelete}: {d: ReviewDraft; onEdit?: (() => void) | undefined; onDelete: () => void}) {
   return (
     <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Badge tone="accent">Draft</Badge>}
       actions={<>
-        <IconButton size="sm" icon={Pencil} label="Edit the comment" onClick={onEdit}/>
+        {onEdit && <IconButton size="sm" icon={Pencil} label="Edit the comment" onClick={onEdit}/>}
         <IconButton size="sm" icon={Trash2} label="Delete the comment" onClick={onDelete}/>
       </>}>
       <ProseSource text={d.text}/>
@@ -352,7 +379,9 @@ function DraftCard({d, onEdit, onDelete}: {d: ReviewDraft; onEdit: () => void; o
 }
 
 /** Comments of a file that are not on a line shown (outdated, outside the hunks), or on files not in the diff. */
-function FileNotes({items, title}: {items: Item[]; title?: string}) {
+const FileNotes = observer(function FileNotes({items, title}: {items: Item[]; title?: string}) {
+  const app = useApp();
+  const {intents} = editing(app);
   return (
     <div className="flex flex-col gap-2 border-b border-border-subtle bg-canvas px-4 py-3">
       <SectionHeading>{title ?? 'Comments not on the lines shown'}</SectionHeading>
@@ -361,13 +390,15 @@ function FileNotes({items, title}: {items: Item[]; title?: string}) {
         return (
           <div key={it.kind === 'comment' ? `c${String(it.c.id)}` : it.d.key} className="flex flex-col gap-1">
             <span className="font-mono text-code text-fg-muted">{a.path}:{a.line} ({a.side === 'old' ? 'old' : 'new'}, {shortSha(a.commit)})</span>
-            {it.kind === 'comment' ? <CommentCard c={it.c} pending={it.pending}/> : <DraftCard d={it.d} onEdit={() => undefined} onDelete={() => undefined}/>}
+            {it.kind === 'comment' ? <CommentCard c={it.c} pending={it.pending}/> : <DraftCard d={it.d} onDelete={() => {
+              void intents.discardDraft(it.d.key);
+            }}/>}
           </div>
         );
       })}
     </div>
   );
-}
+});
 
 const EVENTS: {event: ReviewEvent; label: string; own: boolean}[] = [
   {event: 'COMMENT', label: 'Comment', own: true},
@@ -411,13 +442,10 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
           </Callout>
         )}
         <MarkdownField repoId={pr.base_repo_id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
-        <div role="radiogroup" aria-label="Review" className="flex gap-1">
-          {EVENTS.map((e) => (
-            <Button key={e.event} size="sm" pressed={event === e.event} disabled={own && !e.own} role="radio" aria-checked={event === e.event}
-              tooltip={own && !e.own ? 'Not on your own pull request' : undefined} onClick={() => {
-                setEvent(e.event);
-              }}>{e.label}</Button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl label="Verdict" value={event} onChange={setEvent} options={EVENTS.map((e) => ({value: e.event, label: e.label, disabled: own && !e.own}))}/>
+          {own && <span className="text-sm text-fg-subtle">Your own pull request: comment only.</span>}
+          {needsBody && !body.trim() && <span className="text-sm text-fg-subtle">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
         </div>
       </div>
     </Dialog>
@@ -436,11 +464,7 @@ const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabP
     <div ref={setScroller} className="h-full overflow-y-auto">
       {info.state !== 'ready' ? <Unloaded loaded={info} what="These commits"/> :
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={(c) => ({
-            leading: <Avatar name={c.authorName} size="sm"/>,
-            main: summary(c.message),
-            trailing: <><span className="font-mono">{shortSha(c.sha)}</span><time dateTime={c.date} title={fullDate(c.date)}>{ago(c.date)}</time></>,
-          })}
+          row={commitRow}
           onOpen={(c) => {
             // A fork's commits are in the base repository too (refs/pull/N/head).
             void navigate(codeTo(owner, repo, `commit/${c.sha}`));
@@ -463,7 +487,7 @@ const ChecksTab = observer(function ChecksTab({owner, repo, pr, commits}: TabPro
   const runs = [...pool.model('ActionRun').by('repo_id', pr.base_repo_id)].filter((r) => r.data.commit_sha === commits.head).sort((a, b) => b.data.id - a.data.id);
   if (!latest.size && !runs.length) return <EmptyState icon={Workflow} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
   return (
-    <div className="flex max-w-lg flex-col gap-4 px-8 py-6">
+    <Column>
       {latest.size > 0 && (
         <section aria-label="Statuses" className="flex flex-col">
           <SectionHeading>Statuses</SectionHeading>
@@ -485,7 +509,7 @@ const ChecksTab = observer(function ChecksTab({owner, repo, pr, commits}: TabPro
           {runs.map((r) => <RunRow key={r.id} owner={owner} repo={repo} runId={r.id} runNumber={r.data.run_number}/>)}
         </section>
       )}
-    </div>
+    </Column>
   );
 });
 
@@ -544,14 +568,14 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   else if (pr.status === 'checking') state = <><StatusDot tone="warning"/> Checking whether it can be merged…</>;
   else state = <><StatusDot tone="success"/> Can be merged{pr.commits_behind > 0 ? ` · ${String(pr.commits_behind)} behind ${pr.base_branch}` : ''}</>;
   return (
-    <section aria-label="Merge" className="mt-4 flex flex-col gap-2 rounded-md border border-border p-3">
+    <div className="mt-4"><Card as="section" label="Merge">
       <p className="flex items-center gap-2 text-base text-fg">{state}</p>
       {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && (
         <div className="flex flex-wrap items-center gap-2">
           <Menu>
             <MenuTrigger asChild>
-              <Button variant="primary" icon={GitMerge} disabled={!isOnline || busy || pr.status === 'conflict'} tooltip={offlineWhy('Merging')}>Merge</Button>
+              <Button variant="primary" icon={GitMerge} disabled={!isOnline || busy || pr.status === 'conflict'} tooltip={offlineWhy('Merging')}>Merge<Icon icon={ChevronDown} size="sm"/></Button>
             </MenuTrigger>
             <MenuContent>
               {STYLES.map(([style, label]) => (
@@ -574,8 +598,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             }}>Update branch</Button>
           )}
           {!isOnline && <span className="text-sm text-fg-subtle">{onlineOnly('Merging')}</span>}
+          {isOnline && pr.status === 'conflict' && <span className="text-sm text-fg-subtle">Resolve the conflicts to merge.</span>}
         </div>
       )}
-    </section>
+    </Card></div>
   );
 });

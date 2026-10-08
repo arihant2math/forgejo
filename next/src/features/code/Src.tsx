@@ -15,7 +15,7 @@ import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha} from '../../code/refs.ts';
-import {CodeSource, type FileContent} from '../../code/source.ts';
+import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
   BlameCell, Button, CodeLine, CodeTokens, EmptyState, Icon, LineNo, ListRow, Menu, MenuContent, MenuLabel, MenuRadioGroup, MenuRadioItem,
@@ -101,10 +101,11 @@ function Breadcrumbs({owner, repo, at}: SrcProps & {at: Resolved}) {
   const parts = at.path ? at.path.split('/') : [];
   return (
     <span className="flex min-w-0 items-center gap-1 font-mono text-code">
-      <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', at)}>{repo}</CodeLink></TextLink>
+      {/* The repository is in the context already: its root is "/" here, named only on the root page. */}
+      <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', at)}>{parts.length ? <span aria-label={`${repo} root`}>/</span> : repo}</CodeLink></TextLink>
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
-          <span className="text-fg-subtle">/</span>
+          {i > 0 && <span className="text-fg-subtle">/</span>}
           {i === parts.length - 1 ? <span className="truncate">{p}</span> :
             <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
         </span>
@@ -136,7 +137,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       )}
       {file && (
         <Button size="sm" variant="ghost" asChild>
-          <a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/commit/${at.sha}/${at.path.split('/').map(encodeURIComponent).join('/')}`)} target="_blank" rel="noopener noreferrer">Raw</a>
+          <a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/commit/${at.sha}/${encodePath(at.path)}`)} target="_blank" rel="noopener noreferrer">Raw</a>
         </Button>
       )}
     </>

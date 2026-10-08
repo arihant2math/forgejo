@@ -103,10 +103,14 @@ const LOADERS: Record<Lang, Loader> = {
 const THEME = 'forgejo';
 
 /** Above these a text is shown plain (highlighting it would take seconds and memory for little use). */
-export const MAX_CHARS = 2_000_000;
+export const MAX_CHARS = 1_000_000;
 export const MAX_LINES = 40_000;
-/** Longer lines are left plain (minified files). */
-const MAX_LINE = 2000;
+/**
+ * Longer lines are left plain (minified files; and a TextMate grammar can
+ * backtrack for seconds on a long crafted line — the page also stops a
+ * highlight that runs too long: src/code/source.ts).
+ */
+const MAX_LINE = 400;
 
 let core: Promise<HighlighterCore> | undefined;
 const loaded = new Map<Lang, Promise<boolean>>();

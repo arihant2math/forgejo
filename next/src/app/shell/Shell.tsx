@@ -98,6 +98,13 @@ function GlobalShortcuts({app}: {app: App}) {
 }
 
 function AppShell({app}: {app: App}) {
+  // A repository the viewer may no longer read: its git content leaves this device's code cache (F7),
+  // whether or not a code view ever opened in this tab.
+  useEffect(() => app.session?.data.on('revoked', ({group}) => {
+    if (!group.startsWith('repo:') || !app.session) return;
+    const db = app.session.data.db;
+    void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(Number(group.slice(5)))).catch(() => undefined);
+  }), [app]);
   useEffect(() => {
     // The first frame rendered from local data (PLAN §5.2 step 3).
     markOnce('firstPaintFromCache');

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The code worker (PLAN §5.1, §5.7; Comlink): syntax highlighting and diff
-// parsing stay off the main thread. One worker per session, started by the
-// first code view (src/code/worker.ts). A diff is sent once and parsed here;
-// its files are then highlighted one at a time as the page shows them.
+// parsing stay off the main thread. Started by the first code view
+// (src/code/source.ts), as two instances: one parses diffs, one highlights
+// (files, and a diff's files one at a time as the page shows them).
 
 import {expose, transfer} from 'comlink';
 import {DEL, type DiffFile, filePath, parseDiff} from '../code/diff.ts';
@@ -12,10 +12,6 @@ import {type Lang, langOf} from '../code/lang.ts';
 import {highlight, type Highlight} from './highlight.ts';
 
 export type {Highlight} from './highlight.ts';
-
-/** Parsed diffs kept for highlighting their files (a few: the PRs open in this tab). */
-const diffs = new Map<string, DiffFile[]>();
-const KEEP = 4;
 
 /** Above this many lines a diff file is shown plain. */
 const MAX_FILE_LINES = 20_000;
@@ -63,28 +59,23 @@ async function highlightFile(f: DiffFile): Promise<Highlight | null> {
   return {spans: Uint32Array.from(spans), starts};
 }
 
+// The page runs two instances of this module (src/code/source.ts): one parses diffs, the other
+// highlights — a highlight that runs away (a grammar backtracking on crafted text) is stopped by
+// terminating its instance, and never holds up a diff.
 const api = {
   /** Highlights a file's text (null: plain). */
   async highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
     return out(await highlight(text, lang));
   },
 
-  /** Parses a diff and keeps it under `key` for highlightDiffFile. */
-  parseDiff(key: string, text: string): DiffFile[] {
-    const files = parseDiff(text);
-    diffs.delete(key);
-    diffs.set(key, files);
-    for (const k of diffs.keys()) {
-      if (diffs.size <= KEEP) break;
-      diffs.delete(k);
-    }
-    return files;
+  /** Parses a diff. */
+  parseDiff(text: string): DiffFile[] {
+    return parseDiff(text);
   },
 
-  /** Highlights file `index` of a parsed diff, per diff line (null: plain, or the diff is not here any more). */
-  async highlightDiffFile(key: string, index: number): Promise<Highlight | null> {
-    const f = diffs.get(key)?.[index];
-    return f ? out(await highlightFile(f)) : null;
+  /** Highlights one file of a diff, per diff line (null: plain). */
+  async highlightDiffFile(f: DiffFile): Promise<Highlight | null> {
+    return out(await highlightFile(f));
   },
 };
 

@@ -13,12 +13,11 @@ import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
-import type {CodeSource} from '../../code/source.ts';
-import type {Data} from '../../sync/data.ts';
 import {parseAnsi} from '../../code/ansi.ts';
-import {applyLog, emptyLog, finished, type LogState} from '../../code/logs.ts';
-import type {ActionRun, ActionRunJob, LogLine, LogStep} from '../../protocol/types.gen.ts';
-import {AnsiText, CodeLine, EmptyState, LineNo, ListRow, Status, StatusDot, type StatusTone} from '../../ui/index.ts';
+import {finished} from '../../code/logs.ts';
+import {LogFeed} from '../../code/logfeed.ts';
+import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
+import {AnsiText, CodeLine, EmptyState, LineNo, ListRow, Status, StatusDot, type StatusTone, StepHeader} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -26,6 +25,14 @@ import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import {RowList} from './RowList.tsx';
+
+/** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
+export function duration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${String(s)} s`;
+  if (s < 3600) return `${String(Math.floor(s / 60))} m ${String(s % 60)} s`;
+  return `${String(Math.floor(s / 3600))} h ${String(Math.floor((s % 3600) / 60))} m`;
+}
 
 /** A run, job or step status as a dot tone and words. */
 export function statusLook(status: string): {tone: StatusTone; text: string} {
@@ -90,7 +97,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
       {(scroller) => (!run ?
         <EmptyState icon={Workflow} title="Run not found" description="This run does not exist, or is not on this device."/> :
         <div className="flex min-h-full">
-          <nav aria-label="Jobs" className="w-pane shrink-0 border-r border-border py-2">
+          <nav aria-label="Jobs" className="sticky top-0 left-0 w-pane shrink-0 self-start border-r border-border py-2">
             {jobs.map((j, i) => {
               const jl = statusLook(j.status);
               return (
@@ -108,107 +115,6 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
     </CodeFrame>
   );
 });
-
-/** A finished job's log as cached (by job and task). */
-interface StoredLog {
-  taskId: number;
-  lines: LogLine[];
-  steps: LogStep[];
-  expired: boolean;
-}
-
-const logKey = (repoId: number, jobId: number, taskId: number) => `log:${String(repoId)}:${String(jobId)}:${String(taskId)}`;
-
-/**
- * A job's log: the cached copy of a finished task, else the live tail over
- * the sync session (merged by offset: repeats dropped, gaps asked for again).
- * Listeners hear at most once a frame however fast lines arrive.
- */
-class LogFeed {
-  readonly log: LogState = emptyLog();
-  source: 'cache' | 'live' | 'none' = 'none';
-  private version = 0;
-  private frame = 0;
-  private readonly listeners = new Set<() => void>();
-  private readonly data: Data;
-  private readonly src: CodeSource;
-  private readonly repoId: number;
-  private readonly job: ActionRunJob;
-
-  constructor(data: Data, src: CodeSource, repoId: number, job: ActionRunJob) {
-    this.data = data;
-    this.src = src;
-    this.repoId = repoId;
-    this.job = job;
-  }
-
-  readonly subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  };
-
-  readonly snapshot = (): number => this.version;
-
-  private paint(): void {
-    if (this.frame) return;
-    this.frame = requestAnimationFrame(() => {
-      this.frame = 0;
-      this.version++;
-      for (const fn of this.listeners) fn();
-    });
-  }
-
-  /** Loads (cache) or tails (live, when online); returns the stop. */
-  start(online: boolean): () => void {
-    let live = true;
-    const isLive = () => live;
-    let untail: (() => void) | undefined;
-    const {data, job, log} = this;
-    const tail = () => {
-      untail?.();
-      this.source = 'live';
-      untail = data.tailLog(job.id, log.taskId ? {taskId: log.taskId, offset: log.lines.length} : undefined, (msg) => {
-        if (msg.type === 'log_closed') {
-          untail?.();
-          untail = undefined;
-          this.paint();
-          return;
-        }
-        // A gap (this tab joined late, a message lost): tail again from the lines held.
-        if (!applyLog(log, msg).ok) {
-          tail();
-          return;
-        }
-        if (log.done && log.taskId === job.task_id) {
-          this.src.cache.put(logKey(this.repoId, job.id, log.taskId), {taskId: log.taskId, lines: log.lines, steps: log.steps, expired: log.expired} satisfies StoredLog);
-        }
-        this.paint();
-      });
-    };
-    void (async () => {
-      if (finished(job.status) && job.task_id) {
-        const cached = await this.src.cache.get<StoredLog>(logKey(this.repoId, job.id, job.task_id));
-        if (!isLive()) return;
-        if (cached) {
-          Object.assign(log, {taskId: cached.taskId, lines: cached.lines, steps: cached.steps, done: true, expired: cached.expired});
-          this.source = 'cache';
-          this.paint();
-          return;
-        }
-      }
-      if (online) tail();
-      else this.paint();
-    })();
-    return () => {
-      live = false;
-      untail?.();
-    };
-  }
-
-  close(): void {
-    cancelAnimationFrame(this.frame);
-  }
-}
 
 function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
   const src = useSource();
@@ -255,19 +161,16 @@ const JobLog = observer(function JobLog({repoId, job, scroller}: {repoId: number
       if (!st) return null;
       const look = statusLook(st.status);
       return (
-        <button type="button" aria-expanded={!closed.has(r.s)} className="interactive flex h-line w-full items-center gap-2 bg-canvas px-3 text-left text-sm text-fg hover:bg-hover"
-          onClick={() => {
+        <StepHeader expanded={!closed.has(r.s)} mark={<StatusDot tone={look.tone}/>}
+          meta={st.stopped && st.started ? duration(st.stopped - st.started) : look.text}
+          onToggle={() => {
             setClosed((c) => {
               const n = new Set(c);
               if (n.has(r.s)) n.delete(r.s);
               else n.add(r.s);
               return n;
             });
-          }}>
-          <StatusDot tone={look.tone}/>
-          <span className="min-w-0 flex-1 truncate font-medium">{st.name}</span>
-          <span className="text-fg-subtle tabular-nums">{st.stopped && st.started ? `${String(st.stopped - st.started)} s` : look.text}</span>
-        </button>
+          }}>{st.name}</StepHeader>
       );
     }
     const l = log.lines[r.l];
@@ -280,6 +183,7 @@ const JobLog = observer(function JobLog({repoId, job, scroller}: {repoId: number
   if (!count && !steps.length) {
     if (log.expired) return <EmptyState icon={Workflow} title="Log removed" description="This log was removed by the instance's log retention."/>;
     if (source === 'none' && !connectivity.online) return <EmptyState icon={Workflow} title="Not available offline" description="This job's log is not on this device."/>;
+    if (feed.closed) return <EmptyState icon={Workflow} title="Log not available" description={feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}/>;
     return <p className="px-4 py-3 text-sm text-fg-subtle">{job.task_id ? 'Waiting for the log…' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;

@@ -13,7 +13,7 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ListRow} from '../../ui/index.ts';
 import {useScrollMargin} from './Lines.tsx';
 
-const ROW = 32;
+export const ROW = 32;
 const rowSize = () => ROW;
 
 export interface RowParts {
@@ -31,21 +31,35 @@ interface RowListProps<T> {
   onOpen: (item: T) => void;
   /** Hover or the cursor reached it (fetch what opening it needs). */
   onIntent?: ((item: T) => void) | undefined;
+  /**
+   * A cursor owned by the page (the PR's file list follows the diff: one cursor, the file in view): shown
+   * whether or not the list has focus; moving it calls onCursor.
+   */
+  cursor?: number | undefined;
+  onCursor?: ((index: number) => void) | undefined;
 }
 
 function Item({id, start, active, parts, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; onClick: () => void; onEnter: () => void}) {
   return (
     <div className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(start)}px)`}}>
-      <ListRow role="option" id={id} active={active} leading={parts.leading} trailing={parts.trailing} onClick={onClick} onPointerEnter={onEnter}>
+      <ListRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} onClick={onClick} onPointerEnter={onEnter}>
         {parts.main}
       </ListRow>
     </div>
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, cursor: owned, onCursor}: RowListProps<T>) {
   const id = useId();
-  const [cursor, setCursor] = useState(0);
+  const [own, setOwn] = useState(0);
+  const cursor = owned ?? own;
+  const setCursor = (n: number) => {
+    if (onCursor) onCursor(n);
+    else setOwn(n);
+  };
+  // The cursor's edge shows while the list has focus (or always, for a page-owned cursor).
+  const [focused, setFocused] = useState(false);
+  const shown = focused || owned !== undefined;
   const [place, margin] = useScrollMargin(scroller);
   // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer re-renders this list itself (rows are not memoized)
   const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
@@ -74,12 +88,16 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent}: 
   };
   return (
     <div ref={place} role="listbox" tabIndex={0} aria-label={label} aria-activedescendant={items.length ? `${id}-${String(cursor)}` : undefined} data-shortcuts=""
-      onKeyDown={onKeyDown} className="relative outline-none focus-visible:outline-offset-0" style={{height: v.getTotalSize()}}>
+      onKeyDown={onKeyDown} onFocus={() => {
+        setFocused(true);
+      }} onBlur={() => {
+        setFocused(false);
+      }} className="relative focus-visible:outline-offset-0" style={{height: v.getTotalSize()}}>
       {v.getVirtualItems().map((it) => {
         const item = items[it.index];
         if (item === undefined) return null;
         return (
-          <Item key={keyOf(item)} id={`${id}-${String(it.index)}`} start={it.start - margin} active={it.index === cursor} parts={row(item)}
+          <Item key={keyOf(item)} id={`${id}-${String(it.index)}`} start={it.start - margin} active={shown && it.index === cursor} parts={row(item)}
             onClick={() => {
               setCursor(it.index);
               onOpen(item);

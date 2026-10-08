@@ -7,7 +7,7 @@
 // answer is lost — and drafts written on another commit are kept in the body.
 
 import 'fake-indexeddb/auto';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 import {FakeForgejo} from '../test/fakeForgejo.ts';
 import {World} from '../test/fakeTabs.ts';
 import {IntentDb} from '../intents/store.ts';
@@ -31,9 +31,10 @@ describe('review drafts and submit', () => {
     saveDraft(tab.intents, {...pr, anchor: {path: 'a.go', side: 'new', line: 4, commit: OLD}, text: 'older'});
     // Edit one in place (same key).
     saveDraft(tab.intents, {...pr, key, anchor: {path: 'b.go', side: 'old', line: 3, commit: HEAD}, text: 'why was this removed?'});
-    await world.settle(10);
     // Durable and shared: another tab and a reload see them.
-    expect(reviewDrafts(other.intents, 1).map((d) => d.text)).toEqual(['nit: name', 'why was this removed?', 'older']);
+    await vi.waitFor(() => {
+      expect(reviewDrafts(other.intents, 1).map((d) => d.text)).toEqual(['nit: name', 'why was this removed?', 'older']);
+    });
     expect((await new IntentDb(world.db).drafts()).filter((d) => d.anchor)).toHaveLength(3);
 
     submitReview(tab.intents, {...pr, head: HEAD, event: 'REQUEST_CHANGES', body: 'Please fix', drafts: reviewDrafts(tab.intents, 1)});

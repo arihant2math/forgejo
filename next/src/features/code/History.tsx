@@ -15,19 +15,13 @@ import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
 import {Avatar, Button, Code, EmptyState, Icon, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
-import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {DiffView} from './DiffView.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
+import {Ago, commitRow, Sha, summary} from './bits.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
-
-/** The first line of a commit message. */
-export function summary(message: string): string {
-  const nl = message.indexOf('\n');
-  return nl < 0 ? message : message.slice(0, nl);
-}
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
@@ -90,11 +84,7 @@ function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resol
   return (
     <>
       <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-        row={(c) => ({
-          leading: <Avatar name={c.authorName} size="sm"/>,
-          main: <>{summary(c.message)} <span className="text-fg-subtle">{c.authorName}</span></>,
-          trailing: <><span className="font-mono">{shortSha(c.sha)}</span><time dateTime={c.date} title={fullDate(c.date)}>{ago(c.date)}</time></>,
-        })}
+        row={commitRow}
         onOpen={(c) => {
           void navigate(codeTo(owner, repo, `commit/${c.sha}`));
         }}/>
@@ -143,9 +133,9 @@ function CommitMeta({owner, repo, c}: {owner: string; repo: string; c: CommitInf
       {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted">{body}</pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
         <span className="flex items-center gap-1.5"><Avatar name={c.authorName} size="sm"/><span className="text-fg">{c.authorName}</span></span>
-        <time dateTime={c.date} title={fullDate(c.date)}>{ago(c.date)}</time>
+        <Ago at={c.date}/>
         <span className="flex items-center gap-1"><Icon icon={GitCommitHorizontal} size="sm"/><Code>{c.sha}</Code></span>
-        {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><span className="font-mono">{shortSha(p)}</span></CodeLink></TextLink></span>)}
+        {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}
       </p>
     </>
   );

@@ -190,8 +190,11 @@
   /* The keyboard cursor's edge on a list row (row-cursor). */
   --cursor-width: 2px;
 
-  /* Code: tab stops (code-text). */
+  /* Code: tab stops (code-text); one character of the code font (code width from a line length);
+   * the indent of a diff's comment threads (under the two line-number gutters and the +/− column). */
   --code-tab-size: 4;
+  --code-char: 1ch;
+  --thread-indent: calc(var(--spacing-gutter) * 2 + var(--spacing) * 3);
 
   /* Disabled controls. */
   --opacity-disabled: 0.5;

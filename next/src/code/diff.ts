@@ -101,12 +101,11 @@ export function parseDiff(text: string): DiffFile[] {
         markNoEol(f);
         continue;
       } else {
-        // Malformed: end the hunk and read the line as a header.
+        // Malformed (the hunk is shorter than its header says): end it, and read this line as a header below.
         oldLeft = newLeft = 0;
+        hunk = undefined;
       }
-      if (oldLeft > 0 || newLeft > 0) continue;
-      hunk.count = f.lines.length - hunk.first;
-      continue;
+      if (hunk) continue;
     }
     if (line.startsWith('\\') && f) {
       markNoEol(f);

@@ -18,7 +18,7 @@ export interface AnsiSpan {
 const SLOTS: readonly AnsiColor[] = [7, 1, 2, 3, 4, 5, 6, 0];
 
 // eslint-disable-next-line no-control-regex -- matching escape sequences is the point
-const ESC = /\x1b(?:\[([0-9;:?]*)([A-Za-z])|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\-_])/g;
+const ESC = /\x1b(?:\[([0-9;:?]*)([A-Za-z])|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[()*+][0-9A-Za-z]|[@-Z\\-_])/g;
 
 /** Splits a log line into styled spans. */
 export function parseAnsi(raw: string): AnsiSpan[] {

@@ -181,3 +181,51 @@ describe('viewed files', async () => {
     expect(viewedAt(undefined, A, undefined).paths.size).toBe(0);
   });
 });
+
+describe('compare merge base', async () => {
+  const {baseCandidates, mergeBase} = await import('../features/code/Compare.tsx');
+  const c = (sha: string, parents: string[]) => ({sha, message: sha, authorName: '', authorEmail: '', authorLogin: '', date: '2026-01-01', parents});
+  test('a branch forked once: the oldest commit\'s parent', async () => {
+    const info = {commits: [c('h2', ['h1']), c('h1', ['m0'])], total: 2};
+    expect(baseCandidates(info, 'base')).toEqual(['m0']);
+    expect(await mergeBase({} as never, 1, 'base', info)).toBe('m0');
+  });
+  test('base merged into head after forking: the newest shared commit, not the fork point', async () => {
+    // x forked from m0; then base (m1, a child of m0) was merged into head as h.
+    const info = {commits: [c('h', ['x', 'm1']), c('x', ['m0'])], total: 2};
+    expect(baseCandidates(info, 'base')).toEqual(['m1', 'm0']);
+    const src = {compare: (_r: number, a: string, b: string) => Promise.resolve({commits: a === 'm0' && b === 'm1' ? [c('m1', ['m0'])] : [], total: 0})};
+    expect(await mergeBase(src as never, 1, 'base', info)).toBe('m1');
+  });
+});
+
+test('sizeOf counts ArrayBuffers (images) by their bytes', async () => {
+  const {sizeOf} = await import('./cache.ts');
+  expect(sizeOf({kind: 'image', bytes: new ArrayBuffer(3_000_000), type: 'image/png', size: 3_000_000})).toBeGreaterThan(3_000_000);
+});
+
+test('ANSI charset designations (tput sgr0) are dropped', () => {
+  expect(parseAnsi('\x1b(B\x1b[mok')).toEqual([{text: 'ok', color: 0, bold: false}]);
+});
+
+test('pr.viewed is "already done" only by the state saved for its own head', async () => {
+  const {Pool} = await import('../data/pool.ts');
+  const {effectHeld} = await import('../intents/effects.ts');
+  const pool = new Pool();
+  pool.batch(() => {
+    pool.put('PullRequest', 5, 'repo:1', 1, {id: 5, issue_id: 7} as never);
+    pool.put('ReviewState', 1, 'user:3', 2, {id: 1, user_id: 3, pull_id: 5, commit_sha: A, updated_files: {x: 2}, updated_at: '1'});
+  });
+  const i = (sha: string) => ({id: 'i', key: 'k', created: 0, issueId: 7, repoId: 1, kind: 'pr.viewed' as const, commitSha: sha, files: {x: true}});
+  expect(effectHeld(pool, i(A), 3)).toBe(true);
+  // Viewed at A, changed at B: marking it viewed at B must be sent.
+  expect(effectHeld(pool, i(B), 3)).toBe(false);
+});
+
+test('code paths with "." or ".." segments are refused (they would resolve away in request URLs)', async () => {
+  const {encodePath} = await import('./source.ts');
+  expect(parseCodePath('src/branch/main/x%2F..%2F..%2F1'.replace(/%2F/g, '/'))).toBeUndefined();
+  expect(parseCodePath('src/branch/main/./a')).toBeUndefined();
+  expect(() => encodePath('a/../b')).toThrow();
+  expect(encodePath('a b/c#d')).toBe('a%20b/c%23d');
+});

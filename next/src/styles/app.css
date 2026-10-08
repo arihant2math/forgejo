@@ -164,3 +164,27 @@
   white-space: pre;
   tab-size: var(--code-tab-size);
 }
+
+/* A code view's scroll container publishes its size (--view-width, --view-height, set from a
+ * ResizeObserver: features/code/Lines.tsx useViewSize); wide code scrolls sideways under parts that
+ * stay put. w-view: as wide as the view (a header pinned with sticky left-0); h-view: as tall (the
+ * space after a diff's last file, so it can reach the top). */
+@utility w-view {
+  width: var(--view-width, 100%);
+}
+
+@utility h-view {
+  height: var(--view-height, 0);
+}
+
+/* Code lines (F7) share one width — the longest line's (--code-chars, in the code font) — so line
+ * tints span every line and the rows scroll sideways together. */
+@utility min-w-code {
+  /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- tokens only, combined at the element (--code-chars is set there) */
+  min-width: max(100%, calc(var(--code-chars, 0) * var(--code-char) + var(--thread-indent) + var(--spacing) * 12));
+}
+
+/* A diff's comment threads start under the code (past the line numbers). */
+@utility pl-thread {
+  padding-left: var(--thread-indent);
+}

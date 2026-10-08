@@ -106,3 +106,8 @@ test('unquote: C-style escapes and UTF-8 octets', () => {
   expect(unquote('"tab\\there\\"q\\\\"')).toBe('tab\there"q\\');
   expect(unquote('plain')).toBe('plain');
 });
+
+test('a hunk shorter than its header does not swallow the next file', () => {
+  const f = parseDiff('diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n x\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-1\n+2\n');
+  expect(f.map((x) => [x.newPath, x.lines.length])).toEqual([['a.txt', 1], ['b.txt', 2]]);
+});

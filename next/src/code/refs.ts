@@ -41,6 +41,9 @@ export function withEnd(splat: string): string {
 export function parseCodePath(splat: string): CodeRoute | undefined {
   const segs = splat.split('/').filter((s) => s !== '');
   if (segs.at(-1) === END) segs.pop();
+  // "." and ".." would be resolved away when the path goes into a request URL (another repository, another
+  // endpoint): never a code path (git refuses them as names too).
+  if (segs.some((s) => s === '.' || s === '..')) return undefined;
   const [head, ...rest] = segs;
   switch (head) {
     case undefined:

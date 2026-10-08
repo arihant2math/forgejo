@@ -93,8 +93,9 @@ export function CodeLine({gutter, tone = 'none', active, trailing, children, ref
  */
 export function LineAction({label, onClick}: {label: string; onClick: () => void}) {
   return (
-    <span className="invisible flex items-center group-hover:visible focus-within:visible">
-      <button type="button" aria-label={label} title={label} onClick={onClick}
+    <span className="invisible flex items-center group-hover:visible group-data-active:visible">
+      {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
+      <button type="button" tabIndex={-1} aria-label={label} title={label} onClick={onClick}
         className="interactive flex size-control-sm items-center justify-center rounded-sm bg-accent text-fg-on-accent hover:bg-accent-hover">
         +
       </button>
@@ -103,9 +104,9 @@ export function LineAction({label, onClick}: {label: string; onClick: () => void
 }
 
 /** A line number cell (empty for 0: the other side of an added or removed line). */
-export function LineNo({n, label}: {n: number; label?: string | undefined}) {
+export function LineNo({n}: {n: number}) {
   return (
-    <span aria-label={label} className="w-gutter shrink-0 pr-2 text-right text-fg-subtle tabular-nums select-none">{n > 0 ? n : ''}</span>
+    <span className="w-gutter shrink-0 pr-2 text-right text-fg-subtle tabular-nums select-none">{n > 0 ? n : ''}</span>
   );
 }
 
@@ -118,6 +119,21 @@ export function BlameCell({first, summary, meta, children}: {first: boolean; sum
         {meta && <span className="shrink-0 text-fg-subtle tabular-nums">{meta}</span>}
       </>}
     </span>
+  );
+}
+
+/**
+ * A collapsible section header among code lines (a job step): one line high,
+ * a status mark, the name, and its meta (a duration) on the right.
+ */
+export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
+  return (
+    <button type="button" aria-expanded={expanded} onClick={onToggle}
+      className="interactive flex h-line w-full items-center gap-2 bg-canvas px-3 text-left font-sans text-sm text-fg hover:bg-hover">
+      {mark}
+      <span className="min-w-0 flex-1 truncate font-medium">{children}</span>
+      {meta && <span className="text-fg-subtle tabular-nums">{meta}</span>}
+    </button>
   );
 }
 
@@ -164,10 +180,7 @@ export function TabNav({label, children}: {label: string; children: ReactNode}) 
   return <nav aria-label={label} className="flex h-header shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4">{children}</nav>;
 }
 
-/**
- * One tab: wraps a router <Link>, which sets aria-current="page" on the
- * active route. Put a TabCount inside the link for a count.
- */
+/** One tab: wraps a router <Link>, which sets aria-current="page" on the active route. */
 export function TabLink({children}: {children: ReactElement}) {
   return (
     <Slot.Root className="interactive flex h-control shrink-0 items-center gap-1.5 rounded-md px-2.5 text-base whitespace-nowrap text-fg-muted hover:bg-hover hover:text-fg aria-[current=page]:bg-selected aria-[current=page]:text-fg">
@@ -176,7 +189,3 @@ export function TabLink({children}: {children: ReactElement}) {
   );
 }
 
-/** A count in a tab (muted, tabular). */
-export function TabCount({n}: {n: number}) {
-  return <span className="text-sm text-fg-subtle tabular-nums">{n}</span>;
-}

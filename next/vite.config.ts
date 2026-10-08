@@ -16,7 +16,7 @@ import {serviceWorker} from './tools/vite-plugin-sw.ts';
 // ("x is not a function"; e2e/boot.spec.ts catches it). The cost: internals
 // only a lazy route uses (menu/dialog ones) load at boot too (~5 KB br today).
 // floating-ui and react-remove-scroll's dependency tree are each one chunk.
-const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover']);
+const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover', 'toggle-group', 'toggle']);
 // Radix internals only menus and dialogs use (focus trapping, roving focus): their own chunk, off the boot
 // route (the tooltip, which the shell needs at boot, uses none of them). They import the shared internals,
 // never the other way round, so no chunk cycle (budget.ts fails on one; e2e/boot.spec.ts runs the build).

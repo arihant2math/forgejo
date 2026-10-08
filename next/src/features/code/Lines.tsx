@@ -42,6 +42,23 @@ const Line = memo(function Line({index, start, line}: {index: number; start: num
   );
 });
 
+/** Publishes the scroll container's size as --view-width / --view-height (the w-view and h-view utilities). */
+export function useViewSize(scroller: HTMLElement | null): void {
+  useLayoutEffect(() => {
+    if (!scroller) return undefined;
+    const set = () => {
+      scroller.style.setProperty('--view-width', `${String(scroller.clientWidth)}px`);
+      scroller.style.setProperty('--view-height', `${String(scroller.clientHeight)}px`);
+    };
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(scroller);
+    return () => {
+      ro.disconnect();
+    };
+  }, [scroller]);
+}
+
 /** Where an element starts inside its scroll container (what is above it scrolls with it), px. */
 export function useScrollMargin(scroller: HTMLElement | null): [(el: HTMLElement | null) => void, number] {
   const [el, setEl] = useState<HTMLElement | null>(null);

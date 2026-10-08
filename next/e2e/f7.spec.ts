@@ -179,10 +179,12 @@ test('switching to a cached file paints in < 100 ms', async ({page}, info) => {
   samples.sort((a, b) => a - b);
   const p50 = samples[Math.floor(samples.length / 2)] ?? 0;
   const max = samples.at(-1) ?? 0;
+  const p90 = samples[Math.floor(samples.length * 0.9)] ?? 0;
   console.log(`cached file switch (click → highlighted lines painted): p50 ${p50.toFixed(1)} ms, max ${max.toFixed(1)} ms over ${String(samples.length)}: ${samples.map((x) => x.toFixed(0)).join(' ')}`);
-  await info.attach('file-switch.json', {body: JSON.stringify({samples, p50, max}), contentType: 'application/json'});
+  await info.attach('file-switch.json', {body: JSON.stringify({samples, p50, p90, max}), contentType: 'application/json'});
+  // < 100 ms (PLAN Phase 4 exit); the single slowest sample is recorded, not asserted (shared vCPUs: GC, other load).
   expect(p50).toBeLessThan(100);
-  expect(max).toBeLessThan(150);
+  expect(p90).toBeLessThan(100);
 });
 
 test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({page}, info) => {

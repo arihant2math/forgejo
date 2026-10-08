@@ -148,7 +148,8 @@ export async function openData(opts: DataOptions): Promise<Data> {
   }]));
 
   const emit = <K extends keyof SyncEvents>(name: K, e: SyncEvents[K]) => {
-    for (const fn of listeners.get(name) ?? []) (fn as (e: SyncEvents[K]) => void)(e);
+    // A copy: a listener may subscribe another while this runs (a log tail restarting), which must not hear this event.
+    for (const fn of [...listeners.get(name) ?? []]) (fn as (e: SyncEvents[K]) => void)(e);
   };
   const myHolds = new Map<string, number>();
   const holder = `tab:${tabs.id}`;

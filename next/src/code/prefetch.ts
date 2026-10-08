@@ -80,7 +80,7 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
     }
     const pr = untracked(() => pullOf(pool, issueId));
     if (!pr) continue;
-    const c = untracked(() => poolCommits(pool, pr)) ?? await fetchCommits(app, src, pr);
+    const c = untracked(() => poolCommits(pool, pr, issue.state === 'open')) ?? await fetchCommits(app, src, pr);
     if (!c) continue;
     report.pulls.push(issueId);
     try {
@@ -90,7 +90,11 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
       let bytes = 0;
       for (const f of files.slice(0, MAX_FILES)) {
         if (signal?.aborted || f.binary || f.status === 'deleted') continue;
-        const content = await src.raw(pr.head_repo_id || pr.base_repo_id, c.head, filePath(f));
+        // What the file view reads: the head's tree entry, then the blob by its SHA (the base repository has
+        // the head's objects: refs/pull/N/head).
+        const entry = await src.entry(pr.base_repo_id, c.head, filePath(f));
+        if (entry?.type !== 'blob') continue;
+        const content = await src.blob(pr.base_repo_id, entry.sha, filePath(f), entry.size);
         bytes += content.size;
         report.files++;
         if (bytes > MAX_BYTES) break;
@@ -109,6 +113,11 @@ export function startPrefetch(app: App): void {
   started.add(s);
   const key = `forgejo-next:prefetch:${String(s.userId)}`;
   const run = () => {
+    // Signed out (or another user) since: stop.
+    if (app.session !== s) {
+      clearInterval(timer);
+      return;
+    }
     if (!navigator.onLine || saveData() || document.visibilityState !== 'visible') return;
     try {
       const last = Number(localStorage.getItem(key) ?? 0);
@@ -121,7 +130,7 @@ export function startPrefetch(app: App): void {
   };
   // The first run once the session had time to catch up; then a check every minute (runs every 15).
   setTimeout(run, 15_000);
-  setInterval(run, 60_000);
+  const timer = setInterval(run, 60_000);
 }
 
 const started = new WeakSet<object>();

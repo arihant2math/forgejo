@@ -29,6 +29,54 @@ export type {Highlight} from '../workers/code.worker.ts';
 /** Files above this size are not fetched for display (the classic UI's raw link is offered). */
 export const MAX_FILE = 4 * 1024 * 1024;
 
+/**
+ * Diffs above this size are not shown (nor cached, nor prefetched): B9 streams
+ * diffs without a limit, and one would be parsed, held and stored several
+ * times over (the classic UI caps diffs too).
+ */
+export const MAX_DIFF = 8 * 1024 * 1024;
+
+/** A highlight running longer than this is stopped (the text stays plain). */
+const HIGHLIGHT_LIMIT = 6000;
+
+/** Content too large to show here (status 413 for the views). */
+export class TooLarge extends RequestFailed {
+  override name = 'TooLarge';
+  constructor(what: string) {
+    super(413, `${what} is too large to show here.`);
+  }
+}
+
+/** Reads a text answer, stopping (TooLarge) beyond `max` bytes. */
+async function readCapped(res: Response, max: number): Promise<string> {
+  const declared = Number(res.headers.get('Content-Length') ?? 0);
+  if (declared > max || !res.body) {
+    void res.body?.cancel();
+    if (declared > max) throw new TooLarge('This diff');
+    return res.text();
+  }
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) {
+      void reader.cancel();
+      throw new TooLarge('This diff');
+    }
+    parts.push(value);
+  }
+  const all = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) {
+    all.set(p, at);
+    at += p.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 export type FileContent =
   | {kind: 'text'; text: string; size: number}
   | {kind: 'image'; bytes: ArrayBuffer; type: string; size: number}
@@ -58,8 +106,11 @@ export class NotCached extends Error {
 
 const IMAGES: Record<string, string> = {png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', ico: 'image/x-icon', bmp: 'image/bmp'};
 
-function encodePath(p: string): string {
-  return p.split('/').map(encodeURIComponent).join('/');
+/** A repository path for a request URL; "." and ".." segments are refused (the URL would resolve them away). */
+export function encodePath(p: string): string {
+  const segs = p.split('/');
+  if (segs.some((s) => s === '.' || s === '..' || s === '')) throw new RequestFailed(400, 'Not a path in a repository.');
+  return segs.map(encodeURIComponent).join('/');
 }
 
 /** Text or bytes: NUL in the first 8000 bytes means binary (git's rule). */
@@ -89,8 +140,9 @@ function commitInfo(c: ApiCommit): CommitInfo {
 
 export class CodeSource {
   readonly cache: CodeCache;
-  private worker: Worker | undefined;
-  private api: Remote<CodeWorkerApi> | undefined;
+  /** The worker module runs twice: a parser and a highlighter (stopped and replaced when a highlight runs away). */
+  private parser: {w: Worker; api: Remote<CodeWorkerApi>} | undefined;
+  private highlighter: {w: Worker; api: Remote<CodeWorkerApi>} | undefined;
   private readonly inflight = new Map<string, Promise<unknown>>();
   /** Diffs parsed in the worker this session (key → files); the worker keeps them for highlighting. */
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
@@ -110,14 +162,46 @@ export class CodeSource {
     });
   }
 
-  private code(): Remote<CodeWorkerApi> {
-    if (!this.api) {
-      const at = workerUrl.indexOf('assets/');
-      const url = at >= 0 ? `${this.app.config.base}${workerUrl.slice(at)}` : workerUrl;
-      this.worker = new Worker(appWorkerURL(this.app.config.base, url), {type: 'module', name: 'code'});
-      this.api = wrap<CodeWorkerApi>(this.worker);
+  private spawn(name: string): {w: Worker; api: Remote<CodeWorkerApi>} {
+    const at = workerUrl.indexOf('assets/');
+    const url = at >= 0 ? `${this.app.config.base}${workerUrl.slice(at)}` : workerUrl;
+    const w = new Worker(appWorkerURL(this.app.config.base, url), {type: 'module', name});
+    return {w, api: wrap<CodeWorkerApi>(w)};
+  }
+
+  private parse(): Remote<CodeWorkerApi> {
+    this.parser ??= this.spawn('code-parse');
+    return this.parser.api;
+  }
+
+  /**
+   * Runs a highlight with a watchdog: a TextMate grammar can backtrack for
+   * minutes on crafted text (a file in a pull request). Past HIGHLIGHT_LIMIT
+   * the highlighter is terminated (a new one starts with the next call) and
+   * the text is plain (null) — every call waiting on it too.
+   */
+  private async watched(run: (api: Remote<CodeWorkerApi>) => Promise<Highlight | null>): Promise<Highlight | null> {
+    this.highlighter ??= this.spawn('code-highlight');
+    const h = this.highlighter;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => {
+        resolve('timeout');
+      }, HIGHLIGHT_LIMIT);
+    });
+    try {
+      const r = await Promise.race([run(h.api), timeout]);
+      if (r !== 'timeout') return r;
+      if (this.highlighter === h) {
+        this.highlighter = undefined;
+        h.w.terminate();
+      }
+      return null;
+    } catch {
+      return null; // terminated under it (another call's timeout): plain
+    } finally {
+      clearTimeout(timer);
     }
-    return this.api;
   }
 
   /** One request per key at a time; cache first. `fetcher` returns the value to cache (and its size). */
@@ -233,7 +317,7 @@ export class CodeSource {
   diffText(repoId: number, base: string, head: string, signal?: AbortSignal): Promise<string> {
     return this.cached(CodeSource.diffKey(repoId, base, head), async () => {
       const res = await this.request('sync', `/repos/${String(repoId)}/diff/${base ? `${base}/` : ''}${head}`, signal);
-      return await res.text();
+      return await readCapped(res, MAX_DIFF);
     });
   }
 
@@ -247,10 +331,10 @@ export class CodeSource {
     const key = CodeSource.diffKey(repoId, base, head);
     let p = this.parsed.get(key);
     if (!p) {
-      p = this.diffText(repoId, base, head).then((text) => this.code().parseDiff(key, text));
+      p = this.diffText(repoId, base, head).then((text) => this.parse().parseDiff(text));
       p.then((files) => {
         this.parsedDone.set(key, files);
-        // A few parsed diffs stay in memory (the worker keeps the same number for highlighting).
+        // A few parsed diffs stay in memory.
         for (const k of this.parsedDone.keys()) {
           if (this.parsedDone.size <= 4) break;
           this.parsedDone.delete(k);
@@ -271,16 +355,16 @@ export class CodeSource {
 
   /** One file of a parsed diff, highlighted per diff line (null: plain). */
   async diffHighlight(repoId: number, base: string, head: string, index: number): Promise<Highlight | null> {
-    const key = CodeSource.diffKey(repoId, base, head);
-    await this.diff(repoId, base, head);
-    return this.code().highlightDiffFile(key, index);
+    const file = (await this.diff(repoId, base, head))[index];
+    return file ? this.watched((api) => api.highlightDiffFile(file)) : null;
   }
 
   /** A file's highlighting, cached by blob SHA (null: plain). */
   highlight(repoId: number, blobSha: string, path: string, text: string): Promise<Highlight | null> {
     const lang = langOf(path);
     if (!lang) return Promise.resolve(null);
-    return this.cached(`hl:${String(repoId)}:${blobSha}:${lang}`, () => this.code().highlight(text, lang));
+    // A timeout caches null: this content stays plain on this device (it would run away again).
+    return this.cached(`hl:${String(repoId)}:${blobSha}:${lang}`, () => this.watched((api) => api.highlight(text, lang)));
   }
 
   /** Highlighting already in memory (a file switched back to paints highlighted in its first frame). */
@@ -328,7 +412,8 @@ export class CodeSource {
   close(): void {
     this.off();
     this.cache.close();
-    this.worker?.terminate();
+    this.parser?.w.terminate();
+    this.highlighter?.w.terminate();
   }
 }
 

@@ -10,7 +10,7 @@
 
 import {untracked} from 'mobx';
 import type {App} from '../app/store.ts';
-import {online} from '../app/api.ts';
+import {online, RequestFailed} from '../app/api.ts';
 import type {Pool} from '../data/pool.ts';
 import type {PullRequest} from '../protocol/types.gen.ts';
 import {isSha} from './refs.ts';
@@ -38,8 +38,14 @@ export function poolHead(pool: Pool, pr: PullRequest): string | undefined {
   return undefined;
 }
 
-/** (merge base, head) from the pool, or undefined when the pool lacks one of them. */
-export function poolCommits(pool: Pool, pr: PullRequest): PullCommits | undefined {
+/**
+ * (merge base, head) from the pool, or undefined when the pool lacks one of
+ * them. Only for an open pull request: Forgejo stops following the head
+ * branch once one is merged or closed (refs/pull/N/head stays where it was),
+ * so the branch may have moved on since — those ask API v1 (`fetchCommits`).
+ */
+export function poolCommits(pool: Pool, pr: PullRequest, open: boolean): PullCommits | undefined {
+  if (!open || pr.merged) return undefined;
   const head = poolHead(pool, pr);
   return head && isSha(pr.merge_base) ? {base: pr.merge_base, head, from: 'pool'} : undefined;
 }
@@ -64,8 +70,9 @@ export async function fetchCommits(app: App, src: CodeSource, pr: PullRequest): 
         src.cache.put(hintKey(pr), c);
         return c;
       }
-    } catch {
-      // fall back to the hint
+    } catch (err) {
+      // Gone or not readable: say so (no stale hint). Unreachable: fall back to the hint.
+      if (err instanceof RequestFailed && (err.status === 403 || err.status === 404)) throw err;
     }
   }
   return src.cache.get<PullCommits>(hintKey(pr));

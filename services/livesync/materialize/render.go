@@ -6,7 +6,9 @@ package materialize
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -68,8 +70,8 @@ import (
 // then fail at once and the result is discarded. The deadline does not
 // interrupt work that looks nothing up (goldmark, the processors' regular
 // expressions: 64 KiB of owner/repo#1 references on one line take
-// minutes); what the writer and snapshots render at all is bounded by
-// loader.render (rendercost.go).
+// minutes); what the writer and snapshots render at all, and how long they
+// wait for it, is bounded by loader.render (rendercost.go).
 //
 // A rendering error is logged and yields an incomplete render (the raw body
 // is still sent); it must not stop the sync log.
@@ -77,10 +79,41 @@ func (l *loader) renderMarkdown(ctx context.Context, repo *repo_model.Repository
 	if content == "" || repo == nil {
 		return "", true
 	}
+	j := l.prepareRender(ctx, repo, content)
+	defer j.cancel()
+	html, err := j.run()
+	if err != nil {
+		j.logFailure(err)
+		return "", false
+	}
+	return html, true
+}
+
+// renderJob is one rendering of a body. prepareRender sets it up on the
+// caller's goroutine, with everything that reads the loader, the
+// repository or the caller's transaction; run uses only what the job
+// holds, so that it can run on a goroutine of its own (renderBounded).
+type renderJob struct {
+	rc      *markup.RenderContext
+	cancel  context.CancelFunc
+	gitRepo *git.Repository // nil when the repository could not be opened
+	known   map[string]bool // gitRepo's SHA cache (loader.commits)
+	content string
+	repoID  int64
+	name    string // the repository's full name, for logs
+}
+
+func (l *loader) prepareRender(ctx context.Context, repo *repo_model.Repository, content string) *renderJob {
 	renderCount.Add(1)
-	rc := &markup.RenderContext{
+	j := &renderJob{content: content, repoID: repo.ID, name: repo.FullName()}
+	j.rc = &markup.RenderContext{
 		Links: markup.Links{Base: repo.Link()},
-		Metas: repo.ComposeMetas(ctx),
+		// A copy: ComposeMetas returns the repository's cached map, which
+		// renderEnv encodes, and issueIndexPatternProcessor writes
+		// Metas["index"] for every external tracker reference it links
+		// (an abandoned rendering would write it while the loader reads
+		// it, and an earlier rendering's "index" would change renderEnv).
+		Metas: maps.Clone(repo.ComposeMetas(ctx)),
 	}
 	gitRepo, ok := l.gitRepos[repo.ID]
 	if !ok {
@@ -91,35 +124,56 @@ func (l *loader) renderMarkdown(ctx context.Context, repo *repo_model.Repository
 		}
 		l.gitRepos[repo.ID] = gitRepo
 	}
-	rctx, cancel := renderContext(ctx)
-	defer cancel()
-	rc.Ctx = rctx
+	var rctx context.Context
+	rctx, j.cancel = renderContext(ctx)
+	j.rc.Ctx = rctx
 	if gitRepo != nil {
-		rc.GitRepo = gitRepo
-		known := l.commits[repo.ID]
-		if known == nil {
-			known = map[string]bool{}
-			l.commits[repo.ID] = known
+		j.gitRepo, j.rc.GitRepo = gitRepo, gitRepo
+		j.known = l.commits[repo.ID]
+		if j.known == nil {
+			j.known = map[string]bool{}
+			l.commits[repo.ID] = j.known
 		}
-		prefillCommits(rctx, gitRepo, content, known)
-		rc.ShaExistCache = known
+		j.rc.ShaExistCache = j.known
 	} else {
 		// Without repoPath the SHA processor does not try to open it.
-		metas := maps.Clone(rc.Metas)
-		delete(metas, "repoPath")
-		rc.Metas = metas
+		delete(j.rc.Metas, "repoPath")
 	}
-	html, err := markdown.RenderString(rc, content)
-	if rctx.Err() != nil {
-		metrics.RenderSkipped.WithLabelValues("timeout").Inc()
-		log.Warn("livesync: rendering a body of %d bytes in %s took longer than %s; it is sent without HTML", len(content), repo.FullName(), renderTimeout)
-		return "", false
+	return j
+}
+
+// errRenderTimeout: the rendering's context ended before it was done (its
+// lookups failed, so its result is not used).
+var errRenderTimeout = errors.New("livesync: rendering timed out")
+
+// run renders the job's body. A panic of the markup service is an error
+// (it may run on a goroutine of its own, where it would end the process).
+func (j *renderJob) run() (html string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			html, err = "", fmt.Errorf("livesync: rendering panicked: %v\n%s", r, debug.Stack())
+		}
+	}()
+	if j.gitRepo != nil {
+		prefillCommits(j.rc.Ctx, j.gitRepo, j.content, j.known)
+	}
+	out, err := markdown.RenderString(j.rc, j.content)
+	if j.rc.Ctx.Err() != nil {
+		return "", errRenderTimeout
 	}
 	if err != nil {
-		log.Warn("livesync: render markdown of %s: %v", repo.FullName(), err)
-		return "", false
+		return "", err
 	}
-	return stripFilePreviews(string(html)), true
+	return stripFilePreviews(string(out)), nil
+}
+
+func (j *renderJob) logFailure(err error) {
+	if errors.Is(err, errRenderTimeout) {
+		metrics.RenderSkipped.WithLabelValues("timeout").Inc()
+		log.Warn("livesync: rendering a body of %d bytes in %s took longer than %s; it is sent without HTML", len(j.content), j.name, renderTimeout)
+		return
+	}
+	log.Warn("livesync: render markdown of %s: %v", j.name, err)
 }
 
 // renderTimeout bounds one rendering of a body (renderMarkdown). A
@@ -151,10 +205,14 @@ var errRenderBudget = errors.New("livesync: the markdown of the batch took longe
 // (sent with body_truncated, its HTML rendered on request by GET
 // /-/sync/api/bodies):
 //   - a body whose renderCost exceeds maxRenderCost is not rendered (a
-//     function of the body and so the same in the log and in snapshots);
+//     function of the body and its repository's metas, and so the same in
+//     the log and in snapshots);
+//   - while maxAbandonedRenders abandoned renderings run, nothing is
+//     rendered;
 //   - with l.share (the writer's loaders), a body is not rendered while
 //     the writer's render share, overall or of the body's repository, is
 //     used up, and the time each rendering takes is charged to it;
+//   - a rendering is waited for at most renderWait (renderBounded);
 //   - once the time spent rendering with l reaches l.budget, a strict
 //     loader returns errRenderBudget and a lenient one renders nothing
 //     more.
@@ -168,9 +226,14 @@ func (l *loader) render(ctx context.Context, repo *repo_model.Repository, conten
 	if content == "" || repo == nil {
 		return "", true, nil
 	}
-	if cost := renderCost(content); cost > maxRenderCost {
+	if cost := renderCost(content, repo.ComposeMetas(ctx)); cost > maxRenderCost {
 		metrics.RenderSkipped.WithLabelValues("cost").Inc()
 		log.Debug("livesync: not rendering a body of %d bytes in %s, estimated to take %s; it is sent without HTML", len(content), repo.FullName(), cost)
+		return "", false, nil
+	}
+	if n := abandonedRenders.Load(); n >= maxAbandonedRenders {
+		metrics.RenderSkipped.WithLabelValues("busy").Inc()
+		log.Debug("livesync: %d abandoned renderings still run; a body of %s is sent without HTML", n, repo.FullName())
 		return "", false, nil
 	}
 	if l.share != nil && !l.share.allow(repo.ID) {
@@ -178,15 +241,102 @@ func (l *loader) render(ctx context.Context, repo *repo_model.Repository, conten
 		log.Debug("livesync: the writer's render share of %s is used up; a body is sent without HTML", repo.FullName())
 		return "", false, nil
 	}
-	start := time.Now()
-	html, complete := l.renderMarkdown(ctx, repo, content)
-	took := time.Since(start)
-	l.spent += took
+	html, complete, waited := l.renderBounded(ctx, repo, content)
+	l.spent += waited
 	if l.share != nil {
-		l.share.charge(repo.ID, took)
+		l.share.charge(repo.ID, waited)
 	}
-	metrics.RenderSeconds.Add(took.Seconds())
+	metrics.RenderSeconds.Add(waited.Seconds())
 	return html, complete, nil
+}
+
+// renderWait is the longest loader.render waits for a rendering. A body
+// estimated to render within maxRenderCost normally takes a few
+// milliseconds; one that takes longer than renderWait is one the estimate
+// does not know about. A variable so that tests can change it.
+var renderWait = time.Second
+
+// maxAbandonedRenders bounds the abandoned renderings (renderBounded) that
+// run at a time, i.e. the CPU they take: while that many run, loader.render
+// renders nothing (one abandoned per loader rendering at that moment may
+// go beyond it: the writer and each snapshot being built). A variable so
+// that tests can change it.
+var maxAbandonedRenders int64 = 2
+
+// abandonedRenders counts the abandoned renderings that still run.
+var abandonedRenders atomic.Int64
+
+// renderBounded is renderMarkdown on a goroutine of its own, waited for at
+// most renderWait; waited is how long the caller waited. A rendering that
+// takes longer is abandoned: its context is cancelled (its lookups fail at
+// once from then on), the body is incomplete, and the goroutine runs to its
+// end (goldmark and the post-processors cannot be interrupted) with the
+// loader's git repository of the body's repository and its SHA cache,
+// which the loader gives up (it opens another one if it needs one), and
+// closes it. What it took beyond renderWait is charged to the repository's
+// render share then (renderShare.chargeRepo).
+func (l *loader) renderBounded(ctx context.Context, repo *repo_model.Repository, content string) (html string, complete bool, waited time.Duration) {
+	j := l.prepareRender(ctx, repo, content)
+	done := make(chan renderResult, 1)
+	start := time.Now()
+	go func() {
+		html, err := j.run()
+		done <- renderResult{html, err}
+	}()
+	timer := time.NewTimer(renderWait)
+	defer timer.Stop()
+	var r renderResult
+	select {
+	case r = <-done:
+	case <-timer.C:
+		select {
+		case r = <-done: // done just in time
+		default:
+			return "", false, l.abandon(j, done, start)
+		}
+	}
+	j.cancel()
+	waited = time.Since(start)
+	if r.err != nil {
+		j.logFailure(r.err)
+		return "", false, waited
+	}
+	return r.html, true, waited
+}
+
+type renderResult struct {
+	html string
+	err  error
+}
+
+// abandon leaves job j, still running, to a goroutine that waits for its
+// end (done) and then releases what it holds (see renderBounded). It
+// returns how long the caller waited.
+func (l *loader) abandon(j *renderJob, done <-chan renderResult, start time.Time) time.Duration {
+	j.cancel()
+	waited := time.Since(start)
+	if j.gitRepo != nil {
+		delete(l.gitRepos, j.repoID)
+		delete(l.commits, j.repoID)
+	}
+	abandonedRenders.Add(1)
+	metrics.RenderSkipped.WithLabelValues("abandoned").Inc()
+	log.Warn("livesync: rendering a body of %d bytes in %s takes longer than %s; it is sent without HTML", len(j.content), j.name, waited)
+	share := l.share
+	go func() {
+		defer abandonedRenders.Add(-1)
+		<-done
+		took := time.Since(start)
+		if j.gitRepo != nil {
+			j.gitRepo.Close()
+		}
+		if share != nil {
+			share.chargeRepo(j.repoID, took-waited)
+		}
+		metrics.RenderSeconds.Add((took - waited).Seconds())
+		log.Info("livesync: an abandoned rendering of a body of %d bytes in %s ended after %s", len(j.content), j.name, took)
+	}()
+	return waited
 }
 
 // stripFilePreviews replaces each file preview box of rendered markdown

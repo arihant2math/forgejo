@@ -3468,6 +3468,83 @@ does) **and** MySQL 8.0 (binlog on).
     under `TestLivesyncBootstrapConvergence`'s concurrent comment writers (B6 notes; the test passes);
     `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); the fork-diff check (§2.2)
     is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+- [x] **Round 3** — 2026-10-08: 1 verified finding (major) fixed.
+- **Notes/decisions:**
+  - **(R3-1, major) Round 2's `renderCost` missed CPU-bound inputs: one cheap post still froze the global writer for
+    17–43 s, and the render share let it repeat.** The audit's bodies: 13 000 × `# a` (52 KB, any repository: goldmark's
+    heading ids `a`, `a-1`, … are found by trying every suffix in turn, quadratic) — estimated 26 ms, rendered 17.5 s
+    in `Consume`; and 10 900 × `ABC-1 ` in a repository whose external tracker has the alphanumeric style (any owner can
+    set it) — `issueIndexPatternProcessor` runs `FindRenderizableReferenceNumeric` and the style's pattern over the rest
+    of the text node before each reference it links — estimated 33 ms, 43 s. `renderTimeout` cannot interrupt CPU work,
+    and the share's `allow` (before) / `charge` (after) let any one body run to its end, so a second 43 s body followed the
+    first. **Root cause:** the writer ran the rendering itself, so any input the estimate did not know cost the writer its
+    full rendering time. A scratch probe of ~110 body shapes (CommonMark's pathological inputs, Forgejo's processors,
+    external tracker styles; 64 KiB each, SQLite) found more of the class: 16 000 empty headings 43 s, a table header of
+    1 000 cells over 30 000 one-`|` rows 31 s (rows are padded to the header), 8 000 setext headings 6 s, `a**b` +
+    21 000 × `c* ` 3.4 s, 32 000 nested `-\t` markers 2.6 s, `*a_ ` × 16 000 2.4 s, `[a](b` × 13 000 1 s, 5 000
+    fenced `go` blocks 0.5 s, `!1 ` × 20 000 then one `ABC-1` (alphanumeric style) 103 s. Two changes:
+    1. **The writer waits for a rendering for at most `renderWait` (1 s) and abandons a slower one**
+       (`loader.renderBounded`, used by `loader.render`, i.e. the writer and snapshots). `renderMarkdown` is split into
+       `prepareRender` (on the caller's goroutine: the metas, the loader's git repository and SHA cache, the render
+       context) and `renderJob.run` (only what the job holds; a markup panic becomes an error). The job runs on its own
+       goroutine; when the wait ends first the job's context is cancelled (its lookups fail at once), the body is sent
+       with `body_truncated` (HTML from `GET /-/sync/api/bodies` on request), the loader gives the job its git
+       repository and SHA cache (`l.gitRepos` / `l.commits` entries removed; the next rendering of that repository opens
+       another), and a goroutine waits for the job's end, closes the repository and charges the time beyond the wait to
+       the repository's render share (`renderShare.chargeRepo`; the overall bucket is charged only what the writer
+       waited, and `renderShare` now has its own mutex). **At most `maxAbandonedRenders` (2) abandoned renderings run at
+       a time** (`abandonedRenders`); while they do, `loader.render` renders nothing (reason `busy`), so abandoned work
+       takes at most two cores; a loader rendering at that moment may add one beyond the cap (the writer is one goroutine;
+       snapshots being built concurrently are not counted ahead). So one body costs the writer at most ≈ 1 s, the share's
+       overdraft is bounded by `renderWait` instead of by the rendering, and the worst an attacker gets is bodies without
+       HTML (fetched on request) while two cores run their renderings — not a frozen sync log. Unchanged: on-request
+       renderings (`FullBody.Render`, `RenderPreview`) stay synchronous with `renderTimeout` (upstream behaviour, see
+       round 2).
+    2. **`renderCost` counts the superlinear constructs** (`structureCost`, a line scan that errs on counting more; it now
+       takes the repository's metas): (headings + footnotes)² × 170 ns (any ATX heading after container markers, any line
+       of only `=`/`-` as a setext underline, every `[^`; the ids are made of rendered text, so which headings collide is
+       not knowable from the source and all are counted), Σ per line (block quote/list markers)² × 3 ns, table cells
+       ((max `|` per line + 1) × lines × 1 µs, when a delimiter row exists), fence lines × 50 µs, per paragraph (`*` + `_`)²
+       × 8 ns and `[`² × 6 ns, and for the alphanumeric/regexp tracker styles, per text node (a line with
+       `EnableHardLineBreakInComments`, else a paragraph) containing a match of the style's pattern, (style matches +
+       `#N`/`!N` refs) × bytes × 100 ns. Each constant is the slowest measured rate of its construct; the slow bodies
+       above are all over `maxRenderCost` now (estimates about 1–5× the measured time), and ordinary long documents (100
+       sections with lists, code, tables), 64 KiB of text, an alphanumeric changelog and one reference per line stay under
+       it. Linear but slow-ish inputs are left to the bounded wait: chroma highlights a fenced block at up to ≈ 5 µs per
+       byte (64 KiB of `html` or `c`: 0.25–0.35 s). The estimate is the first line (most bodies of the class never reach
+       a goroutine); the bounded wait is what makes an unknown slow input harmless.
+    **Also fixed on the way:** `issueIndexPatternProcessor` writes `Metas["index"]` into the map it is given, and
+    `renderMarkdown` passed `repo.ComposeMetas`'s cached map, so a rendering with an external tracker reference changed
+    the repository's `renderEnv` (and so entity change hashes) for later loaders using that repository object — and an
+    abandoned rendering would have written the map concurrently. `prepareRender` renders with a copy. New label values of
+    `forgejo_livesync_render_skipped_total{reason}`: `abandoned`, `busy`. SURFACE.md's markup row lists the measured
+    constructs, the `Metas["index"]` write and the reliance on the markup service being safe on several goroutines.
+    Tests: `TestRenderCost` (the audit's two bodies and every probe shape above over the limit with their measured
+    times in the case names; ordinary long document, text, changelog, numeric refs in an alphanumeric repository,
+    alphanumeric refs in a numeric one under it; without hard line breaks a paragraph is one text node),
+    `TestConsumeRenderAbandoned` (`maxRenderCost` = 1 h so that 5 000 empty headings reach the writer, `renderWait`
+    = 100 ms: `Consume` returns in < 1 s with that body truncated and the batch's other body rendered; with
+    `maxAbandonedRenders` = 1 the next body is not rendered (`renderCount`); after the abandoned rendering ends its time
+    is charged to repository 1's share and rendering resumes), `TestRenderBounded` (fast render waited for; slow one
+    abandoned with the loader's git repository and SHA cache handed over; the next rendering opens another repository
+    and links a commit), `TestRenderKeepsMetas` (repo 48, alphanumeric tracker: no `index` in the cached metas, same
+    `renderEnv` after rendering — fails without the copy), integration `TestLivesyncAuditBodies` "superlinear body" (a
+    comment set to 13 000 × `# a` with SQL — upstream's own API v1 post of it takes ≈ 50 s in mention/reference
+    parsing — then a comment posted through API v1: its entry arrives within 5 s, rendered; the slow one is truncated
+    without HTML). **Sensitivity checked:** with `structureCost` disabled and `renderWait` = 1 h (round 2's behaviour)
+    the integration subtest fails (16 s); with only `structureCost` disabled it passes through abandonment (the log shows
+    the abandon warning).
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...`
+    and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `next/tools/gen-protocol.sh --check` (up to date, no protocol type changed); unit tests of `models/livesync`,
+    `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green);
+    `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**,
+    0 fail, no testlogger "FATAL ERROR", no rendering abandoned in the suite; `next/tools/dev-forgejo.sh conformance all`
+    (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`,
+    `cmd/web.go`, `go.mod`, `go.sum`).
+  - **Seen, not in scope:** posting such a body through API v1 takes upstream ≈ 28 s in `references.FindAllMentionsMarkdown`
+    + `FindAllIssueReferencesMarkdown` alone (both render it with goldmark), inside the comment's request; that is upstream
+    behaviour and no livesync path.
 
 
 ### Frontend

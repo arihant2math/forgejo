@@ -9,7 +9,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"forgejo.org/models/db"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/setting"
 	api "forgejo.org/modules/structs"
@@ -105,6 +107,32 @@ func TestLivesyncAuditBodies(t *testing.T) {
 			assert.Equal(t, mentions, b.Body)
 			assert.Equal(t, 2000, strings.Count(b.BodyHTML, `class="mention"`))
 			assert.False(t, b.Truncated)
+		})
+
+		// Round 3: a body whose rendering grows faster than the body (13 000
+		// identical headings: 17 s of CPU that no deadline interrupts) is not
+		// rendered by the writer either: a comment written right after it is
+		// not held up. (The body is written with SQL: upstream's own
+		// mention and reference parsing take half a minute to post it.)
+		t.Run("superlinear body", func(t *testing.T) {
+			id := comment("user2/repo1", 1, "soon slow")
+			livesyncSettle(t)
+			cursor := livesyncLogHead(t)
+			headings := strings.Repeat("# a\n", 13000)
+			_, err := db.GetEngine(t.Context()).Exec("UPDATE `comment` SET content = ? WHERE id = ?", headings, id)
+			require.NoError(t, err)
+			start := time.Now()
+			cheap := comment("user2/repo1", 1, "thanks *again*")
+			e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, cheap, protocol.OpUpsert))
+			assert.Less(t, time.Since(start), 5*time.Second)
+			c := livesyncPayload[protocol.Comment](t, e)
+			assert.Contains(t, c.BodyHTML, "<em>again</em>")
+			assert.False(t, c.BodyTruncated)
+			e = livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, id, protocol.OpUpsert))
+			c = livesyncPayload[protocol.Comment](t, e)
+			assert.Equal(t, headings, c.Body)
+			assert.Empty(t, c.BodyHTML)
+			assert.True(t, c.BodyTruncated)
 		})
 
 		t.Run("no file previews", func(t *testing.T) {

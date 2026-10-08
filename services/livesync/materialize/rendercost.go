@@ -9,10 +9,14 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"forgejo.org/modules/git"
+	"forgejo.org/modules/markup"
 	"forgejo.org/modules/references"
+	"forgejo.org/modules/regexplru"
+	"forgejo.org/modules/setting"
 )
 
 // The writer renders the bodies of the sync log one after the other, for
@@ -20,13 +24,21 @@ import (
 // So what a body costs to render is what one poster can take from every
 // reader's latency, and a body is cheap to post: API v1 has no rate limit
 // by default and a 64 KiB body of @mentions took 1.45 s to render (backend
-// audit, round 2). Three bounds keep the writer's rendering in proportion:
+// audit, round 2), one of 13 000 identical headings 17 s (round 3). Four
+// bounds keep the writer's rendering in proportion:
 //
 //   - renderCost estimates a body's rendering time from the markup
-//     features that look something up, before rendering it; a body over
+//     features that look something up and the constructs whose rendering
+//     grows faster than the body, before rendering it; a body over
 //     maxRenderCost is not rendered by the writer (or a snapshot) at all:
 //     it is sent with body_truncated, and a client that shows it gets its
 //     HTML from GET /-/sync/api/bodies, rendered on that request.
+//   - the writer waits for a rendering for at most renderWait
+//     (loader.renderBounded): the estimate cannot know every slow input of
+//     goldmark and the post-processors, and their CPU work cannot be
+//     interrupted, so a rendering that takes longer is abandoned to its
+//     goroutine (body_truncated); at most maxAbandonedRenders of those
+//     run at a time, and while they do the writer renders nothing.
 //   - prefillCommits answers the commit SHA lookups of a rendering with
 //     one git process instead of one per missing SHA.
 //   - renderShare bounds the share of the writer's time that rendering
@@ -55,13 +67,49 @@ const (
 	// quadratic (1 000 on one line: 360 ms, 3 000: 3.6 s, and renderTimeout
 	// does not interrupt it); the square of the body's count is a bound.
 	costPerCrossRefSquared = 400 * time.Nanosecond
+
+	// The constructs below (backend audit, round 3) are counted by
+	// structureCost; each was measured with 64 KiB bodies made of it.
+
+	// costPerIDSquared: every heading (and footnote) gets an id, and the
+	// ids of identical headings are found by trying -1, -2, … in turn
+	// (modules/markup/markdown prefixedIDs): 16 000 empty headings took
+	// 43 s. Which headings share an id is not known from the source (the
+	// id is made of the rendered text), so the square of their count is
+	// the bound.
+	costPerIDSquared = 170 * time.Nanosecond
+	// costPerNestingSquared: block quote and list markers opened on one
+	// line ("- - - …": 32 000 took 2.6 s), per line.
+	costPerNestingSquared = 3 * time.Nanosecond
+	// costPerTableCell: a table row has as many cells as its header (the
+	// missing ones are added): 1 000 columns and 30 000 rows of "|" took
+	// 31 s.
+	costPerTableCell = time.Microsecond
+	// costPerFence: a fenced code block is highlighted (5 000 blocks of
+	// one line: 0.5 s, about 50 µs per fence line).
+	costPerFence = 50 * time.Microsecond
+	// costPerDelimiterSquared: emphasis delimiters ('*', '_') of one
+	// paragraph that do not pair up ("a**b" + "c* " x 21 000: 3.4 s).
+	costPerDelimiterSquared = 8 * time.Nanosecond
+	// costPerBracketSquared: link openers of one paragraph that do not
+	// close ("[a](b" x 13 000: 1 s).
+	costPerBracketSquared = 6 * time.Nanosecond
+	// costPerTrackerScan: with an external tracker's alphanumeric or
+	// regexp issue style, issueIndexPatternProcessor looks for the first
+	// numeric and the first external reference in the rest of the text
+	// node before each reference it links, and these regular expressions
+	// (with submatches) run at about 100 ns per byte: references x bytes
+	// of the text node ("ABC-1 " x 10 900: 43 s; "!1 " x 20 000 then one
+	// "ABC-1": 103 s).
+	costPerTrackerScan = 100 * time.Nanosecond
 )
 
 // maxRenderCost is the most a body may be estimated to cost for the writer
 // to render it. Ordinary bodies cost a few milliseconds; it takes about
-// 1 600 mentions, 16 file permalinks, 800 cross-repository references or
-// 3 500 SHA-like words to exceed it; 64 KiB of plain text costs 33 ms,
-// 64 KiB of #1 references 240 ms. A variable so that tests can change it.
+// 1 600 mentions, 16 file permalinks, 800 cross-repository references,
+// 3 500 SHA-like words, 1 200 headings, 5 000 fenced code blocks or 250 000
+// table cells to exceed it; 64 KiB of plain text costs 33 ms, 64 KiB of #1
+// references 240 ms. A variable so that tests can change it.
 var maxRenderCost = 250 * time.Millisecond
 
 var (
@@ -74,12 +122,16 @@ var (
 	// crossRef is a superset of references' cross-repository issue
 	// reference (owner/repo#1, owner/repo!1).
 	crossRef = regexp.MustCompile(`[0-9A-Za-z_.-]+/[0-9A-Za-z_.-]+[#!][0-9]+`)
+	// alphanumericRef is a superset of references' alphanumeric issue
+	// reference (ABC-123).
+	alphanumericRef = regexp.MustCompile(`[A-Z]{1,10}-[1-9][0-9]*`)
 )
 
 // renderCost estimates the time renderMarkdown takes to render content
-// (see the cost constants). Over-estimates are safe: such a body is only
-// rendered on request instead of by the writer.
-func renderCost(content string) time.Duration {
+// with the markup metas of its repository (see the cost constants; metas
+// may be nil). Over-estimates are safe: such a body is only rendered on
+// request instead of by the writer.
+func renderCost(content string, metas map[string]string) time.Duration {
 	cost := time.Duration(len(content)) * costPerByte
 	cost += time.Duration(len(references.FindAllMentionsBytes([]byte(content)))) * costPerMention
 	cost += time.Duration(len(commitCandidates(content))) * costPerCommit
@@ -88,7 +140,167 @@ func renderCost(content string) time.Duration {
 	cost += time.Duration(len(issueRef.FindAllStringIndex(content, -1))) * costPerRef
 	refs := time.Duration(len(crossRef.FindAllStringIndex(content, -1)))
 	cost += refs * refs * costPerCrossRefSquared
+	return cost + structureCost(content, metas)
+}
+
+// structureCost is the part of renderCost for the constructs whose
+// rendering grows faster than the body (round 3 of the backend audit; the
+// cost constants from costPerIDSquared on). It reads the source line by
+// line, with a coarse idea of markdown's blocks that errs on the side of
+// counting more: a line's leading block quote and list markers, headings
+// (ATX, and any line of only '=' or '-' as a setext underline), table
+// delimiter rows, fences; paragraphs end at blank lines.
+func structureCost(content string, metas map[string]string) time.Duration {
+	var (
+		ids, fences, lines, maxPipes int
+		table                        bool
+		nesting, inline, tracker     int64
+		// The emphasis delimiters and link openers of the paragraph so far.
+		delims, brackets int64
+		paraStart        int
+	)
+	trackerRefs := trackerPattern(metas)
+	// Whether each line is a text node of its own (a soft line break is
+	// rendered as <br>, see modules/markup/markdown's ASTTransformer).
+	hardBreaks := setting.Markdown.EnableHardLineBreakInComments
+	// The processor stops at the first text without an external reference
+	// (a numeric reference is linked only when one follows), so each
+	// external and each numeric reference costs up to a scan of the
+	// segment.
+	scan := func(segment string) {
+		if trackerRefs == nil || segment == "" {
+			return
+		}
+		if k := len(trackerRefs.FindAllStringIndex(segment, -1)); k > 0 {
+			k += len(issueRef.FindAllStringIndex(segment, -1))
+			tracker += int64(k) * int64(len(segment))
+		}
+	}
+	endParagraph := func(end int) {
+		inline += delims*delims*int64(costPerDelimiterSquared) + brackets*brackets*int64(costPerBracketSquared)
+		delims, brackets = 0, 0
+		if !hardBreaks {
+			scan(content[paraStart:end])
+		}
+	}
+	for start := 0; start < len(content); {
+		end := strings.IndexByte(content[start:], '\n')
+		if end < 0 {
+			end = len(content)
+		} else {
+			end += start
+		}
+		line := strings.TrimSuffix(content[start:end], "\r")
+		lines++
+		if strings.TrimSpace(line) == "" {
+			endParagraph(start)
+			paraStart = end + 1
+			start = end + 1
+			continue
+		}
+		depth, rest := containerMarkers(line)
+		nesting += int64(depth) * int64(depth)
+		if isATXHeading(rest) || isUnderline(rest) || isUnderline(strings.TrimLeft(line, " \t>")) {
+			ids++
+		}
+		if strings.HasPrefix(rest, "```") || strings.HasPrefix(rest, "~~~") {
+			fences++
+		}
+		pipes := strings.Count(line, "|")
+		maxPipes = max(maxPipes, pipes)
+		if !table && isDelimiterRow(rest) {
+			table = true
+		}
+		delims += int64(strings.Count(line, "*") + strings.Count(line, "_"))
+		brackets += int64(strings.Count(line, "["))
+		if hardBreaks {
+			scan(line)
+		}
+		start = end + 1
+	}
+	endParagraph(len(content))
+	ids += strings.Count(content, "[^") // footnotes take ids from the same set
+	cost := time.Duration(ids) * time.Duration(ids) * costPerIDSquared
+	cost += time.Duration(nesting) * costPerNestingSquared
+	cost += time.Duration(fences) * costPerFence
+	cost += time.Duration(inline)
+	cost += time.Duration(tracker) * costPerTrackerScan
+	if table {
+		cost += time.Duration(maxPipes+1) * time.Duration(lines) * costPerTableCell
+	}
 	return cost
+}
+
+// containerMarkers returns how many block quote ('>') and list item ("-",
+// "*", "+", "1.", "1)") markers line starts with, and the rest of it.
+func containerMarkers(line string) (int, string) {
+	depth := 0
+	for {
+		line = strings.TrimLeft(line, " \t")
+		switch {
+		case line == "":
+			return depth, line
+		case line[0] == '>':
+			line = line[1:]
+		case strings.IndexByte("-*+", line[0]) >= 0 && markerEnd(line, 1):
+			line = line[1:]
+		default:
+			n := 0
+			for n < len(line) && n < 9 && line[n] >= '0' && line[n] <= '9' {
+				n++
+			}
+			if n == 0 || n == len(line) || (line[n] != '.' && line[n] != ')') || !markerEnd(line, n+1) {
+				return depth, line
+			}
+			line = line[n+1:]
+		}
+		depth++
+	}
+}
+
+// markerEnd says whether a list marker ending at i of line is followed by
+// a space, a tab or the end of the line.
+func markerEnd(line string, i int) bool {
+	return i == len(line) || line[i] == ' ' || line[i] == '\t'
+}
+
+func isATXHeading(s string) bool {
+	n := 0
+	for n < len(s) && s[n] == '#' {
+		n++
+	}
+	return n >= 1 && n <= 6 && markerEnd(s, n)
+}
+
+// isUnderline says whether s is made of '=' or of '-' only (and spaces at
+// the end): a setext heading's underline (or a thematic break).
+func isUnderline(s string) bool {
+	s = strings.TrimRight(s, " \t\r")
+	return s != "" && (strings.Trim(s, "=") == "" || strings.Trim(s, "-") == "")
+}
+
+// isDelimiterRow says whether s may be a table's delimiter row: only '-',
+// ':', '|' and blanks, with a '-' and a '|' or ':'.
+func isDelimiterRow(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.Trim(s, "-:| \t") == "" && strings.Contains(s, "-") && strings.ContainsAny(s, "|:")
+}
+
+// trackerPattern returns, for a repository whose external issue tracker
+// uses the alphanumeric or regexp style, a superset of the references
+// issueIndexPatternProcessor links (nil otherwise; see costPerTrackerScan).
+func trackerPattern(metas map[string]string) *regexp.Regexp {
+	switch metas["style"] {
+	case markup.IssueNameStyleAlphanumeric:
+		return alphanumericRef
+	case markup.IssueNameStyleRegexp:
+		pattern, err := regexplru.GetCompiled(metas["regexp"])
+		if err != nil {
+			return nil // the processor links nothing then
+		}
+		return pattern
+	}
+	return nil
 }
 
 // commitCandidates returns the distinct SHA-like words of content.
@@ -148,10 +360,12 @@ func prefillCommits(ctx context.Context, gitRepo *git.Repository, content string
 // this file) with token buckets of render time that fill with wall time:
 // one for all rendering and one per repository, so that one repository's
 // bodies cannot use up everyone's share. A rendering is allowed while both
-// of its buckets hold time; what it took is then taken from both (they
-// may go below zero by one rendering, which renderTimeout bounds). Not
-// safe for concurrent use: the Materializer's mutex guards it.
+// of its buckets hold time; what the writer waited for it is then taken
+// from both (they may go below zero by one wait, which renderWait bounds),
+// and what an abandoned rendering took beyond that from the repository's
+// bucket when it ends (chargeRepo). Safe for concurrent use.
 type renderShare struct {
+	mu    sync.Mutex
 	now   func() time.Time
 	all   renderBucket
 	repos map[int64]*renderBucket
@@ -192,6 +406,8 @@ func newRenderShare() *renderShare {
 
 // allow says whether a body of repository repo may be rendered now.
 func (s *renderShare) allow(repo int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := s.now()
 	s.all.fill(now, shareAll, shareAllBurst)
 	b := s.repo(repo, now)
@@ -202,9 +418,23 @@ func (s *renderShare) allow(repo int64) bool {
 // charge takes the time a rendering of repository repo took from its
 // buckets.
 func (s *renderShare) charge(repo int64, took time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := s.now()
 	s.all.fill(now, shareAll, shareAllBurst)
 	s.all.level -= took
+	b := s.repo(repo, now)
+	b.fill(now, shareRepo, shareRepoBurst)
+	b.level -= took
+}
+
+// chargeRepo takes took from repository repo's bucket only: the time an
+// abandoned rendering ran after the writer stopped waiting for it, which
+// was not the writer's time but was spent on the repository's body.
+func (s *renderShare) chargeRepo(repo int64, took time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
 	b := s.repo(repo, now)
 	b.fill(now, shareRepo, shareRepoBurst)
 	b.level -= took

@@ -61,11 +61,13 @@ var (
 	})
 	// RenderSkipped counts the bodies sent without HTML (body_truncated)
 	// because rendering them was estimated to be too expensive (cost), the
-	// writer's render share was used up (share), or the rendering timed
-	// out (timeout; also counted for bodies rendered on request).
+	// writer's render share was used up (share), the rendering was not
+	// waited for to its end (abandoned) or abandoned renderings still ran
+	// (busy), or the rendering timed out (timeout; also counted for bodies
+	// rendered on request).
 	RenderSkipped = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Name: "render_skipped_total",
-		Help: "Markdown bodies not rendered for the sync log, by reason (cost, share, timeout).",
+		Help: "Markdown bodies not rendered for the sync log, by reason (cost, share, abandoned, busy, timeout).",
 	}, []string{"reason"})
 
 	// FanOut: the time the hub takes to apply one batch of log entries

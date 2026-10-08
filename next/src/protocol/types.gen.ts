@@ -173,13 +173,13 @@ export interface BootstrapEnd {
    * (profiles:public, profiles:limited), private users' profile:{id} and
    * organizations' org:{id} — and, for a repo:{id} response, the
    * owner:{id} group of the repository's owner, which holds the
-   * organization labels and owner projects its issues' IssueLabel and
-   * ProjectIssue entities may name. The profiles of profile:{id} and
+   * organization labels and the owner projects' ProjectRefs its issues'
+   * IssueLabel and ProjectIssue entities may name. The profiles of profile:{id} and
    * org:{id} groups were sent in this response (after the group's own
    * entities, v = the watermark); those of the directories were not, and
    * neither were owner:{id}'s entities. Such a profile line only adds the
    * one entity: it is not a bootstrap of its group (an organization's
-   * group also holds its project columns, teams and members), and it does
+   * group also holds its projects, their columns, teams and members), and it does
    * not set or raise that group's position. To hold a referenced group,
    * bootstrap it, then subscribe it with since = that bootstrap's
    * watermark — never with this response's watermark, which would skip
@@ -245,12 +245,12 @@ export const WorkspaceMember = "member";
  * WorkspaceRepoOwner: a group of the owner of a repository of the
  * workspace that holds what the repository's entities refer to besides
  * themselves: the owner's owner:{id} group (an organization's labels,
- * IssueLabel.label_id, and the owner's projects, ProjectIssue.project_id;
- * readable by every reader of the repository's issues or pull requests,
- * also when the viewer may not see the owner) and, for an organization
- * the viewer may see without being a member, its org:{id} group (its
- * profile, its projects' columns, ProjectIssue.column_id, public
- * members).
+ * IssueLabel.label_id, and the ProjectRefs of the owner's projects,
+ * ProjectIssue.project_id; readable by every reader of the repository's
+ * issues or pull requests, also when the viewer may not see the owner)
+ * and, for an organization the viewer may see without being a member,
+ * its org:{id} group (its profile, its projects and their columns,
+ * ProjectIssue.column_id, public members).
  */
 export const WorkspaceRepoOwner = "repo_owner";
 /**
@@ -415,7 +415,18 @@ export interface RepoUnit {
 }
 /**
  * Label is a repository label (group repo:{repo_id}, unit issues|pulls) or
- * an organization label (group org:{org_id}).
+ * an organization label (group owner:{org_id}).
+ * An organization label carries what upstream shows of it to every reader
+ * of the issues of one of the organization's repositories (the repository's
+ * label page, the issue JSON): no issue counts and no updated_at. Its
+ * num_issues / num_closed_issues are 0: the label's counters span all of
+ * the organization's repositories, private ones included, and upstream shows
+ * them only to the organization's owners (its label settings); updated_at
+ * moves whenever those counters are recalculated, i.e. whenever an issue of
+ * any of those repositories gets or loses the label. Count a repository's
+ * IssueLabel rows instead (upstream's per-repository NumOpenRepoIssues).
+ * Schema 2 (B6 follow-up): updated_at optional, organization labels' counts
+ * 0.
  */
 export interface Label {
   id: number /* int64 */;
@@ -428,7 +439,7 @@ export interface Label {
   num_issues: number /* int */;
   num_closed_issues: number /* int */;
   created_at: string /* RFC 3339, UTC */;
-  updated_at: string /* RFC 3339, UTC */;
+  updated_at?: string /* RFC 3339, UTC */; // repository labels only
   archived_at?: string /* RFC 3339, UTC */;
 }
 /**
@@ -451,7 +462,9 @@ export interface Milestone {
 /**
  * Project is a project board of a repository (group repo:{repo_id}, unit
  * projects), of an organization (group org:{owner_id}) or of a user (group
- * profile:{owner_id}).
+ * profile:{owner_id}): the groups of those who may see the project's page.
+ * What the readers of the owner's repositories see of an organization's or
+ * user's project is its ProjectRef (group owner:{owner_id}).
  */
 export interface Project {
   id: number /* int64 */;
@@ -467,6 +480,24 @@ export interface Project {
   created_at: string /* RFC 3339, UTC */;
   updated_at: string /* RFC 3339, UTC */;
   closed_at?: string /* RFC 3339, UTC */;
+}
+/**
+ * ProjectRef is what upstream shows of an organization's or user's project
+ * to the readers of the issues or pull requests of one of the owner's
+ * repositories (group owner:{owner_id}, same id as the Project): the
+ * repository's issue list filter and the issue sidebar list the owner's
+ * projects with their title and icon (type), split into open and closed,
+ * and name an issue's project. Its page (description, columns, cards) is
+ * only for those who may see the owner, who also get the full Project in
+ * org:{owner_id} / profile:{owner_id}. Resolve ProjectIssue.project_id with
+ * the Project when held, else with the ProjectRef.
+ */
+export interface ProjectRef {
+  id: number /* int64 */;
+  owner_id: number /* int64 */;
+  title: string;
+  closed: boolean;
+  type: number /* int */; // 1 individual, 3 organization
 }
 /**
  * ProjectColumn is a column of a project board (the project's group).
@@ -1301,6 +1332,7 @@ export const ModelRepoUnit: Model = "RepoUnit";
 export const ModelLabel: Model = "Label";
 export const ModelMilestone: Model = "Milestone";
 export const ModelProject: Model = "Project";
+export const ModelProjectRef: Model = "ProjectRef";
 export const ModelProjectColumn: Model = "ProjectColumn";
 export const ModelProjectIssue: Model = "ProjectIssue";
 export const ModelIssue: Model = "Issue";
@@ -1338,9 +1370,10 @@ export const SchemaTeamUnit = 1;
 export const SchemaCollaboration = 1;
 export const SchemaAccess = 1;
 export const SchemaRepoUnit = 1;
-export const SchemaLabel = 1;
+export const SchemaLabel = 2;
 export const SchemaMilestone = 1;
 export const SchemaProject = 1;
+export const SchemaProjectRef = 1;
 export const SchemaProjectColumn = 1;
 export const SchemaProjectIssue = 1;
 export const SchemaIssue = 1;

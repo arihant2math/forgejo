@@ -29,12 +29,14 @@ var modelKinds = map[protocol.Model][]string{
 	// version 1 (clients holding them there get the marker of the move).
 	protocol.ModelLabel:     {protocol.GroupPrefixRepo, protocol.GroupPrefixOwner, protocol.GroupPrefixOrg},
 	protocol.ModelMilestone: {protocol.GroupPrefixRepo},
-	// A repository's projects, or its owner's: owner:{id} (org:{id},
-	// profile:{id} before placement version 2). Columns: repo:{id}, or the
-	// owner's org:{id} / profile:{id}.
+	// A repository's projects, or its owner's: org:{id} / profile:{id}
+	// (owner:{id} in placement version 2; clients holding them there get
+	// the marker of the move back). Their ProjectRefs: owner:{id}. Columns:
+	// repo:{id}, or the owner's org:{id} / profile:{id}.
 	protocol.ModelProject: {
 		protocol.GroupPrefixRepo, protocol.GroupPrefixOwner, protocol.GroupPrefixOrg, protocol.GroupPrefixProfile,
 	},
+	protocol.ModelProjectRef:    {protocol.GroupPrefixOwner},
 	protocol.ModelProjectColumn: {protocol.GroupPrefixRepo, protocol.GroupPrefixOrg, protocol.GroupPrefixProfile},
 	protocol.ModelProjectIssue:  {protocol.GroupPrefixRepo},
 	protocol.ModelIssue:         {protocol.GroupPrefixRepo},

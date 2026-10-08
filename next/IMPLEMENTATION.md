@@ -1787,7 +1787,7 @@ does) **and** MySQL 8.0 (binlog on).
       `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
 
 #### B6 — Bootstrap + partial load
-- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncBootstrap*` (API, differential, convergence, large) + `TestLivesyncPermDifferential` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofmt clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review round 1 fixed (15/16, item 4 completed in round 2), round 2 fixed; **one open major item: `owner:{id}` exposes full owner `Project` rows to viewers who cannot see the owner, see *Open items***)
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncBootstrap*` (API, differential, convergence, large) + `TestLivesyncPermDifferential` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofmt clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review round 1 fixed (15/16, item 4 completed in round 2), round 2 fixed; the open item left at close (`owner:{id}` exposed full owner `Project` rows to viewers who cannot see the owner) fixed in the *Follow-up (open item 1)*: `owner:{id}` now holds `ProjectRef`s and count-free org labels only; no open items)
 - **Scope:** `GET /-/sync/bootstrap?group=` (NDJSON, first line `{watermark, schema}`,
   br/gzip, streaming, cancellable; summary tier = open + updated in the last 90 days,
   `SUMMARY_RECENCY` key), `GET /-/sync/load?group=issue:N` (lazy tier),
@@ -1851,7 +1851,8 @@ does) **and** MySQL 8.0 (binlog on).
     issue watches, watches, stars, blocks, viewed files, tracked times (not deleted), the user's pending reviews and their comments (+
     reactions, attachments, revisions). `profile:` the private user + their projects/columns; directories: the users of that visibility;
     `org:` the org's profile, memberships, teams (+ users/repos/units), org labels, org projects/columns. **(Review round 2: org labels
-    and user/org projects moved to the new `owner:{id}` group; `profile:`/`org:` keep the projects' columns — see *Review round 2*.)**
+    and user/org projects moved to the new `owner:{id}` group; `profile:`/`org:` keep the projects' columns — see *Review round 2*.
+    Follow-up: the `Project`s are back in `profile:`/`org:`; `owner:{id}` = org labels + the projects' `ProjectRef`s.)**
   - **Profiles a bootstrap refers to (orchestrator note B3/B4).** `materialize.userRefs` reads the DTO fields that name users
     (`poster_id`, `user_id`, `owner_id`, `assignee_id`, … — `TestUserRefFields` makes every integer `*_id` field of every DTO classified).
     At the end the groups of those users' User entities are decided (`ProfileGroups`) and checked for the viewer (cached grants first,
@@ -2054,7 +2055,8 @@ does) **and** MySQL 8.0 (binlog on).
       inputs). Epochs: `Owners` now also re-check `owner:{id}` subscriptions (hub `permissionLocked`/`epochConcerns`) and drop cached
       grants holding it (`perm.changedGroups`); repository epochs reach through-a-repository decisions via `RepoID`; the viewer's
       collaboration/team changes via `Users`; owner/repository row touches via the decision's `Basis` (owner row + deciding repository).
-    - **Placement:** `label` with `org_id` → `owner:{org_id}`; `project` with `repo_id = 0` (user or organization project) →
+    - **Placement** *(the `project` part is superseded by the follow-up below: the `Project` went back to `org:`/`profile:`,
+      `owner:{id}` holds a reduced `ProjectRef`)*: `label` with `org_id` → `owner:{org_id}`; `project` with `repo_id = 0` (user or organization project) →
       `owner:{owner_id}`; **`project_board` unchanged** (`org:{id}` / `profile:{id}`, new `loader.columnPlace`): upstream shows an
       owner's boards only on the owner's pages, so a viewer reading through a repository gets the project (title) of a card, not its
       columns (`ProjectIssue.column_id` stays unresolved for them, as upstream). Placement versions **label 1, project 2** ⇒ existing
@@ -2110,24 +2112,71 @@ does) **and** MySQL 8.0 (binlog on).
     Convergence, Large) + `TestVersion` pass on PG 16 (`gtestschema`; differential 129 s) and MySQL 8.0 binlog on (differential
     183 s), `TestLivesyncPermDifferential` passes on both, no testlogger "FATAL ERROR" in either run; fork diff unchanged
     (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
-  - **Open items (unresolved at milestone close; for the orchestrator / a follow-up):**
-    1. *(major, `services/livesync/materialize/load.go` ~312 `projectPlace`) The `owner:{id}` group gives full owner `Project` rows
-       (description, creator, timestamps) to viewers who cannot see the owner; upstream shows them only the project title.*
-       `projectPlace` puts every user/organization project (`repo_id = 0`) whole into `owner:{owner_id}` with the unchanged DTO
-       (`protocol.Project`: Title, Description, CreatorID, Closed, TemplateType, CardType, timestamps). `checkOwner`, `checkOwners`
-       and `Grants.addOwner` grant `owner:{id}` to any collaborator who may read issues or pulls in one of the owner's repositories,
-       even when `HasOrgOrUserVisible` refuses them the owner. Upstream (`routers/web/repo/issue.go` `retrieveProjects`: issue list
-       filter, issue sidebar) gives such a viewer only the project titles and their open/closed split; the project page
-       (`/{org}/-/projects/{id}`, which renders the description) is behind `UserAssignmentWeb`/`OrgAssignment` and answers 404 for an
-       owner the viewer cannot see; API v1 has no projects endpoint. Concrete case: user4, an outside collaborator on repository 40
-       of private org 23, bootstraps `owner:23` and receives the Description and CreatorID of every org-23 project (before round 2
-       those rows were only in `org:23`, which user4 is refused). Same for a private individual's projects (formerly `profile:{id}`),
-       now readable by any collaborator on that user's repositories. Columns were kept back for exactly this reason
-       (`columnPlace`), the project bodies were not. Permission leaks are a top risk (PLAN §risks); `TestCheckOwner` and the
-       differential check only that the group is reachable, not which `Project` fields upstream shows. Fix options: (a) put only
-       what upstream shows (id, title, closed, owner_id) in `owner:{id}` as a reduced entity and keep the full `Project` in
-       `org:`/`profile:`; or (b) explicitly accept the wider exposure and record it as a known gap here and in SURFACE.md. Neither is
-       done. Org labels are fine (the repository label page shows org label names, colours and descriptions to such readers).
+  - **Open items:** none. *(Item 1 at milestone close — `owner:{id}` gave full owner `Project` rows (description, creator,
+    timestamps) to collaborators who may not see the owner, e.g. user4 on repository 40 of private org 23 — is fixed by the
+    follow-up below.)*
+  - **Follow-up (open item 1, owner `Project` exposure) — fixed.** Root cause: `d38b900` placed the whole project row
+    (`protocol.Project`) in `owner:{owner_id}`, whose readers include every collaborator who reads issues or pulls in one of the
+    owner's repositories (`checkOwner`/`checkOwners`/`Grants.addOwner`, unchanged and correct for what upstream shows them), while
+    upstream shows such a viewer only what `retrieveProjects` renders: the issue list's project filter, the issue sidebar's project
+    menu and the issue's selected project show **title, icon (`Project.IconName` ← `type`), the open/closed split and a link**;
+    the project page `/{owner}/-/projects/{id}` (description, columns, cards) is a 404 for an owner they may not see; API v1 has no
+    projects. **Decision: option (a), a second entity of the project row** (like `issue` → `Issue` + `IssueBody`):
+    - `protocol.ProjectRef{id, owner_id, title, closed, type}` (new model `ProjectRef`, `SchemaProjectRef = 1`; `materialize`
+      `projectSpec`, key `project#ref`) in `owner:{owner_id}` for every user/organization project (`repo_id = 0`;
+      `projectRefPlace`), none for repository projects. The full **`Project` is back in `org:{id}` / `profile:{id}`** (`projectPlace`
+      = the old rule, again shared with the columns; `columnPlace` removed): only those who may see the owner read it. Clients resolve
+      `ProjectIssue.project_id` with the `Project` when held, else the `ProjectRef` (documented on both types and on
+      `OwnerGroup`/`OrgGroup`/`ProfileGroup`, `BootstrapEnd.Refs`, `WorkspaceRepoOwner`). A description/creator/timestamp change
+      emits a `Project` delta only (the `ProjectRef` hash is unchanged); title/closed changes emit both; a delete emits `D` in both
+      groups.
+    - **Org labels double-checked** against what upstream shows the same viewers: the repository label page (`RetrieveLabels`,
+      `label_list.tmpl`) shows an org label's name, colour, description, exclusive and archived flags and the *per-repository*
+      open count (`CalOpenOrgIssues`); API v1's issue JSON has no counts or timestamps. Our `Label` carried the organization-wide
+      `num_issues`/`num_closed_issues` (counting the issues of private repositories of the org, shown upstream only to org owners on
+      the settings page) and `updated_at`, which upstream's `doRecalcLabel` (`Update(&Label{})`) moves on every counter
+      recalculation — so every labelling in a private repository of the org was a visible `Label` delta in `owner:{id}`.
+      **Fixed:** an org label's DTO has `num_issues = num_closed_issues = 0` and no `updated_at` (`Label.UpdatedAt` is now optional,
+      set for repository labels only; **`SchemaLabel = 2`**, so clients drop and re-bootstrap `Label`); a counter recalculation is
+      no change for its readers. `created_at` is kept (static; repository labels carry it too).
+    - **Migration:** placement version **project 3** ⇒ `placement_changed` markers for `Project` and `ProjectRef` and a repair walk
+      of `project` once (clients that held a `Project` in `owner:{id}` re-bootstrap; the index then routes the next change as
+      `D owner:` + `U org:/profile:` — `TestProjectRefPlacement` covers the move from a version-2 index row). Hub `modelKinds`:
+      `ProjectRef` `owner`; `Project` keeps `owner` for the markers. Snapshots: `org:`/`profile:` read `project` again
+      (`.holding(Project)`), `owner:` reads it `.holding(ProjectRef)` — new `source.models` makes `SnapshotModels` (header
+      `schemas`) exact for a table with two models (`owner:3` → `Label, ProjectRef`; `org:3`/`profile:2` list `Project`, not
+      `ProjectRef`). `types.gen.ts` regenerated (`ProjectRef`, `ModelProjectRef`, `SchemaProjectRef`, `Label.updated_at?`,
+      `SchemaLabel = 2`, docs); `tsc --strict` on it clean. SURFACE.md: the mirrored page contents and the web routes the test uses.
+    - **Tests:** `materialize` **`TestProjectRefPlacement`** (org project → `Project` in `org:3` + `ProjectRef` in `owner:3` whose
+      payload is exactly `{id, owner_id, title, closed, type}`; repository project → no ref; a description change → `Project` only;
+      closing → both; a version-2 index row (`Project` in `owner:3`) → `D owner:3` + `U org:3` + `U owner:3 ProjectRef`; delete →
+      `D` in both), **`TestOrgLabelPayload`** (org label without counts/`updated_at`, a counter + `updated_unix` bump is no entry;
+      repository label unchanged), `TestProfilePlacement`, `TestHandleEpochsPlacementAndPermissions` (markers incl. `ProjectRef`,
+      version 3), `TestSnapshotFilters` (models of `org:`/`owner:`/`profile:`), `TestUserRefFields` (`ProjectRef` classified);
+      `bootstrap` **`TestOwnerGroupReachable`** = the regression test of the reported case: user4's `owner:23` bootstrap is exactly
+      `{Label (no counts/updated_at), ProjectRef {id, owner_id 23, title, closed, type}}`, its header `schemas` lacks `Project`,
+      `org:23` refused; member user5's `org:23` holds the `Project` with its description and creator. Integration
+      **`TestLivesyncBootstrapDifferential`** extended: every `owner:` bootstrap of every viewer has no `Project`, `ProjectRef`
+      payloads with exactly those five keys, labels without counts/`updated_at`; **for an owner the viewer may not see** (user4 /
+      privated_org; asserted to happen) it signs the viewer in to the web UI and compares: `ProjectRef`s (id, title, closed) = the
+      owner projects in the project filter of the repository's issue list (open/closed by section), org labels = the `li.org-label`
+      entries of the repository's label page, every ref's `/{owner}/-/projects/{id}` = 404, `org:`/`profile:` bootstraps 404; the
+      repository-side check ("every owner project a `ProjectIssue` names is in `end.refs`' owner group") now looks for
+      `ProjectRef`; `ProjectRef` added to the models that must be compared (114 compared on PG). `TestLivesyncPermDifferential`
+      unchanged (it compares grants, which did not change: the group stays readable by the same viewers).
+    - **Not changed (noted):** upstream's `retrieveProjects` lists only owner projects whose `type` matches the owner's kind; a
+      mismatched row (none in the fixtures; upstream never creates one) would still get a `ProjectRef`. Repository projects stay in
+      `repo:{id}` with unit `projects` although upstream's issue list shows their titles to every issue reader (narrower than
+      upstream, no leak).
+    - **Commands run (follow-up):** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/...
+      ./models/livesync/... ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean),
+      livesync unit tests (all packages incl. `routers/livesync`), `next/tools/gen-protocol.sh` + `--check`, `tsc --strict` on
+      `types.gen.ts`, fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no
+      trigger change).
+    - **Results (follow-up):** `./integrations.*.test -test.run 'TestLivesync|TestVersion'` on PG 16 (`gtestschema`: 35 pass, 3
+      MySQL-only skips; differential 119 s) and MySQL 8.0 binlog on (37 pass, 1 skip; differential 184 s, perm differential 96 s),
+      no testlogger "FATAL ERROR" in either; `TestLivesyncBootstrap*` + `TestLivesyncPermDifferential` re-run on PG with the final
+      binary (pass, differential 137 s).
   - **Sandbox note:** the root filesystem reports little free space (≈ 0.3 GB at one point although only 39 GB of 252 GB were used:
     the host disk is shared). Leftover `/tmp/prepared-forgejo*` / `/tmp/appdata*` dirs of killed unit-test runs (≈ 2.4 GB) and MySQL
     binary logs (the large bootstrap test writes ≈ 0.7 GB per MySQL run) were the reclaimable part: `rm -rf /tmp/prepared-forgejo*`,

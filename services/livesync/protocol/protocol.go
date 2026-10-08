@@ -26,7 +26,9 @@ type Model string
 
 // The models. Each catalogued table maps to one model (catalog.Table.Model);
 // IssueBody is the lazy-tier companion of Issue (same id), kept apart so the
-// summary bootstrap does not carry issue bodies.
+// summary bootstrap does not carry issue bodies; ProjectRef is the reduced
+// companion of an owner's Project (same id) for readers who may not see the
+// owner (see OwnerGroup).
 
 const (
 	ModelRepository      Model = "Repository"
@@ -42,6 +44,7 @@ const (
 	ModelLabel           Model = "Label"
 	ModelMilestone       Model = "Milestone"
 	ModelProject         Model = "Project"
+	ModelProjectRef      Model = "ProjectRef"
 	ModelProjectColumn   Model = "ProjectColumn"
 	ModelProjectIssue    Model = "ProjectIssue"
 	ModelIssue           Model = "Issue"
@@ -87,9 +90,10 @@ const (
 	SchemaCollaboration   = 1
 	SchemaAccess          = 1
 	SchemaRepoUnit        = 1
-	SchemaLabel           = 1
+	SchemaLabel           = 2
 	SchemaMilestone       = 1
 	SchemaProject         = 1
+	SchemaProjectRef      = 1
 	SchemaProjectColumn   = 1
 	SchemaProjectIssue    = 1
 	SchemaIssue           = 1
@@ -253,31 +257,37 @@ func UserGroup(id int64) string { return GroupPrefixUser + ":" + strconv.FormatI
 // ProfileGroup is the group of what anyone who may see individual user
 // {id} reads (as API v1's GET /users/{name} decides: a private user is seen
 // by themselves and site administrators only, a limited one by signed-in
-// viewers who are not restricted): the columns of the projects the user
-// owns and, for a private user, the User entity itself (a public or limited
-// user's is in GroupProfilesPublic / GroupProfilesLimited). The projects
-// themselves are in the user's OwnerGroup.
+// viewers who are not restricted): the projects the user owns (Project) and
+// their columns and, for a private user, the User entity itself (a public
+// or limited user's is in GroupProfilesPublic / GroupProfilesLimited). What
+// the readers of the user's repositories see of the projects (ProjectRef) is
+// in the user's OwnerGroup.
 func ProfileGroup(id int64) string { return GroupPrefixProfile + ":" + strconv.FormatInt(id, 10) }
 
 // OrgGroup is the group of an organization: what anyone who may see the
-// organization reads (unit UnitNone: profile, the columns of its projects,
-// public memberships) and what only its members read (unit UnitMembers:
-// teams, their members, repositories and units, concealed memberships). Its
-// labels and projects are in its OwnerGroup.
+// organization reads (unit UnitNone: profile, its projects (Project) and
+// their columns, public memberships) and what only its members read (unit
+// UnitMembers: teams, their members, repositories and units, concealed
+// memberships). Its labels and its projects' ProjectRefs are in its
+// OwnerGroup.
 func OrgGroup(id int64) string { return GroupPrefixOrg + ":" + strconv.FormatInt(id, 10) }
 
 // OwnerGroup is the group of what a user or organization {id} shares with
-// its repositories: the organization's labels (IssueLabel.label_id of its
-// repositories' issues may name them) and the projects the user or
-// organization owns (ProjectIssue.project_id). Upstream shows them to
+// its repositories, as much of it as upstream shows to every reader of
+// their issues: the organization's labels (IssueLabel.label_id of its
+// repositories' issues may name them; without counts, see Label) and a
+// ProjectRef (id, title, open/closed, type) of every project the user or
+// organization owns (ProjectIssue.project_id). Upstream shows these to
 // everyone who may see the owner and to every reader of the issues or pull
 // requests of one of the owner's repositories (the repository's label list
-// and issue list pages) — e.g. an outside collaborator of a private
-// organization's repository, who may not see the organization itself. So it
-// is readable by the readers of the owner's OrgGroup or ProfileGroup and by
-// those of the issues or pull requests of any of its repositories (unit
-// UnitNone throughout). The projects' columns stay in the OrgGroup /
-// ProfileGroup, which upstream shows only to those who may see the owner.
+// and issue list pages, the issue sidebar) — e.g. an outside collaborator
+// of a private organization's repository, who may not see the organization
+// itself. So it is readable by the readers of the owner's OrgGroup or
+// ProfileGroup and by those of the issues or pull requests of any of its
+// repositories (unit UnitNone throughout). The projects themselves
+// (description, creator, timestamps) and their columns are in the OrgGroup /
+// ProfileGroup: upstream's project pages are only for those who may see
+// the owner.
 func OwnerGroup(id int64) string { return GroupPrefixOwner + ":" + strconv.FormatInt(id, 10) }
 
 // RepoGroup is the group of a repository's summary-tier entities.

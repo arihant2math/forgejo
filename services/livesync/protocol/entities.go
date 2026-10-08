@@ -145,7 +145,19 @@ type RepoUnit struct {
 }
 
 // Label is a repository label (group repo:{repo_id}, unit issues|pulls) or
-// an organization label (group org:{org_id}).
+// an organization label (group owner:{org_id}).
+//
+// An organization label carries what upstream shows of it to every reader
+// of the issues of one of the organization's repositories (the repository's
+// label page, the issue JSON): no issue counts and no updated_at. Its
+// num_issues / num_closed_issues are 0: the label's counters span all of
+// the organization's repositories, private ones included, and upstream shows
+// them only to the organization's owners (its label settings); updated_at
+// moves whenever those counters are recalculated, i.e. whenever an issue of
+// any of those repositories gets or loses the label. Count a repository's
+// IssueLabel rows instead (upstream's per-repository NumOpenRepoIssues).
+// Schema 2 (B6 follow-up): updated_at optional, organization labels' counts
+// 0.
 type Label struct {
 	ID              int64      `json:"id"`
 	RepoID          int64      `json:"repo_id"`
@@ -157,7 +169,7 @@ type Label struct {
 	NumIssues       int        `json:"num_issues"`
 	NumClosedIssues int        `json:"num_closed_issues"`
 	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"` // repository labels only
 	ArchivedAt      *time.Time `json:"archived_at,omitempty"`
 }
 
@@ -179,7 +191,9 @@ type Milestone struct {
 
 // Project is a project board of a repository (group repo:{repo_id}, unit
 // projects), of an organization (group org:{owner_id}) or of a user (group
-// profile:{owner_id}).
+// profile:{owner_id}): the groups of those who may see the project's page.
+// What the readers of the owner's repositories see of an organization's or
+// user's project is its ProjectRef (group owner:{owner_id}).
 type Project struct {
 	ID           int64      `json:"id"`
 	Title        string     `json:"title"`
@@ -194,6 +208,23 @@ type Project struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	ClosedAt     *time.Time `json:"closed_at,omitempty"`
+}
+
+// ProjectRef is what upstream shows of an organization's or user's project
+// to the readers of the issues or pull requests of one of the owner's
+// repositories (group owner:{owner_id}, same id as the Project): the
+// repository's issue list filter and the issue sidebar list the owner's
+// projects with their title and icon (type), split into open and closed,
+// and name an issue's project. Its page (description, columns, cards) is
+// only for those who may see the owner, who also get the full Project in
+// org:{owner_id} / profile:{owner_id}. Resolve ProjectIssue.project_id with
+// the Project when held, else with the ProjectRef.
+type ProjectRef struct {
+	ID      int64  `json:"id"`
+	OwnerID int64  `json:"owner_id"`
+	Title   string `json:"title"`
+	Closed  bool   `json:"closed"`
+	Type    int    `json:"type"` // 1 individual, 3 organization
 }
 
 // ProjectColumn is a column of a project board (the project's group).

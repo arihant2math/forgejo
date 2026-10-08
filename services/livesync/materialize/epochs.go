@@ -47,11 +47,15 @@ const MetaPlacementPrefix = "materialized_placement."
 // loads (Conditionals). Version 1 of label and 2 of project (B6 review
 // round 2): organization labels and user/organization projects moved from
 // org:{id} / profile:{id} to owner:{id}, which readers of the owner's
-// repositories' issues may read too (their columns stayed).
+// repositories' issues may read too (their columns stayed). Version 3 of
+// project (B6 follow-up): the Project went back to org:{id} / profile:{id}
+// (upstream shows an owner's project pages only to those who may see the
+// owner) and owner:{id} holds a ProjectRef (title, open/closed, type)
+// instead, a second entity of the row; the markers cover both models.
 var placementVersions = map[string]int64{
 	"label":            1,
 	"user":             1,
-	"project":          2,
+	"project":          3,
 	"project_board":    1,
 	"release":          1,
 	"tracked_time":     1,

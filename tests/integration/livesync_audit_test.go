@@ -27,6 +27,11 @@ import (
 //   - body_html embeds no file previews (round 0: the code of a public
 //     repository was kept in the log, snapshots and clients after the
 //     repository became private), while upstream's renderers do.
+//
+// Round 2: a body that is cheap to post but expensive to render (each
+// @mention is a database lookup: 9 000 took 1.45 s of the writer's time)
+// is not rendered by the writer: it is sent without HTML and rendered on
+// request by GET /-/sync/api/bodies.
 func TestLivesyncAuditBodies(t *testing.T) {
 	livesyncSkipSQLite(t)
 	livesyncServe(t)
@@ -79,6 +84,27 @@ func TestLivesyncAuditBodies(t *testing.T) {
 			livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, private, protocol.OpUpsert))
 			fullBody(user5, "Comment", private, http.StatusNotFound)
 			assert.NotEmpty(t, fullBody(user2, "Comment", private, http.StatusOK).Body)
+		})
+
+		t.Run("expensive body", func(t *testing.T) {
+			cursor := livesyncLogHead(t)
+			mentions := strings.Repeat("@user2 ", 2000)
+			id := comment("user2/repo1", 1, mentions)
+			cheap := comment("user2/repo1", 1, "thanks @user2")
+			e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, id, protocol.OpUpsert))
+			c := livesyncPayload[protocol.Comment](t, e)
+			assert.Equal(t, mentions, c.Body)
+			assert.Empty(t, c.BodyHTML)
+			assert.True(t, c.BodyTruncated)
+			e = livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, cheap, protocol.OpUpsert))
+			c = livesyncPayload[protocol.Comment](t, e)
+			assert.Contains(t, c.BodyHTML, `class="mention"`)
+			assert.False(t, c.BodyTruncated)
+
+			b := fullBody(user5, "Comment", id, http.StatusOK)
+			assert.Equal(t, mentions, b.Body)
+			assert.Equal(t, 2000, strings.Count(b.BodyHTML, `class="mention"`))
+			assert.False(t, b.Truncated)
 		})
 
 		t.Run("no file previews", func(t *testing.T) {

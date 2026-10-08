@@ -20,10 +20,11 @@ import (
 // encoded in the payload's JSON), so that one huge comment cannot make sync
 // log entries, deltas and bootstraps arbitrarily large. When a body is longer
 // its Body holds a prefix (whole characters), BodyHTML is empty and
-// BodyTruncated is true; when only the HTML is too long, could not be
-// rendered within the server's time budget (e.g. thousands of @mentions) or
-// failed to render, Body is complete, BodyHTML is empty and BodyTruncated is
-// true. Either way the client gets the full text and its HTML with
+// BodyTruncated is true; when only the HTML is too long, was not rendered
+// because it would be expensive to render (e.g. thousands of @mentions), the
+// server's share of time for rendering was used up, or it could not be
+// rendered within the server's time budget or failed to render, Body is
+// complete, BodyHTML is empty and BodyTruncated is true. Either way the client gets the full text and its HTML with
 // GET /-/sync/api/bodies/{model}/{id} (APIBody) when it shows the body.
 
 // Limits of the bodies carried by the sync log (see above), in bytes of

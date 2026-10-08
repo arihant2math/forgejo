@@ -60,6 +60,9 @@ type Materializer struct {
 
 	mu  sync.Mutex
 	hot hotLimiter
+	// share bounds the writer's time spent rendering markdown
+	// (rendercost.go).
+	share *renderShare
 	// failures counts the consecutive Consume calls that failed: the next
 	// one materializes its batch row by row (isolate).
 	failures int
@@ -75,7 +78,7 @@ type Materializer struct {
 // turns out not to be the writer any more (another instance took over):
 // the caller must then stop the reader and give up the lease.
 func New(cfg Config, w *synclog.Writer, stop func()) *Materializer {
-	return &Materializer{writer: w, stop: stop, consumed: cfg.Consumed, hot: newHotLimiter(cfg.HotWindow)}
+	return &Materializer{writer: w, stop: stop, consumed: cfg.Consumed, hot: newHotLimiter(cfg.HotWindow), share: newRenderShare()}
 }
 
 // Prepare loads the backfill progress and handles schema epochs that moved
@@ -302,7 +305,8 @@ const maxDependentRounds = 4
 
 // materialize builds the log entries and index changes for rows, and for
 // the rows that depend on a row whose group changed (spec.dependents). Its
-// markdown rendering is bounded by txRenderBudget (see write for lenient).
+// markdown rendering is bounded by txRenderBudget (see write for lenient)
+// and by the writer's render share (loader.render).
 func (m *Materializer) materialize(ctx context.Context, rows []rowChanges, lenient bool) ([]synclog.Entry, *indexPlan, error) {
 	plan := &indexPlan{}
 	if len(rows) == 0 {
@@ -310,7 +314,7 @@ func (m *Materializer) materialize(ctx context.Context, rows []rowChanges, lenie
 	}
 	l := newLoader()
 	defer l.close()
-	l.budget, l.strict = txRenderBudget, !lenient
+	l.budget, l.strict, l.share = txRenderBudget, !lenient, m.share
 	keys := make([]rowKey, 0, len(rows))
 	changed := map[rowKey]rowChanges{}
 	for _, r := range rows {

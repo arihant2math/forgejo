@@ -19,6 +19,7 @@ import (
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/markup"
 	"forgejo.org/modules/markup/markdown"
+	"forgejo.org/services/livesync/metrics"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -54,15 +55,21 @@ import (
 //     in the context); the classic UI translates it.
 //
 // The repository's git repository is opened once per batch (it verifies
-// commit SHAs). If it cannot be opened (missing on disk), SHAs are left as
-// plain text instead of being looked up for every one of them.
+// commit SHAs, all of a body's at once: prefillCommits; the answers are
+// kept for the loader's other bodies). If it cannot be opened (missing on
+// disk), SHAs are left as plain text instead of being looked up for every
+// one of them.
 //
 // Cost (backend audit): the markup service looks every @mention up in the
-// database, so a large body full of mentions takes minutes to render. The
+// database, so a large body full of mentions takes seconds to render. The
 // rendering runs with its own context, detached from ctx's transaction (its
 // lookups use other connections, so cutting them off cannot abort the
 // writer's transaction) and cancelled after renderTimeout: the lookups
-// then fail at once and the result is discarded.
+// then fail at once and the result is discarded. The deadline does not
+// interrupt work that looks nothing up (goldmark, the processors' regular
+// expressions: 64 KiB of owner/repo#1 references on one line take
+// minutes); what the writer and snapshots render at all is bounded by
+// loader.render (rendercost.go).
 //
 // A rendering error is logged and yields an incomplete render (the raw body
 // is still sent); it must not stop the sync log.
@@ -84,19 +91,27 @@ func (l *loader) renderMarkdown(ctx context.Context, repo *repo_model.Repository
 		}
 		l.gitRepos[repo.ID] = gitRepo
 	}
+	rctx, cancel := renderContext(ctx)
+	defer cancel()
+	rc.Ctx = rctx
 	if gitRepo != nil {
 		rc.GitRepo = gitRepo
+		known := l.commits[repo.ID]
+		if known == nil {
+			known = map[string]bool{}
+			l.commits[repo.ID] = known
+		}
+		prefillCommits(rctx, gitRepo, content, known)
+		rc.ShaExistCache = known
 	} else {
 		// Without repoPath the SHA processor does not try to open it.
 		metas := maps.Clone(rc.Metas)
 		delete(metas, "repoPath")
 		rc.Metas = metas
 	}
-	rctx, cancel := renderContext(ctx)
-	defer cancel()
-	rc.Ctx = rctx
 	html, err := markdown.RenderString(rc, content)
 	if rctx.Err() != nil {
+		metrics.RenderSkipped.WithLabelValues("timeout").Inc()
 		log.Warn("livesync: rendering a body of %d bytes in %s took longer than %s; it is sent without HTML", len(content), repo.FullName(), renderTimeout)
 		return "", false
 	}
@@ -131,9 +146,18 @@ func renderContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // of its own.
 var errRenderBudget = errors.New("livesync: the markdown of the batch took longer to render than its time budget")
 
-// render is renderMarkdown within the loader's budget: once the time spent
-// rendering with l reaches l.budget, a strict loader returns
-// errRenderBudget and a lenient one renders nothing more (incomplete).
+// render is renderMarkdown for a DTO of the sync log or of a snapshot,
+// within bounds (rendercost.go); a body it does not render is incomplete
+// (sent with body_truncated, its HTML rendered on request by GET
+// /-/sync/api/bodies):
+//   - a body whose renderCost exceeds maxRenderCost is not rendered (a
+//     function of the body and so the same in the log and in snapshots);
+//   - with l.share (the writer's loaders), a body is not rendered while
+//     the writer's render share, overall or of the body's repository, is
+//     used up, and the time each rendering takes is charged to it;
+//   - once the time spent rendering with l reaches l.budget, a strict
+//     loader returns errRenderBudget and a lenient one renders nothing
+//     more.
 func (l *loader) render(ctx context.Context, repo *repo_model.Repository, content string) (string, bool, error) {
 	if l.budget > 0 && l.spent >= l.budget {
 		if l.strict {
@@ -141,9 +165,27 @@ func (l *loader) render(ctx context.Context, repo *repo_model.Repository, conten
 		}
 		return "", false, nil
 	}
+	if content == "" || repo == nil {
+		return "", true, nil
+	}
+	if cost := renderCost(content); cost > maxRenderCost {
+		metrics.RenderSkipped.WithLabelValues("cost").Inc()
+		log.Debug("livesync: not rendering a body of %d bytes in %s, estimated to take %s; it is sent without HTML", len(content), repo.FullName(), cost)
+		return "", false, nil
+	}
+	if l.share != nil && !l.share.allow(repo.ID) {
+		metrics.RenderSkipped.WithLabelValues("share").Inc()
+		log.Debug("livesync: the writer's render share of %s is used up; a body is sent without HTML", repo.FullName())
+		return "", false, nil
+	}
 	start := time.Now()
 	html, complete := l.renderMarkdown(ctx, repo, content)
-	l.spent += time.Since(start)
+	took := time.Since(start)
+	l.spent += took
+	if l.share != nil {
+		l.share.charge(repo.ID, took)
+	}
+	metrics.RenderSeconds.Add(took.Seconds())
 	return html, complete, nil
 }
 

@@ -230,6 +230,11 @@ type loader struct {
 	gitRepos map[int64]*git.Repository
 	// envs caches renderEnv per repository.
 	envs map[int64]string
+	// commits caches, per repository, whether SHA-like words name objects
+	// of its git repository (prefillCommits).
+	commits map[int64]map[string]bool
+	// share, if not nil, is the writer's render share (see render).
+	share *renderShare
 	// budget bounds the total time spent rendering markdown with this
 	// loader (0: no bound), spent counts it; strict says what happens when
 	// it is used up (see render).
@@ -251,6 +256,7 @@ func newLoader() *loader {
 		releases: map[int64]*repo_model.Release{},
 		gitRepos: map[int64]*git.Repository{},
 		envs:     map[int64]string{},
+		commits:  map[int64]map[string]bool{},
 	}
 }
 

@@ -3403,6 +3403,72 @@ does) **and** MySQL 8.0 (binlog on).
     `TestLivesyncOAuth`, `TestLivesyncAuditBodies`, `TestLivesyncLeaseIdleTimeout`) again on both, green, with no testlogger
     "FATAL ERROR"; `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines in the server
     logs); the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+- [x] **Round 2** — 2026-10-08: 1 verified finding (major) fixed.
+- **Notes/decisions:**
+  - **(R2-1, major) Round 1's fix 2 was incomplete: anyone could stall the sync log by posting bodies that are cheap to
+    post and expensive to render.** The writer renders every body serially for everyone (upstream renders on the viewer's
+    own request); round 1 bounded one rendering (5 s) and one transaction (30 s), not what a poster can take over time
+    (API v1 has no default rate limit; 9 000 `@user2` took 1.45 s and produced HTML over `MaxBodyHTMLBytes` that was
+    thrown away). Measured per markup feature (scratch test with `markup.Init(markup_service.ProcessorHelper())`, repo 1,
+    SQLite) before choosing the fix: @mention 0.13–0.15 ms per occurrence (DB lookup each); **a SHA-like word that is not
+    a commit ≈ 4 ms** (`IsReferenceExist`'s error on a missing object discards the cat-file process, so each spawns
+    `git`: 1 000 took 4 s); a file permalink of this instance 15 ms (repository, permission and blob read, for a preview
+    box we strip anyway); **cross-repository references are quadratic per text node** (1 000 on one line 0.36 s, 3 000
+    3.6 s, 21 000 2 min 40 s) **and `renderTimeout` does not interrupt them** — the deadline only makes lookups fail; CPU
+    work (goldmark, the processors' regexps) runs to completion. Plain text, `#1` refs, URLs, emoji are linear and cheap
+    (64 KiB ≤ ~250 ms). Three bounds (`services/livesync/materialize/rendercost.go`):
+    1. **Cost estimate before rendering** (`renderCost`, in `loader.render`, so writer and snapshots alike — it is a
+       function of the body, so a snapshot carries what the log carries): bytes × 0.5 µs + mention occurrences
+       (`references.FindAllMentionsBytes`) × 150 µs + distinct SHA-like words × 70 µs + `/src/commit/` permalinks × 15 ms +
+       `#N` refs × 10 µs + (cross-repo refs)² × 0.4 µs. Over **`maxRenderCost` = 250 ms** the body is **not rendered**:
+       `body_html: ""` + `body_truncated` with the complete body; the client gets the HTML from `GET
+       /-/sync/api/bodies/{model}/{id}`, which renders on request (like upstream's page view; no cost check there, nor in
+       `POST /-/sync/api/markdown`). That takes ≈ 1 600 mentions, 16 permalinks, 800 cross refs or 3 500 SHA-like words;
+       the estimates were checked against measured times for each feature at 100–21 000 tokens (within ~2×; the
+       quadratic term over-estimates refs spread over lines, which is safe). The audit's 9 000-mention body costs no
+       writer time now.
+    2. **SHA lookups in one process** (`prefillCommits`, in `renderMarkdown`): every distinct SHA-like word of the body is
+       checked through the repository's one `git cat-file --batch-check` (write a name, `git.ReadBatchLine`, a missing
+       object is `ErrNotExist` and keeps the process) and the answers prefill `RenderContext.ShaExistCache`, which
+       `hashCurrentPatternProcessor` consults first; kept per loader and repository (`loader.commits`). Same answers as
+       `IsReferenceExist`; the process runs with the repository's context (it is reused), the loop stops at the render
+       deadline. 1 000 missing SHAs: 4 s → 66 ms. Applies to the bodies endpoint and previews too.
+    3. **Render share of the writer** (`renderShare`, `Materializer.share`, used by the writer's loaders only): token
+       buckets of render time filled with wall time — **overall 25 % (burst 20 s) and per repository 10 % (burst 10 s)**;
+       a body is rendered while both of its buckets hold time, and the time it took is charged to both (overdraft ≤ one
+       rendering). Otherwise it is sent with `body_truncated` (fetched on request) instead of the log falling behind:
+       rendering can no longer take more than a quarter of the writer's time whoever posts, and one repository not more
+       than a tenth, so other repositories keep their HTML. At most 1 000 per-repository buckets are kept (full ones are
+       dropped). Not used by snapshots (on the requester's request) or the bodies endpoint. A body sent without HTML for
+       lack of share stays so until it changes (its index hash does not include the HTML), and snapshots reuse that entry
+       — consistent with the log; the client fetches it like any truncated body.
+    New metrics `forgejo_livesync_render_seconds_total` and `forgejo_livesync_render_skipped_total{reason=cost|share|timeout}`.
+    `protocol` comment on long bodies widened (free comment, not in `types.gen.ts`); SURFACE.md's markup row lists the
+    new upstream couplings (`ShaExistCache`, `WithCatFileBatchCheck`/`ReadBatchLine`/`IsErrNotExist`,
+    `FindAllMentionsBytes`, and the measured processor costs — re-measure on upstream merges). Unchanged: per-render
+    `renderTimeout`, `txRenderBudget` + isolation (round 1). **Not addressed (upstream behaviour):** the bodies endpoint
+    and `POST /-/sync/api/markdown` render on request without a cost check, so one such request can still take seconds
+    of CPU (as upstream's issue page and `/api/v1/markdown` do); it runs on the requester's goroutine, not the writer.
+    Tests: `TestRenderCost` (ordinary and 64 KiB plain bodies under the limit; 9 000 mentions, 20 permalinks, 1 000
+    cross refs, 5 000 SHA-like words over), `TestConsumeRenderCost` (production markup helper: a 2 000-mention issue body
+    is sent truncated without being rendered — `renderCount` — while the other issue's body of the batch gets its mention
+    link; `LoadBody`+`Render` renders all 2 000), `TestConsumeRenderShare` (repository 1's share used up ⇒ its body has
+    no HTML, repository 2's has; after 20 s (fake clock) it renders again), `TestRenderShare` (per-repository and overall
+    buckets, refill, bounded map), `TestPrefillCommits` (existing full and short SHA true, missing false, preset entries
+    kept, the process still answers `IsReferenceExist`, rendered links), integration `TestLivesyncAuditBodies` "expensive
+    body" (2 000 mentions through API v1 ⇒ comment entry truncated without HTML, the next comment rendered, the bodies
+    endpoint returns the 2 000 mention links). **Sensitivity checked:** with `maxRenderCost` = 1 h and `allow` always
+    true, `TestConsumeRenderCost` and `TestConsumeRenderShare` fail.
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...` and
+    `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `next/tools/gen-protocol.sh --check` (up to date, no protocol type changed); unit tests of `models/livesync`,
+    `services/livesync/...`, `routers/livesync` (green); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16
+    (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**, 0 fail (incl. `TestLivesyncConformance` and the new "expensive
+    body" subtest); the only testlogger "FATAL ERROR" is the known upstream MySQL `Error 1213` deadlock in `CreateComment`
+    under `TestLivesyncBootstrapConvergence`'s concurrent comment writers (B6 notes; the test passes);
+    `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); the fork-diff check (§2.2)
+    is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+
 
 ### Frontend
 

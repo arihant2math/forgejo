@@ -148,11 +148,21 @@ type source struct {
 	table    string
 	conds    []builder.Cond
 	children []child
+	// models are the models of the table's entities that the group can
+	// hold, when that is not all of them (SnapshotModels).
+	models []protocol.Model
 }
 
 // from is the source of table's rows matching any of conds.
 func from(table string, conds ...builder.Cond) source {
 	return source{table: table, conds: conds}
+}
+
+// holding restricts the models the source's own table contributes to the
+// group to models.
+func (s source) holding(models ...protocol.Model) source {
+	s.models = models
+	return s
 }
 
 // child is a table read for each chunk of a source's rows; cond selects the
@@ -220,7 +230,7 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("collaboration", repo),
 			from("label", repo),
 			from("milestone", repo),
-			from("project", repo),
+			from("project", repo).holding(protocol.ModelProject),
 			from("project_board", builder.In("project_id", sel("project", repo))),
 			from("branch", repo),
 			from("release", builder.Eq{"repo_id": id, "is_draft": false}),
@@ -268,12 +278,15 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 		projects := builder.Eq{"owner_id": id, "repo_id": 0}
 		return []source{
 			from("user", builder.Eq{"id": id}),
+			from("project", projects).holding(protocol.ModelProject),
 			from("project_board", builder.In("project_id", sel("project", projects))),
 		}, nil
 	case protocol.GroupPrefixOwner:
+		// The ProjectRefs of the owner's projects (their Projects are in
+		// org:{id} / profile:{id}).
 		return []source{
 			from("label", builder.Eq{"org_id": id}),
-			from("project", builder.Eq{"owner_id": id, "repo_id": 0}),
+			from("project", builder.Eq{"owner_id": id, "repo_id": 0}).holding(protocol.ModelProjectRef),
 		}, nil
 	case protocol.GroupPrefixProfiles:
 		vis := structs.VisibleTypePublic
@@ -293,6 +306,7 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("team_user", org),
 			from("team_repo", org),
 			from("team_unit", org),
+			from("project", projects).holding(protocol.ModelProject),
 			from("project_board", builder.In("project_id", sel("project", projects))),
 		}, nil
 	}
@@ -345,8 +359,12 @@ func SnapshotModels(req SnapshotRequest) ([]protocol.Model, error) {
 		}
 	}
 	for _, s := range sources {
-		for _, table := range s.tables() {
-			for _, m := range specs[table].models {
+		for i, table := range s.tables() {
+			models := specs[table].models
+			if i == 0 && s.models != nil {
+				models = s.models
+			}
+			for _, m := range models {
 				add(m)
 			}
 		}

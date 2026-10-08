@@ -611,9 +611,9 @@ func indexRows(t *testing.T, key string) []livesync_model.Entity {
 // Profiles are placed by visibility, never in user:{id}: a public user's in
 // the public directory, a limited one's in the limited directory, a private
 // one's in their profile group, an organization's in its group; a user's
-// or organization's projects in their owner group (readers of their
-// repositories' issues see them), the projects' columns in the owner's
-// own group.
+// or organization's projects and their columns in the owner's own group,
+// the projects' ProjectRefs in the owner group (readers of the owner's
+// repositories' issues see them).
 func TestProfilePlacement(t *testing.T) {
 	resetLivesync(t)
 	m, _ := testMaterializer(t)
@@ -628,9 +628,99 @@ func TestProfilePlacement(t *testing.T) {
 		{protocol.GroupProfilesLimited, "", "User", "U", 33},
 		{"profile:31", "", "User", "U", 31},
 		{"org:3", "", "User", "U", 3},
-		{"owner:2", "", "Project", "U", 4},
+		{"profile:2", "", "Project", "U", 4},
+		{"owner:2", "", "ProjectRef", "U", 4},
 		{"profile:2", "", "ProjectColumn", "U", 4},
 	}, rest)
+}
+
+// An organization's or user's project is two entities (B6 follow-up): the
+// Project, with what its page shows, in the group of those who may see the
+// owner (org:{id} / profile:{id}), and a ProjectRef with only what
+// upstream's issue list filter and issue sidebar show (id, owner, title,
+// open/closed, type) in owner:{id}, which collaborators who may not see the
+// owner read too. A repository project has no ProjectRef. Changes that
+// upstream does not show those readers reach only the Project's group; a
+// Project indexed in owner:{id} by placement version 2 moves out of it.
+func TestProjectRefPlacement(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	// Fixtures: project 7 is org3's, project 1 repository 1's.
+	consume(t, m, change(1, "project", 7, "U"), change(2, "project", 1, "U"))
+	rows, entries := takeLog(t, &cursor)
+	assert.Equal(t, []logRow{
+		{"org:3", "", "Project", "U", 7},
+		{"owner:3", "", "ProjectRef", "U", 7},
+		{"repo:1", "projects", "Project", "U", 1},
+	}, rows)
+	var ref map[string]any
+	require.NoError(t, json.Unmarshal([]byte(entries[1].Payload), &ref))
+	assert.Equal(t, map[string]any{"id": float64(7), "owner_id": float64(3), "title": "project on org3", "closed": false, "type": float64(3)}, ref,
+		"exactly what upstream shows readers of the owner's repositories")
+	var project protocol.Project
+	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &project))
+	assert.EqualValues(t, 2, project.CreatorID)
+
+	// The description, creator or timestamps change: the Project only.
+	exec(t, "UPDATE project SET description = 'secret plans', updated_unix = updated_unix + 10 WHERE id = 7")
+	consume(t, m, change(3, "project", 7, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"org:3", "", "Project", "U", 7}}, rows)
+	// Closing it: both.
+	exec(t, "UPDATE project SET is_closed = ? WHERE id = 7", true)
+	consume(t, m, change(4, "project", 7, "U"))
+	rows, entries = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"org:3", "", "Project", "U", 7}, {"owner:3", "", "ProjectRef", "U", 7}}, rows)
+	require.NoError(t, json.Unmarshal([]byte(entries[1].Payload), &ref))
+	assert.Equal(t, true, ref["closed"])
+
+	// An index written by placement version 2 (the Project in owner:3, no
+	// ProjectRef): the next change moves the Project out of owner:3.
+	exec(t, "UPDATE livesync_entity SET grp = 'owner:3' WHERE tbl = 'project' AND row_id = 7")
+	exec(t, "DELETE FROM livesync_entity WHERE tbl = ? AND row_id = 7", projectRefKey)
+	exec(t, "UPDATE project SET title = 'renamed' WHERE id = 7")
+	consume(t, m, change(5, "project", 7, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{
+		{"owner:3", "", "Project", "D", 7},
+		{"org:3", "", "Project", "U", 7},
+		{"owner:3", "", "ProjectRef", "U", 7},
+	}, rows)
+
+	// Deleted: gone from both groups.
+	exec(t, "DELETE FROM project WHERE id = 7")
+	consume(t, m, change(6, "project", 7, "D"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"org:3", "", "Project", "D", 7}, {"owner:3", "", "ProjectRef", "D", 7}}, rows)
+	assert.Empty(t, indexRows(t, projectRefKey))
+}
+
+// An organization label (owner:{id}) carries no issue counts and no
+// updated_at (B6 follow-up): its counters span the organization's private
+// repositories, and upstream shows them to its owners only, so a counter
+// recalculation is no change; a repository label keeps them.
+func TestOrgLabelPayload(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	// Fixtures: label 3 is org3's, label 1 repository 1's.
+	consume(t, m, change(1, "label", 3, "U"), change(2, "label", 1, "U"))
+	rows, entries := takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"owner:3", "", "Label", "U", 3}, {"repo:1", "issues|pulls", "Label", "U", 1}}, rows)
+	var org, repo map[string]any
+	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &org))
+	require.NoError(t, json.Unmarshal([]byte(entries[1].Payload), &repo))
+	assert.NotContains(t, org, "updated_at")
+	assert.Zero(t, org["num_issues"])
+	assert.Zero(t, org["num_closed_issues"])
+	assert.Contains(t, repo, "updated_at")
+	assert.Positive(t, repo["num_issues"])
+
+	exec(t, "UPDATE label SET num_issues = num_issues + 5, num_closed_issues = num_closed_issues + 1, updated_unix = updated_unix + 60 WHERE id IN (1, 3)")
+	consume(t, m, change(3, "label", 3, "U"), change(4, "label", 1, "U"))
+	rows, _ = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"repo:1", "issues|pulls", "Label", "U", 1}}, rows, "the organization label did not change for its readers")
 }
 
 // Placement rules that changed since a table was materialized are handled
@@ -653,8 +743,9 @@ func TestHandleEpochsPlacementAndPermissions(t *testing.T) {
 		{"*", "", "User", "B", 0},
 		{"*", "", "Label", "B", 0},
 		{"*", "", "Project", "B", 0},
+		{"*", "", "ProjectRef", "B", 0},
 		{"*", "", "ProjectColumn", "B", 0},
-	}, sortRows(rows, []string{"User", "Label", "Project", "ProjectColumn"}))
+	}, sortRows(rows, []string{"User", "Label", "Project", "ProjectRef", "ProjectColumn"}))
 	var marker protocol.RebootstrapMarker
 	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &marker))
 	assert.Equal(t, protocol.RebootstrapPlacementChanged, marker.Reason)
@@ -663,7 +754,7 @@ func TestHandleEpochsPlacementAndPermissions(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, placed["user"])
 	assert.EqualValues(t, 1, placed["label"])
-	assert.EqualValues(t, 2, placed["project"])
+	assert.EqualValues(t, 3, placed["project"])
 	assert.EqualValues(t, 0, placed["milestone"])
 	require.NoError(t, m.HandleEpochs(ctx))
 	rows, _ = takeLog(t, &cursor)

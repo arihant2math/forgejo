@@ -424,10 +424,13 @@ func TestSnapshotFilters(t *testing.T) {
 	assert.Equal(t, []string{"user", "issue"}, tables)
 	models, err := SnapshotModels(SnapshotRequest{Group: "org:3", Tier: protocol.TierFull})
 	require.NoError(t, err)
-	assert.Equal(t, []protocol.Model{"User", "OrgUser", "Team", "TeamUser", "TeamRepo", "TeamUnit", "ProjectColumn"}, models)
+	assert.Equal(t, []protocol.Model{"User", "OrgUser", "Team", "TeamUser", "TeamRepo", "TeamUnit", "Project", "ProjectColumn"}, models)
 	models, err = SnapshotModels(SnapshotRequest{Group: "owner:3", Tier: protocol.TierFull})
 	require.NoError(t, err)
-	assert.Equal(t, []protocol.Model{"Label", "Project"}, models)
+	assert.Equal(t, []protocol.Model{"Label", "ProjectRef"}, models)
+	models, err = SnapshotModels(SnapshotRequest{Group: "profile:2", Tier: protocol.TierFull})
+	require.NoError(t, err)
+	assert.Equal(t, []protocol.Model{"User", "Project", "ProjectColumn"}, models)
 	_, err = SnapshotTables(SnapshotRequest{Group: "*"})
 	require.Error(t, err)
 }
@@ -560,6 +563,7 @@ func TestUserRefFields(t *testing.T) {
 		protocol.Label{},
 		protocol.Milestone{},
 		protocol.Project{},
+		protocol.ProjectRef{},
 		protocol.ProjectColumn{},
 		protocol.ProjectIssue{},
 		protocol.Issue{},

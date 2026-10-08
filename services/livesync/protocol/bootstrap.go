@@ -137,13 +137,13 @@ type BootstrapEnd struct {
 	// (profiles:public, profiles:limited), private users' profile:{id} and
 	// organizations' org:{id} — and, for a repo:{id} response, the
 	// owner:{id} group of the repository's owner, which holds the
-	// organization labels and owner projects its issues' IssueLabel and
-	// ProjectIssue entities may name. The profiles of profile:{id} and
+	// organization labels and the owner projects' ProjectRefs its issues'
+	// IssueLabel and ProjectIssue entities may name. The profiles of profile:{id} and
 	// org:{id} groups were sent in this response (after the group's own
 	// entities, v = the watermark); those of the directories were not, and
 	// neither were owner:{id}'s entities. Such a profile line only adds the
 	// one entity: it is not a bootstrap of its group (an organization's
-	// group also holds its project columns, teams and members), and it does
+	// group also holds its projects, their columns, teams and members), and it does
 	// not set or raise that group's position. To hold a referenced group,
 	// bootstrap it, then subscribe it with since = that bootstrap's
 	// watermark — never with this response's watermark, which would skip
@@ -197,12 +197,12 @@ const (
 	// WorkspaceRepoOwner: a group of the owner of a repository of the
 	// workspace that holds what the repository's entities refer to besides
 	// themselves: the owner's owner:{id} group (an organization's labels,
-	// IssueLabel.label_id, and the owner's projects, ProjectIssue.project_id;
-	// readable by every reader of the repository's issues or pull requests,
-	// also when the viewer may not see the owner) and, for an organization
-	// the viewer may see without being a member, its org:{id} group (its
-	// profile, its projects' columns, ProjectIssue.column_id, public
-	// members).
+	// IssueLabel.label_id, and the ProjectRefs of the owner's projects,
+	// ProjectIssue.project_id; readable by every reader of the repository's
+	// issues or pull requests, also when the viewer may not see the owner)
+	// and, for an organization the viewer may see without being a member,
+	// its org:{id} group (its profile, its projects and their columns,
+	// ProjectIssue.column_id, public members).
 	WorkspaceRepoOwner = "repo_owner"
 	// WorkspaceOwner: a repository the viewer owns.
 	WorkspaceOwner = "owner"

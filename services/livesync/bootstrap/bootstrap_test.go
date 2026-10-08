@@ -329,7 +329,7 @@ func TestOwnerGroupReachable(t *testing.T) {
 		e := db.GetEngine(ctx)
 		issue = issues_model.Issue{RepoID: 40, Index: 1, PosterID: 2, Title: "contract work", Content: "body"}
 		label = issues_model.Label{OrgID: 23, Name: "contract", Color: "#ee0701"}
-		project = project_model.Project{Title: "roadmap", OwnerID: 23, Type: project_module.TypeOrganization, CreatorID: 2, TemplateType: project_module.TemplateTypeNone}
+		project = project_model.Project{Title: "roadmap", Description: "the secret plans", OwnerID: 23, Type: project_module.TypeOrganization, CreatorID: 2, TemplateType: project_module.TemplateTypeNone}
 		for _, row := range []any{&issue, &label, &project} {
 			_, err := e.Insert(row)
 			require.NoError(t, err)
@@ -368,19 +368,46 @@ func TestOwnerGroupReachable(t *testing.T) {
 	assert.Contains(t, res.end.Refs, "owner:23")
 	assert.NotContains(t, res.end.Refs, "org:23")
 
+	// The open item of B6 round 2 (regression): user4 gets of org23's
+	// labels and projects only what upstream shows a reader of repository
+	// 40's issues (the label page, the issue list's project filter, the
+	// issue sidebar) — never the project's description or creator, nor the
+	// label's organization-wide counts.
 	res = stream(t, perms, 4, "owner:23", nil)
-	got := map[string]bool{}
+	got := map[string]map[string]any{}
 	for _, ch := range res.changes {
 		assert.Equal(t, "owner:23", ch.G)
-		got[fmt.Sprintf("%s %d", ch.M, ch.ID)] = true
+		var d map[string]any
+		decode(ch.D, &d)
+		got[fmt.Sprintf("%s %d", ch.M, ch.ID)] = d
 	}
-	assert.Equal(t, map[string]bool{
-		fmt.Sprintf("Label %d", label.ID):     true,
-		fmt.Sprintf("Project %d", project.ID): true,
+	assert.Equal(t, map[string]map[string]any{
+		fmt.Sprintf("Label %d", label.ID): {
+			"id": float64(label.ID), "repo_id": float64(0), "org_id": float64(23), "name": "contract", "exclusive": false,
+			"description": "", "color": "#ee0701", "num_issues": float64(0), "num_closed_issues": float64(0),
+			"created_at": got[fmt.Sprintf("Label %d", label.ID)]["created_at"],
+		},
+		fmt.Sprintf("ProjectRef %d", project.ID): {
+			"id": float64(project.ID), "owner_id": float64(23), "title": "roadmap", "closed": false, "type": float64(project_module.TypeOrganization),
+		},
 	}, got)
+	assert.NotContains(t, res.header.Schemas, protocol.ModelProject)
 	_, ok, err := perms.Check(ctx, 4, "org:23")
 	require.NoError(t, err)
-	assert.False(t, ok, "the columns are not readable")
+	assert.False(t, ok, "the projects and their columns are not readable")
+
+	// A member gets the project itself in org:23.
+	res = stream(t, perms, 5, "org:23", nil)
+	var full *protocol.Project
+	for _, ch := range res.changes {
+		if ch.M == protocol.ModelProject && ch.ID == project.ID {
+			full = &protocol.Project{}
+			decode(ch.D, full)
+		}
+	}
+	require.NotNil(t, full, "org:23 holds the project")
+	assert.Equal(t, "the secret plans", full.Description)
+	assert.EqualValues(t, 2, full.CreatorID)
 	_, ok, err = perms.Check(ctx, 10, "owner:23")
 	require.NoError(t, err)
 	assert.False(t, ok, "user10 may read neither the organization nor its repositories")

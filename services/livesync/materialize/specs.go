@@ -338,11 +338,19 @@ var specs = func() map[string]*spec {
 				return "", protocol.UnitNone
 			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.Label) (any, error) {
-				return &protocol.Label{
+				res := &protocol.Label{
 					ID: r.ID, RepoID: r.RepoID, OrgID: r.OrgID, Name: r.Name, Exclusive: r.Exclusive,
-					Description: r.Description, Color: r.Color, NumIssues: r.NumIssues, NumClosedIssues: r.NumClosedIssues,
-					CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix), ArchivedAt: optTS(r.ArchivedUnix),
-				}, nil
+					Description: r.Description, Color: r.Color, CreatedAt: ts(r.CreatedUnix), ArchivedAt: optTS(r.ArchivedUnix),
+				}
+				if r.OrgID == 0 {
+					// An organization label's counters (and updated_unix,
+					// which their recalculation moves) span the
+					// organization's private repositories: upstream shows
+					// them to its owners only (protocol.Label).
+					updated := ts(r.UpdatedUnix)
+					res.NumIssues, res.NumClosedIssues, res.UpdatedAt = r.NumIssues, r.NumClosedIssues, &updated
+				}
+				return res, nil
 			},
 		}.spec("label"),
 		rowSpec[issues_model.Milestone]{
@@ -366,35 +374,14 @@ var specs = func() map[string]*spec {
 				return m, nil
 			},
 		}.spec("milestone"),
-		rowSpec[project_model.Project]{
-			model: protocol.ModelProject, schema: protocol.SchemaProject,
-			id: func(r *project_model.Project) int64 { return r.ID },
-			prepare: func(_ context.Context, l *loader, rows []*project_model.Project) error {
-				for _, p := range rows {
-					l.projects[p.ID] = p
-				}
-				return nil
-			},
-			place: func(l *loader, r *project_model.Project) (string, protocol.Unit) { return l.projectPlace(r.ID) },
-			dto: func(_ context.Context, _ *loader, r *project_model.Project) (any, error) {
-				p := &protocol.Project{
-					ID: r.ID, Title: r.Title, Description: r.Description, OwnerID: r.OwnerID, RepoID: r.RepoID,
-					CreatorID: r.CreatorID, Closed: r.IsClosed, TemplateType: int(r.TemplateType), CardType: int(r.CardType),
-					Type: int(r.Type), CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
-				}
-				if r.IsClosed {
-					p.ClosedAt = optTS(r.ClosedDateUnix)
-				}
-				return p, nil
-			},
-		}.spec("project"),
+		projectSpec(),
 		rowSpec[project_model.Column]{
 			model: protocol.ModelProjectColumn, schema: protocol.SchemaProjectColumn,
 			id: func(r *project_model.Column) int64 { return r.ID },
 			prepare: func(ctx context.Context, l *loader, rows []*project_model.Column) error {
 				return l.loadProjects(ctx, ids(rows, func(r *project_model.Column) int64 { return r.ProjectID }))
 			},
-			place: func(l *loader, r *project_model.Column) (string, protocol.Unit) { return l.columnPlace(r.ProjectID) },
+			place: func(l *loader, r *project_model.Column) (string, protocol.Unit) { return l.projectPlace(r.ProjectID) },
 			dto: func(_ context.Context, _ *loader, r *project_model.Column) (any, error) {
 				return &protocol.ProjectColumn{
 					ID: r.ID, ProjectID: r.ProjectID, Title: r.Title, Default: r.Default, Sorting: int(r.Sorting),
@@ -779,4 +766,56 @@ func Schemas() map[protocol.Model]int {
 		}
 	}
 	return res
+}
+
+// projectRefKey is the livesync_entity key of the ProjectRef derived from a
+// project row.
+const projectRefKey = "project#ref"
+
+// projectSpec produces two entities per project row: the Project in the
+// group of those who may see its page (projectPlace) and, for a user's or
+// organization's project, its ProjectRef in the owner's owner:{id}, which
+// readers of the owner's repositories' issues may read too (projectRefPlace).
+func projectSpec() *spec {
+	return &spec{
+		table:   "project",
+		keys:    []string{"project", projectRefKey},
+		models:  []protocol.Model{protocol.ModelProject, protocol.ModelProjectRef},
+		schemas: []int{protocol.SchemaProject, protocol.SchemaProjectRef},
+		load: func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error) {
+			rows, err := findByIDs(ctx, ids, func(r *project_model.Project) int64 { return r.ID })
+			if err != nil {
+				return nil, err
+			}
+			res := make(map[int64][]entity, len(rows))
+			for id, r := range rows {
+				l.projects[id] = r
+				project := entity{key: "project", model: protocol.ModelProject, schema: protocol.SchemaProject}
+				project.group, project.unit = l.projectPlace(id)
+				ref := entity{key: projectRefKey, model: protocol.ModelProjectRef, schema: protocol.SchemaProjectRef, group: projectRefPlace(r), unit: protocol.UnitNone}
+				if full {
+					if project.group != "" {
+						project.dto = projectDTO(r)
+					}
+					if ref.group != "" {
+						ref.dto = &protocol.ProjectRef{ID: r.ID, OwnerID: r.OwnerID, Title: r.Title, Closed: r.IsClosed, Type: int(r.Type)}
+					}
+				}
+				res[id] = []entity{project, ref}
+			}
+			return res, nil
+		},
+	}
+}
+
+func projectDTO(r *project_model.Project) *protocol.Project {
+	p := &protocol.Project{
+		ID: r.ID, Title: r.Title, Description: r.Description, OwnerID: r.OwnerID, RepoID: r.RepoID,
+		CreatorID: r.CreatorID, Closed: r.IsClosed, TemplateType: int(r.TemplateType), CardType: int(r.CardType),
+		Type: int(r.Type), CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
+	}
+	if r.IsClosed {
+		p.ClosedAt = optTS(r.ClosedDateUnix)
+	}
+	return p
 }

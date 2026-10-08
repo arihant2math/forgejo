@@ -298,30 +298,14 @@ func (l *loader) issueRepoPlace(issueID int64) (string, protocol.Unit) {
 	return protocol.RepoGroup(issue.RepoID), issueUnit(issue)
 }
 
-// projectPlace is the group and unit of a project and its columns: the
-// repository's (unit projects) for a repository project, the organization's
-// group for an organization's, the profile group of the user for a user's
-// (what anyone who may see the user reads).
+// projectPlace is the group and unit of a project (its Project entity) and
+// of its columns: the repository's (unit projects) for a repository
+// project, the organization's group for an organization's, the profile
+// group of the user for a user's (what anyone who may see the user reads).
+// Upstream shows an owner's project pages (description, columns, cards)
+// only to those who may see the owner; what readers of the owner's
+// repositories see of the project is its ProjectRef (projectRefPlace).
 func (l *loader) projectPlace(projectID int64) (string, protocol.Unit) {
-	p := l.projects[projectID]
-	switch {
-	case p == nil:
-		return "", protocol.UnitNone
-	case p.RepoID != 0:
-		return protocol.RepoGroup(p.RepoID), protocol.UnitProjects
-	case p.OwnerID != 0:
-		// The readers of the owner's repositories' issues see its
-		// projects too (protocol.OwnerGroup).
-		return protocol.OwnerGroup(p.OwnerID), protocol.UnitNone
-	}
-	return "", protocol.UnitNone
-}
-
-// columnPlace is the group and unit of a column of project projectID: its
-// repository's, or for a user's or organization's project the owner's own
-// group (profile:{id}, org:{id}). Unlike the projects themselves, upstream
-// shows an owner's project boards only to those who may see the owner.
-func (l *loader) columnPlace(projectID int64) (string, protocol.Unit) {
 	p := l.projects[projectID]
 	switch {
 	case p == nil:
@@ -334,6 +318,19 @@ func (l *loader) columnPlace(projectID int64) (string, protocol.Unit) {
 		return protocol.ProfileGroup(p.OwnerID), protocol.UnitNone
 	}
 	return "", protocol.UnitNone
+}
+
+// projectRefPlace is the group of the ProjectRef of project p (unit
+// UnitNone): the owner group of a user's or organization's project, whose
+// readers include every reader of the issues or pull requests of the
+// owner's repositories (upstream's retrieveProjects: the issue list filter
+// and the issue sidebar show them the owner's project titles); none for a
+// repository project (its readers get the Project in repo:{id}).
+func projectRefPlace(p *project_model.Project) string {
+	if p.RepoID != 0 || p.OwnerID == 0 {
+		return ""
+	}
+	return protocol.OwnerGroup(p.OwnerID)
 }
 
 // reviewPlace is the group and unit of a review. A pending review is a draft

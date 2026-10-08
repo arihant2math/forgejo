@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,10 +29,12 @@ import (
 	"forgejo.org/modules/json"
 	project_module "forgejo.org/modules/project"
 	"forgejo.org/modules/setting"
+	"forgejo.org/modules/translation"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/tests"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
 	"github.com/stretchr/testify/assert"
@@ -361,7 +364,14 @@ func livesyncExec(t *testing.T, query string, args ...any) {
 //     and owner project that a repository's IssueLabel / ProjectIssue
 //     names is in the owner group, which the repository's end.refs lists
 //     (B6 review round 2: also for user4, an outside collaborator of
-//     privated_org's repository 40, who may not see privated_org);
+//     privated_org's repository 40, who may not see privated_org). The
+//     owner group holds exactly what upstream shows such a reader (B6
+//     follow-up): a ProjectRef (id, owner_id, title, closed, type) per
+//     project and never a Project; labels without counts or updated_at. For
+//     an owner the viewer may not see, the ProjectRefs (titles, open/closed)
+//     = the owner projects of the repository's issue list filter and the
+//     labels = the organization labels of its label page (web UI, as the
+//     viewer), and each project's page /{owner}/-/projects/{id} is a 404;
 //   - user:{id} (own): stars ⊆ /user/starred, tracked times ⊆ /user/times,
 //     notifications ⊆ /notifications?all=true;
 //   - the profile directories: every profile ⇒ /users/{name} is 200; every
@@ -482,7 +492,15 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 
 	groups := 0
 	profiles := 0
-	hiddenOwnerRefs := 0
+	hiddenOwnerRefs, hiddenOwnerProjects := 0, 0
+	// webSession signs a viewer in to the web UI (once).
+	sessions := map[int64]*TestSession{}
+	webSession := func(u *user_model.User) *TestSession {
+		if sessions[u.ID] == nil {
+			sessions[u.ID] = loginUser(t, u.Name)
+		}
+		return sessions[u.ID]
+	}
 	for _, viewer := range users {
 		if viewer.IsOrganization() || !viewer.IsActive || viewer.ProhibitLogin {
 			continue
@@ -492,6 +510,9 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 		// pull requests the viewer reads; ownerSnaps: the owner groups
 		// bootstrapped.
 		issueReader := map[int64]bool{}
+		// issueList: per owner, the issue (or pull request) list of one
+		// of those repositories, as upstream's web UI links it.
+		issueList := map[int64]string{}
 		ownerSnaps := map[string]*livesyncSnapshot{}
 		ownerSnap := func(group string) *livesyncSnapshot {
 			if ownerSnaps[group] == nil {
@@ -555,6 +576,13 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			// user2's project 4 on org3's repository 32): left out.
 			if slices.Contains(s.header.Units, protocol.UnitIssues) || slices.Contains(s.header.Units, protocol.UnitPulls) {
 				issueReader[repo.OwnerID] = true
+				list := "/pulls"
+				if slices.Contains(s.header.Units, protocol.UnitIssues) {
+					list = "/issues"
+				}
+				if cur := issueList[repo.OwnerID]; cur == "" || (list == "/issues" && !strings.HasSuffix(cur, list)) {
+					issueList[repo.OwnerID] = "/" + repo.OwnerName + "/" + repo.Name + list
+				}
 			}
 			var ownerLabels, ownerProjects []int64
 			for _, il := range s.objs(group, protocol.ModelIssueLabel) {
@@ -572,7 +600,7 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 				require.Contains(t, s.end.Refs, og, "%s refers to the owner's labels/projects", what)
 				os := ownerSnap(og)
 				subset(what+" owner labels", ownerLabels, os.ids(og, protocol.ModelLabel, nil))
-				subset(what+" owner projects", ownerProjects, os.ids(og, protocol.ModelProject, nil))
+				subset(what+" owner projects", ownerProjects, os.ids(og, protocol.ModelProjectRef, nil))
 				if code, _ := livesyncGrant(t, token, protocol.OrgGroup(repo.OwnerID)); code != http.StatusOK && userByID[repo.OwnerID].IsOrganization() {
 					hiddenOwnerRefs++
 				}
@@ -743,6 +771,44 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 			if labels := s.ids(group, protocol.ModelLabel, nil); len(labels) > 0 && visible {
 				subset(what+" labels", labels, livesyncAPIIDs(t, token, "/api/v1/orgs/"+o.Name+"/labels"))
 			}
+			// Exactly what upstream shows every reader of the owner's
+			// repositories' issues: never a Project (description,
+			// creator, timestamps: the project page's), a ProjectRef's
+			// fields only, labels without the organization-wide counts.
+			assert.Empty(t, s.ids(group, protocol.ModelProject, nil), what+": no Project in an owner group")
+			for _, p := range s.objs(group, protocol.ModelProjectRef) {
+				assert.ElementsMatch(t, []string{"id", "owner_id", "title", "closed", "type"}, slices.Collect(maps.Keys(p)), "%s project ref %v", what, p)
+			}
+			for _, l := range s.objs(group, protocol.ModelLabel) {
+				assert.NotContains(t, l, "updated_at", "%s label %v", what, l)
+				assert.Zero(t, livesyncNum(l, "num_issues"), "%s label %v", what, l)
+				assert.Zero(t, livesyncNum(l, "num_closed_issues"), "%s label %v", what, l)
+			}
+			if !visible {
+				// A reader of the owner's repositories' issues who may
+				// not see the owner: compare with upstream's web UI.
+				session := webSession(viewer)
+				projects, labels := livesyncWebOwnerShare(t, session, issueList[o.ID], projectRepo)
+				refs := map[int64]livesyncWebProject{}
+				for _, p := range s.objs(group, protocol.ModelProjectRef) {
+					refs[livesyncNum(p, "id")] = livesyncWebProject{Title: p["title"].(string), Closed: p["closed"] == true}
+				}
+				assert.Equal(t, projects, refs, "%s: the project refs = the owner projects of %s", what, issueList[o.ID])
+				var orgLabels []int64
+				if o.IsOrganization() {
+					orgLabels = s.ids(group, protocol.ModelLabel, nil)
+				}
+				assert.ElementsMatch(t, labels, orgLabels, "%s: the labels = the organization labels of %s/labels", what, strings.TrimSuffix(strings.TrimSuffix(issueList[o.ID], "/issues"), "/pulls"))
+				for id := range refs {
+					session.MakeRequest(t, NewRequest(t, "GET", fmt.Sprintf("/%s/-/projects/%d", o.Name, id)), http.StatusNotFound)
+				}
+				for _, g := range []string{protocol.OrgGroup(o.ID), protocol.ProfileGroup(o.ID)} {
+					assert.Equal(t, http.StatusNotFound, livesyncStatus(t, token, "/-/sync/bootstrap?group="+g), "%s: %s", what, g)
+				}
+				if len(refs) > 0 {
+					hiddenOwnerProjects++
+				}
+			}
 			groups++
 		}
 
@@ -773,13 +839,14 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 	}
 	assert.Greater(t, groups, 100, "readable groups compared")
 	assert.Positive(t, hiddenOwnerRefs, "an organization's labels/projects reached by a viewer who may not see it")
+	assert.Positive(t, hiddenOwnerProjects, "project refs compared with the web UI for a viewer who may not see their owner")
 	t.Logf("entities compared per model: %v", compared)
 	// Every model a bootstrap serves was compared at least once (the
 	// fixtures have no auto-merge, commit status or action rows that
 	// reach a bootstrap: those are checked when present).
 	for _, m := range []protocol.Model{
 		protocol.ModelRepository, protocol.ModelRepoUnit, protocol.ModelCollaboration, protocol.ModelLabel, protocol.ModelMilestone,
-		protocol.ModelProject, protocol.ModelProjectColumn, protocol.ModelProjectIssue, protocol.ModelIssue, protocol.ModelIssueBody,
+		protocol.ModelProject, protocol.ModelProjectRef, protocol.ModelProjectColumn, protocol.ModelProjectIssue, protocol.ModelIssue, protocol.ModelIssueBody,
 		protocol.ModelIssueLabel, protocol.ModelIssueAssignee, protocol.ModelPullRequest, protocol.ModelBranch, protocol.ModelRelease,
 		protocol.ModelComment, protocol.ModelReview, protocol.ModelReaction, protocol.ModelAttachment, protocol.ModelIssueDependency,
 		protocol.ModelContentHistory, protocol.ModelTeam, protocol.ModelOrgUser, protocol.ModelStar, protocol.ModelTrackedTime,
@@ -787,6 +854,55 @@ func TestLivesyncBootstrapDifferential(t *testing.T) {
 	} {
 		assert.Positive(t, compared[m], "%s compared", m)
 	}
+}
+
+// livesyncWebProject is a project as upstream's issue list filter shows it.
+type livesyncWebProject struct {
+	Title  string
+	Closed bool
+}
+
+// livesyncWebOwnerShare returns what upstream's web UI shows the signed-in
+// session of a repository's owner on the repository's issue (or pull
+// request) list at list: the owner's projects in the project filter (the
+// ones projectRepo says are not repository projects), split into open and
+// closed, and the organization labels on the repository's label page.
+func livesyncWebOwnerShare(t *testing.T, session *TestSession, list string, projectRepo map[int64]int64) (map[int64]livesyncWebProject, []int64) {
+	t.Helper()
+	require.NotEmpty(t, list)
+	closedHeader := translation.NewLocale("en-US").TrString("repo.issues.new.closed_projects")
+	doc := NewHTMLParser(t, session.MakeRequest(t, NewRequest(t, "GET", list), http.StatusOK).Body)
+	projects := map[int64]livesyncWebProject{}
+	closed := false
+	doc.doc.Find(".list-header-project .menu").Children().Each(func(_ int, el *goquery.Selection) {
+		if el.HasClass("header") {
+			closed = strings.TrimSpace(el.Text()) == closedHeader
+			return
+		}
+		href, ok := el.Attr("href")
+		if !el.Is("a.item") || !ok {
+			return
+		}
+		u, err := url.Parse(href)
+		require.NoError(t, err)
+		id, err := strconv.ParseInt(u.Query().Get("project"), 10, 64)
+		if err != nil || id <= 0 || projectRepo[id] != 0 {
+			return // all, none, or a repository project
+		}
+		projects[id] = livesyncWebProject{Title: strings.TrimSpace(el.Text()), Closed: closed}
+	})
+	repoLink := strings.TrimSuffix(strings.TrimSuffix(list, "/issues"), "/pulls")
+	doc = NewHTMLParser(t, session.MakeRequest(t, NewRequest(t, "GET", repoLink+"/labels"), http.StatusOK).Body)
+	var labels []int64
+	doc.doc.Find("li.org-label a.open-issues").Each(func(_ int, el *goquery.Selection) {
+		href, _ := el.Attr("href")
+		u, err := url.Parse(href)
+		require.NoError(t, err)
+		id, err := strconv.ParseInt(u.Query().Get("labels"), 10, 64)
+		require.NoError(t, err, href)
+		labels = append(labels, id)
+	})
+	return projects, labels
 }
 
 // livesyncHTTP does an API v1 request as token over the real listener (safe

@@ -202,6 +202,44 @@ describe('session', () => {
     s.close();
   });
 
+  test('sign-out during a refresh in flight: the rotated token is never written back (security review)', async () => {
+    const server = tokenServer();
+    const locks = new FakeLocks();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const slow = ((url: string | URL | Request, init?: RequestInit) => gate.then(() => server.fetch(url, init))) as typeof fetch;
+    await writeToken({userId: 7, login: 'alice', refreshToken: 'r0', updated: 0}, factory);
+    const s = new AuthSession(oauth, 7, {fetch: slow, indexedDB: factory, locks: locks as unknown as LockManager, BroadcastChannel: null});
+    const inflight = s.token().catch(() => 'failed');
+    await vi.waitFor(() => {
+      expect(server.calls).toHaveLength(0);
+    });
+    const forgetting = s.forget();
+    release();
+    await forgetting;
+    await inflight;
+    expect(await readToken(7, factory)).toBeUndefined();
+  });
+
+  test('a refused refresh keeps a token stored meanwhile by a sign-in', async () => {
+    const server = tokenServer();
+    server.revokeAll();
+    const s = await session(server);
+    const fetchFn = server.fetch;
+    // The sign-in lands while the refused request is on its way.
+    const racing = (async (url: string | URL | Request, init?: RequestInit) => {
+      await writeToken({userId: 7, login: 'alice', refreshToken: 'fresh', updated: 1}, factory);
+      return fetchFn(url, init);
+    }) as typeof fetch;
+    const t = new AuthSession(oauth, 7, {fetch: racing, indexedDB: factory, locks: null, BroadcastChannel: null});
+    expect(await t.refresh()).toBeNull();
+    expect((await readToken(7, factory))?.refreshToken).toBe('fresh');
+    s.close();
+    t.close();
+  });
+
   test('no OAuth client on the server: expired without a request', async () => {
     const s = new AuthSession(null, 7, {indexedDB: factory, locks: null, BroadcastChannel: null});
     await expect(s.token()).rejects.toBeInstanceOf(SignedOut);
@@ -286,6 +324,13 @@ describe('sign-in', () => {
     expect(await readToken(3, factory)).toBeUndefined();
     expect(readSplash().user).toBe('7');
   });
+
+  test('signing in again takes the user off an unfinished wipe list', async () => {
+    localStorage.setItem('forgejo-next:wipe', '[7,3]');
+    const u = await start();
+    await completeSignIn(config, `?code=the-code&state=${u.searchParams.get('state') ?? ''}`, {fetch: tokenServer().fetch, indexedDB: factory, locks: null, BroadcastChannel: null});
+    expect(localStorage.getItem('forgejo-next:wipe')).toBe('[3]');
+  });
 });
 
 describe('sign-out', () => {
@@ -300,10 +345,18 @@ describe('sign-out', () => {
     const posted: unknown[] = [];
     const auth = new AuthSession(oauth, 7, {indexedDB: factory, locks: null, BroadcastChannel: null});
     auth.post = (m) => posted.push(m);
+    writeSplash({route: '/acme/secret/issues/1'});
+    localStorage.setItem('forgejo-next:sidebar', '{"closed":["acme"]}');
+    let ended = false;
     await signOut({auth, factory, close: () => {
       db.close();
       return Promise.resolve();
+    }, endWebSession: () => {
+      ended = true;
+      return Promise.resolve();
     }});
+    expect(ended).toBe(true);
+    expect(localStorage.getItem('forgejo-next:sidebar')).toBeNull();
     expect(readSplash()).toEqual({theme: 'dark'});
     expect(posted).toEqual([{t: 'logout', userId: 7}]);
     expect(await readToken(7, factory)).toBeUndefined();

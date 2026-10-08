@@ -13,7 +13,7 @@ import {memo, useState} from 'react';
 import {groupId, groupKind} from '../../data/models.ts';
 import {Avatar, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
-import {readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
+import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
 import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
@@ -37,7 +37,7 @@ const InboxItem = observer(function InboxItem() {
 
 // ── Workspace: owners and their repositories ─────────────────────────────
 
-const PREFS = 'forgejo-next:sidebar';
+const PREFS = LOCAL_PREFS[0];
 /** Repositories listed per owner before "N more". */
 const SHOWN = 10;
 

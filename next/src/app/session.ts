@@ -37,7 +37,13 @@ export async function openSession(config: NextConfig): Promise<Session | undefin
 export async function performSignOut(app: App): Promise<void> {
   const s = app.session;
   if (!s) return;
-  await signOut({auth: s.auth, close: () => s.data.close()});
+  await signOut({
+    auth: s.auth, close: () => s.data.close(),
+    // Forgejo's classic sign-out (same-origin POST passes its cross-origin protection).
+    endWebSession: async () => {
+      await fetch(sitePath(app.config, '/user/logout'), {method: 'POST', credentials: 'same-origin', redirect: 'manual', cache: 'no-store'});
+    },
+  });
   location.replace(app.config.base);
 }
 

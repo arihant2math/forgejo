@@ -48,6 +48,8 @@ async function post(oauth: NextOAuth, params: Record<string, string>, fetchFn: t
     body: new URLSearchParams({...params, client_id: oauth.client_id}),
     credentials: 'omit',
     cache: 'no-store',
+    // A stalled endpoint must not hold the refresh lock (every tab waits on it) forever.
+    signal: AbortSignal.timeout(15_000),
   });
   let body: TokenResponse = {};
   try {

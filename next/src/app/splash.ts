@@ -96,10 +96,13 @@ export function writeSplash(patch: Partial<Splash>): void {
   }
 }
 
-/** Removes the local DB marker (sign-out): the next boot shows the logged-out shell. */
+/** Other localStorage keys that remember something about a user (cleared at sign-out). */
+export const LOCAL_PREFS = ['forgejo-next:sidebar'] as const;
+
+/** Removes the local DB marker and what it says about the user (sign-out): the next boot shows the logged-out shell. */
 export function forgetUser(): void {
   try {
-    const {user: _user, initial: _initial, ...rest} = readSplash();
+    const {user: _user, initial: _initial, route: _route, ...rest} = readSplash();
     localStorage.setItem(SPLASH_KEY, JSON.stringify(rest));
   } catch {
     // Storage blocked.

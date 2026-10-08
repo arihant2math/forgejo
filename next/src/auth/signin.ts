@@ -17,6 +17,7 @@ import {optIn} from './optin.ts';
 import {challenge, randomToken} from './pkce.ts';
 import {AuthSession, type AuthEnv} from './session.ts';
 import {deleteToken} from './tokens.ts';
+import {unlistWipe} from './wipes.ts';
 
 const PENDING = 'forgejo-next:signin';
 /** A sign-in round trip older than this is refused. */
@@ -125,6 +126,7 @@ export async function completeSignIn(config: NextConfig, search: string, env: Si
     forgetUser();
   }
 
+  unlistWipe(userId);
   const session = new AuthSession(oauth, userId, env);
   try {
     await session.adopt(grant, user.login);

@@ -157,9 +157,9 @@ export class AuthSession implements SyncAuth {
     return a && a.expiresAt - EARLY > this.now() ? a.token : undefined;
   }
 
-  /** Takes a grant obtained by signing in (callback): stores the refresh token. */
+  /** Takes a grant obtained by signing in (callback): stores the refresh token (under the lock, like a refresh). */
   async adopt(grant: TokenGrant, login: string): Promise<void> {
-    await writeToken({userId: this.userId, login, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB);
+    await this.withLock(() => writeToken({userId: this.userId, login, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB));
     this.setAccess(grant.accessToken, grant.expiresAt);
     this.post({t: 'token', userId: this.userId, token: grant.accessToken, expiresAt: grant.expiresAt});
   }
@@ -189,10 +189,15 @@ export class AuthSession implements SyncAuth {
     return this.running;
   }
 
-  private async locked(stale: string | undefined): Promise<string | null> {
+  private locked(stale: string | undefined): Promise<string | null> {
+    return this.withLock(() => this.doRefresh(stale));
+  }
+
+  /** Runs fn under the Web Lock that serializes every write of this user's refresh token across tabs. */
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
     const locks = this.env.locks === undefined ? (globalThis.navigator as Navigator | undefined)?.locks : this.env.locks;
-    if (!locks) return this.doRefresh(stale);
-    return await locks.request(`${AUTH_CHANNEL}:${String(this.userId)}`, () => this.doRefresh(stale));
+    if (!locks) return fn();
+    return await locks.request(`${AUTH_CHANNEL}:${String(this.userId)}`, fn);
   }
 
   private async doRefresh(stale: string | undefined): Promise<string | null> {
@@ -215,13 +220,18 @@ export class AuthSession implements SyncAuth {
       grant = await refreshGrant(this.oauth, rec.refreshToken, this.env.fetch ?? fetch.bind(globalThis), this.now());
     } catch (err) {
       if (err instanceof GrantRefused) {
-        await deleteToken(this.userId, this.env.indexedDB).catch(() => undefined);
+        // Only the token that was refused: a sign-in may have stored a new one meanwhile (adopt
+        // takes the lock too, but another tab's code exchange also invalidates this chain).
+        const now = await readToken(this.userId, this.env.indexedDB).catch(() => undefined);
+        if (now?.refreshToken === rec.refreshToken) await deleteToken(this.userId, this.env.indexedDB).catch(() => undefined);
         this.expire();
         return null;
       }
       this.setState('offline');
       throw err;
     }
+    // Signed out while the request ran: never write a token back after the wipe.
+    if (this.isClosed()) return null;
     // Before the lock is released: the old refresh token no longer works.
     await writeToken({...rec, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB);
     this.setAccess(grant.accessToken, grant.expiresAt);
@@ -229,10 +239,25 @@ export class AuthSession implements SyncAuth {
     return grant.accessToken;
   }
 
+  /** A method, so a check after an await is not narrowed away by the one before it. */
+  private isClosed(): boolean {
+    return this.closed;
+  }
+
   private expire(): void {
     this.access = undefined;
     this.setState('expired');
     this.post({t: 'expired', userId: this.userId});
+  }
+
+  /**
+   * Sign-out: stops refreshing and deletes the refresh token under the lock,
+   * so a refresh in flight (this tab or another) finishes its write first and
+   * none writes one back afterwards (they re-read it under the lock).
+   */
+  async forget(): Promise<void> {
+    this.close();
+    await this.withLock(() => deleteToken(this.userId, this.env.indexedDB));
   }
 
   /** Forgets the access token (sign-out). */

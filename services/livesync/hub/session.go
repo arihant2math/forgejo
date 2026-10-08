@@ -57,6 +57,7 @@ func (c *conn) stop() {
 	c.stopped = true
 	c.handleMu.Unlock()
 	<-c.workerDone
+	c.tailWG.Wait() // the tails end with the session's context
 	h := c.h
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -132,6 +133,16 @@ func (c *conn) handle(data []byte) {
 		var m protocol.BarrierMessage
 		if err = json.Unmarshal(data, &m); err == nil {
 			c.barrier(m.ID)
+		}
+	case protocol.MsgLogTail:
+		var m protocol.LogTailMessage
+		if err = json.Unmarshal(data, &m); err == nil {
+			c.logTailStart(&m)
+		}
+	case protocol.MsgLogUntail:
+		var m protocol.LogUntailMessage
+		if err = json.Unmarshal(data, &m); err == nil {
+			c.logTailStop(m.JobID)
 		}
 	case protocol.MsgPing:
 		var m protocol.PingMessage

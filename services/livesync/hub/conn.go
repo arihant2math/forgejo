@@ -180,13 +180,19 @@ type conn struct {
 	onWake func()
 	// lastFrame: when the last delta was encoded (the writer's own).
 	lastFrame time.Time
+
+	// tails are the session's Actions log tails (logs.go), guarded by
+	// tailMu; tailWG counts their goroutines (stop waits for them).
+	tailMu sync.Mutex
+	tails  map[int64]*logTail
+	tailWG sync.WaitGroup
 }
 
 func (h *Hub) newConn(t transport, auth Authenticator) *conn {
 	ctx, cancel := context.WithCancel(h.ctx)
 	c := &conn{
 		h: h, t: t, auth: auth, ctx: ctx, cancel: cancel,
-		subs: map[string]*sub{}, holds: map[*sub]int64{},
+		subs: map[string]*sub{}, holds: map[*sub]int64{}, tails: map[int64]*logTail{},
 		workNotify: make(chan struct{}, 1), notify: make(chan struct{}, 1), workerDone: make(chan struct{}),
 	}
 	c.room = sync.NewCond(&c.mu)

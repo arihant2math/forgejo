@@ -22,6 +22,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
+	"forgejo.org/services/livesync/actionslog"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/hub"
 	"forgejo.org/services/livesync/idempotency"
@@ -166,6 +167,7 @@ func Init(ctx context.Context) (err error) {
 		Perms: perms, Profile: ownProfile, BuildID: setting.AppVer, Schemas: materialize.Schemas(),
 		SendBuffer: s.SendBuffer, MaxSubscriptions: s.MaxSubscriptions, MaxConnections: s.MaxConnections,
 		MaxReplay: s.MaxReplay, RevalidateInterval: s.SessionCheckInterval,
+		Logs: actionslog.Source{}, LogInterval: s.LogTailInterval,
 	}, head)
 	idem, err := idempotency.Start(instCtx, idempotency.Config{TTL: s.IdempotencyTTL, SyncWait: s.IdempotencySyncWait})
 	if err != nil {

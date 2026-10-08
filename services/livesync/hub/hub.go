@@ -125,6 +125,11 @@ type Config struct {
 	RevalidateInterval time.Duration
 	// WriteTimeout bounds one write to a client.
 	WriteTimeout time.Duration
+	// Logs reads Actions job logs for log tails (optional: without it
+	// every log_tail is closed as forbidden).
+	Logs LogSource
+	// LogInterval is how often a log tail polls its job.
+	LogInterval time.Duration
 }
 
 func (cfg *Config) setDefaults() {
@@ -147,6 +152,7 @@ func (cfg *Config) setDefaults() {
 	defDur(&cfg.KeepAlive, DefaultKeepAlive)
 	defDur(&cfg.RevalidateInterval, DefaultRevalidateInterval)
 	defDur(&cfg.WriteTimeout, DefaultWriteTimeout)
+	defDur(&cfg.LogInterval, DefaultLogInterval)
 }
 
 // Authenticator validates the token of a hello (and, periodically, again).

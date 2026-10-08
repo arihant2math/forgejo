@@ -29,7 +29,7 @@ func TestLoadSettings(t *testing.T) {
 			SessionCheckInterval: 5 * time.Minute,
 			SummaryRecency:       90 * 24 * time.Hour, WorkspaceMaxRepos: 200,
 			IdempotencyTTL: 7 * 24 * time.Hour, IdempotencySyncWait: 2 * time.Second,
-			TriggerCheckInterval: time.Minute,
+			TriggerCheckInterval: time.Minute, LogTailInterval: time.Second,
 		}
 		fn(&s)
 		return s
@@ -75,6 +75,8 @@ func TestLoadSettings(t *testing.T) {
 		{"[livesync]\nIDEMPOTENCY_SYNC_WAIT = briefly\n", Settings{}, true},
 		{"[livesync]\nTRIGGER_CHECK_INTERVAL = 0\n", def(func(s *Settings) { s.TriggerCheckInterval = 0 }), false},
 		{"[livesync]\nTRIGGER_CHECK_INTERVAL = 5s\n", def(func(s *Settings) { s.TriggerCheckInterval = 5 * time.Second }), false},
+		{"[livesync]\nLOG_TAIL_INTERVAL = 250ms\n", def(func(s *Settings) { s.LogTailInterval = 250 * time.Millisecond }), false},
+		{"[livesync]\nLOG_TAIL_INTERVAL = 0\n", Settings{}, true},
 		{"[livesync]\nTRIGGER_CHECK_INTERVAL = -1s\n", Settings{}, true},
 		{"[livesync]\nTRIGGER_CHECK_INTERVAL = often\n", Settings{}, true},
 		{"[livesync]\nASSETS_DIR = /srv/next\n", def(func(s *Settings) { s.AssetsDir = "/srv/next" }), false},

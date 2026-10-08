@@ -55,6 +55,14 @@ type message struct {
 	ViewerID     int64                `json:"viewer_id"`
 	Profile      *protocol.Change     `json:"profile"`
 	BuildID      string               `json:"build_id"`
+	// Log tails (logs.go).
+	JobID   int64              `json:"job_id"`
+	TaskID  int64              `json:"task_id"`
+	Offset  int64              `json:"offset"`
+	Lines   []protocol.LogLine `json:"lines"`
+	Steps   []protocol.LogStep `json:"steps"`
+	Done    bool               `json:"done"`
+	Expired bool               `json:"expired"`
 }
 
 type fakeTransport struct {

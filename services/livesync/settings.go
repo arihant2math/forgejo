@@ -110,6 +110,9 @@ type Settings struct {
 	// http://127.0.0.1/-/next/callback for a development server (the port of
 	// an http loopback URI is ignored for public clients) (B8).
 	OAuthRedirectURIs []string
+	// LOG_TAIL_INTERVAL (default 1s): how often a sync session's Actions
+	// log tail polls its job for new lines (B9).
+	LogTailInterval time.Duration
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -182,6 +185,9 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 		if u = strings.TrimSpace(u); u != "" {
 			s.OAuthRedirectURIs = append(s.OAuthRedirectURIs, u)
 		}
+	}
+	if s.LogTailInterval, err = sec.Key("LOG_TAIL_INTERVAL").MustDuration(hub.DefaultLogInterval); err != nil || s.LogTailInterval <= 0 {
+		return s, fmt.Errorf("invalid [livesync] LOG_TAIL_INTERVAL %q (want a duration > 0)", sec.Key("LOG_TAIL_INTERVAL").String())
 	}
 	if s.SendBuffer <= 0 || s.MaxSubscriptions <= 0 || s.MaxConnections <= 0 || s.MaxReplay <= 0 || s.SessionCheckInterval <= 0 {
 		return s, fmt.Errorf("invalid [livesync] SEND_BUFFER %d / MAX_SUBSCRIPTIONS %d / MAX_CONNECTIONS_PER_USER %d / MAX_REPLAY %d / SESSION_CHECK_INTERVAL %s (want > 0)",

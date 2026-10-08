@@ -29,7 +29,8 @@ export default defineConfig({
     // below: that server writes dist/, which Forgejo serves (ASSETS_DIR); dev-forgejo.sh e2e builds it
     // first and runs this project alone (NEXT_E2E_NO_SERVERS=1, --no-deps).
     // One worker: the files share the server's users and repositories, and timings are measured.
-    {name: 'forgejo', testMatch: 'forgejo/**/*.spec.ts', dependencies: ['build'], timeout: 180_000, workers: 1},
+    // (A regular expression: a glob such as 'forgejo/**' also matches this checkout's own path, …/forgejo/next/e2e/….)
+    {name: 'forgejo', testMatch: /\/e2e\/forgejo\/[^/]+\.spec\.ts$/, dependencies: ['build'], timeout: 180_000, workers: 1},
   ],
   // NEXT_E2E_NO_SERVERS=1: run only against what is already up (e.g. --project forgejo against a
   // Forgejo serving next/dist: the build server would rebuild dist under it).

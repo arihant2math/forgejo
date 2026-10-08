@@ -3545,9 +3545,9 @@ does) **and** MySQL 8.0 (binlog on).
   - **Seen, not in scope:** posting such a body through API v1 takes upstream ≈ 28 s in `references.FindAllMentionsMarkdown`
     + `FindAllIssueReferencesMarkdown` alone (both render it with goldmark), inside the comment's request; that is upstream
     behaviour and no livesync path.
-- [ ] **Open after round 3** — 2026-10-08: 1 verified finding (major) recorded, not fixed.
+- [x] **Round 4** — 2026-10-08: the finding left open after round 3 (R4-1, major) fixed; no open items.
 - **Notes/decisions:**
-  - **(R4-1, major, open) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
+  - **(R4-1, major, fixed — see *R4-1 fix* below) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
     before any bound applies, so one cheap post still freezes the global writer for seconds to minutes, on every edit**
     (`services/livesync/materialize/rendercost.go`). ef2ad5e passes the repository's metas to `renderCost`; for the
     regexp tracker style `structureCost` calls `scan()`, which runs `trackerRefs.FindAllStringIndex(segment, -1)` over
@@ -3574,6 +3574,67 @@ does) **and** MySQL 8.0 (binlog on).
     `renderWait`); materialize unit tests pass with `-race` (SQLite); the other `services/livesync/...`,
     `routers/livesync` and `models/livesync` unit tests pass; PG 16 integration `TestLivesyncAuditBodies` (including
     "superlinear body") and `TestLivesyncConformance` pass; the working tree was clean.
+  - **R4-1 fix.** *Root cause:* round 3 made the estimate depend on the repository's metas but left it where round 2 had
+    put it, on the writer's goroutine ahead of every bound, so whatever the estimate itself cost was unbounded; with the
+    regexp style that is the owner's pattern (O(input × program), and a 12-byte pattern compiles to 2 000 instructions).
+    Two changes (`services/livesync/materialize/render.go`, `rendercost.go`):
+    1. **The estimate is part of the bounded rendering job.** `loader.render` only compares `len(content) × costPerByte`
+       with `maxRenderCost` (no look at the content or the metas), then does the busy check, the share and
+       `renderBounded`, which sets `renderJob.maxCost`; the job's goroutine runs `renderCost` first and returns
+       `errRenderCost` (metric reason `cost`, Debug log) without rendering when it is over. So `renderWait` bounds the
+       estimate like the rendering; an estimate the writer stops waiting for is abandoned like a rendering (counted
+       against `maxAbandonedRenders`, its later time charged to the repository's share), and it stops at its next search
+       once the job's context is cancelled. The time the writer waited for an estimate is charged to `l.spent` and the
+       share like rendering time. `renderCount` counts renderings that start (after the estimate). On-request renderings
+       (`renderMarkdown`: bodies endpoint, previews) still have no estimate (upstream behaviour, round 2).
+    2. **The owner's pattern is charged before it runs** (`trackerScan`). The processor's model: per text node, one search
+       of the rest of the node per reference it links, and one more. Each search is charged `bytes × rate` *before* it
+       runs, and none runs once the charges exceed what is left under `maxRenderCost`; rate = `costPerTrackerScan` for
+       the alphanumeric style, and max(`costPerTrackerScan`, program instructions × **`costPerRegexpInst` = 15 ns**) for
+       the regexp style (`regexpSize`: the instruction count of `regexp/syntax` `Parse(Perl)` + `Simplify` + `Compile`,
+       what `regexp.Compile` builds; cached for 64 patterns). Measured (Go 1.27, `FindAllStringIndex` and
+       `FindStringSubmatchIndex`, programs of 7 to 20 000 instructions, several inputs): 0.01–11 ns per byte and
+       instruction. Numeric references of a node with an external one are charged as in round 3. So the audit's patterns
+       never run over its 64 KiB body (2 002 instructions ⇒ 30 µs per byte: over at the first charge); `renderCost` takes
+       10–150 ms with them, compilation included (was 1.2 s, 13 s, 4 min 52 s). The estimate now also charges the one
+       search every text node gets, which round 3 skipped when nothing matched (k = 0) although the rendering runs the
+       pattern over the whole body too. A short body (a few hundred bytes) in such a repository is still rendered;
+       compiling a pattern (up to ≈ 1 s for the largest program Go accepts) also happens on the job's goroutine.
+    **Rest of the writer path audited** (`load.go`, `specs.go`, `specs_render.go`, `render.go`, `refs.go`, `body.go`,
+    `materializer.go`): before the bounds the writer does only database reads and linear work with fixed code —
+    `truncateJSON` (stops at `MaxBodyBytes`), the DTO's JSON encoding and FNV change hash (the body cut to 64 KiB, or the
+    complete source of a cut body, which was read from the row anyway), `renderEnv` (the metas as JSON: the pattern and
+    format are copied as strings, nothing compiled or run; `ComposeMetas` only copies the tracker settings), `jsonLen` of
+    HTML the bounded job produced, `userRefs` (reflection over DTO fields). Nothing else runs a user-supplied pattern or
+    superlinear work there.
+    Tests: `TestRenderCostOwnerRegexp` (the audit's 12-, 111- and 1 101-byte patterns over its body are over the limit
+    and each estimate returns in < 2 s; a short body with the 111-byte pattern and ordinary `(T\d+)` references one per
+    line under it; 5 000 references in one paragraph over; with `maxRenderCost` = 1 h and a cancelled context the
+    estimate returns at once), `TestConsumeRenderOwnerRegexp` (repository 48 set to the regexp style with the 111-byte
+    pattern, `renderWait` = 200 ms: `Consume` of pull request 9 with the audit's body plus a cheap issue of repository 1
+    returns within `renderWait` + 1 s, 9 sent without HTML, the cheap one rendered; then with `maxRenderCost` = 1 h so that
+    the 12-byte pattern does run over the body — 1.2 s — `Consume` still returns within `renderWait` + 0.5 s, the
+    estimate is abandoned and the cheap body rendered), integration `TestLivesyncAuditBodies` "owner regexp" (API v1
+    PATCH as the site admin sets org26/repo_external_tracker_alpha to the regexp style with the 111-byte pattern, pull
+    request 9's body set to the audit's 64 000 bytes with SQL, then a comment posted through API v1 in user2/repo1: its
+    entry arrives within 5 s, rendered; the IssueBody of 9 has no HTML and `body_truncated`). `TestRenderBounded` now sets
+    `maxRenderCost` = 1 h (it tests abandonment with a body the estimate catches). **Sensitivity checked:** with
+    `renderCost` called on the writer again (before the busy check) `TestConsumeRenderOwnerRegexp` fails (1.3 s > 0.7 s);
+    with the searches not gated by the budget `TestRenderCostOwnerRegexp` runs past a 300 s timeout; with HEAD's
+    `render.go` + `rendercost.go` the integration subtest fails (no entry within 15 s).
+    SURFACE.md's markup row notes the processor's use of the owner's pattern and `regexpSize`.
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...`
+    and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `next/tools/gen-protocol.sh --check` (up to date, no protocol type changed); unit tests of `models/livesync`,
+    `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green; under
+    `-race` the abandoned 12-byte-pattern estimate of `TestConsumeRenderOwnerRegexp` runs ≈ 20 s on its goroutine while
+    `Consume` returned within the bound); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`):
+    52 pass** and **MySQL 8.0: 54 pass**, 0 fail (incl. `TestLivesyncAuditBodies` "owner regexp" and
+    `TestLivesyncConformance`), no rendering abandoned in the suite; the only testlogger "FATAL ERROR" is the known
+    upstream MySQL `Error 1213` deadlock in `CreateComment` under `TestLivesyncBootstrapConvergence` (B6 notes; the test
+    passes); `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); no trigger
+    changed, so no MariaDB run; the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`,
+    `go.mod`, `go.sum`).
 
 
 ### Frontend

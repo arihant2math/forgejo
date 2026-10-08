@@ -4,6 +4,7 @@
 package materialize
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -93,16 +94,16 @@ func TestRenderCost(t *testing.T) {
 		{"regexp references, one per line", strings.Repeat("T1 and T2\n", 3000), regexpStyle, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			cost := renderCost(c.content, c.metas)
+			cost := renderCost(t.Context(), c.content, c.metas)
 			assert.Equal(t, c.over, cost > maxRenderCost, "estimated %s", cost)
 		})
 	}
-	assert.Less(t, renderCost("Fixes #1, thanks @user2", nil), time.Millisecond)
+	assert.Less(t, renderCost(t.Context(), "Fixes #1, thanks @user2", nil), time.Millisecond)
 
 	// Without hard line breaks, a paragraph's lines are one text node.
 	defer test.MockVariableValue(&setting.Markdown.EnableHardLineBreakInComments, false)()
-	assert.Greater(t, renderCost(strings.Repeat("ABC-1\n", 10900), alphanumeric), maxRenderCost)
-	assert.LessOrEqual(t, renderCost(strings.Repeat("ABC-1\n\n", 5400), alphanumeric), maxRenderCost)
+	assert.Greater(t, renderCost(t.Context(), strings.Repeat("ABC-1\n", 10900), alphanumeric), maxRenderCost)
+	assert.LessOrEqual(t, renderCost(t.Context(), strings.Repeat("ABC-1\n\n", 5400), alphanumeric), maxRenderCost)
 }
 
 // A body estimated to be too expensive is sent without HTML and is not
@@ -116,7 +117,7 @@ func TestConsumeRenderCost(t *testing.T) {
 	m, _ := testMaterializer(t)
 	var cursor int64
 	mentions := strings.Repeat("@user2 ", 2000)
-	require.Greater(t, renderCost(mentions, nil), maxRenderCost)
+	require.Greater(t, renderCost(t.Context(), mentions, nil), maxRenderCost)
 	exec(t, "UPDATE issue SET content = ? WHERE id = 1", mentions)
 	exec(t, "UPDATE issue SET content = 'cheap @user2' WHERE id = 4")
 	before := renderCount.Load()
@@ -296,6 +297,7 @@ func TestConsumeRenderAbandoned(t *testing.T) {
 func TestRenderBounded(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	defer test.MockVariableValue(&renderWait, 50*time.Millisecond)()
+	defer test.MockVariableValue(&maxRenderCost, time.Hour)() // a body the estimate does not catch
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
 	l := newLoader()
 	defer l.close()
@@ -338,6 +340,113 @@ func TestRenderKeepsMetas(t *testing.T) {
 	assert.Contains(t, html, "https://tracker.com/org26/repo_external_tracker_alpha/issues/ABC-123")
 	assert.NotContains(t, repo.ComposeMetas(t.Context()), "index")
 	assert.Equal(t, env, newLoader().renderEnv(t.Context(), repo))
+}
+
+// Backend audit, round 4: with an external tracker's regexp style, the
+// estimate runs the repository owner's own pattern, which may take
+// minutes over a body (Go's regular expressions are linear in the input
+// times the program, and a short pattern can compile to a large program).
+// Each search is charged by the program's size before it runs, so such a
+// pattern is not run over the body at all; and the estimate stops when its
+// rendering is abandoned.
+func TestRenderCostOwnerRegexp(t *testing.T) {
+	body := strings.Repeat("abcdefghijklmnop", 4000)
+	for _, c := range []struct {
+		name, pattern, content string
+		over                   bool
+	}{
+		// The audit's patterns, with the time renderCost took over the
+		// body when it ran them.
+		{"12-byte pattern (1.2 s)", `(\w{1,999}Z)`, body, true},
+		{"111-byte pattern (13 s)", ownerPattern(10), body, true},
+		{"1101-byte pattern (4 min 52 s)", ownerPattern(100), body, true},
+		{"expensive pattern, short body", ownerPattern(10), "Fixes abcZ, see #1", false},
+		{"ordinary pattern", `(T\d+)`, strings.Repeat("see T1 and T2\n", 4000), false},
+		{"ordinary pattern, references in one paragraph", `(T\d+)`, strings.Repeat("T1 ", 5000), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			metas := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": c.pattern}
+			start := time.Now()
+			cost := renderCost(t.Context(), c.content, metas)
+			assert.Equal(t, c.over, cost > maxRenderCost, "estimated %s", cost)
+			assert.Less(t, time.Since(start), 2*time.Second, "the estimate is bounded")
+		})
+	}
+
+	// When the rendering is abandoned, the estimate runs no more searches.
+	defer test.MockVariableValue(&maxRenderCost, time.Hour)()
+	metas := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": ownerPattern(10)}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	start := time.Now()
+	renderCost(ctx, body, metas)
+	assert.Less(t, time.Since(start), 2*time.Second)
+}
+
+// ownerPattern is the audit's pattern of n alternatives \w{1,999}Z, which
+// compiles to n × 2 000 instructions.
+func ownerPattern(n int) string {
+	return "(" + strings.Repeat(`\w{1,999}Z|`, n-1) + `\w{1,999}Z)`
+}
+
+// setOwnerRegexp gives repository 48 an external tracker with the regexp
+// style and pattern (any repository owner can, in its settings or through
+// API v1).
+func setOwnerRegexp(t *testing.T, pattern string) {
+	t.Helper()
+	config, err := json.Marshal(map[string]string{
+		"ExternalTrackerURL":           "https://tracker.com",
+		"ExternalTrackerFormat":        "https://tracker.com/{user}/{repo}/issues/{index}",
+		"ExternalTrackerStyle":         markup.IssueNameStyleRegexp,
+		"ExternalTrackerRegexpPattern": pattern,
+	})
+	require.NoError(t, err)
+	exec(t, "UPDATE repo_unit SET config = ? WHERE id = 68", string(config))
+}
+
+// The writer runs no estimate of its own: a body of a repository with an
+// expensive pattern costs it no more than renderWait, and the batch's other
+// bodies are rendered (the audit's body took 13.8 s in Consume).
+func TestConsumeRenderOwnerRegexp(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	defer test.MockVariableValue(&renderWait, 200*time.Millisecond)()
+	setOwnerRegexp(t, ownerPattern(10))
+	body := strings.Repeat("abcdefghijklmnop", 4000)
+	exec(t, "UPDATE issue SET content = ? WHERE id = 9", body)
+	exec(t, "UPDATE issue SET content = 'cheap *x*' WHERE id = 4")
+	start := time.Now()
+	consume(t, m, change(1, "issue", 9, "U"), change(2, "issue", 4, "U"))
+	assert.Less(t, time.Since(start), renderWait+time.Second)
+	_, entries := takeLog(t, &cursor)
+	bodies := issueBodies(t, entries)
+	require.Contains(t, bodies, int64(9))
+	require.Contains(t, bodies, int64(4))
+	assert.Equal(t, body, bodies[9].Body)
+	assert.Empty(t, bodies[9].BodyHTML)
+	assert.True(t, bodies[9].BodyTruncated)
+	assert.Contains(t, bodies[4].BodyHTML, "<em>x</em>")
+	require.Eventually(t, func() bool { return abandonedRenders.Load() == 0 }, 2*time.Minute, 10*time.Millisecond)
+
+	// However long the estimate takes (here it may take the hour, and the
+	// 12-byte pattern takes over a second over the body), the writer waits
+	// for it at most renderWait.
+	defer test.MockVariableValue(&maxRenderCost, time.Hour)()
+	setOwnerRegexp(t, `(\w{1,999}Z)`)
+	exec(t, "UPDATE issue SET content = ? WHERE id = 9", body+" ")
+	exec(t, "UPDATE issue SET content = 'cheap *y*' WHERE id = 4")
+	start = time.Now()
+	consume(t, m, change(3, "issue", 9, "U"), change(4, "issue", 4, "U"))
+	assert.Less(t, time.Since(start), renderWait+500*time.Millisecond)
+	_, entries = takeLog(t, &cursor)
+	bodies = issueBodies(t, entries)
+	require.Contains(t, bodies, int64(9))
+	require.Contains(t, bodies, int64(4))
+	assert.Empty(t, bodies[9].BodyHTML)
+	assert.True(t, bodies[9].BodyTruncated)
+	assert.Contains(t, bodies[4].BodyHTML, "<em>y</em>")
+	require.Eventually(t, func() bool { return abandonedRenders.Load() == 0 }, 2*time.Minute, 10*time.Millisecond)
 }
 
 func issueBodies(t *testing.T, entries []livesync_model.LogEntry) map[int64]protocol.IssueBody {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"io"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,14 @@ import (
 //     goldmark and the post-processors, and their CPU work cannot be
 //     interrupted, so a rendering that takes longer is abandoned to its
 //     goroutine (body_truncated); at most maxAbandonedRenders of those
-//     run at a time, and while they do the writer renders nothing.
+//     run at a time, and while they do the writer renders nothing. The
+//     estimate is part of the rendering job, so the wait bounds it too:
+//     with an external tracker's regexp style it runs the repository
+//     owner's own pattern, whose cost no one bounds (backend audit, round
+//     4: 13 s for a 111-byte pattern over 64 KiB). Nothing whose cost
+//     depends on the body or on the repository's settings runs on the
+//     writer's goroutine before that bound applies; loader.render only
+//     compares the body's length with maxRenderCost.
 //   - prefillCommits answers the commit SHA lookups of a rendering with
 //     one git process instead of one per missing SHA.
 //   - renderShare bounds the share of the writer's time that rendering
@@ -102,6 +110,14 @@ const (
 	// of the text node ("ABC-1 " x 10 900: 43 s; "!1 " x 20 000 then one
 	// "ABC-1": 103 s).
 	costPerTrackerScan = 100 * time.Nanosecond
+	// costPerRegexpInst: with the regexp style, the pattern is the
+	// repository owner's, and Go's regular expressions take up to about
+	// 11 ns per byte of input and instruction of the compiled program
+	// (measured with programs of 7 to 20 000 instructions; a 12-byte
+	// pattern such as `(\w{1,999}Z)` compiles to 2 000 instructions, one
+	// of 1 300 bytes to 200 000). A search of the processor costs at
+	// least costPerTrackerScan per byte.
+	costPerRegexpInst = 15 * time.Nanosecond
 )
 
 // maxRenderCost is the most a body may be estimated to cost for the writer
@@ -130,9 +146,17 @@ var (
 // renderCost estimates the time renderMarkdown takes to render content
 // with the markup metas of its repository (see the cost constants; metas
 // may be nil). Over-estimates are safe: such a body is only rendered on
-// request instead of by the writer.
-func renderCost(content string, metas map[string]string) time.Duration {
+// request instead of by the writer. It stops counting once the estimate
+// exceeds maxRenderCost (the result is then over it) or ctx is done.
+//
+// It runs on the rendering's goroutine (renderJob.run), never on the
+// writer's: its work grows with the body, and with the regexp tracker
+// style it runs the repository owner's pattern.
+func renderCost(ctx context.Context, content string, metas map[string]string) time.Duration {
 	cost := time.Duration(len(content)) * costPerByte
+	if cost > maxRenderCost {
+		return cost
+	}
 	cost += time.Duration(len(references.FindAllMentionsBytes([]byte(content)))) * costPerMention
 	cost += time.Duration(len(commitCandidates(content))) * costPerCommit
 	// modules/markup's filePreviewPattern: https?://…/src/commit/{sha}/{path}#L…
@@ -140,7 +164,10 @@ func renderCost(content string, metas map[string]string) time.Duration {
 	cost += time.Duration(len(issueRef.FindAllStringIndex(content, -1))) * costPerRef
 	refs := time.Duration(len(crossRef.FindAllStringIndex(content, -1)))
 	cost += refs * refs * costPerCrossRefSquared
-	return cost + structureCost(content, metas)
+	if cost > maxRenderCost {
+		return cost
+	}
+	return cost + structureCost(ctx, content, metas, maxRenderCost-cost)
 }
 
 // structureCost is the part of renderCost for the constructs whose
@@ -149,38 +176,26 @@ func renderCost(content string, metas map[string]string) time.Duration {
 // line, with a coarse idea of markdown's blocks that errs on the side of
 // counting more: a line's leading block quote and list markers, headings
 // (ATX, and any line of only '=' or '-' as a setext underline), table
-// delimiter rows, fences; paragraphs end at blank lines.
-func structureCost(content string, metas map[string]string) time.Duration {
+// delimiter rows, fences; paragraphs end at blank lines. The external
+// tracker's searches (trackerScan) stop once they cost more than budget.
+func structureCost(ctx context.Context, content string, metas map[string]string, budget time.Duration) time.Duration {
 	var (
 		ids, fences, lines, maxPipes int
 		table                        bool
-		nesting, inline, tracker     int64
+		nesting, inline              int64
 		// The emphasis delimiters and link openers of the paragraph so far.
 		delims, brackets int64
 		paraStart        int
 	)
-	trackerRefs := trackerPattern(metas)
+	tracker := newTrackerScan(ctx, metas, budget)
 	// Whether each line is a text node of its own (a soft line break is
 	// rendered as <br>, see modules/markup/markdown's ASTTransformer).
 	hardBreaks := setting.Markdown.EnableHardLineBreakInComments
-	// The processor stops at the first text without an external reference
-	// (a numeric reference is linked only when one follows), so each
-	// external and each numeric reference costs up to a scan of the
-	// segment.
-	scan := func(segment string) {
-		if trackerRefs == nil || segment == "" {
-			return
-		}
-		if k := len(trackerRefs.FindAllStringIndex(segment, -1)); k > 0 {
-			k += len(issueRef.FindAllStringIndex(segment, -1))
-			tracker += int64(k) * int64(len(segment))
-		}
-	}
 	endParagraph := func(end int) {
 		inline += delims*delims*int64(costPerDelimiterSquared) + brackets*brackets*int64(costPerBracketSquared)
 		delims, brackets = 0, 0
 		if !hardBreaks {
-			scan(content[paraStart:end])
+			tracker.segment(content[paraStart:end])
 		}
 	}
 	for start := 0; start < len(content); {
@@ -214,7 +229,7 @@ func structureCost(content string, metas map[string]string) time.Duration {
 		delims += int64(strings.Count(line, "*") + strings.Count(line, "_"))
 		brackets += int64(strings.Count(line, "["))
 		if hardBreaks {
-			scan(line)
+			tracker.segment(line)
 		}
 		start = end + 1
 	}
@@ -224,11 +239,117 @@ func structureCost(content string, metas map[string]string) time.Duration {
 	cost += time.Duration(nesting) * costPerNestingSquared
 	cost += time.Duration(fences) * costPerFence
 	cost += time.Duration(inline)
-	cost += time.Duration(tracker) * costPerTrackerScan
+	cost += tracker.cost
 	if table {
 		cost += time.Duration(maxPipes+1) * time.Duration(lines) * costPerTableCell
 	}
 	return cost
+}
+
+// trackerScan estimates what issueIndexPatternProcessor costs with an
+// external tracker's alphanumeric or regexp issue style (see
+// costPerTrackerScan): on each text node it searches the rest of the node
+// for the first external and the first numeric reference before each
+// reference it links, and once more; each search costs up to the length
+// of the rest of the node times the pattern's rate. The estimate charges
+// every search before running it (so it charges at least one search over
+// all text, which the processor runs even when nothing matches), and it
+// runs no search once the charges exceed its budget: the pattern may be
+// the repository owner's, and whatever it costs, the estimate costs no
+// more than about what the processor was allowed.
+type trackerScan struct {
+	ctx    context.Context
+	re     *regexp.Regexp // nil: no tracker style, nothing to charge
+	rate   time.Duration  // per byte of one search
+	budget time.Duration
+	cost   time.Duration
+}
+
+func newTrackerScan(ctx context.Context, metas map[string]string, budget time.Duration) *trackerScan {
+	s := &trackerScan{ctx: ctx, budget: budget}
+	switch metas["style"] {
+	case markup.IssueNameStyleAlphanumeric:
+		s.re, s.rate = alphanumericRef, costPerTrackerScan
+	case markup.IssueNameStyleRegexp:
+		// As the processor compiles it (cached by both).
+		pattern, err := regexplru.GetCompiled(metas["regexp"])
+		if err != nil {
+			return s // the processor links nothing then
+		}
+		s.re = pattern
+		s.rate = max(costPerTrackerScan, time.Duration(regexpSize(metas["regexp"]))*costPerRegexpInst)
+	}
+	return s
+}
+
+// segment charges the processor's searches on one text node.
+func (s *trackerScan) segment(text string) {
+	if s.re == nil || text == "" {
+		return
+	}
+	found := false
+	for pos := 0; pos < len(text); {
+		if !s.charge(len(text) - pos) {
+			return
+		}
+		loc := s.re.FindStringIndex(text[pos:])
+		if loc == nil {
+			break
+		}
+		found = true
+		pos += max(loc[1], loc[0]+1)
+	}
+	if found {
+		// A numeric reference before an external one is linked first.
+		s.charge(len(issueRef.FindAllStringIndex(text, -1)) * len(text))
+	}
+}
+
+// charge adds a search of n bytes; it says whether the estimate is still
+// within its budget (and the rendering not abandoned).
+func (s *trackerScan) charge(n int) bool {
+	if s.cost > s.budget || s.ctx.Err() != nil {
+		return false
+	}
+	if time.Duration(n) > (s.budget-s.cost)/s.rate {
+		s.cost = s.budget + 1 // saturated: n × rate may overflow
+		return false
+	}
+	s.cost += time.Duration(n) * s.rate
+	return true
+}
+
+// regexpSizes caches regexpSize per pattern (bounded: emptied when full).
+var regexpSizes = struct {
+	sync.Mutex
+	m map[string]int
+}{m: map[string]int{}}
+
+const maxRegexpSizes = 64
+
+// regexpSize returns the number of instructions of the program that
+// regexp.Compile makes of pattern (a valid pattern; it parses and
+// compiles it the same way), which the time a search takes is
+// proportional to. regexp.Regexp does not tell it.
+func regexpSize(pattern string) int {
+	regexpSizes.Lock()
+	n, ok := regexpSizes.m[pattern]
+	regexpSizes.Unlock()
+	if ok {
+		return n
+	}
+	if re, err := syntax.Parse(pattern, syntax.Perl); err == nil {
+		if prog, err := syntax.Compile(re.Simplify()); err == nil {
+			n = len(prog.Inst)
+		}
+	}
+	regexpSizes.Lock()
+	if len(regexpSizes.m) >= maxRegexpSizes {
+		clear(regexpSizes.m)
+	}
+	regexpSizes.m[pattern] = n
+	regexpSizes.Unlock()
+	return n
 }
 
 // containerMarkers returns how many block quote ('>') and list item ("-",
@@ -284,23 +405,6 @@ func isUnderline(s string) bool {
 func isDelimiterRow(s string) bool {
 	s = strings.TrimSpace(s)
 	return strings.Trim(s, "-:| \t") == "" && strings.Contains(s, "-") && strings.ContainsAny(s, "|:")
-}
-
-// trackerPattern returns, for a repository whose external issue tracker
-// uses the alphanumeric or regexp style, a superset of the references
-// issueIndexPatternProcessor links (nil otherwise; see costPerTrackerScan).
-func trackerPattern(metas map[string]string) *regexp.Regexp {
-	switch metas["style"] {
-	case markup.IssueNameStyleAlphanumeric:
-		return alphanumericRef
-	case markup.IssueNameStyleRegexp:
-		pattern, err := regexplru.GetCompiled(metas["regexp"])
-		if err != nil {
-			return nil // the processor links nothing then
-		}
-		return pattern
-	}
-	return nil
 }
 
 // commitCandidates returns the distinct SHA-like words of content.

@@ -101,10 +101,12 @@ type renderJob struct {
 	content string
 	repoID  int64
 	name    string // the repository's full name, for logs
+	// maxCost, if not 0, is the most renderCost may estimate for run to
+	// render the body (loader.render; on-request renderings have none).
+	maxCost time.Duration
 }
 
 func (l *loader) prepareRender(ctx context.Context, repo *repo_model.Repository, content string) *renderJob {
-	renderCount.Add(1)
 	j := &renderJob{content: content, repoID: repo.ID, name: repo.FullName()}
 	j.rc = &markup.RenderContext{
 		Links: markup.Links{Base: repo.Link()},
@@ -146,14 +148,31 @@ func (l *loader) prepareRender(ctx context.Context, repo *repo_model.Repository,
 // lookups failed, so its result is not used).
 var errRenderTimeout = errors.New("livesync: rendering timed out")
 
-// run renders the job's body. A panic of the markup service is an error
-// (it may run on a goroutine of its own, where it would end the process).
+// errRenderCost: renderCost estimated the body to take longer than the
+// job's maxCost; it was not rendered.
+var errRenderCost = errors.New("livesync: rendering estimated too expensive")
+
+// run renders the job's body, after estimating its cost when the job has
+// a maxCost (on the job's goroutine: renderCost's work grows with the
+// body and may run the repository owner's regexp). A panic of the markup
+// service is an error (it may run on a goroutine of its own, where it
+// would end the process).
 func (j *renderJob) run() (html string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			html, err = "", fmt.Errorf("livesync: rendering panicked: %v\n%s", r, debug.Stack())
 		}
 	}()
+	if j.maxCost > 0 {
+		cost := renderCost(j.rc.Ctx, j.content, j.rc.Metas)
+		if j.rc.Ctx.Err() != nil {
+			return "", errRenderTimeout
+		}
+		if cost > j.maxCost {
+			return "", fmt.Errorf("%w: %s", errRenderCost, cost)
+		}
+	}
+	renderCount.Add(1)
 	if j.gitRepo != nil {
 		prefillCommits(j.rc.Ctx, j.gitRepo, j.content, j.known)
 	}
@@ -168,6 +187,11 @@ func (j *renderJob) run() (html string, err error) {
 }
 
 func (j *renderJob) logFailure(err error) {
+	if errors.Is(err, errRenderCost) {
+		metrics.RenderSkipped.WithLabelValues("cost").Inc()
+		log.Debug("livesync: not rendering a body of %d bytes in %s (%v); it is sent without HTML", len(j.content), j.name, err)
+		return
+	}
 	if errors.Is(err, errRenderTimeout) {
 		metrics.RenderSkipped.WithLabelValues("timeout").Inc()
 		log.Warn("livesync: rendering a body of %d bytes in %s took longer than %s; it is sent without HTML", len(j.content), j.name, renderTimeout)
@@ -206,13 +230,18 @@ var errRenderBudget = errors.New("livesync: the markdown of the batch took longe
 // /-/sync/api/bodies):
 //   - a body whose renderCost exceeds maxRenderCost is not rendered (a
 //     function of the body and its repository's metas, and so the same in
-//     the log and in snapshots);
+//     the log and in snapshots); render itself only compares the body's
+//     length with it: the estimate runs in the rendering job, within the
+//     bounds below (backend audit, round 4: with the regexp tracker style
+//     it runs the repository owner's pattern, which took minutes);
 //   - while maxAbandonedRenders abandoned renderings run, nothing is
 //     rendered;
 //   - with l.share (the writer's loaders), a body is not rendered while
 //     the writer's render share, overall or of the body's repository, is
-//     used up, and the time each rendering takes is charged to it;
-//   - a rendering is waited for at most renderWait (renderBounded);
+//     used up, and the time each rendering (and estimate) takes is
+//     charged to it;
+//   - a rendering, its estimate included, is waited for at most
+//     renderWait (renderBounded);
 //   - once the time spent rendering with l reaches l.budget, a strict
 //     loader returns errRenderBudget and a lenient one renders nothing
 //     more.
@@ -226,7 +255,8 @@ func (l *loader) render(ctx context.Context, repo *repo_model.Repository, conten
 	if content == "" || repo == nil {
 		return "", true, nil
 	}
-	if cost := renderCost(content, repo.ComposeMetas(ctx)); cost > maxRenderCost {
+	// renderCost's first term, which needs no look at the content.
+	if cost := time.Duration(len(content)) * costPerByte; cost > maxRenderCost {
 		metrics.RenderSkipped.WithLabelValues("cost").Inc()
 		log.Debug("livesync: not rendering a body of %d bytes in %s, estimated to take %s; it is sent without HTML", len(content), repo.FullName(), cost)
 		return "", false, nil
@@ -267,7 +297,9 @@ var maxAbandonedRenders int64 = 2
 var abandonedRenders atomic.Int64
 
 // renderBounded is renderMarkdown on a goroutine of its own, waited for at
-// most renderWait; waited is how long the caller waited. A rendering that
+// most renderWait, of a body whose renderCost (estimated on that
+// goroutine) is within maxRenderCost; waited is how long the caller
+// waited. A rendering that
 // takes longer is abandoned: its context is cancelled (its lookups fail at
 // once from then on), the body is incomplete, and the goroutine runs to its
 // end (goldmark and the post-processors cannot be interrupted) with the
@@ -277,6 +309,7 @@ var abandonedRenders atomic.Int64
 // render share then (renderShare.chargeRepo).
 func (l *loader) renderBounded(ctx context.Context, repo *repo_model.Repository, content string) (html string, complete bool, waited time.Duration) {
 	j := l.prepareRender(ctx, repo, content)
+	j.maxCost = maxRenderCost
 	done := make(chan renderResult, 1)
 	start := time.Now()
 	go func() {

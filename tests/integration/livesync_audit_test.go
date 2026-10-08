@@ -33,7 +33,8 @@ import (
 // Round 2: a body that is cheap to post but expensive to render (each
 // @mention is a database lookup: 9 000 took 1.45 s of the writer's time)
 // is not rendered by the writer: it is sent without HTML and rendered on
-// request by GET /-/sync/api/bodies.
+// request by GET /-/sync/api/bodies. Rounds 3 and 4: neither does a body
+// whose rendering (or its estimate) is slow hold the writer up.
 func TestLivesyncAuditBodies(t *testing.T) {
 	livesyncSkipSQLite(t)
 	livesyncServe(t)
@@ -159,6 +160,46 @@ func TestLivesyncAuditBodies(t *testing.T) {
 			var out protocol.APIMarkdownResponse
 			DecodeJSON(t, MakeRequest(t, req, http.StatusOK), &out)
 			assert.Equal(t, c.BodyHTML, out.HTML[0])
+		})
+
+		// Round 4: round 3's estimate ran the repository owner's external
+		// tracker regexp over the body on the writer, before any bound
+		// (a 111-byte pattern: 13 s over 64 KiB, on every edit). The
+		// estimate is part of the rendering, which the writer waits for at
+		// most renderWait (1 s), and it does not run such a pattern over
+		// the body at all.
+		t.Run("owner regexp", func(t *testing.T) {
+			admin := livesyncToken(t, &user_model.User{ID: 1})
+			hasIssues := true
+			req := NewRequestWithJSON(t, "PATCH", "/api/v1/repos/org26/repo_external_tracker_alpha", api.EditRepoOption{
+				HasIssues: &hasIssues,
+				ExternalTracker: &api.ExternalTracker{
+					ExternalTrackerURL:           "https://tracker.com",
+					ExternalTrackerFormat:        "https://tracker.com/{user}/{repo}/issues/{index}",
+					ExternalTrackerStyle:         "regexp",
+					ExternalTrackerRegexpPattern: "(" + strings.Repeat(`\w{1,999}Z|`, 9) + `\w{1,999}Z)`,
+				},
+			}).AddTokenAuth(admin)
+			MakeRequest(t, req, http.StatusOK)
+			livesyncSettle(t)
+			cursor := livesyncLogHead(t)
+			// The body of the repository's pull request 9, written with SQL
+			// (upstream's notifications of an edit render it with the
+			// pattern too, for as long).
+			body := strings.Repeat("abcdefghijklmnop", 4000)
+			_, err := db.GetEngine(t.Context()).Exec("UPDATE `issue` SET content = ? WHERE id = 9", body)
+			require.NoError(t, err)
+			start := time.Now()
+			cheap := comment("user2/repo1", 1, "thanks *once more*")
+			e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, cheap, protocol.OpUpsert))
+			assert.Less(t, time.Since(start), 5*time.Second)
+			c := livesyncPayload[protocol.Comment](t, e)
+			assert.Contains(t, c.BodyHTML, "<em>once more</em>")
+			e = livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelIssueBody, 9, protocol.OpUpsert))
+			b := livesyncPayload[protocol.IssueBody](t, e)
+			assert.Equal(t, body, b.Body)
+			assert.Empty(t, b.BodyHTML)
+			assert.True(t, b.BodyTruncated)
 		})
 	})
 }

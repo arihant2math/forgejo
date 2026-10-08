@@ -161,8 +161,8 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
   await signIn(page);
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
   await expect.poll(async () => (await idb(page)).repos).toBeGreaterThan(0);
-  // The workspace the next boot renders is the stored one (meta, written by the persister ≤ once a second):
-  // wait until it has the repository the assertion below looks for.
+  // The next boot renders what IndexedDB holds: wait until the repository the assertion below looks for is
+  // stored (bootstraps are persisted group by group; with many repositories that takes a moment).
   await expect.poll(() => page.evaluate(async (uid) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const r = indexedDB.open(`forgejo-next:${String(uid)}`);
@@ -174,14 +174,14 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
       };
     });
     const v = await new Promise<unknown>((resolve) => {
-      const r = db.transaction('meta').objectStore('meta').get('workspace');
+      const r = db.transaction('m:Repository').objectStore('m:Repository').getAll();
       r.onsuccess = () => {
         resolve(r.result);
       };
     });
     db.close();
-    return JSON.stringify(v ?? null).includes('next-e2e');
-  }, userId), {timeout: 15_000}).toBe(true);
+    return JSON.stringify(v).includes('"next-e2e"');
+  }, userId), {timeout: 30_000}).toBe(true);
   // Spoil the stored refresh token.
   await page.evaluate(async (uid) => {
     await new Promise<void>((resolve) => {

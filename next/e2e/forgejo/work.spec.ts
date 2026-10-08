@@ -95,6 +95,25 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
     return l.some((n) => n.subject.title === b.title);
   }, {timeout: 15_000}).toBe(true);
 
+  // Every state the row shows from here on (MutationObserver), and the keys: a status confirmed by the
+  // server must never flicker back to the previous one (notifications are a hot table: the write's sync-id
+  // echo may not cover it, B7).
+  await page.evaluate((title) => {
+    const w = window as unknown as {__seen: string[]};
+    w.__seen = [];
+    const state = () => {
+      const r = [...document.querySelectorAll('[role=listbox][aria-label=Notifications] [role=option]')].find((e) => e.textContent.includes(title));
+      const t = r?.textContent ?? '';
+      return t.startsWith('Pinned:') ? 'pinned' : t.startsWith('Unread:') ? 'unread' : r ? 'read' : 'gone';
+    };
+    new MutationObserver(() => {
+      const s = state();
+      if (w.__seen.at(-1) !== s) w.__seen.push(s);
+    }).observe(document.body, {subtree: true, childList: true, characterData: true});
+    addEventListener('keydown', (e) => {
+      if (e.key === 'P') w.__seen.push('key P');
+    }, true);
+  }, b.title);
   // U: unread again. Shift+P: pinned (its own group). K / J move between rows.
   await page.keyboard.press('u');
   await expect(row(page, b.title)).toContainText('Unread:');
@@ -107,6 +126,11 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   }, {timeout: 15_000}).toBe(true);
   await page.keyboard.press('Shift+P');
   await expect(row(page, b.title)).not.toContainText('Pinned:');
+  // Give a late echo the time to show (HOT_COALESCE is 1 s), then check that the row went unread → pinned →
+  // read, each once: no flicker back.
+  await page.waitForTimeout(1500);
+  const seen = await page.evaluate(() => (window as unknown as {__seen: string[]}).__seen);
+  expect(seen.filter((x) => x !== 'gone'), JSON.stringify(seen)).toEqual(['unread', 'key P', 'pinned', 'key P', 'read']);
 
   // Enter opens the issue (and reads it).
   await row(page, a.title).click();

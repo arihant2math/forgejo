@@ -160,6 +160,10 @@ export interface IntentEnv {
 /** Requests in flight at once, across entities. */
 const MAX_SENDS = 6;
 
+/** Intents on hot rows (B7: their echo may not cover a deferred change), and how long their confirmation waits for the effect. */
+const HOT_KINDS: ReadonlySet<string> = new Set(['notification.status']);
+const HOT_WAIT_MS = 5000;
+
 /** RUM: an intent first attempted within this long of its local apply was sent at once (online). */
 const IMMEDIATE_MS = 1000;
 
@@ -1096,6 +1100,24 @@ export class Intents {
     if (!shown) arrived = Promise.resolve();
     else if (v !== undefined) {
       arrived = env.whenSynced(group, v, ctrl.signal);
+      // A hot row (notifications, B7): a change the materializer deferred is not covered by the echo; its entry
+      // follows within HOT_COALESCE. Until the pool shows the effect, the layer stays (no flicker back to the old
+      // status, and no next toggle computed from it), at most HOT_WAIT_MS more.
+      if (HOT_KINDS.has(i.kind)) arrived = arrived.then(() => new Promise<void>((resolve) => {
+        if (held()) {
+          resolve();
+          return;
+        }
+        const done = () => {
+          clearTimeout(t);
+          off?.();
+          resolve();
+        };
+        const t = setTimeout(done, HOT_WAIT_MS);
+        off = env.pool.onApplied(() => {
+          if (held()) done();
+        });
+      }));
       if (env.barrier) timers.push(setTimeout(() => {
         this.barrier();
       }, env.barrierAfter ?? 3000));

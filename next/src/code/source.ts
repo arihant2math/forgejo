@@ -231,6 +231,28 @@ export class CodeSource {
     return p;
   }
 
+  /**
+   * Loads a grammar into the highlighter, in the queue: its chunk is then in
+   * the service worker's cache (grammars are cached on first use), so a
+   * prefetched pull request is highlighted offline too.
+   */
+  warm(lang: Lang): Promise<void> {
+    const p = this.queue.then(async () => {
+      this.highlighter ??= this.spawn();
+      const h = this.highlighter;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([h.api.prepare(lang), h.failed, new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, PREPARE_LIMIT);
+        })]);
+      } finally {
+        clearTimeout(timer);
+      }
+    });
+    this.queue = p.catch(() => undefined);
+    return p;
+  }
+
   private async watchedNow(lang: Lang, lines: number, run: (api: Remote<CodeWorkerApi>) => Promise<Highlight | null>): Promise<Highlight | null> {
     this.highlighter ??= this.spawn();
     const h = this.highlighter;

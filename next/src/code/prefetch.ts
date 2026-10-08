@@ -13,6 +13,7 @@ import {untracked} from 'mobx';
 import {sitePath} from '../app/config.ts';
 import type {App} from '../app/store.ts';
 import {filePath, parseDiff} from './diff.ts';
+import {type Lang, langOf} from './lang.ts';
 import {fetchCommits, poolCommits, pullOf} from './pull.ts';
 import {codeSource} from './source.ts';
 
@@ -94,6 +95,7 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
       const files = parseDiff(await src.diffText(pr.base_repo_id, c.base, c.head));
       if (!had) report.diffs++;
       let bytes = 0;
+      const langs = new Set<Lang>();
       for (const f of files.slice(0, MAX_FILES)) {
         if (signal?.aborted || f.binary || f.status === 'deleted') continue;
         // What the file view reads: the head's tree entry, then the blob by its SHA (the base repository has
@@ -101,10 +103,14 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
         const entry = await src.entry(pr.base_repo_id, c.head, filePath(f));
         if (entry?.type !== 'blob') continue;
         const content = await src.blob(pr.base_repo_id, entry.sha, filePath(f), entry.size);
+        const lang = langOf(filePath(f));
+        if (lang && content.kind === 'text') langs.add(lang);
         bytes += content.size;
         report.files++;
         if (bytes > MAX_BYTES) break;
       }
+      // The grammars these files need (cached by the service worker on first use): highlighted offline too.
+      for (const lang of langs) await src.warm(lang).catch(() => undefined);
       if (!signal?.aborted) src.cache.put(done, true);
     } catch {
       // Next pull request (an unreadable head repository, a dropped connection).

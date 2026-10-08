@@ -33,7 +33,7 @@ describe('review drafts and submit', () => {
     saveDraft(tab.intents, {...pr, key, anchor: {path: 'b.go', side: 'old', line: 3, commit: HEAD}, text: 'why was this removed?'});
     // Durable and shared: another tab and a reload see them.
     await vi.waitFor(() => {
-      expect(reviewDrafts(other.intents, 1).map((d) => d.text)).toEqual(['nit: name', 'why was this removed?', 'older']);
+      expect(reviewDrafts(other.intents, 1).map((d) => d.text)).toEqual(['older', 'nit: name', 'why was this removed?']);
     });
     expect((await new IntentDb(world.db).drafts()).filter((d) => d.anchor)).toHaveLength(3);
 

@@ -58,6 +58,13 @@ export default defineConfig({
   // dynamic imports, one lazy chunk each (an IIFE worker would inline all of them).
   worker: {
     format: 'es',
+    // Grammar chunks are named lang-*: the service worker caches them on first use instead of at install
+    // (≈ 3 MB: precaching them held up the offline install of everything else; tools/vite-plugin-sw.ts).
+    rolldownOptions: {
+      output: {
+        chunkFileNames: (c) => (c.moduleIds.length > 0 && c.moduleIds.every((id) => id.includes('/@shikijs/langs/')) ? 'assets/lang-[name]-[hash].js' : 'assets/[name]-[hash].js'),
+      },
+    },
   },
   build: {
     target: 'esnext',

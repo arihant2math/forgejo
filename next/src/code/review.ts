@@ -36,14 +36,15 @@ export interface ReviewDraft {
 
 const prefix = (issueId: number) => `review:${String(issueId)}:`;
 
-/** The review comment drafts of a pull request (observes the drafts map), oldest first. */
+/** The review comment drafts of a pull request (observes the drafts map), by file and line (stable when one is edited). */
 export function reviewDrafts(intents: Pick<Intents, 'drafts'>, issueId: number): ReviewDraft[] {
   const p = prefix(issueId);
   const out: ReviewDraft[] = [];
   for (const d of intents.drafts.values()) {
     if (d.kind === 'text' && d.key.startsWith(p) && d.anchor) out.push({key: d.key, anchor: d.anchor, text: d.text ?? '', at: d.at});
   }
-  return out.sort((a, b) => a.at - b.at);
+  return out.sort((a, b) => (a.anchor.path < b.anchor.path ? -1 : a.anchor.path > b.anchor.path ? 1 : 0) ||
+    a.anchor.line - b.anchor.line || a.anchor.side.localeCompare(b.anchor.side) || a.key.localeCompare(b.key));
 }
 
 /** Saves (creates or updates) a draft comment; returns its key. */

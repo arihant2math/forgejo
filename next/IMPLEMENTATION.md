@@ -2521,6 +2521,289 @@ does) **and** MySQL 8.0 (binlog on).
   Forgejo (dev-forgejo.sh with `[livesync] ENABLED=true`) on PG: bootstrap → delta
   arrives in pool; hydrate 10k summaries benchmark recorded.
 - **Notes/decisions:**
+  * **Files.**
+    * `src/data/`:
+      * `models.ts`: the catalogue — DTO type, schema version, the group kinds a model lives in (mirrored from
+        `hub/models.go`, which `models.test.ts` parses) and the pool's index fields;
+      * `entity.ts` (Entity, lazy atoms); `pool.ts` (ModelStore + Pool, which is the delta applier);
+      * `idb.ts` (schema and upgrades), `meta.ts` (MetaCache), `persist.ts` (Persister), `hydrate.ts` (Hydrator).
+    * `src/sync/`:
+      * `client.ts` (SyncClient), `groups.ts` (GroupTable);
+      * `bootstrap.ts` + `ndjson.ts` (HTTP loads), `replace.ts` (replacement scope and floors);
+      * `transport.ts` (WebSocket, or SSE + POST), `tabs.ts` (Web Locks + BroadcastChannel);
+      * `data.ts` (`openData`, the entry point), `rum.ts`.
+    * Tests sit next to the code; `src/test/fakeSync.ts` is a scripted server.
+    * `integration/` (a real Forgejo, its own Vitest project); `src/dev/bench/` + `e2e/hydrate.bench.spec.ts`
+      (benchmark, dev-only route `/-/next/dev/hydrate?n=10000,50000,40000x200`).
+    * `app/splash.ts` gained `forgetUser()`; `routes.ts` the dev route; `playwright.config.ts` the bench spec; the
+      `integration` project goes into `vitest.config.ts`, `tsconfig.node.json` and the ESLint node block.
+  * **Commands:** as F1, plus `npm run test:integration`. With `NEXT_FORGEJO_URL` unset, the integration tests are
+    skipped. `npm run test:browser` includes the benchmark.
+  * **Dependencies (exact pins):**
+    * mobx 7.0.4 (7.0.6 was 6 days old) and mobx-react-lite 5.1.0, for F3's `observer`; F2 does not use it.
+    * Dev: fast-check 4.10.2, fake-indexeddb 6.2.5.
+    * **No `idb`** (deviation from PLAN §5.1): a few raw requests per transaction are enough, and a promise wrapper per
+      request buys nothing for bulk work.
+    * The data layer is not on the boot route yet. MobX is 13 KB br and our code ≈ 12 KB br, which fits F3's
+      budget (boot 81.8 / 150 KB).
+  * **API for F3–F8.**
+    * `openData({userId, auth, endpoint?, buildId?, transport?, route?, env?}) → Data` (`src/sync/data.ts`). `Data` has:
+      * `pool`;
+      * `status`: an observable `SyncStatus`, mirrored in follower tabs (F3's sync indicator). Fields:
+        * `connection`: idle | connecting | catching_up | live | offline | unauthorized | stopped;
+        * `transport`, `loading` (bootstraps queued or running), `groups`, `serverSyncId` (≤ 1 update/s), `lastError`;
+      * `role.leader` (observable);
+      * `firstRoute` / `hydrated` (promises, see *Hydration*);
+      * `hold(group)` / `release(group)`: this tab shows a group. Ref-counted, and forwarded to the leader;
+      * `pin(group, on)`, `barrier()`, `loadClosedPage(repoGroup, before?, limit?) → {next, count}`. Requests made
+        before a leader exists wait for one; this tab's own are run locally once it leads;
+      * `on(event)`:
+        * `revoked`, `issueDropped`, `newBuild` (also sent on a protocol version mismatch), `schemaMismatch`, `wrongUser`;
+        * `caughtUp`: F5 flushes the queue on it;
+      * `close()`.
+    * `deleteUserData(userId)`, for logout: deletes the DB and removes the splash DB marker. F3 warns about unsynced
+      intents first and broadcasts. `openData` writes `splash.user` (F1 asked for it).
+    * `SyncAuth {token(): Promise<string>; refresh(): Promise<string | null>}`, which F3 implements:
+      * `null` means signed out, and sets status `unauthorized`;
+      * `session_invalid` and HTTP 401 call `refresh` and reconnect;
+      * there is no in-session token refresh (B5).
+    * Pool: `pool.model('Issue')` is a `ModelStore` with:
+      * `get(id)`: reacts to arrival and removal;
+      * `all()` / `size`: react to membership;
+      * `by(field, value)`: typed to the model's `index` fields in `models.ts`; a live `ReadonlySet`, so iterate it
+        inside the reaction and do not keep it.
+    * `Entity`:
+      * `get(field)` (one lazily created atom per field observed) and `data` (the whole state);
+      * `group`, `version`, `record()`;
+      * values are the wire DTOs from `types.gen.ts`: treat them as immutable;
+      * plain reads outside reactions allocate nothing.
+    * Pool indexes are added in `models.ts`, never in components.
+    * `pool.batch(fn)` is one MobX action. `pool.onApplied(fn)` reports the changes of each batch; `Applied.dropped`
+      means the server deleted or replaced the entity away.
+    * F5's overlay goes on top of `Entity` (server value + local override per field) and must not write server state.
+    * **Holding.** The groups the client holds are those reachable from a root, through each group's `refs` (B6
+      `end.refs`) and the `pageRefs` of its closed pages. Roots are:
+      * persistent holders:
+        * `workspace`: GET /-/sync/workspace, fetched every session and on `grants`;
+        * `recent`: on-demand groups, LRU per kind — issue 300, repo 30, org/profile/owner 50;
+        * `pin`;
+      * this or another tab's holds.
+      Unreachable groups are unsubscribed, purged, and deleted from IndexedDB.
+  * **Delta applier** (the pool's primitives; see the `pool.ts` header).
+    * Entities are keyed by (model, id). A state is kept only if its `v` is newer than what is held.
+    * `del(g, v)` leaves a tombstone **scoped to (model, id, group)**, so a move (D in g1, U in g2) converges in either
+      order. `evict(g, maxV)` drops only what is held in that group.
+    * A completed full/summary bootstrap sets a **group floor** at its watermark: a state of the group at or below it
+      that is not held is stale.
+      * The property test found the case: an embedded profile from another group's older bootstrap resurrected an
+        entity.
+      * What the response's scope leaves out is exempt: the closed tier in a summary, old read notifications in a user
+        group (`replace.ts` `outOfScope`).
+    * A bootstrap's own lines are **authoritative** at their watermark: they pass a tombstone, floor or purge *at* that
+      watermark. On a quiet server a re-bootstrap returns the same watermark as the purge before it (review round 1
+      blocker).
+    * `purgeGroup` leaves a floor at the highest version seen. `welcome.server_sync_id` is noted, so a purge covers
+      every persisted record.
+    * Tombstones: two generations of 25 000, O(1) eviction. They are dropped once a floor or purge covers them.
+    * Loads of one group never overlap (`SyncClient.exclusive`). A bootstrap reads its group state, and applies
+      `loaded()`, inside that lock.
+  * **Positions** (messages.go). Per group, in meta `group:<name>` (`GroupState`):
+    * The highest `v` received through the group's subscription. The viewer's own profile, which can arrive outside
+      it, raises nothing.
+    * Raised to `delta.to`, `caught_up`, `pong`, `barrier_ok` and `resume_from_cursor` only for groups caught up in
+      this session.
+    * A bootstrap sets `max(position, watermark)`; a model-filtered one never raises it.
+    * Positions go to meta **at most once a second** (`GroupTable.raise`/`persistRaised`): never ahead of the entities
+      they cover, only sometimes behind.
+    * Answers are matched to their request: welcome/subscribed answer the hello/subscribes in order, and a FIFO of
+      request ids per session means a late answer to a superseded subscribe never counts (review round 2 major).
+    * `needs` (a pending re-bootstrap, of all models or some) stays persisted until a covering bootstrap completes.
+    * Units rule:
+      * a grant's units are compared with the group's `units` (those of the last full bootstrap);
+      * if they differ, the group needs a full bootstrap, whose replacement covers the whole group, closed tier
+        included;
+      * a model re-bootstrap never overwrites the held units.
+  * **Session.**
+    * Order: bootstrap first, then `subscribe {since: watermark}`. Held groups with a position resume in `hello`.
+      Groups that gained a position between hello and welcome are subscribed after the welcome.
+    * `bootstrap_required{model}` triggers a `?model=` re-bootstrap; the subscription stays.
+    * `cursor_unknown` **resets** the group: entities, tombstones, floor, IndexedDB buckets and position are all
+      forgotten, then a full bootstrap runs.
+    * `group_revoked`, a `forbidden` refusal and a bootstrap 404 purge the group and fire `revoked`.
+    * A `limit` refusal is retried when a release frees room, or in the next session.
+    * An Issue that is deleted or replaced away (`Applied.dropped`, not a move within a frame) releases `issue:{id}`
+      and fires `issueDropped`.
+    * Deltas of groups not granted in the session, or released meanwhile, are ignored, except the viewer's own User
+      (B5).
+    * Barriers: at most 16 pending. `too_many_barriers` rejects the newest.
+    * Bootstraps run 4 in parallel. Priority: tab holds > structure groups > workspace repos (in workspace order) > the
+      rest. On failure:
+      * 503: retry after `Retry-After`;
+      * 401: refresh the token;
+      * 400 or 403: give up for the session;
+      * otherwise: backoff from 1 s up to 60 s.
+    * Closed pages hold their refs and apply the units rule.
+    * Reconnect:
+      * exponential backoff, 500 ms · 2ⁿ up to 30 s, with jitter, reset after a `caught_up`;
+      * `shutdown`: at least 1 s; `too_many_connections`: 30 s;
+      * reacts to `online`/`offline`;
+      * keep-alive: `ping` every 25 s, and no `pong` within 10 s means reconnect.
+    * **SSE fallback**: after two consecutive transports that never opened, the other one is tried (`transport:
+      'auto'`; `'ws'`/`'sse'` force one). SSE POSTs are sequential.
+    * Schemas: meta `schemas` holds the versions of the stored data, `serverSchemas` the server's.
+      * At start, a model whose stored version differs from this build's is dropped (pool + store), unless the server
+        still sends that version. It is then re-bootstrapped in every held group of a kind that can hold it.
+      * A model new to the catalogue is bootstrapped the same way.
+      * `welcome.schemas` and the header `schemas` drop a model whose version changed.
+      * A server version different from this build's fires `schemaMismatch` (F5 updates the app).
+  * **IndexedDB** (deviation from §5.3: buckets, and no hot-field indexes in IndexedDB).
+    * One DB `forgejo-next:<userId>`, `IDB_VERSION` 2, with these stores:
+      * `meta` (`{k, v}`);
+      * `intents` (keyPath `seq`, autoIncrement; F5 adds indexes with a version bump);
+      * `drafts` (`key`); `blobs` (`sha`, index `atime`);
+      * `m:<Model>`, one per model, holding **one value per (group, bucket)**: `{g, b, r: EntityRecord[]}` with key
+        `[g, b]` and `b = id mod n(kind)` — repo 32, profiles 32, user/org 8, owner 4, issue/profile 2 (`pool.ts`
+        `KIND_BUCKETS`).
+    * Measured in Chromium, 30 000 records, fresh context each:
+      * one value per record: 2.6 s (85 µs each); 4.6 s with a group index; 5.6 s with group + `repo_id` indexes;
+      * the same records as 30 values of 1 000: 82 ms to write; reads 47 ms instead of 210 ms.
+    * A group is one key range, so no index is needed. A live change rewrites one bucket (~1 600 records in a
+      50 000-issue repository, ~7 ms).
+    * Hot-field queries go through pool indexes. An IndexedDB index would cost every write and serve no reader.
+    * Upgrades (`reconcile`):
+      * a model store whose key or indexes changed is dropped and recreated, and its model recorded in meta
+        `droppedModels` (re-bootstrapped at the next start);
+      * version-1 databases (id mod 512) get all model stores recreated (`MODEL_LAYOUT`);
+      * unknown model stores are deleted;
+      * `meta`, `intents`, `drafts` and `blobs` are never dropped: their indexes are fixed in place, and a key change
+        throws instead.
+      * Bump `IDB_VERSION` (and `MODEL_LAYOUT` when records move) for any layout change, `KIND_BUCKETS` included.
+  * **Persistence (leader only).**
+    * The pool marks changed buckets. A flush writes them as they are then:
+      * debounced 40 ms, at most 400 ms under load, immediately on `pagehide`/`close`;
+      * in transactions of ≤ 5 000 records and ≤ 500 values, with relaxed durability;
+      * meta and `flushedSeq` go in the last transaction.
+    * Nothing of a group is written while it is being loaded or before it is hydrated — buckets and meta
+      `group:<g>` alike (`defer`). So a bootstrap is written once at its end, never rewritten per flush.
+    * Released, revoked and reset groups are deleted by key range (`dropGroups`), together with their meta in the same
+      transaction. `clearModels` empties stores first.
+    * A failed flush marks everything dirty again and backs off up to 30 s. A flush with only deferred work writes
+      nothing.
+  * **Hydration** (PLAN §5.2 step 2).
+    * Phase 1 (`firstRoute`): the held structure groups (user, profile(s), org, owner) and the `route` groups, in one
+      transaction, one key range per (group, model of its kind).
+    * Phase 2 (`hydrated`): every store, keys first so hydrated groups are skipped. Chunks adapt toward ~4 000
+      records, read between idle periods (MessageChannel once `eager`).
+    * **The leader's sync client starts after phase 1.**
+      * Later reads go through the version check.
+      * A group is never written before it is hydrated (`defer`), and is hydrated before a replacement or reset
+        (`ensureHydrated`).
+      * Groups purged or reset, and models cleared, in this session are skipped by later reads (`Pool.unloadable`;
+        review round 2 blocker/majors).
+    * Not in a worker (deviation from §5.2 "data worker"): the records would be cloned into the main thread anyway.
+    * Phase 1 is not chunked: 50k records give ~100 ms tasks before first paint. Acceptable, revisit if F3 measures
+      it.
+  * **Tabs.**
+    * The leader is the holder of Web Lock `forgejo-next:<userId>:leader`. Without Web Locks every tab leads.
+    * Followers never write IndexedDB. They hydrate from it and **mirror** it:
+      * the leader posts every committed transaction (`commit {seq, buckets, cleared, dropped}`);
+      * every read also reads meta `flushedSeq`;
+      * a follower keeps, per entity, model (cleared) and group (dropped), the flush its state is from, so reads and
+        announcements apply in any order (`Pool.mirror`/`mirrorBucket`/`mirrorDropGroup`).
+    * Followers send `hold`/`alive` (every 20 s; a tab silent for 60 s loses its holds), `bye`, and requests (`barrier`,
+      `closedPage`, `pin`; F5 adds intents), which are answered with `res` and re-sent to a new leader.
+    * Taking over:
+      * a tab that saw another leader finishes hydration, reads everything again and drops what that read did not see
+        (`retainSeen`), which catches a commit announcement lost when the old leader died;
+      * then it starts a persister continuing the flush sequence and a client resuming from the persisted positions;
+      * the first tab skips the re-read.
+  * **RUM marks:** `wsOpen`, `caughtUp`, `dataOpen`, and the measures `hydrate:route` / `hydrate:all`.
+    `firstPaintFromCache` is F3's. F8 posts them.
+  * **Benchmark** (`e2e/hydrate.bench.spec.ts`, Chromium 141 headless in this sandbox, median of 3 runs). N issues + N
+    IssueLabels; times in ms:
+
+    | N (repositories) | bootstrap: parse + apply + replace (NDJSON MB) | persist | hydrate group(s) | hydrate all | of which pool | query `by(repo_id)` | delta | delta flush |
+    |---|---|---|---|---|---|---|---|---|
+    | 10 000 (1) | 109 (5.3) | 50 | 59 | 89 | 16 | 1.1 | 0.2 | 2.2 |
+    | 50 000 (1) | 437 (27) | 232 | 249 | 259 | 94 | 4.8 | 0.1 | 6.9 |
+    | 40 000 (200) | 758 (22) | 559 | 482 | 365 | 74 | — | 0.1 | 1.2 |
+
+    * Bulk loads create no MobX atoms (asserted).
+    * Before the bucket layout (one value per entity, with a group and a hot-field index), persisting 50 000 + 50 000
+      took 24.7 s and hydrating them 0.9 s.
+    * The review's 200 × 200 case went from 4.4 s to 0.6–0.9 s to persist.
+  * **Tests** (193 unit + 3 integration + the browser benchmark).
+    * `pool.test.ts`:
+      * primitives, reactivity (atom release, no allocation outside reactions), follower mirror and bucket mirror,
+        stale-copy cleanup, authoritative lines, `Applied.dropped`, tombstone rotation;
+      * **convergence property**: random server histories with moves and deletes; every group covered by a bootstrap at
+        a random watermark plus its later entries; noise of duplicated and stale entries and extra (incomplete)
+        bootstraps; any interleaving, with lines split around other messages. The result must be the server's final
+        state (20 000 runs once, 600 in CI);
+      * idempotency; revoke and re-grant at the same head.
+    * `replace.test.ts`: summary and closed tier, units change, models filter, user notifications, closed page ranges,
+      floors.
+    * `idb.test.ts`:
+      * layout;
+      * an upgrade that drops a changed model store but keeps `intents`/`drafts`/`blobs`, and the version-1 layout
+        upgrade;
+      * a layout forgetting `drafts`;
+      * **persist → hydrate round-trip property**;
+      * chunking by records and by values, `defer`, `dropGroups`, failure, `clearModels`, phases.
+    * `models.test.ts`: the catalogue equals the protocol; kinds equal `hub/models.go`.
+    * `bootstrap.test.ts`: NDJSON chunking property (including multi-byte characters), embedded profiles, incomplete
+      responses, errors, release mid-stream.
+    * `client.test.ts`: 25 scenarios against `src/test/fakeSync.ts`, including every review regression.
+    * `data.test.ts`:
+      * two tabs: the leader syncs, the follower mirrors, forwards a hold and a barrier, takes over and resumes from the
+        persisted positions;
+      * logout wipe;
+      * requests before the takeover.
+    * `startup.test.ts`: release before hydration, close before hydration, schema drop during hydration.
+    * **Integration**: a real dev Forgejo on PG with `[livesync] ENABLED = true`.
+      * Bootstrap, then an API v1 write arrives in the pool as a delta (≈ 30 ms locally).
+      * A field reaction to a rename; a lazy issue load with the rendered body; a comment delta; a barrier.
+      * A second session hydrates everything from IndexedDB before the network, then resumes.
+      * The same over SSE + POST.
+  * **Reviews.** Three adversarial reviewers (correctness/convergence/tests, protocol conformance against
+    `services/livesync` + `routers/livesync`, performance/memory), three rounds.
+    * **Round 1:**
+      * correctness: 3 majors (same-watermark re-bootstrap rejected, issue groups released by any Issue removal,
+        requests before promotion hung) + 5 minors;
+      * protocol: 4 majors (cursor_unknown, no subscribe between hello and welcome, own profile raising positions,
+        units overwritten by a model re-bootstrap) + 6 minors;
+      * performance: 6 majors (bucketing, rewriting during streaming, a meta write per delta, phase 2 re-reading,
+        live sync waiting for full hydration, tombstone memory) + 6 minors.
+      * All fixed, except two minors:
+        * incomplete responses keep their own-group lines: every line is a real state at the watermark, and the
+          group's lines stop on release; embedded lines wait for the end line;
+        * phase 1 is not chunked.
+    * **Round 2:**
+      * correctness: 1 blocker (a dropped group's position persisted without its records) and 2 majors (released
+        groups and dropped models coming back from hydration). All three came from syncing during hydration.
+      * protocol: 1 major (stale subscribe answers).
+      * performance: no major; 5 minors (tombstone eviction at the cap, `bucketOf` parsing, empty flushes fixed;
+        1 600-record buckets per delta in 50k repositories and the `dropGroups` transaction scope accepted).
+      * All majors and the blocker fixed.
+    * **Round 3** (correctness verification): round 2's findings fixed. One new major: the drop transaction persisted a
+      re-held group's *current* state, i.e. a new position ahead of its deferred records. Fixed: the drop transaction
+      writes a sanitized state (no position, watermark or units; `needs: all`), and the real state goes with the
+      records. A throwing request now aborts its flush transaction.
+    * **Round 4** (verification of that fix): see the status line.
+    * The reviewers' reproductions are ported as regression tests (`client.test.ts` "review regressions",
+      `data.test.ts`, `startup.test.ts`, `idb.test.ts`, `pool.test.ts`).
+    * Merged the B6 follow-up (`ProjectRef`, `Label` schema 2) before the PR; the catalogue gained `ProjectRef` (kind
+      `owner`).
+  * **Known gaps / for later.**
+    * The convergence fuzz covers one model and the full tier; the summary/closed tier and units are covered by unit
+      tests.
+    * Follower per-entity sequence maps only grow (≈ 18 B per id ever mirrored).
+    * Whole-group synchronous blocks: replacement or purge of 50k ≈ 50–80 ms.
+    * Bucket counts are fixed per kind: a 200k-issue repository would rewrite ~6 000 records per delta flush (≈ 30
+      ms). Growing them with the group size needs an `IDB_VERSION` bump.
+    * `navigator.storage.persist()` is requested at `openData` (F3 may move it to sign-in).
+    * LRU by count, not by quota.
+    * The SHA blob store is created but unused (F7).
 
 #### F3 — Auth, router, app shell, shortcuts, ⌘K
 - [ ] **Status**

@@ -33,7 +33,12 @@
 //     reaches a client that reads; a session whose queued messages wait
 //     while the writer does not finish a frame for longer than
 //     DrainTimeout (the client does not read) is closed with
-//     resume_from_cursor.
+//     resume_from_cursor. A subscription catching up from a group written
+//     faster than the client reads may never be live again: the session's
+//     worker does one page at a time and serves the session's other work
+//     (replays, checks, the re-validation of its token) in between, and
+//     caught_up and barriers do not wait for it (they claim no more than
+//     it was sent).
 package hub
 
 import (
@@ -397,7 +402,6 @@ func (h *Hub) fallBehindLocked(s *sub, v int64) {
 	s.cursor = v - 1
 	s.behind = true
 	s.holding = false
-	s.c.busy++
 	s.c.setHold(s, v-1)
 	h.queueLocked(s)
 	metrics.CatchUps.Inc()
@@ -561,7 +565,6 @@ func (h *Hub) suspendLocked(s *sub, p, hold int64) {
 		s.state = stateRecheck
 		s.cursor = p
 		s.holding = true
-		s.c.busy++
 		s.c.setHold(s, hold)
 	}
 	s.recheck = true
@@ -604,11 +607,16 @@ func (h *Hub) checkBarriersLocked() {
 	}
 }
 
+// checkBarrierLocked answers c's pending barriers that are satisfied: no
+// replay the client waits for runs, and the session is complete
+// (position, which the holds of the subscriptions checked again or
+// catching up cap) up to the barrier's head — a subscription that catches
+// up may never be live again, but its hold passes the head page by page.
 func (h *Hub) checkBarrierLocked(c *conn) {
-	if c.busy > 0 {
+	if c.replaying > 0 {
 		return
 	}
-	pos := h.pos.Load()
+	pos := c.position()
 	kept := c.barriers[:0]
 	for _, b := range c.barriers {
 		if b.head <= pos {

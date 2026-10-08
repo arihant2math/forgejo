@@ -28,6 +28,7 @@ func (c *conn) workLoop() {
 	revalidate := time.NewTicker(c.h.cfg.RevalidateInterval)
 	defer revalidate.Stop()
 	for {
+		due := false
 		select {
 		case <-c.ctx.Done():
 			return
@@ -42,20 +43,33 @@ func (c *conn) workLoop() {
 			}
 			continue
 		case <-revalidate.C:
-			c.h.mu.Lock()
-			c.revalidate = true
-			c.h.mu.Unlock()
+			due = true
 		case <-c.workNotify:
 		}
-		c.drainWork()
+		c.drainWork(due, revalidate.C)
 	}
 }
 
-func (c *conn) drainWork() {
+// drainWork does the session's queued work: one step of a subscription at
+// a time (Hub.process hands it back, queued last, until it is live), and
+// the re-validation of the session when it is due (due, or tick fired
+// meanwhile, or an epoch named the viewer) — between two steps, so that a
+// subscription that is never live again (it catches up from a group
+// written faster than the client reads) holds up neither the others nor
+// the check of the session's token.
+func (c *conn) drainWork(due bool, tick <-chan time.Time) {
 	h := c.h
 	h.skipIdle(c)
 	for c.ctx.Err() == nil {
+		select {
+		case <-tick:
+			due = true
+		default:
+		}
 		h.mu.Lock()
+		if due {
+			c.revalidate, due = true, false
+		}
 		// Before the welcome the flag stays (hello kicks the worker again).
 		revalidate := c.revalidate && c.welcomed
 		if revalidate {
@@ -196,54 +210,53 @@ func (h *Hub) skipIdle(c *conn) {
 	}
 }
 
-// process replays s from its cursor (checking its permission first when
-// needed) until it is live, revoked or removed.
+// process does the next step of s's replay (checking its permission
+// first when needed): one replay of its range up to the hub's position,
+// or, when it is behind, one page of its catch-up. Unless s is live (or
+// gone) then, it is handed back to the session's worker, queued after the
+// session's other work (drainWork).
 func (h *Hub) process(s *sub) {
 	c := s.c
-	scanned := 0 // log entries scanned for s's replay (MaxReplay)
-	for c.ctx.Err() == nil {
-		h.mu.Lock()
-		if s.removed || s.state == stateLive {
-			h.mu.Unlock()
-			return
-		}
-		check := s.recheck
-		s.recheck = false
-		gen, cursor, units, until, behind := s.gen, s.cursor, s.units, h.pos.Load(), s.behind
+	h.mu.Lock()
+	if s.removed || s.state == stateLive {
 		h.mu.Unlock()
+		return
+	}
+	check := s.recheck
+	s.recheck = false
+	gen, cursor, units, until, behind, scanned := s.gen, s.cursor, s.units, h.pos.Load(), s.behind, s.scanned
+	h.mu.Unlock()
 
-		if check {
-			h.check(s)
-			continue
+	n, ok := 0, true
+	switch {
+	case check:
+		h.check(s)
+		ok = false // the step was the check
+	case cursor >= until:
+	case behind:
+		cursor, ok = h.catchUp(s, gen, cursor, until, units)
+	default:
+		n, ok = h.replay(s, gen, cursor, until, units, scanned)
+		cursor = until
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ok && !s.removed && s.gen == gen {
+		s.cursor = cursor
+		s.scanned += n
+		if behind {
+			// The page is queued: frames may claim it.
+			c.raiseHold(s, cursor)
+			h.checkBarrierLocked(c)
 		}
-		if cursor < until {
-			if behind {
-				next, ok := h.catchUp(s, gen, cursor, until, units)
-				if !ok {
-					continue
-				}
-				cursor = next
-			} else {
-				n, ok := h.replay(s, gen, cursor, until, units, scanned)
-				if !ok {
-					continue
-				}
-				scanned += n
-				cursor = until
-			}
+		if !s.recheck && cursor >= h.pos.Load() {
+			h.goLiveLocked(s, cursor)
 		}
-		h.mu.Lock()
-		if !s.removed && s.gen == gen {
-			s.cursor = cursor
-			if behind {
-				// The page is queued: frames may claim it.
-				c.raiseHold(s, cursor)
-			}
-			if !s.recheck && cursor >= h.pos.Load() {
-				h.goLiveLocked(s, cursor)
-			}
-		}
-		h.mu.Unlock()
+	}
+	if !s.removed && s.state != stateLive && !s.queued && c.ctx.Err() == nil {
+		s.queued = true
+		c.work = append(c.work, s)
 	}
 }
 

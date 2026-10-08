@@ -67,6 +67,12 @@ type sub struct {
 	// gen changes when the client restarts the replay (a subscribe with a
 	// new since): a running replay starts over from the new cursor.
 	gen uint64
+	// replaying: the client asked for a replay (hello, subscribe with a
+	// since) that has not gone live yet; it waits for caught_up (counted
+	// by conn.replaying).
+	replaying bool
+	// scanned: the log entries this replay scanned so far (MaxReplay).
+	scanned int
 	// recheck: the permission must be checked before the replay goes on.
 	recheck bool
 	// behind (stateRecheck): the group's changes after cursor did not fit
@@ -150,9 +156,12 @@ type conn struct {
 	// registration and the welcome (sent right after it).
 	selfPending []protocol.Change
 	subs        map[string]*sub
-	// busy counts the subscriptions that are not live (replay, recheck).
-	busy int
-	// catchUp: send caught_up when busy drops to 0.
+	// replaying counts the subscriptions whose replay the client waits
+	// for (sub.replaying). Those in stateRecheck that do not replay for
+	// the client (checked again, or behind) are caught up for it: they
+	// only cap the positions claimed (holds).
+	replaying int
+	// catchUp: send caught_up when replaying drops to 0.
 	catchUp    bool
 	work       []*sub
 	revalidate bool

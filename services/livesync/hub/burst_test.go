@@ -128,7 +128,7 @@ func TestBurstReachesFastClient(t *testing.T) {
 	assert.Zero(t, tr.closeCode())
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
-	assert.Zero(t, cl.c.busy)
+	assert.Zero(t, cl.c.replaying)
 	assert.Empty(t, cl.c.holds)
 }
 

@@ -54,6 +54,11 @@ export default defineConfig({
   css: {
     transformer: 'lightningcss',
   },
+  // Module workers (they are started with {type: 'module'}): the code worker's Shiki grammars are
+  // dynamic imports, one lazy chunk each (an IIFE worker would inline all of them).
+  worker: {
+    format: 'es',
+  },
   build: {
     target: 'esnext',
     cssTarget: 'esnext',

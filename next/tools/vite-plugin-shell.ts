@@ -97,6 +97,17 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
             links.push(`<link rel="modulepreload" crossorigin href="${href}">`);
           }
         }
+        // A lazy chunk whose import graph reaches the entry chunk lists the entry's stylesheet among its
+        // preload dependencies (__vite__mapDeps); that file is gone (inlined above), so the preload would
+        // reject. Point such references at the entry chunk instead: already loaded, its preload is a no-op
+        // (indexes into the list stay the same).
+        const entryChunk = Object.values(bundle).find((c): c is OutputChunk => c.type === 'chunk' && c.isEntry);
+        if (entryChunk) {
+          for (const c of Object.values(bundle)) {
+            if (c.type !== 'chunk') continue;
+            for (const f of inlined) c.code = c.code.replaceAll(JSON.stringify(f), JSON.stringify(entryChunk.fileName));
+          }
+        }
         const entry = /<script type="module"[^>]*><\/script>/.exec(html);
         if (!entry) throw new Error('next:shell: no entry <script type="module"> in index.html');
         html = html.replace(entry[0], `${entry[0]}${links.join('')}`);

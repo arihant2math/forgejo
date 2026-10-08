@@ -1,0 +1,64 @@
+diff --git a/a.txt b/a.txt
+index c9e9e05..c61fe5e 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,5 +1,5 @@
+ one
+-two
++TWO
+ three
+ four
+ five
+@@ -8,3 +8,4 @@ seven
+ eight
+ nine
+ ten
++eleven
+diff --git a/bin.dat b/bin.dat
+index bdc955b..8835708 100644
+Binary files a/bin.dat and b/bin.dat differ
+diff --git "a/caf\303\251.txt" "b/caf\303\251.txt"
+new file mode 100644
+index 0000000..3e75765
+--- /dev/null
++++ "b/caf\303\251.txt"
+@@ -0,0 +1 @@
++new
+diff --git a/dash.txt b/dash.txt
+new file mode 100644
+index 0000000..895bfc4
+--- /dev/null
++++ b/dash.txt
+@@ -0,0 +1 @@
++-- dashes
+diff --git a/mode.sh b/mode.sh
+old mode 100644
+new mode 100755
+diff --git a/move.txt b/moved.txt
+similarity index 96%
+rename from move.txt
+rename to moved.txt
+index e8823e1..10adcaf 100644
+--- a/move.txt
++++ b/moved.txt
+@@ -28,3 +28,4 @@
+ 28
+ 29
+ 30
++31
+diff --git a/noeol.txt b/noeol.txt
+index c1b0730..e25f181 100644
+--- a/noeol.txt
++++ b/noeol.txt
+@@ -1 +1 @@
+-x
+\ No newline at end of file
++y
+\ No newline at end of file
+diff --git a/sp ace.txt b/sp ace.txt
+deleted file mode 100644
+index 45b983b..0000000
+--- a/sp ace.txt	
++++ /dev/null
+@@ -1 +0,0 @@
+-hi

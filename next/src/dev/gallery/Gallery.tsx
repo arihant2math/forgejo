@@ -17,6 +17,7 @@ import {
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuTrigger, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
+  AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineNo, TabCount, TabLink, TabNav,
   NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TextArea, TooltipProvider,
 } from '../../ui/index.ts';
 
@@ -26,6 +27,9 @@ const swatches = [
   ['fg-subtle', 'bg-fg-subtle'], ['accent', 'bg-accent'], ['success', 'bg-success'], ['warning', 'bg-warning'],
   ['danger', 'bg-danger'], ['danger-solid', 'bg-danger-solid'], ['done', 'bg-done'], ['accent-subtle', 'bg-accent-subtle'],
 ] as const;
+
+// "const answer = 42; // ok": keyword, plain, constant, plain, comment (workers/highlight.ts SYN).
+const sampleHl = {spans: Uint32Array.of(5, 1, 10, 0, 2, 5, 2, 0, 5, 3), starts: Uint32Array.of(0, 5)};
 
 const themes = [['light', Sun], ['dark', Moon], ['system', SunMoon]] as const;
 
@@ -268,6 +272,24 @@ export default function Gallery() {
           <Status tone="danger">Error</Status>
           <Status tone="muted" onClick={() => undefined} label="Offline, 3 pending">Offline <span className="tabular-nums">· 3 pending</span></Status>
           <SectionHeading>Section heading</SectionHeading>
+        </Section>
+
+        <Section id="code" title="Code: lines, diff, blame, logs, tabs">
+          <div className="flex w-full flex-col overflow-x-auto rounded-md border border-border">
+            <TabNav label="Example tabs">
+              <TabLink><a href="#code" aria-current="page">Files <TabCount n={3}/></a></TabLink>
+              <TabLink><a href="#code">Commits</a></TabLink>
+            </TabNav>
+            <CodeFileHeader path="src/app.ts" oldPath="src/old.ts" status="renamed" stat={<DiffStat additions={12} deletions={3}/>}>
+              <Button size="sm" pressed>Viewed</Button>
+            </CodeFileHeader>
+            <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/></>}>@@ -1,3 +1,4 @@ function main()</CodeLine>
+            <CodeLine gutter={<><LineNo n={1}/><LineNo n={1}/></>}><CodeTokens text="const answer = 42; // ok" hl={sampleHl} line={0}/></CodeLine>
+            <CodeLine tone="del" gutter={<><LineNo n={2}/><LineNo n={0}/></>}>{'return "old";'}</CodeLine>
+            <CodeLine tone="add" active gutter={<><LineNo n={0}/><LineNo n={2}/></>}>{'return "new";'}</CodeLine>
+            <CodeLine gutter={<><BlameCell first summary="Fix the parser" meta="3 d"/><LineNo n={3}/></>}>blamed line</CodeLine>
+            <CodeLine gutter={<LineNo n={4}/>}><AnsiText spans={[{text: 'PASS ', color: 2, bold: true}, {text: 'error ', color: 1, bold: false}, {text: 'plain', color: 0, bold: false}]}/></CodeLine>
+          </div>
         </Section>
 
         <Section title="Skeleton and empty state">

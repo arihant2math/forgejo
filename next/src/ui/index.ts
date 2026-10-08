@@ -8,6 +8,7 @@ export {Avatar, AvatarGroup} from './Avatar.tsx';
 export {Badge, ChipButton, LabelChip, LabelDot, LabelIcon, type BadgeTone} from './Badge.tsx';
 export {Button, IconButton, type ButtonVariant} from './Button.tsx';
 export {Callout, type CalloutTone} from './Callout.tsx';
+export {AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineAction, LineNo, TabCount, TabLink, TabNav, type LineTone, type TokenSpans} from './Code.tsx';
 export {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from './Command.tsx';
 export {cx} from './cx.ts';
 export {Dialog, DialogClose, DialogTrigger} from './Dialog.tsx';

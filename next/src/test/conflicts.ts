@@ -7,7 +7,7 @@
 
 import {splitClass} from '../../lint/eslint-plugin-tokens.ts';
 
-const textSizes = new Set(['xs', 'sm', 'base', 'md', 'lg', 'xl']);
+const textSizes = new Set(['xs', 'sm', 'base', 'md', 'lg', 'xl', 'code']);
 const textAligns = new Set(['left', 'center', 'right', 'justify', 'start', 'end']);
 
 /** The property group a utility sets, or undefined when it is not tracked. */

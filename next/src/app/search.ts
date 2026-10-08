@@ -97,3 +97,14 @@ export interface InboxSearch {
 export function inboxSearch(s: Record<string, unknown>): InboxSearch {
   return {...(s.filter === 'unread' ? {filter: 'unread' as const} : {}), ...(s.group === 'repo' ? {group: 'repo' as const} : {})};
 }
+
+const PULL_TABS = ['files', 'commits', 'checks'] as const;
+
+/** /{owner}/{repo}/pulls/{n}: the view (conversation by default; F7). */
+export interface PullSearch {
+  tab?: typeof PULL_TABS[number];
+}
+
+export function pullSearch(s: Record<string, unknown>): PullSearch {
+  return (PULL_TABS as readonly unknown[]).includes(s.tab) ? {tab: s.tab as typeof PULL_TABS[number]} : {};
+}

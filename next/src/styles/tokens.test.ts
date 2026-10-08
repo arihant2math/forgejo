@@ -65,6 +65,13 @@ describe('tokens.css', () => {
     need('canvas-selected', 'canvas', 1.15);
     need('selected', 'surface', 1.15);
     need('border-strong', 'selected', 1.15); // chip and avatar edges on a selected row
+    // Code (F7): every syntax colour and the text on every line background of a code view.
+    for (const fg of ['fg', 'fg-muted', 'syn-keyword', 'syn-string', 'syn-comment', 'syn-function', 'syn-constant', 'syn-parameter', 'accent-fg']) {
+      for (const bg of ['surface', 'hover', 'diff-add', 'diff-del']) need(fg, bg, 4.5);
+    }
+    for (const bg of ['diff-add-strong', 'diff-del-strong', 'accent-subtle']) need('fg-subtle', bg, 4.5); // line numbers on the gutters, hunk headers
+    need('diff-add-strong', 'diff-add', 1.1);
+    need('diff-del-strong', 'diff-del', 1.1);
     expect(failures).toEqual([]);
   });
 

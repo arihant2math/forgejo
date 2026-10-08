@@ -8,13 +8,13 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {useLocation, useNavigate, useParams} from '@tanstack/react-router';
+import {Link, useLocation, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {CircleDot, SearchX} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
-import {whenIdle} from '../../app/lazy.tsx';
+import {lazyComponent, whenIdle} from '../../app/lazy.tsx';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {connectivity} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
@@ -27,7 +27,7 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {EmptyState, Skeleton} from '../../ui/index.ts';
+import {EmptyState, Skeleton, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {PendingCell, StateIcon, TitleCell, usePool, useUser} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
@@ -37,6 +37,12 @@ import {BodySection, CommentComposer, Overrides} from './Editing.tsx';
 import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
+
+// A pull request's code views (Files, Commits, Checks) and its merge box: their own chunk (code surfaces, F7).
+const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
+const MergeBox = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.MergeBox));
+
+type PullTabName = 'files' | 'commits' | 'checks';
 
 /** The issue of a repository by number (observes the issues numbered so, not every issue of the repository). */
 export function findIssue(pool: Pool, repoId: number, index: number): Entity<'Issue'> | undefined {
@@ -78,16 +84,37 @@ const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId:
   }, [navigate, number, owner, repo]);
   const issue = index < 0 ? created ?? overlay.createdEntity('Issue', index) as Entity<'Issue'> | undefined : findIssue(pool, repoId, index);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const tab = useSearch({strict: false, select: (s: {tab?: PullTabName}) => s.tab});
   if (!issue) return <NotHere repoId={repoId} index={index} context={context}/>;
+  const pull = issue.get('is_pull') && index > 0;
   return (
     <>
       <PageHeader context={context} title={<IssueTitle issue={issue} index={index}/>}/>
+      {pull && <PullTabs owner={owner} repo={repo} index={String(index)} tab={tab}/>}
       <PageBody ref={setScroller}>
-        <IssueContent issue={issue} scroller={scroller}/>
+        {pull && tab ? <PullTab issue={issue} owner={owner} repo={repo} tab={tab}/> : <IssueContent issue={issue} scroller={scroller}/>}
       </PageBody>
     </>
   );
 });
+
+const PULL_TABS: [PullTabName | undefined, string][] = [[undefined, 'Conversation'], ['files', 'Files'], ['commits', 'Commits'], ['checks', 'Checks']];
+
+/** Conversation (the issue page), and the pull request's code views. */
+function PullTabs({owner, repo, index, tab}: {owner: string; repo: string; index: string; tab: PullTabName | undefined}) {
+  return (
+    <TabNav label="Pull request">
+      {PULL_TABS.map(([t, label]) => (
+        <TabLink key={label}>
+          <Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : undefined}
+            activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
+              void PullTab.preload().catch(() => undefined);
+            }}>{label}</Link>
+        </TabLink>
+      ))}
+    </TabNav>
+  );
+}
 
 function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTMLDivElement | null}) {
   const app = useApp();
@@ -131,6 +158,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
         <Reactions issueId={issue.id} commentId={0}/>
         <div className="mt-4 border-t border-border-subtle pt-2">
           <Timeline issueId={issue.id} scroller={scroller}/>
+          {issue.get('is_pull') && issue.id > 0 && <MergeBox issue={issue}/>}
           <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>
         </div>
       </article>

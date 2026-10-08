@@ -55,6 +55,8 @@ export class FakeForgejo {
   readonly log: LogEntry[] = [];
   readonly issues = new Map<number, IssueState>();
   readonly comments = new Map<number, CommentState>();
+  /** Submitted reviews (POST …/pulls/{n}/reviews), in order. */
+  readonly reviews: {issueId: number; commit_id: string; event: string; body: string; comments: {path: string; body: string; new_position: number; old_position: number}[]}[] = [];
   private nextIssue = 1000;
   private nextComment = 5000;
   private clock = 0;
@@ -248,6 +250,20 @@ export class FakeForgejo {
       this.issues.set(id, s);
       this.emitIssue(s, true);
       return [201, {id, number: id}];
+    }
+    const pm = /^\/api\/v1\/repos\/dev\/big\/pulls\/(\d+)\/reviews$/.exec(url);
+    const ps = pm && method === 'POST' ? [...this.issues.values()].find((x) => x.number === Number(pm[1]) && !x.deleted) : undefined;
+    if (pm && method === 'POST') {
+      if (!ps) return notFound;
+      const s = ps;
+      const r = {issueId: s.id, commit_id: String(b.commit_id), event: String(b.event), body: String(b.body), comments: (b.comments ?? []) as never};
+      this.reviews.push(r);
+      const id = 7000 + this.reviews.length;
+      this.emit('Review', id, `issue:${String(s.id)}`, {
+        id, issue_id: s.id, state: r.event, reviewer_id: DEV, reviewer_team_id: 0, original_author: '', body: r.body, body_html: '', official: false,
+        commit_id: r.commit_id, stale: false, dismissed: false, created_at: T, updated_at: T,
+      });
+      return [200, {id}];
     }
     m = /^\/api\/v1\/repos\/dev\/big\/issues\/(\d+)(\/.*)?$/.exec(url);
     if (!m) return notFound;

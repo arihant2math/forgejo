@@ -158,3 +158,9 @@
   /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- a mix of two tokens */
   color: color-mix(in oklab, var(--label-color) var(--label-ink), var(--color-fg));
 }
+
+/* A code line's text (F7): one line, never wrapped, tabs at --code-tab-size. */
+@utility code-text {
+  white-space: pre;
+  tab-size: var(--code-tab-size);
+}

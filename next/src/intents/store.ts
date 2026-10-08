@@ -69,6 +69,8 @@ export interface DraftRecord {
   text?: string;
   /** text: what the edit is based on (an editor restored from it keeps its base: a 3-way merge stays right). */
   base?: {text: string; version: number; updated?: string | undefined};
+  /** A review comment's place in the diff (F7: drafted until the review is submitted; code/review.ts). */
+  anchor?: {path: string; side: 'old' | 'new'; line: number; commit: string};
   /** What it was ("Editing the description of #12"). */
   title: string;
   issueId?: number;

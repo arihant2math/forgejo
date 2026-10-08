@@ -63,6 +63,20 @@
   --color-done-subtle: #efebfe;
   --color-shadow: #0000001f;
 
+  /* Code (F7): syntax token colours (Shiki's CSS-variables theme maps onto them: workers/highlight.ts)
+   * and the diff's added/removed line tints. Each syntax colour meets 4.5:1 on the surface, hover and
+   * both diff tints (tokens.test.ts). */
+  --color-syn-keyword: #b3203b;
+  --color-syn-string: #0b4a8a;
+  --color-syn-comment: #5d6470;
+  --color-syn-function: #6b3fc2;
+  --color-syn-constant: #0a5aa6;
+  --color-syn-parameter: #8a4500;
+  --color-diff-add: #eff9f3;
+  --color-diff-add-strong: #d6efdf;
+  --color-diff-del: #fcecee;
+  --color-diff-del-strong: #f9dfe3;
+
   /* ── Typography. System fonts only: no webfont request on the boot path. ── */
   --font-sans:
     -apple-system, blinkmacsystemfont, "Segoe UI Variable Text", "Segoe UI", system-ui, roboto,
@@ -84,6 +98,9 @@
   --text-lg--line-height: 24px;
   --text-xl: 20px;
   --text-xl--line-height: 28px;
+  /* Code lines: one fixed line height, so code surfaces virtualize without measuring. */
+  --text-code: 12px;
+  --text-code--line-height: 20px;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -100,6 +117,9 @@
   --spacing-pane: 280px; /* detail side pane */
   --spacing-card: 96px; /* a board card (fixed: columns virtualize without measuring) */
   --spacing-column: 288px; /* a board column */
+  --spacing-line: 20px; /* a code line (= --text-code--line-height) */
+  --spacing-gutter: 48px; /* a line-number column */
+  --spacing-blame: 240px; /* the blame column */
 
   /* Max widths (max-w-xs = tooltips, max-w-sm = menus, max-w-md = dialogs, max-w-lg = prose). */
   --container-xs: 280px;
@@ -170,6 +190,9 @@
   /* The keyboard cursor's edge on a list row (row-cursor). */
   --cursor-width: 2px;
 
+  /* Code: tab stops (code-text). */
+  --code-tab-size: 4;
+
   /* Disabled controls. */
   --opacity-disabled: 0.5;
 
@@ -227,6 +250,16 @@
   --color-done: #a68ffc;
   --color-done-subtle: #2a2342;
   --color-shadow: #0006;
+  --color-syn-keyword: #ff7b8a;
+  --color-syn-string: #9ccfff;
+  --color-syn-comment: #8e95a0;
+  --color-syn-function: #c9a6ff;
+  --color-syn-constant: #79c0ff;
+  --color-syn-parameter: #f2a660;
+  --color-diff-add: #13261b;
+  --color-diff-add-strong: #1a3623;
+  --color-diff-del: #2b171a;
+  --color-diff-del-strong: #3a1c21;
 }
 
 @media (prefers-reduced-motion: reduce) {

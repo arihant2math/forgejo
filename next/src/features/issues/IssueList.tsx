@@ -31,7 +31,7 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Icon, LabelIcon, ListGroupHeader, ListRow,
 } from '../../ui/index.ts';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
-import {AssigneesCell, LabelsCell, priorityIcon, PriorityCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar, usePool} from './cells.tsx';
+import {AssigneesCell, LabelsCell, PendingCell, priorityIcon, PriorityCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar, usePool} from './cells.tsx';
 import {issuePath, issuesOf} from './edits.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
@@ -293,7 +293,7 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
         handlers.aux(id, e);
       }}
       leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      trailing={<><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
+      trailing={<><PendingCell issueId={issue.id}/><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
     >
       <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
         {showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}

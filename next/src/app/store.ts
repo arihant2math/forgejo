@@ -24,8 +24,10 @@ export interface UiState {
   shortcutsOpen: boolean;
   /** The sign-out warning (unsynced intents), with their count. */
   signOut: {pending: number} | undefined;
-  /** Intents not synced yet (the sync indicator's "N pending"; F5 keeps it current). */
+  /** Changes not synced yet: queued intents and failed ones kept as drafts (the sync indicator's "N pending"). */
   pendingIntents: number;
+  /** The "Unsynced changes" panel is open. */
+  unsyncedOpen: boolean;
   /** Transient notices (notices.ts), oldest first. */
   notices: NoticeSpec[];
   /** The issues the keyboard acts on (the list's selection or cursor, the open issue): the palette offers their actions. */
@@ -45,7 +47,7 @@ export interface App {
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
   const ui = observable<UiState>(
-    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, notices: [], issueTarget: [], picker: undefined},
+    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unsyncedOpen: false, notices: [], issueTarget: [], picker: undefined},
     {notices: observableShallow, issueTarget: observableRef, picker: observableRef},
   );
   return {config, session, ui};

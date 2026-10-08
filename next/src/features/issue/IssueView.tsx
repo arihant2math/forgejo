@@ -22,11 +22,11 @@ import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {EmptyState, Skeleton} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
-import {StateIcon, TitleCell, usePool, useUser} from '../issues/cells.tsx';
+import {PendingCell, StateIcon, TitleCell, usePool, useUser} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoContext, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
-import {Markdown} from './Markdown.tsx';
+import {BodySection, CommentComposer, Overrides} from './Editing.tsx';
 import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
@@ -98,10 +98,12 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
       <article className="flex min-w-0 flex-1 flex-col gap-3 px-8 py-6">
         <h2 className="text-xl font-semibold text-fg"><TitleCell issue={issue}/></h2>
         <Byline issue={issue}/>
-        <Body issue={issue}/>
+        <Overrides issueId={issue.id}/>
+        <BodySection issue={issue}/>
         <Reactions issueId={issue.id} commentId={0}/>
         <div className="mt-4 border-t border-border-subtle pt-2">
           <Timeline issueId={issue.id} scroller={scroller}/>
+          <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>
         </div>
       </article>
       <aside aria-label="Properties" className="w-pane shrink-0 border-l border-border">
@@ -118,7 +120,7 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
   return (
     <>
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
-      <span className="text-fg-subtle tabular-nums">#{index}</span> {issue.get('title')}
+      <span className="text-fg-subtle tabular-nums">#{index}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </>
   );
 });
@@ -133,22 +135,6 @@ const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
     </p>
   );
-});
-
-/** The description: from the lazy group when it is here; placeholders (no spinner) while it loads. */
-const Body = observer(function Body({issue}: {issue: Entity<'Issue'>}) {
-  const body = usePool().model('IssueBody').get(issue.id);
-  if (!body) {
-    return (
-      <div className="flex flex-col gap-2 py-1" aria-busy>
-        <Skeleton className="h-3 w-full"/>
-        <Skeleton className="h-3 w-full"/>
-        <Skeleton className="h-3 w-2/3"/>
-      </div>
-    );
-  }
-  const html = body.get('body_html');
-  return html ? <Markdown html={html}/> : <p className="text-base text-fg-subtle">No description.</p>;
 });
 
 /** The issue is not in the pool: an older closed one loads with the closed tier's pages; otherwise it is not here. */

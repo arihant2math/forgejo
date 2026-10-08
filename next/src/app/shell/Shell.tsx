@@ -22,6 +22,7 @@ import {Sidebar} from './Sidebar.tsx';
 const Palette = lazyComponent(() => import('../palette/Palette.tsx').then((m) => m.Palette));
 const ShortcutsDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.ShortcutsDialog));
 const SignOutDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.SignOutDialog));
+const UnsyncedPanel = lazyComponent(() => import('./Unsynced.tsx').then((m) => m.UnsyncedPanel));
 const Notices = lazyComponent(() => import('./Notices.tsx').then((m) => m.Notices));
 const IssuePicker = lazyComponent(() => import('../../features/issues/Picker.tsx').then((m) => m.IssuePicker));
 
@@ -48,6 +49,7 @@ const Overlays = observer(function Overlays({app}: {app: App}) {
       <PickerHost app={app}/>
       {app.ui.shortcutsOpen && <ShortcutsDialog/>}
       {app.ui.signOut && <SignOutDialog pending={app.ui.signOut.pending}/>}
+      {app.ui.unsyncedOpen && <UnsyncedPanel/>}
       <NoticeViewport>{app.ui.notices.length > 0 && <Notices/>}</NoticeViewport>
     </>
   );

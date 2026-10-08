@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {InputHTMLAttributes, Ref} from 'react';
+import type {InputHTMLAttributes, Ref, TextareaHTMLAttributes} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {control, controlHeight, type ControlSize} from './recipes.ts';
@@ -36,5 +36,26 @@ export function Input({size = 'md', invalid, icon, className, ...rest}: InputPro
       <span className="pointer-events-none absolute left-2 flex text-fg-subtle"><Icon icon={icon} size="sm"/></span>
       {input}
     </span>
+  );
+}
+
+/** Multi-line text (markdown source: a description, a comment). Full width; grows with `rows`, resizable vertically. */
+export interface TextAreaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'className' | 'style'> {
+  invalid?: boolean | undefined;
+  ref?: Ref<HTMLTextAreaElement>;
+}
+
+export function TextArea({invalid, rows = 6, ...rest}: TextAreaProps) {
+  return (
+    <textarea
+      aria-invalid={invalid}
+      rows={rows}
+      className={cx(
+        'interactive block w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-sm text-fg',
+        'placeholder:text-fg-subtle hover:border-border-strong focus-visible:outline-offset-0',
+        'aria-invalid:border-danger aria-invalid:outline-danger disabled:opacity-disabled',
+      )}
+      {...rest}
+    />
   );
 }

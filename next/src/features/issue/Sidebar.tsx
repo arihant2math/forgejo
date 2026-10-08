@@ -13,7 +13,7 @@ import {observer} from 'mobx-react-lite';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueMilestone, issueState} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueMilestone, issueState} from '../../intents/view.ts';
 import {Code, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue, TextLink} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
@@ -150,7 +150,7 @@ const IssueLink = observer(function IssueLink({id, repoId}: {id: number; repoId:
 });
 
 const DueValue = observer(function DueValue({issue}: {issue: Entity<'Issue'>}) {
-  const due = issue.get('due_date');
+  const due = issueDeadline(useOverlay(), issue);
   const open = issueState(useOverlay(), issue) === 'open';
   if (!due) return null;
   const late = open && Date.parse(due) < Date.now();

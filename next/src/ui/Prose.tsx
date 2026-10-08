@@ -9,5 +9,15 @@ import type {MouseEventHandler, Ref} from 'react';
  * through the Trusted Types policy (app/trusted.ts), never by React.
  */
 export function Prose({ref, onClick}: {ref: Ref<HTMLDivElement>; onClick?: MouseEventHandler<HTMLDivElement>}) {
-  return <div ref={ref} onClick={onClick} className="prose min-w-0 text-md text-fg"/>;
+  return <div ref={ref} onClick={onClick} className={prose}/>;
+}
+
+const prose = 'prose min-w-0 text-md text-fg';
+
+/**
+ * Markdown source not rendered yet (an edit made offline: the server renders
+ * it once it has it), shown as typed, in the same typography.
+ */
+export function ProseSource({text}: {text: string}) {
+  return <div className={`${prose} whitespace-pre-wrap`}>{text}</div>;
 }

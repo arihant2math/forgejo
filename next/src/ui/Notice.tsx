@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {CircleAlert, CircleCheck, Info, X} from 'lucide-react';
+import {CircleAlert, CircleCheck, Info, TriangleAlert, X} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {IconButton} from './Button.tsx';
 import {cx} from './cx.ts';
@@ -11,6 +11,7 @@ import {floating} from './recipes.ts';
 const tones = {
   neutral: {icon: Info, text: 'text-fg-muted'},
   success: {icon: CircleCheck, text: 'text-success'},
+  warning: {icon: TriangleAlert, text: 'text-warning'},
   danger: {icon: CircleAlert, text: 'text-danger'},
 } as const satisfies Record<string, {icon: LucideIcon; text: string}>;
 

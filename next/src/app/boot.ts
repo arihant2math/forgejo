@@ -7,7 +7,6 @@
 // Suspense (F1). Network work (token refresh, sync) starts in the background.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {runInAction} from 'mobx';
 import {optIn} from '../auth/optin.ts';
 import {loadConfig, uiPath} from './config.ts';
 import {isChunkError} from './reload.ts';
@@ -23,7 +22,12 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   const session = callback ? undefined : await openSession(config);
   const app = createApp(config, session);
   const router = createAppRouter(app);
-  await router.load();
+  // The offline queue (its own chunk, read from IndexedDB) is in the overlay before the first frame:
+  // pending changes show at once after a reload. Never fatal for boot (it is started again on first use).
+  const queue = session ? import('../intents/session.ts').then((m) => m.startEditing(app)).catch((err: unknown) => {
+    console.error('intents: the queue could not be started', err);
+  }) : undefined;
+  await Promise.all([router.load(), queue]);
   const failed = router.state.matches.find((m) => m.status === 'error' && isChunkError(m.error));
   if (failed) throw failed.error;
   // The callback page signs in and leaves; it must not follow the other tabs (its own
@@ -66,11 +70,6 @@ function started(app: App, router: AppRouter): void {
   followOtherTabs(app);
   const s = app.session;
   if (!s) return;
-  void s.data.countIntents().then((n) => {
-    runInAction(() => {
-      app.ui.pendingIntents = n;
-    });
-  }, () => undefined);
   s.data.on('wrongUser', ({viewerId}) => {
     console.error(`livesync: the session belongs to user ${String(viewerId)}, not to this device's user ${String(s.userId)}`);
   });

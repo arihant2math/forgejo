@@ -9,7 +9,7 @@
 // mount per cell for every row scrolled into view.
 
 import {
-  Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
+  Circle, CircleCheck, CloudUpload, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
   GitPullRequestClosed, OctagonAlert, SignalHigh, SignalLow, SignalMedium, SignalZero,
 } from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
@@ -19,7 +19,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
-import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState} from '../../intents/view.ts';
+import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
 import {ago, fullDate} from './format.ts';
@@ -210,7 +210,18 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
 });
 
 export const TitleCell = observer(function TitleCell({issue}: {issue: Entity<'Issue'>}) {
-  return <>{issue.get('title')}</>;
+  return <>{issueTitle(useOverlay(), issue)}</>;
+});
+
+/**
+ * The pending badge (PLAN §5.4): changes to this issue that Forgejo does not
+ * have yet. Observes the issue's pending count only.
+ */
+export const PendingCell = observer(function PendingCell({issueId}: {issueId: number}) {
+  const n = editing(useApp()).intents.pendingOn(issueId);
+  if (!n) return null;
+  const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`;
+  return <Hint label={label}><Icon icon={CloudUpload} size="sm" className="text-fg-subtle"/></Hint>;
 });
 
 /** The first non-empty string. */

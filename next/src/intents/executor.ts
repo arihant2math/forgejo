@@ -768,6 +768,8 @@ export class Intents {
   }
 
   private later(rec: IntentRecord, ms: number, note: string | undefined, attempt: boolean): Promise<unknown> {
+    // Waiting (backoff, Retry-After, the token): not sent at once any more, for RUM.
+    this.immediate.delete(rec.id);
     const attempts = attempt ? rec.attempts + 1 : rec.attempts;
     if (attempt) count(RUMIntentRetried);
     const wait = ms >= 0 ? ms : Math.min(this.env.maxBackoff ?? 300_000, (this.env.backoff ?? 1000) * 2 ** Math.max(0, attempts - 1));
@@ -872,6 +874,7 @@ export class Intents {
   }
 
   private async park(rec: IntentRecord, conflict: Conflict): Promise<void> {
+    this.immediate.delete(rec.id);
     const next: IntentRecord = {...rec, state: 'parked', conflict, updated: this.now()};
     delete next.req;
     const [ok] = await this.save([next]);
@@ -891,13 +894,18 @@ export class Intents {
     } catch (err) {
       // Signed out: held, not dropped (PLAN §4.9), until the session is live again. Anything else (the
       // token endpoint unreachable): try again later.
+      this.immediate.delete(rec.id);
       if (err instanceof Error && err.name === 'SignedOut') this.held = true;
       else await this.later(rec, -1, 'Could not get a session token; retrying.', false);
       return;
     }
     const res = await this.fetch(rec, req, token);
-    if (!res) return;
+    if (!res) {
+      this.immediate.delete(rec.id); // offline mid-flight, or retrying
+      return;
+    }
     if (res.status === 401) {
+      this.immediate.delete(rec.id); // a refresh, maybe a hold
       // null: signed out (held); a throw: the token endpoint unreachable (try again later).
       const t = await env.refresh().then((x) => x, () => undefined);
       if (t === undefined) {
@@ -1132,6 +1140,7 @@ export class Intents {
 
   /** It cannot be carried out: the layer goes, the intent and its text become a draft (one transaction). */
   private async fail(rec: IntentRecord, reason: string): Promise<void> {
+    this.immediate.delete(rec.id);
     const i = rec.intent;
     const text = intentText(i);
     // The names may have left the pool since it was made (a revoked repository's labels): then the words

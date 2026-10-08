@@ -658,8 +658,7 @@ describe('RUM (PLAN §5.8)', () => {
   test('a mutation reports localApplied → acked → confirmed and the queue\'s outcomes', async () => {
     takeCollected();
     const server = new FakeForgejo();
-    const s = scripted(server, [answer(503, {}, {'Retry-After': '0'})]);
-    const world = new World(server, 1, {fetch: s.fetch});
+    const world = new World(server, 1);
     const tab = world.tabs[0];
     if (!tab) throw new Error('no tab');
     tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
@@ -676,8 +675,28 @@ describe('RUM (PLAN §5.8)', () => {
     const [acked] = got.samples.get('mutationAcked') ?? [];
     const [confirmed] = got.samples.get('mutationConfirmed') ?? [];
     expect(confirmed).toBeGreaterThanOrEqual(acked ?? Infinity);
-    expect(Object.fromEntries(got.counts)).toEqual({intentRetried: 1, intentFlushed: 1});
+    expect(Object.fromEntries(got.counts)).toEqual({intentFlushed: 1});
     expect(got.queueMax).toBe(1);
+    world.close();
+  });
+
+  test('a retried intent counts as retried and gives no timings (backoff is not the server\'s time)', async () => {
+    takeCollected();
+    const server = new FakeForgejo();
+    const s = scripted(server, [answer(503, {}, {'Retry-After': '0'})]);
+    const world = new World(server, 1, {fetch: s.fetch});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle();
+    tab.deliver();
+    await vi.waitFor(() => {
+      expect(tab.overlay.size).toBe(0);
+    });
+    const got = takeCollected();
+    expect(Object.fromEntries(got.counts)).toEqual({intentRetried: 1, intentFlushed: 1});
+    expect(got.samples.has('mutationAcked')).toBe(false);
+    expect(got.samples.has('mutationConfirmed')).toBe(false);
     world.close();
   });
 

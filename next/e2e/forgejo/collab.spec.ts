@@ -70,8 +70,9 @@ test('leader handoff: the follower tab takes the socket when the leader closes, 
   expect(fSockets.open()).toBe(0);
   expect(lSockets.open()).toBe(1);
 
-  // The leader goes away, and a change lands while nobody leads (the window a lost announcement would
-  // hide): the follower takes the lock, opens its own socket, catches up and is live.
+  // The leader goes away, and a change lands right after (usually before the follower has taken over:
+  // what a lost announcement would hide): the follower takes the lock, opens its own socket, catches up
+  // and is live.
   await leader.close();
   const again = `Renamed again ${RUN}`;
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: again}, aliceAuth), 'rename');
@@ -152,10 +153,17 @@ test('access removed while she is live: both of her tabs purge the repository at
   await page.goto(`${BASE}/${USER}/${REPO}/issues`);
   await expect(issueList(page).getByRole('option').filter({hasText: target.title})).toBeVisible({timeout: 30_000});
   const other = await ctx.newPage();
+  const otherProblems = watch(other);
   await other.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
   await expect(issueTitle(other)).toContainText(target.title, {timeout: 30_000});
   await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(true);
   await expect(indicator(page)).toContainText('Live');
+  // A mark that a reload would wipe.
+  for (const p of [page, other]) {
+    await p.evaluate(() => {
+      (window as unknown as {__noReload?: boolean}).__noReload = true;
+    });
+  }
 
   await ok(await api('DELETE', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`), 'remove collaborator');
   // group_revoked on the open socket: the list empties, the issue page leaves the issue, the sidebar
@@ -167,7 +175,8 @@ test('access removed while she is live: both of her tabs purge the repository at
   await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(false);
   expect(await storedRecords(page, 'Issue', `repo:${String(repoId)}`)).toBe(0);
   await expect(indicator(page)).toContainText('Live');
-  expect(problems).toEqual([]);
+  for (const p of [page, other]) expect(await p.evaluate(() => (window as unknown as {__noReload?: boolean}).__noReload)).toBe(true);
+  expect([...problems, ...otherProblems]).toEqual([]);
   await ctx.close();
   await ok(await api('PUT', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`, {permission: 'write'}), 'add collaborator back');
 });

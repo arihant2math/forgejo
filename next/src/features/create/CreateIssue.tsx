@@ -293,7 +293,7 @@ const Properties = observer(function Properties({form}: {form: Form}) {
       <Menu>
         <MenuTrigger asChild>
           <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag} tooltip="Labels, status and priority">
-            {chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
+            {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
           </Button>
         </MenuTrigger>
         <MenuContent>

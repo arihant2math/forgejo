@@ -11,7 +11,9 @@ import {Tooltip} from './Tooltip.tsx';
 const variants = {
   primary: 'bg-accent text-fg-on-accent hover:bg-accent-hover',
   secondary: 'border border-border bg-surface text-fg hover:bg-hover',
-  ghost: `${ghostHover} data-[state=open]:bg-hover data-[state=open]:text-fg`,
+  // A transparent border: switching between ghost and secondary (a toggle, a tab, a filter with a value)
+  // never changes the width.
+  ghost: `border border-transparent ${ghostHover} data-[state=open]:bg-hover data-[state=open]:text-fg`,
   danger: 'bg-danger-solid text-fg-on-accent hover:bg-danger-solid-hover',
 } as const;
 
@@ -49,8 +51,7 @@ export function Button({variant = 'secondary', size = 'md', icon, tooltip, short
     <Comp
       {...(asChild ? {} : {type: 'button' as const})}
       {...(pressed === undefined ? {} : {'aria-pressed': pressed})}
-      // A toggle keeps the same (transparent) border when off: pressing it never changes its width.
-      className={cx(base, controlHeight[size], size === 'sm' ? 'gap-1 px-2 text-sm' : 'gap-1.5 px-3 text-base', variants[look], pressed === false && 'border border-transparent', className)}
+      className={cx(base, controlHeight[size], size === 'sm' ? 'gap-1 px-2 text-sm' : 'gap-1.5 px-3 text-base', variants[look], className)}
       {...rest}
     >
       {asChild ? children : <>{icon && <Icon icon={icon} size={size}/>}{children}</>}

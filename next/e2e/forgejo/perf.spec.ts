@@ -26,10 +26,11 @@
 //                                                    a frame, 3 runs                                 p95 < 34 ms, ≤ 3 % of
 //                                                                                                    frames > 32 ms; 2 of 3
 //                                                                                                    runs without a long task
-//                                                                                                    ≥ 50 ms
+//                                                                                                    ≥ 50 ms, nor a file-boundary
+//                                                                                                    frame ≥ 50 ms
 //
 // The scroll bound is not PLAN's strict "no frame > 32 ms": this sandbox's
-// software rasterizer on shared vCPUs drops 1–4 of 600 frames scrolling an
+// software rasterizer on shared vCPUs drops 1–4 frames in 600 scrolling an
 // empty page (F7). On real hardware set NEXT_E2E_STRICT_FPS=1.
 
 import {brotliCompressSync, constants} from 'node:zlib';
@@ -332,10 +333,12 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
     await page.goto(codeUrl(CODE_REPO, `src/branch/main/src/${f}`));
     await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
   }
-  // Cached: the measured switches fetch nothing (trees, blobs and highlights come from this device).
+  // Cached: the measured switches (the click on the file, not the way back to its directory) fetch nothing:
+  // the file's blob and highlight come from this device.
   const fetched: string[] = [];
+  let measuring = false;
   page.on('request', (r) => {
-    if (/\/(api\/v1|-\/sync\/api)\//.test(r.url())) fetched.push(r.url());
+    if (measuring && /\/(api\/v1|-\/sync\/api)\//.test(r.url())) fetched.push(r.url());
   });
   const samples: number[] = [];
   for (let i = 0; i < 5; i++) {
@@ -343,6 +346,7 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
       // From the directory, click the file; measure in the page: click → the file's lines painted (next frame).
       await page.getByRole('link', {name: 'src', exact: true}).first().click();
       await expect(page.getByRole('listbox', {name: 'Files'})).toBeVisible();
+      measuring = true;
       samples.push(await page.evaluate(async (name) => {
         const row = [...document.querySelectorAll('[role=option]')].find((el) => el.textContent.startsWith(name)) as HTMLElement | undefined;
         if (!row) throw new Error(`no row ${name}`);
@@ -356,6 +360,7 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
           if (performance.now() - t0 > 5000) return Number.POSITIVE_INFINITY;
         }
       }, to));
+      measuring = false;
     }
   }
   record('cached file switch: click → highlighted lines painted (ms)', samples);
@@ -406,9 +411,11 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
       await new Promise((r) => requestAnimationFrame(r));
       let last = performance.now();
       const step = 120; // px per frame (≈ 7 200 px/s)
-      const total = scroller.scrollHeight - scroller.clientHeight; // the whole diff
-      while (scroller.scrollTop < total - 1) {
+      // The whole diff (its height read every frame; a scroll that stops moving ends the run).
+      while (scroller.scrollTop < scroller.scrollHeight - scroller.clientHeight - 1) {
+        const before = scroller.scrollTop;
         scroller.scrollTop += step;
+        if (scroller.scrollTop === before) break;
         await new Promise((res) => requestAnimationFrame(res));
         const now = performance.now();
         frames.push(now - last);

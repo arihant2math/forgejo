@@ -11,8 +11,9 @@ export function Code({children}: {children: ReactNode}) {
 
 /**
  * A link in running text or a property (an issue reference, a breadcrumb): the text colour, the
- * accent on hover. Wrap a router <Link> (asChild) so it navigates in place.
+ * accent on hover. Wrap a router <Link> (asChild) so it navigates in place. In a property it truncates
+ * to one line; `wrap` (inside a sentence) lets it wrap with the text around it.
  */
-export function TextLink({children}: {children: ReactNode}) {
-  return <Slot.Root className="interactive min-w-0 truncate text-fg hover:text-accent-fg">{children}</Slot.Root>;
+export function TextLink({wrap = false, children}: {wrap?: boolean; children: ReactNode}) {
+  return <Slot.Root className={wrap ? 'interactive text-fg hover:text-accent-fg' : 'interactive min-w-0 truncate text-fg hover:text-accent-fg'}>{children}</Slot.Root>;
 }

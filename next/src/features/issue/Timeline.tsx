@@ -215,9 +215,11 @@ const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   return <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
 });
 
-function IssueRef({id}: {id: number}) {
-  return <IssueLink id={id} missing="another issue"/>;
-}
+/** An issue an event names, from the issue `from` whose timeline it is in (its repository decides the prefix). */
+const IssueRef = observer(function IssueRef({id, from}: {id: number; from: number}) {
+  const repoId = usePool().model('Issue').get(from)?.get('repo_id') ?? 0;
+  return <IssueLink id={id} repoId={repoId} missing="another issue" inline/>;
+});
 
 function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
   switch (d.type) {
@@ -243,7 +245,7 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'comment_ref':
     case 'pull_ref':
     case 'change_issue_ref':
-      return {icon: Link2, text: <>referenced this from <IssueRef id={d.ref_issue_id}/></>};
+      return {icon: Link2, text: <>referenced this from <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>};
     case 'commit_ref':
       return {icon: GitCommitHorizontal, text: 'referenced this in a commit'};
     case 'added_deadline':
@@ -251,9 +253,9 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'removed_deadline':
       return {icon: Clock, text: d.type === 'removed_deadline' ? 'removed the due date' : 'changed the due date'};
     case 'add_dependency':
-      return {icon: Link2, text: <>added a dependency on <IssueRef id={d.dependent_issue_id}/></>};
+      return {icon: Link2, text: <>added a dependency on <IssueRef id={d.dependent_issue_id} from={d.issue_id}/></>};
     case 'remove_dependency':
-      return {icon: Link2, text: <>removed a dependency on <IssueRef id={d.dependent_issue_id}/></>};
+      return {icon: Link2, text: <>removed a dependency on <IssueRef id={d.dependent_issue_id} from={d.issue_id}/></>};
     case 'lock':
       return {icon: Lock, text: 'locked the conversation'};
     case 'unlock':

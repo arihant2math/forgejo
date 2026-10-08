@@ -186,11 +186,12 @@ export class RumReporter {
   private slots(n: number): number {
     const storage = this.env.storage ?? (typeof localStorage === 'undefined' ? undefined : localStorage);
     const now = this.now();
+    if (!storage) return Math.min(n, 1); // no storage: this tab alone, sparingly
     try {
-      const raw: unknown = JSON.parse(storage?.getItem(BUDGET_KEY) ?? '[]');
+      const raw: unknown = JSON.parse(storage.getItem(BUDGET_KEY) ?? '[]');
       const recent = (Array.isArray(raw) ? raw : []).filter((t): t is number => typeof t === 'number' && t > now - 60_000 && t <= now);
       const take = Math.max(0, Math.min(n, TAB_BUDGET - recent.length));
-      storage?.setItem(BUDGET_KEY, JSON.stringify([...recent, ...Array.from({length: take}, () => now)]));
+      storage.setItem(BUDGET_KEY, JSON.stringify([...recent, ...Array.from({length: take}, () => now)]));
       return take;
     } catch {
       return Math.min(n, 1); // no storage: this tab alone, sparingly
@@ -206,7 +207,8 @@ export class RumReporter {
       this.interactions.clear();
     }
     const now = this.now();
-    if (this.sending || now < this.blockedUntil || !navigator.onLine) return;
+    // A hide sends even while a periodic flush is in flight (its requests are independent, keepalive).
+    if ((this.sending && !final) || now < this.blockedUntil || !navigator.onLine) return;
     const got = takeCollected();
     if (got.queueMax > 0) {
       try {
@@ -228,6 +230,7 @@ export class RumReporter {
     back(built.reports.slice(allowed), reports.length === 0);
     putBack(built.rest, new Map<RUMEvent, number>());
     if (reports.length === 0) return;
+    const nested = this.sending;
     this.sending = true;
     try {
       // On hide, all at once (only requests started now outlive the page); otherwise one after the other.
@@ -246,7 +249,7 @@ export class RumReporter {
         if (n === 0) for (const m of boot.keys()) this.bootSent.add(m);
       }
     } finally {
-      this.sending = false;
+      if (!nested) this.sending = false;
     }
   }
 

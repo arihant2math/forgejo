@@ -14,7 +14,7 @@ import type {Release} from '../../protocol/types.gen.ts';
 import {shortSha} from '../../code/refs.ts';
 import {Badge, Button, EmptyState, Icon, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {ago, fullDate, shortDate} from '../issues/format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import {Column} from './bits.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -78,7 +78,7 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
       {() => (releases.length ?
         // Not virtualized (each release's notes have their own height): off-screen ones are not rendered.
         <Column>
-          {releases.map((r) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r}/>)}
+          <div>{releases.map((r) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r}/>)}</div>
         </Column> :
         <EmptyState icon={Package} title="No releases" description="This repository has no published releases on this device."/>)}
     </CodeFrame>
@@ -90,13 +90,13 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r}: {owner: stri
   const pool = usePool();
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
   return (
-    <article className="flex flex-col gap-3 border-b border-border-subtle pb-6 render-lazy">
+    <article className="-mx-1 flex flex-col gap-3 border-b border-border-subtle px-1 py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold text-fg">{r.name || r.tag_name}</h2>
         {r.prerelease && <Badge tone="warning">Pre-release</Badge>}
         <span className="text-sm text-fg-subtle">
           <TextLink><CodeLink owner={owner} repo={repo} to={`src/tag/${r.tag_name}`}><span className="font-mono">{r.tag_name}</span></CodeLink></TextLink>
-          {' · '}<time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time>
+          {' · '}<time dateTime={r.created_at} title={fullDate(r.created_at)}>{shortDate(r.created_at)}</time>
         </span>
       </header>
       {r.body_html && <Markdown html={r.body_html}/>}

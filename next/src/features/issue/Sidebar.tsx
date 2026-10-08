@@ -151,18 +151,22 @@ function IssueLinks({ids, repoId}: {ids: number[]; repoId: number}) {
 
 /**
  * An issue reference ("#12 Title", with the repository's name when it is another one than `repoId`'s), a
- * link to it; the sidebar's dependencies and the timeline's events show issues the same way.
+ * link to it; the sidebar's dependencies and the timeline's events show issues the same way (`inline`:
+ * inside a sentence, wrapping with it).
  */
-export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An issue not on this device'}: {id: number; repoId?: number; missing?: string}) {
+export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An issue not on this device', inline = false}: {
+  id: number; repoId: number; missing?: string; inline?: boolean;
+}) {
   const app = useApp();
   const pool = usePool();
   const i = pool.model('Issue').get(id);
   if (!i) return <span className="text-fg-subtle">{missing}</span>;
   const repo = pool.model('Repository').get(i.get('repo_id'));
-  const ref = `${repoId === undefined || i.get('repo_id') === repoId ? '' : repo?.get('full_name') ?? ''}#${String(i.get('number'))}`;
+  const ref = `${i.get('repo_id') === repoId ? '' : repo?.get('full_name') ?? ''}#${String(i.get('number'))}`;
   const path = issuePath(app, i);
   const text = <><span className="text-fg-subtle tabular-nums">{ref}</span> {i.get('title')}</>;
-  return path ? <TextLink><Link to={path}>{text}</Link></TextLink> : <span className="truncate">{text}</span>;
+  if (!path) return <span className={inline ? undefined : 'truncate'}>{text}</span>;
+  return <TextLink wrap={inline}><Link to={path}>{text}</Link></TextLink>;
 });
 
 const DueValue = observer(function DueValue({issue}: {issue: Entity<'Issue'>}) {

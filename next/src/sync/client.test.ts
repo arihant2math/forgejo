@@ -322,6 +322,21 @@ describe('connection', () => {
     });
   });
 
+  test('offline then online with the socket still open: the status comes back, and a ping checks the socket (F3)', async () => {
+    const t = setup();
+    const ws = await connected(t);
+    ws.emit(welcome());
+    await vi.waitFor(() => {
+      expect(t.c.status.connection).toBe('live');
+    });
+    window.dispatchEvent(new Event('offline'));
+    expect(t.c.status.connection).toBe('offline');
+    window.dispatchEvent(new Event('online'));
+    expect(t.c.status.connection).toBe('live');
+    expect(ws.last('ping')).toBeDefined();
+    expect(FakeWS.all.length).toBe(1);
+  });
+
   test('barrier resolves with barrier_ok and raises caught-up positions', async () => {
     const meta = new MetaCache();
     meta.set('group:user:1', {group: 'user:1', position: 7, units: ['self'], watermark: 7, holders: ['workspace']});

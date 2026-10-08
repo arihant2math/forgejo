@@ -171,7 +171,19 @@ export class SyncClient {
   private readonly onOnline = () => {
     if (this.stopped) return;
     this.attempts = 0;
-    if (!this.session) this.connect();
+    const session = this.session;
+    if (session) {
+      // The transport may have survived the offline spell (or died silently): the status
+      // goes back to what the session says, and a ping checks it is still there.
+      if (session.welcomed) {
+        this.updateConnection(session);
+        this.probe(session);
+      } else {
+        this.setStatus({connection: 'connecting'});
+      }
+    } else {
+      this.connect();
+    }
     this.pump();
   };
   private readonly onOffline = () => {
@@ -563,14 +575,19 @@ export class SyncClient {
     }
     this.subscribe(session, late);
     session.ping = setInterval(() => {
-      if (this.session !== session) return;
-      this.send({type: 'ping', id: 'k'});
-      session.pong ??= setTimeout(() => {
-        if (this.session === session) session.transport.close();
-      }, this.o.pongTimeout);
+      this.probe(session);
     }, this.o.pingInterval);
     this.updateConnection(session);
     this.pump();
+  }
+
+  /** Keep-alive: a ping that must be answered within pongTimeout, or the transport is closed (and reconnects). */
+  private probe(session: Session): void {
+    if (this.session !== session) return;
+    this.send({type: 'ping', id: 'k'});
+    session.pong ??= setTimeout(() => {
+      if (this.session === session) session.transport.close();
+    }, this.o.pongTimeout);
   }
 
   /** Registers subscriptions requested by the next hello or subscribe (sent by the caller). */

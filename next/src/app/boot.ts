@@ -24,7 +24,9 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   await router.load();
   const failed = router.state.matches.find((m) => m.status === 'error' && isChunkError(m.error));
   if (failed) throw failed.error;
-  started(app, router);
+  // The callback page signs in and leaves; it must not follow the other tabs (its own
+  // sign-in broadcast would reload it before it leaves, and the code is single-use).
+  if (!callback) started(app, router);
   return {app, router};
 }
 

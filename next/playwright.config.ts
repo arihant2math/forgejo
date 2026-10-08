@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Browser checks. F1: the boot shell against the production build (vite
-// preview) and the primitive gallery against the dev server. F8 grows this
-// into the full e2e suite driven from a Go test.
+// preview) and the primitive gallery against the dev server. F3: sign-in,
+// shell, palette and shortcuts against a real Forgejo (NEXT_FORGEJO_URL).
+// F8 grows this into the full e2e suite driven from a Go test.
 
 import {defineConfig, devices} from '@playwright/test';
 
@@ -21,6 +22,9 @@ export default defineConfig({
   projects: [
     {name: 'build', testMatch: 'boot.spec.ts', use: {baseURL: 'http://127.0.0.1:4173'}},
     {name: 'dev', testMatch: ['gallery.spec.ts', 'hydrate.bench.spec.ts'], use: {baseURL: 'http://127.0.0.1:5173'}},
+    // F3 against a real Forgejo serving this checkout's build (skipped without NEXT_FORGEJO_URL).
+    // Depends on "build": the build project's server writes dist/, which Forgejo serves (ASSETS_DIR).
+    {name: 'forgejo', testMatch: 'forgejo.spec.ts', dependencies: ['build'], timeout: 90_000},
   ],
   webServer: [
     // Always this checkout's fresh build: never test whatever already listens on the port.

@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
+import {previewConfig} from './tools/vite-plugin-preview-config.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
 
 // Radix primitives the app uses get a chunk each. Radix's internal packages
@@ -42,6 +43,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     shell({bootRoutes: BOOT_ROUTES}),
+    previewConfig(),
   ],
   css: {
     transformer: 'lightningcss',
@@ -78,6 +80,16 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // With NEXT_FORGEJO_URL (a dev Forgejo, next/tools/dev-forgejo.sh), every
+    // path outside the UI's base — and the UI's server-side endpoints below
+    // it — goes to Forgejo: API, sync socket, classic login and consent
+    // pages. Sign-in then needs this origin's callback registered:
+    // [livesync] OAUTH_REDIRECT_URIS = http://127.0.0.1/-/next/callback.
+    ...(process.env.NEXT_FORGEJO_URL ? {
+      proxy: {
+        '^/(?!-/next/(?!config$|opt-in|opt-out)).*': {target: process.env.NEXT_FORGEJO_URL, ws: true, changeOrigin: false},
+      },
+    } : {}),
   },
   preview: {
     port: 4173,

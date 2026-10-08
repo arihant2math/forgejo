@@ -1,0 +1,186 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The global shortcut registry (PLAN §5.6): one keydown listener on the
+// window, the key table in keymap.ts, handlers bound by the views that can
+// run them, and scopes pushed by the views that are on screen.
+//
+//   const off = shortcuts.bind('go.inbox', () => navigate(...));
+//   const pop = shortcuts.pushScope('list');   // J/K now apply
+//
+// A binding runs when its keys were typed, its scope is active (global
+// always is) and, unless it is `anywhere`, focus is neither in a text field
+// nor inside an open menu, listbox or dialog (those keep their keys). When
+// several match, the innermost scope wins, then the latest binding.
+
+import {isApple, KEYMAP, type KeyDef, type Scope, type ShortcutId} from './keymap.ts';
+
+/** How long the next key of a sequence ("g i") is waited for (ms). */
+export const SEQUENCE_TIMEOUT = 1500;
+
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Meta', 'Alt', 'AltGraph', 'CapsLock', 'Fn', 'OS', 'Hyper', 'Super']);
+const NAMED = new Set(['enter', 'escape', 'tab', 'backspace', 'delete', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'home', 'end', 'pageup', 'pagedown', ' ']);
+
+/** The chord an event types, in keymap notation ("mod+k", "g", "?", "shift+enter"); undefined for a bare modifier. */
+export function chordOf(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> & {code?: string}, apple: boolean): string | undefined {
+  if (MODIFIER_KEYS.has(e.key) || e.key === 'Dead' || e.key === 'Unidentified' || !e.key) return undefined;
+  // A letter key of a non-Latin layout (Cyrillic, Greek, …): its position, as on a US layout.
+  const physical = /^Key([A-Z])$/.exec(e.code ?? '')?.[1];
+  const lower = e.key.length === 1 && !/^[\x20-\x7e]$/.test(e.key) && physical ? physical.toLowerCase() : e.key.toLowerCase();
+  const letter = /^[a-z0-9]$/.test(lower);
+  const named = NAMED.has(lower);
+  const key = lower === ' ' ? 'space' : letter || named ? lower : e.key;
+  const mods: string[] = [];
+  if (apple ? e.metaKey : e.ctrlKey) mods.push('mod');
+  if (apple && e.ctrlKey) mods.push('ctrl');
+  if (!apple && e.metaKey) mods.push('meta');
+  if (e.altKey) mods.push('alt');
+  // Shift is part of a symbol ("?"), but a modifier of letters and named keys.
+  if (e.shiftKey && (letter || named)) mods.push('shift');
+  return [...mods, key].join('+');
+}
+
+function isTextField(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true;
+  if (el instanceof HTMLInputElement) {
+    return !['button', 'checkbox', 'radio', 'range', 'color', 'file', 'image', 'reset', 'submit'].includes(el.type);
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
+function inOverlay(el: Element | null): boolean {
+  return Boolean(el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]'));
+}
+
+interface Binding {
+  id: ShortcutId;
+  run: () => void;
+  seq: number;
+}
+
+export class ShortcutRegistry {
+  private readonly keymap: Readonly<Record<string, KeyDef>>;
+  private readonly apple: boolean;
+  private readonly bindings: Binding[] = [];
+  private readonly scopes: {scope: Scope; token: number}[] = [];
+  private bindSeq = 0;
+  private scopeSeq = 0;
+  private pending: string[] = [];
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(opts: {apple?: boolean; keymap?: Readonly<Record<string, KeyDef>>} = {}) {
+    this.apple = opts.apple ?? isApple();
+    this.keymap = opts.keymap ?? KEYMAP;
+  }
+
+  /** Binds a handler to a shortcut; returns the unbind function. */
+  bind(id: ShortcutId, run: () => void): () => void {
+    const b: Binding = {id, run, seq: ++this.bindSeq};
+    this.bindings.push(b);
+    return () => {
+      const i = this.bindings.indexOf(b);
+      if (i >= 0) this.bindings.splice(i, 1);
+    };
+  }
+
+  /** The shortcuts something is bound to right now (the shortcuts help lists these). */
+  bound(): Set<ShortcutId> {
+    return new Set(this.bindings.map((b) => b.id));
+  }
+
+  /** Activates a scope while a view is mounted; returns the function that pops it. */
+  pushScope(scope: Scope): () => void {
+    const entry = {scope, token: ++this.scopeSeq};
+    this.scopes.push(entry);
+    return () => {
+      const i = this.scopes.indexOf(entry);
+      if (i >= 0) this.scopes.splice(i, 1);
+    };
+  }
+
+  /** How deep a scope is active (higher = inner); -1 when inactive. Global is the outermost. */
+  private depth(scope: Scope): number {
+    if (scope === 'global') return 0;
+    for (let i = this.scopes.length - 1; i >= 0; i--) if (this.scopes[i]?.scope === scope) return i + 1;
+    return -1;
+  }
+
+  private eligible(restricted: boolean): {binding: Binding; keys: string; depth: number}[] {
+    const out: {binding: Binding; keys: string; depth: number}[] = [];
+    for (const b of this.bindings) {
+      const def = this.keymap[b.id];
+      if (!def || (restricted && !def.anywhere)) continue;
+      const depth = this.depth(def.scope);
+      if (depth >= 0) out.push({binding: b, keys: def.keys, depth});
+    }
+    return out;
+  }
+
+  private reset(): void {
+    this.pending = [];
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  /** Handles a keydown; returns whether a shortcut ran (or a sequence started). */
+  handle(e: KeyboardEvent): boolean {
+    // keyCode 229: a key the IME is handling (some browsers do not set isComposing).
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only IME signal some browsers give
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return false;
+    const chord = chordOf(e, this.apple);
+    if (!chord) return false;
+    const target = e.target instanceof Element ? e.target : null;
+    const restricted = isTextField(target) || inOverlay(target);
+    const candidates = this.eligible(restricted);
+    const attempt = (typed: string[]): boolean => {
+      const keys = typed.join(' ');
+      let best: {binding: Binding; depth: number} | undefined;
+      let prefix = false;
+      for (const c of candidates) {
+        // Holding a key repeats only movement (J/K in a list), never a toggle such as ⌘K.
+        if (e.repeat && c.binding.id !== 'list.next' && c.binding.id !== 'list.prev') continue;
+        if (c.keys === keys) {
+          if (!best || c.depth > best.depth || (c.depth === best.depth && c.binding.seq > best.binding.seq)) best = c;
+        } else if (c.keys.startsWith(`${keys} `)) {
+          prefix = true;
+        }
+      }
+      if (best) {
+        this.reset();
+        e.preventDefault();
+        best.binding.run();
+        return true;
+      }
+      if (prefix && !e.repeat) {
+        this.pending = typed;
+        if (this.timer !== undefined) clearTimeout(this.timer);
+        this.timer = setTimeout(() => {
+          this.reset();
+        }, SEQUENCE_TIMEOUT);
+        return true;
+      }
+      return false;
+    };
+    if (this.pending.length && attempt([...this.pending, chord])) return true;
+    this.reset();
+    return attempt([chord]);
+  }
+
+  /** Listens on a window (the app does this once); returns the function that stops. */
+  attach(win: Window): () => void {
+    const onKey = (e: KeyboardEvent) => {
+      this.handle(e);
+    };
+    const onBlur = () => {
+      this.reset();
+    };
+    win.addEventListener('keydown', onKey);
+    win.addEventListener('blur', onBlur);
+    return () => {
+      win.removeEventListener('keydown', onKey);
+      win.removeEventListener('blur', onBlur);
+      this.reset();
+    };
+  }
+}

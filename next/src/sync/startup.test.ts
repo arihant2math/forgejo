@@ -61,6 +61,8 @@ function open(factory: IDBFactory, server: Server): Promise<Data> {
   FakeWS.all = [];
   return openData({
     userId: 1, auth: {token: () => Promise.resolve('tok'), refresh: () => Promise.resolve('tok')}, endpoint: '/-/sync',
+    // The filler Repository store slows phase 2; peeking at it would delay phase 1 (and the leader) as well.
+    peekModels: [],
     env: {indexedDB: factory, IDBKeyRange, locks: null, BroadcastChannel: null, transport: {WebSocket: FakeWS as unknown as typeof WebSocket, fetch: server.fetch, base: 'http://x/'}},
   });
 }

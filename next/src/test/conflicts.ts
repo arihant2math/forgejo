@@ -8,13 +8,14 @@
 import {splitClass} from '../../lint/eslint-plugin-tokens.ts';
 
 const textSizes = new Set(['xs', 'sm', 'base', 'md', 'lg', 'xl']);
+const textAligns = new Set(['left', 'center', 'right', 'justify', 'start', 'end']);
 
 /** The property group a utility sets, or undefined when it is not tracked. */
 function group(utility: string): string | undefined {
   const m = /^-?([a-z]+(?:-[xytrblse])?)(?:-(.+))?$/.exec(utility);
   if (!m) return undefined;
   const [, head = '', rest] = m;
-  if (head === 'text') return rest && textSizes.has(rest) ? 'font-size' : 'color';
+  if (head === 'text') return rest && textSizes.has(rest) ? 'font-size' : rest && textAligns.has(rest) ? 'text-align' : 'color';
   if (head === 'border' || head.startsWith('border-')) {
     // border, border-b = width; border-<colour> = colour.
     return rest && !/^\d/.test(rest) ? 'border-color' : `border-width${head.slice(6)}`;

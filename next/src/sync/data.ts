@@ -15,12 +15,13 @@
 import {autorun, observable, runInAction} from 'mobx';
 import {forgetUser, writeSplash} from '../app/splash.ts';
 import {type HydrateStats, Hydrator} from '../data/hydrate.ts';
-import {deleteDatabase, openDatabase, readMeta} from '../data/idb.ts';
+import {deleteDatabase, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
 import {MetaCache} from '../data/meta.ts';
-import {groupKind, STRUCTURE_KINDS} from '../data/models.ts';
-import {Persister} from '../data/persist.ts';
+import {groupKind, type ModelName, type ModelTypes, STRUCTURE_KINDS} from '../data/models.ts';
+import type {Persister} from '../data/persist.ts';
 import {Pool} from '../data/pool.ts';
-import {type SyncAuth, SyncClient, type SyncEvents, type SyncStatus} from './client.ts';
+import type {Workspace} from '../protocol/types.gen.ts';
+import type {SyncAuth, SyncClient, SyncEvents, SyncStatus} from './client.ts';
 import {markOnce, measure} from './rum.ts';
 import {type TabMessage, Tabs, type TabsEnv} from './tabs.ts';
 import type {TransportEnv} from './transport.ts';
@@ -34,9 +35,16 @@ export interface DataOptions {
   transport?: 'auto' | 'ws' | 'sse';
   /** Groups the current route shows: hydrated first and held by this tab. */
   route?: string[];
+  /** Models peeked at in phase 1 (see Data.peek; default Repository: the sidebar and route lookups by name). */
+  peekModels?: readonly ModelName[];
   /** Ask the browser not to evict the database (default true). */
   persistStorage?: boolean;
   env?: TabsEnv & {indexedDB?: IDBFactory; IDBKeyRange?: typeof IDBKeyRange; transport?: TransportEnv};
+  /**
+   * This tab was elected leader but cannot lead (its sync modules failed to
+   * load). It has given up the leadership already; the app should reload.
+   */
+  onFatal?: (err: unknown) => void;
   /** Tab holds of tabs not heard from for this long are dropped (ms, default 60 s). */
   tabTimeout?: number;
 }
@@ -52,6 +60,19 @@ export interface Data {
   readonly firstRoute: Promise<HydrateStats>;
   /** Everything persisted is in the pool. */
   readonly hydrated: Promise<HydrateStats>;
+  /** The viewer's workspace as last fetched (GET /-/sync/workspace; persisted). Observable (`current`). */
+  readonly workspace: {current: Workspace | undefined};
+  /** Resolves once everything IndexedDB holds of these groups is in the pool (it does not hold them). */
+  hydrate(groups: string[]): Promise<void>;
+  /** Intents not synced yet (the offline queue, F5). */
+  countIntents(): Promise<number>;
+  /**
+   * What IndexedDB held of a peeked model (DataOptions.peekModels) when the
+   * first route was read: for the first frame, before the groups of those
+   * entities are hydrated (prefer the pool's entity when it is there). Not
+   * observable, not updated, and empty once everything is hydrated.
+   */
+  peek<M extends ModelName>(m: M): ReadonlyMap<number, ModelTypes[M]>;
   /** This tab shows a group: load it (if needed) and keep it live. */
   hold(group: string): void;
   release(group: string): void;
@@ -66,6 +87,19 @@ export interface Data {
 }
 
 const HEARTBEAT = 20_000;
+
+/**
+ * The leader's modules (the sync client and the persister) are not needed
+ * for the first frame: a follower never loads them, and the leader starts
+ * syncing only after the first route is hydrated. The leader loads them in
+ * parallel with that hydration, so they are off the boot route's bundle
+ * without delaying sync. (Offline with an empty HTTP cache they cannot load
+ * and this tab does not sync until reloaded; F5's service worker precaches
+ * every chunk.)
+ */
+function leaderModules(): Promise<[{SyncClient: typeof SyncClient}, {Persister: typeof Persister}]> {
+  return Promise.all([import('./client.ts'), import('../data/persist.ts')]);
+}
 
 export async function openData(opts: DataOptions): Promise<Data> {
   const t0 = performance.now();
@@ -90,6 +124,15 @@ export async function openData(opts: DataOptions): Promise<Data> {
     connection: 'idle', transport: undefined, loading: 0, groups: 0, serverSyncId: 0, lastError: undefined,
   }, {}, {deep: false});
   const listeners = new Map<string, Set<(e: never) => void>>();
+  const workspace = observable({current: undefined as Workspace | undefined}, {}, {deep: false});
+  listeners.set('workspace', new Set([(e: SyncEvents['workspace']) => {
+    // Every session fetches it; observers only hear about a real change.
+    if (JSON.stringify(e.workspace) === JSON.stringify(workspace.current)) return;
+    runInAction(() => {
+      workspace.current = e.workspace;
+    });
+  }]));
+
   const emit = <K extends keyof SyncEvents>(name: K, e: SyncEvents[K]) => {
     for (const fn of listeners.get(name) ?? []) (fn as (e: SyncEvents[K]) => void)(e);
   };
@@ -252,11 +295,18 @@ export async function openData(opts: DataOptions): Promise<Data> {
     if (kind && STRUCTURE_KINDS.includes(kind)) first.push(g);
   }
   for (const g of opts.route ?? []) myHolds.set(g, 1);
-  const firstRoute = hydrator.groups(first).then((s) => {
+  const ws0 = meta0.get('workspace') as Workspace | undefined;
+  if (ws0) runInAction(() => {
+    workspace.current = ws0;
+  });
+  let peeked = new Map<ModelName, Map<number, unknown>>();
+  const firstRoute = Promise.all([hydrator.groups(first), hydrator.peek(opts.peekModels ?? ['Repository'])]).then(([s, recs]) => {
+    for (const [m, list] of recs) peeked.set(m, new Map(list.map((r) => [r.id, r.d])));
     measure('hydrate:route', t0);
     return s;
   });
   const hydrated = firstRoute.then(() => hydrator.rest()).then((s) => {
+    peeked = new Map();
     measure('hydrate:all', t0);
     return s;
   });
@@ -265,6 +315,8 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const isClosed = () => closed;
   const promote = async () => {
     if (isClosed()) return;
+    const modules = leaderModules();
+    modules.catch(() => undefined); // awaited below; not unhandled if closing returns first
     hydrator.eager = true;
     if (sawLeader) {
       // Another tab led: take IndexedDB as the truth (a flush announcement lost when the old
@@ -280,6 +332,18 @@ export async function openData(opts: DataOptions): Promise<Data> {
       // hydrated (the persister defers it).
       await firstRoute;
     }
+    let loaded: Awaited<typeof modules>;
+    try {
+      loaded = await modules;
+    } catch (err) {
+      // Holding the leader lock without leading would stop every tab of the user from syncing.
+      runInAction(() => Object.assign(status, {lastError: String(err)}));
+      tabs.close();
+      opts.onFatal?.(err);
+      return;
+    }
+    const [{SyncClient}, {Persister}] = loaded;
+    if (isClosed()) return;
     leading = true;
     hydrator.trackSeen = false;
     hydrator.seen.clear();
@@ -314,7 +378,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       role.leader = true;
     });
     runPendingLocally();
-    for (const name of ['revoked', 'issueDropped', 'newBuild', 'schemaMismatch', 'caughtUp', 'wrongUser'] as const) {
+    for (const name of ['revoked', 'issueDropped', 'newBuild', 'schemaMismatch', 'caughtUp', 'wrongUser', 'workspace'] as const) {
       cleanups.push(c.on(name, (e) => {
         emit(name, e as never);
         tabs.post({t: 'event', name, e});
@@ -365,7 +429,12 @@ export async function openData(opts: DataOptions): Promise<Data> {
   markOnce('dataOpen');
 
   const data: Data = {
-    userId, pool, status, role, firstRoute, hydrated,
+    userId, pool, status, role, firstRoute, hydrated, workspace,
+    async hydrate(groups) {
+      await hydrator.groups(groups);
+    },
+    peek: <M extends ModelName>(m: M) => (peeked.get(m) ?? new Map()) as ReadonlyMap<number, ModelTypes[M]>,
+    countIntents: () => request(db.transaction(INTENTS, 'readonly').objectStore(INTENTS).count()),
     hold(group) {
       myHolds.set(group, (myHolds.get(group) ?? 0) + 1);
       if (myHolds.get(group) !== 1) return;
@@ -410,6 +479,16 @@ export async function openData(opts: DataOptions): Promise<Data> {
     },
   };
   return data;
+}
+
+/** The number of unsynced intents in a user's database (the database must exist). */
+export async function pendingIntentCount(userId: number, factory?: IDBFactory): Promise<number> {
+  const db = await openDatabase(userId, factory ? {factory} : {});
+  try {
+    return await request(db.transaction(INTENTS, 'readonly').objectStore(INTENTS).count());
+  } finally {
+    db.close();
+  }
 }
 
 /** Signs this device out of a user's data: deletes the database and the DB marker. */

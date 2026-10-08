@@ -322,6 +322,37 @@ describe('connection', () => {
     });
   });
 
+  test('offline then online with the socket still open: the status comes back, and a ping checks the socket (F3)', async () => {
+    const t = setup();
+    const ws = await connected(t);
+    ws.emit(welcome());
+    await vi.waitFor(() => {
+      expect(t.c.status.connection).toBe('live');
+    });
+    window.dispatchEvent(new Event('offline'));
+    expect(t.c.status.connection).toBe('offline');
+    window.dispatchEvent(new Event('online'));
+    expect(t.c.status.connection).toBe('live');
+    expect(ws.last('ping')).toBeDefined();
+    expect(FakeWS.all.length).toBe(1);
+  });
+
+  test('token() rejecting with SignedOut: unauthorized, no reconnect loop (F3)', async () => {
+    const signedOut = Object.assign(new Error('signed out'), {name: 'SignedOut'});
+    const t = setup({extra: {auth: {token: () => Promise.reject(signedOut), refresh: () => Promise.resolve(null)}}});
+    t.c.start();
+    await vi.waitFor(() => {
+      expect(FakeWS.all.length).toBe(1);
+    });
+    t.ws().open();
+    await vi.waitFor(() => {
+      expect(t.c.status.connection).toBe('unauthorized');
+    });
+    await new Promise((r) => setTimeout(r, 700));
+    window.dispatchEvent(new Event('online'));
+    expect(FakeWS.all.length).toBe(1);
+  });
+
   test('barrier resolves with barrier_ok and raises caught-up positions', async () => {
     const meta = new MetaCache();
     meta.set('group:user:1', {group: 'user:1', position: 7, units: ['self'], watermark: 7, holders: ['workspace']});

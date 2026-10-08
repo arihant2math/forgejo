@@ -12,10 +12,20 @@ export const surface = 'rounded-lg border border-border bg-raised text-fg';
 /** A floating surface (menus, popovers, tooltips): appears instantly, fades and shrinks out. Add a z-* layer. */
 export const floating = `${surface} origin-popper shadow-popover data-[state=closed]:animate-exit-pop`;
 
-/** One row in a menu or a command list. Add a text colour. */
-export const menuItem =
-  'interactive group flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none ' +
-  'select-none data-highlighted:bg-raised-hover data-disabled:pointer-events-none data-disabled:text-fg-subtle';
+/** A small muted heading over a group of rows (menus, the palette, the sidebar, dialogs). */
+export const sectionLabel = 'text-sm text-fg-subtle';
+
+/** The layout of one row in a menu or a command list. */
+export const menuRow = 'interactive group flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none select-none';
+
+/** One row in a Radix menu (data-highlighted / data-disabled are present only when on). Add a text colour. */
+export const menuItem = `${menuRow} data-highlighted:bg-raised-hover data-disabled:pointer-events-none data-disabled:text-fg-subtle`;
+
+/** The dimmed full-viewport layer under a dialog; it also centres the dialog near the top. */
+export const overlay = 'fixed inset-0 z-dialog flex items-start justify-center overflow-y-auto bg-overlay px-4 pt-24 pb-8 data-[state=closed]:animate-exit';
+
+/** A dialog panel (add a max width). */
+export const dialogPanel = `${surface} w-full shadow-dialog outline-none data-[state=closed]:animate-exit-pop`;
 
 /** A centred square slot for a checkbox/radio indicator or a status icon. */
 export const iconSlot = 'flex size-4 shrink-0 items-center justify-center';

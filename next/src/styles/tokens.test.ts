@@ -47,7 +47,7 @@ describe('tokens.css', () => {
       return v;
     };
     const text = ['fg', 'fg-muted', 'fg-subtle', 'accent-fg', 'success', 'warning', 'danger', 'done'];
-    const backgrounds = ['canvas', 'surface', 'raised', 'hover', 'selected'];
+    const backgrounds = ['canvas', 'surface', 'raised', 'hover', 'selected', 'raised-hover', 'canvas-hover', 'canvas-selected'];
     const failures: string[] = [];
     const need = (fg: string, bg: string, min: number) => {
       const r = contrast(color(`--color-${fg}`), color(`--color-${bg}`));
@@ -61,6 +61,8 @@ describe('tokens.css', () => {
     // pair: Linear-like subtle fills, but never invisible).
     need('raised-hover', 'raised', 1.15);
     need('hover', 'surface', 1.1);
+    need('canvas-hover', 'canvas', 1.1);
+    need('canvas-selected', 'canvas', 1.15);
     need('selected', 'surface', 1.15);
     need('border-strong', 'selected', 1.15); // chip and avatar edges on a selected row
     expect(failures).toEqual([]);

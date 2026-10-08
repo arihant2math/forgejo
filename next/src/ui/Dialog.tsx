@@ -4,7 +4,8 @@
 import {Dialog as D} from 'radix-ui';
 import type {ReactNode} from 'react';
 import {cx} from './cx.ts';
-import {surface} from './recipes.ts';
+import {dialogPanel, overlay} from './recipes.ts';
+import {useReturnFocus} from './returnFocus.ts';
 
 export const DialogTrigger = D.Trigger;
 export const DialogClose = D.Close;
@@ -26,14 +27,16 @@ export interface DialogProps {
 
 /** A modal dialog near the top of the viewport; Esc and the overlay close it. */
 export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', children}: DialogProps) {
+  const focus = useReturnFocus();
   return (
     <D.Root {...(open === undefined ? {} : {open})} {...(onOpenChange ? {onOpenChange} : {})}>
       {trigger}
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-dialog flex items-start justify-center overflow-y-auto bg-overlay px-4 pt-24 pb-8 data-[state=closed]:animate-exit">
+        <D.Overlay className={overlay}>
           <D.Content
+            {...focus}
             {...(description ? {} : {'aria-describedby': undefined})}
-            className={cx(surface, 'flex w-full flex-col gap-3 p-4 shadow-dialog outline-none data-[state=closed]:animate-exit-pop', widths[size])}>
+            className={cx(dialogPanel, 'flex flex-col gap-3 p-4', widths[size])}>
             <div className="flex flex-col gap-1">
               <D.Title className="text-md font-semibold">{title}</D.Title>
               {description && <D.Description className="text-base text-fg-muted">{description}</D.Description>}

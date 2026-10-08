@@ -11,15 +11,29 @@ export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefine
   return <div className={cx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-canvas')}>{children}</div>;
 }
 
+export interface LoggedOutProps {
+  boot?: 'logged-out' | undefined;
+  /** Starts signing in; undefined when this server cannot (OAuth2 off) — the text says so. */
+  onSignIn?: (() => void) | undefined;
+  /** Shown instead of the default text (e.g. a sign-in error). */
+  message?: string | undefined;
+}
+
 /**
  * The logged-out screen. The boot shell renders it too (boot="logged-out"),
- * so the first frame and React's first commit are identical. The sign-in flow
- * arrives with F3.
+ * so the first frame and React's first commit are identical (the button's
+ * handler does not show in the markup).
  */
-export function LoggedOut({boot}: {boot?: 'logged-out' | undefined}) {
+export function LoggedOut({boot, onSignIn, message}: LoggedOutProps) {
+  const unavailable = !boot && !onSignIn;
   return (
     <CenteredScreen boot={boot}>
-      <EmptyState icon={LogIn} title="Forgejo" description="Sign in to continue." action={<Button variant="primary" disabled>Sign in</Button>}/>
+      <EmptyState
+        icon={LogIn}
+        title="Forgejo"
+        description={message ?? (unavailable ? 'Signing in is not available on this server.' : 'Sign in to continue.')}
+        action={<Button variant="primary" disabled={unavailable} onClick={onSignIn}>Sign in</Button>}
+      />
     </CenteredScreen>
   );
 }

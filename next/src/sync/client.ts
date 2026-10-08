@@ -35,7 +35,11 @@ import {markOnce} from './rum.ts';
 import {openSSE, openWebSocket, type Transport, type TransportEnv} from './transport.ts';
 
 export interface SyncAuth {
-  /** A current access token (OAuth2 or a personal access token). */
+  /**
+   * A current access token (OAuth2 or a personal access token). Rejects with
+   * an error named "SignedOut" when there is no session (the client then
+   * stops as `unauthorized`); any other rejection is retried.
+   */
   token(): Promise<string>;
   /** The server refused the token: a new one, or null when signed out. */
   refresh(): Promise<string | null>;
@@ -68,6 +72,8 @@ export interface SyncEvents {
   caughtUp: {syncId: number};
   /** The session belongs to another user than this database. */
   wrongUser: {viewerId: number};
+  /** GET /-/sync/workspace answered (every session): the groups the viewer's workspace is made of. */
+  workspace: {workspace: Workspace};
 }
 
 type Listener<K extends keyof SyncEvents> = (e: SyncEvents[K]) => void;
@@ -167,9 +173,21 @@ export class SyncClient {
   private workspaceOrder = new Map<string, number>();
   private readonly offPool: () => void;
   private readonly onOnline = () => {
-    if (this.stopped) return;
+    if (this.stopped || this.status.connection === 'unauthorized') return;
     this.attempts = 0;
-    if (!this.session) this.connect();
+    const session = this.session;
+    if (session) {
+      // The transport may have survived the offline spell (or died silently): the status
+      // goes back to what the session says, and a ping checks it is still there.
+      if (session.welcomed) {
+        this.updateConnection(session);
+        this.probe(session);
+      } else {
+        this.setStatus({connection: 'connecting'});
+      }
+    } else {
+      this.connect();
+    }
     this.pump();
   };
   private readonly onOffline = () => {
@@ -394,7 +412,12 @@ export class SyncClient {
     try {
       token = await this.o.auth.token();
     } catch (err) {
-      this.setStatus({lastError: String(err)});
+      if (signedOut(err)) {
+        // No session any more: stop reconnecting until the app signs in again (it reloads).
+        this.setStatus({connection: 'unauthorized', lastError: String(err)});
+      } else {
+        this.setStatus({lastError: String(err)});
+      }
       session.transport.close();
       return;
     }
@@ -561,14 +584,19 @@ export class SyncClient {
     }
     this.subscribe(session, late);
     session.ping = setInterval(() => {
-      if (this.session !== session) return;
-      this.send({type: 'ping', id: 'k'});
-      session.pong ??= setTimeout(() => {
-        if (this.session === session) session.transport.close();
-      }, this.o.pongTimeout);
+      this.probe(session);
     }, this.o.pingInterval);
     this.updateConnection(session);
     this.pump();
+  }
+
+  /** Keep-alive: a ping that must be answered within pongTimeout, or the transport is closed (and reconnects). */
+  private probe(session: Session): void {
+    if (this.session !== session) return;
+    this.send({type: 'ping', id: 'k'});
+    session.pong ??= setTimeout(() => {
+      if (this.session === session) session.transport.close();
+    }, this.o.pongTimeout);
   }
 
   /** Registers subscriptions requested by the next hello or subscribe (sent by the caller). */
@@ -946,6 +974,7 @@ export class SyncClient {
     }
     this.recompute();
     this.o.persister.schedule();
+    this.emit('workspace', {workspace: ws});
   }
 
   // ---- bootstraps ----
@@ -965,7 +994,7 @@ export class SyncClient {
   }
 
   private pump(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.status.connection === 'unauthorized') return;
     if (offline()) return;
     const now = this.now();
     let nextRetry = Number.POSITIVE_INFINITY;
@@ -1144,6 +1173,10 @@ export class SyncClient {
 /** A list from the wire: Go encodes an empty (nil) slice as null. */
 function list<T>(x: readonly T[] | null | undefined): readonly T[] {
   return x ?? [];
+}
+
+function signedOut(err: unknown): boolean {
+  return err instanceof Error && err.name === 'SignedOut';
 }
 
 /** The browser says it is offline (an unknown state counts as online). */

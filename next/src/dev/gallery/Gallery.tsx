@@ -16,7 +16,7 @@ import {
   Avatar, Badge, Button, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuTrigger, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
-  Popover, PopoverContent, PopoverTrigger, Shortcut, Skeleton, TooltipProvider,
+  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TooltipProvider,
 } from '../../ui/index.ts';
 
 const swatches = [
@@ -48,6 +48,7 @@ export default function Gallery() {
   const [selected, setSelected] = useState(0);
   const [showClosed, setShowClosed] = useState(true);
   const [priority, setPriority] = useState('high');
+  const [navOpen, setNavOpen] = useState(true);
   const pick = (t: ThemePreference) => {
     setThemePreference(t);
     setTheme(t);
@@ -209,6 +210,24 @@ export default function Gallery() {
             ))}
           </div>
         </section>
+
+        <Section title="Sidebar navigation, status">
+          <div className="relative flex w-sidebar flex-col gap-px rounded-md border border-border bg-canvas p-2">
+            <NavItem icon={Inbox} label="Inbox" count={3} shortcut="G N"/>
+            <NavItem icon={CircleDot} label="My issues" aria-current="page"/>
+            <NavHeading>Workspace</NavHeading>
+            <NavGroup label="acme" leading={<Avatar size="sm" name="acme"/>} open={navOpen} onOpenChange={setNavOpen}>
+              <NavItem inset label="website"/>
+              <NavItem inset label="api"/>
+            </NavGroup>
+            <ResizeHandle label="Resize" value={232} min={180} max={480} onResize={() => undefined} onCommit={() => undefined}/>
+          </div>
+          <Status tone="success">Live</Status>
+          <Status tone="muted">Catching up</Status>
+          <Status tone="warning">Signed out</Status>
+          <Status tone="danger">Error</Status>
+          <SectionHeading>Section heading</SectionHeading>
+        </Section>
 
         <Section title="Skeleton and empty state">
           <div className="flex w-64 flex-col gap-2">

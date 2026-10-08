@@ -15,6 +15,7 @@
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "./tokens.css";
 @import "./base.css" layer(base);
+@import "./prose.css";
 
 @source "../";
 @source not "../dev";
@@ -97,4 +98,8 @@
 /* A label's own colour (server data), passed in as --label-color. */
 @utility bg-label {
   background-color: var(--label-color);
+}
+
+@utility text-label {
+  color: var(--label-color);
 }

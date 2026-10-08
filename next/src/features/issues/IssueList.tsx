@@ -1,0 +1,333 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// A virtualized issue list (TanStack Virtual) over an IssueListModel.
+//
+// Rendering: fixed-height rows (ListRow's h-row; group headers too), so
+// nothing is measured; only the rows in view (plus overscan) exist, each a
+// memoized observer that takes ids and stable references, and whose cells
+// observe their own fields (cells.tsx). Scrolling renders the rows that come
+// into view and nothing else; a delta re-renders one cell; the list itself
+// re-renders only when the rows' order or membership changes.
+//
+// Keyboard (PLAN §5.6): J/K (and ↑/↓ while the list has focus) move the
+// cursor, X selects, Enter opens, Esc clears the selection; S/L/A/M/P open
+// the pickers for the selection, or the cursor's issue. The listbox keeps
+// focus and points at the cursor with aria-activedescendant (rows come and
+// go as they scroll). Right click / Shift+F10 opens the same actions as the
+// palette.
+
+import {useNavigate} from '@tanstack/react-router';
+import {useVirtualizer} from '@tanstack/react-virtual';
+import {CircleDashed, FolderGit2, User as UserIcon} from 'lucide-react';
+import {autorun, runInAction, untracked} from 'mobx';
+import {observer} from 'mobx-react-lite';
+import {type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {rememberListRows} from '../../app/boot.ts';
+import {sitePath} from '../../app/config.ts';
+import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {type PickerKind, useApp} from '../../app/store.ts';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Icon, LabelIcon, ListGroupHeader, ListRow,
+} from '../../ui/index.ts';
+import {type IssueAction, issueActions, openPicker} from './actions.ts';
+import {AssigneesCell, LabelsCell, priorityIcon, PriorityCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar, usePool} from './cells.tsx';
+import {issuePath, issuesOf} from './edits.ts';
+import {KeyedFlags} from './flags.ts';
+import type {IssueListModel} from './list.ts';
+import type {Row} from './query.ts';
+
+const ROW = 32; // ListRow's h-row (tokens.css --spacing-row)
+
+/** The cursor (J/K) and the selection (X) of a list. */
+export class ListCursor {
+  readonly active = new KeyedFlags();
+  readonly selected = new KeyedFlags();
+  /** The cursor's issue (not observable; `active` is). */
+  activeId: number | undefined;
+
+  setActive(id: number | undefined): void {
+    this.activeId = id;
+    this.active.replace(id === undefined ? [] : [id]);
+  }
+
+  /** What actions apply to: the selection, else the cursor's issue. */
+  targets(): number[] {
+    const sel = untracked(() => this.selected.values());
+    if (sel.length) return sel;
+    return this.activeId === undefined ? [] : [this.activeId];
+  }
+}
+
+export interface IssueListProps {
+  model: IssueListModel;
+  /** The page's scroll container (PageBody); null until it is mounted. */
+  scroller: HTMLDivElement | null;
+  /** Shown when no row matches. */
+  empty: ReactNode;
+  /** Name the repository in each row (lists across repositories). */
+  showRepo?: boolean | undefined;
+  /** Called when the cursor nears the end (load more). */
+  onNearEnd?: (() => void) | undefined;
+  /** Accessible name of the list. */
+  label: string;
+}
+
+export const IssueList = observer(function IssueList({model, scroller, empty, showRepo = false, onNearEnd, label}: IssueListProps) {
+  const app = useApp();
+  const navigate = useNavigate();
+  const {rows} = model.result.get();
+  const [cursor] = useState(() => new ListCursor());
+  const listRef = useRef<HTMLDivElement>(null);
+  const [menuIds, setMenuIds] = useState<number[]>([]);
+
+  const hasRows = rows.length > 0;
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller,
+    estimateSize: () => ROW,
+    overscan: 8,
+    getItemKey: (i) => {
+      const r = rows[i];
+      return r ? (r.type === 'issue' ? r.id : `g:${r.key}`) : i;
+    },
+  });
+
+  // The splash's skeleton rows for the next boot on this page.
+  const visible = Math.min(rows.length, 40);
+  useEffect(() => {
+    rememberListRows(visible);
+  }, [visible]);
+
+  // Keep the cursor on an issue that is still listed; the keyboard's targets go to the palette.
+  useLayoutEffect(() => {
+    if (cursor.activeId !== undefined && !rows.some((r) => r.type === 'issue' && r.id === cursor.activeId)) cursor.setActive(undefined);
+  }, [rows, cursor]);
+  useEffect(() => autorun(() => {
+    const sel = cursor.selected.values();
+    const active = cursor.active.values();
+    const target = sel.length ? sel : active;
+    runInAction(() => {
+      app.ui.issueTarget = target;
+    });
+  }), [app, cursor]);
+  useEffect(() => () => {
+    runInAction(() => {
+      app.ui.issueTarget = [];
+    });
+  }, [app]);
+  // The listbox points at the cursor's row (set here: the list itself does not re-render when the cursor moves).
+  useEffect(() => autorun(() => {
+    const [id] = cursor.active.values();
+    const el = listRef.current;
+    if (!el) return;
+    if (id === undefined) el.removeAttribute('aria-activedescendant');
+    else el.setAttribute('aria-activedescendant', rowId(id));
+  }), [cursor, hasRows]);
+
+  const items = virtualizer.getVirtualItems();
+  const last = items.at(-1)?.index ?? 0;
+  useEffect(() => {
+    if (onNearEnd && rows.length && last >= rows.length - 15) onNearEnd();
+  }, [last, rows.length, onNearEnd]);
+
+  const open = (id: number, newTab = false) => {
+    const issue = untracked(() => app.session?.data.pool.model('Issue').get(id));
+    const path = issue && issuePath(app, issue);
+    if (!path) return;
+    if (newTab) window.open(sitePath(app.config, path), '_blank', 'noopener');
+    else void navigate({to: path});
+  };
+  const move = (delta: number) => {
+    const ids = rows.filter((r): r is Extract<Row, {type: 'issue'}> => r.type === 'issue').map((r) => r.id);
+    if (!ids.length) return;
+    const at = cursor.activeId === undefined ? -1 : ids.indexOf(cursor.activeId);
+    const next = ids[at < 0 ? (delta > 0 ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + delta))];
+    if (next === undefined) return;
+    cursor.setActive(next);
+    const index = rows.findIndex((r) => r.type === 'issue' && r.id === next);
+    virtualizer.scrollToIndex(index, {align: 'auto'});
+    listRef.current?.focus({preventScroll: true});
+  };
+  const picker = (kind: PickerKind) => () => {
+    openPicker(app, kind, cursor.targets());
+  };
+
+  useShortcutScope('list');
+  useShortcutScope('issue');
+  useShortcut('list.next', () => {
+    move(1);
+  });
+  useShortcut('list.prev', () => {
+    move(-1);
+  });
+  useShortcut('list.select', () => {
+    if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
+  });
+  useShortcut('issue.state', picker('status'));
+  useShortcut('issue.labels', picker('labels'));
+  useShortcut('issue.assignee', picker('assignees'));
+  useShortcut('issue.milestone', picker('milestone'));
+  useShortcut('issue.priority', picker('priority'));
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      move(e.key === 'ArrowDown' ? 1 : -1);
+    } else if (e.key === 'Enter' && cursor.activeId !== undefined) {
+      e.preventDefault();
+      open(cursor.activeId, e.metaKey || e.ctrlKey);
+    } else if (e.key === 'Escape' && untracked(() => cursor.selected.size)) {
+      e.preventDefault();
+      cursor.selected.clear();
+    }
+  };
+
+  // Rows call back through refs: their props stay the same objects across renders.
+  const handlers = useRef<RowHandlers>(undefined as unknown as RowHandlers);
+  handlers.current = {
+    click: (id, e) => {
+      if (e.shiftKey) {
+        cursor.selected.toggle(id);
+        cursor.setActive(id);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey) {
+        open(id, true);
+        return;
+      }
+      cursor.setActive(id);
+      open(id);
+    },
+    aux: (id, e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        open(id, true);
+      }
+    },
+  };
+  const [stable] = useState<RowHandlers>(() => ({
+    click: (id, e) => {
+      handlers.current.click(id, e);
+    },
+    aux: (id, e) => {
+      handlers.current.aux(id, e);
+    },
+  }));
+
+  if (!rows.length) return <>{empty}</>;
+
+  const actions: IssueAction[] = menuIds.length ? issueActions(app, issuesOf(app, menuIds), {navigate: (path) => void navigate({to: path})}) : [];
+  return (
+    <ContextMenu onOpenChange={(o) => {
+      if (!o) setMenuIds([]);
+    }}>
+      <ContextMenuTrigger asChild>
+        <div
+          ref={listRef}
+          role="listbox"
+          aria-label={label}
+          aria-multiselectable
+          data-shortcuts
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onContextMenuCapture={(e) => {
+            const el = (e.target as Element).closest('[data-issue]');
+            const id = el ? Number(el.getAttribute('data-issue')) : cursor.activeId;
+            if (id === undefined) return;
+            const sel = untracked(() => cursor.selected.values());
+            setMenuIds(sel.includes(id) ? sel : [id]);
+            if (!sel.includes(id)) cursor.setActive(id);
+          }}
+          className="relative w-full outline-none"
+          style={{height: virtualizer.getTotalSize()}}
+        >
+          {items.map((it) => {
+            const r = rows[it.index];
+            if (!r) return null;
+            return (
+              <div key={it.key} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
+                {r.type === 'issue' ?
+                  <IssueRow id={r.id} cursor={cursor} handlers={stable} showRepo={showRepo}/> :
+                  <GroupRow row={r}/>}
+              </div>
+            );
+          })}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {actions.map((a, i) => (
+          <MenuAction key={a.id} action={a} separator={i > 0 && (a.id === 'copy-link' || a.id === 'state')}/>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+});
+
+function MenuAction({action, separator}: {action: IssueAction; separator: boolean}) {
+  return (
+    <>
+      {separator && <ContextMenuSeparator/>}
+      <ContextMenuItem icon={action.icon} shortcut={action.shortcut && shortcutHint(action.shortcut)} onSelect={() => {
+        action.run();
+      }}>{action.label}</ContextMenuItem>
+    </>
+  );
+}
+
+interface RowHandlers {
+  click(id: number, e: MouseEvent): void;
+  aux(id: number, e: MouseEvent): void;
+}
+
+const rowId = (id: number) => `issue-row-${String(id)}`;
+
+const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {id: number; cursor: ListCursor; handlers: RowHandlers; showRepo: boolean}) {
+  const pool = usePool();
+  const issue = pool.model('Issue').get(id);
+  const active = cursor.active.has(id);
+  const selected = cursor.selected.has(id);
+  if (!issue) return <ListRow role="presentation"> </ListRow>;
+  return (
+    <ListRow
+      role="option"
+      id={rowId(id)}
+      data-issue={id}
+      active={active}
+      selected={selected}
+      onClick={(e) => {
+        handlers.click(id, e);
+      }}
+      onAuxClick={(e) => {
+        handlers.aux(id, e);
+      }}
+      leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
+      trailing={<><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
+    >
+      <span className="mr-2 text-fg-subtle tabular-nums">{showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}</span>
+      <TitleCell issue={issue}/>
+    </ListRow>
+  );
+});
+
+const RepoRef = observer(function RepoRef({repoId, number}: {repoId: number; number: number}) {
+  const name = usePool().model('Repository').get(repoId)?.get('name');
+  return <>{name ?? ''}#{number}</>;
+});
+
+const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'group'}>}) {
+  const pool = usePool();
+  let leading: ReactNode = null;
+  if ((row.kind === 'status' || row.kind === 'priority') && row.value) {
+    const l = pool.model('Label').get(row.value);
+    if (l) leading = <LabelIcon icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
+  } else if (row.kind === 'status') {
+    leading = <Icon icon={CircleDashed}/>;
+  } else if (row.kind === 'assignee') {
+    leading = row.value ? <UserAvatar id={row.value}/> : <Icon icon={UserIcon}/>;
+  } else if (row.kind === 'repo') {
+    leading = <Icon icon={FolderGit2}/>;
+  }
+  return <ListGroupHeader leading={leading} label={row.label} count={row.count}/>;
+});

@@ -6,7 +6,7 @@
 // live shell (Shell.tsx) are both built from these parts, so the first frame
 // and the app line up (PLAN §1: cache the shape of the page).
 
-import type {ReactNode} from 'react';
+import type {ReactNode, Ref} from 'react';
 import {cx, Skeleton} from '../../ui/index.ts';
 
 export function ShellFrame({boot, sidebar, children}: {boot?: boolean; sidebar: ReactNode; children: ReactNode}) {
@@ -33,9 +33,9 @@ export function HeaderBar({children}: {children: ReactNode}) {
   return <header className="flex h-header shrink-0 items-center gap-2 border-b border-border px-4">{children}</header>;
 }
 
-/** The main panel's content below the header. */
-export function PageBody({children}: {children: ReactNode}) {
-  return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+/** The main panel's content below the header (the page's scroll container; lists virtualize against it). */
+export function PageBody({children, ref}: {children: ReactNode; ref?: Ref<HTMLDivElement>}) {
+  return <div ref={ref} className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
 }
 
 /** A sidebar row placeholder with a NavItem's geometry. */

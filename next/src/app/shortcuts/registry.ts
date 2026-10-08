@@ -49,8 +49,14 @@ function isTextField(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
+/**
+ * Inside an open menu, listbox or dialog (they keep their keys) — unless that
+ * element opts in to the app's shortcuts with `data-shortcuts` (an issue
+ * list's listbox: J/K/X/S/L/… are its keys).
+ */
 function inOverlay(el: Element | null): boolean {
-  return Boolean(el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]'));
+  const overlay = el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]');
+  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts');
 }
 
 interface Binding {

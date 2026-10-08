@@ -46,3 +46,24 @@ export function ListRow({role, selected, active, leading, trailing, children, ..
     </div>
   );
 }
+
+export interface ListGroupHeaderProps {
+  /** An icon or dot before the label. */
+  leading?: ReactNode;
+  label: ReactNode;
+  count: number;
+}
+
+/**
+ * A group's header inside a list (grouped by status, assignee, …): a row of
+ * the same height as ListRow, so virtualized lists keep a fixed row size.
+ */
+export function ListGroupHeader({leading, label, count}: ListGroupHeaderProps) {
+  return (
+    <div role="presentation" className="flex h-row items-center gap-2 border-b border-border-subtle bg-canvas px-3 text-sm font-medium text-fg contain-content">
+      {leading && <span className={cx(slot, 'text-fg-muted')}>{leading}</span>}
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="text-fg-subtle tabular-nums">{count}</span>
+    </div>
+  );
+}

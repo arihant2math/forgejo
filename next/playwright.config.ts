@@ -24,7 +24,8 @@ export default defineConfig({
     {name: 'dev', testMatch: ['gallery.spec.ts', 'hydrate.bench.spec.ts'], use: {baseURL: 'http://127.0.0.1:5173'}},
     // F3 against a real Forgejo serving this checkout's build (skipped without NEXT_FORGEJO_URL).
     // Depends on "build": the build project's server writes dist/, which Forgejo serves (ASSETS_DIR).
-    {name: 'forgejo', testMatch: 'forgejo.spec.ts', dependencies: ['build'], timeout: 90_000},
+    // F4 (issues.spec.ts): lists, detail and optimistic edits against the same server.
+    {name: 'forgejo', testMatch: ['forgejo.spec.ts', 'issues.spec.ts'], dependencies: ['build'], timeout: 180_000},
   ],
   // NEXT_E2E_NO_SERVERS=1: run only against what is already up (e.g. --project forgejo against a
   // Forgejo serving next/dist: the build server would rebuild dist under it).

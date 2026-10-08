@@ -70,6 +70,7 @@ export function fakeSession(opts: {userId?: number; workspace?: Workspace} = {})
     },
     pin: () => undefined,
     barrier: () => Promise.resolve(0),
+    whenSynced: () => Promise.resolve(),
     loadClosedPage: () => Promise.resolve({next: undefined, count: 0}),
     on: () => () => undefined,
     close: () => Promise.resolve(),

@@ -37,7 +37,7 @@ const config: Config = {
     'property-disallowed-list': ['transition', 'transition-property', 'transition-duration', 'transition-timing-function', 'transition-delay'],
     'scale-unlimited/declaration-strict-value': [tokenized, {
       ignoreValues: [
-        'inherit', 'initial', 'unset', 'transparent', 'currentcolor', 'none', '0', 'auto', 'solid', 'collapse',
+        'inherit', 'initial', 'unset', 'transparent', 'currentcolor', 'none', '0', 'auto', 'solid', 'collapse', 'underline',
         'fit-content', 'min-content', 'max-content', '/^\\d+(%|dvh|vh|vw|svh|lvh)$/',
       ],
       expandShorthand: true,

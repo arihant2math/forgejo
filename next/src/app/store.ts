@@ -6,11 +6,12 @@
 // page, created by main.tsx before the first render and handed to the
 // router as context and to components through AppContext.
 
-import {observable} from 'mobx';
+import {observable, observableRef, observableShallow} from 'mobx';
 import {createContext, useContext} from 'react';
 import type {AuthSession} from '../auth/session.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import type {Data} from '../sync/data.ts';
+import type {NoticeSpec} from './notices.ts';
 
 export interface Session {
   readonly userId: number;
@@ -25,7 +26,15 @@ export interface UiState {
   signOut: {pending: number} | undefined;
   /** Intents not synced yet (the sync indicator's "N pending"; F5 keeps it current). */
   pendingIntents: number;
+  /** Transient notices (notices.ts), oldest first. */
+  notices: NoticeSpec[];
+  /** The issues the keyboard acts on (the list's selection or cursor, the open issue): the palette offers their actions. */
+  issueTarget: readonly number[];
+  /** An open issue picker (S/L/A/M/P): which field, for which issues. */
+  picker: {kind: PickerKind; issueIds: readonly number[]} | undefined;
 }
+
+export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'milestone';
 
 export interface App {
   readonly config: NextConfig;
@@ -35,7 +44,10 @@ export interface App {
 }
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
-  const ui = observable<UiState>({paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0});
+  const ui = observable<UiState>(
+    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, notices: [], issueTarget: [], picker: undefined},
+    {notices: observableShallow, issueTarget: observableRef, picker: observableRef},
+  );
   return {config, session, ui};
 }
 

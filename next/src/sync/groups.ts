@@ -54,6 +54,8 @@ export class GroupTable {
   private readonly states = new Map<string, GroupState>();
   /** Groups whose position was raised since persistRaised. */
   private raised = new Set<string>();
+  /** Called whenever a group's position goes up (SyncClient.whenAt). */
+  onPosition: ((group: string, position: number) => void) | undefined;
 
   constructor(meta: MetaCache) {
     this.meta = meta;
@@ -84,6 +86,7 @@ export class GroupTable {
     this.states.set(group, s);
     this.meta.set(PREFIX + group, s);
     this.raised.delete(group);
+    if (s.position !== undefined && s.position !== prev?.position) this.onPosition?.(group, s.position);
     return s;
   }
 
@@ -106,6 +109,7 @@ export class GroupTable {
     // A new object: the one handed to meta may still be on its way to IndexedDB.
     this.states.set(group, {...s, position: pos});
     this.raised.add(group);
+    this.onPosition?.(group, pos);
   }
 
   /** Hands the raised positions to meta; returns whether there were any. */

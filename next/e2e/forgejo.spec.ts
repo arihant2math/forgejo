@@ -13,21 +13,10 @@
 // created through API v1 with basic auth.
 
 import {type Browser, type BrowserContext, expect, type Page, test} from '@playwright/test';
-
-const BASE = process.env.NEXT_FORGEJO_URL?.replace(/\/$/, '') ?? '';
-const USER = process.env.NEXT_FORGEJO_USER ?? 'dev';
-const PASSWORD = process.env.NEXT_FORGEJO_PASSWORD ?? 'devdevdev1';
+import {api, BASE, signIn, USER, watch} from './helpers.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
-
-const auth = `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString('base64')}`;
-
-async function api(method: string, path: string, body?: object): Promise<Response> {
-  return fetch(`${BASE}/api/v1${path}`, {
-    method, headers: {'Authorization': auth, 'Content-Type': 'application/json'}, ...(body ? {body: JSON.stringify(body)} : {}),
-  });
-}
 
 let userId = 0;
 
@@ -43,41 +32,9 @@ test.beforeAll(async () => {
   }
 });
 
-/** Collects page errors, error logs and CSP / Trusted Types violations of the Next UI's pages. */
-function watch(page: Page): string[] {
-  const problems: string[] = [];
-  void page.addInitScript(() => {
-    document.addEventListener('securitypolicyviolation', (e) => {
-      console.error(`CSP violation: ${e.violatedDirective} ${e.blockedURI}`);
-    });
-  });
-  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
-  page.on('console', (m) => {
-    // Classic pages (login, consent) have no built CSS/JS in the dev server: their 404s are not ours.
-    const classic = new URL(page.url()).pathname.startsWith('/user/login') || page.url().includes('/login/oauth/');
-    if (m.type() === 'error' && !classic && !m.text().includes('Failed to load resource')) problems.push(m.text());
-  });
-  return problems;
-}
-
-/** Signs in through the classic login and consent pages; ends on the app. */
+/** The splash the boot script reads. */
 function splash(page: Page): Promise<Record<string, unknown>> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('splash') ?? '{}') as Record<string, unknown>);
-}
-
-async function signIn(page: Page): Promise<void> {
-  await page.goto(`${BASE}/-/next/`);
-  await page.getByRole('button', {name: 'Sign in'}).click();
-  await page.waitForURL(/\/user\/login|\/login\/oauth\/authorize/);
-  if (page.url().includes('/user/login')) {
-    await page.fill('#user_name', USER);
-    await page.fill('#password', PASSWORD);
-    await page.click('form button.primary');
-  }
-  await page.waitForURL(/\/login\/oauth\/authorize/);
-  await page.locator('#authorize-app').click();
-  await page.waitForURL(`${BASE}/`);
-  await expect(page.getByRole('status')).toContainText('Live', {timeout: 20_000});
 }
 
 const status = (page: Page) => page.getByRole('status');

@@ -22,6 +22,8 @@ import {Sidebar} from './Sidebar.tsx';
 const Palette = lazyComponent(() => import('../palette/Palette.tsx').then((m) => m.Palette));
 const ShortcutsDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.ShortcutsDialog));
 const SignOutDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.SignOutDialog));
+const Notices = lazyComponent(() => import('./Notices.tsx').then((m) => m.Notices));
+const IssuePicker = lazyComponent(() => import('../../features/issues/Picker.tsx').then((m) => m.IssuePicker));
 
 /** Stays mounted once opened, so that closing can fade out. */
 const PaletteHost = observer(function PaletteHost({app}: {app: App}) {
@@ -31,12 +33,22 @@ const PaletteHost = observer(function PaletteHost({app}: {app: App}) {
   return open || used ? <Palette open={open}/> : null;
 });
 
+/** The issue pickers (S/L/A/M/P), mounted from their first use on (they fade out). */
+const PickerHost = observer(function PickerHost({app}: {app: App}) {
+  const open = Boolean(app.ui.picker);
+  const [used, setUsed] = useState(false);
+  if (open && !used) setUsed(true);
+  return open || used ? <IssuePicker/> : null;
+});
+
 const Overlays = observer(function Overlays({app}: {app: App}) {
   return (
     <>
       <PaletteHost app={app}/>
+      <PickerHost app={app}/>
       {app.ui.shortcutsOpen && <ShortcutsDialog/>}
       {app.ui.signOut && <SignOutDialog pending={app.ui.signOut.pending}/>}
+      {app.ui.notices.length > 0 && <Notices/>}
     </>
   );
 });

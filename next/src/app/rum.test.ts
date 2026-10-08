@@ -4,7 +4,7 @@
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 import type {RUMReport} from '../protocol/types.gen.ts';
 import {count, MAX_SAMPLES, queueDepth, sample, takeCollected} from '../sync/rum.ts';
-import {buildReports, inp, MAX_REPORTS, RumReporter} from './rum.ts';
+import {buildReports, inp, MAX_REPORTS, RumReporter, TAB_BUDGET} from './rum.ts';
 
 // The server's accepted names (routers/livesync/rum.go): anything else is rejected there.
 const MARKS = ['firstPaintFromCache', 'dataOpen', 'wsOpen', 'caughtUp', 'hydrateRoute', 'hydrateAll', 'mutationLocal', 'mutationAcked', 'mutationConfirmed', 'inp'];
@@ -43,7 +43,7 @@ describe('reports', () => {
     const counts = new Map([['intentFlushed', 2], ['conflictMerged', 0]]);
     const {reports, rest} = buildReports(boot, samples, counts);
     expect(reports).toHaveLength(MAX_REPORTS);
-    expect(reports[0]).toEqual({marks: {firstPaintFromCache: 87.3, caughtUp: 412, mutationLocal: 3, mutationAcked: 40}, events: {intentFlushed: 2}});
+    expect(reports[0]).toEqual({marks: {firstPaintFromCache: 87, caughtUp: 412, mutationLocal: 3, mutationAcked: 40}, events: {intentFlushed: 2}});
     expect(reports[1]).toEqual({marks: {mutationLocal: 4}});
     expect(reports[2]).toEqual({marks: {mutationLocal: 5}});
     expect([...rest]).toEqual([['mutationLocal', [6, 7]]]);
@@ -64,14 +64,21 @@ describe('reports', () => {
 describe('reporter', () => {
   let posted: {url: string; init: RequestInit}[];
   let status: number;
+  let headers: Record<string, string>;
   const fetchFake = (async (url: string, init: RequestInit) => {
     posted.push({url, init});
-    return Promise.resolve(new Response(null, {status}));
+    return Promise.resolve(new Response(null, {status, headers}));
   }) as unknown as typeof fetch;
+  /** A fresh browser-wide budget per test (the tabs' shared localStorage). */
+  const memory = () => {
+    const m = new Map<string, string>();
+    return {getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v)};
+  };
 
   beforeEach(() => {
     posted = [];
     status = 204;
+    headers = {};
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -86,7 +93,7 @@ describe('reporter', () => {
     performance.measure('hydrate:route', {start: 0, end: performance.now()});
     sample('mutationLocal', 4);
     count('conflictOverride');
-    const r = new RumReporter({url: '/sub/-/sync/rum', fetch: fetchFake});
+    const r = new RumReporter({url: '/sub/-/sync/rum', fetch: fetchFake, storage: memory()});
     await r.flush(false);
     expect(posted).toHaveLength(1);
     expect(posted[0]?.url).toBe('/sub/-/sync/rum');
@@ -113,31 +120,73 @@ describe('reporter', () => {
     expect(posted).toHaveLength(2);
   });
 
-  test('a 429 keeps everything for later and waits a minute; a network failure keeps it too', async () => {
+  test('a 429 keeps everything for later and waits for its Retry-After; a network failure or a 5xx keeps it too', async () => {
     vi.useFakeTimers({now: 1_000_000, toFake: ['Date']});
     status = 429;
+    headers = {'Retry-After': '61'};
     sample('mutationAcked', 50);
     count('intentRetried', 2);
-    const r = new RumReporter({url: '/-/sync/rum', fetch: fetchFake});
+    const r = new RumReporter({url: '/-/sync/rum', fetch: fetchFake, storage: memory()});
     await r.flush(false);
     expect(posted).toHaveLength(1);
     status = 204;
     await r.flush(false);
     expect(posted).toHaveLength(1); // still blocked
-    vi.setSystemTime(1_000_000 + 61_000);
+    vi.setSystemTime(1_000_000 + 60_000);
+    await r.flush(false);
+    expect(posted).toHaveLength(1); // Retry-After 61 s
+    vi.setSystemTime(1_000_000 + 62_000);
     await r.flush(false);
     expect(bodies()[1]).toEqual({marks: {mutationAcked: 50}, events: {intentRetried: 2}});
-    const failing = new RumReporter({url: '/-/sync/rum', fetch: () => Promise.reject(new TypeError('offline'))});
+    const failing = new RumReporter({url: '/-/sync/rum', fetch: () => Promise.reject(new TypeError('offline')), storage: memory()});
     sample('mutationLocal', 3);
     await failing.flush(false);
     expect(takeCollected().samples.get('mutationLocal')).toEqual([3]);
+    status = 503;
+    const restarting = new RumReporter({url: '/-/sync/rum', fetch: fetchFake, storage: memory()});
+    sample('mutationLocal', 5);
+    count('intentFailed');
+    await restarting.flush(false);
+    const kept = takeCollected();
+    expect(kept.samples.get('mutationLocal')).toEqual([5]);
+    expect(kept.counts.get('intentFailed')).toBe(1);
   });
 
-  test('the final flush (page hidden) reports the period\'s INP with keepalive', async () => {
-    const r = new RumReporter({url: '/-/sync/rum', fetch: fetchFake});
+  test('the tabs of a browser share one budget of reports a minute', async () => {
+    vi.useFakeTimers({now: 2_000_000, toFake: ['Date']});
+    const storage = memory();
+    const tabs = [0, 1, 2].map(() => new RumReporter({url: '/-/sync/rum', fetch: fetchFake, storage}));
+    for (const tab of tabs) {
+      for (let i = 0; i < 9; i++) sample('mutationLocal', i);
+      await tab.flush(false);
+    }
+    expect(posted).toHaveLength(TAB_BUDGET);
+    // The rest waits, and goes once the minute has passed.
+    vi.setSystemTime(2_000_000 + 61_000);
+    await tabs[0]?.flush(false);
+    expect(posted.length).toBeGreaterThan(TAB_BUDGET);
+  });
+
+  test('boot marks of a page hidden while booting are not reported', async () => {
+    performance.mark('appStart');
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', {value: 'hidden', configurable: true});
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', {value: 'visible', configurable: true});
+    performance.mark('firstPaintFromCache');
+    const r = new RumReporter({url: '/-/sync/rum', fetch: fetchFake, storage: memory()});
+    sample('mutationLocal', 2);
+    await r.flush(false);
+    expect(bodies()[0]).toEqual({marks: {mutationLocal: 2}});
+  });
+
+  test('the final flush (page hidden) reports the period\'s INP with keepalive, all reports at once', async () => {
+    const r = new RumReporter({url: '/-/sync/rum', fetch: fetchFake, storage: memory()});
     (r as unknown as {interactions: Map<number, number>}).interactions.set(1, 120).set(2, 48);
+    for (const ms of [1, 2, 3]) sample('mutationAcked', ms);
     await r.flush(true);
-    expect(bodies()[0]).toEqual({marks: {inp: 120}});
-    expect(posted[0]?.init.keepalive).toBe(true);
+    expect(bodies()).toHaveLength(3);
+    expect(bodies()[0]).toEqual({marks: {inp: 120, mutationAcked: 1}});
+    expect(posted.every((p) => p.init.keepalive)).toBe(true);
   });
 });

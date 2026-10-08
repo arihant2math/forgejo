@@ -338,6 +338,10 @@ e2e() {
   # The sandbox has no Playwright-managed Chromium of this version; use the preinstalled one when present.
   if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
   for d in $conf_dbs; do
+    # The update path and kill switch tests rewrite dist/ in place and restore it; a run killed in between
+    # leaves it changed: put it back before each database.
+    if [ -f "$REPO/next/dist/sw.js.off" ]; then mv -f "$REPO/next/dist/sw.js.off" "$REPO/next/dist/sw.js"; fi
+    if grep -q 'e2e001' "$REPO/next/dist/index.html" "$REPO/next/dist/sw.js" 2>/dev/null; then (cd "$REPO/next" && npx vite build >/dev/null); fi
     # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended
     env $(e2e_instance "$d") "$REPO/next/tools/dev-forgejo.sh" e2e-one "$d" "$@" || failed="$failed $d"
   done

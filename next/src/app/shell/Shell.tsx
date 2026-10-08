@@ -107,8 +107,9 @@ function AppShell({app}: {app: App}) {
     void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(Number(group.slice(5)))).catch(() => undefined);
   }), [app]);
   useEffect(() => {
-    // The first frame rendered from local data (PLAN §5.2 step 3).
-    markOnce('firstPaintFromCache');
+    // The first frame rendered from local data (PLAN §5.2 step 3) — only when there was local data (a
+    // workspace stored by an earlier session): the first boot after signing in is a cold one.
+    if (app.session?.data.workspace.current) markOnce('firstPaintFromCache');
     whenIdle(() => {
       void Palette.preload().catch(() => undefined);
       // After the first paint: the service worker precaches this build (offline boots, PLAN §5.2 step 5).

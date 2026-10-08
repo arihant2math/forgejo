@@ -208,7 +208,7 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
 
 /** A compact time in a row's trailing slot ("3d"), the full date on hover. */
 export function AgoCell({at, label}: {at: string; label?: string}) {
-  return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-10 text-right tabular-nums">{ago(at)}</span>;
+  return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-10 whitespace-nowrap text-right tabular-nums">{ago(at)}</span>;
 }
 
 export const TitleCell = observer(function TitleCell({issue}: {issue: Entity<'Issue'>}) {

@@ -14,3 +14,8 @@ const radii = {sm: 'rounded-sm', md: 'rounded-md', full: 'rounded-full'} as cons
 export function Skeleton({round = 'sm', className}: {round?: keyof typeof radii; className?: string}) {
   return <span aria-hidden className={cx('block bg-skeleton', radii[round], className)}/>;
 }
+
+/** A paragraph's placeholder: `lines` full-width text bars, the last one shorter. Lay it out in the caller's column. */
+export function SkeletonText({lines = 3}: {lines?: number}) {
+  return <>{Array.from({length: lines}, (_, i) => <Skeleton key={i} className={i === lines - 1 ? 'h-3 w-2/3' : 'h-3 w-full'}/>)}</>;
+}

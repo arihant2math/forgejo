@@ -108,6 +108,13 @@
   will-change: transform;
 }
 
+/* A block of a long, unvirtualized page (releases) whose rendering the browser skips while it is off
+ * screen; its size until then is --lazy-block-height, then the size it last had. */
+@utility render-lazy {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--lazy-block-height);
+}
+
 /* A board card's title: wraps, cut after --card-title-lines lines. */
 @utility clamp-title {
   display: -webkit-box;

@@ -49,7 +49,8 @@ export function Button({variant = 'secondary', size = 'md', icon, tooltip, short
     <Comp
       {...(asChild ? {} : {type: 'button' as const})}
       {...(pressed === undefined ? {} : {'aria-pressed': pressed})}
-      className={cx(base, controlHeight[size], size === 'sm' ? 'gap-1 px-2 text-sm' : 'gap-1.5 px-3 text-base', variants[look], className)}
+      // A toggle keeps the same (transparent) border when off: pressing it never changes its width.
+      className={cx(base, controlHeight[size], size === 'sm' ? 'gap-1 px-2 text-sm' : 'gap-1.5 px-3 text-base', variants[look], pressed === false && 'border border-transparent', className)}
       {...rest}
     >
       {asChild ? children : <>{icon && <Icon icon={icon} size={size}/>}{children}</>}

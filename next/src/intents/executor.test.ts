@@ -681,6 +681,29 @@ describe('RUM (PLAN §5.8)', () => {
     world.close();
   });
 
+  test('an intent queued offline gives no acked/confirmed timing (queue time is not the server\'s)', async () => {
+    takeCollected();
+    const server = new FakeForgejo();
+    const world = new World(server, 1);
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle(10);
+    await new Promise((r) => setTimeout(r, 1100));
+    tab.setConnection('live');
+    await world.settle();
+    tab.deliver();
+    await vi.waitFor(() => {
+      expect(tab.overlay.size).toBe(0);
+    });
+    const got = takeCollected();
+    expect(got.counts.get('intentFlushed')).toBe(1);
+    expect(got.samples.has('mutationAcked')).toBe(false);
+    expect(got.samples.has('mutationConfirmed')).toBe(false);
+    world.close();
+  });
+
   test('a refused intent counts as failed', async () => {
     takeCollected();
     const server = new FakeForgejo();

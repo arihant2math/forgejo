@@ -115,10 +115,17 @@ const ProjectsValue = observer(function ProjectsValue({issue}: {issue: Entity<'I
       <PropertyValue>
         {cards.map((c) => {
           const pid = c.get('project_id');
-          const title = pool.model('Project').get(pid)?.get('title') ?? pool.model('ProjectRef').get(pid)?.get('title') ?? `Project ${String(pid)}`;
+          const project = pool.model('Project').get(pid);
+          const title = project?.get('title') ?? pool.model('ProjectRef').get(pid)?.get('title') ?? `Project ${String(pid)}`;
           const column = pool.model('ProjectColumn').get(c.get('column_id'))?.get('title');
-          // The board opens from here (the triage path: issue → its board).
-          return <span key={c.id} className="truncate"><TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}}>{title}</Link></TextLink>{column && <span className="text-fg-subtle"> · {column}</span>}</span>;
+          // The board opens from here (the triage path: issue → its board) when it is on this device; the
+          // link truncates itself (no clipping parent: its focus outline stays whole).
+          return (
+            <span key={c.id} className="flex min-w-0 items-center gap-1">
+              {project ? <TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}}>{title}</Link></TextLink> : <span className="truncate">{title}</span>}
+              {column && <span className="shrink-0 text-fg-subtle">· {column}</span>}
+            </span>
+          );
         })}
       </PropertyValue>
     </Property>
@@ -142,13 +149,17 @@ function IssueLinks({ids, repoId}: {ids: number[]; repoId: number}) {
   return <PropertyValue>{ids.map((id) => <IssueLink key={id} id={id} repoId={repoId}/>)}</PropertyValue>;
 }
 
-const IssueLink = observer(function IssueLink({id, repoId}: {id: number; repoId: number}) {
+/**
+ * An issue reference ("#12 Title", with the repository's name when it is another one than `repoId`'s), a
+ * link to it; the sidebar's dependencies and the timeline's events show issues the same way.
+ */
+export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An issue not on this device'}: {id: number; repoId?: number; missing?: string}) {
   const app = useApp();
   const pool = usePool();
   const i = pool.model('Issue').get(id);
-  if (!i) return <span className="text-fg-subtle">An issue not on this device</span>;
+  if (!i) return <span className="text-fg-subtle">{missing}</span>;
   const repo = pool.model('Repository').get(i.get('repo_id'));
-  const ref = `${i.get('repo_id') === repoId ? '' : repo?.get('full_name') ?? ''}#${String(i.get('number'))}`;
+  const ref = `${repoId === undefined || i.get('repo_id') === repoId ? '' : repo?.get('full_name') ?? ''}#${String(i.get('number'))}`;
   const path = issuePath(app, i);
   const text = <><span className="text-fg-subtle tabular-nums">{ref}</span> {i.get('title')}</>;
   return path ? <TextLink><Link to={path}>{text}</Link></TextLink> : <span className="truncate">{text}</span>;

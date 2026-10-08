@@ -65,6 +65,7 @@ test.beforeAll(async () => {
 // leftovers would push other suites' repositories out of it).
 test.afterAll(async () => {
   await api('DELETE', `/repos/${USER}/${REPO}`);
+  await api('DELETE', `/users/${USER}/tokens/f7-${RUN}`);
 });
 
 const blobSha = (path: string, ref?: string) => blobShaIn(REPO, path, ref);
@@ -103,7 +104,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await expect(page.getByText('spaces in the name')).toBeVisible({timeout: 15_000});
   // Branches (from the pool), history and a commit with its diff.
   await page.getByRole('link', {name: 'Branches'}).click();
-  await expect(page.getByRole('option', {name: /^big/})).toBeVisible();
+  await expect(page.getByRole('option', {name: /^small/})).toBeVisible();
   await expect(page.getByRole('option', {name: /^main.*default/})).toBeVisible();
   await page.getByRole('link', {name: 'Commits'}).click();
   await page.getByRole('option', {name: /Add sources/}).click();

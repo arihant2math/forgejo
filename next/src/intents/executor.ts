@@ -160,6 +160,9 @@ export interface IntentEnv {
 /** Requests in flight at once, across entities. */
 const MAX_SENDS = 6;
 
+/** RUM: an intent first attempted within this long of its local apply was sent at once (online). */
+const IMMEDIATE_MS = 1000;
+
 /** An intent the user may still take back (never attempted, or parked). */
 export function discardable(rec: IntentRecord): boolean {
   return rec.state === 'parked' || (rec.state === 'queued' && rec.req === undefined);
@@ -179,8 +182,12 @@ export class Intents {
   private readonly perIssue = observable.map<number, number>({}, {deep: false});
   /** Parked conflicts by text target (`body:<issue>`, `comment:<id>`) → record id (the editors observe one key). */
   private readonly parked = observable.map<string, string>({}, {deep: false});
-  /** Intents whose confirmation RUM has sampled. */
-  private readonly confirmedRum = new Set<string>();
+  /**
+   * RUM: intents this tab sent at once (their first attempt within IMMEDIATE_MS of the local apply, i.e.
+   * online): only those give acked/confirmed samples, so the timings are the server's and the sync's, not
+   * time spent queued offline, held, backing off or parked. Removed once confirmed (one sample each).
+   */
+  private readonly immediate = new Set<string>();
   /** Discards asked of the leader by this follower, waiting for its `done`. */
   private readonly discards = new Map<string, (ok: boolean) => void>();
   /** Being discarded by this (leader) tab: not sent meanwhile. */
@@ -874,6 +881,10 @@ export class Intents {
   /** Sends the frozen request once; the answer decides what happens next. */
   private async attempt(rec: IntentRecord, req: ApiRequest): Promise<void> {
     const {env} = this;
+    if (rec.attempts === 0 && this.now() - rec.intent.created < IMMEDIATE_MS) {
+      if (this.immediate.size > 1000) this.immediate.clear();
+      this.immediate.add(rec.id);
+    }
     let token: string;
     try {
       token = await env.token();
@@ -1017,7 +1028,7 @@ export class Intents {
     if (!ok[0]) return;
     // RUM: acked = the local apply (the intent's creation, in any tab) to the server's answer.
     count(RUMIntentFlushed);
-    sample(RUMMutationAcked, this.now() - i.created);
+    if (this.immediate.has(rec.id)) sample(RUMMutationAcked, this.now() - i.created);
     if (from !== undefined && created && 'tempId' in i) {
       const m = {t: 'remap' as const, model: CREATES[i.kind], from, to: created.id, ...(created.number ? {number: created.number} : {})};
       this.apply(() => this.remapped.set(m.from, m.to));
@@ -1071,8 +1082,10 @@ export class Intents {
     const createdModel = i.kind in CREATES ? CREATES[i.kind as keyof typeof CREATES] : undefined;
     const held = () => (createdModel && created ? env.pool.model(createdModel).get(created.id) !== undefined : effectHeld(env.pool, i, env.userId));
     let arrived: Promise<unknown>;
-    // A group this tab does not hold never reaches v: nothing shows the write here then.
-    if (env.pool.groupEntities(group).size === 0) arrived = Promise.resolve();
+    // A group this tab does not hold never reaches v: nothing shows the write here then (and RUM has no
+    // confirmation to time).
+    const shown = env.pool.groupEntities(group).size > 0;
+    if (!shown) arrived = Promise.resolve();
     else if (v !== undefined) {
       arrived = env.whenSynced(group, v, ctrl.signal);
       if (env.barrier) timers.push(setTimeout(() => {
@@ -1101,13 +1114,9 @@ export class Intents {
       off?.();
       this.confirming.delete(rec.id);
     }
-    // RUM: confirmed = the local apply to the pool holding the write (the layer goes).
-    // (A take-over or a kick can confirm a record twice before it is removed: one sample per intent.)
-    if (reached && !this.confirmedRum.has(rec.id)) {
-      this.confirmedRum.add(rec.id);
-      if (this.confirmedRum.size > 1000) this.confirmedRum.clear();
-      sample(RUMMutationConfirmed, this.now() - i.created);
-    }
+    // RUM: confirmed = the local apply to the pool holding the write (the layer goes). A take-over or a kick
+    // can confirm a record twice before it is removed: `immediate` gives one sample per intent.
+    if (reached && shown && this.immediate.delete(rec.id)) sample(RUMMutationConfirmed, this.now() - i.created);
     await this.done(rec, v === undefined ? undefined : {group, v});
   }
 

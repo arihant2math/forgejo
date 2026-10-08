@@ -10,19 +10,23 @@
 //
 //   target (PLAN)                                    measured as                                     asserted
 //   boot-route JS ≤ 150 KB br, CSS ≤ 30 KB br         what Forgejo serves for /-/next/, brotli q11     ≤ budget
-//   warm boot → interactive issue list < 300 ms      navigation start → the list's first row in the   median of 7 < 300 ms
-//                                                    DOM (React committed it: handlers attached)
-//   the same offline                                 the same, served by the service worker          median of 7 < 300 ms
-//   a local mutation < 16 ms (≤ 1 frame)             the key (event.timeStamp) → the label in the    median of 9 < 16 ms;
-//                                                    DOM; and → the next frame (rAF)                 p95 next frame < 33 ms
-//   a commit reaches another client < 150 ms p95     another user's PATCH sent from the page →       p95 of 20 < 150 ms
-//                                                    the title in this page's DOM (an upper bound:
+//   warm boot → interactive issue list < 300 ms      navigation start → the list's first row in the   median of 8 < 300 ms
+//   (PLAN: p75; p75 is recorded)                     DOM (React committed it: handlers attached), no  (p75 recorded)
+//                                                    bootstrap or load fetched
+//   the same offline                                 the same, served by the service worker          median of 8 < 300 ms
+//   a local mutation < 16 ms (≤ 1 frame)             the key (event.timeStamp) → the label in the    median of 10 < 16 ms, all
+//                                                    DOM, the server's answer held 400 ms; and →     before the answer; p95
+//                                                    the next frame (rAF)                            next frame < 33 ms
+//   a commit reaches another client < 150 ms p95     another user's PATCH sent from the page →       p95 of 20 < 150 ms,
+//                                                    the title in this page's DOM (an upper bound:  every one arrives
 //                                                    it includes the request before the commit)
-//   switching to a cached file < 100 ms              click → its highlighted lines painted            p50, p90 of 15 < 100 ms
-//   a 5k-line PR scrolls at 60 fps                   rAF intervals scrolling 120 px a frame, 3 runs   median run: p50 < 18,
-//                                                                                                    p95 < 34 ms, ≤ 3 % of
-//                                                                                                    frames > 32 ms, no long
-//                                                                                                    task ≥ 50 ms
+//   switching to a cached file < 100 ms              click → its highlighted lines painted, nothing  p50, p90 of 15 < 100 ms
+//                                                    fetched
+//   a 5k-line PR scrolls at 60 fps                   rAF intervals scrolling the whole diff 120 px    median run: p50 < 20,
+//                                                    a frame, 3 runs                                 p95 < 34 ms, ≤ 3 % of
+//                                                                                                    frames > 32 ms; 2 of 3
+//                                                                                                    runs without a long task
+//                                                                                                    ≥ 50 ms
 //
 // The scroll bound is not PLAN's strict "no frame > 32 ms": this sandbox's
 // software rasterizer on shared vCPUs drops 1–4 of 600 frames scrolling an
@@ -31,14 +35,14 @@
 import {brotliCompressSync, constants} from 'node:zlib';
 import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, b64, seed} from '../lib/api.ts';
-import {issueList, signedIn, watch} from '../lib/app.ts';
+import {indicator, issueList, signedIn, watch} from '../lib/app.ts';
 import {changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
 import {storedGroup, swReady} from '../lib/device.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {median, quantile, record} from '../lib/perf.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
-test.describe.configure({mode: 'serial'});
+// Not serial: one target missed does not keep the others from being measured (the fixtures are idempotent).
 
 const RUN = Date.now().toString(36);
 /** The list repository (lists.spec.ts seeds the same one; seeding is idempotent). */
@@ -134,13 +138,17 @@ async function watchList(page: Page): Promise<void> {
 
 const listAt = (page: Page) => page.evaluate(() => (window as unknown as {__listAt?: number}).__listAt ?? Number.NaN);
 
-async function warmBoots(page: Page, runs: number): Promise<number[]> {
+async function warmBoots(page: Page, runs: number, offline: boolean): Promise<number[]> {
   const times: number[] = [];
   for (let i = 0; i < runs; i++) {
-    await page.reload();
+    const res = await page.reload();
+    // Offline, the document comes from the service worker, and the app knows it is offline.
+    if (offline) expect(res?.fromServiceWorker()).toBe(true);
     await expect(issueList(page).getByRole('option').first()).toBeVisible();
+    if (offline) await expect(indicator(page)).toContainText('Offline');
     times.push(await listAt(page));
   }
+  expect(times.every(Number.isFinite)).toBe(true);
   return times;
 }
 
@@ -157,17 +165,24 @@ test('a warm boot reaches an interactive issue list in < 300 ms, online and offl
   await page.reload(); // the first boot served by a fresh worker fills the code cache (not a warm boot)
   await expect(issueList(page).getByRole('option').first()).toBeVisible();
 
-  const online = await warmBoots(page, 7);
+  // From local data: no bootstrap or lazy load is fetched by these boots (the socket resumes from the
+  // stored positions).
+  const loads: string[] = [];
+  page.on('request', (r) => {
+    if (/\/-\/sync\/(bootstrap|load)\b/.test(r.url())) loads.push(r.url());
+  });
+  const online = await warmBoots(page, 8, false);
+  expect(loads).toEqual([]);
   // The list really is interactive at that point: J puts the cursor on a row.
   await issueList(page).focus();
   await page.keyboard.press('j');
   await expect(issueList(page).locator('[data-active]')).toHaveCount(1);
   const fp = await page.evaluate(() => performance.getEntriesByName('firstPaintFromCache')[0]?.startTime ?? Number.NaN);
-  record('warm boot online: navigation → interactive issue list (ms)', online, {rows: LIST_ISSUES, firstPaintFromCacheLast: Math.round(fp)});
+  record('warm boot online: navigation → interactive issue list (ms)', online, {rows: LIST_ISSUES, p75: quantile(online, 0.75), firstPaintFromCacheLast: Math.round(fp)});
 
   await ctx.setOffline(true);
-  const offline = await warmBoots(page, 7);
-  record('warm boot offline: navigation → interactive issue list (ms)', offline);
+  const offline = await warmBoots(page, 8, true);
+  record('warm boot offline: navigation → interactive issue list (ms)', offline, {p75: quantile(offline, 0.75)});
   await ctx.setOffline(false);
   expect(median(online)).toBeLessThan(300);
   expect(median(offline)).toBeLessThan(300);
@@ -189,10 +204,17 @@ test('a local mutation is in the DOM within a frame of the key, before the serve
   await labels.evaluate((el) => {
     el.setAttribute('data-perf', 'labels');
   });
+  // The server's answer is held back 400 ms: what the DOM shows before that is the local apply alone.
+  const HOLD = 400;
+  await page.route(/\/api\/v1\/repos\/.*\/issues\/\d+\/labels/, async (r) => {
+    await new Promise((resolve) => setTimeout(resolve, HOLD));
+    await r.continue();
+  });
   const dom: number[] = [];
   const frame: number[] = [];
   const eventTiming: number[] = [];
-  for (let i = 0; i < 9; i++) {
+  // An even number of toggles: the issue ends as it was.
+  for (let i = 0; i < 10; i++) {
     const had = (await labels.innerText()).includes('performance');
     await page.keyboard.press('l');
     await page.getByPlaceholder('Add or remove labels…').fill('performance');
@@ -235,8 +257,12 @@ test('a local mutation is in the DOM within a frame of the key, before the serve
     // Let it confirm before the next one (each measured on a quiet page, as a person would).
     await expect(page.getByRole('button', {name: /: show unsynced changes$/})).not.toContainText('pending', {timeout: 30_000});
   }
+  await page.unroute(/\/api\/v1\/repos\/.*\/issues\/\d+\/labels/);
   record('local mutation: key → DOM (ms)', dom);
   record('local mutation: key → next frame (ms)', frame, {eventTimingDurations: eventTiming});
+  expect(dom.every(Number.isFinite)).toBe(true);
+  // Every one before the (held) answer: optimistic, not rendered on the 2xx.
+  expect(Math.max(...dom)).toBeLessThan(HOLD);
   expect(median(dom)).toBeLessThan(16);
   expect(quantile(frame, 0.95)).toBeLessThan(33);
   expect(problems).toEqual([]);
@@ -285,9 +311,11 @@ test('a commit reaches another client in < 150 ms (p95)', async ({browser}) => {
     sent.push(r.sent);
     answered.push(r.answered);
   }
-  record('commit → another client: write sent → shown (ms, upper bound)', sent, {afterAnswer: answered.map((x) => Math.round(x))});
-  expect(quantile(sent, 0.95)).toBeLessThan(150);
   await api('PATCH', `/repos/${USER}/${LIST_REPO}/issues/${String(issue.number)}`, {title: issue.title.replace(/ \[perf \d+\]$/, '')}, aliceAuth);
+  record('commit → another client: write sent → shown (ms, upper bound)', sent, {afterAnswer: answered.map((x) => Math.round(x))});
+  // Every commit arrives (a lost delta is a failure, not a slow sample), and fast.
+  expect(sent.every(Number.isFinite)).toBe(true);
+  expect(quantile(sent, 0.95)).toBeLessThan(150);
   expect(problems).toEqual([]);
   await ctx.close();
 });
@@ -304,6 +332,11 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
     await page.goto(codeUrl(CODE_REPO, `src/branch/main/src/${f}`));
     await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
   }
+  // Cached: the measured switches fetch nothing (trees, blobs and highlights come from this device).
+  const fetched: string[] = [];
+  page.on('request', (r) => {
+    if (/\/(api\/v1|-\/sync\/api)\//.test(r.url())) fetched.push(r.url());
+  });
   const samples: number[] = [];
   for (let i = 0; i < 5; i++) {
     for (const to of ['third.ts', 'main.go', 'other.go'] as const) {
@@ -326,6 +359,8 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
     }
   }
   record('cached file switch: click → highlighted lines painted (ms)', samples);
+  expect(fetched).toEqual([]);
+  expect(samples.every(Number.isFinite)).toBe(true);
   // < 100 ms (PLAN Phase 4 exit); the single slowest sample is recorded, not asserted (shared vCPUs: GC, other load).
   expect(quantile(samples, 0.5)).toBeLessThan(100);
   expect(quantile(samples, 0.9)).toBeLessThan(100);
@@ -371,7 +406,7 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
       await new Promise((r) => requestAnimationFrame(r));
       let last = performance.now();
       const step = 120; // px per frame (≈ 7 200 px/s)
-      const total = Math.min(scroller.scrollHeight - scroller.clientHeight, 600 * step);
+      const total = scroller.scrollHeight - scroller.clientHeight; // the whole diff
       while (scroller.scrollTop < total - 1) {
         scroller.scrollTop += step;
         await new Promise((res) => requestAnimationFrame(res));
@@ -401,9 +436,11 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
     expect(r.rows).toBeLessThan(200); // virtualized
     expect(r.boundaries).toBeGreaterThanOrEqual(5);
   }
-  expect(median(runs.map((r) => r.p50))).toBeLessThan(18);
+  // A frame is 16.7 ms; headless Chromium's frame clock here reads 16.7–18 for a smooth page (a 30 fps
+  // page reads 33): the median run's median frame under 20 ms.
+  expect(median(runs.map((r) => r.p50))).toBeLessThan(20);
   expect(mid.p95).toBeLessThan(34);
-  expect(median(runs.map((r) => r.over32))).toBeLessThanOrEqual(STRICT_FPS ? 0 : 18);
+  expect(median(runs.map((r) => r.over32 / r.frames))).toBeLessThanOrEqual(STRICT_FPS ? 0 : 0.03);
   expect(median(runs.map((r) => r.longest))).toBeLessThan(50);
   expect(median(runs.map((r) => r.boundaryMax))).toBeLessThan(50);
   await ctx.close();

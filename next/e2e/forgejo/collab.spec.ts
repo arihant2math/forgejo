@@ -5,7 +5,8 @@
 // socket over when it closes and the follower keeps syncing and flushing;
 // a collaborator removed mid-session loses the repository on her device
 // (group purged, nothing of it left in IndexedDB) and her queued changes to
-// it become drafts in "Unsynced changes" instead of being lost or sent.
+// it become drafts in "Unsynced changes" instead of being lost or sent; and
+// one removed while live loses it at once in every tab.
 // (Sign-out across tabs: session.spec.ts; a leader closing mid-flush:
 // offline.spec.ts.)
 
@@ -51,29 +52,35 @@ test('leader handoff: the follower tab takes the socket when the leader closes, 
   const ctx = await browser.newContext();
   const leader = await signedIn(ctx);
   const problems = watch(leader);
+  const lSockets = sockets(leader);
   const path = `${BASE}/${USER}/${REPO}/issues/${String(target.number)}`;
   await leader.goto(path);
   await expect(issueTitle(leader)).toContainText(target.title, {timeout: 20_000});
+  await expect.poll(() => lSockets.open(), {timeout: 20_000}).toBe(1);
   const follower = await ctx.newPage();
   const followerProblems = watch(follower);
   const fSockets = sockets(follower);
   await follower.goto(path);
   await expect(issueTitle(follower)).toContainText(target.title, {timeout: 20_000});
-  // One socket for the browser: the follower mirrors through the BroadcastChannel and IndexedDB.
-  await follower.waitForTimeout(1000);
-  expect(fSockets.open()).toBe(0);
-  // A change by another user reaches the follower through the leader.
+  // A change by another user reaches the follower through the leader: the browser's one socket (the
+  // follower mirrors through the BroadcastChannel and IndexedDB, it has none of its own).
   const renamed = `Renamed by alice ${RUN}`;
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: renamed}, aliceAuth), 'rename');
   await expect(issueTitle(follower)).toContainText(renamed, {timeout: 15_000});
+  expect(fSockets.open()).toBe(0);
+  expect(lSockets.open()).toBe(1);
 
-  // The leader goes away: the follower takes the lock, opens its own socket and is live.
+  // The leader goes away, and a change lands while nobody leads (the window a lost announcement would
+  // hide): the follower takes the lock, opens its own socket, catches up and is live.
   await leader.close();
-  await expect.poll(() => fSockets.open(), {timeout: 30_000}).toBe(1);
-  await expect(indicator(follower)).toContainText('Live', {timeout: 30_000});
   const again = `Renamed again ${RUN}`;
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: again}, aliceAuth), 'rename');
+  await expect.poll(() => fSockets.open(), {timeout: 30_000}).toBe(1);
+  await expect(indicator(follower)).toContainText('Live', {timeout: 30_000});
   await expect(issueTitle(follower)).toContainText(again, {timeout: 15_000});
+  const third = `Renamed a third time ${RUN}`;
+  await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: third}, aliceAuth), 'rename');
+  await expect(issueTitle(follower)).toContainText(third, {timeout: 15_000});
   // Its own edit is sent by itself now.
   await toggleLabel(follower, 'docs');
   await expect.poll(async () => (await apiJson<ApiIssue>('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}`)).labels.map((l) => l.name), {timeout: 30_000}).toContain('docs');
@@ -107,7 +114,12 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   // Meanwhile dev removes her from the repository.
   await ok(await api('DELETE', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`), 'remove collaborator');
 
-  // Back online: the server no longer grants the group; the client purges it and keeps her change as a draft.
+  // Back online: the server no longer grants the group; the client purges it and keeps her change as a
+  // draft — without sending it (a refused send would end in the drafts too, so the requests are counted).
+  const sent: string[] = [];
+  page.on('request', (r) => {
+    if (/\/issues\/\d+\/labels/.test(r.url())) sent.push(r.url());
+  });
   await goOnline(ctx, page);
   await expect(sidebar(page).getByRole('link', {name: REPO})).toHaveCount(0, {timeout: 30_000});
   await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(false);
@@ -120,11 +132,42 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   await indicator(page).click();
   const panel = page.getByRole('dialog', {name: 'Unsynced changes'});
   const notSent = panel.getByRole('region', {name: 'Not sent'});
-  await expect(notSent).toContainText('security');
+  await expect(notSent).toContainText('Adding the label “security”');
+  await expect(notSent).toContainText('You no longer have access to this.');
+  expect(sent).toEqual([]);
   // The draft can be discarded (nothing lost silently: it was the user's choice).
   await notSent.getByRole('button', {name: 'Discard', exact: true}).first().click();
   await expect(panel.getByText('Everything is synced')).toBeVisible({timeout: 10_000});
   expect(problems.filter((p) => !/Failed to fetch|ERR_INTERNET_DISCONNECTED|net::/.test(p))).toEqual([]);
+  await ctx.close();
+  await ok(await api('PUT', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`, {permission: 'write'}), 'add collaborator back');
+});
+
+test('access removed while she is live: both of her tabs purge the repository at once, no reload', async ({browser}) => {
+  // (The repository is private since the test above; alice is a collaborator again.)
+  const target = await newIssue(USER, REPO, `Live revoke ${RUN}`);
+  const ctx = await browser.newContext();
+  const page = await signedIn(ctx, ALICE);
+  const problems = watch(page);
+  await page.goto(`${BASE}/${USER}/${REPO}/issues`);
+  await expect(issueList(page).getByRole('option').filter({hasText: target.title})).toBeVisible({timeout: 30_000});
+  const other = await ctx.newPage();
+  await other.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
+  await expect(issueTitle(other)).toContainText(target.title, {timeout: 30_000});
+  await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(true);
+  await expect(indicator(page)).toContainText('Live');
+
+  await ok(await api('DELETE', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`), 'remove collaborator');
+  // group_revoked on the open socket: the list empties, the issue page leaves the issue, the sidebar
+  // forgets the repository, IndexedDB drops the group — in both tabs, live.
+  for (const p of [page, other]) {
+    await expect(sidebar(p).getByRole('link', {name: REPO})).toHaveCount(0, {timeout: 30_000});
+    await expect(p.getByRole('main').getByText(target.title)).toHaveCount(0, {timeout: 15_000});
+  }
+  await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(false);
+  expect(await storedRecords(page, 'Issue', `repo:${String(repoId)}`)).toBe(0);
+  await expect(indicator(page)).toContainText('Live');
+  expect(problems).toEqual([]);
   await ctx.close();
   await ok(await api('PUT', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`, {permission: 'write'}), 'add collaborator back');
 });

@@ -22,6 +22,30 @@ import type {RUMEvent, RUMMark} from '../protocol/types.gen.ts';
 
 const marked = new Set<string>();
 
+/**
+ * When this page load was first hidden, and first offline (performance.now(); Infinity while it has not
+ * been). A boot mark after the page was hidden measures the user's absence, and a network mark (the
+ * socket, catching up) after it went offline measures the network's: app/rum.ts does not report those
+ * (as web-vitals drops metrics of pages loaded in the background). Marks from local data still count
+ * offline: a warm boot offline is one of the targets.
+ */
+const since = {hidden: Number.POSITIVE_INFINITY, offline: Number.POSITIVE_INFINITY};
+if (typeof document !== 'undefined' && typeof navigator !== 'undefined') {
+  if (document.visibilityState === 'hidden') since.hidden = 0;
+  if (!navigator.onLine) since.offline = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') since.hidden = Math.min(since.hidden, performance.now());
+  });
+  addEventListener('offline', () => {
+    since.offline = Math.min(since.offline, performance.now());
+  });
+}
+
+/** See `since`. */
+export function disturbedSince(): Readonly<{hidden: number; offline: number}> {
+  return since;
+}
+
 /** Marks `name` the first time it happens in this page. */
 export function markOnce(name: string): void {
   if (marked.has(name)) return;

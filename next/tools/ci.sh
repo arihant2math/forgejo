@@ -6,10 +6,11 @@
 #
 #   1. install   npm ci in next/ (NEXT_CI_NO_INSTALL=1 skips it)
 #   2. check     npm run check: ESLint + Stylelint, typecheck, unit tests, build, budget
-#   3. browser   Playwright without a server: the boot shell against the build, the
+#   3. protocol  the generated protocol types are up to date (tools/gen-protocol.sh --check)
+#   4. browser   Playwright without a server: the boot shell against the build, the
 #                primitive gallery and the hydration benchmark (projects build, dev)
-#   4. conformance  the headless protocol suite (B10) on PostgreSQL and MySQL
-#   5. e2e       the Playwright suite against a real Forgejo (next/e2e/forgejo) on
+#   5. conformance  the headless protocol suite (B10) on PostgreSQL and MySQL
+#   6. e2e       the Playwright suite against a real Forgejo (next/e2e/forgejo) on
 #                PostgreSQL and MySQL, perf assertions included
 #
 # Every step runs (a failure does not stop the others); the summary lists each
@@ -31,10 +32,12 @@ NEXT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${NEXT_CI_OUT:-/var/tmp/forgejo-next-ci/$(date -u +%Y%m%dT%H%M%SZ)}"
 DBS="${NEXT_CI_DBS:-all}"
 STEPS=("$@")
-[ ${#STEPS[@]} -eq 0 ] && STEPS=(install check browser conformance e2e)
+[ ${#STEPS[@]} -eq 0 ] && STEPS=(install check protocol browser conformance e2e)
 mkdir -p "$OUT"
 export NEXT_E2E_PERF_OUT="$OUT/perf.jsonl"
 : >"$NEXT_E2E_PERF_OUT"
+# CI: Playwright refuses a stray test.only (forbidOnly) and Vitest a .only (allowOnly).
+export CI=1
 if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
 
 results=()
@@ -64,10 +67,11 @@ for step in "${STEPS[@]}"; do
   case "$step" in
   install) [ "${NEXT_CI_NO_INSTALL:-}" = 1 ] || run install npm ci --no-audit --no-fund ;;
   check) run check npm run check ;;
+  protocol) run protocol "$NEXT/tools/gen-protocol.sh" --check ;;
   browser) run browser npx playwright test --project build --project dev ;;
   conformance) run conformance "$NEXT/tools/dev-forgejo.sh" conformance "$DBS" ;;
   e2e) run e2e "$NEXT/tools/dev-forgejo.sh" e2e "$DBS" ;;
-  *) echo "[ci] unknown step $step (install check browser conformance e2e)" >&2; exit 2 ;;
+  *) echo "[ci] unknown step $step (install check protocol browser conformance e2e)" >&2; exit 2 ;;
   esac
 done
 

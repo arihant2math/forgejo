@@ -15,7 +15,7 @@
 import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, type ApiIssue, b64, newIssue, ok, seed} from '../lib/api.ts';
 import {issueTitle, sidebarProp, signedIn, watch} from '../lib/app.ts';
-import {aliceAuth, BASE, USER} from '../lib/env.ts';
+import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {classicColumn, classicProject} from '../lib/projects.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -44,6 +44,11 @@ test('daily triage: inbox → issue → label and priority → its board → car
   // An issue dev opened, on a board, that alice comments on: news in dev's inbox.
   const issue = await newIssue(USER, REPO, `Triage me ${RUN}`, 'Something is off.');
   const pid = await classicProject(page, USER, REPO, `Triage board ${RUN}`, [issue]);
+  // alice watches the board (the move must reach her live).
+  const aliceCtx = await browser.newContext();
+  const alicePage = await signedIn(aliceCtx, ALICE);
+  await alicePage.goto(`${BASE}/-/next/projects/${String(pid)}`);
+  await expect(alicePage.getByRole('option').filter({hasText: issue.title})).toBeVisible({timeout: 30_000});
   await ok(await api('POST', `/repos/${USER}/${REPO}/issues/${String(issue.number)}/comments`, {body: 'Still happening on main.'}, aliceAuth), 'comment');
   await expect.poll(async () => (await unreadTitles()).includes(issue.title), {timeout: 30_000}).toBe(true);
 
@@ -101,12 +106,14 @@ test('daily triage: inbox → issue → label and priority → its board → car
   await expect(card).toHaveAttribute('data-active', '');
   await page.keyboard.press('Shift+L');
   await expect(column(page, next).getByRole('option').filter({hasText: issue.title})).toBeVisible();
-  // The classic UI (the server) agrees, and the issue page says where it is.
+  // alice sees it there, the classic UI (the server) agrees, and the issue page says where it is.
+  await expect(column(alicePage, next).getByRole('option').filter({hasText: issue.title})).toBeVisible({timeout: 15_000});
   await expect.poll(() => classicColumn(page, USER, REPO, pid, issue), {timeout: 30_000}).toBe(next);
   await page.goBack();
   await expect(sidebarProp(page, 'Project')).toContainText(next, {timeout: 15_000});
   expect(problems).toEqual([]);
   await ctx.close();
+  await aliceCtx.close();
 });
 
 function tsFile(n: number, salt = ''): string {
@@ -164,8 +171,9 @@ test('pull request review: review requested → files → a line comment → R �
   expect(mine).toHaveLength(1);
   expect(mine[0]?.body).toBe('Looks good otherwise.');
   expect(mine[0]?.commit_id).toBe(pr.head.sha);
-  const comments = await apiJson<{path: string; body: string; position: number}[]>('GET', `/repos/${USER}/${REPO}/pulls/${String(pr.number)}/reviews/${String(mine[0]?.id)}/comments`, undefined, aliceAuth);
-  expect(comments.map((c) => [c.path, c.body])).toEqual([['src/a.ts', 'Why 33 and not 3?']]);
+  const comments = await apiJson<{path: string; body: string; position: number; original_position: number}[]>('GET', `/repos/${USER}/${REPO}/pulls/${String(pr.number)}/reviews/${String(mine[0]?.id)}/comments`, undefined, aliceAuth);
+  // On its line: `v3` is line 4 of the new file.
+  expect(comments.map((c) => [c.path, c.body, c.position])).toEqual([['src/a.ts', 'Why 33 and not 3?', 4]]);
   // The pending marks are gone once the server has it; the conversation shows the approval.
   await expect(page.getByText('1 pending comment')).toHaveCount(0, {timeout: 30_000});
   await page.getByRole('link', {name: 'Conversation'}).click();

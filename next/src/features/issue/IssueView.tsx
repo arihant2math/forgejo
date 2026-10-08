@@ -27,7 +27,7 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {EmptyState, Skeleton, TabLink, TabNav} from '../../ui/index.ts';
+import {EmptyState, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {PendingCell, StateIcon, TitleCell, usePool, useUser} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
@@ -208,7 +208,7 @@ const NotHere = observer(function NotHere({repoId, index, context}: {repoId: num
       <PageHeader icon={CircleDot} context={context} title={`#${String(index)}`}/>
       <PageBody>
         {searching ?
-          <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><Skeleton className="h-3 w-full"/><Skeleton className="h-3 w-2/3"/></div> :
+          <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
           !offline ?
             <EmptyState icon={SearchX} title="Not found" description="This issue does not exist, or you cannot see it."/> :
             <EmptyState icon={SearchX} title="Not available offline" description="This issue is not on this device. Connect to load it, or open one of these:" action={<AvailableOffline/>}/>}

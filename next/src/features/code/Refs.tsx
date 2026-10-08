@@ -16,6 +16,7 @@ import {Badge, Button, EmptyState, Icon, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
+import {Column} from './bits.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import {RowList} from './RowList.tsx';
@@ -75,9 +76,10 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   return (
     <CodeFrame view={props} title="Releases">
       {() => (releases.length ?
-        <div className="flex max-w-lg flex-col px-8 py-6">
+        // Not virtualized (each release's notes have their own height): off-screen ones are not rendered.
+        <Column>
           {releases.map((r) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r}/>)}
-        </div> :
+        </Column> :
         <EmptyState icon={Package} title="No releases" description="This repository has no published releases on this device."/>)}
     </CodeFrame>
   );
@@ -88,7 +90,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r}: {owner: stri
   const pool = usePool();
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
   return (
-    <article className="flex flex-col gap-3 border-b border-border-subtle py-6">
+    <article className="flex flex-col gap-3 border-b border-border-subtle pb-6 render-lazy">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold text-fg">{r.name || r.tag_name}</h2>
         {r.prerelease && <Badge tone="warning">Pre-release</Badge>}

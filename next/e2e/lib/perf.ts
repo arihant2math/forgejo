@@ -31,6 +31,8 @@ const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : String(x));
 
 /** Records a metric (samples in `unit`, more as JSON in `extra`): printed, attached to the test, appended to NEXT_E2E_PERF_OUT. */
 export function record(metric: string, values: number[], extra: Record<string, unknown> = {}, unit = 'ms'): Summary {
+  // NaN is a broken measurement (a mark or an event that never came), never a sample: sorting would hide it.
+  if (values.some(Number.isNaN)) throw new Error(`${metric}: a sample is NaN (${JSON.stringify(values)})`);
   const s = summary(values);
   const text = `n=${String(s.n)} p50=${fmt(s.p50)} p95=${fmt(s.p95)} max=${fmt(s.max)} ${unit}`;
   test.info().annotations.push({type: metric, description: `${text}${Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : ''}`});

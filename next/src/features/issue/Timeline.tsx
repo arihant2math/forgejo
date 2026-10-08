@@ -28,6 +28,7 @@ import {agoWords, fullDate} from '../issues/format.ts';
 import {CommentActions, CommentBody} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
 import {Reactions} from './Reactions.tsx';
+import {IssueLink} from './Sidebar.tsx';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
@@ -77,10 +78,11 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
   );
 });
 
-function Who({id, fallback}: {id: number; fallback?: string}) {
+/** The author's name; an observer, so a profile arriving after the timeline renders shows. */
+const Who = observer(function Who({id, fallback}: {id: number; fallback?: string}) {
   const u = useUser(id);
   return <span className="font-medium text-fg">{id ? u.name : firstOf(fallback ?? '', 'Someone')}</span>;
-}
+});
 
 /** When, compact, with the full date on hover. */
 function When({at}: {at: string}) {
@@ -213,12 +215,9 @@ const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   return <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
 });
 
-const IssueRef = observer(function IssueRef({id}: {id: number}) {
-  const pool = usePool();
-  const i = pool.model('Issue').get(id);
-  if (!i) return <span>another issue</span>;
-  return <span className="text-fg">#{i.get('number')} {i.get('title')}</span>;
-});
+function IssueRef({id}: {id: number}) {
+  return <IssueLink id={id} missing="another issue"/>;
+}
 
 function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
   switch (d.type) {

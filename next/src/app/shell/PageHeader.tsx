@@ -32,8 +32,9 @@ export function PageHeader({title, icon, context, children}: PageHeaderProps) {
         </nav>
       )}
       <h1 className="max-w-sm min-w-0 shrink-0 truncate text-base font-medium text-fg">{title}</h1>
-      {/* Controls give way on narrow screens (the search narrows, the rest clips) before the title and the indicator do. */}
-      {children && <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden">{children}</div>}
+      {/* Controls give way on narrow screens (the search narrows, the rest clips) before the title and the indicator do.
+          The padding keeps their focus rings (outside the control) inside the clip. */}
+      {children && <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden p-1">{children}</div>}
       <div className="ml-auto flex shrink-0 items-center pl-2"><SyncIndicator/></div>
     </HeaderBar>
   );

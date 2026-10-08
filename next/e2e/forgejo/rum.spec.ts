@@ -103,7 +103,7 @@ test('marks, mutation timings, INP and queue outcomes are posted to /-/sync/rum,
   await ctx.close();
 });
 
-test('localStorage.profile = 1 renders with React\'s profiling build; without it, that build is never fetched', async ({browser}) => {
+test('localStorage.profile = 1 renders with React\'s profiling build; without it, the page never loads that build', async ({browser}) => {
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   const problems = watch(page);

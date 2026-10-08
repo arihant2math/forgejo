@@ -189,6 +189,8 @@
 
   /* The keyboard cursor's edge on a list row (row-cursor). */
   --cursor-width: 2px;
+  /* The height a `render-lazy` block is assumed to have until it is first rendered. */
+  --lazy-block-height: 240px;
 
   /* Code: tab stops (code-text); one character of the code font (code width from a line length);
    * the indent of a diff's comment threads (under the two line-number gutters and the +/− column). */

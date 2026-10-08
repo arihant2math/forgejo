@@ -22,7 +22,7 @@ import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing} from '../../intents/session.ts';
 import {commentBody, issueBody} from '../../intents/view.ts';
-import {Button, Callout, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, Skeleton} from '../../ui/index.ts';
+import {Button, Callout, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {useUser} from '../issues/cells.tsx';
 import {Markdown} from './Markdown.tsx';
@@ -205,9 +205,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   if (!body) {
     return (
       <div className="flex flex-col gap-2 py-1" aria-busy>
-        <Skeleton className="h-3 w-full"/>
-        <Skeleton className="h-3 w-full"/>
-        <Skeleton className="h-3 w-2/3"/>
+        <SkeletonText/>
       </div>
     );
   }

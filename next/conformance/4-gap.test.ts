@@ -7,22 +7,16 @@
 // SHA-addressed git reads are immutable (ETag = SHA, 304) and refuse
 // anything but a full SHA.
 
-import {afterAll, beforeAll, describe, expect, test} from 'vitest';
+import {beforeAll, describe, expect, test} from 'vitest';
 import type {
   APIBlame, APIBodyConflict, APIBodyEdited, APICreated, APIMarkdownResponse, APITree, APIViewedFiles, IssueBody, Project,
   ProjectColumn, ProjectIssue, ReviewState,
 } from '../src/protocol/types.gen.ts';
 import {type Account, type Repo, WebSession, api, createIssue, createRepo, createUser, eventually, request, syncId, unique} from './forgejo.ts';
 import {load} from './replica.ts';
-import {type Session, connect} from './sync.ts';
+import {type Session, closedAfterAll, connect} from './sync.ts';
 
-const open: Session[] = [];
-afterAll(() => {
-  for (const s of open) {
-    s.close();
-    expect(s.violations).toEqual([]);
-  }
-});
+const open = closedAfterAll();
 
 const gap = (method: string, path: string, who: Account, body?: unknown, key?: string) =>
   request(method, `/-/sync/api${path}`, {token: who.token, ...(body === undefined ? {} : {body}), ...(key ? {key} : {})});
@@ -145,7 +139,8 @@ describe('gap endpoints', () => {
     const theirs = await gap('PUT', `/issues/${issueId}/viewed`, bob, {commit_sha: pr.head.sha, files: {'feature.txt': false}});
     expect((await theirs.json() as APIViewedFiles).files).toEqual({'feature.txt': 'unviewed'});
     expect((await (await gap('GET', `/issues/${issueId}/viewed`, alice)).json() as APIViewedFiles).files).toEqual({'feature.txt': 'viewed'});
-    await s.barrier();
+    // The barrier covers bob's write (a gap write answers once it is logged).
+    expect((await s.barrier()).sync_id).toBeGreaterThanOrEqual(syncId(theirs) ?? Infinity);
     expect(s.changes((x) => x.m === 'ReviewState', mine)).toEqual([]);
   });
 

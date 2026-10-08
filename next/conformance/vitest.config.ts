@@ -25,7 +25,7 @@ export default defineConfig({
     root: fileURLToPath(new URL('.', import.meta.url)),
     include: ['*.test.ts'],
     environment: 'node',
-    setupFiles: ['./setup.ts'],
+    setupFiles: ['../integration/setup.ts', './setup.ts'],
     fileParallelism: false,
     sequence: {sequencer: ByName},
     testTimeout: 120_000,

@@ -7,18 +7,12 @@
 // for another request is refused, and requests without a key are left
 // alone. Their deltas reach a live session once, with v ≤ the echo.
 
-import {afterAll, beforeAll, describe, expect, test} from 'vitest';
+import {beforeAll, describe, expect, test} from 'vitest';
 import type {Issue} from '../src/protocol/types.gen.ts';
 import {type Account, type Repo, api, createRepo, createUser, request, sleep, syncId, unique} from './forgejo.ts';
-import {type Session, connect} from './sync.ts';
+import {type Session, closedAfterAll, connect} from './sync.ts';
 
-const open: Session[] = [];
-afterAll(() => {
-  for (const s of open) {
-    s.close();
-    expect(s.violations).toEqual([]);
-  }
-});
+const open = closedAfterAll();
 
 async function issuesTitled(who: Account, repo: Repo, title: string): Promise<number> {
   const list = await api<{title: string}[]>('GET', `/repos/${repo.full}/issues?state=all&type=issues&limit=50`, {token: who.token});

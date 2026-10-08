@@ -7,19 +7,13 @@
 // lines as they are uploaded and the end of the job, resumes from an
 // offset, and is refused a job it may not read.
 
-import {afterAll, beforeAll, describe, expect, test} from 'vitest';
+import {beforeAll, describe, expect, test} from 'vitest';
 import type {ActionRunJob, LogMessage} from '../src/protocol/types.gen.ts';
 import {env} from './env.ts';
 import {type Account, type Repo, api, createRepo, createUser, eventually} from './forgejo.ts';
-import {type Session, connect} from './sync.ts';
+import {closedAfterAll, connect} from './sync.ts';
 
-const open: Session[] = [];
-afterAll(() => {
-  for (const s of open) {
-    s.close();
-    expect(s.violations).toEqual([]);
-  }
-});
+const open = closedAfterAll();
 
 /** A runner talking Forgejo's runner protocol (connect-go, JSON encoding). */
 class Runner {

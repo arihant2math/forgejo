@@ -17,18 +17,32 @@
 # points at this checkout (templates/options/public are read from disk).
 #
 # `kill` stops the server with SIGKILL (no graceful shutdown: a crash).
-# `conformance` (B10) rebuilds the binary, then on each database restarts
-# Forgejo with livesync enabled (conformance_ini below), runs the headless
-# conformance suite (next/conformance) against it — with the hooks the suite
-# uses to crash/restart the server and to reach the database — and stops the
-# server again (NEXT_CONFORMANCE_KEEP=1 leaves it running).
-# NEXT_CONFORMANCE_NO_BUILD=1 reuses the binary. Arguments after the
-# database are passed to Vitest (e.g. a file name filter).
+# NEXT_DEV_ROOT, NEXT_FORGEJO_PORT and NEXT_FORGEJO_DB_NAME (default `forgejo`)
+# select another instance (work dir + binary, port, database).
+#
+# `conformance` (B10) runs the headless conformance suite (next/conformance)
+# against its OWN instances, never the dev servers above (which other
+# sessions' Playwright/integration runs use): binary and work dirs under
+# /var/tmp/forgejo-next-conformance (NEXT_CONFORMANCE_ROOT), ports 3020 (pg)
+# and 3030 (mysql) (NEXT_CONFORMANCE_PG_PORT / NEXT_CONFORMANCE_MYSQL_PORT),
+# database `forgejo_conformance` (dropped and created again per run). It
+# builds that binary, then per database starts a fresh instance with livesync
+# enabled (conformance_ini below), runs the suite against it — with the hooks
+# the suite uses to crash/restart that instance and to reach its database —
+# and stops it; a passing run then drops the database and the work dir
+# but its logs (NEXT_CONFORMANCE_KEEP=1 keeps the instance running and its
+# data; a failing run keeps the data). NEXT_CONFORMANCE_NO_BUILD=1 reuses the
+# binary. Arguments after the database are passed to Vitest (e.g. a file
+# name filter).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ROOT_DIR="${NEXT_DEV_ROOT:-/var/tmp/forgejo-next-dev}"
+DEV_ROOT=/var/tmp/forgejo-next-dev
+ROOT_DIR="${NEXT_DEV_ROOT:-$DEV_ROOT}"
 BIN="$ROOT_DIR/forgejo"
+DB_NAME="${NEXT_FORGEJO_DB_NAME:-forgejo}"
+CONF_ROOT="${NEXT_CONFORMANCE_ROOT:-/var/tmp/forgejo-next-conformance}"
+CONF_DB_NAME=forgejo_conformance
 cmd="${1:-status}"
 db="${2:-pg}"
 conf_dbs="$db"
@@ -60,14 +74,43 @@ running() {
   [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
 }
 
+# admin_sql runs SQL (stdin) as the database's superuser, outside DB_NAME.
+admin_sql() {
+  if [ "$db" = pg ]; then
+    PGPASSWORD=postgres psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -X -q -A -t -v ON_ERROR_STOP=1
+  else
+    mysql --no-defaults -h 127.0.0.1 -P 3306 -uroot -N -B
+  fi
+}
+
+# ensure_db creates DB_NAME if it is missing.
+ensure_db() {
+  if [ "$db" = pg ]; then
+    if [ -z "$(echo "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME';" | admin_sql)" ]; then
+      echo "CREATE DATABASE \"$DB_NAME\";" | admin_sql
+    fi
+  else
+    echo "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" | admin_sql
+  fi
+}
+
+# drop_db drops DB_NAME (only ever the conformance database).
+drop_db() {
+  if [ "$db" = pg ]; then
+    echo "DROP DATABASE IF EXISTS \"$DB_NAME\" WITH (FORCE);" | admin_sql
+  else
+    echo "DROP DATABASE IF EXISTS \`$DB_NAME\`;" | admin_sql
+  fi
+}
+
 write_ini() {
   mkdir -p "$(dirname "$INI")"
   local dbsec
+  ensure_db
   if [ "$db" = pg ]; then
-    dbsec=$'DB_TYPE = postgres\nHOST = 127.0.0.1:5432\nNAME = forgejo\nUSER = postgres\nPASSWD = postgres\nSSL_MODE = disable'
+    dbsec="DB_TYPE = postgres"$'\n'"HOST = 127.0.0.1:5432"$'\n'"NAME = $DB_NAME"$'\n'"USER = postgres"$'\n'"PASSWD = postgres"$'\n'"SSL_MODE = disable"
   else
-    mysql --no-defaults -h 127.0.0.1 -P 3306 -uroot -e 'CREATE DATABASE IF NOT EXISTS forgejo CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci'
-    dbsec=$'DB_TYPE = mysql\nHOST = 127.0.0.1:3306\nNAME = forgejo\nUSER = root\nPASSWD ='
+    dbsec="DB_TYPE = mysql"$'\n'"HOST = 127.0.0.1:3306"$'\n'"NAME = $DB_NAME"$'\n'"USER = root"$'\n'"PASSWD ="
   fi
   cat >"$INI" <<EOF
 APP_NAME = Forgejo Next dev ($db)
@@ -158,39 +201,70 @@ conformance_ini() {
 # against this instance's database (the suite spawns it; PGPASSWORD is set).
 sql_argv() {
   if [ "$db" = pg ]; then
-    printf '%s' '["psql","-h","127.0.0.1","-p","5432","-U","postgres","-d","forgejo","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]'
+    printf '["psql","-h","127.0.0.1","-p","5432","-U","postgres","-d","%s","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]' "$DB_NAME"
   else
-    printf '%s' '["mysql","--no-defaults","-h","127.0.0.1","-P","3306","-uroot","-N","-B","-n","forgejo"]'
+    printf '["mysql","--no-defaults","-h","127.0.0.1","-P","3306","-uroot","-N","-B","-n","%s"]' "$DB_NAME"
   fi
 }
 
+# conformance_instance prints the environment that selects the conformance
+# instance of database $1 (its own work dir, binary, port and database).
+conformance_instance() {
+  local port
+  if [ "$1" = pg ]; then port="${NEXT_CONFORMANCE_PG_PORT:-3020}"; else port="${NEXT_CONFORMANCE_MYSQL_PORT:-3030}"; fi
+  printf 'NEXT_DEV_ROOT=%s NEXT_FORGEJO_PORT=%s NEXT_FORGEJO_DB_NAME=%s' "$CONF_ROOT" "$port" "$CONF_DB_NAME"
+}
+
+# conformance_one runs the suite against this invocation's instance, which
+# `conformance` selected (conformance_instance); it refuses the dev servers.
 conformance_one() {
-  local self="$REPO/next/tools/dev-forgejo.sh" rc=0
+  if [ "$ROOT_DIR" = "$DEV_ROOT" ] || [ "$DB_NAME" = forgejo ]; then
+    log "conformance-one runs only on a conformance instance (use: $0 conformance $db)"; return 1
+  fi
+  local self="$REPO/next/tools/dev-forgejo.sh" inst rc=0
+  inst="$(conformance_instance "$db")"
   NEXT_FORGEJO_EXTRA_INI="$(conformance_ini)
 ${NEXT_FORGEJO_EXTRA_INI:-}"
   export NEXT_FORGEJO_EXTRA_INI # the suite's restarts (CONFORMANCE_START_CMD) write the same app.ini
   stop
+  # A fresh instance every run: nothing of an earlier run is left over.
+  "$REPO/next/tools/dev-db.sh" start "$db" >/dev/null
+  drop_db
+  rm -rf "$WORK"
   start
-  log "conformance suite against $URL ($db)"
+  log "conformance suite against $URL ($db, database $DB_NAME, work dir $WORK)"
   (
     cd "$REPO/next"
     FORGEJO_URL="${URL%/}" FORGEJO_ADMIN_USER=dev FORGEJO_ADMIN_PASSWORD=devdevdev1 \
       CONFORMANCE_DB="$db" CONFORMANCE_SQL="$(sql_argv)" PGPASSWORD=postgres \
-      CONFORMANCE_KILL_CMD="'$self' kill $db" CONFORMANCE_STOP_CMD="'$self' stop $db" \
-      CONFORMANCE_START_CMD="'$self' start $db" \
+      CONFORMANCE_KILL_CMD="env $inst '$self' kill $db" CONFORMANCE_STOP_CMD="env $inst '$self' stop $db" \
+      CONFORMANCE_START_CMD="env $inst '$self' start $db" \
       CONFORMANCE_MAX_REPLAY=100 \
       npm run test:conformance -- "$@"
   ) || rc=$?
-  [ "${NEXT_CONFORMANCE_KEEP:-}" = 1 ] || stop
+  if [ "${NEXT_CONFORMANCE_KEEP:-}" = 1 ]; then
+    log "kept running: $URL (data: $WORK, database $DB_NAME)"
+  else
+    stop
+    if [ "$rc" = 0 ]; then
+      # Keep only the logs (small; the next run starts from scratch anyway).
+      drop_db
+      find "$WORK" -mindepth 1 -maxdepth 1 ! -name log ! -name web.out -exec rm -rf {} +
+      log "server log: $WORK/log ($(cat "$WORK"/log/*.log 2>/dev/null | grep -c ' \[[EF]\] ' || true) [E]/[F] lines)"
+    else
+      log "failed: logs in $WORK/log and $WORK/web.out (database $DB_NAME kept)"
+    fi
+  fi
   return "$rc"
 }
 
 conformance() {
   local d failed=""
-  [ "${NEXT_CONFORMANCE_NO_BUILD:-}" = 1 ] || build
+  [ "${NEXT_CONFORMANCE_NO_BUILD:-}" = 1 ] && [ -x "$CONF_ROOT/forgejo" ] || NEXT_DEV_ROOT="$CONF_ROOT" "$REPO/next/tools/dev-forgejo.sh" build
   [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && npm ci --no-audit --no-fund)
   for d in $conf_dbs; do
-    "$REPO/next/tools/dev-forgejo.sh" conformance-one "$d" "$@" || failed="$failed $d"
+    # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended
+    env $(conformance_instance "$d") "$REPO/next/tools/dev-forgejo.sh" conformance-one "$d" "$@" || failed="$failed $d"
   done
   if [ -n "$failed" ]; then
     log "conformance FAILED on:$failed"

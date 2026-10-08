@@ -3060,15 +3060,24 @@ does) **and** MySQL 8.0 (binlog on).
 - **Acceptance:** suite green on PG and MySQL; fork diff is still exactly 1 line + go.mod
   / go.sum / go-licenses.json. Tick PLAN Phase 1 exit in notes.
 - **Notes/decisions:**
-  - **PLAN Phase 1 exit: met (2026-10-08).** The suite (35 tests) is green against a real Forgejo binary on PG 16 and
+  - **PLAN Phase 1 exit: met (2026-10-08).** The suite (35 scenario tests; 48 with the oracle self-tests added in review
+    round 1) is green against a real Forgejo binary on PG 16 and
     MySQL 8.0 (binlog on): bootstrap → live → reconnect from cursor → `group_revoked` purge → idempotent replay → no
     duplicates after a forced crash between the commit and the idempotency record, plus everything listed below. Fork diff
     unchanged: `cmd/web.go` (1 line + import), `go.mod`, `go.sum`, `assets/go-licenses.json`.
-  - **The one command.** `next/tools/dev-forgejo.sh conformance all` (or `pg` / `mysql`): builds the binary, starts the dev
-    DBs if needed, `npm ci` in `next/` if `node_modules` is missing, then per database restarts Forgejo with the suite's
-    settings (`conformance_ini`), runs `npm run test:conformance` against it and stops it (≈ 1.5 min for both; ≈ 31 s of
-    tests per database). Arguments after the database go to Vitest (a file filter: `… conformance pg 7-restart`);
-    `NEXT_CONFORMANCE_NO_BUILD=1` reuses the binary, `NEXT_CONFORMANCE_KEEP=1` leaves the server running. New
+  - **The one command.** `next/tools/dev-forgejo.sh conformance all` (or `pg` / `mysql`): builds its binary, starts the dev
+    DBs if needed, `npm ci` in `next/` if `node_modules` is missing, then per database starts a **fresh, isolated** Forgejo
+    with the suite's settings (`conformance_ini`), runs `npm run test:conformance` against it and stops it (≈ 1.7 min for
+    both; ≈ 37 s of tests per database). **It never touches the dev servers of §1.2** (other sessions' Playwright /
+    integration runs use them): its own binary and work dirs under `/var/tmp/forgejo-next-conformance`
+    (`NEXT_CONFORMANCE_ROOT`), ports **3020** (pg) / **3030** (mysql) (`NEXT_CONFORMANCE_PG_PORT` / `_MYSQL_PORT`), database
+    **`forgejo_conformance`**, dropped and created again at the start of every run (the work dir is wiped too). A passing run
+    drops the database and the work dir except its logs and prints the server log's `[E]`/`[F]` count; a failing run keeps
+    everything for debugging; `NEXT_CONFORMANCE_KEEP=1` leaves the instance running. Arguments after the database go to
+    Vitest (a file filter: `… conformance pg 7-restart`); `NEXT_CONFORMANCE_NO_BUILD=1` reuses the binary. The suite's
+    kill/stop/start hooks name that instance explicitly (`env NEXT_DEV_ROOT=… NEXT_FORGEJO_PORT=… NEXT_FORGEJO_DB_NAME=…
+    dev-forgejo.sh kill pg`), and `conformance-one` refuses to run on the dev root or the `forgejo` database. For that,
+    `dev-forgejo.sh` gained `NEXT_FORGEJO_DB_NAME` (default `forgejo`; created when missing). New
     `dev-forgejo.sh kill [pg|mysql]` = SIGKILL (a crash). Settings the suite expects (in `conformance_ini`, extended by
     `NEXT_FORGEJO_EXTRA_INI`): `[livesync] ENABLED, MAX_REPLAY = 100, TRIGGER_CHECK_INTERVAL = 2s, IDEMPOTENCY_SYNC_WAIT =
     30s`, `[actions] ENABLED`. Manual run against any server: `FORGEJO_URL=… npm run test:conformance` in `next/` (other
@@ -3085,8 +3094,13 @@ does) **and** MySQL 8.0 (binlog on).
     cover), `setup.ts`, `env.ts` (capabilities: `canSQL`, `canCrash`, `canRestart`), `forgejo.ts` (API v1 helpers, users
     via the admin API with `all`-scope PATs, repositories, `WebSession` for classic-UI forms, `eventually`), `sync.ts`
     (`Session`: raw protocol client), `sse.ts` (`FetchEventSource`: Node has no EventSource), `replica.ts` (`load` of
-    bootstrap/load NDJSON with the 503 gate retried, `Replica`, `stateOf`), `sql.ts` (psql/mysql CLI: `run`, `OpenTx`,
-    `sql.meta/setMeta/dropLabelTrigger/holdLogHead/count`), seven scenario files. `next/package.json`: one script line
+    bootstrap/load NDJSON with the 503 gate retried, read by `parseLoaded` as strictly as the app's loader: one header of
+    the group asked for first, one end line last, nothing after it, a cut response throws; `Replica`, `stateOf`),
+    `forgejo.ts` `keyed()` (a keyed API v1 write that must succeed: body + echo), `sql.ts` (psql/mysql CLI: `run`, `OpenTx`,
+    `sql.meta/setMeta/dropLabelTrigger/holdLogHead/count`), seven scenario files and `0-oracle.test.ts` (the suite's own
+    oracles without the server: `deltaViolations`, `parseLoaded`). `setup.ts` is only the `FORGEJO_URL` guard; the Node
+    stubs of `window`/`localStorage` come from F2's `integration/setup.ts`, listed first in `setupFiles` (reused, not
+    copied). `next/package.json`: one script line
     (`"test:conformance": "vitest run --config conformance/vitest.config.ts"`). `next/tools/dev-forgejo.sh` (`kill`,
     `conformance`, `conformance-one`). **No new dependency; `package-lock.json` unchanged; no other `next/` source touched.**
   - **Deviations from the Scope text.** (1) `next/package.json`/`tsconfig` already existed (F1); `conformance/` was already in
@@ -3101,7 +3115,10 @@ does) **and** MySQL 8.0 (binlog on).
     message at or after an index (`mark`); tracks grants, caught-up groups and **positions per the B5 contract** (highest `v`
     received, raised by `delta.to`/`caught_up`/`pong`/`barrier_ok`/`resume_from_cursor` for caught-up groups). It checks
     invariants on every delta (`violations`, asserted empty by every file): no `*`/`!…` group, no change of a group the
-    session does not hold (except the viewer's own `User`), sync-id order per group within a frame, payload iff upsert.
+    session does not hold (except an upsert of the viewer's own `User`, `id === welcome.viewer_id` — anyone else's profile
+    outside a held group is a leak), sync-id order per group within a frame, payload iff upsert (`deltaViolations`).
+    `closedAfterAll()` gives a file its session list: after the file all are closed, then the violations of all of them
+    are asserted together. `expectConverged(s, replica, token, group)` is the convergence check (see below).
     `Replica` applies changes (`v` newer only, tombstones), complete bootstraps (lines authoritative at the watermark,
     replacement of the group / its `models` scope) and purges; scenarios compare it with a fresh bootstrap (`stateOf`).
   - **Scenarios.** `1-protocol` (WS and SSE each): invalid token ⇒ `session_invalid` + close (1008 on WS); a message before
@@ -3135,7 +3152,9 @@ does) **and** MySQL 8.0 (binlog on).
     after the result + `noMore`; resume over SSE from `task_id`/`offset` 1 ⇒ the rest; another user / a missing job ⇒
     `log_closed{forbidden}`. `6-client` (WS and SSE): F2's `openData`: workspace bootstrap → live; keyed write ⇒
     `whenSynced(group, echo)` resolves with the issue in the pool; a second session on the same IndexedDB resumes from the
-    persisted positions and has the offline edits; collaborator added ⇒ appears in the pool, removed ⇒ `revoked` event and
+    persisted positions and has the offline edits (asserted as a resume: the persisted issues are in the pool once hydrated,
+    and the data layer, given a recording `fetch`, never bootstraps the group again; a client without persisted positions
+    fails both); collaborator added ⇒ appears in the pool, removed ⇒ `revoked` event and
     purged. `7-restart`: graceful stop ⇒ `notice{shutdown}` + close 1001, resume after the restart converges (nothing lost of
     writes made just before); **forced crash**: below.
   - **How the crash is forced.** A SQL session holds `livesync_meta` `log_head` `FOR UPDATE` (every writer transaction locks
@@ -3153,16 +3172,40 @@ does) **and** MySQL 8.0 (binlog on).
     reconnect scenario failed once on MySQL in the Go harness for exactly that reason (the deletes were unkeyed, so not yet
     in the log at their response). A test that wants "one state per entity" first makes its writes keyed (in the log at the
     response) and lets the hub catch up (`barrier_ok` in any session) before resuming — as `1-protocol` now does. Not a
-    server bug.
-  - **Data.** Every file creates its own users (`<prefix>-<base36 time+seq>`, via the admin API) and repositories, so files and
-    runs are independent; the dev databases keep them (and the capture triggers, as after every livesync dev run).
+    server bug. **Corrected in review round 1 — two more things a test must know:**
+    (a) *A barrier covers only what is in the sync log when it arrives* (`barrier_ok.sync_id` = the head read then). An
+    unkeyed API v1 write is answered before the materializer has logged it, so "write, barrier, assert nothing arrived"
+    is vacuous whenever the barrier wins the race (reproduced: ≈ 1 run in 6). Every negative check after a write
+    (`group_revoked`, repo made private, `4-gap`'s per-viewer state) now uses a keyed (or gap) write and asserts
+    `barrier_ok.sync_id ≥ echo`; `replay_too_long` keys its last create (MAX_REPLAY + 1 entries must all be in the log at
+    subscribe time; the hub needs strictly more than MAX_REPLAY), and `cursor_trimmed` keys the write that moves the head
+    above the watermark (it failed once on PG for that reason during this round).
+    (b) *Some writes are followed by asynchronous writes of the same entity.* `UpdateLabel` queues a label stats
+    recalculation (`stats.QueueRecalcLabelByID`); the queue's `Update(&Label{})` ~1–2 s later bumps `updated_unix`
+    (`xorm:"updated"`), a second captured change with its own sync id, logged after the keyed rename's echo and possibly
+    after any barrier (milestones and other `stats.Queue*` users likewise). So "the replica after barrier B equals a
+    bootstrap taken later" is a race (the MySQL failure: replica `updated_at` :48, bootstrap :49). Convergence is now
+    asserted only over a quiet window (`expectConverged`): barrier B1, bootstrap (watermark W, B1 ≤ W), barrier B2
+    (W ≤ B2); if no change of the group arrived between B1 and B2, the replica (state at B1) must equal the bootstrap
+    (state at W); otherwise try again (until 20 s, then the last comparison fails with its diff — a lost change never
+    converges). Used by `1-protocol`'s reconnect and both `7-restart` scenarios. F5/F8: compare a client with a bootstrap
+    the same way, never "after a barrier".
+  - **Data.** Every file creates its own users (`<prefix>-<base36 time+seq>`, via the admin API) and repositories, so files
+    are independent; with `dev-forgejo.sh conformance` they live in `forgejo_conformance`, dropped at the start of the next
+    run (or at the end of a passing one). Pointed at another server (`FORGEJO_URL`), the suite leaves them, a PAT per file
+    on the admin, a dropped-and-repaired label trigger and a raised-then-restored `log_floor` behind: use a throwaway one.
   - **Known gaps.** (1) Slow consumers (`resume_from_cursor`, 1013) are not exercised: a Node client cannot stop reading a
     WebSocket, and the kernel absorbs ≈ 4 MB; B5/B8's Go tests cover it. (2) OAuth tokens are not used (PATs with `all`
     scopes; B8's `TestLivesyncOAuth` covers the PKCE flow and that its token passes `hello`). (3) Crash *before* the commit
     (runs once) is B7's Go test only. (4) MariaDB not run. (5) In the Go harness `7-restart` is skipped (in-process
     server). (6) No permessage-deflate assertion (Node's WebSocket client negotiates what it supports; B5's Go client
-    covers compression).
-  - **For F5/F8.** Reuse `conformance/sync.ts` (`Session`, positions, invariant checks), `replica.ts` and `forgejo.ts`
+    covers compression). (7) **Follow-up (duplication):** `conformance/sse.ts` `FetchEventSource` is a near copy of the
+    class inside F2's `integration/sync.test.ts` (they already differ: the suite's accepts `data:` without the space, as
+    the SSE spec allows, and treats a non-2xx response as an error). It cannot be shared without editing F2's test file,
+    which B10 was told not to touch; whoever next edits `integration/` should move it to one module (e.g.
+    `integration/sse.ts`) that both import.
+  - **For F5/F8.** Reuse `conformance/sync.ts` (`Session`, positions, invariant checks, `closedAfterAll`,
+    `expectConverged`), `replica.ts` and `forgejo.ts`
     (`WebSession` for classic-UI forms) rather than re-writing them; `dev-forgejo.sh kill/stop/start` and `sql.holdLogHead()`
     are the fault-injection hooks; the Go wrapper shows how a Node suite runs in the harness.
   - **Commands run.** `next/tools/dev-forgejo.sh conformance all` three times (34/34 per database before the graceful-restart
@@ -3172,6 +3215,23 @@ does) **and** MySQL 8.0 (binlog on).
     skipped, ≈ 23 s; no testlogger "FATAL ERROR"); the sensitivity check above; in `next/`: `npm run lint`, `npm run typecheck`, `npm test` (292 unit tests, unchanged);
     gofumpt, `go vet` and golangci-lint (`./tests/integration/...`, 0 issues) on the Go test; `git diff package-lock.json`
     empty; fork-diff check (§2.2) unchanged.
+  - **Review round 1 (2026-10-08), all seven findings fixed.** (1) Reconnect convergence flaked on async label recalcs ⇒
+    `expectConverged` (quiet window), contract note corrected (above). (2) `conformance` took over the shared dev server
+    (same port/work dir/pidfile/database, rewrote its `app.ini`, killed and stopped it, left data behind) ⇒ isolated
+    instances (above); verified the §1.2 dev `app.ini` and `forgejo` database untouched by a run. (3) The leak invariant
+    exempted every `User` upsert ⇒ only the viewer's own (`viewer_id` stored from the welcome); `0-oracle.test.ts` tests it.
+    (4) Unkeyed write + barrier negative checks ⇒ keyed writes, `barrier_ok ≥ echo` asserted (also `cursor_trimmed`,
+    `4-gap`), `replay_too_long` keys its last create. (5) `6-client`'s resume could not tell a resume from a re-bootstrap ⇒
+    asserts the persisted issues after hydration and no bootstrap of the group (recording `fetch` passed through
+    `env.transport.fetch`); **sensitivity checked**: with the second session on a fresh `IDBFactory` both assertions fail
+    (`expected [] to deeply equal ArrayContaining ["two"]`; `expected [ 'repo:1', … ] to not include 'repo:1'`), WS and SSE.
+    (6) `load` accepted framing the app rejects ⇒ `parseLoaded` (strict, self-tested with 8 malformed bodies). (7)
+    Duplicated harness ⇒ `integration/setup.ts` reused via `setupFiles`, one `closedAfterAll()` (closes every session
+    first, then asserts all violations) replaces the five copied `afterAll` blocks; `FetchEventSource` recorded as a
+    follow-up (Known gaps 7). Commands: `dev-forgejo.sh conformance all` 3× (the last two with the final code; 48/48 per database, 0 `[E]`/`[F]` lines),
+    `1-protocol` + `7-restart` 4× per database (one `cursor_trimmed` failure on PG led to (4)'s fix there), the sensitivity
+    check above; `TestLivesyncConformance` on PG and MySQL (46 pass, 2 `7-restart` skipped); `npm run typecheck`, ESLint
+    on `conformance/`, `npm test` (292, unchanged); `package.json`/`package-lock.json` unchanged.
 
 ### Frontend
 

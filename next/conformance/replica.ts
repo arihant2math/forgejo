@@ -19,8 +19,7 @@ export interface Loaded {
   header: BootstrapHeader;
   /** The group's own entity lines, then the profiles of other groups (their own g). */
   changes: Change[];
-  /** Absent when the response was cut (incomplete). */
-  end: BootstrapEnd | undefined;
+  end: BootstrapEnd;
   headers: Headers;
 }
 
@@ -51,20 +50,41 @@ export async function load(token: string, group: string, o: {path?: 'bootstrap' 
       continue;
     }
     if (!res.ok || !res.body) throw new LoadError(res.status, await res.text());
-    let header: BootstrapHeader | undefined;
-    let end: BootstrapEnd | undefined;
-    const changes: Change[] = [];
-    for await (const lines of ndjsonLines(res.body)) {
-      for (const line of lines) {
-        const v = JSON.parse(line) as BootstrapHeader | BootstrapEnd | Change;
-        if ('type' in v && v.type === 'header') header = v;
-        else if ('type' in v) end = v;
-        else changes.push(v);
+    return {status: res.status, headers: res.headers, ...await parseLoaded(res.body, group)};
+  }
+}
+
+/**
+ * Reads a bootstrap/load NDJSON body as strictly as the app's loader
+ * (src/sync/bootstrap.ts): one header first, of the group asked for; entity
+ * lines; one end line last, with nothing after it. Anything else — and a
+ * response cut before its end line — throws.
+ */
+export async function parseLoaded(body: ReadableStream<Uint8Array>, group: string): Promise<{header: BootstrapHeader; changes: Change[]; end: BootstrapEnd}> {
+  let header: BootstrapHeader | undefined;
+  let end: BootstrapEnd | undefined;
+  const changes: Change[] = [];
+  for await (const lines of ndjsonLines(body)) {
+    for (const line of lines) {
+      const v = JSON.parse(line) as {type?: string};
+      if (end) throw new Error(`load ${group}: data after the end line`);
+      if (v.type === 'header') {
+        if (header) throw new Error(`load ${group}: second header`);
+        header = v as BootstrapHeader;
+        if (header.group !== group) throw new Error(`load ${group}: header of ${header.group}`);
+      } else if (v.type === 'end') {
+        if (!header) throw new Error(`load ${group}: end line before the header`);
+        end = v as BootstrapEnd;
+      } else if (v.type !== undefined) {
+        throw new Error(`load ${group}: unknown line type ${v.type}`);
+      } else {
+        if (!header) throw new Error(`load ${group}: entity before the header`);
+        changes.push(v as Change);
       }
     }
-    if (!header) throw new Error(`load ${group}: no header`);
-    return {status: res.status, header, changes, end, headers: res.headers};
   }
+  if (!header || !end) throw new Error(`load ${group}: incomplete response (no ${header ? 'end line' : 'header'})`);
+  return {header, changes, end};
 }
 
 interface Held {
@@ -90,7 +110,6 @@ export class Replica {
 
   /** Applies a complete bootstrap: its lines, then the replacement of the group (at the watermark). */
   bootstrap(b: Loaded): void {
-    if (!b.end) throw new Error(`incomplete bootstrap of ${b.header.group}`);
     const w = b.header.watermark;
     const got = new Set<string>();
     for (const c of b.changes) {

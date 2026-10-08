@@ -22,15 +22,26 @@ afterAll(async () => {
   for (const d of opened) await d.close();
 });
 
-async function open(who: Account, factory: IDBFactory, transport: 'ws' | 'sse' = 'ws'): Promise<Data> {
+interface OpenOptions {
+  /** The fetch the data layer uses (bootstraps, loads, the workspace). */
+  fetch?: typeof fetch;
+  /** Called once IndexedDB is hydrated, before waiting for the session to be live. */
+  hydrated?: (d: Data) => void;
+}
+
+async function open(who: Account, factory: IDBFactory, transport: 'ws' | 'sse' = 'ws', o: OpenOptions = {}): Promise<Data> {
   const d = await openData({
     userId: who.id,
     auth: {token: () => Promise.resolve(who.token), refresh: () => Promise.resolve(who.token)},
     endpoint: `${env.url}/-/sync`, transport, persistStorage: false,
-    env: {indexedDB: factory, IDBKeyRange, locks: null, BroadcastChannel: null, transport: {base: env.url, EventSource: FetchEventSource as unknown as typeof EventSource}},
+    env: {
+      indexedDB: factory, IDBKeyRange, locks: null, BroadcastChannel: null,
+      transport: {base: env.url, EventSource: FetchEventSource as unknown as typeof EventSource, ...(o.fetch ? {fetch: o.fetch} : {})},
+    },
   });
   opened.push(d);
   await d.hydrated;
+  o.hydrated?.(d);
   await vi.waitFor(() => {
     expect(d.status.connection).toBe('live');
   }, {timeout: 30_000});
@@ -40,6 +51,15 @@ async function open(who: Account, factory: IDBFactory, transport: 'ws' | 'sse' =
 async function close(d: Data): Promise<void> {
   await d.close();
   opened.splice(opened.indexOf(d), 1);
+}
+
+/** A fetch that records the groups bootstrapped or loaded through it. */
+function recordingFetch(groups: string[]): typeof fetch {
+  return (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (/\/-\/sync\/(?:bootstrap|load)$/.test(url.pathname)) groups.push(url.searchParams.get('group') ?? '');
+    return fetch(input, init);
+  };
 }
 
 const titles = (d: Data, repo: Repo) => [...d.pool.model('Issue').by('repo_id', repo.id)].map((e) => e.get('title')).sort();
@@ -74,18 +94,27 @@ describe.each<'ws' | 'sse'>(['ws', 'sse'])('the app\'s data layer over %s', (tra
     await close(d);
 
     // Away: changes happen. A new session hydrates what was persisted, then
-    // resumes each group from its position.
+    // resumes each group from its position: the persisted issues are there
+    // once hydrated, and the group is never bootstrapped again (a client
+    // that lost its positions would re-bootstrap and still end up right).
     await api('PATCH', `/repos/${repo.full}/issues/1`, {token: alice.token, body: {title: 'one (edited)'}});
     await createIssue(alice, repo, 'three');
-    const again = await open(alice, factory, transport);
+    const loads: string[] = [];
+    let hydrated: string[] = [];
+    const again = await open(alice, factory, transport, {fetch: recordingFetch(loads), hydrated: (x) => {
+      hydrated = titles(x, repo);
+    }});
+    expect(hydrated).toEqual(expect.arrayContaining(['two']));
     await vi.waitFor(() => {
       expect(titles(again, repo)).toEqual(['one (edited)', 'three', 'two']);
     }, {timeout: 20_000});
+    expect(loads).not.toContain(repo.group);
     await close(again);
   });
 
   test('access given appears in the pool; access taken is purged (revoked)', async () => {
-    const d = await open(bob, new IDBFactory(), transport);
+    const loads: string[] = [];
+    const d = await open(bob, new IDBFactory(), transport, {fetch: recordingFetch(loads)});
     expect(titles(d, secret)).toEqual([]);
     const revoked: string[] = [];
     d.on('revoked', (e) => revoked.push(e.group));
@@ -95,6 +124,8 @@ describe.each<'ws' | 'sse'>(['ws', 'sse'])('the app\'s data layer over %s', (tra
     await vi.waitFor(() => {
       expect(titles(d, secret)).toEqual(['secret one']);
     }, {timeout: 30_000});
+    // The recording fetch sees the bootstraps (the resume check above relies on it).
+    expect(loads).toContain(secret.group);
 
     await api('DELETE', `/repos/${secret.full}/collaborators/${bob.login}`, {token: alice.token});
     await vi.waitFor(() => {

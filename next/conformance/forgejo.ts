@@ -121,6 +121,21 @@ export function createIssue(who: Account, repo: Repo, title: string, body = ''):
   return api<IssueRef>('POST', `/repos/${repo.full}/issues`, {token: who.token, body: {title, body}});
 }
 
+/**
+ * An API v1 write with an Idempotency-Key that must succeed: answered only
+ * once its change is in the sync log, so a barrier taken after it covers it
+ * (an unkeyed write is answered before the materializer has logged it).
+ * Answers the decoded JSON and the sync id echo.
+ */
+export async function keyed(method: string, path: string, o: Omit<RequestOptions, 'key'> = {}): Promise<{body: unknown; echo: number}> {
+  const res = await request(method, `/api/v1${path}`, {...o, key: unique('key')});
+  const text = await res.text();
+  if (!res.ok) throw new HttpError(method, `/api/v1${path}`, res.status, text);
+  const echo = syncId(res);
+  if (echo === undefined) throw new Error(`${method} ${path}: no sync id echo`);
+  return {body: text === '' ? undefined : JSON.parse(text) as unknown, echo};
+}
+
 /** The sync id echo (X-Livesync-Sync-Id) of a response, or undefined. */
 export function syncId(res: Response): number | undefined {
   const v = res.headers.get('X-Livesync-Sync-Id');

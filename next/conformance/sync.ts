@@ -9,11 +9,14 @@
 // is kept (`messages`) and checked against the invariants every message must
 // hold (`violations`).
 
+import {afterAll, expect} from 'vitest';
 import type {
-  BarrierOKMessage, Change, ClientMessage, GroupRequest, ServerMessage, SubscribedMessage, WelcomeMessage,
+  BarrierOKMessage, Change, ClientMessage, DeltaMessage, GroupRequest, ServerMessage, SubscribedMessage, WelcomeMessage,
 } from '../src/protocol/types.gen.ts';
 import {openSSE, openWebSocket, type Transport} from '../src/sync/transport.ts';
 import {env} from './env.ts';
+import {sleep} from './forgejo.ts';
+import {type Loaded, type Replica, load, stateOf} from './replica.ts';
 import {FetchEventSource} from './sse.ts';
 
 export type Kind = 'ws' | 'sse';
@@ -29,6 +32,8 @@ export class Session {
   readonly messages: ServerMessage[] = [];
   /** Broken invariants (a test asserts this stays empty). */
   readonly violations: string[] = [];
+  /** The viewer (from the welcome): the only user whose profile may arrive outside a held group. */
+  viewerId: number | undefined;
   /** Set when the transport closed (WebSocket close code, if any). */
   closed: {code?: number; reason?: string} | undefined;
   /** Groups the session holds a subscription of, with the units of their last grant. */
@@ -182,10 +187,13 @@ export class Session {
   }
 
   private receive(m: ServerMessage): void {
-    this.check(m);
+    if (m.type === 'delta') this.violations.push(...deltaViolations(m, (g) => this.granted.has(g), this.viewerId));
     this.messages.push(m);
     switch (m.type) {
       case 'welcome':
+        this.viewerId = m.viewer_id;
+        for (const g of m.granted) this.granted.set(g.group, g.units);
+        break;
       case 'subscribed':
         for (const g of m.granted) this.granted.set(g.group, g.units);
         break;
@@ -217,22 +225,75 @@ export class Session {
     }
   }
 
-  /** Invariants every server message holds, whatever the scenario. */
-  private check(m: ServerMessage): void {
-    if (m.type !== 'delta') return;
-    const last = new Map<string, number>();
-    for (const c of m.changes) {
-      if (c.g === '*' || c.g.startsWith('!')) this.violations.push(`change in pseudo group ${c.g}`);
-      if (!this.granted.has(c.g) && !(c.m === 'User' && c.op === 'U')) this.violations.push(`change of ${c.g}, which the session does not hold`);
-      if ((last.get(c.g) ?? 0) >= c.v) this.violations.push(`changes of ${c.g} out of sync id order (${c.v})`);
-      if (c.op === 'U' && c.d === undefined) this.violations.push(`upsert without payload (${c.m} ${c.id})`);
-      if (c.op === 'D' && c.d !== undefined) this.violations.push(`delete with payload (${c.m} ${c.id})`);
-      last.set(c.g, c.v);
-    }
-  }
-
   private describe(from: number): string {
     return this.messages.slice(from).map((m) => m.type === 'delta' ? `delta(${m.changes.map((c) => `${c.m}:${c.id}${c.op}@${c.v}`).join(',')})` : m.type).join(' ') || 'nothing';
+  }
+}
+
+/**
+ * The invariants every delta holds, whatever the scenario: no change of a
+ * pseudo group (`*`, `!…`); no change of a group the session does not hold,
+ * except an upsert of the viewer's own profile (the hub sends it outside the
+ * viewer's groups, WelcomeMessage.profile) — anyone else's profile outside
+ * a held group is a leak; sync ids ascending per group within the frame; a
+ * payload exactly on upserts.
+ */
+export function deltaViolations(m: DeltaMessage, holds: (group: string) => boolean, viewerId: number | undefined): string[] {
+  const out: string[] = [];
+  const last = new Map<string, number>();
+  for (const c of m.changes) {
+    if (c.g === '*' || c.g.startsWith('!')) out.push(`change in pseudo group ${c.g}`);
+    const ownProfile = c.m === 'User' && c.op === 'U' && viewerId !== undefined && c.id === viewerId;
+    if (!holds(c.g) && !ownProfile) out.push(`change of ${c.g} (${c.m} ${c.id} ${c.op}), which the session does not hold`);
+    if ((last.get(c.g) ?? 0) >= c.v) out.push(`changes of ${c.g} out of sync id order (${c.v})`);
+    if (c.op === 'U' && c.d === undefined) out.push(`upsert without payload (${c.m} ${c.id})`);
+    if (c.op === 'D' && c.d !== undefined) out.push(`delete with payload (${c.m} ${c.id})`);
+    last.set(c.g, c.v);
+  }
+  return out;
+}
+
+/**
+ * The sessions a test file opens (push them): after the file all of them
+ * are closed, then the invariant violations of all of them are asserted
+ * together (each labelled with its session), so one failing session neither
+ * leaves the others open nor hides their violations.
+ */
+export function closedAfterAll(): Session[] {
+  const list: Session[] = [];
+  afterAll(() => {
+    for (const s of list) s.close();
+    expect(list.flatMap((s, i) => s.violations.map((v) => `session ${i} (${s.kind}): ${v}`))).toEqual([]);
+  });
+  return list;
+}
+
+/**
+ * Asserts that `replica`, fed with every change of `group` the session `s`
+ * received (from message `from` on), equals a fresh bootstrap of the group.
+ * Server-side writes can follow a write asynchronously (e.g. a label's
+ * stats recalculation, a queue job ~1–2 s after the rename, rewrites the
+ * label and its updated_at), so the comparison is made only over a quiet
+ * window: barrier B1, the bootstrap (watermark W, B1 ≤ W), barrier B2
+ * (W ≤ B2); when no change of the group arrived between B1 and B2, the
+ * group's state at B1 (the replica) is its state at W (the bootstrap) and
+ * they must be equal. Otherwise it tries again, until `timeout` — then the
+ * last comparison fails with its diff (a missed change never converges).
+ */
+export async function expectConverged(s: Session, replica: Replica, token: string, group: string, o: {from?: number; timeout?: number} = {}): Promise<Loaded> {
+  const deadline = Date.now() + (o.timeout ?? 20_000);
+  for (;;) {
+    await s.barrier();
+    const quietFrom = s.mark;
+    for (const c of s.changes((x) => x.g === group, o.from ?? 0)) replica.apply(c);
+    const fresh = await load(token, group);
+    await s.barrier();
+    const quiet = s.changes((x) => x.g === group, quietFrom).length === 0;
+    if (quiet || Date.now() > deadline) {
+      expect(replica.state(group), `${group}: replica vs a fresh bootstrap${quiet ? '' : ' (the group never stayed quiet)'}`).toEqual(stateOf(fresh));
+      return fresh;
+    }
+    await sleep(250);
   }
 }
 

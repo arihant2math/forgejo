@@ -7,19 +7,13 @@
 // group_revoked — after which the client purges the group and nothing of it
 // reaches the session any more.
 
-import {afterAll, beforeAll, describe, expect, test} from 'vitest';
+import {beforeAll, describe, expect, test} from 'vitest';
 import type {Issue} from '../src/protocol/types.gen.ts';
-import {type Account, type Repo, api, createIssue, createRepo, createUser} from './forgejo.ts';
+import {type Account, type Repo, api, createIssue, createRepo, createUser, keyed} from './forgejo.ts';
 import {LoadError, Replica, load} from './replica.ts';
-import {type Session, connect} from './sync.ts';
+import {closedAfterAll, connect} from './sync.ts';
 
-const open: Session[] = [];
-afterAll(() => {
-  for (const s of open) {
-    s.close();
-    expect(s.violations).toEqual([]);
-  }
-});
+const open = closedAfterAll();
 
 async function session(who: Account, groups?: Parameters<typeof connect>[2]) {
   const r = await connect('ws', who.token, groups);
@@ -118,9 +112,11 @@ describe('permissions', () => {
     await back.s.next('group_revoked', (m) => m.group === secret.group, {from});
     replica.purge(secret.group);
     expect(replica.count(secret.group)).toBe(0);
+    // A keyed write is in the sync log when answered, so the barrier after
+    // it covers it (with an unkeyed one the check could pass vacuously).
     const revokedAt = back.s.mark;
-    await createIssue(alice, secret, 'not for bob');
-    await back.s.barrier();
+    const {echo} = await keyed('POST', `/repos/${secret.full}/issues`, {token: alice.token, body: {title: 'not for bob'}});
+    expect((await back.s.barrier()).sync_id).toBeGreaterThanOrEqual(echo);
     expect(back.s.changes((c) => c.g === secret.group, revokedAt)).toEqual([]);
     expect((await loadStatus(bob.token, secret.group)).status).toBe(404);
     const again = await back.s.subscribe([{group: secret.group}]);
@@ -138,8 +134,8 @@ describe('permissions', () => {
     await api('PATCH', `/repos/${pub.full}`, {token: alice.token, body: {private: true}});
     await s.next('group_revoked', (m) => m.group === pub.group, {from});
     await s.next('group_revoked', (m) => m.group === `issue:${issue.id}`, {from});
-    await api('POST', `/repos/${pub.full}/issues/${issue.number}/comments`, {token: alice.token, body: {body: 'hidden'}});
-    await s.barrier();
+    const {echo} = await keyed('POST', `/repos/${pub.full}/issues/${issue.number}/comments`, {token: alice.token, body: {body: 'hidden'}});
+    expect((await s.barrier()).sync_id).toBeGreaterThanOrEqual(echo);
     expect(s.changes((c) => c.g === pub.group || c.g === `issue:${issue.id}`, from)).toEqual([]);
     // Its owner still gets everything.
     const owner = await session(alice, [{group: `issue:${issue.id}`}]);

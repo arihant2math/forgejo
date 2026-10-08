@@ -6,21 +6,15 @@
 // (replay then live, converging with a fresh bootstrap), and the
 // bootstrap_required reasons a client can be sent.
 
-import {afterAll, beforeAll, describe, expect, test} from 'vitest';
+import {beforeAll, describe, expect, test} from 'vitest';
 import type {Issue, IssueBody, Label} from '../src/protocol/types.gen.ts';
 import {canSQL, env} from './env.ts';
-import {type Account, type Repo, api, createIssue, createRepo, createUser, request, syncId, unique} from './forgejo.ts';
-import {Replica, load, stateOf} from './replica.ts';
-import {type Kind, Session, connect} from './sync.ts';
+import {type Account, type Repo, api, createIssue, createRepo, createUser, keyed, request, syncId, unique} from './forgejo.ts';
+import {Replica, load} from './replica.ts';
+import {type Kind, Session, closedAfterAll, connect, expectConverged} from './sync.ts';
 import {sql} from './sql.ts';
 
-const open: Session[] = [];
-afterAll(() => {
-  for (const s of open) {
-    s.close();
-    expect(s.violations).toEqual([]);
-  }
-});
+const open = closedAfterAll();
 
 async function session(kind: Kind, who: Account, groups?: Parameters<typeof connect>[2]) {
   const r = await connect(kind, who.token, groups);
@@ -74,7 +68,7 @@ describe.each<Kind>(['ws', 'sse'])('%s', (kind) => {
   test('bootstrap → subscribe from the watermark → live deltas; the write echo and barriers', async () => {
     const b = await load(alice.token, repo.group);
     expect(b.header).toMatchObject({type: 'header', group: repo.group, tier: 'summary'});
-    expect(b.end?.count).toBe(b.changes.filter((c) => c.g === repo.group).length);
+    expect(b.end.count).toBe(b.changes.filter((c) => c.g === repo.group).length);
     expect(b.changes.every((c) => c.v === b.header.watermark && c.op === 'U')).toBe(true);
     const issue = b.changes.find((c) => c.m === 'Issue' && c.id === first.id);
     expect((issue?.d as Issue).title).toBe('first issue');
@@ -168,12 +162,11 @@ describe.each<Kind>(['ws', 'sse'])('%s', (kind) => {
     const from = two.s.mark;
     const after = await createIssue(alice, repo, 'after resume');
     replica.apply(await two.s.change((c) => c.m === 'Issue' && c.id === after.id, {from}));
-    await two.s.barrier();
-    for (const c of two.s.changes((x) => x.g === repo.group, from)) replica.apply(c);
 
-    // The replica equals a fresh bootstrap.
-    const fresh = await load(alice.token, repo.group);
-    expect(replica.state(repo.group)).toEqual(stateOf(fresh));
+    // The replica equals a fresh bootstrap (compared while the group is
+    // quiet: each rename queues a label stats recalculation that rewrites
+    // the label ~1–2 s later, after the echo and possibly after a barrier).
+    await expectConverged(two.s, replica, alice.token, repo.group);
   });
 });
 
@@ -199,9 +192,13 @@ describe('bootstrap_required', () => {
   test.skipIf(env.maxReplay === undefined)('replay_too_long: more than MAX_REPLAY entries to replay; nothing of them is sent', async () => {
     const max = env.maxReplay ?? 0;
     const b = await load(alice.token, repo.group);
-    for (let i = 0; i <= max; i++) {
+    // MAX_REPLAY + 1 entries after the watermark (the hub needs more than
+    // MAX_REPLAY). The last create is keyed, so all of them are in the sync
+    // log before the subscribe (an unkeyed one may not be yet).
+    for (let i = 0; i < max; i++) {
       await api('POST', `/repos/${repo.full}/labels`, {token: alice.token, body: {name: `l${i}`, color: '#00aabb'}});
     }
+    await keyed('POST', `/repos/${repo.full}/labels`, {token: alice.token, body: {name: `l${max}`, color: '#00aabb'}});
     const {s} = await session('ws', alice);
     const from = s.mark;
     await s.subscribe([{group: repo.group, since: b.header.watermark}]);
@@ -219,8 +216,12 @@ describe('bootstrap_required', () => {
     const {s} = await session('ws', alice);
     const b = await load(alice.token, repo.group);
     await s.subscribeCaughtUp([{group: repo.group, since: b.header.watermark}]);
-    await createIssue(alice, repo, 'moves the head');
+    // Keyed: in the sync log when answered, so the barrier (and the floor
+    // below) is above the watermark (with an unkeyed write it may not be,
+    // and the position would not be below the floor).
+    const {echo} = await keyed('POST', `/repos/${repo.full}/issues`, {token: alice.token, body: {title: 'moves the head'}});
     const ok = await s.barrier();
+    expect(ok.sync_id).toBeGreaterThanOrEqual(echo);
     // Retention trimmed everything up to the head (the floor only moves up;
     // the rows stay, so the old floor is put back afterwards).
     const floor = await sql.meta('log_floor');

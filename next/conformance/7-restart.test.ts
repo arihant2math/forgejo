@@ -21,9 +21,9 @@ import {exec} from 'node:child_process';
 import type {Issue} from '../src/protocol/types.gen.ts';
 import {canCrash, canRestart, env} from './env.ts';
 import {type Account, type Repo, api, createIssue, createRepo, createUser, eventually, request, syncId, unique} from './forgejo.ts';
-import {Replica, load, stateOf} from './replica.ts';
+import {Replica, load} from './replica.ts';
 import {type OpenTx, sql} from './sql.ts';
-import {type Session, connect} from './sync.ts';
+import {closedAfterAll, connect, expectConverged} from './sync.ts';
 
 function shell(cmd: string | undefined): Promise<void> {
   if (!cmd) throw new Error('no command');
@@ -40,12 +40,11 @@ async function issuesTitled(who: Account, repo: Repo, title: string): Promise<{i
   return list.filter((i) => i.title === title);
 }
 
-const open: Session[] = [];
+const open = closedAfterAll();
 let hold: OpenTx | undefined;
 
 afterAll(async () => {
   await hold?.rollback();
-  for (const s of open) s.close();
   // Whatever happened, leave the server running for the next file / run.
   const up = await fetch(`${env.url}/api/v1/version`).then((r) => r.ok, () => false);
   if (!up && env.startCmd) await shell(env.startCmd);
@@ -73,12 +72,8 @@ describe.skipIf(!canRestart)('a graceful restart', () => {
     const again = await connect('ws', alice.token, [{group: repo.group, since: cursor}]);
     open.push(again.s);
     await again.s.next('caught_up');
-    await again.s.barrier();
-    for (const c of again.s.changes((x) => x.g === repo.group)) replica.apply(c);
-    const fresh = await load(alice.token, repo.group);
+    await expectConverged(again.s, replica, alice.token, repo.group);
     expect(replica.state(repo.group, 'Issue').size).toBe(5);
-    expect(replica.state(repo.group)).toEqual(stateOf(fresh));
-    expect(again.s.violations).toEqual([]);
   });
 });
 
@@ -145,10 +140,7 @@ describe.skipIf(!canCrash)('a crash between the commit and the idempotency recor
     const mine = after.s.changes((c) => c.m === 'Issue' && (c.d as Issue | undefined)?.title === title);
     expect(new Set(mine.map((c) => c.id))).toEqual(new Set([issue.id]));
     expect(mine[0]?.v).toBeLessThanOrEqual(echo ?? 0);
-    for (const c of after.s.changes((x) => x.g === repo.group)) replica.apply(c);
-    const fresh = await load(alice.token, repo.group);
+    const fresh = await expectConverged(after.s, replica, alice.token, repo.group);
     expect(fresh.changes.filter((c) => c.m === 'Issue' && (c.d as Issue).title === title)).toHaveLength(1);
-    expect(replica.state(repo.group)).toEqual(stateOf(fresh));
-    expect(after.s.violations).toEqual([]);
   });
 });

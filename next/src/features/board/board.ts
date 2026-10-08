@@ -42,15 +42,17 @@ export function orderColumns(columns: Iterable<ProjectColumn>): ProjectColumn[] 
   return [...columns].sort((a, b) => a.sorting - b.sorting || a.id - b.id);
 }
 
-/** `moves`: pending moves by card, in the order they were made. */
-export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Card>, moves: ReadonlyMap<number, Move>, shown: (issueId: number) => boolean): BoardLayout {
+/** `moves`: every pending move, in the order made ([card, move]; a card can be moved more than once). */
+export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Card>, moves: Iterable<readonly [number, Move]>, shown: (issueId: number) => boolean): BoardLayout {
+  const pending = [...moves];
+  const moved = new Set(pending.map(([id]) => id));
   const cols = orderColumns(columns);
   const defaultColumn = (cols.find((c) => c.default) ?? cols[0])?.id;
   const out = new Map<number, number[]>();
   for (const c of cols) out.set(c.id, []);
   const placed: Card[] = [];
   for (const c of cards) {
-    if (moves.has(c.issueId) || !shown(c.issueId)) continue;
+    if (moved.has(c.issueId) || !shown(c.issueId)) continue;
     placed.push(c);
   }
   placed.sort((a, b) => a.sorting - b.sorting || a.id - b.id);
@@ -58,9 +60,13 @@ export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Ca
     const col = out.has(c.column) ? c.column : defaultColumn;
     if (col !== undefined) out.get(col)?.push(c.issueId);
   }
-  // Pending moves in the order they were made (`moves` is in that order), each against the layout the earlier ones left.
-  for (const [issueId, m] of moves) {
-    if (!shown(issueId) || !out.has(m.column)) continue;
+  // Pending moves in the order they were made, each against the layout the earlier ones left (as B9 applies them in turn).
+  for (const [issueId, m] of pending) {
+    if (!shown(issueId)) continue;
+    for (const l of out.values()) {
+      const at = l.indexOf(issueId);
+      if (at >= 0) l.splice(at, 1);
+    }
     const list = out.get(m.column);
     if (!list) continue;
     list.splice(Math.max(0, Math.min(m.position, list.length)), 0, issueId);

@@ -287,6 +287,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       <PageHeader icon={KanbanSquare} context={<ProjectContext project={project}/>} title={project.get('title')}>
         {closed && <Badge tone="done">Closed</Badge>}
         {hidden > 0 && <Badge>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Badge>}
+        <ClosedTierBadge repoId={project.get('repo_id')}/>
       </PageHeader>
       <ContextMenu onOpenChange={(o) => {
         if (!o) setMenuCard(undefined);
@@ -321,6 +322,16 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       <DropIndicator ref={indicatorRef}/>
     </>
   );
+});
+
+/** While older closed issues load (their cards count in positions), and when some stay out (the page cap). */
+const ClosedTierBadge = observer(function ClosedTierBadge({repoId}: {repoId: number}) {
+  const {data} = useSession();
+  if (!repoId) return null;
+  const pager = closedPager(data, `repo:${String(repoId)}`);
+  if (pager.done) return null;
+  if (pager.pages < CLOSED_PAGES) return pager.loading ? <Badge>Loading older closed cards…</Badge> : null;
+  return <Badge tone="warning">Older closed cards may be missing</Badge>;
 });
 
 /** A card's menu: the issue's actions (as in lists and the palette) and moves to other columns (touch included). */

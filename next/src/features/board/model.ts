@@ -94,7 +94,7 @@ export class BoardModel {
   private compute(): BoardLayout {
     this.rev.reportObserved();
     const field = `~board:${String(this.projectId)}`;
-    const moves = this.overlay.fieldOverrides('Issue', field) as Map<number, Move>;
+    const moves = this.overlay.fieldLayers('Issue', field) as [number, Move][];
     return untracked(() => {
       const t0 = performance.now();
       const issues = this.pool.model('Issue');

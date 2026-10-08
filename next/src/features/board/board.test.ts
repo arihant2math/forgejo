@@ -61,6 +61,19 @@ describe('boardLayout', () => {
     expect(both.cards.get(12)).toEqual([10, 21, 11, 12, 20, 13]);
   });
 
+  test('a card moved twice while another move is pending: every move replayed in order, as the server does', () => {
+    const cards = [card(10, 12, 1), card(11, 12, 2), card(20, 10, 1), card(21, 10, 2)];
+    const moves: [number, Move][] = [[20, {column: 12, position: 0}], [21, {column: 12, position: 2}], [20, {column: 12, position: 3}]];
+    const server = [10, 11];
+    for (const [id, m] of moves) {
+      const at = server.indexOf(id);
+      if (at >= 0) server.splice(at, 1);
+      server.splice(m.position, 0, id);
+    }
+    expect(boardLayout(cols, cards, moves, all).cards.get(12)).toEqual(server);
+    expect(server).toEqual([10, 21, 11, 20]);
+  });
+
   test('a move into a column that is gone leaves the card out until the server answers', () => {
     const l = boardLayout(cols, [card(1, 10, 1)], new Map([[1, {column: 77, position: 0}]]), all);
     expect([...l.cards.values()].flat()).toEqual([]);

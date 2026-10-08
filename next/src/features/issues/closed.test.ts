@@ -60,3 +60,22 @@ describe('closed tier pager', () => {
     }
   });
 });
+
+test('stopped offline: the callers watching `loading` are woken when the connection comes back', async () => {
+  const {autorun} = await import('mobx');
+  const {data, calls} = fakeData([{next: undefined, count: 3}]);
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  const p = closedPager(data, 'repo:933');
+  const stop = autorun(() => {
+    if (!p.done && !p.loading) p.more();
+  });
+  expect(calls).toHaveLength(0);
+  online.mockReturnValue(true);
+  window.dispatchEvent(new Event('online'));
+  await vi.waitFor(() => {
+    expect(p.done).toBe(true);
+  });
+  expect(calls).toEqual([undefined]);
+  stop();
+  online.mockRestore();
+});

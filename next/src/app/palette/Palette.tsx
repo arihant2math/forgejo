@@ -278,12 +278,13 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
         .filter((i) => i !== undefined).map((issue) => ({issue, repo: repoOf(issue.repo_id)})).filter((r) => r.repo !== undefined)
         .slice(0, Math.max(0, 12 - shown.size)));
       // Nothing new (the scan filled the slots, as it usually does): no render.
-      setAnswer((m) => (same(m) && !local.length && !m.value.local.length ? m : {query, value: {local, server: same(m) ? m.value.server : []}}));
+      // Nothing to show either way (the scan filled the slots, as it usually does): no render.
+      setAnswer((m) => (!local.length && !m.value.local.length && !m.value.server.length ? m : {query, value: {local, server: same(m) ? m.value.server : []}}));
     }).catch(() => undefined);
     const timer = q.length >= 2 && connectivity.online ? setTimeout(() => {
       void searchServer(app, q, ctl.signal).then((server) => {
         if (ctl.signal.aborted) return;
-        setAnswer((m) => (same(m) && !server.length && !m.value.server.length ? m : {query, value: {local: same(m) ? m.value.local : [], server}}));
+        setAnswer((m) => (!server.length && !m.value.server.length && !m.value.local.length ? m : {query, value: {local: same(m) ? m.value.local : [], server}}));
       }).catch(() => undefined);
     }, SERVER_DELAY) : undefined;
     return () => {

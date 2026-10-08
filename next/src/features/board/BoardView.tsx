@@ -43,6 +43,9 @@ import {BoardDnd, SLOT} from './dnd.ts';
 import {rememberBoard} from '../../app/lastBoard.ts';
 import {BoardModel} from './model.ts';
 
+/** Closed-tier pages a board loads at most (B6: ≤ 500 issues each by default). */
+const CLOSED_PAGES = 4;
+
 export function BoardPage() {
   const {id: raw = ''} = useParams({strict: false});
   const id = /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;
@@ -56,13 +59,14 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   const repoId = project?.get('repo_id') ?? 0;
   // A repository's project: its issues (the cards) are in the repository's group.
   useHold(data, repoId ? `repo:${String(repoId)}` : undefined);
-  // Cards of older closed issues are in the repository's closed tier (B6): the board shows every card (positions
-  // count them all, B9), so it pages that tier in while it is open.
+  // Cards of older closed issues are in the repository's closed tier (B6), and B9 counts them in positions: the
+  // board pages that tier in while it is open — at most CLOSED_PAGES pages (the device does not know whether a
+  // closed issue is on the board until it has it; a repository with more old closed issues keeps the rest out).
   useEffect(() => {
     if (!repoId) return undefined;
     const pager = closedPager(data, `repo:${String(repoId)}`);
     return autorun(() => {
-      if (!pager.done && !pager.loading) pager.more();
+      if (!pager.done && !pager.loading && pager.pages < CLOSED_PAGES) pager.more();
     });
   }, [data, repoId]);
   useEffect(() => {

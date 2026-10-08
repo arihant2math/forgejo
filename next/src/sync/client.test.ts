@@ -77,7 +77,7 @@ describe('first session', () => {
     expect(t.c.isHeld('profiles:public')).toBe(true);
     expect(t.c.status.connection).toBe('catching_up');
 
-    ws.emit({type: 'subscribed', granted: [{group: 'repo:1', units: ['issues']}, {group: 'profiles:public', units: []}], refused: []});
+    ws.grantSubscribes({'repo:1': ['issues']});
     ws.emit({type: 'caught_up', sync_id: 25});
     expect(t.c.status.connection).toBe('live');
     expect(t.c.groups.get('repo:1')?.position).toBe(25);
@@ -249,7 +249,7 @@ describe('revocation and release', () => {
     await vi.waitFor(() => {
       expect(t.pool.model('Issue').size).toBe(1);
     });
-    ws.emit({type: 'subscribed', granted: [{group: 'repo:1', units: []}, {group: 'issue:7', units: []}], refused: []});
+    ws.grantSubscribes();
     // A move (D + U in one frame) is not a drop.
     ws.emit({type: 'delta', to: 23, changes: [{v: 22, g: 'repo:1', m: 'Issue', id: 7, op: 'D'}, {...issueChange(7, 23, 'moved'), g: 'repo:1'}]});
     expect(t.c.isHeld('issue:7')).toBe(true);
@@ -509,6 +509,40 @@ describe('review regressions', () => {
     });
     expect(t.pool.model('Issue').get(7)).toBeUndefined();
     expect(t.c.groups.get('repo:1')?.units).toEqual(['issues']);
+  });
+
+  test('a late answer to a superseded subscribe does not count for the group held again', async () => {
+    const meta = new MetaCache();
+    meta.set('schemas', clientSchemas());
+    const t = setup({meta});
+    t.server.boots.set('repo:1', [{watermark: 20}, {watermark: 40}]);
+    const ws = await connected(t);
+    ws.emit(welcome());
+    t.c.hold('repo:1', 'tab:a');
+    await vi.waitFor(() => {
+      expect(ws.last('subscribe')?.groups).toEqual([{group: 'repo:1', since: 20}]);
+    });
+    t.c.release('repo:1', 'tab:a');
+    t.c.groups.update('repo:1', (x) => {
+      x.holders = [];
+    });
+    t.c.hold('repo:2', 'tab:z'); // recompute: repo:1 released
+    expect(ws.last('unsubscribe')?.groups).toEqual(['repo:1']);
+    let open!: () => void;
+    t.server.boots.set('repo:1', [{watermark: 40, gate: new Promise<void>((r) => {
+      open = r;
+    })}]);
+    t.c.hold('repo:1', 'tab:a');
+    // The answer to the first subscribe arrives now, then a frame: neither concerns the new hold.
+    ws.emit({type: 'subscribed', granted: [{group: 'repo:1', units: []}], refused: []});
+    ws.emit({type: 'caught_up', sync_id: 30});
+    ws.emit({type: 'delta', to: 50, changes: []});
+    expect(t.c.groups.get('repo:1')?.position).toBeUndefined();
+    open();
+    await vi.waitFor(() => {
+      expect(t.c.groups.get('repo:1')?.position).toBe(40);
+    });
+    expect(ws.sent.filter((m) => m.type === 'subscribe').at(-1)?.groups).toEqual([{group: 'repo:1', since: 40}]);
   });
 
   test('a grant for a group released meanwhile is unsubscribed, its deltas ignored', async () => {

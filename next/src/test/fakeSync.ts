@@ -50,6 +50,18 @@ export class FakeWS {
     this.onmessage?.({data: JSON.stringify(msg)});
   }
 
+  private answered = 0;
+
+  /** Answers every subscribe not answered yet, one `subscribed` each (as the server does), granting all. */
+  grantSubscribes(units: Record<string, string[]> = {}): void {
+    const subs = this.sent.filter((m) => m.type === 'subscribe');
+    for (const m of subs.slice(this.answered)) {
+      const groups = (m.groups as {group: string}[]).map((g) => ({group: g.group, units: units[g.group] ?? []}));
+      this.emit({type: 'subscribed', granted: groups, refused: []});
+    }
+    this.answered = subs.length;
+  }
+
   last(type: string): Sent | undefined {
     return this.sent.filter((m) => m.type === type).at(-1);
   }

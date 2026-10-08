@@ -6,7 +6,7 @@ import {autorun, configure} from 'mobx';
 import {describe, expect, test} from 'vitest';
 import type {Issue} from '../protocol/types.gen.ts';
 import {replaceGroup} from '../sync/replace.ts';
-import {Pool} from './pool.ts';
+import {MAX_TOMBSTONES, Pool} from './pool.ts';
 
 configure({enforceActions: 'never'});
 
@@ -58,6 +58,21 @@ describe('write primitives', () => {
     expect(p.evict('Issue', 3, 'repo:1', 8)).toBe(false);
     expect(p.put('Issue', 1, 'repo:1', 8, issue(1, 1, 'stale'))).toBe(false);
     expect([...p.groupEntities('repo:1')].map((e) => e.id)).toEqual([2]);
+  });
+
+  test('tombstones rotate in two generations: the newest always hold, eviction stays cheap', () => {
+    const p = new Pool();
+    const n = MAX_TOMBSTONES * 2;
+    const t0 = performance.now();
+    p.batch(() => {
+      for (let i = 1; i <= n; i++) p.del('Issue', i, 'repo:1', i + 1);
+    });
+    expect(performance.now() - t0).toBeLessThan(2000);
+    // The last MAX_TOMBSTONES / 2 at least are kept.
+    for (let i = n - MAX_TOMBSTONES / 2 + 1; i <= n; i += 997) expect(p.put('Issue', i, 'repo:1', i, issue(i, 1, 'stale'))).toBe(false);
+    // A floor covering the group drops its tombstones (and makes them unnecessary).
+    p.setFloor('repo:1', n + 1);
+    expect(p.put('Issue', n, 'repo:1', n, issue(n, 1, 'stale'))).toBe(false);
   });
 
   test('purgeGroup drops the group and blocks its older states', () => {

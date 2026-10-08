@@ -218,9 +218,16 @@ const KIND_BUCKETS: Record<GroupKind, number> = {repo: 32, profiles: 32, user: 8
 /** Upper bound of every bucket number (key ranges over a whole group). */
 export const MAX_BUCKETS = 1024;
 
+const bucketCounts = new Map<string, number>();
+
 export function bucketOf(g: string, id: number): number {
-  const kind = groupKind(g);
-  const n = kind ? KIND_BUCKETS[kind] : 1;
+  let n = bucketCounts.get(g);
+  if (n === undefined) {
+    const kind = groupKind(g);
+    n = kind ? KIND_BUCKETS[kind] : 1;
+    if (bucketCounts.size > 100_000) bucketCounts.clear();
+    bucketCounts.set(g, n);
+  }
   return ((id % n) + n) % n;
 }
 
@@ -244,7 +251,9 @@ export class Pool {
   readonly stores: {readonly [M in ModelName]: ModelStore<M>};
   private readonly byGroup = new Map<string, Set<Entity>>();
   /** Tombstones, oldest first: key (m, id, g) → v. */
-  private readonly tombs = new Map<string, number>();
+  private tombs = new Map<string, number>();
+  /** The previous generation of tombstones (two generations of MAX_TOMBSTONES / 2 each: evicting is O(1)). */
+  private tombsOld = new Map<string, number>();
   /** The tombstone keys of each group (dropped when a floor or purge covers them). */
   private readonly tombsByGroup = new Map<string, Set<string>>();
   private readonly purged = new Map<string, number>();
@@ -329,7 +338,7 @@ export class Pool {
     const held = store._map.get(id);
     if (held && v <= held._v) return false;
     const stale = (marker: number | undefined) => marker !== undefined && (authoritative ? v < marker : v <= marker);
-    if (stale(this.tombs.get(tombKey(m, id, g)))) return false;
+    if (stale(this.getTomb(tombKey(m, id, g)))) return false;
     if (stale(this.purged.get(g))) return false;
     if (this.belowFloor(m, g, v, d, authoritative)) return false;
     this.upsert(store, held, id, g, v, d, true);
@@ -437,7 +446,7 @@ export class Pool {
     for (const r of records) {
       this.seen(r.v);
       const held = store._map.get(r.id);
-      const t = this.tombs.size ? this.tombs.get(tombKey(m, r.id, r.g)) : undefined;
+      const t = this.tombs.size || this.tombsOld.size ? this.getTomb(tombKey(m, r.id, r.g)) : undefined;
       const p = this.purged.size ? this.purged.get(r.g) : undefined;
       if ((held && r.v <= held._v) || (t !== undefined && r.v <= t) || (p !== undefined && r.v <= p) || this.belowFloor(m, r.g, r.v, r.d)) {
         // A stale persisted record (or a second copy left by a crash mid-flush): rewrite its bucket from memory.
@@ -558,23 +567,32 @@ export class Pool {
     const p = this.purged.get(g);
     if (p !== undefined && v <= p) return;
     const k = tombKey(m, id, g);
-    const t = this.tombs.get(k);
-    if (t !== undefined) {
-      if (t >= v) return;
-      this.tombs.delete(k); // re-insert: keeps the map in age order
-    }
+    const t = this.getTomb(k);
+    if (t !== undefined && t >= v) return;
     this.tombs.set(k, v);
+    this.tombsOld.delete(k);
     let keys = this.tombsByGroup.get(g);
     if (!keys) this.tombsByGroup.set(g, keys = new Set());
     keys.add(k);
-    if (this.tombs.size > MAX_TOMBSTONES) {
-      const oldest = this.tombs.keys().next();
-      if (!oldest.done) this.dropTomb(oldest.value);
+    if (this.tombs.size >= MAX_TOMBSTONES / 2) {
+      // Rotate: the oldest generation goes as a whole.
+      for (const old of this.tombsOld.keys()) this.unindexTomb(old);
+      this.tombsOld = this.tombs;
+      this.tombs = new Map();
     }
+  }
+
+  private getTomb(k: string): number | undefined {
+    return this.tombs.get(k) ?? this.tombsOld.get(k);
   }
 
   private dropTomb(k: string): void {
     this.tombs.delete(k);
+    this.tombsOld.delete(k);
+    this.unindexTomb(k);
+  }
+
+  private unindexTomb(k: string): void {
     const g = k.slice(k.lastIndexOf('\0') + 1);
     const keys = this.tombsByGroup.get(g);
     keys?.delete(k);
@@ -585,7 +603,7 @@ export class Pool {
   private dropTombs(g: string, v: number): void {
     const keys = this.tombsByGroup.get(g);
     if (!keys) return;
-    for (const k of [...keys]) if ((this.tombs.get(k) ?? 0) <= v) this.dropTomb(k);
+    for (const k of [...keys]) if ((this.getTomb(k) ?? 0) <= v) this.dropTomb(k);
   }
 
   private markBucket(m: ModelName, g: string, b: number): void {

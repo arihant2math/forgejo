@@ -203,6 +203,7 @@ export class Persister {
       }
       if (laterMeta.size) this.meta.restoreDirty(laterMeta);
     }
+    if (!meta.size && ![...dirty.values()].some((groups) => groups.size)) return; // everything deferred
     const writes: BucketWrite[] = [];
     for (const [m, groups] of dirty) {
       const store: ModelStore = this.pool.stores[m];

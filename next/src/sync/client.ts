@@ -105,6 +105,8 @@ export interface SyncClientOptions {
 interface Sub {
   granted: boolean;
   caughtUp: boolean;
+  /** The request (hello or subscribe) whose answer decides this subscription. */
+  req: number;
 }
 
 interface Session {
@@ -117,6 +119,14 @@ interface Session {
   /** Groups the server refused for the subscription limit (retried when room frees up, or next session). */
   limited: Set<string>;
   everCaughtUp: boolean;
+  /**
+   * The hello and subscribes not answered yet, in order: the server answers
+   * them in order (welcome, subscribed), so an answer belongs to the oldest.
+   * A group's answer counts only if it answers the group's latest request —
+   * not a request the group was unsubscribed and re-requested since.
+   */
+  pending: number[];
+  reqSeq: number;
 }
 
 const RECENT = 'recent';
@@ -371,6 +381,7 @@ export class SyncClient {
     const session: Session = {
       transport: undefined as unknown as Transport,
       welcomed: false, subs: new Map(), barriers: new Map(), ping: undefined, pong: undefined, limited: new Set(), everCaughtUp: false,
+      pending: [], reqSeq: 0,
     };
     this.session = session;
     session.transport = open(this.o.endpoint, handlers, this.o.env);
@@ -393,8 +404,8 @@ export class SyncClient {
       const s = this.groups.get(g);
       if (s?.position === undefined) continue;
       groups.push({group: g, since: s.position});
-      session.subs.set(g, {granted: false, caughtUp: false});
     }
+    this.request(session, groups);
     const hello: ClientMessage = {type: 'hello', token, protocol: ProtocolVersion, groups};
     if (this.o.clientId) hello.client_id = this.o.clientId;
     if (this.o.buildId) hello.build_id = this.o.buildId;
@@ -449,7 +460,7 @@ export class SyncClient {
         this.welcome(session, msg);
         break;
       case 'subscribed':
-        this.granted(session, msg.granted, msg.refused);
+        this.granted(session, session.pending.shift(), msg.granted, msg.refused);
         break;
       case 'delta':
         this.delta(session, msg);
@@ -536,7 +547,7 @@ export class SyncClient {
       const p = msg.profile;
       this.pool.batch(() => this.pool.put(p.m as ModelName, p.id, p.g, p.v, p.d as never));
     }
-    this.granted(session, msg.granted, msg.refused);
+    this.granted(session, session.pending.shift(), msg.granted, msg.refused);
     this.o.meta.set('grants', msg.grants);
     // Every session: the workspace may have changed while the client was away (cheap, one request).
     void this.refreshWorkspace();
@@ -546,12 +557,9 @@ export class SyncClient {
     for (const g of this.live) {
       const s = this.groups.get(g);
       if (s?.position === undefined || s.needs) this.enqueue(g);
-      if (s?.position !== undefined && !session.subs.has(g) && !session.limited.has(g)) {
-        session.subs.set(g, {granted: false, caughtUp: false});
-        late.push({group: g, since: s.position});
-      }
+      if (s?.position !== undefined && !session.subs.has(g) && !session.limited.has(g)) late.push({group: g, since: s.position});
     }
-    if (late.length) this.send({type: 'subscribe', groups: late});
+    this.subscribe(session, late);
     session.ping = setInterval(() => {
       if (this.session !== session) return;
       this.send({type: 'ping', id: 'k'});
@@ -563,18 +571,32 @@ export class SyncClient {
     this.pump();
   }
 
-  private granted(session: Session, granted: Grant[] | null, refused: Refusal[] | null): void {
+  /** Registers subscriptions requested by the next hello or subscribe (sent by the caller). */
+  private request(session: Session, groups: readonly GroupRequest[]): void {
+    const req = ++session.reqSeq;
+    session.pending.push(req);
+    for (const g of groups) session.subs.set(g.group, {granted: false, caughtUp: false, req});
+  }
+
+  private subscribe(session: Session, groups: GroupRequest[]): void {
+    if (!groups.length) return;
+    this.request(session, groups);
+    this.send({type: 'subscribe', groups});
+    this.updateConnection(session);
+  }
+
+  private granted(session: Session, req: number | undefined, granted: Grant[] | null, refused: Refusal[] | null): void {
+    // Answers for a request the group no longer waits on (it was unsubscribed — the server
+    // processed that after this answer — and maybe requested again) are ignored.
+    const current = (g: string) => {
+      const sub = session.subs.get(g);
+      return sub !== undefined && sub.req === req ? sub : undefined;
+    };
     for (const gr of list(granted)) {
-      if (!this.live.has(gr.group)) {
-        // Released while the request was on its way.
-        session.subs.delete(gr.group);
-        this.send({type: 'unsubscribe', groups: [gr.group]});
-        continue;
-      }
-      const sub = session.subs.get(gr.group) ?? {granted: false, caughtUp: false};
+      const sub = current(gr.group);
+      if (!sub) continue;
       sub.granted = true;
       sub.caughtUp = false;
-      session.subs.set(gr.group, sub);
       session.limited.delete(gr.group);
       const s = this.groups.get(gr.group);
       // The units rule: a grant with other units than the held entities were filtered by.
@@ -584,6 +606,7 @@ export class SyncClient {
       }
     }
     for (const r of list(refused)) {
+      if (!current(r.group)) continue;
       session.subs.delete(r.group);
       if (r.reason === 'limit') {
         session.limited.add(r.group);
@@ -798,11 +821,7 @@ export class SyncClient {
     if (!this.groups.get(group)) this.groups.update(group, () => undefined);
     const s = this.groups.get(group);
     const session = this.session;
-    if (s?.position !== undefined && session?.welcomed && !session.subs.has(group)) {
-      session.subs.set(group, {granted: false, caughtUp: false});
-      this.send({type: 'subscribe', groups: [{group, since: s.position}]});
-      this.updateConnection(session);
-    }
+    if (s?.position !== undefined && session?.welcomed && !session.subs.has(group)) this.subscribe(session, [{group, since: s.position}]);
     if (s?.position === undefined || s.needs) this.enqueue(group);
   }
 
@@ -824,8 +843,7 @@ export class SyncClient {
     const pos = retry === undefined ? undefined : this.groups.get(retry)?.position;
     if (session && retry !== undefined && pos !== undefined) {
       session.limited.delete(retry);
-      session.subs.set(retry, {granted: false, caughtUp: false});
-      this.send({type: 'subscribe', groups: [{group: retry, since: pos}]});
+      this.subscribe(session, [{group: retry, since: pos}]);
     }
   }
 
@@ -981,25 +999,30 @@ export class SyncClient {
   }
 
   private async bootstrap(group: string): Promise<void> {
-    const s = this.groups.get(group);
-    if (!s || !this.live.has(group)) return;
+    if (!this.groups.get(group) || !this.live.has(group)) return;
     const ctrl = new AbortController();
     this.running.set(group, ctrl);
     this.setStatus({loading: this.queue.size + this.running.size});
-    const needs = s.needs;
-    // A model re-bootstrap needs a full one underneath it.
-    const models = needs && !needs.all && s.watermark !== undefined ? needs.models : undefined;
-    let res: LoadResult | undefined;
     let err: unknown;
+    let ok = false;
     try {
-      res = await this.exclusive(group, async () => {
+      // The group's state is read inside the group's lock: a reset or closed page queued ahead changes it.
+      ok = await this.exclusive(group, async () => {
         await this.o.ensureHydrated?.(group);
-        return load(this.pool, {
+        const st = this.groups.get(group);
+        if (!st || ctrl.signal.aborted || !this.live.has(group)) return false;
+        const needs = st.needs;
+        // A model re-bootstrap needs a full one underneath it.
+        const models = needs && !needs.all && st.watermark !== undefined ? needs.models : undefined;
+        const res = await load(this.pool, {
           endpoint: this.o.endpoint, token: await this.o.auth.token(), group, models, signal: ctrl.signal,
-          heldUnits: this.groups.get(group)?.units, kind: groupKind(group) === 'issue' ? 'load' : 'bootstrap',
+          heldUnits: st.units, kind: groupKind(group) === 'issue' ? 'load' : 'bootstrap',
           live: () => !ctrl.signal.aborted && this.live.has(group),
           ...(this.o.env?.fetch ? {fetch: this.o.env.fetch} : {}),
         });
+        if (this.isStopped() || !this.live.has(group)) return false; // aborted: released or stopped
+        this.loaded(group, res, needs, models);
+        return true;
       });
     } catch (e) {
       err = e;
@@ -1009,11 +1032,7 @@ export class SyncClient {
       this.pump();
       return;
     }
-    if (res) {
-      this.loaded(group, res, needs, models);
-    } else {
-      await this.loadFailed(group, err);
-    }
+    if (!ok && err !== undefined) await this.loadFailed(group, err);
     this.o.persister.schedule();
     this.pump();
   }
@@ -1047,9 +1066,7 @@ export class SyncClient {
     this.recompute();
     const session = this.session;
     if (session?.welcomed && !session.subs.has(group) && !session.limited.has(group) && st.position !== undefined) {
-      session.subs.set(group, {granted: false, caughtUp: false});
-      this.send({type: 'subscribe', groups: [{group, since: st.position}]});
-      this.updateConnection(session);
+      this.subscribe(session, [{group, since: st.position}]);
     }
     if (st.needs) this.enqueue(group);
   }
@@ -1102,6 +1119,11 @@ export class SyncClient {
       }
     });
     return run;
+  }
+
+  /** A method: TypeScript would narrow a read of the field across awaits. */
+  private isStopped(): boolean {
+    return this.stopped;
   }
 
   private now(): number {

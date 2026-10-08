@@ -1574,3 +1574,30 @@ export interface Grants {
   viewer_id: number /* int64 */;
   grants: Grant[];
 }
+
+//////////
+// source: writes.go
+
+/**
+ * HeaderIdempotencyKey is the request header that makes an API v1
+ * write idempotent (the contract: services/livesync/protocol/writes.go).
+ */
+export const HeaderIdempotencyKey = "Idempotency-Key";
+/**
+ * HeaderSyncID is the response header with the sync log position that
+ * covers the write (decimal): every entry produced from what the write
+ * committed has v at or below it, so a group whose position is at or
+ * above it holds the write's effect. Absent when the changes did not
+ * reach the log within IDEMPOTENCY_SYNC_WAIT.
+ */
+export const HeaderSyncID = "X-Livesync-Sync-Id";
+/**
+ * HeaderIdempotentReplay ("true") marks a stored response replayed for
+ * a retry.
+ */
+export const HeaderIdempotentReplay = "X-Livesync-Idempotent-Replay";
+/**
+ * HeaderBodyOmitted ("true") marks a replayed response whose body was
+ * too large to store (over 16 MiB): status and headers only.
+ */
+export const HeaderBodyOmitted = "X-Livesync-Body-Omitted";

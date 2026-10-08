@@ -23,6 +23,7 @@ import (
 	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/hub"
+	"forgejo.org/services/livesync/idempotency"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/synclog"
@@ -56,6 +57,7 @@ type instance struct {
 	writer chan struct{} // closed when the writer role has stopped
 	perms  *perm.Cache
 	hub    *hub.Hub
+	idem   *idempotency.Service
 }
 
 // readerStopTimeout bounds how long Shutdown waits for the outbox reader
@@ -128,16 +130,22 @@ func Init(ctx context.Context) error {
 		SendBuffer: s.SendBuffer, MaxSubscriptions: s.MaxSubscriptions, MaxConnections: s.MaxConnections,
 		MaxReplay: s.MaxReplay, RevalidateInterval: s.SessionCheckInterval,
 	}, head)
-	// The hub and the tailer start at the same position: the hub's
-	// subscriptions go live at the position the tailer delivered.
-	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, head, permSink{cache: perms, next: hb})
+	idem, err := idempotency.Start(instCtx, idempotency.Config{TTL: s.IdempotencyTTL, SyncWait: s.IdempotencySyncWait})
 	if err != nil {
 		cancel()
+		return err
+	}
+	// The hub and the tailer start at the same position: the hub's
+	// subscriptions go live at the position the tailer delivered.
+	tailer, err := synclog.StartTailer(instCtx, synclog.TailerConfig{PollInterval: s.PollInterval}, head, permSink{cache: perms, next: hb, delivered: idem.Notify})
+	if err != nil {
+		cancel()
+		idem.Stop(readerStopTimeout)
 		return fmt.Errorf("livesync: start the sync log tailer: %w", err)
 	}
 	writer := make(chan struct{})
-	go runWriter(instCtx, s, tailer, writer)
-	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms, hub: hb}
+	go runWriter(instCtx, s, tailer, idem, writer)
+	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms, hub: hb, idem: idem}
 	log.Info("livesync: started (db=%s, install mode=%s)", setting.Database.Type, s.InstallMode)
 	return nil
 }
@@ -260,6 +268,9 @@ func shutdownLocked() {
 	}
 	if !current.tailer.Wait(readerStopTimeout) {
 		log.Warn("livesync: the sync log tailer did not stop within %s", readerStopTimeout)
+	}
+	if !current.idem.Stop(readerStopTimeout) {
+		log.Warn("livesync: the idempotency store did not stop within %s", readerStopTimeout)
 	}
 	current = nil
 }

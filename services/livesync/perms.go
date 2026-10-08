@@ -23,6 +23,10 @@ import (
 type permSink struct {
 	cache *perm.Cache
 	next  synclog.Sink
+	// delivered, if not nil, is called after every batch: idempotent
+	// writes waiting for the materializer re-check (B7; a remote writer's
+	// progress shows up here).
+	delivered func()
 }
 
 func (s permSink) Deliver(ctx context.Context, entries []livesync_model.LogEntry) {
@@ -38,6 +42,9 @@ func (s permSink) Deliver(ctx context.Context, entries []livesync_model.LogEntry
 		s.cache.Invalidate(ch)
 	}
 	s.next.Deliver(ctx, entries)
+	if s.delivered != nil {
+		s.delivered()
+	}
 }
 
 // Skipped drops every cached grant: epochs among the trimmed entries are

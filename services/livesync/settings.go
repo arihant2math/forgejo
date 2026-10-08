@@ -10,6 +10,7 @@ import (
 
 	"forgejo.org/modules/setting"
 	"forgejo.org/services/livesync/hub"
+	"forgejo.org/services/livesync/idempotency"
 	"forgejo.org/services/livesync/perm"
 )
 
@@ -85,6 +86,14 @@ type Settings struct {
 	// WORKSPACE_MAX_REPOS (default 200): the repositories GET
 	// /-/sync/workspace lists at most (most recently updated first) (B6).
 	WorkspaceMaxRepos int
+	// IDEMPOTENCY_TTL (default 168h = 7 days): how long the response of an
+	// API v1 write sent with an Idempotency-Key is kept for retries (B7).
+	IdempotencyTTL time.Duration
+	// IDEMPOTENCY_SYNC_WAIT (default 2s): how long such a write waits at
+	// most for its changes to reach the sync log before it answers; without
+	// them in the log it answers without X-Livesync-Sync-Id. 0 = do not
+	// wait (the header is set only if they are there already) (B7).
+	IdempotencySyncWait time.Duration
 }
 
 // Setting holds the settings loaded by the last call to Init.
@@ -135,6 +144,15 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	s.WorkspaceMaxRepos = sec.Key("WORKSPACE_MAX_REPOS").MustInt(200)
 	if s.SummaryRecency <= 0 || s.WorkspaceMaxRepos <= 0 {
 		return s, fmt.Errorf("invalid [livesync] SUMMARY_RECENCY %s / WORKSPACE_MAX_REPOS %d (want > 0)", s.SummaryRecency, s.WorkspaceMaxRepos)
+	}
+	if s.IdempotencyTTL, err = sec.Key("IDEMPOTENCY_TTL").MustDuration(idempotency.DefaultTTL); err != nil {
+		return s, fmt.Errorf("invalid [livesync] IDEMPOTENCY_TTL: %w", err)
+	}
+	if s.IdempotencySyncWait, err = sec.Key("IDEMPOTENCY_SYNC_WAIT").MustDuration(idempotency.DefaultSyncWait); err != nil {
+		return s, fmt.Errorf("invalid [livesync] IDEMPOTENCY_SYNC_WAIT: %w", err)
+	}
+	if s.IdempotencyTTL <= 0 || s.IdempotencySyncWait < 0 {
+		return s, fmt.Errorf("invalid [livesync] IDEMPOTENCY_TTL %s / IDEMPOTENCY_SYNC_WAIT %s (want > 0 / >= 0)", s.IdempotencyTTL, s.IdempotencySyncWait)
 	}
 	if s.SendBuffer <= 0 || s.MaxSubscriptions <= 0 || s.MaxConnections <= 0 || s.MaxReplay <= 0 || s.SessionCheckInterval <= 0 {
 		return s, fmt.Errorf("invalid [livesync] SEND_BUFFER %d / MAX_SUBSCRIPTIONS %d / MAX_CONNECTIONS_PER_USER %d / MAX_REPLAY %d / SESSION_CHECK_INTERVAL %s (want > 0)",

@@ -10,6 +10,7 @@ import (
 
 	"forgejo.org/modules/log"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/idempotency"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/synclog"
 )
@@ -34,12 +35,13 @@ var (
 // runWriter is the writer role (PLAN §4.11 invariant 2): until ctx is done
 // it competes for the sync log writer lease, and while it holds it, it runs
 // the outbox reader with the materializer as consumer, the schema epoch
-// check, the entity index backfill and the log retention. Every instance
+// check, the entity index backfill, the log retention and the cleanup of
+// expired idempotency records. Every instance
 // runs it; exactly one at a time is the writer (the others retry).
-func runWriter(ctx context.Context, s Settings, tailer *synclog.Tailer, done chan<- struct{}) {
+func runWriter(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempotency.Service, done chan<- struct{}) {
 	defer close(done)
 	for {
-		err := lead(ctx, s, tailer)
+		err := lead(ctx, s, tailer, idem)
 		if ctx.Err() != nil {
 			return
 		}
@@ -56,7 +58,7 @@ func runWriter(ctx context.Context, s Settings, tailer *synclog.Tailer, done cha
 
 // lead acquires the writer lease and does the writer's work until the lease
 // is lost or ctx is done.
-func lead(ctx context.Context, s Settings, tailer *synclog.Tailer) error {
+func lead(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempotency.Service) error {
 	w, err := synclog.AcquireWriter(ctx, tailer.Wake)
 	if err != nil {
 		return err
@@ -66,7 +68,7 @@ func lead(ctx context.Context, s Settings, tailer *synclog.Tailer) error {
 
 	leadCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	m := materialize.New(materialize.Config{HotWindow: s.HotCoalesce}, w, stop)
+	m := materialize.New(materialize.Config{HotWindow: s.HotCoalesce, Consumed: idem.Notify}, w, stop)
 	if err := m.Prepare(leadCtx); err != nil {
 		return err
 	}
@@ -118,6 +120,11 @@ func lead(ctx context.Context, s Settings, tailer *synclog.Tailer) error {
 				}
 			} else {
 				log.Debug("livesync: sync log retention done, oldest available cursor %d", floor)
+			}
+			if n, err := idempotency.Cleanup(leadCtx, s.IdempotencyTTL); err != nil && leadCtx.Err() == nil {
+				log.Error("livesync: idempotency records cleanup: %v", err)
+			} else if n > 0 {
+				log.Debug("livesync: deleted %d expired idempotency records", n)
 			}
 			retention.Reset(retentionInterval)
 		case <-backfill.C:

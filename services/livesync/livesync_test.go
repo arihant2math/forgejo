@@ -27,6 +27,7 @@ func TestLoadSettings(t *testing.T) {
 			SendBuffer:   4 << 20, MaxSubscriptions: 1000, MaxConnections: 16, MaxReplay: 10000,
 			SessionCheckInterval: 5 * time.Minute,
 			SummaryRecency:       90 * 24 * time.Hour, WorkspaceMaxRepos: 200,
+			IdempotencyTTL: 7 * 24 * time.Hour, IdempotencySyncWait: 2 * time.Second,
 		}
 		fn(&s)
 		return s
@@ -66,6 +67,10 @@ func TestLoadSettings(t *testing.T) {
 		{"[livesync]\nSUMMARY_RECENCY = 0\n", Settings{}, true},
 		{"[livesync]\nSUMMARY_RECENCY = later\n", Settings{}, true},
 		{"[livesync]\nWORKSPACE_MAX_REPOS = 0\n", Settings{}, true},
+		{"[livesync]\nIDEMPOTENCY_TTL = 24h\nIDEMPOTENCY_SYNC_WAIT = 0\n", def(func(s *Settings) { s.IdempotencyTTL, s.IdempotencySyncWait = 24*time.Hour, 0 }), false},
+		{"[livesync]\nIDEMPOTENCY_TTL = 0\n", Settings{}, true},
+		{"[livesync]\nIDEMPOTENCY_SYNC_WAIT = -1s\n", Settings{}, true},
+		{"[livesync]\nIDEMPOTENCY_SYNC_WAIT = briefly\n", Settings{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.ini, func(t *testing.T) {

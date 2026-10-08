@@ -1501,7 +1501,9 @@ does) **and** MySQL 8.0 (binlog on).
       reconnect with a refreshed token** (there is no in-session token refresh message; a possible addition). Keep-alive: WS ping /
       SSE comment every 25 s. Graceful shutdown: `notice{shutdown}` + close (1001) to every session before the instance stops (≤ 5 s).
     - **Barrier**: `barrier_ok` once the hub delivered the DB log head read at the barrier and no subscription of the session replays or
-      is held; ≤ 16 pending.
+      is held; ≤ 16 pending. (*Changed 2026-10-08, B8 issue round 3:* no replay the client asked for runs and the session's
+      `position()` — capped by the holds of rechecked / behind subscriptions — is ≥ the head; `caught_up` likewise waits only for
+      those replays and claims `position()`.)
   - **Transports.** **WebSocket** `GET /-/sync/ws` (`coder/websocket`, permessage-deflate **without context takeover** — a pooled
     compressor per message instead of a 32 KiB window + flate writer per connection; messages < 512 B uncompressed; accepted origins:
     the request host and `AppURL`'s host). **SSE fallback** `GET /-/sync/sse` (first event `session{session}`: a random 128-bit id) +
@@ -1651,7 +1653,7 @@ does) **and** MySQL 8.0 (binlog on).
       Checked and fine: `goLiveLocked` after a catch-up replay (the replayed changes are queued under the hold, before it goes —
       conservative), `suspendLocked`/`setHold` (only lowers), `Skipped` (its control messages claim nothing; holds and position change
       under `h.mu` before anything else is queued), `caught_up`/`barrier_ok` (position read under `h.mu` with `busy == 0`, i.e. no
-      holds), `pong` (`position()` reads the holds under `conn.mu`; queued after `group_revoked` now). **Residual, by design:** a writer
+      holds; *since B8 issue round 3 they read `position()`, i.e. the holds, and `busy` is gone*), `pong` (`position()` reads the holds under `conn.mu`; queued after `group_revoked` now). **Residual, by design:** a writer
       woken for another reason (frame timer, a pong) during `Deliver` can still take changes before the position store; `to` then lags
       like a quiet session's (never too high).
     - **Mechanics:** `conn.unlock()` wakes the writer after releasing `conn.mu` (`conn.wake` set by `addedLocked`/`endLocked`); the
@@ -2383,7 +2385,7 @@ does) **and** MySQL 8.0 (binlog on).
     MySQL 8.0 42 pass / 1 skip**, no testlogger "FATAL ERROR"; fork-diff check unchanged.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
-- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; no open items)
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; its issue round 3 (a permanently behind subscription blocked the session's worker: no token re-validation, no replays for new subscriptions, no `caught_up`/`barrier_ok`) fixed 2026-10-08 — see *Burst backpressure, issue round 3*; no open items)
 - **Scope:** `services/livesync/oauthapp` (ensure a public client, redirect
   `{AppURL}-/next/callback`, PKCE; confirm scope behaviour with/without
   `ENABLE_ADDITIONAL_GRANT_SCOPES`; expose client_id to the SPA via the inlined config).
@@ -2592,7 +2594,7 @@ does) **and** MySQL 8.0 (binlog on).
       control messages, so a pong / `bootstrap_required` / `barrier_ok` during a burst does not overflow; one change larger than
       that may still enter an empty queue). The subscription goes to `stateRecheck` with **`sub.behind`**, cursor = hold = `v − 1`
       (everything of its group up to there is queued), `busy++` — for the client it stays caught up (frames claim ≤ its hold,
-      `barrier_ok`/`caught_up` wait for it). Nothing of the burst is kept in memory: the session's worker **pages through the log**
+      `barrier_ok`/`caught_up` wait for it; *superseded by issue round 3: they no longer wait for it, they claim ≤ its hold*). Nothing of the burst is kept in memory: the session's worker **pages through the log**
       (`Hub.catchUp`: `waitRoom` first, then `synclog.ReadKeys(group, cursor, until, 500)` + payloads, `replayPlan` per page —
       newest state per entity within the page, markers capped as in replays) **without `MAX_REPLAY`** (the client is connected and
       reads; it would have got these live) and **raises the hold to each page's end once the page is queued**
@@ -2683,6 +2685,44 @@ does) **and** MySQL 8.0 (binlog on).
       golangci-lint (`services/livesync/...`, `routers/livesync/...`, `models/livesync/...`: 0 issues), deadcode diff clean,
       `gen-protocol.sh --check` up to date; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
       MariaDB not run (no trigger change).
+    - **Issue round 3 (2026-10-08): a permanently behind subscription blocked the session's worker.** *Root cause:* `Hub.process`
+      ran a subscription until it was live: a behind one called `catchUp` page after page until `cursor ≥ h.pos`. When the group is
+      written faster than the client reads (≈ 50 writes/s of ≈ 1 KiB to one group against a client at ≈ 52 KB/s, within PLAN §4.11's
+      10× target; or a client holding a revoked token that reads slowly on purpose) it never got there, so the worker never returned
+      to `drainWork`: no periodic token/account re-validation (`SESSION_CHECK_INTERVAL`; the revalidate ticker was not even read, it
+      lives in `workLoop`'s `select`), and nothing else in `c.work` ran (replays of new subscriptions, re-checks of other suspended
+      subscriptions). Old since B5; round 2 made it reachable (before it, such a client was closed with `resume_from_cursor` and its
+      reconnect re-authenticated). Also, `caught_up` and `barrier_ok` waited for `busy == 0`, which counted behind and rechecked
+      subscriptions, so even with the worker free they never came while one subscription stayed behind. *Fix:* (1) `process` does
+      **one step** (a permission check, one replay range up to the hub's position, or one catch-up page) and, unless `s` is live or
+      gone, appends it back to `c.work` (no kick: the worker is in `drainWork`); `MaxReplay`'s count moved from a local to
+      `sub.scanned` (reset when a replay starts — `subscribeLocked`'s `gen++` — and in `goLiveLocked`). (2) `drainWork` polls the
+      revalidate ticker between steps (non-blocking; `workLoop` passes the tick it consumed as `due`), so `revalidateSession` runs
+      between two pages. (3) `conn.busy` → **`conn.replaying`** / `sub.replaying`: only replays the client asked for (hello /
+      subscribe with a since, set in `subscribeLocked`'s replay branch, also for a re-subscribed `stateRecheck` subscription; cleared
+      in `goLiveLocked` / `removeSubLocked`). `caught_up` waits for `replaying == 0` and claims `c.position()` (≤ every hold);
+      `checkBarrierLocked` answers when `replaying == 0` and `position() ≥ head`, with `position()`, and runs again after each page
+      raised a hold. Rechecked/behind subscriptions are caught up for the client (frames were already capped by their holds), so
+      this keeps the protocol's meaning (`caught_up`: every replay asked for is done, every group complete up to `sync_id`;
+      `barrier_ok`: everything up to the barrier's head was sent); when no subscription is rechecked or behind, `position()` is the
+      hub's position, as before. Latency bounds now: re-validation and other work wait at most one step — a catch-up page (≤ 500
+      entries) or one replay range (≤ `MAX_REPLAY` in total for a replay); keep-alive pings still run only when the worker is idle
+      (data flows during a catch-up). Doc comments (package doc, `process`, `drainWork`, `caughtUpLocked`, `checkBarrierLocked`,
+      `conn.replaying`) updated; no wire, setting or metric change.
+      *Tests (`hub/behind_test.go`):* `behindClient`: SEND_BUFFER 256 KiB, DRAIN_TIMEOUT 1 s, client reads 500 B/ms after
+      `caught_up`, a writer appends 5 × 1 KiB labels to `repo:1` and delivers every ≈ 2 ms (≈ 1.7 k entries/s here); the test requires
+      `repo:1` behind, and still behind 1 s later. **`TestBehindRevalidates`** (`RevalidateInterval` 50 ms; the authenticator starts
+      refusing: `session_invalid` + close 1008 within 5 s), **`TestBehindOtherWork`** (a barrier, then `subscribe
+      repo:2` since before its 2 delivered entries: `subscribed`, both replayed, `caught_up` and `barrier_ok ≥ head` while `repo:1` is
+      still behind, neither claiming an entry of `repo:1` not yet received — checked against the log). With the old `conn.go`/
+      `hub.go`/`replay.go`/`session.go` (`go test -overlay`) both fail: no `session_invalid` within 5 s; no `caught_up`/`barrier_ok`
+      within 20 s. `TestBurstReachesFastClient` asserts `replaying == 0` instead of `busy == 0`.
+      *Commands:* hub package `-race -count=8` green (136 s) and `-count=1` without race; every livesync / `routers/livesync` /
+      `models/livesync` unit test package; `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 50 pass, 3 MySQL-only skips) and
+      MySQL 8.0 binlog on (52 pass, 1 skip), `TestLivesyncHub*` `-test.count 3` on both, no testlogger "FATAL ERROR"; gofumpt,
+      `go vet`, golangci-lint (`services/livesync/...`, `routers/livesync/...`, `models/livesync/...`: 0 issues), deadcode diff
+      clean; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change);
+      protocol untouched (`gen-protocol.sh` not needed).
     - **B9 gap (one log-tail poller per job) left as is:** sharing a poller across sessions means cross-session state in the hub
       (one reader per job feeding sessions with different offsets/tasks, per-session permission checks every 10 s, per-session
       room waits and pending lines, restarts handed between goroutines) — a new concurrency surface, not a cheap change; still

@@ -129,3 +129,26 @@ test('held keys repeat movement only; non-Latin layouts use the key\'s position'
   press(r, 'ш', {code: 'KeyI'});
   expect(ran).toEqual(['next', 'issues']);
 });
+
+test('a listbox keeps its keys unless it opts in to the app shortcuts (an issue list)', () => {
+  const r = new ShortcutRegistry({apple: false});
+  const runs: string[] = [];
+  r.bind('list.next', () => runs.push('next'));
+  r.pushScope('list');
+  const plain = document.createElement('div');
+  plain.setAttribute('role', 'listbox');
+  const list = document.createElement('div');
+  list.setAttribute('role', 'listbox');
+  list.setAttribute('data-shortcuts', '');
+  document.body.append(plain, list);
+  const press = (target: Element) => {
+    const e = new KeyboardEvent('keydown', {key: 'j', bubbles: true, cancelable: true});
+    Object.defineProperty(e, 'target', {value: target});
+    return r.handle(e);
+  };
+  expect(press(plain)).toBe(false);
+  expect(press(list)).toBe(true);
+  expect(runs).toEqual(['next']);
+  plain.remove();
+  list.remove();
+});

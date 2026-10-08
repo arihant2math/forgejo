@@ -15,6 +15,8 @@ import {requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint, type ShortcutId} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
+import {issueActions} from '../../features/issues/actions.ts';
+import {issuesOf} from '../../features/issues/edits.ts';
 import {type Narrowing, score, searchPool, type SearchResults} from './search.ts';
 
 type Navigate = ReturnType<typeof useNavigate>;
@@ -119,12 +121,28 @@ function PaletteBody({app}: {app: App}) {
     close();
     fn();
   };
-  const nothing = !commands.length && !results.repos.length && !results.issues.length;
+  // The actions on the issues the keyboard is on (the list's selection or cursor, the open issue).
+  const [target] = useState(() => untracked(() => issuesOf(app, app.ui.issueTarget)));
+  const actions = untracked(() => issueActions(app, target, {navigate: (path) => void navigate({to: path})}))
+    .filter((a) => !words.length || score(`${a.label} ${a.keywords ?? ''}`.toLowerCase(), words) >= 0);
+  const targetName = untracked(() => (target.length === 1 ? `#${String(target[0]?.data.number)} ${target[0]?.data.title ?? ''}` : `${String(target.length)} selected`));
+  const nothing = !commands.length && !actions.length && !results.repos.length && !results.issues.length;
   return (
     <>
       <CommandInput value={query} onValueChange={setQuery} placeholder="Search repositories, issues and commands…"/>
       <CommandList>
         {nothing && <CommandEmpty>Nothing found on this device.</CommandEmpty>}
+        {actions.length > 0 && (
+          <CommandGroup heading={targetName}>
+            {actions.map((a) => (
+              <CommandItem key={a.id} value={`act:${a.id}`} icon={a.icon} shortcut={a.shortcut && shortcutHint(a.shortcut)} onSelect={run(() => {
+                a.run();
+              })}>
+                {a.label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
         {results.repos.length > 0 && (
           <CommandGroup heading="Repositories">
             {results.repos.map((r) => (

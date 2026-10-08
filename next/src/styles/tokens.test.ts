@@ -92,3 +92,41 @@ describe('tokens.css', () => {
     expect(light.get('--font-sans')).toMatch(/^-apple-system, blinkmacsystemfont, .*system-ui/);
   });
 });
+
+describe('label ink (text-label)', () => {
+  // CSS color-mix(in oklab, label X%, fg): the icon colour of a status or priority label.
+  const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const toSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+  const hex = (h: string) => [0, 2, 4].map((i) => Number.parseInt(h.replace('#', '').slice(i, i + 2), 16) / 255);
+  function oklab([r, g, b]: number[]): number[] {
+    const [lr, lg, lb] = [r ?? 0, g ?? 0, b ?? 0].map(toLinear) as [number, number, number];
+    const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+    const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+    const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+  }
+  function rgb([L, A, B]: number[]): string {
+    const l = ((L ?? 0) + 0.3963377774 * (A ?? 0) + 0.2158037573 * (B ?? 0)) ** 3;
+    const m = ((L ?? 0) - 0.1055613458 * (A ?? 0) - 0.0638541728 * (B ?? 0)) ** 3;
+    const s = ((L ?? 0) - 0.0894841775 * (A ?? 0) - 1.291485548 * (B ?? 0)) ** 3;
+    const c = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+    return `#${c.map((x) => Math.round(Math.min(1, Math.max(0, toSrgb(x))) * 255).toString(16).padStart(2, '0')).join('')}`;
+  }
+  const light = decls(block('@theme static'));
+  const dark = decls(block(':root[data-theme="dark"]'));
+  const share = Number.parseFloat(decls(block(':root')).get('--label-ink') ?? 'NaN') / 100;
+  const mix = (label: string, fg: string) => {
+    const a = oklab(hex(label));
+    const b = oklab(hex(fg));
+    return rgb(a.map((x, i) => x * share + (b[i] ?? 0) * (1 - share)));
+  };
+  // Light and saturated label colours of Forgejo's presets and common palettes.
+  const labels = ['#eab308', '#facc15', '#22c55e', '#06b6d4', '#f97316', '#ffffff', '#e11d48', '#3b82f6', '#8b5cf6', '#fbca04', '#c2e0c6', '#bfdadc'];
+  test.each(['light', 'dark'] as const)('≥ 3:1 against the surfaces (%s)', (theme) => {
+    const t = theme === 'light' ? light : dark;
+    const fg = t.get('--color-fg') ?? '';
+    for (const bg of ['--color-surface', '--color-hover', '--color-canvas']) {
+      for (const l of labels) expect(contrast(mix(l, fg), t.get(bg) ?? light.get(bg) ?? ''), `${l} on ${bg}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+});

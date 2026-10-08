@@ -137,7 +137,7 @@ const repoIssueRoute = createRoute({
   path: '/$owner/$repo/issues/$index',
   loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
   staticData: {skeleton: 'detail'},
-  component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'IssueView'),
+  component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
 
 const repoPullRoute = createRoute({
@@ -145,7 +145,7 @@ const repoPullRoute = createRoute({
   path: '/$owner/$repo/pulls/$index',
   loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
   staticData: {skeleton: 'detail'},
-  component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'IssueView'),
+  component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
 
 // Dev-only pages: `import.meta.env.DEV` is false in production builds, so

@@ -172,6 +172,8 @@ export class SyncClient {
   private readonly groupLocks = new Map<string, Promise<void>>();
   private workspaceOrder = new Map<string, number>();
   private readonly offPool: () => void;
+  /** whenAt: groups → waiters for a position (resolved when the group's position reaches it). */
+  private readonly positionWaiters = new Map<string, {v: number; resolve: () => void}[]>();
   private readonly onOnline = () => {
     if (this.stopped || this.status.connection === 'unauthorized') return;
     this.attempts = 0;
@@ -204,6 +206,9 @@ export class SyncClient {
     this.offPool = this.pool.onApplied((changes) => {
       this.droppedIssues(changes);
     });
+    this.groups.onPosition = (g, pos) => {
+      this.positionReached(g, pos);
+    };
     this.recompute();
   }
 
@@ -214,6 +219,51 @@ export class SyncClient {
     if (!set) this.listeners.set(name, set = new Set());
     set.add(fn);
     return () => set.delete(fn);
+  }
+
+  /** A group's position (messages.go "Positions"); undefined before its first bootstrap. */
+  position(group: string): number | undefined {
+    return this.groups.get(group)?.position;
+  }
+
+  /**
+   * Resolves once the group's position is at or above `v`: the pool then
+   * holds every entry of the group up to `v` (B7: a write whose
+   * X-Livesync-Sync-Id is `v` has its effect in the pool). Never rejects; a
+   * group that is not held may never get there (callers bound the wait).
+   */
+  whenAt(group: string, v: number, signal?: AbortSignal): Promise<void> {
+    if ((this.position(group) ?? -1) >= v) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      let list = this.positionWaiters.get(group);
+      if (!list) this.positionWaiters.set(group, list = []);
+      const w = {v, resolve};
+      list.push(w);
+      signal?.addEventListener('abort', () => {
+        const l = this.positionWaiters.get(group);
+        const i = l?.indexOf(w) ?? -1;
+        if (l && i >= 0) l.splice(i, 1);
+        if (l?.length === 0) this.positionWaiters.delete(group);
+        reject(new Error('aborted'));
+      }, {once: true});
+    });
+  }
+
+  /** Resolves once no load of the group is queued or running (its state is persisted with the next flush). */
+  async loadsDone(group: string): Promise<void> {
+    for (let lock = this.groupLocks.get(group); lock; lock = this.groupLocks.get(group)) await lock;
+  }
+
+  private positionReached(group: string, pos: number): void {
+    const list = this.positionWaiters.get(group);
+    if (!list) return;
+    const left = list.filter((w) => {
+      if (w.v > pos) return true;
+      w.resolve();
+      return false;
+    });
+    if (left.length) this.positionWaiters.set(group, left);
+    else this.positionWaiters.delete(group);
   }
 
   /** Starts syncing: connects and bootstraps what is missing. Call after hydration completed. */
@@ -686,7 +736,9 @@ export class SyncClient {
   }
 
   private updateConnection(session: Session): void {
-    if (this.session !== session || !session.welcomed) return;
+    // Offline stays offline (messages still in flight when the browser went offline must not
+    // overwrite it); going online calls this again.
+    if (this.session !== session || !session.welcomed || offline()) return;
     let waiting = false;
     for (const sub of session.subs.values()) {
       if (!sub.caughtUp) waiting = true;

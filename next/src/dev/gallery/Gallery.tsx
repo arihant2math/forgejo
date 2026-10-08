@@ -6,14 +6,15 @@
 
 import './gallery.css';
 import {
-  Archive, ArrowUpRight, CircleDot, Copy, Flag, Inbox, Moon, MoreHorizontal, Pencil, Plus, Search, Sun, SunMoon, Tag,
+  Archive, ArrowUpRight, CircleDashed, CircleDot, Copy, SignalHigh, Flag, Inbox, Moon, MoreHorizontal, Pencil, Plus, Search, Sun, SunMoon, Tag,
   Trash2,
 } from 'lucide-react';
 import {useState, type ReactNode} from 'react';
 import {getThemePreference, setThemePreference} from '../../app/theme.ts';
 import type {ThemePreference} from '../../app/splash.ts';
 import {
-  Avatar, Badge, Button, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
+  Avatar, AvatarGroup, Badge, Button, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
+  PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuTrigger, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
   NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TooltipProvider,
@@ -96,6 +97,7 @@ export default function Gallery() {
           <div className="w-64"><Input placeholder="Filter issues…"/></div>
           <div className="w-64"><Input placeholder="Invalid" invalid defaultValue="not-a-number"/></div>
           <div className="w-48"><Input size="sm" placeholder="Small"/></div>
+          <Input size="sm" icon={Search} placeholder="Search…" className="w-48"/>
         </Section>
 
         <Section title="Keys, badges, labels, avatars">
@@ -112,6 +114,29 @@ export default function Gallery() {
           <Avatar name="alice" size="sm"/>
           <Avatar name="Bob"/>
           <Avatar name="Ünal" size="lg"/>
+          <AvatarGroup><Avatar name="alice" size="sm"/><Avatar name="Bob" size="sm"/></AvatarGroup>
+          <LabelDot color="var(--color-done)"/>
+          <LabelIcon icon={CircleDashed} color="var(--color-warning)"/>
+          <Hint label="Priority: High"><LabelIcon icon={SignalHigh} color="var(--color-danger)"/></Hint>
+        </Section>
+
+        <Section title="Issue list rows, properties, prose, notices">
+          <div role="listbox" aria-label="Rows" className="w-full max-w-lg">
+            <ListGroupHeader leading={<LabelIcon icon={CircleDashed} color="var(--color-warning)"/>} label="Backlog" count={2}/>
+            <ListRow role="option" active leading={<Icon icon={CircleDot}/>} trailing={<LabelChip name="bug" color="var(--color-danger)"/>}>Active row</ListRow>
+            <ListRow role="option" selected leading={<Icon icon={CircleDot}/>}>Selected row</ListRow>
+          </div>
+          <div className="w-80">
+            <PropertyList>
+              <Property label="Status"><PropertyButton label="Change status" shortcut="S" onClick={() => undefined}><Icon icon={CircleDot}/>Open</PropertyButton></Property>
+              <Property label="Priority"><PropertyButton label="Set priority" onClick={() => undefined}><PropertyEmpty>No priority</PropertyEmpty></PropertyButton></Property>
+              <Property label="Due date"><PropertyValue tone="danger">Oct 3 · overdue</PropertyValue></Property>
+            </PropertyList>
+          </div>
+          <div className="relative h-40 w-96">
+            <Notice tone="danger" title="Adding the label “bug” failed" description="Forbidden. The change was undone." action={<Button size="sm">Retry</Button>} onDismiss={() => undefined}/>
+          </div>
+          <Notice tone="success" title="Link copied" onDismiss={() => undefined}/>
         </Section>
 
         <Section title="Menus, popover, dialog">

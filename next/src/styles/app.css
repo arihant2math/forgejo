@@ -15,6 +15,7 @@
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "./tokens.css";
 @import "./base.css" layer(base);
+@import "./prose.css";
 
 @source "../";
 @source not "../dev";
@@ -82,6 +83,20 @@
   max-height: var(--radix-popper-available-height);
 }
 
+/* A list row's keyboard cursor (data-active): an accent edge on the left, distinct from hover and selection. */
+@utility row-cursor {
+  position: relative;
+
+  &[data-active]::before {
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: var(--cursor-width);
+    background-color: var(--color-accent);
+    content: "";
+  }
+}
+
 /* Focus ring inside the element, for full-width rows where an outside ring is clipped. */
 @utility focus-inset {
   outline-offset: var(--focus-ring-inset);
@@ -97,4 +112,12 @@
 /* A label's own colour (server data), passed in as --label-color. */
 @utility bg-label {
   background-color: var(--label-color);
+}
+
+/* An icon in a label's colour (status, priority) is the only signal of its kind in a row: the server
+ * colour is pulled towards the text colour (--label-ink) so it keeps ≥ 3:1 against the surface in
+ * both themes (tokens.test.ts). */
+@utility text-label {
+  /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- a mix of two tokens */
+  color: color-mix(in oklab, var(--label-color) var(--label-ink), var(--color-fg));
 }

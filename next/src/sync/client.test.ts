@@ -600,3 +600,40 @@ describe('review regressions', () => {
     await expect(ps[15]).resolves.toMatch(/too many/);
   });
 });
+
+describe('whenAt (the B7 sync-id echo)', () => {
+  test('resolves once the group position reaches v, with the entries up to v already in the pool', async () => {
+    const meta = new MetaCache();
+    meta.set('group:repo:1', {group: 'repo:1', position: 50, units: ['issues'], watermark: 40, tier: 'summary', holders: ['workspace']});
+    meta.set('schemas', clientSchemas());
+    const t = setup({meta});
+    t.server.workspace.groups = [{group: 'repo:1', units: ['issues'], reason: 'owner'}];
+    const ws = await connected(t);
+    await expect(t.c.whenAt('repo:1', 50)).resolves.toBeUndefined();
+    let title: string | undefined;
+    let done = false;
+    void t.c.whenAt('repo:1', 58).then(() => {
+      done = true;
+      title = t.pool.model('Issue').get(1)?.get('title');
+    });
+    ws.emit(welcome({granted: [{group: 'repo:1', units: ['issues']}]}));
+    ws.emit({type: 'delta', to: 60, changes: [issueChange(1, 55, 'early')]});
+    await Promise.resolve();
+    expect(done).toBe(false); // 55 < 58, and not caught up: `to` does not count yet
+    ws.emit({type: 'delta', to: 61, changes: [issueChange(1, 58, 'the write')]});
+    await vi.waitFor(() => {
+      expect(done).toBe(true);
+    });
+    expect(title).toBe('the write');
+    expect(t.c.position('repo:1')).toBe(58);
+    // A position raised by caught_up / delta.to counts too.
+    let later = false;
+    void t.c.whenAt('repo:1', 70).then(() => {
+      later = true;
+    });
+    ws.emit({type: 'caught_up', sync_id: 72});
+    await vi.waitFor(() => {
+      expect(later).toBe(true);
+    });
+  });
+});

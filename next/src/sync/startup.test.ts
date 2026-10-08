@@ -7,7 +7,7 @@
 
 import 'fake-indexeddb/auto';
 import {IDBFactory, IDBKeyRange} from 'fake-indexeddb';
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {META, modelStore, openDatabase, readMeta, request} from '../data/idb.ts';
 import {clientSchemas} from '../data/models.ts';
 import {bucketOf} from '../data/pool.ts';
@@ -79,8 +79,10 @@ test('a group released before it was hydrated does not come back from hydration'
   const d = await open(factory, offline());
   d.pin(G, false);
   await d.hydrated;
-  await new Promise((r) => setTimeout(r, 100));
-  expect(d.pool.model('Issue').size).toBe(0);
+  // The release reaches the client once this tab leads (after phase 1 and its modules): wait for it, not a fixed time.
+  await vi.waitFor(() => {
+    expect(d.pool.model('Issue').size).toBe(0);
+  });
   await d.close();
   const db = await openDatabase(1, {factory});
   expect(await request(db.transaction(modelStore('Issue')).objectStore(modelStore('Issue')).count())).toBe(0);

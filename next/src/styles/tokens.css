@@ -149,8 +149,24 @@
   --speed-out: 0.15s;
   --speed-quick: 0.1s;
 
+  /* A label colour used as an icon colour (text-label): mixed towards the text colour for contrast. */
+  --label-ink: 50%;
+
+  /* The keyboard cursor's edge on a list row (row-cursor). */
+  --cursor-width: 2px;
+
   /* Disabled controls. */
   --opacity-disabled: 0.5;
+
+  /* Rendered markdown (prose.css): hairlines, block rhythm, list indent, code insets. */
+  --hairline: 1px;
+  --prose-gap: 12px;
+  --prose-gap-sm: 4px;
+  --prose-indent: 24px;
+  --prose-quote-width: 3px;
+  --prose-inset-x: 6px;
+  --prose-inset-y: 2px;
+  --prose-underline-offset: 2px;
 
   /* Stacking order (z-sticky, z-popover, … utilities in app.css). Floating
    * content is always opened from what is on top, so it stacks above dialogs. */

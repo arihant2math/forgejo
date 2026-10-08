@@ -1,105 +1,57 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Repository pages (/{owner}/{repo}/issues, /pulls and one issue or pull
-// request). F3 provides the pages, their data loading (the repository's
-// group is held while one is open) and the header; F4 renders the lists and
-// the timeline.
+// Repository list pages (/{owner}/{repo}/issues, /pulls): the repository's
+// group is held while one is open; the list is computed from the pool
+// (features/issues). One issue or pull request is features/issue
+// (its own chunk).
 
-import {Link, useLoaderData, useParams} from '@tanstack/react-router';
-import {CircleCheck, CircleDot, CloudOff, GitPullRequest, GitPullRequestClosed, Slash} from 'lucide-react';
-import {untracked} from 'mobx';
+import {getRouteApi} from '@tanstack/react-router';
+import {CircleDot, GitPullRequest} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import type {ReactNode} from 'react';
-import {type RepoMatch, useHold} from '../../app/repo.ts';
-import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {useSession} from '../../app/store.ts';
-import {Badge, EmptyState, Icon} from '../../ui/index.ts';
+import {PageBody} from '../../app/shell/Frame.tsx';
+import type {ListSearch} from '../../app/search.ts';
+import {EmptyState} from '../../ui/index.ts';
+import {ListControls} from '../issues/ListBar.tsx';
+import {ListBody, useListModel} from '../issues/ListPage.tsx';
+import {RepoContext, Unavailable, useRepoPage} from './repoPage.tsx';
 
-function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
-  const {owner = '', repo = ''} = useParams({strict: false});
-  const loaded: unknown = useLoaderData({strict: false});
-  const repoId = (loaded as RepoMatch | undefined)?.repoId;
-  const {data} = useSession();
-  const group = repoId === undefined ? undefined : `repo:${String(repoId)}`;
-  useHold(data, group);
-  return {owner, repo, repoId, group};
-}
+const issuesApi = getRouteApi('/shell/$owner/$repo/issues');
+const pullsApi = getRouteApi('/shell/$owner/$repo/pulls');
 
-function RepoContext({owner, repo}: {owner: string; repo: string}) {
+/** One repository's list: the page owns the live query, which the header's controls and the list share. */
+const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls, search}: {owner: string; repo: string; repoId: number; pulls: boolean; search: ListSearch}) {
+  const model = useListModel({kind: 'repo', repoId, pulls}, search, 'none');
+  const noun = pulls ? 'pull requests' : 'issues';
   return (
     <>
-      <span className="min-w-0 truncate">{owner}</span>
-      <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-      <Link to="/$owner/$repo/issues" params={{owner, repo}} className="interactive min-w-0 truncate hover:text-fg">{repo}</Link>
+      <PageHeader icon={pulls ? GitPullRequest : CircleDot} context={<RepoContext owner={owner} repo={repo}/>} title={pulls ? 'Pull requests' : 'Issues'}>
+        <ListControls model={model} repoId={repoId} hideGroups={['repo']}/>
+      </PageHeader>
+      <ListBody model={model} label={pulls ? 'Pull requests' : 'Issues'}
+        empty={<EmptyState icon={pulls ? GitPullRequest : CircleDot} title={`No open ${noun}`} description={`This repository has no open ${noun} on this device.`}/>}/>
     </>
-  );
-}
-
-function Unavailable() {
-  return (
-    <EmptyState
-      icon={CloudOff}
-      title="Not available here"
-      description={navigator.onLine ? 'This repository does not exist, or you cannot see it.' : 'This repository is not on this device. Connect to load it.'}
-    />
-  );
-}
-
-function RepoList({kind, empty}: {kind: 'issues' | 'pulls'; empty: ReactNode}) {
-  const {owner, repo, repoId} = useRepoPage();
-  return (
-    <>
-      <PageHeader icon={kind === 'issues' ? CircleDot : GitPullRequest} context={<RepoContext owner={owner} repo={repo}/>}
-        title={kind === 'issues' ? 'Issues' : 'Pull requests'}/>
-      <PageBody>{repoId === undefined ? <Unavailable/> : empty}</PageBody>
-    </>
-  );
-}
-
-export function RepoIssues() {
-  return <RepoList kind="issues" empty={<EmptyState icon={CircleDot} title="Issues show here" description="The issue list is on its way. Find an issue with the command menu."/>}/>;
-}
-
-export function RepoPulls() {
-  return <RepoList kind="pulls" empty={<EmptyState icon={GitPullRequest} title="Pull requests show here" description="The pull request list is on its way. Find one with the command menu."/>}/>;
-}
-
-/** The issue of a repository by number: reacts to issues arriving or leaving, and to that issue's fields only. */
-const IssueHeader = observer(function IssueHeader({repoId, index, context}: {repoId: number; index: number; context: ReactNode}) {
-  const {data} = useSession();
-  const set = data.pool.model('Issue').by('repo_id', repoId);
-  // Membership is tracked (above); scanning the numbers is not, so the
-  // header does not observe every issue of the repository.
-  const issue = untracked(() => {
-    for (const e of set) if (e.data.number === index) return e;
-    return undefined;
-  });
-  const title = issue?.get('title');
-  const open = issue?.get('state') === 'open';
-  const pull = issue?.get('is_pull') ?? false;
-  const icon = pull ? (open ? GitPullRequest : GitPullRequestClosed) : (open ? CircleDot : CircleCheck);
-  return (
-    <PageHeader icon={icon} context={context} title={title ? <>{title} <span className="text-fg-subtle">#{index}</span></> : `#${String(index)}`}>
-      {issue && <Badge tone={open ? 'success' : 'done'}>{open ? 'Open' : 'Closed'}</Badge>}
-    </PageHeader>
   );
 });
 
-export function IssueView() {
+function RepoList({pulls, search}: {pulls: boolean; search: ListSearch}) {
   const {owner, repo, repoId} = useRepoPage();
-  const {index: raw = ''} = useParams({strict: false});
-  const index = /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;
-  const context = <RepoContext owner={owner} repo={repo}/>;
-  return (
-    <>
-      {repoId === undefined ?
-        <PageHeader context={context} title={`#${String(index)}`}/> :
-        <IssueHeader repoId={repoId} index={index} context={context}/>}
-      <PageBody>
-        {repoId === undefined ? <Unavailable/> : <EmptyState icon={CircleDot} title="The conversation shows here" description="The timeline is on its way."/>}
-      </PageBody>
-    </>
-  );
+  if (repoId === undefined) {
+    return (
+      <>
+        <PageHeader icon={pulls ? GitPullRequest : CircleDot} context={<RepoContext owner={owner} repo={repo}/>} title={pulls ? 'Pull requests' : 'Issues'}/>
+        <PageBody><Unavailable/></PageBody>
+      </>
+    );
+  }
+  return <RepoListPage key={`${String(repoId)}:${String(pulls)}`} owner={owner} repo={repo} repoId={repoId} pulls={pulls} search={search}/>;
+}
+
+export function RepoIssues() {
+  return <RepoList pulls={false} search={issuesApi.useSearch()}/>;
+}
+
+export function RepoPulls() {
+  return <RepoList pulls search={pullsApi.useSearch()}/>;
 }

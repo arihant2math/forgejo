@@ -79,6 +79,13 @@ export interface Data {
   pin(group: string, on: boolean): void;
   /** See SyncClient.barrier. */
   barrier(): Promise<number>;
+  /**
+   * Resolves once this tab's pool holds every entry of `group` up to sync id
+   * `v` (B7's X-Livesync-Sync-Id echo): in the leader when the group's
+   * position reaches `v`; in a follower once the leader persisted that state
+   * and this tab mirrored it. Optimistic overlays drop then, without flicker.
+   */
+  whenSynced(group: string, v: number, signal?: AbortSignal): Promise<void>;
   /** See SyncClient.loadClosedPage. */
   loadClosedPage(group: string, before?: string, limit?: number): Promise<{next: string | undefined; count: number}>;
   on<K extends keyof SyncEvents>(name: K, fn: (e: SyncEvents[K]) => void): () => void;
@@ -201,6 +208,19 @@ export async function openData(opts: DataOptions): Promise<Data> {
       case 'pin':
         client.pin(args[0] as string, args[1] as boolean);
         return Promise.resolve();
+      case 'synced': {
+        // A follower asks: the state at v must be in IndexedDB, announced (commit) before the answer.
+        // Not while the group loads: the persister defers its buckets then, and the answer would come
+        // before the follower can mirror the state.
+        const c = client;
+        const p = persister;
+        const g = args[0] as string;
+        return (async () => {
+          await c.whenAt(g, args[1] as number, AbortSignal.timeout(60_000));
+          await c.loadsDone(g);
+          await p?.flush();
+        })();
+      }
     }
     return Promise.reject(new Error(`unknown request ${op}`));
   };
@@ -457,6 +477,10 @@ export async function openData(opts: DataOptions): Promise<Data> {
       void ask('pin', group, on);
     },
     barrier: () => ask<number>('barrier'),
+    whenSynced(group, v, signal) {
+      if (role.leader && client) return client.whenAt(group, v, signal);
+      return ask<undefined>('synced', group, v).then(() => undefined);
+    },
     loadClosedPage: (group, before, limit) => ask('closedPage', group, before, limit),
     on(name, fn) {
       let set = listeners.get(name);

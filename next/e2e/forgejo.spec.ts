@@ -13,21 +13,10 @@
 // created through API v1 with basic auth.
 
 import {type Browser, type BrowserContext, expect, type Page, test} from '@playwright/test';
-
-const BASE = process.env.NEXT_FORGEJO_URL?.replace(/\/$/, '') ?? '';
-const USER = process.env.NEXT_FORGEJO_USER ?? 'dev';
-const PASSWORD = process.env.NEXT_FORGEJO_PASSWORD ?? 'devdevdev1';
+import {api, BASE, signIn, USER, watch} from './helpers.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
-
-const auth = `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString('base64')}`;
-
-async function api(method: string, path: string, body?: object): Promise<Response> {
-  return fetch(`${BASE}/api/v1${path}`, {
-    method, headers: {'Authorization': auth, 'Content-Type': 'application/json'}, ...(body ? {body: JSON.stringify(body)} : {}),
-  });
-}
 
 let userId = 0;
 
@@ -43,41 +32,9 @@ test.beforeAll(async () => {
   }
 });
 
-/** Collects page errors, error logs and CSP / Trusted Types violations of the Next UI's pages. */
-function watch(page: Page): string[] {
-  const problems: string[] = [];
-  void page.addInitScript(() => {
-    document.addEventListener('securitypolicyviolation', (e) => {
-      console.error(`CSP violation: ${e.violatedDirective} ${e.blockedURI}`);
-    });
-  });
-  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
-  page.on('console', (m) => {
-    // Classic pages (login, consent) have no built CSS/JS in the dev server: their 404s are not ours.
-    const classic = new URL(page.url()).pathname.startsWith('/user/login') || page.url().includes('/login/oauth/');
-    if (m.type() === 'error' && !classic && !m.text().includes('Failed to load resource')) problems.push(m.text());
-  });
-  return problems;
-}
-
-/** Signs in through the classic login and consent pages; ends on the app. */
+/** The splash the boot script reads. */
 function splash(page: Page): Promise<Record<string, unknown>> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('splash') ?? '{}') as Record<string, unknown>);
-}
-
-async function signIn(page: Page): Promise<void> {
-  await page.goto(`${BASE}/-/next/`);
-  await page.getByRole('button', {name: 'Sign in'}).click();
-  await page.waitForURL(/\/user\/login|\/login\/oauth\/authorize/);
-  if (page.url().includes('/user/login')) {
-    await page.fill('#user_name', USER);
-    await page.fill('#password', PASSWORD);
-    await page.click('form button.primary');
-  }
-  await page.waitForURL(/\/login\/oauth\/authorize/);
-  await page.locator('#authorize-app').click();
-  await page.waitForURL(`${BASE}/`);
-  await expect(page.getByRole('status')).toContainText('Live', {timeout: 20_000});
 }
 
 const status = (page: Page) => page.getByRole('status');
@@ -180,7 +137,7 @@ test('warm boot renders from IndexedDB with the network to Forgejo\'s data block
   // Only the UI's own files may load: API, sync and token endpoints fail.
   await page.route(/\/(api\/v1|-\/sync|login\/oauth)\//, (r) => r.abort('internetdisconnected'));
   await page.goto(`${BASE}/dev/next-e2e/issues/1`);
-  await expect(page.getByRole('heading', {name: /Crash when saving the settings page/})).toBeVisible();
+  await expect(page.getByRole('heading', {level: 1, name: /Crash when saving the settings page/})).toBeVisible();
   await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible();
   await expect(status(page)).not.toContainText('Live');
   expect(await page.evaluate(() => performance.getEntriesByName('firstPaintFromCache').length)).toBe(1);
@@ -250,6 +207,8 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   const problems = watch(page);
   await signIn(page);
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
+  // The palette searches what is in the pool when the query changes: wait for the repository it looks for.
+  await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible({timeout: 15_000});
   await page.keyboard.press('ControlOrMeta+k');
   const input = page.getByPlaceholder('Search repositories, issues and commands…');
   await expect(input).toBeFocused();
@@ -262,7 +221,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   expect(Math.max(...searches)).toBeLessThan(16);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/dev\/next-e2e\/issues\/\d+$/);
-  await expect(page.getByRole('heading', {name: /Add dark mode to the dashboard/})).toBeVisible();
+  await expect(page.getByRole('heading', {level: 1, name: /Add dark mode to the dashboard/})).toBeVisible();
   // Esc closes; ⌘K toggles.
   await page.keyboard.press('ControlOrMeta+k');
   await expect(input).toBeVisible();

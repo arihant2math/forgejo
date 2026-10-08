@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type {ReactNode} from 'react';
 import {cx} from './cx.ts';
 
 const sizes = {sm: 'size-4 text-xs', md: 'size-5 text-xs', lg: 'size-6 text-sm'} as const;
@@ -32,4 +33,9 @@ export function Avatar({size = 'md', ...props}: AvatarProps) {
 function initial(name: string): string {
   const [first] = name.trim();
   return first ? first.toUpperCase() : '?';
+}
+
+/** Several avatars side by side (an issue's assignees). */
+export function AvatarGroup({children}: {children: ReactNode}) {
+  return <span className="flex shrink-0 items-center gap-0.5">{children}</span>;
 }

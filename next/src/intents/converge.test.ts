@@ -17,6 +17,8 @@ import {type Tab, World} from '../test/fakeTabs.ts';
 import {MARK_MINE, MARK_SPLIT, MARK_THEIRS} from './merge3.ts';
 import {issueBody, issueLabelIds, issueState, issueTitle} from './view.ts';
 
+/** CONVERGE_RUNS=5000 for a long run (CI: 60). */
+const RUNS = Number(process.env.CONVERGE_RUNS ?? 60);
 const ISSUES = 3;
 const LABELS = 4;
 
@@ -308,8 +310,8 @@ describe('convergence (PLAN §8 Phase 3 exit)', () => {
   }, 30_000);
 
   test('any interleaving of offline intents, remote changes, faults, leader changes and crashes converges without loss or duplicates', async () => {
-    await fc.assert(fc.asyncProperty(fc.array(stepArb, {minLength: 1, maxLength: 30}), scenario), {numRuns: Number(process.env.CONVERGE_RUNS ?? 60), endOnFailure: true});
-  }, 300_000);
+    await fc.assert(fc.asyncProperty(fc.array(stepArb, {minLength: 1, maxLength: 30}), scenario), {numRuns: RUNS, endOnFailure: true});
+  }, Math.max(300_000, RUNS * 200));
 
   test('a scripted worst case: offline edits in two tabs, others edit the same issue, the leader dies mid-flush with a lost answer', async () => {
     await scenario([

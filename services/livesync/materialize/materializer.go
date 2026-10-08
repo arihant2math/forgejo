@@ -41,6 +41,11 @@ type Config struct {
 	// HotWindow is the minimum time between two emissions of the same row
 	// of a hot table ([livesync] HOT_COALESCE); 0 disables the coalescing.
 	HotWindow time.Duration
+	// Consumed, if not nil, is called after every outbox batch the
+	// materializer committed (its rows are deleted from the outbox and its
+	// entries appended in that transaction). The idempotency layer (B7)
+	// waits for a write's outbox rows to be consumed with it.
+	Consumed func()
 }
 
 // Materializer is the capture.Consumer that writes the sync log. Its
@@ -48,8 +53,9 @@ type Config struct {
 // reader calls Consume while the writer loop runs HandleEpochs and
 // BackfillStep.
 type Materializer struct {
-	writer *synclog.Writer
-	stop   func()
+	writer   *synclog.Writer
+	stop     func()
+	consumed func()
 
 	mu  sync.Mutex
 	hot hotLimiter
@@ -65,7 +71,7 @@ type Materializer struct {
 // turns out not to be the writer any more (another instance took over):
 // the caller must then stop the reader and give up the lease.
 func New(cfg Config, w *synclog.Writer, stop func()) *Materializer {
-	return &Materializer{writer: w, stop: stop, hot: newHotLimiter(cfg.HotWindow)}
+	return &Materializer{writer: w, stop: stop, consumed: cfg.Consumed, hot: newHotLimiter(cfg.HotWindow)}
 }
 
 // Prepare loads the backfill progress and handles schema epochs that moved
@@ -147,6 +153,9 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 		m.hot.done(k, now)
 	}
 	m.hot.prune(now)
+	if m.consumed != nil {
+		m.consumed()
+	}
 	return nil
 }
 

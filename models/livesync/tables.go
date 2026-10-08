@@ -110,16 +110,17 @@ const (
 )
 
 // Idempotency records one API v1 write made with an Idempotency-Key header
-// (PLAN §4.8): the key is reserved before the request runs (state in-flight),
-// and the response is stored when it completes so that a retry with the same
-// key replays it. The logic arrives in milestone B7; B1 only creates the table.
+// (PLAN §4.8, services/livesync/idempotency): the key is reserved before the
+// request runs (state in-flight, Owner = the attempt running it), and the
+// response is stored when it completes so that a retry with the same key
+// replays it. Records expire after [livesync] IDEMPOTENCY_TTL (7 days).
 type Idempotency struct {
 	ID     int64  `xorm:"pk autoincr"`
 	UserID int64  `xorm:"UNIQUE(user_key) NOT NULL"`
 	Key    string `xorm:"'idem_key' VARCHAR(255) UNIQUE(user_key) NOT NULL"`
 	State  int    `xorm:"NOT NULL DEFAULT 0"`
-	// Method, Path and RequestHash (sha256 of method, path and body) detect a
-	// key reused for a different request.
+	// Method, Path and RequestHash (sha256 of method, path, query, content
+	// type and body) detect a key reused for a different request.
 	Method      string `xorm:"VARCHAR(16) NOT NULL"`
 	Path        string `xorm:"VARCHAR(1024) NOT NULL"`
 	RequestHash string `xorm:"VARCHAR(64) NOT NULL"`
@@ -127,8 +128,19 @@ type Idempotency struct {
 	Status  int    `xorm:"NOT NULL DEFAULT 0"`
 	Headers string `xorm:"TEXT"`
 	Body    []byte `xorm:"LONGBLOB"`
-	// SyncID is the X-Livesync-Sync-Id echoed with the response.
-	SyncID      int64              `xorm:"NOT NULL DEFAULT 0"`
+	// SyncID is the X-Livesync-Sync-Id echoed with the response (-1: not
+	// known yet, computed at the next replay).
+	SyncID int64 `xorm:"NOT NULL DEFAULT 0"`
+	// Owner is the attempt running an in-flight record ("<instance>/<token>";
+	// empty once the record is completed, or released because the attempt's
+	// outcome is unknown, e.g. a 5xx). An in-flight record whose owner's
+	// instance is gone was interrupted by a crash (B7).
+	Owner string `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
+	// OutboxLow is the outbox position (last assigned livesync_change id)
+	// before the first attempt ran, OutboxHigh the position after the
+	// completing attempt: the outbox rows of the write lie in between (B7).
+	OutboxLow   int64              `xorm:"NOT NULL DEFAULT 0"`
+	OutboxHigh  int64              `xorm:"NOT NULL DEFAULT 0"`
 	CreatedUnix timeutil.TimeStamp `xorm:"INDEX NOT NULL"`
 	UpdatedUnix timeutil.TimeStamp `xorm:"NOT NULL"`
 }

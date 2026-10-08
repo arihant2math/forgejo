@@ -223,7 +223,7 @@ func (r *Reader) loadCursor(ctx context.Context) error {
 	// new rows (ids <= cursor) would only be found by the sweep. The
 	// sequence / AUTO_INCREMENT counter tells this even when the outbox is
 	// empty, which it normally is right after being recreated.
-	last, err := lastAssignedID(ctx)
+	last, err := LastAssignedID(ctx)
 	if err != nil {
 		return fmt.Errorf("livesync: read the outbox id counter: %w", err)
 	}
@@ -238,10 +238,14 @@ func (r *Reader) loadCursor(ctx context.Context) error {
 // autoIncrementRe finds the counter in SHOW CREATE TABLE output.
 var autoIncrementRe = regexp.MustCompile(`(?i)\bAUTO_INCREMENT=(\d+)`)
 
-// lastAssignedID returns the highest id the outbox has handed out so far
+// LastAssignedID returns the highest id the outbox has handed out so far
 // (0 if none), from its id counter rather than from its rows, which are
-// deleted once processed.
-func lastAssignedID(ctx context.Context) (int64, error) {
+// deleted once processed. Ids are assigned when a trigger inserts the row,
+// i.e. inside the writing transaction: every outbox row of a transaction that
+// starts after a call has a higher id, and every row of a transaction that
+// committed before a call has an id at or below its result (the idempotency
+// layer, B7, brackets a write's rows this way).
+func LastAssignedID(ctx context.Context) (int64, error) {
 	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
 		return 0, err

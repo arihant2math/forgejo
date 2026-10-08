@@ -23,6 +23,8 @@ export interface Splash {
   user?: string;
   /** The signed-in user's avatar initial (one or two letters/digits). */
   initial?: string;
+  /** The last route (path and query on this site): where the app's base URL resumes. */
+  route?: string;
 }
 
 export const SIDEBAR_MIN = 180;

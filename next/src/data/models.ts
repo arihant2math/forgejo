@@ -100,7 +100,7 @@ const defs = {
   CommitStatus: {schema: P.SchemaCommitStatus, kinds: ['repo'], index: ['repo_id', 'sha']},
   ActionRun: {schema: P.SchemaActionRun, kinds: ['repo'], index: ['repo_id']},
   ActionRunJob: {schema: P.SchemaActionRunJob, kinds: ['repo'], index: ['run_id']},
-  Notification: {schema: P.SchemaNotification, kinds: ['user'], index: ['repo_id', 'issue_id']},
+  Notification: {schema: P.SchemaNotification, kinds: ['user'], index: ['repo_id', 'issue_id', 'status']},
   Stopwatch: {schema: P.SchemaStopwatch, kinds: ['user'], index: ['issue_id']},
   IssueWatch: {schema: P.SchemaIssueWatch, kinds: ['user'], index: ['issue_id']},
   Watch: {schema: P.SchemaWatch, kinds: ['user'], index: ['repo_id']},

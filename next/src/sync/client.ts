@@ -68,6 +68,8 @@ export interface SyncEvents {
   caughtUp: {syncId: number};
   /** The session belongs to another user than this database. */
   wrongUser: {viewerId: number};
+  /** GET /-/sync/workspace answered (every session): the groups the viewer's workspace is made of. */
+  workspace: {workspace: Workspace};
 }
 
 type Listener<K extends keyof SyncEvents> = (e: SyncEvents[K]) => void;
@@ -946,6 +948,7 @@ export class SyncClient {
     }
     this.recompute();
     this.o.persister.schedule();
+    this.emit('workspace', {workspace: ws});
   }
 
   // ---- bootstraps ----

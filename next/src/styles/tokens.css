@@ -28,6 +28,10 @@
   --color-selected: #e8e8eb;
   --color-skeleton: #ececef;
 
+  /* Fills on the canvas (sidebar rows): plain hover is too faint there. */
+  --color-canvas-hover: #ebebee;
+  --color-canvas-selected: #e4e4e8;
+
   /* Hairlines. */
   --color-border: #e4e4e7;
   --color-border-subtle: #ededf0;
@@ -167,6 +171,8 @@
   --color-raised-hover: #2b2c32;
   --color-selected: #26272c;
   --color-skeleton: #222327;
+  --color-canvas-hover: #1d1e22;
+  --color-canvas-selected: #24252a;
   --color-border: #26272b;
   --color-border-subtle: #1e1f23;
   --color-border-strong: #34353b;

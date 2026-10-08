@@ -6,41 +6,26 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import {App} from './app/App.tsx';
 import {BootFailed} from './app/BootFailed.tsx';
-import {loadRoute} from './app/routes.ts';
+import {bootApp} from './app/boot.ts';
+import {bootSucceeded, reloadOnce} from './app/reload.ts';
 import {followSystemTheme} from './app/theme.ts';
 
 followSystemTheme();
 const root = document.getElementById('root');
-// The static boot shell stays on screen until the route module is here; then
-// one commit replaces it (no Suspense fallback, see routes.ts).
+// The static boot shell stays on screen until the route is ready; then one
+// commit replaces it (no Suspense fallback, see app/boot.ts).
 if (root) {
-  loadRoute(location.pathname).then(({default: route}) => {
-    try {
-      sessionStorage.removeItem('bootRetry');
-    } catch {
-      // Storage blocked.
-    }
+  bootApp().then(({app, router}) => {
+    bootSucceeded();
     createRoot(root).render(
       <StrictMode>
-        <App route={route}/>
+        <App app={app} router={router}/>
       </StrictMode>,
     );
   }, (error: unknown) => {
-    // A chunk of an older build (deleted after a deploy) or a network error:
-    // reload once to get the current index.html (B8 must serve it with
-    // Cache-Control: no-cache). F5's service worker makes this rare.
-    console.error('loading the route failed', error);
-    let retried = true;
-    try {
-      retried = sessionStorage.getItem('bootRetry') !== null;
-      if (!retried) sessionStorage.setItem('bootRetry', '1');
-    } catch {
-      // Storage blocked: do not risk a reload loop.
-    }
-    if (retried) {
-      createRoot(root).render(<BootFailed/>);
-    } else {
-      location.reload();
-    }
+    // A chunk of an older build (deleted after a deploy), a network error, or
+    // local storage that cannot be opened: reload once, then a Reload screen.
+    console.error('booting failed', error);
+    if (!reloadOnce()) createRoot(root).render(<BootFailed/>);
   });
 }

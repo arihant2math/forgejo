@@ -139,6 +139,25 @@ export class Hydrator {
     return {records, ms: performance.now() - t0};
   }
 
+  /**
+   * Reads whole stores of small models without loading them into the pool:
+   * what the first frame needs across groups before their groups are
+   * hydrated (Repository: the sidebar, a route's repository by name). The
+   * pool is not touched, so a group is still never partly hydrated.
+   */
+  async peek(list: readonly ModelName[]): Promise<Map<ModelName, EntityRecord[]>> {
+    const out = new Map<ModelName, EntityRecord[]>();
+    if (!list.length || this.closed) return out;
+    const tx = this.db.transaction(list.map(modelStore), 'readonly');
+    const results = await Promise.all(list.map((m) =>
+      request(tx.objectStore(modelStore(m)).getAll() as IDBRequest<BucketValue[]>).then((values) => values.flatMap((v) => v.r))));
+    results.forEach((recs, i) => {
+      const m = list[i];
+      if (m) out.set(m, recs);
+    });
+    return out;
+  }
+
   /** Phase 2: every store, chunked. Resolves when everything is loaded; runs once. */
   rest(): Promise<HydrateStats> {
     this.restRunning ??= this.runRest(true);

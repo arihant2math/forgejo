@@ -200,8 +200,9 @@ type request struct {
 }
 
 // check decides the requested groups (outside the hub lock: it may read
-// the database).
-func (c *conn) check(groups []protocol.GroupRequest, defaultSince *int64) ([]request, bool) {
+// the database). foreign: the positions come from another incarnation of
+// the sync log (HelloMessage.LogID), so every one is unknown.
+func (c *conn) check(groups []protocol.GroupRequest, defaultSince *int64, foreign bool) ([]request, bool) {
 	reqs := make([]request, 0, len(groups))
 	seen := map[string]bool{}
 	var head int64 = -1
@@ -235,6 +236,9 @@ func (c *conn) check(groups []protocol.GroupRequest, defaultSince *int64) ([]req
 				}
 				return nil, false
 			}
+		}
+		if r.ok && r.since != nil && foreign {
+			r.unknown, r.since = true, nil
 		}
 		if r.ok && r.since != nil && *r.since > c.h.pos.Load() {
 			// Ahead of this hub: fine if the log has it (a bootstrap's
@@ -423,7 +427,10 @@ func (c *conn) hello(m *protocol.HelloMessage) {
 		}
 		return
 	}
-	reqs, ok := c.check(m.Groups, m.LastSyncID)
+	// Positions from another incarnation of the log are unknown.
+	logID := h.currentLogID(c.ctx)
+	foreign := m.LogID != "" && logID != "" && m.LogID != logID
+	reqs, ok := c.check(m.Groups, m.LastSyncID, foreign)
 	if !ok {
 		return
 	}
@@ -443,7 +450,7 @@ func (c *conn) hello(m *protocol.HelloMessage) {
 	welcome := &protocol.WelcomeMessage{
 		Type: protocol.MsgWelcome, ServerSyncID: h.pos.Load(), ViewerID: viewer,
 		Grants: grants.Wire().Grants, BuildID: h.cfg.BuildID, Protocol: protocol.ProtocolVersion,
-		Schemas: h.cfg.Schemas, Profile: profile,
+		Schemas: h.cfg.Schemas, Profile: profile, LogID: logID,
 	}
 	var after []any
 	welcome.Granted, welcome.Refused, after = h.subscribeLocked(c, reqs, at)
@@ -469,7 +476,7 @@ func (c *conn) hello(m *protocol.HelloMessage) {
 
 func (c *conn) subscribe(groups []protocol.GroupRequest) {
 	at := c.h.checkpoint()
-	reqs, ok := c.check(groups, nil)
+	reqs, ok := c.check(groups, nil, false)
 	if !ok {
 		return
 	}

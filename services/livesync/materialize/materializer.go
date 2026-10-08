@@ -60,6 +60,9 @@ type Materializer struct {
 
 	mu  sync.Mutex
 	hot hotLimiter
+	// failures counts the consecutive Consume calls that failed: the next
+	// one materializes its batch row by row (isolate).
+	failures int
 	// backfill holds, per tracked table, the last id whose entity index
 	// row the backfill wrote, or backfillDone; walk is the mode of the
 	// tables whose backfill is not the initial one (indexRepair after a
@@ -130,28 +133,23 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 		}
 		work = append(work, r)
 	}
-	appended := 0
-	err := m.inWriterTx(ctx, func(ctx context.Context) error {
-		entries, plan, err := m.materialize(ctx, work)
-		if err != nil {
-			return err
+	var appended int
+	var err error
+	if m.failures == 0 {
+		appended, err = m.write(ctx, work, b, false, nil)
+		if errors.Is(err, errRenderBudget) {
+			log.Info("livesync: the markdown of a batch of %d rows took longer than %s to render; materializing them one by one", len(work), txRenderBudget)
+			appended, err = m.isolate(ctx, work, b)
 		}
-		if entries, err = plan.withPermissionEpoch(ctx, entries); err != nil {
-			return err
-		}
-		appended = len(entries)
-		first, err := m.writer.Append(ctx, entries)
-		if err != nil {
-			return err
-		}
-		if err := plan.apply(ctx, first); err != nil {
-			return err
-		}
-		return b.Commit(ctx)
-	})
+	} else {
+		// The batch failed before: one row of it may be the cause.
+		appended, err = m.isolate(ctx, work, b)
+	}
 	if err != nil {
+		m.failures++
 		return err
 	}
+	m.failures = 0
 	metrics.Materialized.Add(float64(b.Consumed())) // deferred rows count when they are consumed
 	metrics.LogEntries.Add(float64(appended))
 	if !b.Seen.IsZero() {
@@ -166,6 +164,91 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 	}
 	return nil
 }
+
+// write materializes rows in one writer transaction and appends their
+// entries; with b it also acknowledges b's outbox rows in it (and bumps the
+// schema epochs of the tables in lost, see isolate). lenient: the
+// transaction's render budget, once used up, leaves the remaining bodies
+// without HTML (BodyTruncated) instead of failing with errRenderBudget. It
+// returns the number of entries appended.
+func (m *Materializer) write(ctx context.Context, rows []rowChanges, b *capture.Batch, lenient bool, lost []string) (int, error) {
+	appended := 0
+	err := m.inWriterTx(ctx, func(ctx context.Context) error {
+		entries, plan, err := m.materialize(ctx, rows, lenient)
+		if err != nil {
+			return err
+		}
+		if entries, err = plan.withPermissionEpoch(ctx, entries); err != nil {
+			return err
+		}
+		appended = len(entries)
+		first, err := m.writer.Append(ctx, entries)
+		if err != nil {
+			return err
+		}
+		if err := plan.apply(ctx, first); err != nil {
+			return err
+		}
+		if b == nil {
+			return nil
+		}
+		for _, table := range lost {
+			if _, err := capture.BumpEpoch(ctx, table); err != nil {
+				return err
+			}
+		}
+		return b.Commit(ctx)
+	})
+	return appended, err
+}
+
+// isolate materializes a batch that failed as a whole (or whose markdown
+// took too long to render in one transaction): every row in a writer
+// transaction of its own, with a render budget of its own, then the
+// acknowledgement of the batch. A row that fails alone while the database
+// works (an empty writer transaction succeeds) is tried once more and then
+// skipped: one row that cannot be written (a DTO the database refuses, a
+// row whose rendering cannot finish) must not stop the sync log for
+// everyone, and retrying the whole batch forever would (backend audit).
+// The skipped row's change is lost, so its table's schema epoch is bumped
+// in the acknowledging transaction: HandleEpochs then writes re-bootstrap
+// markers for its models (clients load them again from the tables) and
+// repairs the table's entity index, exactly as for changes lost while a
+// capture trigger was missing. Any other failure (the database is
+// unreachable, this instance is no longer the writer, ctx is done) is
+// returned and the reader retries the batch later; rows already written
+// are written again then, which their unchanged index hashes turn into
+// no entries.
+func (m *Materializer) isolate(ctx context.Context, rows []rowChanges, b *capture.Batch) (int, error) {
+	appended := 0
+	var lost []string
+	for _, r := range rows {
+		n, err := m.write(ctx, []rowChanges{r}, nil, true, nil)
+		if err != nil && !errors.Is(err, synclog.ErrNotWriter) && ctx.Err() == nil {
+			if _, probe := m.write(ctx, nil, nil, true, nil); probe != nil {
+				return appended, err // the database, not the row
+			}
+			if n, err = m.write(ctx, []rowChanges{r}, nil, true, nil); err != nil {
+				log.Error("livesync: skipping the change of %s %d, which cannot be written to the sync log: %v; clients re-bootstrap the table's models", r.key.tbl, r.key.id, err)
+				if !slices.Contains(lost, r.key.tbl) {
+					lost = append(lost, r.key.tbl)
+				}
+				continue
+			}
+		}
+		if err != nil {
+			return appended, err
+		}
+		appended += n
+	}
+	n, err := m.write(ctx, nil, b, true, lost)
+	return appended + n, err
+}
+
+// txRenderBudget bounds the time a writer transaction spends rendering
+// markdown (writerTxTimeout bounds the whole transaction). A variable so
+// that tests can shorten it.
+var txRenderBudget = 30 * time.Second
 
 // indexPlan collects the entity index changes of a transaction; upserts
 // learn their sync id once the entries are appended.
@@ -218,14 +301,16 @@ func (p *indexPlan) withPermissionEpoch(ctx context.Context, entries []synclog.E
 const maxDependentRounds = 4
 
 // materialize builds the log entries and index changes for rows, and for
-// the rows that depend on a row whose group changed (spec.dependents).
-func (m *Materializer) materialize(ctx context.Context, rows []rowChanges) ([]synclog.Entry, *indexPlan, error) {
+// the rows that depend on a row whose group changed (spec.dependents). Its
+// markdown rendering is bounded by txRenderBudget (see write for lenient).
+func (m *Materializer) materialize(ctx context.Context, rows []rowChanges, lenient bool) ([]synclog.Entry, *indexPlan, error) {
 	plan := &indexPlan{}
 	if len(rows) == 0 {
 		return nil, plan, nil
 	}
 	l := newLoader()
 	defer l.close()
+	l.budget, l.strict = txRenderBudget, !lenient
 	keys := make([]rowKey, 0, len(rows))
 	changed := map[rowKey]rowChanges{}
 	for _, r := range rows {
@@ -394,6 +479,9 @@ func (m *Materializer) materializeRows(ctx context.Context, l *loader, rows []ro
 					continue // nothing visible changed
 				}
 				payload, err := cur.payload(ctx, l)
+				if errors.Is(err, errRenderBudget) {
+					return nil, err
+				}
 				if err != nil {
 					log.Error("livesync: skipping a change of %s %d: %v", r.tbl, r.id, err)
 					keepPerm()

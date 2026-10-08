@@ -28,17 +28,21 @@ const MetaCursor = "capture_cursor"
 
 // Defaults for Config.
 const (
-	DefaultPollIntervalPostgres = 250 * time.Millisecond
-	DefaultPollIntervalMySQL    = 100 * time.Millisecond
-	DefaultHoleTimeout          = 30 * time.Second
-	DefaultSweepInterval        = 5 * time.Second
-	DefaultBatchSize            = 1000
+	// DefaultPollInterval is the outbox reader's poll interval (and the
+	// sync log tailer's on MySQL).
+	DefaultPollInterval = 100 * time.Millisecond
+	// DefaultPollIntervalListen is the sync log tailer's poll interval on
+	// PostgreSQL, where it also LISTENs (synclog).
+	DefaultPollIntervalListen = 250 * time.Millisecond
+	DefaultHoleTimeout        = 30 * time.Second
+	DefaultSweepInterval      = 5 * time.Second
+	DefaultBatchSize          = 1000
 )
 
 // Config configures the outbox reader. Zero values mean the defaults.
 type Config struct {
-	// PollInterval is the polling safety net ([livesync] POLL_INTERVAL);
-	// default 250 ms on PostgreSQL (which also has LISTEN), 100 ms on MySQL.
+	// PollInterval is the polling safety net and the cross-instance wake-up
+	// ([livesync] POLL_INTERVAL); default 100 ms.
 	PollInterval time.Duration
 	// HoleTimeout is how long an id below the high-water mark is re-checked
 	// before it is given up as rolled back ([livesync] HOLE_TIMEOUT, 30 s).
@@ -52,10 +56,7 @@ type Config struct {
 
 func (c Config) withDefaults() Config {
 	if c.PollInterval <= 0 {
-		c.PollInterval = DefaultPollIntervalMySQL
-		if setting.Database.Type.IsPostgreSQL() {
-			c.PollInterval = DefaultPollIntervalPostgres
-		}
+		c.PollInterval = DefaultPollInterval
 	}
 	if c.HoleTimeout <= 0 {
 		c.HoleTimeout = DefaultHoleTimeout
@@ -211,24 +212,14 @@ func Start(ctx context.Context, cfg Config, consumer Consumer) (*Reader, error) 
 	if err := r.loadCursor(ctx); err != nil {
 		return nil, err
 	}
-	if !setting.Database.Type.IsPostgreSQL() {
-		// PostgreSQL rings through LISTEN/NOTIFY, for this instance's
-		// commits too; elsewhere the master engine is observed.
-		master, err := livesync_model.MasterXORMEngine()
-		if err != nil {
-			return nil, err
-		}
-		observeCommits(master)
+	// The in-process doorbell (writes through other instances are found
+	// by polling).
+	master, err := livesync_model.MasterXORMEngine()
+	if err != nil {
+		return nil, err
 	}
+	observeCommits(master)
 	subscribe(r.bell)
-	if setting.Database.Type.IsPostgreSQL() {
-		schema, err := CurrentSchema(ctx)
-		if err != nil {
-			unsubscribe(r.bell)
-			return nil, err
-		}
-		go Listen(ctx, pgNotifyChannel, schema, r.bell.ring)
-	}
 	go r.run(ctx)
 	return r, nil
 }

@@ -252,7 +252,7 @@ func TestHeldReleaseCatchesUp(t *testing.T) {
 // once its queued messages waited longer than DrainTimeout — not when a
 // burst exceeds the send buffer; what was not sent is dropped.
 func TestSlowConsumer(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000, DrainTimeout: 300 * time.Millisecond})
+	x := newHarness(t, Config{SendBuffer: 2400, DrainTimeout: 300 * time.Millisecond})
 	tr := newFakeTransport()
 	cl := x.connect(tr)
 	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
@@ -294,7 +294,7 @@ func TestSlowConsumer(t *testing.T) {
 // it does not read a frame within DrainTimeout while messages wait (here
 // the frame of 1500 bytes needs 300ms). Its memory stays bounded meanwhile.
 func TestSlowReader(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000, DrainTimeout: 200 * time.Millisecond})
+	x := newHarness(t, Config{SendBuffer: 2400, DrainTimeout: 200 * time.Millisecond})
 	tr := newFakeTransport()
 	cl := x.connect(tr)
 	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
@@ -326,7 +326,7 @@ func TestSlowReader(t *testing.T) {
 // Control messages still fit while live changes fill the queue: a pong
 // during a burst does not close the session.
 func TestControlRoomDuringBurst(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000})
+	x := newHarness(t, Config{SendBuffer: 2400})
 	cl := x.connectManual()
 	cl.send(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u2", Groups: []protocol.GroupRequest{{Group: "repo:1"}}})
 	cl.take()
@@ -362,7 +362,7 @@ func TestControlRoomDuringBurst(t *testing.T) {
 // older entries the catch-up had not sent yet; a client resuming the
 // group from the highest v it got skipped them.)
 func TestSelfProfileInOrderWhileBehind(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000})
+	x := newHarness(t, Config{SendBuffer: 2400})
 	cl := x.connect(nil)
 	w := cl.hello(5, protocol.GroupRequest{Group: protocol.GroupProfilesLimited})
 	require.Equal(t, []string{protocol.GroupProfilesLimited}, grantGroups(w.Granted))

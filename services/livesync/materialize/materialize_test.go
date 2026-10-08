@@ -138,7 +138,7 @@ func TestLoadFixtures(t *testing.T) {
 					assert.Nil(t, e.dto)
 					continue
 				}
-				assert.Regexp(t, `^((user|org|owner|repo|issue|profile):\d+|profiles:(public|limited))$`, e.group, "%s %d", tbl.Name, id)
+				assert.Regexp(t, `^((user|org|owner|repo|issue|profile|team):\d+|profiles:(public|limited))$`, e.group, "%s %d", tbl.Name, id)
 				hash, err := e.changeHash(ctx, l)
 				require.NoError(t, err)
 				assert.NotEmpty(t, hash)
@@ -425,6 +425,20 @@ func TestHandleEpochs(t *testing.T) {
 	require.NoError(t, m.HandleEpochs(ctx))
 	rows, _ = takeLog(t, &cursor)
 	assert.Empty(t, rows, "handled")
+
+	// A content version moved (backend audit: payloads clients hold must
+	// not be kept): markers, no index walk.
+	m.backfill["collaboration"] = backfillDone
+	require.NoError(t, livesync_model.SetMeta(ctx, MetaContentPrefix+"collaboration", "0"))
+	require.NoError(t, m.HandleEpochs(ctx))
+	rows, entries = takeLog(t, &cursor)
+	assert.Equal(t, []logRow{{"*", "", "Collaboration", "B", 0}}, rows)
+	require.NoError(t, json.Unmarshal([]byte(entries[0].Payload), &marker))
+	assert.Equal(t, protocol.RebootstrapPlacementChanged, marker.Reason)
+	assert.True(t, m.backfillComplete("collaboration"), "no walk")
+	require.NoError(t, m.HandleEpochs(ctx))
+	rows, _ = takeLog(t, &cursor)
+	assert.Empty(t, rows, "handled")
 }
 
 func TestBackfill(t *testing.T) {
@@ -523,7 +537,7 @@ func TestConsumePlacement(t *testing.T) {
 		{"org:3", "", "OrgUser", "U", 1},
 		{"org:3", "members", "OrgUser", "U", 2},
 		{"org:3", "members", "Team", "U", 1},
-		{"org:3", "members", "TeamRepo", "U", 1},
+		{"team:1", "", "TeamRepo", "U", 1},
 		{"owner:3", "", "Label", "U", 3},
 		{"user:2", "self", "Star", "U", 1},
 		{"repo:1", "issues", "ProjectIssue", "U", 1},

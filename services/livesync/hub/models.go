@@ -15,12 +15,15 @@ import (
 // groups of these kinds only. A model missing here concerns every group
 // (TestModelKindsCoverModels keeps the table complete).
 var modelKinds = map[protocol.Model][]string{
-	protocol.ModelRepository:    {protocol.GroupPrefixRepo},
-	protocol.ModelUser:          {protocol.GroupPrefixOrg, protocol.GroupPrefixProfile, protocol.GroupPrefixProfiles},
-	protocol.ModelOrgUser:       {protocol.GroupPrefixOrg},
-	protocol.ModelTeam:          {protocol.GroupPrefixOrg},
-	protocol.ModelTeamUser:      {protocol.GroupPrefixOrg},
-	protocol.ModelTeamRepo:      {protocol.GroupPrefixOrg},
+	protocol.ModelRepository: {protocol.GroupPrefixRepo},
+	protocol.ModelUser:       {protocol.GroupPrefixOrg, protocol.GroupPrefixProfile, protocol.GroupPrefixProfiles},
+	protocol.ModelOrgUser:    {protocol.GroupPrefixOrg},
+	protocol.ModelTeam:       {protocol.GroupPrefixOrg},
+	// Team members and repositories are in team:{id}; in org:{id} before
+	// placement version 1 (clients holding them there get the marker of
+	// the move).
+	protocol.ModelTeamUser:      {protocol.GroupPrefixTeam, protocol.GroupPrefixOrg},
+	protocol.ModelTeamRepo:      {protocol.GroupPrefixTeam, protocol.GroupPrefixOrg},
 	protocol.ModelTeamUnit:      {protocol.GroupPrefixOrg},
 	protocol.ModelCollaboration: {protocol.GroupPrefixRepo},
 	protocol.ModelAccess:        {protocol.GroupPrefixUser},

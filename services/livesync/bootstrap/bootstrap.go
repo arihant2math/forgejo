@@ -60,6 +60,7 @@ func (r *Request) snapshot() materialize.SnapshotRequest {
 type Prepared struct {
 	req       Request
 	watermark int64
+	logID     string
 }
 
 // betweenReads, when set (tests only), runs in Prepare between the
@@ -81,6 +82,10 @@ func Prepare(ctx context.Context, req Request) (*Prepared, []string, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("livesync: bootstrap: read the sync log head: %w", err)
 	}
+	logID, err := synclog.LogID(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("livesync: bootstrap: read the sync log id: %w", err)
+	}
 	if betweenReads != nil {
 		betweenReads(ctx)
 	}
@@ -92,7 +97,7 @@ func Prepare(ctx context.Context, req Request) (*Prepared, []string, error) {
 	if err != nil || len(pending) > 0 {
 		return nil, pending, err
 	}
-	return &Prepared{req: req, watermark: watermark}, nil, nil
+	return &Prepared{req: req, watermark: watermark, logID: logID}, nil, nil
 }
 
 // Stream writes the response to w: the header line, the group's entities,
@@ -111,7 +116,7 @@ func (p *Prepared) Stream(ctx context.Context, w io.Writer, flush func() error, 
 	}
 	all := materialize.Schemas()
 	header := protocol.BootstrapHeader{
-		Type: "header", Group: req.Group, Watermark: watermark, Units: req.Units.Units(), Tier: req.Tier,
+		Type: "header", Group: req.Group, Watermark: watermark, LogID: p.logID, Units: req.Units.Units(), Tier: req.Tier,
 		Schemas: make(map[protocol.Model]int, len(models)), Models: req.Models,
 	}
 	for _, m := range models {

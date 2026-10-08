@@ -14,6 +14,25 @@ import (
 // (Notification, Stopwatch, IssueWatch, Watch, Star, BlockedUser, Access,
 // ReviewState), which only that user is granted. Markdown is rendered once by Forgejo's markup service without
 // a viewer (see services/livesync/materialize/render.go for what that means).
+//
+// Long bodies (IssueBody, Comment, Review, Release): the sync log carries at
+// most MaxBodyBytes of a body and MaxBodyHTMLBytes of its HTML (measured as
+// encoded in the payload's JSON), so that one huge comment cannot make sync
+// log entries, deltas and bootstraps arbitrarily large. When a body is longer
+// its Body holds a prefix (whole characters), BodyHTML is empty and
+// BodyTruncated is true; when only the HTML is too long, could not be
+// rendered within the server's time budget (e.g. thousands of @mentions) or
+// failed to render, Body is complete, BodyHTML is empty and BodyTruncated is
+// true. Either way the client gets the full text and its HTML with
+// GET /-/sync/api/bodies/{model}/{id} (APIBody) when it shows the body.
+
+// Limits of the bodies carried by the sync log (see above), in bytes of
+// their JSON encoding.
+
+const (
+	MaxBodyBytes     = 64 << 10
+	MaxBodyHTMLBytes = 256 << 10
+)
 
 // Repository is a repository (group repo:{id}, unit none).
 type Repository struct {
@@ -113,7 +132,11 @@ type TeamUnit struct {
 }
 
 // Collaboration makes a user a collaborator of a repository (group
-// repo:{repo_id}).
+// repo:{repo_id}). Permission is "read" or "write": every reader of the
+// repository may know whom issues can be assigned to (writers), as upstream
+// shows, but not who administers it (upstream shows a collaborator's exact
+// mode only to administrators and the collaborator), so "admin" reads
+// "write" here.
 type Collaboration struct {
 	ID         int64     `json:"id"`
 	RepoID     int64     `json:"repo_id"`
@@ -277,12 +300,13 @@ type Issue struct {
 }
 
 // IssueBody is the description of an issue or pull request (group
-// issue:{id}, same id as the Issue).
+// issue:{id}, same id as the Issue). See BodyTruncated for long bodies.
 type IssueBody struct {
 	ID             int64  `json:"id"`
 	RepoID         int64  `json:"repo_id"`
 	Body           string `json:"body"`
 	BodyHTML       string `json:"body_html"`
+	BodyTruncated  bool   `json:"body_truncated,omitempty"`
 	ContentVersion int    `json:"content_version"`
 }
 
@@ -365,6 +389,7 @@ type Release struct {
 	SHA              string    `json:"sha"`
 	Body             string    `json:"body"`
 	BodyHTML         string    `json:"body_html"`
+	BodyTruncated    bool      `json:"body_truncated,omitempty"`
 	Draft            bool      `json:"draft"`
 	Prerelease       bool      `json:"prerelease"`
 	IsTag            bool      `json:"is_tag"`
@@ -516,6 +541,7 @@ type Comment struct {
 	OriginalAuthorID int64     `json:"original_author_id"`
 	Body             string    `json:"body"`
 	BodyHTML         string    `json:"body_html"`
+	BodyTruncated    bool      `json:"body_truncated,omitempty"`
 	ContentVersion   int       `json:"content_version"`
 	LabelID          int64     `json:"label_id"`
 	OldProjectID     int64     `json:"old_project_id"`
@@ -572,6 +598,7 @@ type Review struct {
 	OriginalAuthor string    `json:"original_author"`
 	Body           string    `json:"body"`
 	BodyHTML       string    `json:"body_html"`
+	BodyTruncated  bool      `json:"body_truncated,omitempty"`
 	Official       bool      `json:"official"`
 	CommitID       string    `json:"commit_id"`
 	Stale          bool      `json:"stale"`

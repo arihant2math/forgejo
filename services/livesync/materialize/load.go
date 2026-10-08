@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strconv"
+	"time"
+	"unicode/utf8"
 
 	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
@@ -51,21 +53,29 @@ type entity struct {
 
 // pendingRender is a markdown field of a DTO to render on emission.
 type pendingRender struct {
-	repo    *repo_model.Repository
+	repo *repo_model.Repository
+	// content is the complete source (the DTO's body may hold a prefix).
 	content string
-	dst     *string
+	// dst is the DTO's HTML field, truncated its BodyTruncated.
+	dst       *string
+	truncated *bool
+	// tooLong: the source is longer than protocol.MaxBodyBytes; the DTO
+	// carries a prefix of it and no HTML (the client fetches both with
+	// GET /-/sync/api/bodies).
+	tooLong bool
 }
 
 // changeHash returns the hash that is compared with the entity index to tell
 // whether anything visible changed (livesync_entity.hash). For a DTO without
 // markdown it is the hash of the payload. Rendering markdown is expensive
-// (goldmark, git lookups, user lookups — inside the writer's transaction),
-// and an issue row changes for many reasons that leave its body alone (every
-// comment touches updated_unix), so for a DTO with markdown fields it is the
-// hash of the payload without the rendered HTML plus the rendering
-// environment (each repository's link and markup metas): the HTML is a
-// function of those (the raw source is in the payload), and the body is
-// rendered only when that hash changes.
+// (goldmark, git lookups, user lookups — while the writer's transaction is
+// open), and an issue row changes for many reasons that leave its body
+// alone (every comment touches updated_unix), so for a DTO with markdown
+// fields it is the hash of the payload without the rendered HTML plus the
+// rendering environment (each repository's link and markup metas, and the
+// version of livesync's rendering rules) and, for a body too long for the
+// payload, its complete source: the HTML is a function of those, and the
+// body is rendered only when that hash changes.
 func (e *entity) changeHash(ctx context.Context, l *loader) (string, error) {
 	b, err := marshal(e.dto)
 	if err != nil {
@@ -79,16 +89,41 @@ func (e *entity) changeHash(ctx context.Context, l *loader) (string, error) {
 	for _, r := range e.renders {
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(l.renderEnv(ctx, r.repo)))
+		if r.tooLong {
+			_, _ = h.Write([]byte{1})
+			_, _ = h.Write([]byte(r.content))
+		}
 	}
 	return strconv.FormatUint(h.Sum64(), 16), nil
 }
 
+// maxPayloadBytes bounds the JSON of one sync log entry. The bodies are
+// bounded (protocol.MaxBodyBytes, MaxBodyHTMLBytes); an entity still larger
+// (an enormous text column elsewhere, e.g. a code comment's diff hunk on a
+// minified line) is an error like a DTO that cannot be built: logged and
+// skipped, so that it can neither exceed the database's packet size when
+// appended (and jam the sync log) nor bloat every delta and bootstrap.
+var maxPayloadBytes = 1 << 20
+
 // payload renders the entity's markdown fields and returns its JSON. Call
-// changeHash first.
+// changeHash first. A body whose HTML cannot be carried (too long, not
+// rendered within the time budget, or failed) gets an empty HTML and
+// BodyTruncated. It returns errRenderBudget when the loader's render budget
+// is used up and the loader is strict (see loader.render).
 func (e *entity) payload(ctx context.Context, l *loader) (string, error) {
 	if len(e.renders) > 0 {
 		for _, r := range e.renders {
-			*r.dst = l.renderMarkdown(ctx, r.repo, r.content)
+			if r.tooLong {
+				continue
+			}
+			html, complete, err := l.render(ctx, r.repo, r.content)
+			if err != nil {
+				return "", err
+			}
+			if !complete || jsonLen(html) > protocol.MaxBodyHTMLBytes {
+				html, *r.truncated = "", true
+			}
+			*r.dst = html
 		}
 		e.renders = nil
 		b, err := marshal(e.dto)
@@ -97,7 +132,48 @@ func (e *entity) payload(ctx context.Context, l *loader) (string, error) {
 		}
 		e.encoded = b
 	}
+	if len(e.encoded) > maxPayloadBytes {
+		return "", fmt.Errorf("livesync: %s payload of %d bytes exceeds the limit of %d bytes", e.model, len(e.encoded), maxPayloadBytes)
+	}
 	return string(e.encoded), nil
+}
+
+// jsonLen is the length of s encoded as a JSON string by marshal, without
+// the quotes.
+func jsonLen(s string) int {
+	n := 0
+	for _, r := range s {
+		n += jsonRuneLen(r)
+	}
+	return n
+}
+
+// jsonRuneLen is the length of rune r in a JSON string encoded by marshal
+// (encoding/json without HTML escaping; invalid UTF-8 reads as
+// utf8.RuneError, which the encoder writes as \ufffd).
+func jsonRuneLen(r rune) int {
+	switch {
+	case r == '"' || r == '\\' || r == '\n' || r == '\r' || r == '\t':
+		return 2
+	case r < 0x20 || r == '\u2028' || r == '\u2029' || r == utf8.RuneError:
+		return 6
+	}
+	return utf8.RuneLen(r)
+}
+
+// truncateJSON returns the longest prefix of s (whole characters) whose
+// JSON encoding is at most limit bytes, and whether s was cut.
+func truncateJSON(s string, limit int) (string, bool) {
+	if len(s) <= limit/6 {
+		return s, false // even all escaped it fits
+	}
+	n := 0
+	for i, r := range s {
+		if n += jsonRuneLen(r); n > limit {
+			return s[:i], true
+		}
+	}
+	return s, false
 }
 
 // marshal encodes a payload as JSON without HTML escaping: payloads are
@@ -154,6 +230,11 @@ type loader struct {
 	gitRepos map[int64]*git.Repository
 	// envs caches renderEnv per repository.
 	envs map[int64]string
+	// budget bounds the total time spent rendering markdown with this
+	// loader (0: no bound), spent counts it; strict says what happens when
+	// it is used up (see render).
+	budget, spent time.Duration
+	strict        bool
 	// pending collects the markdown fields a DTO builder asked for (see
 	// markdown); the spec moves them to the DTO's entity.
 	pending []pendingRender
@@ -173,10 +254,16 @@ func newLoader() *loader {
 	}
 }
 
-// markdown asks for content to be rendered into *dst when the DTO being
-// built is emitted (see entity.changeHash).
-func (l *loader) markdown(repo *repo_model.Repository, content string, dst *string) {
-	l.pending = append(l.pending, pendingRender{repo: repo, content: content, dst: dst})
+// markdown asks for the markdown body *body of the DTO being built to be
+// rendered into *html when the DTO is emitted (see entity.changeHash). A
+// body longer than protocol.MaxBodyBytes is cut to a prefix right away
+// (with *truncated set) and not rendered.
+func (l *loader) markdown(repo *repo_model.Repository, body, html *string, truncated *bool) {
+	r := pendingRender{repo: repo, content: *body, dst: html, truncated: truncated}
+	if prefix, cut := truncateJSON(*body, protocol.MaxBodyBytes); cut {
+		*body, *truncated, r.tooLong = prefix, true, true
+	}
+	l.pending = append(l.pending, r)
 }
 
 // takeRenders returns and clears the renders asked for since the last call.
@@ -300,11 +387,14 @@ func (l *loader) issueRepoPlace(issueID int64) (string, protocol.Unit) {
 
 // projectPlace is the group and unit of a project (its Project entity) and
 // of its columns: the repository's (unit projects) for a repository
-// project, the organization's group for an organization's, the profile
-// group of the user for a user's (what anyone who may see the user reads).
-// Upstream shows an owner's project pages (description, columns, cards)
-// only to those who may see the owner; what readers of the owner's
-// repositories see of the project is its ProjectRef (projectRefPlace).
+// project, the organization's group with its projects unit for an
+// organization's (upstream's reqUnitAccess(TypeProjects) on the
+// organization's project pages: Organization.UnitPermission, i.e. the
+// members' teams' projects access, and read for others only on a public or
+// limited organization — backend audit), the profile group of the user for
+// a user's (what anyone who may see the user reads). What readers of the
+// owner's repositories see of the project is its ProjectRef
+// (projectRefPlace).
 func (l *loader) projectPlace(projectID int64) (string, protocol.Unit) {
 	p := l.projects[projectID]
 	switch {
@@ -313,7 +403,7 @@ func (l *loader) projectPlace(projectID int64) (string, protocol.Unit) {
 	case p.RepoID != 0:
 		return protocol.RepoGroup(p.RepoID), protocol.UnitProjects
 	case p.Type == project_module.TypeOrganization:
-		return protocol.OrgGroup(p.OwnerID), protocol.UnitNone
+		return protocol.OrgGroup(p.OwnerID), protocol.UnitProjects
 	case p.OwnerID != 0:
 		return protocol.ProfileGroup(p.OwnerID), protocol.UnitNone
 	}

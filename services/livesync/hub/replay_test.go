@@ -167,7 +167,7 @@ func TestReplayAtPositionZero(t *testing.T) {
 // slot of the hub's semaphore: one user's sessions that read slowly do not
 // stall other replays.
 func TestReplaySlotsNotHeldWhileWaiting(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000, WriteTimeout: time.Minute})
+	x := newHarness(t, Config{SendBuffer: 2400, WriteTimeout: time.Minute})
 	var many []synclog.Entry
 	for i := range 200 {
 		many = append(many, label(int64(i+1), "l"))
@@ -332,7 +332,7 @@ func TestHeldEntriesFrameTo(t *testing.T) {
 // Held entries beyond the session's share: the subscription catches up
 // from the log instead (and still gets everything).
 func TestHeldEntriesOverflow(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000})
+	x := newHarness(t, Config{SendBuffer: 2400})
 	cl := x.connect(nil)
 	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
 	cl.expect(protocol.MsgCaughtUp)

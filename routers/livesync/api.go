@@ -48,6 +48,7 @@ func registerAPI(r *web.Route) {
 	r.Post(p+"/projects/{id}/columns/{column}/cards", apiCardMove)
 	r.Patch(p+"/issues/{id}/body", apiIssueBody)
 	r.Patch(p+"/comments/{id}/body", apiCommentBody)
+	r.Get(p+"/bodies/{model}/{id}", apiFullBody)
 	r.Get(p+"/issues/{id}/viewed", apiViewedGet)
 	r.Put(p+"/issues/{id}/viewed", apiViewedPut)
 	r.Post(p+"/markdown", apiMarkdown)

@@ -13,6 +13,7 @@ import (
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/setting"
+	"forgejo.org/modules/test"
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/services/livesync/synclog"
@@ -115,6 +116,42 @@ func TestLivesyncSyncLogLease(t *testing.T) {
 		require.NoError(t, err)
 		assert.EqualValues(t, 2, id)
 	})
+}
+
+// A lease whose holder went silent (its host died without closing the
+// connection) is freed by the database after LeaseIdleTimeout, not after
+// hours (backend audit): here the holder stops pinging (keepalive off) and
+// another session takes the lock once the server ended the idle one.
+func TestLivesyncLeaseIdleTimeout(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	ctx := context.Background()
+	defer test.MockVariableValue(&livesync_model.LeaseIdleTimeout, 2*time.Second)()
+	defer test.MockVariableValue(&livesync_model.LeaseKeepalive, time.Hour)()
+	silent, err := livesync_model.TryLease(ctx, "livesync.test.idle")
+	require.NoError(t, err)
+	defer silent.Release()
+	_, err = livesync_model.TryLease(ctx, "livesync.test.idle")
+	require.ErrorIs(t, err, livesync_model.ErrLeaseHeld)
+	var taken *livesync_model.Lease
+	start := time.Now()
+	require.Eventually(t, func() bool {
+		taken, err = livesync_model.TryLease(ctx, "livesync.test.idle")
+		return err == nil
+	}, 15*time.Second, 100*time.Millisecond, "the server ended the idle session")
+	defer taken.Release()
+	t.Logf("taken over after %s", time.Since(start).Round(100*time.Millisecond))
+	require.Error(t, silent.Check(ctx), "the silent holder notices")
+
+	// A holder that keeps pinging keeps its lease past the idle timeout.
+	defer test.MockVariableValue(&livesync_model.LeaseKeepalive, 300*time.Millisecond)()
+	alive, err := livesync_model.TryLease(ctx, "livesync.test.alive")
+	require.NoError(t, err)
+	defer alive.Release()
+	time.Sleep(4 * time.Second)
+	require.NoError(t, alive.Check(ctx))
+	_, err = livesync_model.TryLease(ctx, "livesync.test.alive")
+	require.ErrorIs(t, err, livesync_model.ErrLeaseHeld)
 }
 
 // Appends from concurrent transactions get gap-free, strictly increasing

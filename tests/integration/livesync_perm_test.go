@@ -16,6 +16,7 @@ import (
 	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
+	org_model "forgejo.org/models/organization"
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/setting"
@@ -88,6 +89,14 @@ func TestLivesyncPermDifferential(t *testing.T) {
 
 	var users []*user_model.User
 	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&users))
+	var teams []*org_model.Team
+	require.NoError(t, db.GetEngine(t.Context()).OrderBy("id").Find(&teams))
+	hasOwners := map[int64]bool{}
+	for _, team := range teams {
+		if team.IsOwnerTeam() {
+			hasOwners[team.OrgID] = true
+		}
+	}
 	var repos []*repo_model.Repository
 	require.NoError(t, db.GetEngine(ctx).OrderBy("id").Find(&repos))
 	// One issue and one pull request (the lowest index) per repository.
@@ -205,6 +214,27 @@ func TestLivesyncPermDifferential(t *testing.T) {
 				continue
 			}
 			assert.Equal(t, api == http.StatusOK, status == http.StatusOK, "viewer %d profile of %d in %s: API v1 %d, livesync %d", viewer.ID, target.ID, group, api, status)
+		}
+
+		// Teams (backend audit): who is in a team and its repositories are
+		// for its members, the organization's owners and site
+		// administrators (API v1's reqTeamMembership).
+		for _, team := range teams {
+			if !hasOwners[team.OrgID] {
+				// Upstream's reqTeamMembership logs an error for an
+				// organization without an owners team (a fixture).
+				seen[protocol.TeamGroup(team.ID)] = true
+				continue
+			}
+			group := protocol.TeamGroup(team.ID)
+			api := livesyncStatus(t, token, fmt.Sprintf("/api/v1/teams/%d/members", team.ID))
+			require.Contains(t, []int{http.StatusOK, http.StatusForbidden, http.StatusNotFound}, api, "viewer %d team %d", viewer.ID, team.ID)
+			status, units := livesyncGrant(t, token, group)
+			assert.Equal(t, api == http.StatusOK, status == http.StatusOK, "viewer %d %s: API v1 %d, livesync %d", viewer.ID, group, api, status)
+			if want, ok := implicit[group]; ok {
+				seen[group] = true
+				assert.Equal(t, want, units, "viewer %d %s", viewer.ID, group)
+			}
 		}
 
 		// The rest of the implicit grants: the viewer's own groups and the
@@ -355,12 +385,15 @@ func TestLivesyncPermEpochs(t *testing.T) {
 	status, _ = livesyncGrant(t, user4, "repo:3")
 	assert.Equal(t, http.StatusNotFound, status)
 	// No entity of the removed membership is left in any group the user
-	// can still read: the TeamUser delete went to org:3's members.
+	// can still read: the TeamUser delete went to the team's group (backend
+	// audit; it was in org:3's members before).
 	e = livesyncWaitLog(t, cursor, livesyncWait, func(e *livesync_model.LogEntry) bool {
 		return e.Model == string(protocol.ModelTeamUser) && e.Op == string(protocol.OpDelete)
 	})
-	assert.Equal(t, "org:3", e.Grp)
-	assert.Equal(t, string(protocol.UnitMembers), e.Unit)
+	assert.Equal(t, "team:2", e.Grp)
+	assert.Empty(t, e.Unit)
+	status, _ = livesyncGrant(t, user4, "team:2")
+	assert.Equal(t, http.StatusNotFound, status, "no longer a member")
 
 	// A user made private moves their profile from the public directory to
 	// their profile group (and the epoch names their repositories).

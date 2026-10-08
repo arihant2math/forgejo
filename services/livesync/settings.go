@@ -38,8 +38,10 @@ type Settings struct {
 	Enabled bool
 	// INSTALL_MODE (default auto): auto | verify, see InstallMode.
 	InstallMode InstallMode
-	// POLL_INTERVAL (default 0 = 250ms on PostgreSQL, 100ms on MySQL): how
-	// often the outbox reader polls when no doorbell rang (B2).
+	// POLL_INTERVAL (default 0 = 100ms for the outbox reader; the sync log
+	// tailer uses 250ms on PostgreSQL, where it also LISTENs): how often the
+	// outbox reader polls when no doorbell rang (B2); the latency of writes
+	// made through another instance.
 	PollInterval time.Duration
 	// HOLE_TIMEOUT (default 30s): how long the outbox reader waits for an
 	// outbox id below its high-water mark (an uncommitted transaction) before

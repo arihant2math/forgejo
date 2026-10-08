@@ -79,8 +79,11 @@ const (
 	// maxFrameBytes: a delta frame is cut after this many bytes of changes
 	// (the next changes go into the next frame, sent right after).
 	maxFrameBytes = 256 << 10
-	// replayBatch is the number of log entries read per replay query.
+	// replayBatch is the number of log entry keys read per replay query.
 	replayBatch = 500
+	// replayPayloadBatch is the number of payloads read per replay query
+	// (a payload is up to about 1 MB).
+	replayPayloadBatch = 100
 	// maxBarriers bounds the pending barriers of a session.
 	maxBarriers = 16
 	// maxConcurrentChecks bounds the database reads of replays and the
@@ -149,6 +152,33 @@ type Config struct {
 	Logs LogSource
 	// LogInterval is how often a log tail polls its job.
 	LogInterval time.Duration
+	// LogID returns the sync log's incarnation id (synclog.LogID) for
+	// WelcomeMessage.LogID and the check of HelloMessage.LogID (optional:
+	// without it neither is used).
+	LogID func(ctx context.Context) (string, error)
+}
+
+// currentLogID returns the sync log's incarnation id ("" while unknown: no
+// writer has created it yet, or it could not be read). It changes only when
+// livesync's tables are created anew, which needs a restart.
+func (h *Hub) currentLogID(ctx context.Context) string {
+	if id := h.logID.Load(); id != nil {
+		return *id
+	}
+	if h.cfg.LogID == nil {
+		return ""
+	}
+	id, err := h.cfg.LogID(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			log.Warn("livesync: read the sync log id: %v", err)
+		}
+		return ""
+	}
+	if id != "" {
+		h.logID.Store(&id)
+	}
+	return id
 }
 
 func (cfg *Config) setDefaults() {
@@ -196,6 +226,8 @@ type Hub struct {
 	// everything up to it. (Deliver wakes the writers only after storing
 	// it, so a delivery's frame claims the delivery's position.)
 	pos atomic.Int64
+	// logID caches the sync log's incarnation id once known (currentLogID).
+	logID atomic.Pointer[string]
 
 	mu      sync.Mutex
 	closed  bool

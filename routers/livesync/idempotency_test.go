@@ -43,6 +43,16 @@ func TestKeyed(t *testing.T) {
 		{"POST", "/api/v1x/y", true, ""},
 		{"POST", "/api/forgejo/v1/version", true, ""},
 		{"POST", "/user/login", true, ""},
+		// Read-only POSTs (backend audit): no record.
+		{"POST", "/api/v1/markdown", true, ""},
+		{"POST", "/api/v1/markdown/raw", true, ""},
+		{"POST", "/sub/api/v1/markup", true, ""},
+		{"POST", "/api/v1/repos/a/b/markdown", true, ""},
+		{"POST", "/api/v1/repos/a/b/markdown/raw", true, ""},
+		{"POST", "/api/v1/repos/a/b/markup", true, ""},
+		{"PUT", "/api/v1/repos/a/b/markdown", true, "/api/v1/repos/a/b/markdown"},
+		{"POST", "/api/v1/repos/a/markdown", true, "/api/v1/repos/a/markdown"},
+		{"POST", "/api/v1/repos/a/b/issues/markdown", true, "/api/v1/repos/a/b/issues/markdown"},
 	}
 	for _, c := range cases {
 		req := httptest.NewRequest(c.method, c.path, nil)

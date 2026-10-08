@@ -9,6 +9,8 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	"forgejo.org/models/db"
@@ -158,10 +160,34 @@ func MasterXORMEngine() (*xorm.Engine, error) {
 // connection dies, the database releases it and another instance can take
 // it, so holders must Check it regularly and stop acting on its behalf as
 // soon as Check fails (and fence their writes, see services/livesync/synclog).
+//
+// A holder whose host dies or is cut off without closing the connection
+// (no FIN/RST) would keep the lock until the database server noticed the
+// dead connection: hours with the default TCP keepalive (PostgreSQL) or
+// wait_timeout (MySQL: 8 h), during which no other instance can take over
+// (backend audit). So the lease's session is configured to be ended by the
+// server once it has been idle for LeaseIdleTimeout (PostgreSQL
+// idle_session_timeout, 14+, and TCP keepalives; MySQL wait_timeout), and
+// the lease pings it every LeaseKeepalive while it is held, whatever its
+// holder is busy with. The connection is closed on Release instead of going
+// back to the pool with these settings.
 type Lease struct {
 	conn *sql.Conn // nil on SQLite (unit tests): no locking
 	name string
+
+	stop, done chan struct{}
+	mu         sync.Mutex
+	lost       error // set by the keepalive when a ping failed
 }
+
+// Lease session timeouts. Variables so that tests can change them.
+var (
+	// LeaseIdleTimeout: the database ends a lease's session (and so frees
+	// its lock) after this long without a statement on it.
+	LeaseIdleTimeout = 30 * time.Second
+	// LeaseKeepalive: how often a held lease pings its session.
+	LeaseKeepalive = 5 * time.Second
+)
 
 // ErrLeaseHeld is returned by TryLease when another session holds the lock.
 var ErrLeaseHeld = errors.New("livesync: the lock is held by another session")
@@ -183,20 +209,89 @@ func TryLease(ctx context.Context, name string) (*Lease, error) {
 	if err != nil {
 		return nil, fmt.Errorf("livesync: lease connection: %w", err)
 	}
+	discard := func() {
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		conn.Close()
+	}
+	if err := setLeaseTimeouts(ctx, conn); err != nil {
+		discard()
+		return nil, fmt.Errorf("livesync: lease %q: set the session timeouts: %w", name, err)
+	}
 	query := "SELECT GET_LOCK(CONCAT(?, '.', MD5(DATABASE())), 0)"
 	if setting.Database.Type.IsPostgreSQL() {
 		query = "SELECT CASE WHEN pg_try_advisory_lock(hashtext($1::text || '.' || current_schema())) THEN 1 ELSE 0 END"
 	}
 	var got sql.NullInt64
 	if err := conn.QueryRowContext(ctx, query, name).Scan(&got); err != nil {
-		conn.Close()
+		discard()
 		return nil, fmt.Errorf("livesync: try lock %q: %w", name, err)
 	}
 	if !got.Valid || got.Int64 != 1 {
-		conn.Close()
+		discard()
 		return nil, ErrLeaseHeld
 	}
-	return &Lease{conn: conn, name: name}, nil
+	l := &Lease{conn: conn, name: name, stop: make(chan struct{}), done: make(chan struct{})}
+	go l.keepalive()
+	return l, nil
+}
+
+// setLeaseTimeouts makes the server end conn's session once it has been
+// idle for LeaseIdleTimeout (see Lease).
+func setLeaseTimeouts(ctx context.Context, conn *sql.Conn) error {
+	secs := max(int64(LeaseIdleTimeout/time.Second), 1)
+	if setting.Database.Type.IsMySQL() {
+		_, err := conn.ExecContext(ctx, "SET SESSION wait_timeout = "+strconv.FormatInt(secs, 10))
+		return err
+	}
+	// TCP keepalives (ignored on a Unix socket): a dead peer is detected
+	// after about idle + count × interval.
+	interval := max(secs/6, 1)
+	for _, set := range []string{
+		"SET tcp_keepalives_idle = " + strconv.FormatInt(max(secs/2, 1), 10),
+		"SET tcp_keepalives_interval = " + strconv.FormatInt(interval, 10),
+		"SET tcp_keepalives_count = 3",
+	} {
+		if _, err := conn.ExecContext(ctx, set); err != nil {
+			return err
+		}
+	}
+	var version int
+	if err := conn.QueryRowContext(ctx, "SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
+		return err
+	}
+	if version >= 140000 { // idle_session_timeout is new in PostgreSQL 14
+		if _, err := conn.ExecContext(ctx, "SET idle_session_timeout = "+strconv.FormatInt(LeaseIdleTimeout.Milliseconds(), 10)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// keepalive pings the lease's session every LeaseKeepalive until Release,
+// so that the server's idle timeout ends it only when this process cannot
+// reach it any more.
+func (l *Lease) keepalive() {
+	defer close(l.done)
+	t := time.NewTicker(LeaseKeepalive)
+	defer t.Stop()
+	for {
+		select {
+		case <-l.stop:
+			return
+		case <-t.C:
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), max(LeaseKeepalive, time.Second))
+		err := l.conn.PingContext(ctx)
+		cancel()
+		if err != nil {
+			l.mu.Lock()
+			if l.lost == nil {
+				l.lost = err
+			}
+			l.mu.Unlock()
+			return
+		}
+	}
 }
 
 // Check verifies that the lease's connection is still alive (and so the
@@ -205,19 +300,29 @@ func (l *Lease) Check(ctx context.Context) error {
 	if l.conn == nil {
 		return nil
 	}
-	if err := l.conn.PingContext(ctx); err != nil {
-		return fmt.Errorf("livesync: lease %q lost: %w", l.name, err)
+	l.mu.Lock()
+	lost := l.lost
+	l.mu.Unlock()
+	if lost == nil {
+		lost = l.conn.PingContext(ctx)
+	}
+	if lost != nil {
+		return fmt.Errorf("livesync: lease %q lost: %w", l.name, lost)
 	}
 	return nil
 }
 
-// Release releases the lock and returns the connection to the pool (or
-// discards it if the release fails). It is idempotent.
+// Release releases the lock and closes the connection (it carries the
+// lease's session timeouts, so it does not go back to the pool). It is
+// idempotent.
 func (l *Lease) Release() {
 	if l.conn == nil {
 		return
 	}
+	close(l.stop)
+	<-l.done
 	releaseLock(l.conn, l.name)
+	_ = l.conn.Raw(func(any) error { return driver.ErrBadConn })
 	l.conn.Close()
 	l.conn = nil
 }

@@ -52,15 +52,45 @@ const MetaPlacementPrefix = "materialized_placement."
 // (upstream shows an owner's project pages only to those who may see the
 // owner) and owner:{id} holds a ProjectRef (title, open/closed, type)
 // instead, a second entity of the row; the markers cover both models.
+// Version 4 of project and 2 of project_board (backend audit): an
+// organization's projects and their columns need the projects unit in
+// org:{id}. Version 1 of team_user and team_repo (backend audit): who is in
+// a team and its repositories moved from org:{id} (members) to team:{id}.
 var placementVersions = map[string]int64{
 	"label":            1,
 	"user":             1,
-	"project":          3,
-	"project_board":    1,
+	"project":          4,
+	"project_board":    2,
 	"release":          1,
 	"tracked_time":     1,
 	"reaction":         1,
 	"issue_dependency": 1,
+	"team_user":        1,
+	"team_repo":        1,
+}
+
+// MetaContentPrefix + table name is the livesync_meta entry holding the
+// content version (contentVersions) of the table's entities that clients
+// were last told to re-bootstrap for.
+const MetaContentPrefix = "materialized_content."
+
+// contentVersions are the versions of what a table's DTOs carry (not where
+// they are placed): when a change makes payloads that clients already hold
+// wrong to keep — they show what must not be shown any more — the table's
+// version is bumped and HandleEpochs writes re-bootstrap markers for its
+// models (reason RebootstrapPlacementChanged), without an index walk (the
+// index's groups and units stay right; bootstraps build the new payloads,
+// renderVersion keeps them from reusing logged HTML). Absent tables are at
+// version 0. Version 1 of issue, comment, review and release (backend
+// audit): body_html without file previews (code of repositories that were
+// public when the body was rendered). Version 1 of collaboration (backend
+// audit): the permission no longer tells admin from write.
+var contentVersions = map[string]int64{
+	"issue":         1,
+	"comment":       1,
+	"review":        1,
+	"release":       1,
+	"collaboration": 1,
 }
 
 // placementVersion is the placement version of table: placementVersions,
@@ -79,6 +109,23 @@ func placementVersion(table string) int64 {
 		v = v<<32 | int64(h.Sum32())
 	}
 	return v
+}
+
+// markedTables are the tables whose models a re-bootstrap marker of table
+// names: the table and the tables whose rows its rows place (spec.dependents,
+// transitively; backend audit). A lost change of a release (published, or
+// set back to draft) moves its attachments too, one of a comment its
+// attachments, reactions and revisions.
+func markedTables(table string) []string {
+	res := []string{table}
+	for i := 0; i < len(res); i++ {
+		for _, dep := range specs[res[i]].dependents {
+			if !slices.Contains(res, dep.table) {
+				res = append(res, dep.table)
+			}
+		}
+	}
+	return res
 }
 
 // MetaPermPrefix + table name is the livesync_meta entry holding the
@@ -137,7 +184,10 @@ func readMetaInts(ctx context.Context, prefix string) (map[string]int64, error) 
 //
 // A table whose placement version (placementVersions) differs from the one
 // recorded is handled the same way (markers with reason
-// RebootstrapPlacementChanged, repair backfill). When a table with
+// RebootstrapPlacementChanged, repair backfill); one whose content version
+// (contentVersions) differs gets the markers only. The materializer also
+// bumps a table's schema epoch itself when it had to skip a change it could
+// not write (Materializer.isolate): a lost change like any other. When a table with
 // permission states (spec.perm) gets markers for a repaired trigger, the
 // permission changes it lost are unknown, so a permission epoch for
 // everything (PermissionChange.All) goes first. A permission table whose
@@ -163,16 +213,37 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	contents, err := readMetaInts(ctx, MetaContentPrefix)
+	if err != nil {
+		return err
+	}
 	var entries []synclog.Entry
-	var record, reset, permWalk, repairWalk []string
+	var record, reset, permWalk, repairWalk, recontented []string
 	permLost := false
+	markers := func(t catalog.Table, marker protocol.RebootstrapMarker) error {
+		payload, err := json.Marshal(marker)
+		if err != nil {
+			return err
+		}
+		for _, tbl := range markedTables(t.Name) {
+			s := specs[tbl]
+			for i, model := range s.models {
+				entries = append(entries, synclog.Entry{
+					Group: protocol.GroupAll, Model: model, Op: protocol.OpRebootstrap,
+					Payload: string(payload), SchemaVer: s.schemas[i],
+				})
+			}
+		}
+		return nil
+	}
 	for _, t := range catalog.Tracked() {
 		epoch := current[t.Name]
 		done, ok := handled[t.Name]
 		repaired := ok && done != epoch
 		moved := ok && placed[t.Name] != placementVersion(t.Name)
 		permStale := ok && specs[t.Name].perm && permDone[t.Name] != permVersion
-		if ok && !repaired && !moved && !permStale {
+		recontent := ok && contents[t.Name] != contentVersions[t.Name]
+		if ok && !repaired && !moved && !permStale && !recontent {
 			continue
 		}
 		record = append(record, t.Name)
@@ -180,6 +251,15 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			continue
 		}
 		if !repaired && !moved {
+			if recontent {
+				if err := markers(t, protocol.RebootstrapMarker{Table: t.Name, Epoch: epoch, Reason: protocol.RebootstrapPlacementChanged}); err != nil {
+					return err
+				}
+				recontented = append(recontented, t.Name)
+			}
+			if !permStale {
+				continue
+			}
 			switch mode := m.walk[t.Name]; {
 			case m.backfillComplete(t.Name) || mode == indexPerm:
 				permWalk = append(permWalk, t.Name)
@@ -204,16 +284,8 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 			marker.Reason = protocol.RebootstrapTriggerRepaired
 			permLost = permLost || specs[t.Name].perm
 		}
-		payload, err := json.Marshal(marker)
-		if err != nil {
+		if err := markers(t, marker); err != nil {
 			return err
-		}
-		s := specs[t.Name]
-		for i, model := range s.models {
-			entries = append(entries, synclog.Entry{
-				Group: protocol.GroupAll, Model: model, Op: protocol.OpRebootstrap,
-				Payload: string(payload), SchemaVer: s.schemas[i],
-			})
 		}
 	}
 	if len(record) == 0 {
@@ -235,6 +307,9 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 				return err
 			}
 			if err := livesync_model.SetMeta(ctx, MetaPlacementPrefix+table, strconv.FormatInt(placementVersion(table), 10)); err != nil {
+				return err
+			}
+			if err := livesync_model.SetMeta(ctx, MetaContentPrefix+table, strconv.FormatInt(contentVersions[table], 10)); err != nil {
 				return err
 			}
 			if specs[table].perm {
@@ -270,6 +345,9 @@ func (m *Materializer) HandleEpochs(ctx context.Context) error {
 	}
 	if len(reset) > 0 {
 		log.Info("livesync: the capture triggers or placement rules of %s changed; appended re-bootstrap markers for their models", strings.Join(reset, ", "))
+	}
+	if len(recontented) > 0 {
+		log.Info("livesync: what the entities of %s carry changed; appended re-bootstrap markers for their models", strings.Join(recontented, ", "))
 	}
 	return nil
 }

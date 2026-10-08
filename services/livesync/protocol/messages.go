@@ -116,6 +116,16 @@ type HelloMessage struct {
 	// LastSyncID is the Since of every group that does not give one.
 	LastSyncID *int64         `json:"last_sync_id,omitempty"`
 	Groups     []GroupRequest `json:"groups,omitempty"`
+	// LogID is the sync log incarnation (WelcomeMessage.LogID,
+	// BootstrapHeader.LogID) the positions the client holds come from.
+	// When it is not the server's, every position of this hello (Since,
+	// LastSyncID) is answered with BootstrapRequiredMessage{reason:
+	// BootstrapCursorUnknown}: sync ids of another incarnation of the log
+	// (its tables were created anew, or the database was restored) say
+	// nothing about this one. A client that gets a welcome with another
+	// LogID than the one it holds positions of must drop those positions
+	// (and send no Since from them later).
+	LogID string `json:"log_id,omitempty"`
 }
 
 // SubscribeMessage adds groups to the session (or restarts the replay of an
@@ -180,6 +190,9 @@ type WelcomeMessage struct {
 	BuildID  string        `json:"build_id"`
 	Protocol int           `json:"protocol"`
 	Schemas  map[Model]int `json:"schemas"`
+	// LogID is the sync log's incarnation id (see HelloMessage.LogID): the
+	// positions of this session are positions in it.
+	LogID string `json:"log_id,omitempty"`
 	// Profile is the viewer's own User entity (a change with op U). It is
 	// sent here, and later changes of it are sent to the viewer's sessions
 	// whether or not they subscribed its group, because a viewer may not be
@@ -256,7 +269,9 @@ const (
 	// on resume: see GroupRequest.
 	BootstrapPermissionChanged = "permission_changed"
 	// BootstrapCursorUnknown: the group's position is ahead of the sync
-	// log (it comes from another database, e.g. before a restore).
+	// log, or comes from another incarnation of it (HelloMessage.LogID):
+	// it was taken from another database, e.g. before a restore or before
+	// livesync's tables were created anew.
 	BootstrapCursorUnknown = "cursor_unknown"
 )
 

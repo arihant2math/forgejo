@@ -392,7 +392,7 @@ func ensureLocked(ctx context.Context, repair bool) (*Report, error) {
 	// transaction: both happen or neither does.
 	bumpAll := func(ctx context.Context) error {
 		for _, table := range bump {
-			epoch, err := bumpEpoch(ctx, table)
+			epoch, err := BumpEpoch(ctx, table)
 			if err != nil {
 				return err
 			}
@@ -456,6 +456,28 @@ func ensureLocked(ctx context.Context, repair bool) (*Report, error) {
 // tracked tables whose capture was found missing or stale but not repaired
 // yet; Ensure bumps their schema epochs once they are healthy again.
 const MetaPending = "capture_pending"
+
+// MarkAllPending records every tracked table in MetaPending, under the
+// schema lock: from now on their changes may be lost without Ensure being
+// able to tell (livesync.Disable in INSTALL_MODE verify leaves the triggers
+// to a DBA, who may drop them and create them again before livesync is
+// enabled again; healthy triggers then say nothing about the gap). The next
+// Ensure that finds them healthy bumps every epoch: one re-bootstrap of
+// every model instead of changes lost silently.
+func MarkAllPending(ctx context.Context) error {
+	return livesync_model.WithSchemaLock(ctx, func(ctx context.Context) error {
+		pending, err := pendingTables(ctx)
+		if err != nil {
+			return err
+		}
+		tracked := catalog.Tracked()
+		tables := make([]string, 0, len(tracked))
+		for _, t := range tracked {
+			tables = append(tables, t.Name)
+		}
+		return livesync_model.SetMeta(ctx, MetaPending, strings.Join(mergeTables(pending, tables), ","))
+	})
+}
 
 func pendingTables(ctx context.Context) ([]string, error) {
 	v, _, err := livesync_model.GetMeta(ctx, MetaPending)
@@ -586,13 +608,25 @@ func withHint(err error) error {
 	return err
 }
 
-// bumpEpoch increments the schema epoch of table and returns the new value.
-// Callers hold the schema lock.
-func bumpEpoch(ctx context.Context, table string) (int64, error) {
+// BumpEpoch increments the schema epoch of table and returns the new value:
+// changes to the table may have been lost (a repaired trigger, or a change
+// the materializer had to skip). In a transaction the row is locked first
+// (SELECT … FOR UPDATE), so that bumps by Ensure and by the materializer
+// cannot overwrite each other.
+func BumpEpoch(ctx context.Context, table string) (int64, error) {
 	name := MetaEpochPrefix + table
-	v, ok, err := livesync_model.GetMeta(ctx, name)
+	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
 		return 0, err
+	}
+	query := "SELECT value FROM livesync_meta WHERE name = ?"
+	if db.InTransaction(ctx) && !setting.Database.Type.IsSQLite3() {
+		query += " FOR UPDATE"
+	}
+	var v string
+	ok, err := e.SQL(query, name).Get(&v)
+	if err != nil {
+		return 0, fmt.Errorf("livesync: read %s: %w", name, err)
 	}
 	var epoch int64
 	if ok {

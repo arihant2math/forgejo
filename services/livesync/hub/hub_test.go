@@ -55,6 +55,7 @@ type message struct {
 	ViewerID     int64                `json:"viewer_id"`
 	Profile      *protocol.Change     `json:"profile"`
 	BuildID      string               `json:"build_id"`
+	LogID        string               `json:"log_id"`
 	// Log tails (logs.go).
 	JobID   int64              `json:"job_id"`
 	TaskID  int64              `json:"task_id"`
@@ -726,7 +727,7 @@ func TestBootstrapCapsQueuedFrame(t *testing.T) {
 	t.Run("replayed marker", func(t *testing.T) {
 		// More than the session may hold during a re-check: it catches up
 		// from the log, whose last entry is the marker.
-		x := newHarness(t, Config{SendBuffer: 2000})
+		x := newHarness(t, Config{SendBuffer: 2400})
 		cl := helloManual(x, 2, "repo:1")
 		big := strings.Repeat("x", 600)
 		x.epoch(protocol.PermissionChange{Users: []int64{2}}, label(1, big), label(1, big), label(1, big), label(1, big), marker)
@@ -854,6 +855,38 @@ func TestRebootstrapMarker(t *testing.T) {
 	cl2.expect(protocol.MsgCaughtUp)
 }
 
+// Positions from another incarnation of the sync log (backend audit: its
+// tables were created anew, so sync ids start again at 1) are unknown even
+// when the log's head has passed them; positions with the log's own id, or
+// without one (older clients), are replayed.
+func TestForeignLogID(t *testing.T) {
+	x := newHarness(t, Config{LogID: synclog.LogID})
+	id, err := synclog.LogID(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, id, "created with the writer's head")
+	for i := range 3 {
+		x.append(upsert("repo:1", protocol.ModelLabel, int64(i), protocol.UnitIssuesOrPulls))
+	}
+	x.deliver()
+
+	cl := x.connect(nil)
+	cl.send(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u2", LogID: "another", Groups: []protocol.GroupRequest{{Group: "repo:1", Since: since(1)}}})
+	welcome := cl.expect(protocol.MsgWelcome)
+	assert.Equal(t, id, welcome.LogID)
+	m := cl.expect(protocol.MsgBootstrapRequired)
+	assert.Equal(t, "repo:1", m.Group)
+	assert.Equal(t, protocol.BootstrapCursorUnknown, m.Reason)
+	cl.expect(protocol.MsgCaughtUp)
+
+	for _, logID := range []string{id, ""} {
+		cl := x.connect(nil)
+		cl.send(&protocol.HelloMessage{Type: protocol.MsgHello, Token: "u2", LogID: logID, Groups: []protocol.GroupRequest{{Group: "repo:1", Since: since(1)}}})
+		cl.expect(protocol.MsgWelcome)
+		chs, _ := cl.changes(2)
+		assert.EqualValues(t, 2, chs[0].V, "replayed (log id %q)", logID)
+	}
+}
+
 // A position older than the retention floor: bootstrap_required, then live.
 // A position ahead of the log: bootstrap_required too.
 func TestTrimmedAndUnknownCursor(t *testing.T) {
@@ -979,7 +1012,7 @@ func TestEpochDuringCheck(t *testing.T) {
 	cl.expect(protocol.MsgCaughtUp)
 
 	at := x.h.checkpoint()
-	reqs, ok := cl.c.check([]protocol.GroupRequest{{Group: "repo:4"}}, nil)
+	reqs, ok := cl.c.check([]protocol.GroupRequest{{Group: "repo:4"}}, nil, false)
 	require.True(t, ok)
 	require.True(t, reqs[0].ok, "readable when checked")
 	// Collaboration removed and its epoch delivered before the

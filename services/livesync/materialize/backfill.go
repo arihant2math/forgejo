@@ -162,8 +162,23 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 			}
 		}
 		var rows []livesync_model.Entity
+		var stale []indexKey
+		var groupless []int64
 		for _, id := range ids {
-			for _, e := range loaded[id] {
+			for i, e := range loaded[id] {
+				if e.group == "" && mode == indexRepair {
+					if i == 0 {
+						groupless = append(groupless, id)
+					}
+					// In no group now (e.g. a release set back to draft
+					// while its change was lost): an index row left from
+					// before would make the row's return look unchanged
+					// (same group, unit and hash), so that it would never
+					// be emitted again (backend audit). Clients re-bootstrap
+					// the table anyway, so none holds it.
+					stale = append(stale, indexKey{e.key, id})
+					continue
+				}
 				if e.group == "" || (mode == indexPerm && e.perm == "") {
 					continue
 				}
@@ -175,6 +190,16 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 			}
 		}
 		if err := writeIndex(ctx, rows, mode); err != nil {
+			return err
+		}
+		if len(groupless) > 0 {
+			deps, err := grouplessDependents(ctx, table, groupless)
+			if err != nil {
+				return err
+			}
+			stale = append(stale, deps...)
+		}
+		if err := deleteIndex(ctx, stale); err != nil {
 			return err
 		}
 		next = backfillDone
@@ -192,6 +217,49 @@ func (m *Materializer) BackfillStep(ctx context.Context) (bool, error) {
 		log.Debug("livesync: entity index backfill of %s complete", table)
 	}
 	return true, nil
+}
+
+// grouplessDependents returns the index keys of the rows placed by the
+// given rows of table (spec.dependents, transitively: a release's
+// attachments, a comment's reactions) that are in no group now either: the
+// repair walk removes their index rows with their parents' (BackfillStep),
+// so that they are emitted again when their parent returns (a release
+// published again moves its attachments back in).
+func grouplessDependents(ctx context.Context, table string, ids []int64) ([]indexKey, error) {
+	var res []indexKey
+	moved := map[string][]int64{table: ids}
+	done := map[rowKey]bool{}
+	for _, id := range ids {
+		done[rowKey{table, id}] = true
+	}
+	for round := 0; len(moved) > 0 && round < maxDependentRounds; round++ {
+		deps, err := dependentRows(ctx, moved, done)
+		if err != nil {
+			return nil, err
+		}
+		byTable := map[string][]int64{}
+		for _, k := range deps {
+			byTable[k.tbl] = append(byTable[k.tbl], k.id)
+		}
+		moved = map[string][]int64{}
+		for _, tbl := range sortedKeys(byTable) {
+			loaded, err := specs[tbl].load(ctx, newLoader(), byTable[tbl], false)
+			if err != nil {
+				return nil, fmt.Errorf("livesync: backfill %s: dependents: %w", table, err)
+			}
+			for _, id := range byTable[tbl] {
+				ents := loaded[id]
+				if len(ents) == 0 || ents[0].group != "" {
+					continue // gone (its delete is routed by its index row), or placed
+				}
+				for _, e := range ents {
+					res = append(res, indexKey{e.key, id})
+				}
+				moved[tbl] = append(moved[tbl], id)
+			}
+		}
+	}
+	return res, nil
 }
 
 // pendingRows returns which of the rows of table have changes in the

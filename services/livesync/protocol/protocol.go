@@ -135,9 +135,11 @@ const (
 	// another group, which gets an OpUpsert). No payload.
 	OpDelete Op = "D"
 	// OpRebootstrap: changes to the model may have been lost (a capture
-	// trigger was missing or stale, see RebootstrapMarker). Clients holding
-	// entities of the model must re-bootstrap the groups they hold. Written
-	// to GroupAll with entity id 0.
+	// trigger was missing or stale, or the materializer had to skip a
+	// change it could not write), or a new livesync version places or
+	// builds the model's entities differently (see RebootstrapMarker).
+	// Clients holding entities of the model must re-bootstrap the groups
+	// they hold. Written to GroupAll with entity id 0.
 	OpRebootstrap Op = "B"
 	// OpPermission: who may read what may have changed (a permission
 	// epoch, PLAN §4.5). Written to GroupPermission with entity id 0 and a
@@ -154,8 +156,11 @@ type RebootstrapMarker struct {
 	// Epoch is the table's schema epoch after the repair.
 	Epoch int64 `json:"epoch"`
 	// Reason says why: RebootstrapTriggerRepaired (changes may have been
-	// lost) or RebootstrapPlacementChanged (a new livesync version places
-	// the table's entities in other groups or units).
+	// lost: a trigger was repaired, or a change could not be written to the
+	// sync log and was skipped) or RebootstrapPlacementChanged (a new
+	// livesync version places the table's entities in other groups or
+	// units, or changed what they carry, e.g. HTML that must not be shown
+	// any more).
 	Reason string `json:"reason"`
 }
 
@@ -222,6 +227,7 @@ const (
 	GroupPrefixProfile  = "profile"
 	GroupPrefixProfiles = "profiles"
 	GroupPrefixOwner    = "owner"
+	GroupPrefixTeam     = "team"
 )
 
 // The shared profile directories: the User entities (profiles) of all
@@ -265,12 +271,24 @@ func UserGroup(id int64) string { return GroupPrefixUser + ":" + strconv.FormatI
 func ProfileGroup(id int64) string { return GroupPrefixProfile + ":" + strconv.FormatInt(id, 10) }
 
 // OrgGroup is the group of an organization: what anyone who may see the
-// organization reads (unit UnitNone: profile, its projects (Project) and
-// their columns, public memberships) and what only its members read (unit
-// UnitMembers: teams, their members, repositories and units, concealed
-// memberships). Its labels and its projects' ProjectRefs are in its
-// OwnerGroup.
+// organization reads (unit UnitNone: profile, public memberships), what
+// only its members read (unit UnitMembers: its teams and their units,
+// concealed memberships) and its projects (Project) and their columns
+// (unit UnitProjects: upstream's Organization.UnitPermission for the
+// projects unit — a member through their teams' projects unit, anyone
+// else who may see a public or limited organization). Its labels and its
+// projects' ProjectRefs are in its OwnerGroup; who is in a team and which
+// repositories a team has are in the team's TeamGroup.
 func OrgGroup(id int64) string { return GroupPrefixOrg + ":" + strconv.FormatInt(id, 10) }
+
+// TeamGroup is the group of a team's members (TeamUser) and repositories
+// (TeamRepo), unit UnitNone: readable by the team's members, the owners of
+// its organization and site administrators, as upstream shows them (API
+// v1's reqTeamMembership, the web team pages' requireTeamMember); other
+// members of the organization see the team (Team, TeamUnit in the
+// OrgGroup) but not who is in it or which (possibly private) repositories
+// it has.
+func TeamGroup(id int64) string { return GroupPrefixTeam + ":" + strconv.FormatInt(id, 10) }
 
 // OwnerGroup is the group of what a user or organization {id} shares with
 // its repositories, as much of it as upstream shows to every reader of
@@ -316,7 +334,7 @@ func ParseGroup(group string) (prefix string, id int64, ok bool) {
 		return "", 0, false
 	}
 	switch prefix {
-	case GroupPrefixUser, GroupPrefixProfile, GroupPrefixOrg, GroupPrefixOwner, GroupPrefixRepo, GroupPrefixIssue:
+	case GroupPrefixUser, GroupPrefixProfile, GroupPrefixOrg, GroupPrefixOwner, GroupPrefixRepo, GroupPrefixIssue, GroupPrefixTeam:
 		return prefix, id, true
 	}
 	return "", 0, false
@@ -328,9 +346,10 @@ func ParseGroup(group string) (prefix string, id int64, ok bool) {
 // separated by "|" (the entity is visible with any of them), and the same
 // names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
 // UnitSelf (that user only; nobody else is granted the group anyway); in
-// org:{id} groups UnitNone (anyone who may see the organization) or
-// UnitMembers (its members only); in the profile and owner groups UnitNone.
-// UnitNone means any read access to the group.
+// org:{id} groups UnitNone (anyone who may see the organization),
+// UnitMembers (its members only) or UnitProjects (the organization's
+// projects unit, see OrgGroup); in the profile, owner and team groups
+// UnitNone. UnitNone means any read access to the group.
 type Unit string
 
 const (

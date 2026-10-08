@@ -145,6 +145,21 @@ export interface APIBodyConflict {
   content_version: number /* int */;
 }
 /**
+ * APIBody is the complete body of an entity whose sync log payload has
+ * BodyTruncated (see MaxBodyBytes), with its HTML rendered now exactly as
+ * the sync log renders body_html (but without the size limits). BodyHTML is
+ * empty and Truncated true only when even this rendering exceeded the
+ * server's time budget. ContentVersion is the entity's content_version
+ * (0 for Review and Release, which have none). Readable by whoever may read
+ * the entity in its group (404 otherwise).
+ */
+export interface APIBody {
+  body: string;
+  body_html: string;
+  truncated?: boolean;
+  content_version: number /* int */;
+}
+/**
  * APIViewedFiles is the viewer's newest "viewed files" state of a pull
  * request (the ReviewState entity of user:{viewer}, as the classic files
  * view reads it). CommitSHA is the head commit the state was saved for
@@ -353,6 +368,11 @@ export interface BootstrapHeader {
    */
   watermark: number /* int64 */;
   /**
+   * LogID is the incarnation of the sync log the watermark is a position
+   * in (WelcomeMessage.LogID).
+   */
+  log_id?: string;
+  /**
    * Units are the viewer's units in the group the response was filtered
    * by (canonical order, as in a Grant).
    */
@@ -469,7 +489,8 @@ export const WorkspaceProfile = "profile";
 export const WorkspaceDirectory = "directory";
 /**
  * WorkspaceMember: an organization the viewer is a member of: its
- * org:{id} and owner:{id} groups.
+ * org:{id} and owner:{id} groups; and the team:{id} groups of their
+ * teams (of every team of an organization they own).
  */
 export const WorkspaceMember = "member";
 /**
@@ -501,6 +522,8 @@ export const WorkspaceWatch = "watch";
 //////////
 // source: entities.go
 
+export const MaxBodyBytes = 64 << 10;
+export const MaxBodyHTMLBytes = 256 << 10;
 /**
  * Repository is a repository (group repo:{id}, unit none).
  */
@@ -609,7 +632,11 @@ export interface TeamUnit {
 }
 /**
  * Collaboration makes a user a collaborator of a repository (group
- * repo:{repo_id}).
+ * repo:{repo_id}). Permission is "read" or "write": every reader of the
+ * repository may know whom issues can be assigned to (writers), as upstream
+ * shows, but not who administers it (upstream shows a collaborator's exact
+ * mode only to administrators and the collaborator), so "admin" reads
+ * "write" here.
  */
 export interface Collaboration {
   id: number /* int64 */;
@@ -784,13 +811,14 @@ export interface Issue {
 }
 /**
  * IssueBody is the description of an issue or pull request (group
- * issue:{id}, same id as the Issue).
+ * issue:{id}, same id as the Issue). See BodyTruncated for long bodies.
  */
 export interface IssueBody {
   id: number /* int64 */;
   repo_id: number /* int64 */;
   body: string;
   body_html: string;
+  body_truncated?: boolean;
   content_version: number /* int */;
 }
 /**
@@ -879,6 +907,7 @@ export interface Release {
   sha: string;
   body: string;
   body_html: string;
+  body_truncated?: boolean;
   draft: boolean;
   prerelease: boolean;
   is_tag: boolean;
@@ -1040,6 +1069,7 @@ export interface Comment {
   original_author_id: number /* int64 */;
   body: string;
   body_html: string;
+  body_truncated?: boolean;
   content_version: number /* int */;
   label_id: number /* int64 */;
   old_project_id: number /* int64 */;
@@ -1098,6 +1128,7 @@ export interface Review {
   original_author: string;
   body: string;
   body_html: string;
+  body_truncated?: boolean;
   official: boolean;
   commit_id: string;
   stale: boolean;
@@ -1354,6 +1385,18 @@ export interface HelloMessage {
    */
   last_sync_id?: number /* int64 */;
   groups?: GroupRequest[];
+  /**
+   * LogID is the sync log incarnation (WelcomeMessage.LogID,
+   * BootstrapHeader.LogID) the positions the client holds come from.
+   * When it is not the server's, every position of this hello (Since,
+   * LastSyncID) is answered with BootstrapRequiredMessage{reason:
+   * BootstrapCursorUnknown}: sync ids of another incarnation of the log
+   * (its tables were created anew, or the database was restored) say
+   * nothing about this one. A client that gets a welcome with another
+   * LogID than the one it holds positions of must drop those positions
+   * (and send no Since from them later).
+   */
+  log_id?: string;
 }
 /**
  * SubscribeMessage adds groups to the session (or restarts the replay of an
@@ -1424,6 +1467,11 @@ export interface WelcomeMessage {
   build_id: string;
   protocol: number /* int */;
   schemas: { [key: Model]: number /* int */};
+  /**
+   * LogID is the sync log's incarnation id (see HelloMessage.LogID): the
+   * positions of this session are positions in it.
+   */
+  log_id?: string;
   /**
    * Profile is the viewer's own User entity (a change with op U). It is
    * sent here, and later changes of it are sent to the viewer's sessions
@@ -1520,7 +1568,9 @@ export const BootstrapReplayTooLong = "replay_too_long";
 export const BootstrapPermissionChanged = "permission_changed";
 /**
  * BootstrapCursorUnknown: the group's position is ahead of the sync
- * log (it comes from another database, e.g. before a restore).
+ * log, or comes from another incarnation of it (HelloMessage.LogID):
+ * it was taken from another database, e.g. before a restore or before
+ * livesync's tables were created anew.
  */
 export const BootstrapCursorUnknown = "cursor_unknown";
 /**
@@ -1849,9 +1899,11 @@ export const OpUpsert: Op = "U";
 export const OpDelete: Op = "D";
 /**
  * OpRebootstrap: changes to the model may have been lost (a capture
- * trigger was missing or stale, see RebootstrapMarker). Clients holding
- * entities of the model must re-bootstrap the groups they hold. Written
- * to GroupAll with entity id 0.
+ * trigger was missing or stale, or the materializer had to skip a
+ * change it could not write), or a new livesync version places or
+ * builds the model's entities differently (see RebootstrapMarker).
+ * Clients holding entities of the model must re-bootstrap the groups
+ * they hold. Written to GroupAll with entity id 0.
  */
 export const OpRebootstrap: Op = "B";
 /**
@@ -1876,8 +1928,11 @@ export interface RebootstrapMarker {
   epoch: number /* int64 */;
   /**
    * Reason says why: RebootstrapTriggerRepaired (changes may have been
-   * lost) or RebootstrapPlacementChanged (a new livesync version places
-   * the table's entities in other groups or units).
+   * lost: a trigger was repaired, or a change could not be written to the
+   * sync log and was skipped) or RebootstrapPlacementChanged (a new
+   * livesync version places the table's entities in other groups or
+   * units, or changed what they carry, e.g. HTML that must not be shown
+   * any more).
    */
   reason: string;
 }
@@ -1935,6 +1990,7 @@ export const GroupPrefixIssue = "issue";
 export const GroupPrefixProfile = "profile";
 export const GroupPrefixProfiles = "profiles";
 export const GroupPrefixOwner = "owner";
+export const GroupPrefixTeam = "team";
 export const GroupProfilesPublic = GroupPrefixProfiles + ":public";
 export const GroupProfilesLimited = GroupPrefixProfiles + ":limited";
 /**
@@ -1957,9 +2013,10 @@ export const GroupPermission = "!perm";
  * separated by "|" (the entity is visible with any of them), and the same
  * names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
  * UnitSelf (that user only; nobody else is granted the group anyway); in
- * org:{id} groups UnitNone (anyone who may see the organization) or
- * UnitMembers (its members only); in the profile and owner groups UnitNone.
- * UnitNone means any read access to the group.
+ * org:{id} groups UnitNone (anyone who may see the organization),
+ * UnitMembers (its members only) or UnitProjects (the organization's
+ * projects unit, see OrgGroup); in the profile, owner and team groups
+ * UnitNone. UnitNone means any read access to the group.
  */
 export type Unit = string;
 export const UnitNone: Unit = "";

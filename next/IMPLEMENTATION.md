@@ -3233,6 +3233,177 @@ does) **and** MySQL 8.0 (binlog on).
     check above; `TestLivesyncConformance` on PG and MySQL (46 pass, 2 `7-restart` skipped); `npm run typecheck`, ESLint
     on `conformance/`, `npm test` (292, unchanged); `package.json`/`package-lock.json` unchanged.
 
+#### Backend audit
+- [x] **Round 1** — 2026-10-08: the 14 verified findings of the backend audit of B1–B10 fixed (none rejected). Details per
+  finding below; the earlier milestones' notes are left as written, the corrections are here.
+- **Notes/decisions:**
+  - **(1, blocker) One oversized payload jammed the sync log; a failing batch was retried forever.** Root causes fixed one
+    by one. *Bounded bodies:* the bodies of IssueBody, Comment, Review and Release carry at most `protocol.MaxBodyBytes`
+    (64 KiB) of body and `MaxBodyHTMLBytes` (256 KiB) of HTML, measured as JSON-encoded (`materialize.jsonLen`: a control
+    character counts 6 bytes; `truncateJSON` cuts at a character boundary). A longer body is sent as a prefix with
+    `body_html: ""` and **`body_truncated: true`**; HTML that is too long, not rendered in time or failed also gives
+    `body_html: ""` + `body_truncated` with the complete body. The entity's change hash includes the complete source when
+    it is cut, so an edit of the tail is still a change. **New gap endpoint `GET /-/sync/api/bodies/{model}/{id}`**
+    (`IssueBody|Comment|Review|Release`) → `protocol.APIBody{body, body_html, truncated, content_version}`: the entity is
+    placed exactly as the materializer places it (`materialize.LoadBody`, same specs) and readable by whoever may read
+    that group+unit (`apiRequest.readable`, 404 otherwise); rendered on request like upstream. *Backstop:* any payload
+    over `maxPayloadBytes` (1 MiB; e.g. a diff hunk of a minified line) is a DTO error (logged, skipped) instead of an
+    INSERT the database refuses. *Byte-bounded appends:* `Writer.Append` inserts with one hand-written multi-row INSERT per
+    chunk of ≤ 100 rows **and** ≤ 2 MiB of payload (a larger entry alone), well below MariaDB's 16 MiB
+    `max_allowed_packet`. *No payloads in SQL logs:* payloads are passed as `synclog.payloadArg` (a `driver.Valuer` whose
+    `String()` is `<payload of N bytes>`), so upstream's `[Error SQL Query]` / `[Slow SQL Query]` / `LOG_SQL` lines, which
+    print every argument with `%v`, stay small (SURFACE.md). *Isolation instead of retrying forever:* a batch that fails
+    is retried once whole; the next attempt (`Materializer.failures > 0`) materializes it **row by row**
+    (`Materializer.isolate`), each row in its own writer transaction without the acknowledgement, then one transaction
+    acknowledges the batch. A row that fails alone while an empty writer transaction succeeds (the database works) is
+    tried once more and then **skipped** (Error log) and its table's schema epoch is bumped in the acknowledging
+    transaction (`capture.BumpEpoch`, now exported and locking the row `FOR UPDATE` in a transaction so the
+    materializer's and `Ensure`'s bumps cannot overwrite each other): `HandleEpochs` turns it into re-bootstrap markers
+    (reason `trigger_repaired`, whose doc now says "changes may have been lost") and a repair walk, exactly like a change
+    lost while a trigger was missing. Any other failure (database down, `ErrNotWriter`, shutdown) is returned and the
+    reader retries; rows already written are written again then and their unchanged index hashes make that a no-op.
+    *Bounded reads:* the tailer reads 100 entries per batch (was 500) and replays read payloads 100 at a time
+    (`replayPayloadBatch`; keys still 500), so one read holds a few tens of MB at worst. Tests: `TestJSONLen`,
+    `TestTruncateJSON`, `TestConsumeLongBody` (70 000 control characters: cut, no render, LoadBody returns all of it, a
+    tail edit emits), `TestConsumeIsolatesPoisonRow` (a label row xorm cannot load: first Consume fails, the second emits
+    the good row, skips the bad one, bumps `schema_epoch.label`, acknowledges; HandleEpochs writes the Label marker),
+    `TestAppendChunks` (row and byte bounds, gap-free, `payloadArg` formatting), integration `TestLivesyncAuditBodies`
+    ("long body": a 300 KiB control-character comment through API v1 ⇒ bounded entry, `body_truncated`, the full body
+    and HTML from the endpoint for a reader of the public repository, 404 for an unknown entity, a model without a body,
+    and a private repository's comment for a non-reader).
+  - **(2) Markdown rendering inside the 1-minute writer transaction.** Every body is rendered with its own context
+    (`renderContext`): not derived from the transaction's (a lookup cut off on the transaction's session would abort it,
+    and a deadline on a derived context does not reach the session's queries at all), cancelled when the caller's
+    context ends or after `renderTimeout` (5 s): the markup service's user lookups then fail at once and the result is
+    discarded (`body_html: ""`, `body_truncated`). The lookups run on other pooled connections, i.e. outside the writer
+    transaction. Each writer transaction has a render budget (`txRenderBudget`, 30 s, within `writerTxTimeout`); a
+    strict loader (the normal batch transaction) returns `errRenderBudget` once it is used up and the batch is then
+    materialized row by row (finding 1's `isolate`), each row with a budget of its own, where an exhausted budget leaves
+    the remaining bodies without HTML instead. Snapshots and previews use the per-render timeout only. With bodies cut at
+    64 KiB a single render has at most ≈ 9 000 mentions. Tests: `TestConsumeHTMLLimits` (60 KB of `#1 ` ⇒ HTML over the
+    limit; `renderTimeout` = 1 ns ⇒ no HTML), `TestConsumeRenderBudget` (budget 1 ns: the batch of two comments is
+    isolated and both are rendered completely; strict vs lenient loader).
+  - **(3) Synced body_html kept file preview code.** `renderMarkdown` replaces every `div.file-preview-box` with a
+    paragraph linking the previewed lines (`stripFilePreviews`, golang.org/x/net/html: the last link of the box header's
+    title, i.e. the file link, `…?display=source#L1-L2` for a rendered file type; boxes without a header link — written
+    by hand in the markdown — are left as they are); the client can show the lines through the permission-checked
+    `/-/sync/api/repos/{id}/raw/{commit}/{path}`. `RenderPreview` (POST /-/sync/api/markdown) and the bodies endpoint
+    render the same way. **Purging what was kept:** `renderVersion` ("1") is part of the render environment hash, so
+    snapshots no longer reuse logged HTML; and a new mechanism, **content versions** (`materialize.contentVersions`,
+    `livesync_meta materialized_content.<tbl>`): when a table's version moves, `HandleEpochs` writes re-bootstrap markers
+    (reason `placement_changed`, its doc widened to "or changed what they carry") **without** an index walk (groups and
+    units are unchanged, so bootstraps are not held by the gate). issue, comment, review, release are at version 1:
+    **at the upgrade every client re-bootstraps those models once.** Tests: `TestStripFilePreviews`, the content-version
+    case of `TestHandleEpochs`, integration `TestLivesyncAuditBodies` ("no file previews": API v1's `/markdown` renders a
+    `file-preview-box` for a README permalink of user2/repo1, the synced comment and the preview endpoint link it).
+  - **(4) Organization projects ignored the projects unit.** Organization Project/ProjectColumn are now in `org:{id}`
+    with **unit `projects`**, granted as upstream's `Organization.UnitPermission(viewer, TypeProjects)` decides it: a
+    viewer in one of the organization's teams by their teams' projects access (any for an owner team), anyone else only
+    on a public or limited organization — **not a site administrator who is not a member of a private one** (they keep
+    `org:{id}` with `members`). `perm.checkOrg` calls `UnitPermission`; the implicit grants and `CheckGroups` use the
+    batched `viewerInputs.orgTeamProjects` / `orgProjectsByVisibility` (by team membership, whatever `org_user` says, as
+    upstream; a fixture with a `team_user` row but no `org_user` row showed the difference). Team unit / membership
+    changes are already permission epochs naming the members (`t<id>`, `u<id>`). Placement versions: project 4,
+    project_board 2 (markers + repair walk). Tests: `TestOrgProjectsUnit` (owners team, public org, user5's team without
+    the unit in private org23, a non-member site admin; with the unit added; grants agree), `TestOwnerGroupReachable`
+    corrected (user5 and admin user1 get no Project/columns in `org:23` and no `projects` unit; after giving team 17 the
+    unit user5 does), `TestProjectRefPlacement`, `TestGrants`, hub `TestPermissionChanged*` (org3 is public: a leaving
+    member keeps `projects`).
+  - **(5) INSTALL_MODE=verify: triggers dropped and reinstalled by a DBA while disabled went unnoticed.** `Disable` in
+    verify mode now records **every tracked table** in `capture_pending` (`capture.MarkAllPending`, under the schema
+    lock) on a database livesync ran on: the next `Ensure` that finds the triggers healthy bumps every epoch (markers +
+    repair walks). Conservative: one full re-bootstrap after a verify-mode disable/enable cycle even when nothing was
+    lost. Test: `TestLivesyncDisable` extended (verify mode: the DBA runs `UninstallStatements`, a label is written,
+    the DBA runs `Statements()`; enabling in verify mode bumps every epoch and writes the Label marker).
+  - **(6) No log incarnation id.** `livesync_meta log_id` (24 hex characters) is created by the writer's `init` with the
+    head row (and anew whenever the head row is missing: new tables, wiped bookkeeping; added once to an existing log).
+    `synclog.LogID`; **`WelcomeMessage.log_id`, `BootstrapHeader.log_id`** (omitted while unknown), and
+    **`HelloMessage.log_id`**: when the client's is not the server's, every position of that hello is answered with
+    `bootstrap_required{cursor_unknown}` (the subscription stays live), even if the new head has passed it. A hello
+    without `log_id` (older clients) is not checked. **Client contract (F2):** store the `log_id` of the welcome /
+    bootstrap your positions come from, send it in every hello, and on a welcome with another `log_id` drop all positions
+    (re-bootstrap). **Restores:** a backup that contains livesync's tables restores its old id; after such a restore run
+    `DELETE FROM livesync_meta WHERE name = 'log_id'` before starting Forgejo (documented on `synclog.LogID`; positions
+    ahead of the restored head were already `cursor_unknown`). Tests: hub `TestForeignLogID` (foreign id ⇒
+    `cursor_unknown`; own id or none ⇒ replay), synclog `TestLogID` (created, kept, new after the meta is wiped).
+  - **(7) Writer lease failover waited hours for a dead holder.** `TryLease` configures the lease's session to be ended by
+    the server after `LeaseIdleTimeout` (30 s) without a statement: PostgreSQL `idle_session_timeout` (14+) and TCP
+    keepalives (`tcp_keepalives_idle/interval/count`, for PG < 14 and dead peers), MySQL/MariaDB `SET SESSION
+    wait_timeout`; a keepalive goroutine pings the held lease every `LeaseKeepalive` (5 s) whatever its holder is busy
+    with (a long trim or a materializer transaction can delay the writer loop's own `Check`), and records a failed ping
+    for `Check`. The connection is closed on `Release` instead of going back to the pool with these settings. So a holder
+    whose host vanished frees the lock within ≈ 30 s. Test: integration `TestLivesyncLeaseIdleTimeout` (keepalive off,
+    timeout 2 s ⇒ another session takes the lock within seconds and the silent holder's `Check` fails; keepalive on ⇒
+    still held after 4 s), both databases.
+  - **(8) Repair walk skipped rows in no group.** In repair mode `BackfillStep` deletes the index rows of entities that
+    are in no group now **and of the rows they place** (`grouplessDependents`: a draft release's attachments, a comment's
+    reactions, transitively) when those are in no group either; and a re-bootstrap marker of a table now also names the
+    models of its dependents (`markedTables`: release ⇒ Release + Attachment; comment ⇒ + Attachment, Reaction,
+    ContentHistory; review ⇒ + Comment …), since a lost change of a release moves its attachments too. Test:
+    `TestRepairDropsGrouplessIndexRows` (release set back to draft during a gap ⇒ Release and Attachment markers, both
+    index rows gone; published again unchanged ⇒ both emitted).
+  - **(9) Idempotency records for read-only API v1 POSTs.** `keyed()` passes `POST /api/v1/{markup,markdown,markdown/raw}`
+    and the same below `/api/v1/repos/{owner}/{repo}/` through without a record (`apiV1ReadOnlyPost`), and
+    `maxResponseBody` is 1 MiB (larger responses are streamed and stored without body, as before). Test: `TestKeyed`.
+  - **(10) PG trigger NOTIFY serialised all commits.** The capture function (body marker **v2**) no longer calls
+    `pg_notify`; the reader is woken by the in-process `commitObserver` on PostgreSQL too, and writes made through
+    **another instance** are found by polling: `POLL_INTERVAL`'s default for the reader is now **100 ms on both
+    databases** (the tailer keeps 250 ms + LISTEN on PostgreSQL; the writer's single `pg_notify('livesync_log')` per
+    materializer commit is unchanged). Upgrade: in auto mode the stale v1 function is repaired once (all epochs bumped,
+    markers); **in verify mode livesync stays degraded until the DBA runs the new DDL** (the admin page shows it). Tests:
+    `TestPostgresDDL` (no `pg_notify`, v2), `TestLivesyncCaptureDoorbell` (PG now behaves like MySQL: observer for
+    autocommit and COMMIT, a raw write from another connection waits for the poll).
+  - **(11) TeamUser/TeamRepo went to every org member.** New group kind **`team:{id}`** (`protocol.TeamGroup`,
+    `GroupPrefixTeam`) holds a team's TeamUser and TeamRepo rows (unit none); readable by the team's members, the
+    organization's owners and site administrators (`perm.checkTeam`: `IsTeamMember`, `IsOrganizationOwner`, as API v1's
+    `reqTeamMembership`, plus `IsOrganizationMember` as `GET /teams/{id}/members` wants — a fixture `team_user` row without
+    `org_user` showed the difference). Team and TeamUnit stay in `org:{id}` `members` (upstream shows teams to members). Implicit
+    grants list the viewer's **own** teams (an owner's other teams are granted on demand: an organization can have many);
+    the workspace lists them with reason `member`; bootstraps of `team:{id}` read `team_user`/`team_repo` by `team_id`;
+    the hub routes TeamUser/TeamRepo markers to `team:` and (for clients holding the old placement) `org:` groups.
+    Placement version 1 of team_user and team_repo. **For F2/F6:** subscribe the `team:{id}` grants like the other
+    implicit ones; who is in another team (as an owner) needs a `subscribe`/bootstrap of that `team:{id}`. Tests:
+    `TestTeamGroup`, `TestCheckGroups` (now with 25 team groups), `TestSnapshotFilters`, `TestConsumePlacement`,
+    `TestLivesyncPermDifferential` (every team × fixture user against API v1 `GET /teams/{id}/members`),
+    `TestLivesyncPermEpochs` (a removed member's TeamUser delete goes to `team:2`, which they can no longer read).
+    Hub tests with `SendBuffer: 2000` now use 2400: user2's welcome grew by its team grants and the projects unit.
+  - **(12) Collaboration.permission revealed admins.** `protocol.Collaboration.permission` is `read` or `write`
+    (`collaboratorPermission`: admin/owner read as write): assignability stays visible, administration does not. Content
+    version 1 of collaboration (markers, no walk). Test: `TestCollaboratorPermission`.
+  - **(13) SURFACE.md gaps.** Added: `db.TxContext` (the "one quiet transaction" coupling), the SQL log hooks' argument
+    printing (why `payloadArg`), `GetCommentByID`/`IsErrCommentNotExist`, `IsErrOrgNotExist`, `db.ListOptionsAll`,
+    `timeutil.TimeStampNow`, the notification status/source constants, and this round's new symbols
+    (`Organization.UnitPermission`, `OrgFromUser`, `GetTeamByID`, `IsTeamMember`, `IsOrganizationOwner`, `perm.AccessMode`,
+    the file preview markup, the lease session settings); the commit observer row says it runs on PostgreSQL too.
+  - **(14) OAuth scope rationale.** `oauthapp.Scope`'s comment now states what the scope does not protect: with
+    `write:repository` a stolen token can add webhooks, writable deploy keys and admin collaborators (lasting access) on
+    every repository the user administers. Decision: keep the scope (the UI needs `write:repository`; API v1 has nothing
+    narrower) and the refresh token lifetime (`[oauth2] REFRESH_TOKEN_EXPIRATION_TIME` is instance-wide; livesync cannot
+    shorten it for its client); instances that want less exposure lower that setting. **For F3:** keep the access token
+    in memory only and the refresh token in IndexedDB of the `/-/next` origin, never in a cookie or `localStorage`
+    readable by classic pages. `TestLivesyncOAuth` now shows a deploy key (writable), a webhook and an admin
+    collaborator added with the Next token on user2/repo1 (and removed again).
+  - **Upgrade effect, all together:** one re-bootstrap of every model at the first start of this version (placement
+    versions project/project_board/team_user/team_repo with repair walks, content versions issue/comment/review/release/
+    collaboration, and in auto mode the v2 capture function bumping every epoch).
+  - **Also changed on the way.** `routers/livesync.authenticateResult` logs a token lookup that failed because the request
+    went away at Debug, not Error (seen once in `TestLivesyncOAuth` on MySQL). `perm.checkTeam` finds the owners team with
+    `GetOwnerTeam` instead of `IsOrganizationOwner`, which logs an Error for an organization without one (a fixture).
+  - **Known, not fixed (pre-existing):** the SQLite unit tests of `services/livesync/capture` are flaky: with `-count=8`,
+    2 of 3 runs on the **unchanged** branch failed too (`no such table: system_setting` from `resetOutbox` once the
+    shared in-memory database is gone, first in `TestWithQuietTx` / `TestReaderDefer` after `TestReaderBatchSize`). A
+    single run usually passes. Worth a separate fix: something closes every pooled connection, perhaps a reader left
+    running by an earlier test or the outbox drop/recreate tests.
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...`
+    and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `go mod tidy -diff` (clean); `next/tools/gen-protocol.sh` then `--check` (up to date; `npm run typecheck` in `next/`
+    green with the new types); unit tests of `models/livesync`, `services/livesync/...`, `routers/livesync` (all green
+    except the flaky capture tests above); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`):
+    52 pass** and **MySQL 8.0: 54 pass**, 0 fail, then the tests changed after that run (`TestLivesyncPermDifferential`,
+    `TestLivesyncOAuth`, `TestLivesyncAuditBodies`, `TestLivesyncLeaseIdleTimeout`) again on both, green, with no testlogger
+    "FATAL ERROR"; `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines in the server
+    logs); the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+
 ### Frontend
 
 #### F1 — Toolchain, tokens, primitives, shell

@@ -46,8 +46,11 @@ var (
 	maxRequestBody = 16 << 20
 	// maxResponseBody bounds the response buffered and stored; a larger
 	// one is streamed to the client without X-Livesync-Sync-Id and stored
-	// without its body (HeaderBodyOmitted).
-	maxResponseBody = 16 << 20
+	// without its body (HeaderBodyOmitted). API v1 write responses are
+	// entities (an issue, a comment), far below it; the records live for
+	// IDEMPOTENCY_TTL (backend audit: 16 MiB per key was a way to store
+	// large blobs for a week).
+	maxResponseBody = 1 << 20
 )
 
 // keyed reports whether req is a write to API v1 that carries an
@@ -68,10 +71,36 @@ func keyed(req *http.Request) (string, bool) {
 	if sub := setting.AppSubURL; sub != "" && strings.HasPrefix(path, sub+"/") {
 		path = path[len(sub):]
 	}
-	if !strings.HasPrefix(path, apiV1Prefix+"/") {
+	if !strings.HasPrefix(path, apiV1Prefix+"/") || apiV1ReadOnlyPost(req.Method, path) {
 		return "", false
 	}
 	return path, true
+}
+
+// apiV1ReadOnlyPost reports whether path is one of API v1's POST endpoints
+// that write nothing (the markup renderers: /markup, /markdown,
+// /markdown/raw, also below /repos/{owner}/{repo}). They are passed through
+// without an idempotency record (backend audit: each keyed request stored
+// its rendered output for IDEMPOTENCY_TTL), as POST /-/sync/api/markdown is
+// (apiReadOnlyPost).
+func apiV1ReadOnlyPost(method, path string) bool {
+	if method != http.MethodPost {
+		return false
+	}
+	rest := strings.TrimPrefix(path, apiV1Prefix+"/")
+	if r, ok := strings.CutPrefix(rest, "repos/"); ok {
+		// repos/{owner}/{repo}/...
+		parts := strings.SplitN(r, "/", 3)
+		if len(parts) != 3 {
+			return false
+		}
+		rest = parts[2]
+	}
+	switch rest {
+	case "markup", "markdown", "markdown/raw":
+		return true
+	}
+	return false
 }
 
 var errIdempotencyCredentials = errors.New("Idempotency-Key needs an OAuth2 or personal access token (Authorization: Bearer or token)")

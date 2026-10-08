@@ -22,10 +22,12 @@ import (
 //
 // PostgreSQL: one plpgsql function, schema-qualified, shared by one
 // AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW trigger per tracked table.
-// The function also rings the cross-instance doorbell with
-// pg_notify('livesync', <schema>): notifications are delivered at commit and
-// deduplicated per transaction; the payload lets listeners ignore other
-// Forgejo instances that share the database under another schema.
+// It does not NOTIFY (backend audit; version 1 did): a transaction that
+// notifies takes a cluster-wide lock at commit, held until the commit is
+// flushed, so every commit that touched a tracked table — in this database
+// and in every other one of the cluster that uses NOTIFY — was serialised,
+// capping concurrent write throughput at about one commit per fsync. The
+// outbox reader is woken in-process instead, as on MySQL (doorbell.go).
 //
 // MySQL/MariaDB: three single-statement triggers per table, without an
 // explicit DEFINER (so the creating account becomes the definer; see
@@ -39,8 +41,6 @@ const (
 	// trigger name is per table in PostgreSQL.
 	pgFunctionName = "livesync_capture"
 	pgTriggerName  = "livesync_capture"
-	// pgNotifyChannel is the LISTEN/NOTIFY channel.
-	pgNotifyChannel = "livesync"
 	// pgTriggerType is pg_trigger.tgtype for ROW | INSERT | DELETE | UPDATE
 	// (AFTER = not BEFORE, not INSTEAD OF): 1 + 4 + 8 + 16.
 	pgTriggerType = 29
@@ -56,7 +56,7 @@ const (
 func pgFunctionBody(schema string) string {
 	outbox := pgQuote(schema) + "." + pgQuote(livesync_model.Change{}.TableName())
 	return `
--- Forgejo livesync change capture v1. Managed by Forgejo: do not edit.
+-- Forgejo livesync change capture v2. Managed by Forgejo: do not edit.
 BEGIN
 	IF TG_OP = 'DELETE' THEN
 		INSERT INTO ` + outbox + ` (tbl, row_id, op) VALUES (TG_TABLE_NAME, OLD.id, '` + livesync_model.OpDelete + `');
@@ -65,7 +65,6 @@ BEGIN
 	ELSE
 		INSERT INTO ` + outbox + ` (tbl, row_id, op) VALUES (TG_TABLE_NAME, NEW.id, '` + livesync_model.OpInsert + `');
 	END IF;
-	PERFORM pg_notify('` + pgNotifyChannel + `', TG_TABLE_SCHEMA);
 	RETURN NULL;
 END;
 `

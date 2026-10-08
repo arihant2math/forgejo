@@ -19,6 +19,9 @@ package synclog
 
 import (
 	"context"
+	"crypto/rand"
+	"database/sql/driver"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -42,6 +45,8 @@ const (
 	// MetaFloor holds the retention floor: entries with a sync id at or
 	// below it may have been trimmed; every entry above it is present.
 	MetaFloor = "log_floor"
+	// MetaLogID holds the log's incarnation id (LogID).
+	MetaLogID = "log_id"
 )
 
 // leaseName names the writer lease (scoped to the schema / database like
@@ -94,11 +99,28 @@ func (w *Writer) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var maxID int64
-	if _, err := e.SQL("SELECT COALESCE(MAX(sync_id), 0) FROM livesync_log").Get(&maxID); err != nil {
-		return fmt.Errorf("livesync: read the sync log head: %w", err)
+	_, hasHead, err := livesync_model.GetMeta(ctx, MetaHead)
+	if err != nil {
+		return err
 	}
-	if err := livesync_model.InsertMetaIfAbsent(ctx, MetaHead, strconv.FormatInt(maxID, 10)); err != nil {
+	if !hasHead {
+		var maxID int64
+		if _, err := e.SQL("SELECT COALESCE(MAX(sync_id), 0) FROM livesync_log").Get(&maxID); err != nil {
+			return fmt.Errorf("livesync: read the sync log head: %w", err)
+		}
+		// A new log (or one whose bookkeeping is gone): a new
+		// incarnation, so that positions from before are not taken for
+		// positions in it. Written before the head, so that a crash in
+		// between leaves no head without its id.
+		if err := livesync_model.SetMeta(ctx, MetaLogID, newLogID()); err != nil {
+			return err
+		}
+		if err := livesync_model.InsertMetaIfAbsent(ctx, MetaHead, strconv.FormatInt(maxID, 10)); err != nil {
+			return err
+		}
+	}
+	// A log written by a version without incarnation ids gets one.
+	if err := livesync_model.InsertMetaIfAbsent(ctx, MetaLogID, newLogID()); err != nil {
 		return err
 	}
 	if err := livesync_model.InsertMetaIfAbsent(ctx, MetaWriter, "0"); err != nil {
@@ -112,6 +134,34 @@ func (w *Writer) init(ctx context.Context) error {
 		w.token = values[MetaWriter] + 1
 		return livesync_model.SetMeta(ctx, MetaWriter, strconv.FormatInt(w.token, 10))
 	})
+}
+
+// newLogID returns a new random log incarnation id.
+func newLogID() string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err) // crypto/rand does not fail
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// LogID returns the incarnation id of the sync log ("" before the first
+// writer started). Sync ids are positions in one incarnation only: a log
+// created anew — livesync's tables dropped and created again (complete
+// removal, capture.TablesScript), or a database restored from a backup
+// without them — starts again at 1 under a new id, and a client position
+// from another incarnation is unknown (bootstrap_required{cursor_unknown}),
+// even when the new log's head has passed it. The id travels in
+// WelcomeMessage.LogID and BootstrapHeader.LogID; clients send the one
+// their positions come from in HelloMessage.LogID.
+//
+// A restore of a backup that holds livesync's tables keeps the id it had
+// when the backup was taken: after such a restore, run
+// "DELETE FROM livesync_meta WHERE name = 'log_id'" before starting Forgejo
+// (a new id is created; every client re-bootstraps once).
+func LogID(ctx context.Context) (string, error) {
+	v, _, err := livesync_model.GetMeta(ctx, MetaLogID)
+	return v, err
 }
 
 // Check reports an error once the writer lease is lost (its connection
@@ -164,26 +214,19 @@ func (w *Writer) Append(ctx context.Context, entries []Entry) (int64, error) {
 		return 0, err
 	}
 	now := timeutil.TimeStamp(time.Now().Unix())
-	const chunk = 100
-	rows := make([]livesync_model.LogEntry, 0, min(len(entries), chunk))
-	for i, en := range entries {
-		rows = append(rows, livesync_model.LogEntry{
-			Grp:         en.Group,
-			SyncID:      head + 1 + int64(i),
-			Model:       string(en.Model),
-			EntityID:    en.EntityID,
-			Op:          string(en.Op),
-			Unit:        string(en.Unit),
-			Payload:     en.Payload,
-			SchemaVer:   en.SchemaVer,
-			CreatedUnix: now,
-		})
-		if len(rows) == chunk || i == len(entries)-1 {
-			if _, err := e.Insert(&rows); err != nil {
-				return 0, fmt.Errorf("livesync: append to the sync log: %w", err)
-			}
-			rows = rows[:0]
+	for start := 0; start < len(entries); {
+		// Chunks of at most appendChunkRows entries and appendChunkBytes
+		// of payload (a larger entry alone): one INSERT must stay well
+		// below MySQL's max_allowed_packet (MariaDB's default is 16 MiB).
+		end, size := start, 0
+		for end < len(entries) && end-start < appendChunkRows && (end == start || size+len(entries[end].Payload) <= appendChunkBytes) {
+			size += len(entries[end].Payload)
+			end++
 		}
+		if err := insertEntries(e, entries[start:end], head+1+int64(start), now); err != nil {
+			return 0, fmt.Errorf("livesync: append to the sync log: %w", err)
+		}
+		start = end
 	}
 	if err := livesync_model.SetMeta(ctx, MetaHead, strconv.FormatInt(head+int64(len(entries)), 10)); err != nil {
 		return 0, err
@@ -199,6 +242,47 @@ func (w *Writer) Append(ctx context.Context, entries []Entry) (int64, error) {
 	}
 	return head + 1, nil
 }
+
+// Bounds of one INSERT of Append. Variables so that tests can lower them.
+var (
+	appendChunkRows  = 100
+	appendChunkBytes = 2 << 20
+)
+
+// logColumns are the columns of livesync_log insertEntries writes.
+const logColumns = "grp, sync_id, model, entity_id, op, unit, payload, schema_ver, created_unix"
+
+// insertEntries inserts entries with consecutive sync ids from first in
+// one statement. The payloads are passed as payloadArg, so that Forgejo's
+// SQL logs ([Error SQL Query], [Slow SQL Query], LOG_SQL), which print every
+// argument of a statement, print their sizes rather than up to megabytes of
+// JSON per entry (backend audit: a failing append retried every 10 s wrote
+// log lines of hundreds of MB).
+func insertEntries(e db.Engine, entries []Entry, first int64, now timeutil.TimeStamp) error {
+	var b strings.Builder
+	b.WriteString("INSERT INTO livesync_log (" + logColumns + ") VALUES ")
+	args := make([]any, 0, 1+9*len(entries))
+	args = append(args, "")
+	for i, en := range entries {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		args = append(args, en.Group, first+int64(i), string(en.Model), en.EntityID, string(en.Op), string(en.Unit),
+			payloadArg(en.Payload), en.SchemaVer, int64(now))
+	}
+	args[0] = b.String()
+	_, err := e.Exec(args...)
+	return err
+}
+
+// payloadArg is a payload as a statement argument: the database driver gets
+// the text (driver.Valuer), a log line its size (fmt.Stringer).
+type payloadArg string
+
+func (p payloadArg) Value() (driver.Value, error) { return string(p), nil }
+
+func (p payloadArg) String() string { return fmt.Sprintf("<payload of %d bytes>", len(p)) }
 
 // lockMeta reads the given livesync_meta rows as numbers, locking them
 // until the end of ctx's transaction (SELECT … FOR UPDATE; SQLite, used by

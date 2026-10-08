@@ -2380,7 +2380,7 @@ does) **and** MySQL 8.0 (binlog on).
     MySQL 8.0 42 pass / 1 skip**, no testlogger "FATAL ERROR"; fork-diff check unchanged.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes)
 - **Scope:** `services/livesync/oauthapp` (ensure a public client, redirect
   `{AppURL}-/next/callback`, PKCE; confirm scope behaviour with/without
   `ENABLE_ADDITIONAL_GRANT_SCOPES`; expose client_id to the SPA via the inlined config).

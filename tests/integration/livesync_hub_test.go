@@ -55,6 +55,14 @@ type livesyncMsg struct {
 	Session      string                 `json:"session"`
 	Protocol     int                    `json:"protocol"`
 	Schemas      map[protocol.Model]int `json:"schemas"`
+	// Log tails (B9).
+	JobID   int64              `json:"job_id"`
+	TaskID  int64              `json:"task_id"`
+	Offset  int64              `json:"offset"`
+	Lines   []protocol.LogLine `json:"lines"`
+	Steps   []protocol.LogStep `json:"steps"`
+	Done    bool               `json:"done"`
+	Expired bool               `json:"expired"`
 }
 
 // livesyncSyncClient is a raw sync protocol client over one transport.

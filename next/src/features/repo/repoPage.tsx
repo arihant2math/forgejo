@@ -36,7 +36,8 @@ export function RepoContext({owner, repo, pulls = false}: {owner: string; repo: 
 }
 
 export const Unavailable = observer(function Unavailable() {
-  const offline = !connectivity.online;
+  const {data} = useSession();
+  const offline = !connectivity.online || data.status.connection === 'offline';
   return (
     <EmptyState
       icon={CloudOff}

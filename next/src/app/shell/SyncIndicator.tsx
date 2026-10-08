@@ -50,8 +50,8 @@ export const SyncIndicator = observer(function SyncIndicator() {
           {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
         </Status>
       </Tooltip>
-      {/* The live region: announces the status, apart from the button. */}
-      <span role="status" className="sr-only">{words}</span>
+      {/* The live region: announces the connection, apart from the button (not every pending change). */}
+      <span role="status" className="sr-only">{v.label}</span>
       {v.signIn && app.config.oauth && (
         <Button size="sm" variant="primary" onClick={() => {
           signInHere(app);

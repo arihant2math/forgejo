@@ -166,6 +166,8 @@ export class Intents {
   private readonly perIssue = observable.map<number, number>({}, {deep: false});
   /** Parked conflicts by text target (`body:<issue>`, `comment:<id>`) → record id (the editors observe one key). */
   private readonly parked = observable.map<string, string>({}, {deep: false});
+  /** Discards asked of the leader by this follower, waiting for its `done`. */
+  private readonly discards = new Map<string, () => void>();
   /** Intents whose storing failed: kept in memory (a re-read must not drop them). */
   private readonly memoryOnly = new Set<string>();
   /** Resolves once the stored queue is in the overlay. */
@@ -197,6 +199,10 @@ export class Intents {
     this.ready = this.reread();
     this.cleanups.push(env.onCaughtUp(() => {
       this.kick();
+    }));
+    // A parked conflict may have lost its target (a comment deleted on the server): the pump checks.
+    this.cleanups.push(env.pool.onApplied(() => {
+      if (this.parked.size && this.env.isLeader()) this.kick();
     }));
     this.cleanups.push(env.onRevoked((group) => {
       if (this.env.isLeader()) void this.revoked(group);
@@ -245,6 +251,8 @@ export class Intents {
       // Not durable (storage full or broken): it still runs in this tab (a re-read keeps it), and the user is told.
       this.unstored.delete(i.id);
       this.memoryOnly.add(i.id);
+      // The leader learns of it from this tab only (it is in no store): handed over in memory.
+      this.env.channel.post({t: 'added', rec});
       console.error('intents: storing failed', err);
       this.apply(() => {
         const r = this.records.get(i.id);
@@ -332,23 +340,30 @@ export class Intents {
    * Takes back a queued intent the user no longer wants (never attempted, or
    * parked: see `discardable`). The leader does it (it knows what is in flight).
    */
-  discard(id: string, again = true): void {
+  discard(id: string, again = true): Promise<boolean> {
     if (!this.env.isLeader()) {
-      this.env.channel.post({t: 'discard', id});
-      return;
+      // The leader decides (and answers with `done` when it did); no answer in 3 s: not discarded.
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.discards.delete(id);
+          resolve(false);
+        }, 3000);
+        this.discards.set(id, () => {
+          clearTimeout(timer);
+          resolve(true);
+        });
+        this.env.channel.post({t: 'discard', id});
+      });
     }
     const rec = this.records.get(id);
     // Not known yet (a take-over, a follower's intent just stored): read the queue, then decide.
-    if (!rec && again) {
-      void this.reread().then(() => {
-        this.discard(id, false);
-      });
-      return;
-    }
-    if (!rec || this.sending.has(id) || !discardable(rec)) return;
-    void this.env.db.remove(id).then(() => {
+    if (!rec && again) return this.reread().then(() => this.discard(id, false));
+    if (!rec || this.sending.has(id) || !discardable(rec)) return Promise.resolve(false);
+    return this.env.db.remove(id).then(() => {
       this.finishLocal(id);
       this.env.channel.post({t: 'done', id});
+      this.kick();
+      return true;
     });
   }
 
@@ -487,6 +502,8 @@ export class Intents {
         this.apply(() => {
           if (!this.records.has(m.rec.id)) this.track(m.rec);
         });
+        // Not stored (its tab's storage failed): kept in memory here too (a re-read must not drop it).
+        if (m.rec.seq === undefined) this.memoryOnly.add(m.rec.id);
         this.kick();
         break;
       case 'changed':
@@ -496,6 +513,8 @@ export class Intents {
         if (m.rec.state === 'parked' && this.visible()) this.env.onConflict?.(m.rec);
         break;
       case 'done':
+        this.discards.get(m.id)?.();
+        this.discards.delete(m.id);
         // The leader's pool holds the write; this tab's once it mirrored that state (no flicker).
         if (m.group !== undefined && m.v !== undefined && this.env.pool.groupEntities(m.group).size > 0) {
           void Promise.race([this.env.whenSynced(m.group, m.v, AbortSignal.timeout(this.env.confirmTimeout ?? 60_000)), sleepMs(this.env.confirmTimeout ?? 60_000)])
@@ -529,7 +548,7 @@ export class Intents {
         if (this.visible()) this.env.onOverride?.(m.override);
         break;
       case 'discard':
-        if (this.env.isLeader()) this.discard(m.id);
+        if (this.env.isLeader()) void this.discard(m.id);
         break;
       case 'leader':
         if (!this.env.isLeader()) void this.reread();
@@ -601,7 +620,7 @@ export class Intents {
       if (parkedHere) {
         // Deleting the comment makes its parked edit moot: the edit goes to the drafts (its text kept).
         if (i.kind === 'comment.delete') void this.fail(parkedHere, 'You deleted this comment; your edit is kept here.');
-        blocked.add(chain);
+        // Held behind the conflict like the conflict itself: the entity's other changes go on.
         continue;
       }
       // Refers to an entity created offline: it waits for the create and its remap (without holding the
@@ -657,7 +676,8 @@ export class Intents {
         for (const r of unknown) this.track(r);
       });
     }
-    return stored.some((r) => r.id !== rec.id && (r.seq ?? 0) < (rec.seq ?? Number.MAX_SAFE_INTEGER) && holdsBack(r, rec, (t) => this.remapped.has(t)));
+    const parkedTargets = new Set(stored.filter((r) => r.state === 'parked').map((r) => textTarget(r.intent)).filter((t) => t !== undefined));
+    return stored.some((r) => r.id !== rec.id && (r.seq ?? 0) < (rec.seq ?? Number.MAX_SAFE_INTEGER) && holdsBack(r, rec, (t) => this.remapped.has(t), parkedTargets));
   }
 
   /**
@@ -671,7 +691,8 @@ export class Intents {
     try {
       const stored = await this.env.db.list();
       const creating = new Set<number>();
-      for (const r of stored) {
+      // Stored, or known here (a create kept in memory when storing failed).
+      for (const r of [...stored, ...this.records.values()]) {
         const i = r.intent;
         if (i.kind === 'issue.create') creating.add(i.issueId);
         else if ('tempId' in i) creating.add(tempNum(i.tempId));
@@ -775,7 +796,7 @@ export class Intents {
     rec = {...rec, intent: i, req, updated: this.now()};
     // Last writer wins, but the user hears about overriding someone's newer value.
     // (The entity's earlier intents are confirmed by now: the pool shows what the user saw.)
-    if (POLICY[i.kind] === 'scalar' && 'base' in i) {
+    if (POLICY[i.kind] === 'scalar' && 'base' in i && fresh) {
       const cur = serverScalar(env.pool, i);
       const mine = valueOf(i);
       if (cur !== undefined && cur !== i.base && cur !== mine) rec = {...rec, override: {theirs: cur, who: lastChangedBy(env.pool, i) ?? 0}};
@@ -828,8 +849,13 @@ export class Intents {
     const res = await this.fetch(rec, req, token);
     if (!res) return;
     if (res.status === 401) {
-      const t = await env.refresh().catch(() => null);
-      if (!t) {
+      // null: signed out (held); a throw: the token endpoint unreachable (try again later).
+      const t = await env.refresh().then((x) => x, () => undefined);
+      if (t === undefined) {
+        await this.later(rec, -1, 'Could not refresh the session; retrying.', false);
+        return;
+      }
+      if (t === null) {
         this.held = true;
         return;
       }
@@ -1113,11 +1139,15 @@ function textTarget(i: Intent): string | undefined {
 
 /**
  * Whether the earlier queued `r` must be done before `rec` is sent: same
- * entity, unless it is parked on another text, or waits for a create.
+ * entity, unless it is (or waits behind) a parked edit of another text, or
+ * waits for a create.
  */
-function holdsBack(r: IntentRecord, rec: IntentRecord, known: (temp: number) => boolean): boolean {
+function holdsBack(r: IntentRecord, rec: IntentRecord, known: (temp: number) => boolean, parkedTargets: ReadonlySet<string>): boolean {
   if (chainOf(r.intent) !== chainOf(rec.intent)) return false;
-  if (r.state === 'parked') return textTarget(r.intent) !== undefined && textTarget(r.intent) === textTarget(rec.intent);
+  const target = textTarget(r.intent);
+  const same = target !== undefined && target === textTarget(rec.intent);
+  // Parked, or held behind a parked edit of its text: holds back only edits of the same text.
+  if (r.state === 'parked' || (target !== undefined && parkedTargets.has(target))) return same;
   return tempRefs(r.intent).every(known);
 }
 

@@ -102,10 +102,12 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
   useEffect(() => {
     runInAction(() => {
       app.ui.issueTarget = [issue.id];
+      app.ui.issueOpen = issue.id;
     });
     return () => {
       runInAction(() => {
         app.ui.issueTarget = [];
+        if (app.ui.issueOpen === issue.id) app.ui.issueOpen = undefined;
       });
     };
   }, [app, issue.id]);

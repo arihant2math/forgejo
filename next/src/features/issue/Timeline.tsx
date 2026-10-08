@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {lazy, type ReactNode, Suspense, useState} from 'react';
+import {lazy, type ReactNode, Suspense, useEffect, useRef, useState} from 'react';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Code, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
@@ -121,17 +121,27 @@ const CommentItem = observer(function CommentItem({id}: {id: number}) {
 /** A comment's card: its header (with the viewer's actions), its body or editor, its reactions. */
 function CommentCard({c, type}: {c: Entity<'Comment'>; type: string}) {
   const [edit, setEdit] = useState(false);
+  const actions = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    // Back to the comment's actions once its editor closes.
+    if (!edit && refocus.current) actions.current?.focus();
+    refocus.current = false;
+  }, [edit]);
   return (
     <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
       badge={<>
         {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
-        {c.id > 0 && <CommentActions c={c} onEdit={() => {
+        {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
           setEdit(true);
         }}/>}
       </>}
       footer={<Reactions issueId={c.get('issue_id')} commentId={c.id}/>}>
       <CommentBody c={c} edit={edit} onEditDone={() => {
+        refocus.current = true;
         setEdit(false);
+      }} onReopen={() => {
+        setEdit(true);
       }}/>
     </Card>
   );

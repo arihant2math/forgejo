@@ -13,7 +13,7 @@
 import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, useEffect, useId, useRef, useState} from 'react';
+import {type KeyboardEvent, type Ref, useEffect, useId, useRef, useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -69,10 +69,12 @@ interface TextEditorProps {
   autoFocus?: boolean;
   /** An element describing the editor (who comments). */
   describedBy?: string | undefined;
+  /** After Esc/Cancel, the Undo notice reopens the editor (with the text) through this. */
+  onReopen?: (() => void) | undefined;
 }
 
 /** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
-export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy}: TextEditorProps) {
+export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen}: TextEditorProps) {
   const app = useApp();
   const {intents} = editing(app);
   const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
@@ -120,7 +122,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       const kept = {key: draftKey, kind: 'text' as const, title, issueId, repoId, text, at: Date.now(), ...(base ? {base} : {})};
       void intents.discardDraft(draftKey);
       notify(app, {tone: 'neutral', title: 'Edit discarded', action: {label: 'Undo', run: () => {
-        void intents.restoreDraft(kept);
+        void intents.restoreDraft(kept).then(() => onReopen?.());
       }}});
     } else forget();
     onCancel?.();
@@ -209,7 +211,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     return (
       <TextEditor draftKey={`text:body:${String(issue.id)}`} title="Editing the description" issueId={issue.id} repoId={repoId}
         initial={edit.text} base={edit} label="Description" saveLabel="Save" rows={12} autoFocus
-        onCancel={close}
+        onCancel={close} onReopen={start}
         onSave={(text, base) => {
           // Based on what the user started from (3-way merged if it moved meanwhile).
           const b = base ?? edit;
@@ -230,15 +232,18 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
 });
 
 /** The viewer's own comment's actions (in its card's header): edit, delete. */
-export function CommentActions({c, onEdit}: {c: Entity<'Comment'>; onEdit: () => void}) {
+export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: Ref<HTMLButtonElement>}) {
   const app = useApp();
   const {userId} = useSession();
   const {intents} = editing(app);
   if (untracked(() => c.data.poster_id) !== userId) return null;
   return (
     <Menu>
-      <MenuTrigger asChild><IconButton size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
-      <MenuContent align="end">
+      <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
+      {/* The editor that opens takes the focus (Radix would return it to the trigger). */}
+      <MenuContent align="end" onCloseAutoFocus={(e) => {
+        e.preventDefault();
+      }}>
         <MenuItem icon={Pencil} onSelect={onEdit}>Edit</MenuItem>
         <MenuItem icon={Trash2} danger onSelect={() => {
           const {issue_id: issueId} = untracked(() => c.data);
@@ -256,7 +261,7 @@ function repoOf(app: ReturnType<typeof useApp>, issueId: number): number {
 }
 
 /** A comment's body (the unsynced text, or the server's rendering), its editor, its edit conflict. */
-export const CommentBody = observer(function CommentBody({c, edit, onEditDone}: {c: Entity<'Comment'>; edit: boolean; onEditDone: () => void}) {
+export const CommentBody = observer(function CommentBody({c, edit, onEditDone, onReopen}: {c: Entity<'Comment'>; edit: boolean; onEditDone: () => void; onReopen: () => void}) {
   const app = useApp();
   const {overlay, intents} = editing(app);
   const b = commentBody(overlay, c);
@@ -278,7 +283,7 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone}: 
       </div>
     );
   }
-  if (edit) return <CommentEditor c={c} issueId={issueId} repoId={repoId} onDone={onEditDone}/>;
+  if (edit) return <CommentEditor c={c} issueId={issueId} repoId={repoId} onDone={onEditDone} onReopen={onReopen}/>;
   return (
     <div className="flex flex-col gap-1">
       <Rendered {...b}/>
@@ -288,7 +293,7 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone}: 
 });
 
 /** A comment's editor: its base (text, version, updated_at) is taken when it opens. */
-function CommentEditor({c, issueId, repoId, onDone}: {c: Entity<'Comment'>; issueId: number; repoId: number; onDone: () => void}) {
+function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comment'>; issueId: number; repoId: number; onDone: () => void; onReopen: () => void}) {
   const app = useApp();
   const {overlay, intents} = editing(app);
   const [base] = useState<EditBase>(() => untracked(() => {
@@ -297,7 +302,7 @@ function CommentEditor({c, issueId, repoId, onDone}: {c: Entity<'Comment'>; issu
   }));
   return (
     <TextEditor draftKey={`text:comment:${String(c.id)}`} title="Editing a comment" issueId={issueId} repoId={repoId} initial={base.text} base={base}
-      label="Comment" saveLabel="Save" autoFocus onCancel={onDone}
+      label="Comment" saveLabel="Save" autoFocus onCancel={onDone} onReopen={onReopen}
       onSave={(text, b0) => {
         const b = b0 ?? base;
         intents.submit({kind: 'comment.edit', issueId, repoId, commentId: c.id, text, baseText: b.text, baseVersion: b.version, baseUpdated: b.updated ?? ''});

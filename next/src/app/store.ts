@@ -30,6 +30,8 @@ export interface UiState {
   unsyncedOpen: boolean;
   /** Transient notices (notices.ts), oldest first. */
   notices: NoticeSpec[];
+  /** The issue whose page is open (its conflicts and overrides show inline there, not as notices). */
+  issueOpen: number | undefined;
   /** The issues the keyboard acts on (the list's selection or cursor, the open issue): the palette offers their actions. */
   issueTarget: readonly number[];
   /** An open issue picker (S/L/A/M/P): which field, for which issues. */
@@ -47,7 +49,7 @@ export interface App {
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
   const ui = observable<UiState>(
-    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unsyncedOpen: false, notices: [], issueTarget: [], picker: undefined},
+    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unsyncedOpen: false, issueOpen: undefined, notices: [], issueTarget: [], picker: undefined},
     {notices: observableShallow, issueTarget: observableRef, picker: observableRef},
   );
   return {config, session, ui};

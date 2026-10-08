@@ -230,6 +230,7 @@
     --speed-quick: 0s;
     --animate-exit: none;
     --animate-exit-pop: none;
-    --animate-pending: none;
+    /* Still after the delay (no flicker), without the fade. */
+    --animate-pending: pending 0s linear var(--delay-pending) both;
   }
 }

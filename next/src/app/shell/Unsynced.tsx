@@ -82,10 +82,16 @@ function Section({title, children}: {title: string; children: ReactNode}) {
 /** Takes back a queued change, with Undo (the same change again, as a new intent). */
 function discardWithUndo(app: App, rec: IntentRecord): void {
   const {intents} = editing(app);
-  intents.discard(rec.id);
-  notify(app, {tone: 'neutral', title: 'Discarded', description: describeIntent(rec.intent, names(app)), action: {label: 'Undo', run: () => {
-    intents.resubmit(rec.intent);
-  }}});
+  void intents.discard(rec.id).then((done) => {
+    // Sent meanwhile (or already confirmed): it was not discarded, and an Undo would make it twice.
+    if (!done) {
+      notify(app, {tone: 'neutral', title: 'Not discarded', description: 'It was being sent already.'});
+      return;
+    }
+    notify(app, {tone: 'neutral', title: 'Discarded', description: describeIntent(rec.intent, names(app)), action: {label: 'Undo', run: () => {
+      intents.resubmit(rec.intent);
+    }}});
+  });
 }
 
 /** "#12 · dev/big" for an intent's issue, from the pool. */

@@ -253,7 +253,8 @@ describe('signed in', () => {
         app.ui.pendingIntents = 3;
       });
     });
-    expect(screen.getByRole('status').textContent).toBe('Offline · 3 pending');
+    expect(screen.getByRole('status').textContent).toBe('Offline');
+    expect(screen.getByRole('button', {name: /show unsynced changes/}).textContent).toBe('Offline· 3 pending');
     act(() => {
       runInAction(() => {
         s.auth.status.state = 'expired';

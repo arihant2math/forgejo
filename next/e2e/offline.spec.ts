@@ -60,7 +60,8 @@ async function signedIn(ctx: BrowserContext): Promise<Page> {
   return page;
 }
 
-const indicator = (page: Page) => page.getByRole('status').filter({hasText: /Live|Offline|Catching up|Connecting|Signed out/}).first();
+/** The sync indicator (a button: its text is the state and the pending count). */
+const indicator = (page: Page) => page.getByRole('button', {name: /: show unsynced changes$/});
 const sidebarProp = (page: Page, name: string) =>
   page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: new RegExp(`^${name}$`)}).locator('xpath=following-sibling::dd[1]');
 const activity = (page: Page) => page.getByRole('region', {name: 'Activity'});

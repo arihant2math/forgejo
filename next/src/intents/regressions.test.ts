@@ -260,7 +260,7 @@ describe('review regressions (conflict policy)', () => {
     tab.intents.submit({...ref, kind: 'comment.edit', commentId: tempNum(t), text: 'edited', baseText: 'draft-ish', baseVersion: -1, baseUpdated: ''});
     tab.intents.submit({...ref, kind: 'issue.title', title: 'Renamed', base: 'Issue 1'});
     await world.settle(20);
-    tab.intents.discard(created.id);
+    void tab.intents.discard(created.id);
     await lateOnline(world, server);
     expect(server.issues.get(1)?.title).toBe('Renamed');
     expect(server.comments.size).toBe(0);
@@ -314,6 +314,129 @@ describe('review regressions (conflict policy)', () => {
     next.intents.submit({issueId: temp, repoId: REPO, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'late'});
     await world.settle();
     expect([...server.comments.values()].map((x) => [x.issueId, x.body])).toEqual([[real, 'late']]);
+    world.close();
+  });
+});
+
+describe('review regressions (round 2)', () => {
+  test('A: a follower whose storage fails hands its intent to the leader in memory', async () => {
+    const server = new FakeForgejo();
+    const world = new World(server, 2);
+    const follower = must(world.tabs[1]);
+    await world.settle(5);
+    const spy = vi.spyOn(IntentDb.prototype, 'add').mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+    follower.intents.submit({...ref, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'kept in memory'});
+    await world.settle();
+    spy.mockRestore();
+    expect([...server.comments.values()].map((c) => c.body)).toEqual(['kept in memory']);
+    expect(follower.intents.pending).toBe(0);
+    world.close();
+  });
+
+  test('B: a refresh that fails on the network backs off; it does not hold the queue', async () => {
+    const server = new FakeForgejo();
+    let first = true;
+    let refreshes = 0;
+    const fetch = async (u: string, i: RequestInit) => {
+      if (first) {
+        first = false;
+        return new Response('{}', {status: 401});
+      }
+      return server.fetch(u, i);
+    };
+    const world = new World(server, 1, {fetch: fetch as typeof globalThis.fetch, refresh: () => (refreshes++ === 0 ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve('tok'))});
+    const tab = must(world.tabs[0]);
+    tab.intents.submit({...ref, kind: 'issue.title', title: 'After a refresh error', base: 'Issue 1'});
+    await world.settle();
+    expect(server.issues.get(1)?.title).toBe('After a refresh error');
+    world.close();
+  });
+
+  test('C: edits held behind a parked description conflict do not hold back the issue’s other changes', async () => {
+    const server = new FakeForgejo();
+    server.online = false;
+    const world = new World(server, 1);
+    const tab = must(world.tabs[0]);
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'issue.body', text: 'one\nMINE\nthree', baseText: 'one\ntwo\nthree', baseVersion: 0});
+    tab.intents.submit({...ref, kind: 'issue.body', text: 'one\nMINE2\nthree', baseText: 'one\nMINE\nthree', baseVersion: -1});
+    tab.intents.submit({...ref, kind: 'issue.title', title: 'Renamed', base: 'Issue 1'});
+    tab.intents.submit({...ref, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'posted'});
+    server.remote({t: 'body', issue: 1, at: 1, token: 'THEIRS'});
+    server.online = true;
+    tab.deliver();
+    tab.setConnection('live');
+    await world.settle();
+    expect(tab.intents.conflictOf('issue.body', 1)).toBeDefined();
+    expect(server.issues.get(1)?.title).toBe('Renamed');
+    expect([...server.comments.values()].map((c) => c.body)).toEqual(['posted']);
+    expect(tab.intents.pending).toBe(2);
+    world.close();
+  });
+
+  test('D: no override notice for one’s own earlier change on a stale issue', async () => {
+    const server = new FakeForgejo();
+    server.online = false;
+    const overridden = vi.fn();
+    const world = new World(server, 1, {onOverride: overridden, confirmTimeout: 50});
+    const tab = must(world.tabs[0]);
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'issue.title', title: 'A', base: 'Issue 1'});
+    tab.intents.submit({...ref, kind: 'issue.title', title: 'B', base: 'A'});
+    world.lag = 1000;
+    server.online = true;
+    tab.setConnection('live');
+    await world.settle(300);
+    expect(server.issues.get(1)?.title).toBe('B');
+    expect(overridden).not.toHaveBeenCalled();
+    world.close();
+  });
+
+  test('E: a create kept in memory (storage failed) still counts for what depends on it', async () => {
+    const server = new FakeForgejo();
+    server.online = false;
+    const world = new World(server, 1);
+    const tab = must(world.tabs[0]);
+    tab.setConnection('offline');
+    await world.settle(5);
+    const t = crypto.randomUUID();
+    const temp = tempNum(t);
+    const spy = vi.spyOn(IntentDb.prototype, 'add').mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+    tab.intents.submit({issueId: temp, repoId: REPO, kind: 'issue.create', tempId: t, title: 'In memory', body: '', labelIds: [], assigneeIds: [], milestoneId: 0});
+    spy.mockRestore();
+    tab.intents.submit({issueId: temp, repoId: REPO, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'on it'});
+    await world.settle(10);
+    server.online = true;
+    tab.setConnection('live');
+    await world.settle();
+    expect([...server.comments.values()].map((c) => c.body)).toEqual(['on it']);
+    expect(tab.intents.drafts.size).toBe(0);
+    world.close();
+  });
+
+  test('M8: a parked edit of a comment deleted on the server goes to the drafts when the deletion arrives', async () => {
+    const server = new FakeForgejo();
+    const world = new World(server, 1);
+    const tab = must(world.tabs[0]);
+    tab.intents.submit({...ref, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'first'});
+    await world.settle();
+    const c = must(untracked(() => [...tab.pool.model('Comment').all()][0]?.data));
+    server.online = false;
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'comment.edit', commentId: c.id, text: 'mine', baseText: 'first', baseVersion: c.content_version, baseUpdated: c.updated_at});
+    server.remote({t: 'comment', issue: 1, token: 'theirs'});
+    server.online = true;
+    tab.deliver();
+    tab.setConnection('live');
+    await world.settle();
+    expect(tab.intents.conflictOf('comment.edit', c.id)).toBeDefined();
+    // Deleted on the server meanwhile.
+    const sc = must(server.comments.get(c.id));
+    sc.deleted = true;
+    server.log.push({v: ++server.v, m: 'Comment', id: c.id, g: 'issue:1', op: 'D'});
+    await world.settle();
+    expect(tab.intents.pending).toBe(0);
+    expect([...tab.intents.drafts.values()].map((d) => [d.text, d.reason])).toEqual([['mine', 'The comment was deleted.']]);
     world.close();
   });
 });

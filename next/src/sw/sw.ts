@@ -93,7 +93,7 @@ async function precache(): Promise<void> {
   const cache = await caches.open(CACHE);
   await cache.addAll(build.assets.map((a) => build.base + a));
   // Last: a failed install leaves no shell that could be served without its assets.
-  await cache.put(SHELL, shell);
+  await cache.put(SHELL, cachedShell(html, shell));
 }
 
 sw.addEventListener('install', (e) => {
@@ -125,9 +125,13 @@ sw.addEventListener('message', (e) => {
 /** The instance's sub-path ("" or "/git"). */
 const SUB = new URL(sw.registration.scope).pathname.replace(/\/$/, '');
 
-/** Whether a path is one of the app's pages: its canonical routes (B8 spaRoutes) or its own pages below the base. */
+/**
+ * Whether a path is one of the app's documents: its canonical routes (B8
+ * spaRoutes) and its base. Other paths below the base (opt-in, opt-out, the
+ * callback, files) go to the network as themselves.
+ */
 function appPage(path: string): boolean {
-  if (path.startsWith(build.base)) return !/\.\w+$/.test(path);
+  if (path === build.base) return true;
   const site = sitePathOf(path, SUB);
   return site !== undefined && isSpaRoute(site);
 }
@@ -193,6 +197,17 @@ async function navigate(e: FetchEvent): Promise<Response> {
   }
 }
 
+/**
+ * The shell as cached: marked (`forgejo-next-cached`: a boot from it is not a
+ * proof that the browser opted in, so it does not opt in again) and with the
+ * headers of a decoded body.
+ */
+function cachedShell(html: string, from: Response): Response {
+  const headers = new Headers(from.headers);
+  for (const h of ['Content-Encoding', 'Content-Length', 'Set-Cookie']) headers.delete(h);
+  return new Response(html.replace(/<meta charset="utf-8">/i, (m) => `${m}<meta name="forgejo-next-cached" content="1">`), {status: 200, headers});
+}
+
 async function offline(): Promise<Response> {
   return await shell() ?? new Response('Offline', {status: 503, headers: {'Content-Type': 'text/plain; charset=utf-8'}});
 }
@@ -215,7 +230,12 @@ async function afterOnline(path: string, app: boolean, res: Response): Promise<v
     const theirs = buildOf(html);
     if (theirs && theirs !== build.version) void sw.registration.update().catch(() => undefined);
     // The same build: keep the freshest shell (config and CSP as served now).
-    else if (theirs === build.version) await cache.put(SHELL, new Response(html, {status: res.status, statusText: res.statusText, headers: res.headers}));
+    else if (theirs === build.version) await cache.put(SHELL, cachedShell(html, res));
+    // An app page answered with a classic page: this browser opted out (the classic toggle) — the worker goes.
+    else if (!theirs && html) {
+      await killSelf();
+      return;
+    }
   }
   if (!check) {
     const last = Number(await (await cache.match(KILL_KEY))?.text() ?? 0);

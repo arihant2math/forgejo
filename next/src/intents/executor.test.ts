@@ -556,7 +556,7 @@ describe('tabs', () => {
     for (const t of world.tabs) t.setConnection('offline');
     const i = follower.intents.submit({...ref, kind: 'issue.state', state: 'closed', base: 'open'});
     await world.settle(10);
-    follower.intents.discard(i.id);
+    void follower.intents.discard(i.id);
     await world.settle(10);
     expect(follower.intents.pending).toBe(0);
     expect(await new IntentDb(world.db).list()).toEqual([]);

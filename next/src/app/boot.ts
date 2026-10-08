@@ -85,8 +85,10 @@ function started(app: App, router: AppRouter): void {
   });
   // Canonical URLs reload into this UI only with the opt-in cookie. Not from a page the app does not
   // have (the service worker's offline fallback): that would opt a user who left back in.
+  // Nor from the service worker's cached shell (marked): only a document the server sent proves the opt-in.
   const site = sitePathOf(location.pathname, app.config.app_sub_url);
-  if (location.pathname.startsWith(app.config.base) || (site !== undefined && isSpaRoute(site))) void optIn(app.config);
+  const cached = document.querySelector('meta[name="forgejo-next-cached"]') !== null;
+  if (!cached && (location.pathname === app.config.base || (site !== undefined && isSpaRoute(site)))) void optIn(app.config);
   // The splash for the next boot: the route and the shape of its page.
   const remember = () => {
     const leaf = router.state.matches.at(-1);

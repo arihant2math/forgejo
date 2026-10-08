@@ -63,10 +63,15 @@ const shellRoute = createRoute({
   component: Shell,
 });
 
-/** The base URL resumes the last route (splash), or the dashboard. */
+/**
+ * The base URL resumes the last route (splash), or the dashboard. Written
+ * without the trailing slash (it matches "/-/next/" too): B8 rewrites every
+ * string literal that is exactly the base under a sub-path, which would turn
+ * a router path into a site path.
+ */
 const baseRoute = createRoute({
   getParentRoute: () => shellRoute,
-  path: '/-/next/',
+  path: '/-/next',
   beforeLoad: ({context: {app}}) => {
     if (!app.session) return;
     const last = readSplash().route;
@@ -166,7 +171,7 @@ export function createAppRouter(app: App, history?: RouterHistory) {
     routeTree,
     context: {app},
     basepath: app.config.app_sub_url || '/',
-    // "/-/next/" is a page of its own; never rewrite slashes.
+    // The base is a page of its own; never rewrite slashes.
     trailingSlash: 'preserve',
     defaultPreload: 'intent',
     defaultPreloadDelay: 50,

@@ -56,3 +56,15 @@ test('sample URLs match a page (not the root\'s not-found)', () => {
     expect((leaf as {globalNotFound?: boolean} | undefined)?.globalNotFound ?? false, path).toBe(false);
   }
 });
+
+test('no source string is exactly the base: B8 rewrites those under a sub-path (only import.meta.env.BASE_URL may be)', async () => {
+  const {readdirSync} = await import('node:fs');
+  const files = readdirSync(resolve(process.cwd(), 'src'), {recursive: true, encoding: 'utf8'})
+    .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.startsWith('test/') && !f.startsWith('dev/') && !f.startsWith('protocol/'));
+  const bad: string[] = [];
+  for (const f of files) {
+    const src = readFileSync(resolve(process.cwd(), 'src', f), 'utf8').replace(/^\s*(\/\/|\*).*$/gm, '');
+    if (/(['"`])\/-\/next\/\1/.test(src)) bad.push(f);
+  }
+  expect(bad).toEqual([]);
+});

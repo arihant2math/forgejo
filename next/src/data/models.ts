@@ -57,7 +57,7 @@ export interface ModelTypes {
 export type ModelName = keyof ModelTypes;
 
 /** Group kinds (protocol.GroupPrefix*). */
-export type GroupKind = 'user' | 'org' | 'repo' | 'issue' | 'profile' | 'profiles' | 'owner';
+export type GroupKind = 'user' | 'org' | 'repo' | 'issue' | 'profile' | 'profiles' | 'owner' | 'team';
 
 interface ModelDef {
   /** Schema version this client understands (protocol.Schema*). */
@@ -77,8 +77,8 @@ const defs = {
   User: {schema: P.SchemaUser, kinds: ['org', 'profile', 'profiles'], index: ['login']},
   OrgUser: {schema: P.SchemaOrgUser, kinds: ['org'], index: ['org_id', 'user_id']},
   Team: {schema: P.SchemaTeam, kinds: ['org'], index: ['org_id']},
-  TeamUser: {schema: P.SchemaTeamUser, kinds: ['org'], index: ['team_id', 'user_id']},
-  TeamRepo: {schema: P.SchemaTeamRepo, kinds: ['org'], index: ['team_id', 'repo_id']},
+  TeamUser: {schema: P.SchemaTeamUser, kinds: ['team', 'org'], index: ['team_id', 'user_id']},
+  TeamRepo: {schema: P.SchemaTeamRepo, kinds: ['team', 'org'], index: ['team_id', 'repo_id']},
   TeamUnit: {schema: P.SchemaTeamUnit, kinds: ['org'], index: ['team_id']},
   Collaboration: {schema: P.SchemaCollaboration, kinds: ['repo'], index: ['repo_id', 'user_id']},
   Access: {schema: P.SchemaAccess, kinds: ['user'], index: ['repo_id']},
@@ -141,7 +141,7 @@ export function groupKind(group: string): GroupKind | undefined {
   const id = group.slice(i + 1);
   if (!/^[1-9][0-9]*$/.test(id)) return undefined;
   switch (prefix) {
-    case 'user': case 'org': case 'repo': case 'issue': case 'profile': case 'owner':
+    case 'user': case 'org': case 'repo': case 'issue': case 'profile': case 'owner': case 'team':
       return prefix;
   }
   return undefined;

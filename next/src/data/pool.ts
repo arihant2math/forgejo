@@ -215,7 +215,7 @@ export type DirtyBuckets = Map<ModelName, Map<string, Set<number>>>;
  * Changing a count changes where records live: bump IDB_VERSION and drop the
  * model stores (idb.ts) when you do.
  */
-const KIND_BUCKETS: Record<GroupKind, number> = {repo: 32, profiles: 32, user: 8, org: 8, owner: 4, profile: 2, issue: 2};
+const KIND_BUCKETS: Record<GroupKind, number> = {repo: 32, profiles: 32, user: 8, org: 8, owner: 4, profile: 2, issue: 2, team: 2};
 
 /** Upper bound of every bucket number (key ranges over a whole group). */
 export const MAX_BUCKETS = 1024;

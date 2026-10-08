@@ -115,7 +115,7 @@ const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: T
   // review in progress — an open composer, the submit dialog — is not unmounted under the user.
   const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]}>();
   if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value});
-  const view = diff.state === 'ready' ? {commits, files: diff.value} : diff.state === 'error' ? undefined : shown;
+  const view = diff.state === 'ready' ? {commits, files: diff.value} : shown;
   if (!view) return <Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/>;
   return <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files}/>;
 });
@@ -162,22 +162,25 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   const keptText = useCallback((k: string) => kept.current.get(k), []);
   // A new head: the line numbers of the open composer may name other lines now. Its text becomes a draft on
   // the head it was written on (shown with the file's notes, quoted into the review: code/review.ts).
+  // Viewed files start collapsed (below); the user's toggles win afterwards.
+  const [toggled, setToggled] = useState<ReadonlyMap<number, boolean>>(() => new Map());
   const [composeHead, setComposeHead] = useState(head);
   if (composeHead !== head) {
     setComposeHead(head);
     setComposing(undefined);
+    setToggled(new Map()); // by file index: the new diff's files are others
   }
   const before = useRef<{head: string; files: DiffFile[]; composing: Composing | undefined}>(undefined);
   useEffect(() => {
     const prev = before.current;
     before.current = {head, files, composing};
-    const c = prev?.composing;
-    if (!prev || prev.head === head || !c) return;
-    const text = kept.current.get(composerKey(c));
-    const file = prev.files[c.f];
-    const a = file && lineAnchor(file, c.l, prev.head);
-    if (a && text?.trim()) saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: c.key});
-    kept.current.delete(composerKey(c));
+    if (!prev || prev.head === head) return;
+    const c = prev.composing;
+    const text = c && kept.current.get(composerKey(c));
+    const file = c && prev.files[c.f];
+    const a = c && file && lineAnchor(file, c.l, prev.head);
+    if (c && a && text?.trim()) saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: c.key});
+    kept.current.clear(); // by line index: the new head's lines are others
   });
 
   const comments: Item[] = [];
@@ -199,7 +202,6 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   const viewed = useMemo(() => viewedNow, [viewedSig]);
 
   // Viewed files start collapsed; the user's toggles win afterwards.
-  const [toggled, setToggled] = useState<ReadonlyMap<number, boolean>>(() => new Map());
   const collapsed = useMemo(() => {
     const s = new Set<number>();
     files.forEach((f, i) => {

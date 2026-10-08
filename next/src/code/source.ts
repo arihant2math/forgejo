@@ -348,7 +348,8 @@ export class CodeSource {
       try {
         return decodeFile(await readBytesCapped(res, MAX_FILE), path);
       } catch (err) {
-        if (err instanceof TooLarge) return {kind: 'large', size: len} satisfies FileContent;
+        // (no declared length: at least the cap)
+        if (err instanceof TooLarge) return {kind: 'large', size: len || MAX_FILE + 1} satisfies FileContent;
         throw err;
       }
     });

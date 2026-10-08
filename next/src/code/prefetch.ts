@@ -87,8 +87,9 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
       // Already done by an earlier run (diff and files): nothing is read back into memory. A run cut short
       // leaves no mark, and the next one finishes it (what is cached costs nothing).
       const done = `prefetched:${String(pr.base_repo_id)}:${c.base}:${c.head}`;
-      if (await src.cache.has(done)) continue;
       const had = await src.hasDiff(pr.base_repo_id, c.base, c.head);
+      // (the mark is the newest entry: the diff can be evicted before it — then the run starts over)
+      if (had && await src.cache.has(done)) continue;
       // Parsed here, not kept: the page parses it again when it is opened.
       const files = parseDiff(await src.diffText(pr.base_repo_id, c.base, c.head));
       if (!had) report.diffs++;

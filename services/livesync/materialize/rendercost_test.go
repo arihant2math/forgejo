@@ -6,6 +6,7 @@ package materialize
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -363,6 +364,17 @@ func TestRenderCostOwnerRegexp(t *testing.T) {
 		{"expensive pattern, short body", ownerPattern(10), "Fixes abcZ, see #1", false},
 		{"ordinary pattern", `(T\d+)`, strings.Repeat("see T1 and T2\n", 4000), false},
 		{"ordinary pattern, references in one paragraph", `(T\d+)`, strings.Repeat("T1 ", 5000), true},
+		// Round 4 bis: patterns of many capture groups, each with a body
+		// that the charge by instructions alone put at about 200 ms and
+		// the processor's search took 3.2 s, 16.5 s and 61.5 s over.
+		{"1 000 groups (3.2 s)", groupsPattern(1000), body[:3330], true},
+		{"3 000 groups (16.5 s)", groupsPattern(3000), body[:1110], true},
+		{"10 000 groups (61.5 s)", groupsPattern(10000), body[:333], true},
+		// Under maxRegexpWork, the groups are charged per byte: 4 KiB at
+		// 403 instructions × 202 slots is over (it was 25 ms).
+		{"100 groups", groupsPattern(100), body[:4096], true},
+		{"100 groups, short body", groupsPattern(100), "abc def", false},
+		{"few groups", `(?:^|\s)(([A-Z]{2,10})-(\d+))\b`, strings.Repeat("see ABC-12 and DE-3\n", 1000), false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			metas := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": c.pattern}
@@ -387,6 +399,51 @@ func TestRenderCostOwnerRegexp(t *testing.T) {
 // compiles to n × 2 000 instructions.
 func ownerPattern(n int) string {
 	return "(" + strings.Repeat(`\w{1,999}Z|`, n-1) + `\w{1,999}Z)`
+}
+
+// groupsPattern is `(\w?)` × n + "Z": n capture groups in 4n + 3
+// instructions (round 4 bis of the backend audit).
+func groupsPattern(n int) string {
+	return strings.Repeat(`(\w?)`, n) + "Z"
+}
+
+// The rate charged for a search of the regexp style is at least what the
+// processor's search (FindStringSubmatchIndex, which copies the capture
+// slots of every thread) takes, whatever the number of groups.
+func TestRegexpRateBoundsSearch(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector slows the search down, not the rate")
+	}
+	for name, pattern := range map[string]string{
+		"ordinary":                `(T\d+)`,
+		"bounded repeat":          `(\w{1,999}Z)`,
+		"alternatives":            ownerPattern(2),
+		"10 optional groups":      groupsPattern(10),
+		"60 optional groups":      groupsPattern(60),
+		"100 starred groups":      strings.Repeat(`(\w*)`, 100) + "Z",
+		"100 nested groups":       strings.Repeat("(", 100) + `\w` + strings.Repeat(")?", 100) + "Z",
+		"100 alternatives groups": "(" + strings.Repeat(`(\w)|`, 100) + "(Z))",
+	} {
+		t.Run(name, func(t *testing.T) {
+			metas := map[string]string{"style": markup.IssueNameStyleRegexp, "regexp": pattern}
+			scan := newTrackerScan(t.Context(), metas, time.Hour)
+			insts, slots := regexpSize(pattern)
+			require.LessOrEqual(t, insts*slots, maxRegexpWork)
+			// A text charged about 100 ms per search.
+			n := min(64000, int(100*time.Millisecond/scan.rate))
+			text := strings.Repeat("abcdefghijklmnop", n/16+1)[:n]
+			re := regexp.MustCompile(pattern)
+			took := time.Hour
+			for range 3 {
+				start := time.Now()
+				re.FindStringSubmatchIndex(text)
+				took = min(took, time.Since(start))
+			}
+			charged := time.Duration(n+1) * scan.rate
+			assert.Less(t, took, charged, "%d instructions, %d slots, %d bytes", insts, slots, n)
+			t.Logf("%d instructions, %d slots, %d bytes: took %s, charged %s", insts, slots, n, took, charged)
+		})
+	}
 }
 
 // setOwnerRegexp gives repository 48 an external tracker with the regexp
@@ -429,6 +486,26 @@ func TestConsumeRenderOwnerRegexp(t *testing.T) {
 	assert.Contains(t, bodies[4].BodyHTML, "<em>x</em>")
 	require.Eventually(t, func() bool { return abandonedRenders.Load() == 0 }, 2*time.Minute, 10*time.Millisecond)
 
+	// Round 4 bis: a pattern of 3 000 capture groups and a body of 1 100
+	// bytes, which the charge by instructions alone let through (199 ms):
+	// the rendering was abandoned and ran 17 s, and two such edits took
+	// both slots of maxAbandonedRenders, so that the writer rendered no
+	// one's bodies. The estimate is over at once now, nothing is abandoned.
+	setOwnerRegexp(t, groupsPattern(3000))
+	exec(t, "UPDATE issue SET content = ? WHERE id = 9", body[:1100])
+	exec(t, "UPDATE issue SET content = 'cheap *z*' WHERE id = 4")
+	start = time.Now()
+	consume(t, m, change(3, "issue", 9, "U"), change(4, "issue", 4, "U"))
+	assert.Less(t, time.Since(start), renderWait)
+	assert.Zero(t, abandonedRenders.Load())
+	_, entries = takeLog(t, &cursor)
+	bodies = issueBodies(t, entries)
+	require.Contains(t, bodies, int64(9))
+	require.Contains(t, bodies, int64(4))
+	assert.Empty(t, bodies[9].BodyHTML)
+	assert.True(t, bodies[9].BodyTruncated)
+	assert.Contains(t, bodies[4].BodyHTML, "<em>z</em>")
+
 	// However long the estimate takes (here it may take the hour, and the
 	// 12-byte pattern takes over a second over the body), the writer waits
 	// for it at most renderWait.
@@ -437,7 +514,7 @@ func TestConsumeRenderOwnerRegexp(t *testing.T) {
 	exec(t, "UPDATE issue SET content = ? WHERE id = 9", body+" ")
 	exec(t, "UPDATE issue SET content = 'cheap *y*' WHERE id = 4")
 	start = time.Now()
-	consume(t, m, change(3, "issue", 9, "U"), change(4, "issue", 4, "U"))
+	consume(t, m, change(5, "issue", 9, "U"), change(6, "issue", 4, "U"))
 	assert.Less(t, time.Since(start), renderWait+500*time.Millisecond)
 	_, entries = takeLog(t, &cursor)
 	bodies = issueBodies(t, entries)

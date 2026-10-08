@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"math"
 	"regexp"
 	"regexp/syntax"
 	"strings"
@@ -110,14 +111,29 @@ const (
 	// of the text node ("ABC-1 " x 10 900: 43 s; "!1 " x 20 000 then one
 	// "ABC-1": 103 s).
 	costPerTrackerScan = 100 * time.Nanosecond
-	// costPerRegexpInst: with the regexp style, the pattern is the
-	// repository owner's, and Go's regular expressions take up to about
-	// 11 ns per byte of input and instruction of the compiled program
-	// (measured with programs of 7 to 20 000 instructions; a 12-byte
-	// pattern such as `(\w{1,999}Z)` compiles to 2 000 instructions, one
-	// of 1 300 bytes to 200 000). A search of the processor costs at
-	// least costPerTrackerScan per byte.
+	// costPerRegexpInst and costPerRegexpCap: with the regexp style, the
+	// pattern is the repository owner's, and the processor's search
+	// (FindStringSubmatchIndex) takes up to about 11 ns per byte of input
+	// and instruction of the compiled program (measured with programs of
+	// 7 to 20 000 instructions; a 12-byte pattern such as `(\w{1,999}Z)`
+	// compiles to 2 000 instructions, one of 1 300 bytes to 200 000), plus
+	// up to about 0.4 ns per byte, instruction and capture slot: Go's NFA
+	// copies a thread's 2 × (groups + 1) submatch positions whenever it
+	// adds one, so a pattern of many groups costs about the square of its
+	// size (backend audit, round 4 bis: `(\w?)` × 3 000 + "Z", 12 003
+	// instructions and 6 002 slots, took 16.5 s over 1 110 bytes). The
+	// rate of a search is the program's instructions × (costPerRegexpInst
+	// + slots × costPerRegexpCap), at least costPerTrackerScan per byte.
 	costPerRegexpInst = 15 * time.Nanosecond
+	costPerRegexpCap  = time.Nanosecond
+	// maxRegexpWork bounds instructions × capture slots of a pattern the
+	// writer runs at all: the NFA keeps up to a thread per instruction,
+	// each with its own slots (`(\w?)` × 3 000 + "Z" allocated 282 MB for
+	// a search over 64 bytes, × 10 000 would need about 1.6 GB), so a body
+	// in a repository with a larger pattern is over the limit whatever its
+	// length. Ordinary patterns are under a few hundred (`(T\d+)`: 7 × 4);
+	// `(\w{1,999}Z)` is 2 002 × 4.
+	maxRegexpWork = 1 << 18
 )
 
 // maxRenderCost is the most a body may be estimated to cost for the writer
@@ -277,7 +293,13 @@ func newTrackerScan(ctx context.Context, metas map[string]string, budget time.Du
 			return s // the processor links nothing then
 		}
 		s.re = pattern
-		s.rate = max(costPerTrackerScan, time.Duration(regexpSize(metas["regexp"]))*costPerRegexpInst)
+		insts, slots := regexpSize(metas["regexp"])
+		if insts*slots > maxRegexpWork {
+			// Any search costs more than the budget.
+			s.rate = time.Duration(math.MaxInt64)
+			return s
+		}
+		s.rate = max(costPerTrackerScan, time.Duration(insts)*(costPerRegexpInst+time.Duration(slots)*costPerRegexpCap))
 	}
 	return s
 }
@@ -289,9 +311,13 @@ func (s *trackerScan) segment(text string) {
 	}
 	found := false
 	for pos := 0; pos < len(text); {
-		if !s.charge(len(text) - pos) {
+		// A search steps through every position of the rest of the text,
+		// its end included.
+		if !s.charge(len(text) - pos + 1) {
 			return
 		}
+		// The processor's search finds the same match with submatches,
+		// whose cost the rate charges.
 		loc := s.re.FindStringIndex(text[pos:])
 		if loc == nil {
 			break
@@ -322,25 +348,26 @@ func (s *trackerScan) charge(n int) bool {
 // regexpSizes caches regexpSize per pattern (bounded: emptied when full).
 var regexpSizes = struct {
 	sync.Mutex
-	m map[string]int
-}{m: map[string]int{}}
+	m map[string][2]int
+}{m: map[string][2]int{}}
 
 const maxRegexpSizes = 64
 
 // regexpSize returns the number of instructions of the program that
 // regexp.Compile makes of pattern (a valid pattern; it parses and
-// compiles it the same way), which the time a search takes is
-// proportional to. regexp.Regexp does not tell it.
-func regexpSize(pattern string) int {
+// compiles it the same way) and the number of capture slots of its
+// submatch searches (2 × (groups + 1)), which the time and memory a
+// search takes are proportional to. regexp.Regexp does not tell them.
+func regexpSize(pattern string) (insts, slots int) {
 	regexpSizes.Lock()
 	n, ok := regexpSizes.m[pattern]
 	regexpSizes.Unlock()
 	if ok {
-		return n
+		return n[0], n[1]
 	}
 	if re, err := syntax.Parse(pattern, syntax.Perl); err == nil {
 		if prog, err := syntax.Compile(re.Simplify()); err == nil {
-			n = len(prog.Inst)
+			n = [2]int{len(prog.Inst), prog.NumCap}
 		}
 	}
 	regexpSizes.Lock()
@@ -349,7 +376,7 @@ func regexpSize(pattern string) int {
 	}
 	regexpSizes.m[pattern] = n
 	regexpSizes.Unlock()
-	return n
+	return n[0], n[1]
 }
 
 // containerMarkers returns how many block quote ('>') and list item ("-",

@@ -38,6 +38,10 @@ eval "$(next/tools/dev-db.sh env)"    # exports TEST_PGSQL_* / TEST_MYSQL_* / TE
   `SET GLOBAL log_bin_trust_function_creators=1`. This is exactly the PLAN §4.3 privilege
   matrix; use these two accounts to test `INSTALL_MODE=auto` vs `verify`.
   `NEXT_MYSQL_BINLOG=off next/tools/dev-db.sh reset mysql` gives a binlog-off server.
+  The binlogs grow by ~1 GB per full `TestLivesync` run on MySQL and the root filesystem
+  has a strict reserve (`df` showed 19 MB free with 39 GB used, 2026-10-08; builds then fail
+  with "no space left on device"): `mysql -h 127.0.0.1 -uroot -e 'PURGE BINARY LOGS BEFORE NOW()'`
+  freed 5 GB.
 * Docker works (`dockerd` started by hand; Docker Hub pulls go through the proxy). Use it
   only for things apt can't give you (MariaDB, other PG/MySQL versions for the canary
   matrix). Prefer the native servers for day-to-day work, they start in ~1 s.
@@ -3545,7 +3549,8 @@ does) **and** MySQL 8.0 (binlog on).
   - **Seen, not in scope:** posting such a body through API v1 takes upstream ≈ 28 s in `references.FindAllMentionsMarkdown`
     + `FindAllIssueReferencesMarkdown` alone (both render it with goldmark), inside the comment's request; that is upstream
     behaviour and no livesync path.
-- [x] **Round 4** — 2026-10-08: the finding left open after round 3 (R4-1, major) fixed; no open items.
+- [x] **Round 4** — 2026-10-08: the finding left open after round 3 (R4-1, major) fixed; its round-2 re-check (R4-2,
+  major: capture groups) fixed too; no open items.
 - **Notes/decisions:**
   - **(R4-1, major, fixed — see *R4-1 fix* below) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
     before any bound applies, so one cheap post still freezes the global writer for seconds to minutes, on every edit**
@@ -3635,6 +3640,48 @@ does) **and** MySQL 8.0 (binlog on).
     passes); `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); no trigger
     changed, so no MariaDB run; the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`,
     `go.mod`, `go.sum`).
+  - **(R4-2, major, fixed) The regexp style's charge ignored capture groups** (re-check of R4-1;
+    `services/livesync/materialize/rendercost.go`). `trackerScan` charged a search bytes × program instructions × 15 ns
+    and ran `FindStringIndex` (2 capture slots); the processor runs `FindStringSubmatchIndex`
+    (`references.FindRenderizableReferenceRegexp`), and Go's NFA copies a thread's 2 × (groups + 1) slots each time it
+    adds one, so the real cost per byte grows with instructions × slots — about the square of the pattern's size, and
+    nothing bounds the pattern or its groups (`services/forms/repo_form.go:181`, API v1 PATCH). Round 4's measurements
+    (0.01–11 ns per byte and instruction) were of patterns with one or a few groups. **Evidence (auditor):**
+    `(\w?)` × k + `Z` with a body sized to a ~200 ms charge: k = 1 000 took 3.2 s, 3 000 16.5 s (83× the charge),
+    10 000 61.5 s; end to end, repository 48 with k = 3 000 and a 1 100-byte body of issue 9 passed the estimate
+    (198.6 ms), its rendering was abandoned after 1 s and ran 17 s; a second edit filled the second slot of
+    `maxAbandonedRenders`, and a cheap body of another repository was then sent without HTML: one user could switch off
+    the writer's rendering for every tenant, two edits per ~17 s–minutes, while burning 2 cores.
+  - **R4-2 fix.** *Root cause:* the cost model's regexp rate had no term for the capture slots that the processor's
+    submatch search copies per thread (and allocates per thread: the NFA keeps up to one thread per instruction, each
+    with its own slots — `(\w?)` × 3 000 allocated 282 MB for a 64-byte search, × 10 000 would need ~1.6 GB). Changes:
+    1. **Rate** = instructions × (`costPerRegexpInst` 15 ns + slots × **`costPerRegexpCap` = 1 ns**), at least
+       `costPerTrackerScan`; `regexpSize` now returns the program's instructions and `prog.NumCap` (= what
+       `FindStringSubmatchIndex` passes as ncap). Re-measured (Go 1.27.1, `FindStringSubmatchIndex`, scratch program):
+       the slot term is 0.015–0.4 ns per byte × instruction × slot (`(\w?)`×10: 0.38, ×100: 0.07, ×300: 0.065,
+       ×1 000: 0.13, ×3 000: 0.28; `(\w*)`×300: 0.12; nested and alternated groups lower), the instruction term up to
+       ~11 ns as before, so the new rate is ≥ 2.5× the measured time for every shape.
+    2. **`maxRegexpWork` = 2^18 (instructions × slots)**: over it, a search of any length is charged more than the budget
+       (rate = MaxInt64), so the writer never runs such a pattern — it bounds the NFA's memory (≤ ~2 MB per search) and
+       the per-thread allocation of a search's first step, which a per-byte charge does not see. Ordinary patterns are
+       a few dozen to a few hundred (`(T\d+)`: 7 × 4; `(\w{1,999}Z)`: 2 002 × 4); bodies of such repositories are sent
+       with `body_truncated` and rendered on request (`GET /-/sync/api/bodies`, upstream behaviour).
+    3. A search is charged for its n + 1 positions (the end of the text is a step too).
+    The estimate keeps running `FindStringIndex` (same match positions; the rate covers the submatch search).
+    Tests: `TestRenderCostOwnerRegexp` gains 1 000 / 3 000 / 10 000 groups with the audit's body sizes (over; were 199–202
+    ms under), 100 groups over 4 KiB (over; was 27 ms), 100 groups over a short body and a 3-group JIRA-like pattern over
+    a 1 000-line changelog (under); **`TestRegexpRateBoundsSearch`** (new; skipped under `-race` via
+    `race_test.go`/`norace_test.go`): for 8 shapes (ordinary, bounded repeat, alternatives, 10 and 60 optional groups,
+    100 starred, 100 nested, 100 alternated groups) a text charged ~100 ms per search is searched with
+    `FindStringSubmatchIndex` (best of 3) and must take less than the charge (measured 1 µs–38 ms vs 8.5–100 ms);
+    `TestConsumeRenderOwnerRegexp` gains the audit's end-to-end case (3 000 groups, 1 100 bytes: `Consume` returns within
+    `renderWait`, nothing abandoned, 9 without HTML, the cheap body rendered); integration `TestLivesyncAuditBodies`
+    "owner regexp of many groups" (API v1 PATCH sets the 3 000-group pattern on org26/repo_external_tracker_alpha, two
+    SQL edits of pull request 9's 1 100-byte body each arrive with `body_truncated`, then a comment in user2/repo1 arrives
+    rendered). **Sensitivity checked:** with round 4's `rendercost.go` the four new over-cases, the `(\w*)`×100 bound,
+    the `Consume` case (`abandonedRenders` = 1, the cheap body without HTML) and the integration subtest (the comment
+    without HTML, `body_truncated`) all fail.
+  - **Commands run (R4-2).** gofumpt (clean); golangci-lint `./services/livesync/...` and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet` (clean); deadcode diff (clean); unit tests of `models/livesync`, `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**, 0 fail, no testlogger "FATAL ERROR", no rendering abandoned in the suite (a first MySQL run, made while the disk was full and lint ran beside it, failed `TestLivesyncBootstrapLarge`'s heap-growth bound once — 13.7 MB > 12.7 MB, code this fix does not touch; it passed twice alone and in the full rerun); `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); no trigger changed, so no MariaDB run; the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 
 ### Frontend

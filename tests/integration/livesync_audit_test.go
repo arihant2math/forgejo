@@ -201,5 +201,45 @@ func TestLivesyncAuditBodies(t *testing.T) {
 			assert.Empty(t, b.BodyHTML)
 			assert.True(t, b.BodyTruncated)
 		})
+
+		// Round 4 bis: the estimate charged a search by the pattern's
+		// instructions only, but the processor's search copies every
+		// capture group's positions per thread. With 3 000 groups a body
+		// of 1 100 bytes passed the estimate and its rendering ran 17 s;
+		// two edits filled the abandoned renderings' slots, and then the
+		// writer rendered no one's bodies. Now such a pattern is never run
+		// by the writer.
+		t.Run("owner regexp of many groups", func(t *testing.T) {
+			admin := livesyncToken(t, &user_model.User{ID: 1})
+			hasIssues := true
+			req := NewRequestWithJSON(t, "PATCH", "/api/v1/repos/org26/repo_external_tracker_alpha", api.EditRepoOption{
+				HasIssues: &hasIssues,
+				ExternalTracker: &api.ExternalTracker{
+					ExternalTrackerURL:           "https://tracker.com",
+					ExternalTrackerFormat:        "https://tracker.com/{user}/{repo}/issues/{index}",
+					ExternalTrackerStyle:         "regexp",
+					ExternalTrackerRegexpPattern: strings.Repeat(`(\w?)`, 3000) + "Z",
+				},
+			}).AddTokenAuth(admin)
+			MakeRequest(t, req, http.StatusOK)
+			livesyncSettle(t)
+			body := strings.Repeat("abcdefghijklmnop", 70)[:1100]
+			for _, edit := range []string{"1", "2"} {
+				cursor := livesyncLogHead(t)
+				_, err := db.GetEngine(t.Context()).Exec("UPDATE `issue` SET content = ? WHERE id = 9", body+edit)
+				require.NoError(t, err)
+				e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelIssueBody, 9, protocol.OpUpsert))
+				b := livesyncPayload[protocol.IssueBody](t, e)
+				assert.Equal(t, body+edit, b.Body)
+				assert.Empty(t, b.BodyHTML)
+				assert.True(t, b.BodyTruncated)
+			}
+			cursor := livesyncLogHead(t)
+			cheap := comment("user2/repo1", 1, "thanks *twice*")
+			e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, cheap, protocol.OpUpsert))
+			c := livesyncPayload[protocol.Comment](t, e)
+			assert.Contains(t, c.BodyHTML, "<em>twice</em>")
+			assert.False(t, c.BodyTruncated)
+		})
 	})
 }

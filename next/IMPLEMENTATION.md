@@ -38,6 +38,10 @@ eval "$(next/tools/dev-db.sh env)"    # exports TEST_PGSQL_* / TEST_MYSQL_* / TE
   `SET GLOBAL log_bin_trust_function_creators=1`. This is exactly the PLAN §4.3 privilege
   matrix; use these two accounts to test `INSTALL_MODE=auto` vs `verify`.
   `NEXT_MYSQL_BINLOG=off next/tools/dev-db.sh reset mysql` gives a binlog-off server.
+  The binlogs grow by ~1 GB per full `TestLivesync` run on MySQL and the root filesystem
+  has a strict reserve (`df` showed 19 MB free with 39 GB used, 2026-10-08; builds then fail
+  with "no space left on device"): `mysql -h 127.0.0.1 -uroot -e 'PURGE BINARY LOGS BEFORE NOW()'`
+  freed 5 GB.
 * Docker works (`dockerd` started by hand; Docker Hub pulls go through the proxy). Use it
   only for things apt can't give you (MariaDB, other PG/MySQL versions for the canary
   matrix). Prefer the native servers for day-to-day work, they start in ~1 s.
@@ -3545,9 +3549,11 @@ does) **and** MySQL 8.0 (binlog on).
   - **Seen, not in scope:** posting such a body through API v1 takes upstream ≈ 28 s in `references.FindAllMentionsMarkdown`
     + `FindAllIssueReferencesMarkdown` alone (both render it with goldmark), inside the comment's request; that is upstream
     behaviour and no livesync path.
-- [ ] **Open after round 3** — 2026-10-08: 1 verified finding (major) recorded, not fixed.
+- [x] **Round 4** — 2026-10-08: the finding left open after round 3 (R4-1, major) fixed; its round-2 re-check (R4-2,
+  major: capture groups) fixed too; the round-3 re-check's two findings (R4-3, blocker: a pattern matching the empty
+  string; R4-4, major: raw HTML text nodes) fixed too; no open items.
 - **Notes/decisions:**
-  - **(R4-1, major, open) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
+  - **(R4-1, major, fixed — see *R4-1 fix* below) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
     before any bound applies, so one cheap post still freezes the global writer for seconds to minutes, on every edit**
     (`services/livesync/materialize/rendercost.go`). ef2ad5e passes the repository's metas to `renderCost`; for the
     regexp tracker style `structureCost` calls `scan()`, which runs `trackerRefs.FindAllStringIndex(segment, -1)` over
@@ -3574,6 +3580,174 @@ does) **and** MySQL 8.0 (binlog on).
     `renderWait`); materialize unit tests pass with `-race` (SQLite); the other `services/livesync/...`,
     `routers/livesync` and `models/livesync` unit tests pass; PG 16 integration `TestLivesyncAuditBodies` (including
     "superlinear body") and `TestLivesyncConformance` pass; the working tree was clean.
+  - **R4-1 fix.** *Root cause:* round 3 made the estimate depend on the repository's metas but left it where round 2 had
+    put it, on the writer's goroutine ahead of every bound, so whatever the estimate itself cost was unbounded; with the
+    regexp style that is the owner's pattern (O(input × program), and a 12-byte pattern compiles to 2 000 instructions).
+    Two changes (`services/livesync/materialize/render.go`, `rendercost.go`):
+    1. **The estimate is part of the bounded rendering job.** `loader.render` only compares `len(content) × costPerByte`
+       with `maxRenderCost` (no look at the content or the metas), then does the busy check, the share and
+       `renderBounded`, which sets `renderJob.maxCost`; the job's goroutine runs `renderCost` first and returns
+       `errRenderCost` (metric reason `cost`, Debug log) without rendering when it is over. So `renderWait` bounds the
+       estimate like the rendering; an estimate the writer stops waiting for is abandoned like a rendering (counted
+       against `maxAbandonedRenders`, its later time charged to the repository's share), and it stops at its next search
+       once the job's context is cancelled. The time the writer waited for an estimate is charged to `l.spent` and the
+       share like rendering time. `renderCount` counts renderings that start (after the estimate). On-request renderings
+       (`renderMarkdown`: bodies endpoint, previews) still have no estimate (upstream behaviour, round 2).
+    2. **The owner's pattern is charged before it runs** (`trackerScan`). The processor's model: per text node, one search
+       of the rest of the node per reference it links, and one more. Each search is charged `bytes × rate` *before* it
+       runs, and none runs once the charges exceed what is left under `maxRenderCost`; rate = `costPerTrackerScan` for
+       the alphanumeric style, and max(`costPerTrackerScan`, program instructions × **`costPerRegexpInst` = 15 ns**) for
+       the regexp style (`regexpSize`: the instruction count of `regexp/syntax` `Parse(Perl)` + `Simplify` + `Compile`,
+       what `regexp.Compile` builds; cached for 64 patterns). Measured (Go 1.27, `FindAllStringIndex` and
+       `FindStringSubmatchIndex`, programs of 7 to 20 000 instructions, several inputs): 0.01–11 ns per byte and
+       instruction. Numeric references of a node with an external one are charged as in round 3. So the audit's patterns
+       never run over its 64 KiB body (2 002 instructions ⇒ 30 µs per byte: over at the first charge); `renderCost` takes
+       10–150 ms with them, compilation included (was 1.2 s, 13 s, 4 min 52 s). The estimate now also charges the one
+       search every text node gets, which round 3 skipped when nothing matched (k = 0) although the rendering runs the
+       pattern over the whole body too. A short body (a few hundred bytes) in such a repository is still rendered;
+       compiling a pattern (up to ≈ 1 s for the largest program Go accepts) also happens on the job's goroutine.
+    **Rest of the writer path audited** (`load.go`, `specs.go`, `specs_render.go`, `render.go`, `refs.go`, `body.go`,
+    `materializer.go`): before the bounds the writer does only database reads and linear work with fixed code —
+    `truncateJSON` (stops at `MaxBodyBytes`), the DTO's JSON encoding and FNV change hash (the body cut to 64 KiB, or the
+    complete source of a cut body, which was read from the row anyway), `renderEnv` (the metas as JSON: the pattern and
+    format are copied as strings, nothing compiled or run; `ComposeMetas` only copies the tracker settings), `jsonLen` of
+    HTML the bounded job produced, `userRefs` (reflection over DTO fields). Nothing else runs a user-supplied pattern or
+    superlinear work there.
+    Tests: `TestRenderCostOwnerRegexp` (the audit's 12-, 111- and 1 101-byte patterns over its body are over the limit
+    and each estimate returns in < 2 s; a short body with the 111-byte pattern and ordinary `(T\d+)` references one per
+    line under it; 5 000 references in one paragraph over; with `maxRenderCost` = 1 h and a cancelled context the
+    estimate returns at once), `TestConsumeRenderOwnerRegexp` (repository 48 set to the regexp style with the 111-byte
+    pattern, `renderWait` = 200 ms: `Consume` of pull request 9 with the audit's body plus a cheap issue of repository 1
+    returns within `renderWait` + 1 s, 9 sent without HTML, the cheap one rendered; then with `maxRenderCost` = 1 h so that
+    the 12-byte pattern does run over the body — 1.2 s — `Consume` still returns within `renderWait` + 0.5 s, the
+    estimate is abandoned and the cheap body rendered), integration `TestLivesyncAuditBodies` "owner regexp" (API v1
+    PATCH as the site admin sets org26/repo_external_tracker_alpha to the regexp style with the 111-byte pattern, pull
+    request 9's body set to the audit's 64 000 bytes with SQL, then a comment posted through API v1 in user2/repo1: its
+    entry arrives within 5 s, rendered; the IssueBody of 9 has no HTML and `body_truncated`). `TestRenderBounded` now sets
+    `maxRenderCost` = 1 h (it tests abandonment with a body the estimate catches). **Sensitivity checked:** with
+    `renderCost` called on the writer again (before the busy check) `TestConsumeRenderOwnerRegexp` fails (1.3 s > 0.7 s);
+    with the searches not gated by the budget `TestRenderCostOwnerRegexp` runs past a 300 s timeout; with HEAD's
+    `render.go` + `rendercost.go` the integration subtest fails (no entry within 15 s).
+    SURFACE.md's markup row notes the processor's use of the owner's pattern and `regexpSize`.
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...`
+    and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `next/tools/gen-protocol.sh --check` (up to date, no protocol type changed); unit tests of `models/livesync`,
+    `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green; under
+    `-race` the abandoned 12-byte-pattern estimate of `TestConsumeRenderOwnerRegexp` runs ≈ 20 s on its goroutine while
+    `Consume` returned within the bound); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`):
+    52 pass** and **MySQL 8.0: 54 pass**, 0 fail (incl. `TestLivesyncAuditBodies` "owner regexp" and
+    `TestLivesyncConformance`), no rendering abandoned in the suite; the only testlogger "FATAL ERROR" is the known
+    upstream MySQL `Error 1213` deadlock in `CreateComment` under `TestLivesyncBootstrapConvergence` (B6 notes; the test
+    passes); `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); no trigger
+    changed, so no MariaDB run; the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`,
+    `go.mod`, `go.sum`).
+  - **(R4-2, major, fixed) The regexp style's charge ignored capture groups** (re-check of R4-1;
+    `services/livesync/materialize/rendercost.go`). `trackerScan` charged a search bytes × program instructions × 15 ns
+    and ran `FindStringIndex` (2 capture slots); the processor runs `FindStringSubmatchIndex`
+    (`references.FindRenderizableReferenceRegexp`), and Go's NFA copies a thread's 2 × (groups + 1) slots each time it
+    adds one, so the real cost per byte grows with instructions × slots — about the square of the pattern's size, and
+    nothing bounds the pattern or its groups (`services/forms/repo_form.go:181`, API v1 PATCH). Round 4's measurements
+    (0.01–11 ns per byte and instruction) were of patterns with one or a few groups. **Evidence (auditor):**
+    `(\w?)` × k + `Z` with a body sized to a ~200 ms charge: k = 1 000 took 3.2 s, 3 000 16.5 s (83× the charge),
+    10 000 61.5 s; end to end, repository 48 with k = 3 000 and a 1 100-byte body of issue 9 passed the estimate
+    (198.6 ms), its rendering was abandoned after 1 s and ran 17 s; a second edit filled the second slot of
+    `maxAbandonedRenders`, and a cheap body of another repository was then sent without HTML: one user could switch off
+    the writer's rendering for every tenant, two edits per ~17 s–minutes, while burning 2 cores.
+  - **R4-2 fix.** *Root cause:* the cost model's regexp rate had no term for the capture slots that the processor's
+    submatch search copies per thread (and allocates per thread: the NFA keeps up to one thread per instruction, each
+    with its own slots — `(\w?)` × 3 000 allocated 282 MB for a 64-byte search, × 10 000 would need ~1.6 GB). Changes:
+    1. **Rate** = instructions × (`costPerRegexpInst` 15 ns + slots × **`costPerRegexpCap` = 1 ns**), at least
+       `costPerTrackerScan`; `regexpSize` now returns the program's instructions and `prog.NumCap` (= what
+       `FindStringSubmatchIndex` passes as ncap). Re-measured (Go 1.27.1, `FindStringSubmatchIndex`, scratch program):
+       the slot term is 0.015–0.4 ns per byte × instruction × slot (`(\w?)`×10: 0.38, ×100: 0.07, ×300: 0.065,
+       ×1 000: 0.13, ×3 000: 0.28; `(\w*)`×300: 0.12; nested and alternated groups lower), the instruction term up to
+       ~11 ns as before, so the new rate is ≥ 2.5× the measured time for every shape.
+    2. **`maxRegexpWork` = 2^18 (instructions × slots)**: over it, a search of any length is charged more than the budget
+       (rate = MaxInt64), so the writer never runs such a pattern — it bounds the NFA's memory (≤ ~2 MB per search) and
+       the per-thread allocation of a search's first step, which a per-byte charge does not see. Ordinary patterns are
+       a few dozen to a few hundred (`(T\d+)`: 7 × 4; `(\w{1,999}Z)`: 2 002 × 4); bodies of such repositories are sent
+       with `body_truncated` and rendered on request (`GET /-/sync/api/bodies`, upstream behaviour).
+    3. A search is charged for its n + 1 positions (the end of the text is a step too).
+    The estimate keeps running `FindStringIndex` (same match positions; the rate covers the submatch search).
+    Tests: `TestRenderCostOwnerRegexp` gains 1 000 / 3 000 / 10 000 groups with the audit's body sizes (over; were 199–202
+    ms under), 100 groups over 4 KiB (over; was 27 ms), 100 groups over a short body and a 3-group JIRA-like pattern over
+    a 1 000-line changelog (under); **`TestRegexpRateBoundsSearch`** (new; skipped under `-race` via
+    `race_test.go`/`norace_test.go`): for 8 shapes (ordinary, bounded repeat, alternatives, 10 and 60 optional groups,
+    100 starred, 100 nested, 100 alternated groups) a text charged ~100 ms per search is searched with
+    `FindStringSubmatchIndex` (best of 3) and must take less than the charge (measured 1 µs–38 ms vs 8.5–100 ms);
+    `TestConsumeRenderOwnerRegexp` gains the audit's end-to-end case (3 000 groups, 1 100 bytes: `Consume` returns within
+    `renderWait`, nothing abandoned, 9 without HTML, the cheap body rendered); integration `TestLivesyncAuditBodies`
+    "owner regexp of many groups" (API v1 PATCH sets the 3 000-group pattern on org26/repo_external_tracker_alpha, two
+    SQL edits of pull request 9's 1 100-byte body each arrive with `body_truncated`, then a comment in user2/repo1 arrives
+    rendered). **Sensitivity checked:** with round 4's `rendercost.go` the four new over-cases, the `(\w*)`×100 bound,
+    the `Consume` case (`abandonedRenders` = 1, the cheap body without HTML) and the integration subtest (the comment
+    without HTML, `body_truncated`) all fail.
+  - **Commands run (R4-2).** gofumpt (clean); golangci-lint `./services/livesync/...` and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet` (clean); deadcode diff (clean); unit tests of `models/livesync`, `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**, 0 fail, no testlogger "FATAL ERROR", no rendering abandoned in the suite (a first MySQL run, made while the disk was full and lint ran beside it, failed `TestLivesyncBootstrapLarge`'s heap-growth bound once — 13.7 MB > 12.7 MB, code this fix does not touch; it passed twice alone and in the full rerun); `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); no trigger changed, so no MariaDB run; the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+  - **(R4-3, blocker, fixed) An owner's pattern that matches the empty string made renderings that never end** (re-check
+    of R4-2; `services/livesync/materialize/rendercost.go`). Upstream's `issueIndexPatternProcessor` with the regexp style
+    (`FindRenderizableReferenceRegexp`): on a match that is empty and not at the end of the text node, `replaceContent`
+    leaves `before` = the text up to it, inserts the link and the whole rest again as `after`, and `node =
+    node.NextSibling.NextSibling` lands on that rest, which matches empty at 0 again — forever, one link node per turn.
+    `trackerScan.segment` stepped over an empty match (`pos += max(loc[1], loc[0]+1)`) and charged a few positions.
+    **Evidence (auditor, `go test -overlay`):** `(x*)` over "Fixes abc" estimated 10.656 µs (reproduced at HEAD 405d37e,
+    also `()`, `(?m)^()`, `\b()`, `(T\d+)?`: 10–13 µs); two edits of issue 9 in repository 48 filled both
+    `maxAbandonedRenders` slots for good, every tenant's bodies then went out without HTML (`busy`), and the heap grew
+    ≈ 250 MB/s (6.2 GB at 20 s). Snapshots render through the same loader; `GET /-/sync/api/bodies` and previews render
+    on request without an estimate, so a viewer of such a body started one more endless rendering (as upstream's issue
+    page does for its viewer).
+  - **R4-3 fix.** *Root cause:* the cost model assumed that the processor advances after every match, which upstream's
+    loop does not do for an empty match. Changes: (1) `regexpSize` (now `regexpInfo{insts, slots, empty}`) also says
+    whether the pattern **may match the empty string** anywhere (`matchesEmpty` over the parsed, simplified pattern: an
+    assertion, `*`, `?`, `{0,…}` or empty group is empty-able, a concatenation if all its parts are, an alternation if one
+    is); such a pattern is **never rendered with** — `renderJob.run` returns `errRenderCost` before the estimate and
+    before rendering (`endlessTracker`), for the writer, snapshots **and on-request renderings** (the bodies endpoint
+    and previews answer without HTML where upstream would spin), and `newTrackerScan` gives it the `unrunnable` rate
+    (any body is over). No such pattern links anything useful (every link would be empty). (2) `segment` now follows the
+    processor exactly (after a match, the rest after it) and saturates on an empty match before the end of the text (one
+    at the end ends the processor), as a second line for anything the static check would miss. Not changed: upstream's
+    processor (the upstream patch rule, §2.2); its classic issue page still spins on such a body for each viewer.
+  - **(R4-4, major, fixed) The tracker estimate split text at lines/paragraphs, but raw HTML makes one text node of many**
+    (`rendercost.go`). `structureCost` called `trackerScan.segment` once per line (hard line breaks) or blank-line
+    paragraph, but goldmark renders raw HTML as is (`html.WithUnsafe()`) and `PostProcess` runs before the sanitizer: a
+    `<textarea>`/`<style>`/`<script>` block is one raw-text node up to its end tag. **Evidence (auditor):** pattern
+    `([A-Z]{1,10}-\d+)` (18 bytes), body `<textarea>\n` + `ABC-1\n` × 8 000 + `</textarea>` (48 022 bytes): estimated
+    47.73 ms (also with `<style>` and `<p>`), `Consume` abandoned it after 1 s and it ran 23.39 s; two such edits per
+    ~23 s held both abandoned-render slots.
+  - **R4-4 fix.** *Root cause:* the estimate guessed the processor's text nodes from the source, and which text is one
+    node is decided by goldmark's HTML and by the HTML parser (raw-text and RCDATA elements, `<plaintext>`, CDATA in
+    `<svg>`, an HTML block's lines without a blank one, an unclosed `<textarea>` before paragraphs — whose text then
+    includes goldmark's own markup `<p>…</p>` — and whatever else the parser does). Probing showed that no source-level
+    rule is sound (e.g. `see <textarea>` + paragraphs gives one node holding goldmark's markup, which an owner pattern
+    like `(p>)` matches 2× per paragraph). So **the tracker part of the estimate charges the real text nodes**
+    (`trackerCost` + `textNodes`): it renders the body with `markdown.Renderer{}.Render` (goldmark only — the stage that
+    `markdown.RenderString` feeds to `PostProcess`; same metas, so the same hard line breaks), parses that as
+    `postProcess` does (`<html><body>` wrapper, NULs dropped, `postProcessTagCleaner` = a copy of its `tagCleaner`) and
+    runs `segment` on every text node that `visitNode` gives the processors (it skips `code`, `pre`, `a` and
+    `class="emoji"`, as upstream). The processors before `issueIndexPatternProcessor` only split a node, which the charge
+    over the whole node covers. The extra goldmark pass happens only for bodies of repositories with the alphanumeric or
+    regexp style, after every other term of the estimate is under the limit, on the job's goroutine (`renderWait`
+    bounds it): ≈ 9 ms for the audit's 48 KB body. `structureCost` keeps only goldmark's constructs (no metas, no
+    context). Side effect: references in fenced code and in link text (which the processor never sees) are no longer
+    charged (a 3 000-reference code line was over before, wrongly).
+    Tests: `TestRenderCostEmptyMatch` (18 empty-able patterns — `(x*)`, `()`, `(?m)^()`, `^()`, `\b()`, `()\b`, `\B()`,
+    `(a?)`, `(|T\d+)`, `(T\d+)?`, `(?:T(\d+))?`, `(T\d+|$)`, … — are over for 4 bodies and `endlessTracker`; 9 ordinary
+    ones are not; `matchesEmpty` agrees with `FindAllStringIndex` over probe texts for 12 patterns; `segment` saturates on
+    an empty match before the end and not at the end), `TestConsumeRenderEmptyMatch` (`(x*)` on repository 48: three
+    edits of issue 9 each return within `renderWait`, nothing abandoned, 9 without HTML, the other repository's cheap body
+    rendered; `renderMarkdown` on request returns, incomplete), `TestRenderCostRawHTML` (20 shapes × alphanumeric and the
+    audit's regexp: textarea/style/script/upper-case/unclosed/closed by another type-1 tag/inline textarea before
+    paragraphs/title/xmp/plaintext/CDATA in svg/`<p>` and `<div>` blocks without blank lines over; references one per
+    line, per paragraph, in `<details>`, after an HTML comment, in a code block, in a `<pre>` block and in links under;
+    `(p>)` over goldmark's markup inside an inline textarea over, without it under; without hard line breaks a paragraph
+    is one node), `TestConsumeRenderRawHTML` (the audit's body: not rendered, nothing abandoned, the cheap body rendered);
+    integration `TestLivesyncAuditBodies` "owner regexp matching the empty string" and "raw HTML block of references"
+    (API v1 PATCH sets the pattern on org26/repo_external_tracker_alpha, two SQL edits of issue 9 each arrive with
+    `body_truncated`, then a comment in user2/repo1 arrives rendered) and "…, on request" (`POST /-/sync/api/markdown`
+    with repository 48 answers at once with empty HTML). `TestRegexpRateBoundsSearch` also asserts its patterns are not
+    empty-able. **Sensitivity checked:** with HEAD's `rendercost.go`/`render.go`, 26 of the raw-HTML over-cases (all) and
+    the 2 code/link under-cases fail, the empty-able patterns estimate 10–13 µs, and the integration "raw HTML" subtest
+    fails (two renderings abandoned, the comment without HTML).
+  - **Commands run (R4-3/R4-4).** gofumpt (clean); golangci-lint `./services/livesync/...` and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet` (clean); deadcode diff (clean); unit tests of `models/livesync`, `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green; under the race detector the raw-HTML estimate can outlast `renderWait` = 200 ms, so `TestConsumeRenderRawHTML` checks "nothing abandoned" only without it); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**, 0 fail, no testlogger "FATAL ERROR", no rendering abandoned in the suite (`TestLivesyncAuditBodies` re-run on both after the last cosmetic edit); `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); no trigger changed, so no MariaDB run; the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
 
 
 ### Frontend

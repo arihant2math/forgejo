@@ -149,20 +149,26 @@ func (l *loader) prepareRender(ctx context.Context, repo *repo_model.Repository,
 var errRenderTimeout = errors.New("livesync: rendering timed out")
 
 // errRenderCost: renderCost estimated the body to take longer than the
-// job's maxCost; it was not rendered.
+// job's maxCost, or its rendering would never end (endlessTracker); it
+// was not rendered.
 var errRenderCost = errors.New("livesync: rendering estimated too expensive")
 
 // run renders the job's body, after estimating its cost when the job has
 // a maxCost (on the job's goroutine: renderCost's work grows with the
-// body and may run the repository owner's regexp). A panic of the markup
-// service is an error (it may run on a goroutine of its own, where it
-// would end the process).
+// body and may run the repository owner's regexp). With an external
+// tracker pattern that may match the empty string it renders nothing, on
+// request too (endlessTracker). A panic of the markup service is an error
+// (it may run on a goroutine of its own, where it would end the process).
 func (j *renderJob) run() (html string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			html, err = "", fmt.Errorf("livesync: rendering panicked: %v\n%s", r, debug.Stack())
 		}
 	}()
+	if endlessTracker(j.rc.Metas) {
+		// Not on request either: upstream's rendering would never end.
+		return "", fmt.Errorf("%w: the external tracker's pattern matches the empty string", errRenderCost)
+	}
 	if j.maxCost > 0 {
 		cost := renderCost(j.rc.Ctx, j.content, j.rc.Metas)
 		if j.rc.Ctx.Err() != nil {

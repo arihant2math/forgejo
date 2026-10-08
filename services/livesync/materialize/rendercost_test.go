@@ -427,8 +427,10 @@ func TestRegexpRateBoundsSearch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			metas := map[string]string{"style": markup.IssueNameStyleRegexp, "regexp": pattern}
 			scan := newTrackerScan(t.Context(), metas, time.Hour)
-			insts, slots := regexpSize(pattern)
+			size := regexpSize(pattern)
+			insts, slots := size.insts, size.slots
 			require.LessOrEqual(t, insts*slots, maxRegexpWork)
+			require.False(t, size.empty)
 			// A text charged about 100 ms per search.
 			n := min(64000, int(100*time.Millisecond/scan.rate))
 			text := strings.Repeat("abcdefghijklmnop", n/16+1)[:n]
@@ -524,6 +526,195 @@ func TestConsumeRenderOwnerRegexp(t *testing.T) {
 	assert.True(t, bodies[9].BodyTruncated)
 	assert.Contains(t, bodies[4].BodyHTML, "<em>y</em>")
 	require.Eventually(t, func() bool { return abandonedRenders.Load() == 0 }, 2*time.Minute, 10*time.Millisecond)
+}
+
+// Backend audit, round 4 ter: issueIndexPatternProcessor never ends on a
+// text node where the repository owner's pattern matches the empty string
+// before its end (replaceContent inserts the link and the whole text
+// again, and the processor goes on with that same text), allocating a
+// link on each turn: `(x*)` over "Fixes abc" was estimated at 10.7 µs, and
+// two edits left two renderings running for good, the writer rendering
+// nothing for anyone, and the heap growing by 250 MB/s.
+func TestRenderCostEmptyMatch(t *testing.T) {
+	for _, pattern := range []string{
+		`(x*)`, `()`, `(?m)^()`, `^()`, `\b()`, `()\b`, `\B()`, `(a?)`, `(|T\d+)`, `(T\d+)?`, `(T\d*|)`,
+		`(?:T(\d+))?`, `(T\d+)*`, `(x{0,3})`, `(\d{0})`, `(?i)(x*)`, `(T\d+|$)`, `(?:a|())b?`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			require.True(t, regexpSize(pattern).empty)
+			metas := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": pattern}
+			assert.True(t, endlessTracker(metas))
+			for _, content := range []string{"Fixes abc", "a", "T1 and T2", strings.Repeat("ab ", 100)} {
+				assert.Greater(t, renderCost(t.Context(), content, metas), maxRenderCost, "%q", content)
+			}
+		})
+	}
+	for _, pattern := range []string{`(T\d+)`, `T(\d+)`, `\b(T\d+)\b`, `(?m)^(T\d+)`, `(x+)`, `(x{1,3})`, `(?:^|\s)(([A-Z]{2,10})-(\d+))\b`, `(a|b)c?`, `[(]`} {
+		t.Run(pattern, func(t *testing.T) {
+			require.False(t, regexpSize(pattern).empty)
+			metas := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": pattern}
+			assert.False(t, endlessTracker(metas))
+			assert.LessOrEqual(t, renderCost(t.Context(), "Fixes abc and T1", metas), maxRenderCost)
+		})
+	}
+	assert.False(t, endlessTracker(map[string]string{"style": markup.IssueNameStyleAlphanumeric, "regexp": `(x*)`}))
+	assert.False(t, endlessTracker(nil))
+
+	// matchesEmpty agrees with what the patterns match.
+	probes := []string{"", "a", "aa", " ", "a b", "\n", "x\ny", "T1", "-"}
+	for _, pattern := range []string{`(x*)`, `\b()`, `\B()`, `()\z`, `(?m)$()`, `(T\d+)`, `(x+)`, `(?:x|y)z`, `(a?)b`, `(a*)(b*)`, `()+`, `(?:())`} {
+		re := regexp.MustCompile(pattern)
+		empty := false
+		for _, p := range probes {
+			for _, loc := range re.FindAllStringIndex(p, -1) {
+				empty = empty || loc[0] == loc[1]
+			}
+		}
+		assert.Equal(t, empty, regexpSize(pattern).empty, pattern)
+	}
+
+	// The estimate follows the processor on one text node: an empty match
+	// before the end never ends, one at the end ends the processor.
+	scan := func(pattern, text string) time.Duration {
+		s := &trackerScan{ctx: t.Context(), re: regexp.MustCompile(pattern), rate: costPerTrackerScan, budget: time.Hour}
+		s.segment(text)
+		return s.cost
+	}
+	assert.Greater(t, scan(`(x*)`, "abc"), time.Hour)
+	assert.Greater(t, scan(`(?m)^()`, "abc"), time.Hour)
+	assert.Greater(t, scan(`\b()`, "  abc"), time.Hour) // an empty match after the start
+	assert.Greater(t, scan(`(T\d+|\b)`, "T1 x"), time.Hour)
+	assert.Less(t, scan(`(T\d+|$)`, "T1 x"), time.Millisecond)
+	assert.Less(t, scan(`(\b)`, "  "), time.Millisecond) // no match
+	assert.Less(t, scan(`(T\d+)`, "T1 T2 T3"), time.Millisecond)
+}
+
+// The writer neither renders nor estimates a body of a repository whose
+// pattern matches the empty string at length: nothing is abandoned, and the
+// other repositories' bodies are rendered. The bodies endpoint does not
+// render it either (upstream's rendering would not end).
+func TestConsumeRenderEmptyMatch(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	defer test.MockVariableValue(&renderWait, 200*time.Millisecond)()
+	setOwnerRegexp(t, `(x*)`)
+	for i, cheap := range []string{"cheap *a*", "cheap *b*", "cheap *c*"} {
+		exec(t, "UPDATE issue SET content = ? WHERE id = 9", fmt.Sprintf("Fixes abc %d", i))
+		exec(t, "UPDATE issue SET content = ? WHERE id = 4", cheap)
+		start := time.Now()
+		consume(t, m, change(int64(2*i+1), "issue", 9, "U"), change(int64(2*i+2), "issue", 4, "U"))
+		assert.Less(t, time.Since(start), renderWait)
+		assert.Zero(t, abandonedRenders.Load())
+		_, entries := takeLog(t, &cursor)
+		bodies := issueBodies(t, entries)
+		require.Contains(t, bodies, int64(9))
+		require.Contains(t, bodies, int64(4))
+		assert.Empty(t, bodies[9].BodyHTML)
+		assert.True(t, bodies[9].BodyTruncated)
+		assert.Contains(t, bodies[4].BodyHTML, "<em>"+cheap[len("cheap *"):len(cheap)-1]+"</em>")
+	}
+
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 48})
+	l := newLoader()
+	defer l.close()
+	done := make(chan bool, 1)
+	go func() {
+		_, complete := l.renderMarkdown(t.Context(), repo, "Fixes abc")
+		done <- complete
+	}()
+	select {
+	case complete := <-done:
+		assert.False(t, complete)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the rendering on request did not end")
+	}
+}
+
+// Backend audit, round 4 ter: the processor's text nodes are those of the
+// HTML goldmark renders, as the HTML parser reads it. The estimate took
+// each source line (with hard line breaks) for one, but a <textarea>,
+// <style> or <script> block — goldmark renders raw HTML as it is — is one
+// text node up to its end tag: 8 000 lines of "ABC-1" in a <textarea> were
+// estimated at 48 ms and took 23 s. So are an HTML block's lines, an
+// unclosed <textarea> with the paragraphs after it (goldmark's markup for
+// them included), <plaintext> and a CDATA section in <svg>.
+func TestRenderCostRawHTML(t *testing.T) {
+	alphanumeric := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleAlphanumeric}
+	regexpStyle := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": `([A-Z]{1,10}-\d+)`}
+	lines := strings.Repeat("ABC-1\n", 8000)
+	paragraphs := strings.Repeat("ABC-1\n\n", 4000)
+	for _, c := range []struct {
+		name, content string
+		over          bool
+	}{
+		{"textarea (23 s)", "<textarea>\n" + lines + "</textarea>", true},
+		{"style", "<style>\n" + lines + "</style>", true},
+		{"script", "<script>\n" + lines + "</script>", true},
+		{"upper-case tag", "<TEXTAREA>\n" + lines + "</TEXTAREA>", true},
+		{"unclosed textarea", "<textarea>\n" + lines, true},
+		{"textarea closed by another type 1 tag", "<textarea>\n</style>\n" + paragraphs, true},
+		{"inline textarea before paragraphs", "see <textarea>\n\n" + paragraphs, true},
+		{"title before paragraphs", "<title>\n\n" + paragraphs, true},
+		{"xmp", "<xmp>\n" + lines + "</xmp>", true},
+		{"plaintext", "<plaintext>\n\n" + paragraphs, true},
+		{"CDATA in svg", "<svg>\n\n<![CDATA[\n" + paragraphs + "]]>\n\n</svg>", true},
+		{"HTML block without blank lines", "<p>\n" + lines + "</p>", true},
+		{"div without blank lines", "<div>\n" + lines + "</div>", true},
+		{"references one per line", lines, false},
+		{"references one per paragraph", paragraphs, false},
+		{"references in details", "<details>\n<summary>Changes</summary>\n\n" + lines + "\n</details>", false},
+		{"references after a comment", "<!-- template: describe the change -->\n\n" + lines, false},
+		{"references in a code block", "```\n" + strings.Repeat("ABC-1 ", 3000) + "\n```", false},
+		{"references in a pre block", "<pre>\n" + lines + "</pre>", false},
+		{"references in links", strings.Repeat("[ABC-1](https://x/ABC-1) ", 2000), false},
+	} {
+		for name, metas := range map[string]map[string]string{"alphanumeric": alphanumeric, "regexp": regexpStyle} {
+			t.Run(c.name+", "+name, func(t *testing.T) {
+				cost := renderCost(t.Context(), c.content, metas)
+				assert.Equal(t, c.over, cost > maxRenderCost, "estimated %s", cost)
+			})
+		}
+	}
+
+	// The text of goldmark's own markup in such an element is searched
+	// too: a pattern that matches it is charged for it.
+	metas := map[string]string{"format": "https://tracker/{index}", "style": markup.IssueNameStyleRegexp, "regexp": `(p>)`}
+	assert.Greater(t, renderCost(t.Context(), "see <textarea>\n\n"+strings.Repeat("a\n\n", 20000), metas), maxRenderCost)
+	assert.LessOrEqual(t, renderCost(t.Context(), strings.Repeat("a\n\n", 20000), metas), maxRenderCost)
+
+	// Without hard line breaks, a paragraph's lines are one text node.
+	defer test.MockVariableValue(&setting.Markdown.EnableHardLineBreakInComments, false)()
+	assert.Greater(t, renderCost(t.Context(), lines, alphanumeric), maxRenderCost)
+	assert.LessOrEqual(t, renderCost(t.Context(), paragraphs, alphanumeric), maxRenderCost)
+}
+
+// The audit's raw HTML body reaches the writer: it is not rendered, so
+// nothing is abandoned (it was, and ran 23 s).
+func TestConsumeRenderRawHTML(t *testing.T) {
+	resetLivesync(t)
+	m, _ := testMaterializer(t)
+	var cursor int64
+	defer test.MockVariableValue(&renderWait, 200*time.Millisecond)()
+	setOwnerRegexp(t, `([A-Z]{1,10}-\d+)`)
+	body := "<textarea>\n" + strings.Repeat("ABC-1\n", 8000) + "</textarea>"
+	exec(t, "UPDATE issue SET content = ? WHERE id = 9", body)
+	exec(t, "UPDATE issue SET content = 'cheap *x*' WHERE id = 4")
+	start := time.Now()
+	consume(t, m, change(1, "issue", 9, "U"), change(2, "issue", 4, "U"))
+	assert.Less(t, time.Since(start), renderWait+500*time.Millisecond)
+	if !raceEnabled { // the estimate takes about 10 ms, many times that with the race detector
+		assert.Zero(t, abandonedRenders.Load())
+	}
+	_, entries := takeLog(t, &cursor)
+	bodies := issueBodies(t, entries)
+	require.Contains(t, bodies, int64(9))
+	require.Contains(t, bodies, int64(4))
+	assert.Equal(t, body, bodies[9].Body)
+	assert.Empty(t, bodies[9].BodyHTML)
+	assert.True(t, bodies[9].BodyTruncated)
+	assert.Contains(t, bodies[4].BodyHTML, "<em>x</em>")
+	require.Eventually(t, func() bool { return abandonedRenders.Load() == 0 }, time.Minute, 10*time.Millisecond)
 }
 
 func issueBodies(t *testing.T, entries []livesync_model.LogEntry) map[int64]protocol.IssueBody {

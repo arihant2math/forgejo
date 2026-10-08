@@ -241,5 +241,66 @@ func TestLivesyncAuditBodies(t *testing.T) {
 			assert.Contains(t, c.BodyHTML, "<em>twice</em>")
 			assert.False(t, c.BodyTruncated)
 		})
+
+		// Round 4 ter: upstream's issue processor never ends on a text node
+		// where the owner's pattern matches the empty string before its end
+		// (`(x*)` over "Fixes abc"), and the estimate let such a body
+		// through (10.7 µs): two edits left two renderings running for
+		// good (taking the memory at 250 MB/s), and the writer then
+		// rendered no one's bodies. Such a pattern is not rendered with at
+		// all now, on request neither. And with an ordinary pattern, a
+		// <textarea> of 8 000 references on their own lines is one text
+		// node: it was estimated at 48 ms (one node per line) and took
+		// 23 s.
+		setPattern := func(pattern string) {
+			t.Helper()
+			admin := livesyncToken(t, &user_model.User{ID: 1})
+			hasIssues := true
+			req := NewRequestWithJSON(t, "PATCH", "/api/v1/repos/org26/repo_external_tracker_alpha", api.EditRepoOption{
+				HasIssues: &hasIssues,
+				ExternalTracker: &api.ExternalTracker{
+					ExternalTrackerURL:           "https://tracker.com",
+					ExternalTrackerFormat:        "https://tracker.com/{user}/{repo}/issues/{index}",
+					ExternalTrackerStyle:         "regexp",
+					ExternalTrackerRegexpPattern: pattern,
+				},
+			}).AddTokenAuth(admin)
+			MakeRequest(t, req, http.StatusOK)
+			livesyncSettle(t)
+		}
+		for _, c := range []struct{ name, pattern, body string }{
+			{"owner regexp matching the empty string", `(x*)`, "Fixes abc"},
+			{"raw HTML block of references", `([A-Z]{1,10}-\d+)`, "<textarea>\n" + strings.Repeat("ABC-1\n", 8000) + "</textarea>"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				setPattern(c.pattern)
+				for _, edit := range []string{"1", "2"} {
+					cursor := livesyncLogHead(t)
+					_, err := db.GetEngine(t.Context()).Exec("UPDATE `issue` SET content = ? WHERE id = 9", c.body+edit)
+					require.NoError(t, err)
+					e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelIssueBody, 9, protocol.OpUpsert))
+					b := livesyncPayload[protocol.IssueBody](t, e)
+					assert.Equal(t, c.body+edit, b.Body)
+					assert.Empty(t, b.BodyHTML)
+					assert.True(t, b.BodyTruncated)
+				}
+				cursor := livesyncLogHead(t)
+				cheap := comment("user2/repo1", 1, "thanks *again*")
+				e := livesyncWaitLog(t, cursor, livesyncWait, livesyncEntry(protocol.ModelComment, cheap, protocol.OpUpsert))
+				got := livesyncPayload[protocol.Comment](t, e)
+				assert.Contains(t, got.BodyHTML, "<em>again</em>")
+				assert.False(t, got.BodyTruncated)
+			})
+		}
+		t.Run("owner regexp matching the empty string, on request", func(t *testing.T) {
+			setPattern(`(x*)`)
+			start := time.Now()
+			req := NewRequestWithJSON(t, "POST", "/-/sync/api/markdown", protocol.APIMarkdownRequest{RepoID: 48, Items: []string{"Fixes abc", "`x`"}}).
+				AddTokenAuth(livesyncToken(t, &user_model.User{ID: 1}))
+			var res protocol.APIMarkdownResponse
+			DecodeJSON(t, MakeRequest(t, req, http.StatusOK), &res)
+			assert.Less(t, time.Since(start), 5*time.Second)
+			assert.Equal(t, []string{"", ""}, res.HTML)
+		})
 	})
 }

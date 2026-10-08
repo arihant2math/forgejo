@@ -7,7 +7,7 @@
 // the multi-value ones (labels, assignees) stay open for more. Its own
 // chunk, loaded when a picker first opens (or when idle).
 
-import {Check, Circle, CircleCheck, CircleDot, Minus, SignalZero} from 'lucide-react';
+import {Check, Minus, SignalZero} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
@@ -19,7 +19,7 @@ import type {Label} from '../../protocol/types.gen.ts';
 import {
   Avatar, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Icon, LabelDot, LabelIcon, type LucideIcon,
 } from '../../ui/index.ts';
-import {priorityIcon, statusIcon} from './cells.tsx';
+import {priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
 import {assigneeCandidates, repoLabels} from './candidates.ts';
 import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone, setState} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
@@ -113,12 +113,13 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     groupTitle = '';
   } else if (kind === 'status') {
     const state = coverage(issues, (i) => issueState(overlay, i) === 'open');
+    const closed: Option['checked'] = state === 'all' ? 'none' : state === 'none' ? 'all' : 'some';
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     options.push(
-      {key: 'open', label: 'Open', checked: state, leading: <span className="flex items-center gap-2"><Mark checked={state}/><Icon icon={pull ? Circle : CircleDot} className="text-success"/></span>, run: done(() => {
+      {key: 'open', label: 'Open', checked: state, leading: <span className="flex items-center gap-2"><Mark checked={state}/><StateGlyph look={stateLook('open', pull, false)}/></span>, run: done(() => {
         setState(app, issues, 'open');
       })},
-      {key: 'closed', label: 'Closed', checked: state === 'all' ? 'none' : state === 'none' ? 'all' : 'some', leading: <span className="flex items-center gap-2"><Mark checked={state === 'all' ? 'none' : state === 'none' ? 'all' : 'some'}/><Icon icon={CircleCheck} className="text-done"/></span>, run: done(() => {
+      {key: 'closed', label: 'Closed', checked: closed, leading: <span className="flex items-center gap-2"><Mark checked={closed}/><StateGlyph look={stateLook('closed', pull, false)}/></span>, run: done(() => {
         setState(app, issues, 'closed');
       })},
     );

@@ -17,7 +17,7 @@ import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {Virtuoso} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
-import type {Comment, Review} from '../../protocol/types.gen.ts';
+import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Icon, LabelChip, type LucideIcon} from '../../ui/index.ts';
 import {firstOf, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
@@ -154,10 +154,6 @@ const EventLine = observer(function EventLine({comment: c}: {comment: Entity<'Co
   );
 });
 
-function LabelName({id}: {id: number}) {
-  return <LabelRef id={id}/>;
-}
-
 const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const l = usePool().model('Label').get(id);
   return l ? <LabelChip name={l.get('name')} color={l.get('color')}/> : <span>a label</span>;
@@ -184,7 +180,7 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'merge_pull':
       return {icon: GitMerge, text: 'merged this'};
     case 'label':
-      return {icon: Tag, text: <>{d.body === '1' ? 'added' : 'removed'} <LabelName id={d.label_id}/></>};
+      return {icon: Tag, text: <>{d.body === '1' ? 'added' : 'removed'} <LabelRef id={d.label_id}/></>};
     case 'milestone':
       if (!d.milestone_id) return {icon: Milestone, text: <>removed this from <MilestoneRef id={d.old_milestone_id}/></>};
       return {icon: Milestone, text: <>{d.old_milestone_id ? 'moved this to' : 'added this to'} <MilestoneRef id={d.milestone_id}/></>};
@@ -244,4 +240,3 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
   }
 }
 
-export type {Review};

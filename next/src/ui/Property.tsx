@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type {ReactNode, Ref} from 'react';
+import {cx} from './cx.ts';
 import {Tooltip} from './Tooltip.tsx';
 
 /** A list of an entity's properties (the issue sidebar). */
@@ -13,7 +14,7 @@ export function PropertyList({children}: {children: ReactNode}) {
 export function Property({label, children}: {label: string; children: ReactNode}) {
   return (
     <div className="flex min-h-control items-start gap-2">
-      <dt className="flex h-control w-24 shrink-0 items-center text-sm text-fg-subtle">{label}</dt>
+      <dt className="flex h-control w-20 shrink-0 items-center text-sm text-fg-subtle">{label}</dt>
       <dd className="flex min-w-0 flex-1 flex-col">{children}</dd>
     </div>
   );
@@ -52,8 +53,9 @@ export function PropertyEmpty({children}: {children: string}) {
   return <span className="text-fg-subtle">{children}</span>;
 }
 
+const valueTones = {default: 'text-fg', muted: 'text-fg-muted', danger: 'text-danger'} as const;
+
 /** A read-only value (projects, dependencies, dates): lined up with PropertyButton's content. */
 export function PropertyValue({tone = 'default', title, children}: {tone?: 'default' | 'muted' | 'danger'; title?: string | undefined; children: ReactNode}) {
-  const color = tone === 'danger' ? 'text-danger' : tone === 'muted' ? 'text-fg-muted' : 'text-fg';
-  return <span title={title} className={`flex min-h-control min-w-0 flex-col justify-center gap-1 px-2 py-1 text-base ${color}`}>{children}</span>;
+  return <span title={title} className={cx('flex min-h-control min-w-0 flex-col justify-center gap-1 px-2 py-1 text-base', valueTones[tone])}>{children}</span>;
 }

@@ -60,7 +60,7 @@ const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId:
   if (!issue) return <NotHere repoId={repoId} index={index} context={context}/>;
   return (
     <>
-      <PageHeader icon={undefined} context={context} title={<span className="flex items-center gap-2"><StateIcon issue={issue}/>#{index}</span>}/>
+      <PageHeader context={context} title={<span className="flex items-center gap-2"><StateIcon issue={issue}/>#{index}</span>}/>
       <PageBody ref={setScroller}>
         <IssueContent issue={issue} scroller={scroller}/>
       </PageBody>

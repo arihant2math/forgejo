@@ -43,6 +43,7 @@ func newRoutes(inner http.Handler, s *spa) http.Handler {
 	// The Next UI (spa.go).
 	r.Methods("GET,HEAD", nextPrefix+"/assets/*", s.serveAsset)
 	r.Methods("GET,HEAD", nextPrefix+"/sw.js", s.serveServiceWorker)
+	r.Methods("GET,HEAD", nextPrefix+"/classic.js", s.serveClassicScript)
 	r.Methods("GET,POST", nextPrefix+"/opt-in", serveOptIn)
 	r.Methods("GET,POST", nextPrefix+"/opt-out", serveOptOut)
 	r.Get(nextPrefix+"/config", serveConfig)

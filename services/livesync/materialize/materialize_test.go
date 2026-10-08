@@ -19,9 +19,11 @@ import (
 	"forgejo.org/modules/test"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/catalog"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/services/livesync/synclog"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -333,13 +335,26 @@ func TestConsumeHot(t *testing.T) {
 	// deferred: the newest outbox row stays, the others are deleted.
 	_, err := db.GetEngine(t.Context()).Exec("UPDATE notification SET status = 2 WHERE id = 1")
 	require.NoError(t, err)
+	materialized := materializedTotal(t)
 	b := consume(t, m, change(2, "notification", 1, "U"), change(3, "notification", 1, "U"), change(4, "notification", 2, "U"))
 	rows, _ = takeLog(t, &cursor)
 	assert.Equal(t, []logRow{{"user:2", "self", "Notification", "U", 2}}, rows, "only the other row")
 	var left []int64
 	require.NoError(t, db.GetEngine(t.Context()).Table("livesync_change").Cols("id").Find(&left))
 	assert.Equal(t, []int64{3}, left)
-	_ = b
+	assert.Equal(t, 2, b.Consumed())
+	assert.InDelta(t, 2, materializedTotal(t)-materialized, 0, "the deferred row is not counted as consumed")
+}
+
+// materializedTotal reads metrics.Materialized.
+func materializedTotal(t *testing.T) float64 {
+	t.Helper()
+	reg := prometheus.NewRegistry()
+	require.NoError(t, reg.Register(metrics.Materialized))
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	require.Len(t, families, 1)
+	return families[0].GetMetric()[0].GetCounter().GetValue()
 }
 
 func TestConsumeFencing(t *testing.T) {

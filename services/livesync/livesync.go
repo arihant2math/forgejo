@@ -113,13 +113,24 @@ func Init(ctx context.Context) (err error) {
 	defer func() { initErr = err }()
 
 	s, err := loadSettings(setting.CfgProvider)
+	if !s.Enabled {
+		// ENABLED is decided before the rest of the settings: a disabled
+		// livesync with a malformed key must still be disabled, so that
+		// Wrap runs the kill switch (Disable). An INSTALL_MODE that is
+		// not auto counts as verify then: Disable only logs the DDL.
+		if err != nil {
+			log.Warn("livesync: disabled; ignoring invalid [livesync] settings: %v", err)
+			if s.InstallMode != InstallModeAuto {
+				s.InstallMode = InstallModeVerify
+			}
+		}
+		Setting = s
+		return ErrDisabled
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSettings, err)
 	}
 	Setting = s
-	if !s.Enabled {
-		return ErrDisabled
-	}
 	// The metrics show a degraded livesync too (up, outbox backlog).
 	metrics.Register(collector{})
 	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {

@@ -72,6 +72,11 @@ func TestLivesyncSPA(t *testing.T) {
 	assert.Equal(t, "/", resp.Header().Get("Service-Worker-Allowed"))
 	assert.Equal(t, "no-cache", resp.Header().Get("Cache-Control"))
 
+	// The script classic pages load (routers/livesync/classic_header.tmpl).
+	resp = MakeRequest(t, NewRequest(t, "GET", "/-/next/classic.js"), http.StatusOK)
+	assert.Contains(t, resp.Body.String(), `"prefetch":["/-/next/assets/index-abc.js"]`)
+	assert.Contains(t, resp.Body.String(), "Try Forgejo Next")
+
 	app := livesync_service.OAuthApp()
 	require.NotNil(t, app)
 	document := func(t *testing.T, resp *http.Response, body string) {

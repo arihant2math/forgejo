@@ -1311,8 +1311,8 @@ export const NextConfigElementID = "forgejo-next-config";
 export const NextUICookie = "ui";
 export const NextUICookieValue = "next";
 /**
- * TrustedTypesPolicy is the Trusted Types policy name the CSP allows
- * (besides "default").
+ * TrustedTypesPolicy is the only Trusted Types policy name the CSP
+ * allows.
  */
 export const TrustedTypesPolicy = "forgejo-next";
 /**

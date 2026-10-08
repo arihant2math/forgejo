@@ -152,7 +152,7 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 	if err != nil {
 		return err
 	}
-	metrics.Materialized.Add(float64(len(b.Changes)))
+	metrics.Materialized.Add(float64(b.Consumed())) // deferred rows count when they are consumed
 	metrics.LogEntries.Add(float64(appended))
 	if !b.Seen.IsZero() {
 		metrics.MaterializeLag.Observe(time.Since(b.Seen).Seconds())

@@ -93,7 +93,10 @@ func (s *Status) UninstallScript() string {
 func TablesScript(dialect, schema string) string {
 	var b strings.Builder
 	b.WriteString("-- To remove livesync completely, also drop its own tables (only after the triggers\n")
-	b.WriteString("-- above are gone, or every write to a tracked table fails):\n")
+	b.WriteString("-- above are gone, or every write to a tracked table fails), and delete the Next UI's\n")
+	b.WriteString("-- OAuth2 application \"Forgejo Next\" in Site administration > Applications: that\n")
+	b.WriteString("-- revokes its grants (the refresh tokens browsers hold keep minting API tokens until\n")
+	b.WriteString("-- then). Kept, it is adopted again if livesync is enabled later.\n")
 	for _, bean := range livesync_model.Tables() {
 		name := db.TableName(bean)
 		if dialect == "postgres" {

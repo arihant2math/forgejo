@@ -29,8 +29,9 @@ const (
 //
 // When livesync is disabled it runs the kill switch (livesync.Disable: the
 // capture triggers of an earlier run are removed) and returns inner
-// itself; so it does on SQLite and with invalid [livesync] settings:
-// Forgejo then behaves exactly as upstream. When livesync is enabled but
+// itself (ENABLED = false wins over any malformed [livesync] key); so it
+// does on SQLite and with invalid [livesync] settings: Forgejo then
+// behaves exactly as upstream. When livesync is enabled but
 // Init fails (the capture triggers are missing or stale — logged with the
 // DDL that installs them — or anything else), Forgejo serves the classic
 // UI through a thin handler that only adds the admin page and the health

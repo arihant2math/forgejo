@@ -22,8 +22,10 @@ package protocol
 // <script type="application/json" id="NextConfigElementID"> (NextConfig;
 // also served as GET /-/next/config). The document's CSP allows scripts
 // from the origin and the build's inline scripts by hash only, and
-// enforces Trusted Types: DOM XSS sinks need a policy named
-// TrustedTypesPolicy (or "default").
+// enforces Trusted Types: DOM XSS sinks need values from the policy named
+// TrustedTypesPolicy, the only one allowed (no "default" policy: one would
+// apply to every sink implicitly, and a permissive one anywhere in the
+// bundle would cancel the enforcement).
 
 const (
 	// NextConfigElementID is the id of the JSON data block with NextConfig
@@ -32,8 +34,8 @@ const (
 	// NextUICookie / NextUICookieValue: the opt-in cookie.
 	NextUICookie      = "ui"
 	NextUICookieValue = "next"
-	// TrustedTypesPolicy is the Trusted Types policy name the CSP allows
-	// (besides "default").
+	// TrustedTypesPolicy is the only Trusted Types policy name the CSP
+	// allows.
 	TrustedTypesPolicy = "forgejo-next"
 )
 

@@ -40,10 +40,12 @@ var (
 		Help:    "Time from the outbox reader seeing a captured change until its sync log entries were committed.",
 		Buckets: lagBuckets,
 	})
-	// Materialized counts the outbox rows the materializer consumed.
+	// Materialized counts the outbox rows the materializer consumed
+	// (deleted from the outbox; a hot row it defers counts once, when it
+	// is consumed later).
 	Materialized = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace, Name: "materialized_changes_total",
-		Help: "Outbox rows consumed by the materializer of this instance.",
+		Help: "Outbox rows consumed by the materializer of this instance (deferred rows count when consumed).",
 	})
 	// LogEntries counts the sync log entries this instance's writer appended.
 	LogEntries = prometheus.NewCounter(prometheus.CounterOpts{

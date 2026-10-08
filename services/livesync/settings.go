@@ -115,7 +115,9 @@ type Settings struct {
 // Setting holds the settings loaded by the last call to Init.
 var Setting Settings
 
-// loadSettings parses the [livesync] section of rootCfg.
+// loadSettings parses the [livesync] section of rootCfg. Enabled and
+// InstallMode are set in the result even when it returns an error (Init
+// decides ENABLED first).
 func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	sec := rootCfg.Section("livesync")
 	s := Settings{

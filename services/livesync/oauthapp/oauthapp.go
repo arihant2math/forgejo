@@ -43,13 +43,17 @@ import (
 // administration.
 const Name = "Forgejo Next"
 
-// Scope is what the SPA asks for: livesync needs read access to
-// repositories, issues, organizations, users and notifications; the UI
-// writes issues and pull requests, repository metadata (watch, labels,
-// milestones), organization labels and projects, the user's own settings
-// (stars, follows, blocks) and notifications through API v1. Changing it
-// makes every user consent again (see the package documentation).
-const Scope = "write:issue write:repository write:organization write:user write:notification"
+// Scope is what the SPA asks for, exactly PLAN §4.9: livesync needs read
+// access to repositories, issues, organizations, users and notifications
+// (routers/livesync requiredScopes); the UI writes issues and pull
+// requests, repository metadata (watch, star, labels, milestones) and
+// notifications through API v1. No write:user / write:organization: the
+// token lives in the browser (refresh token in IndexedDB), and those
+// would let a stolen one add SSH keys, OAuth2 applications, hooks or emails
+// to the account or change organizations. A later milestone that needs
+// them widens Scope; Ensure then revokes the old grants (one forced
+// sign-in, see the package documentation).
+const Scope = "write:issue write:repository read:user read:organization write:notification"
 
 // Meta names in livesync_meta.
 const (
@@ -86,7 +90,10 @@ func RedirectURIs(extra []string) []string {
 // Ensure makes sure the client exists and is current, idempotently and
 // safely for instances starting together (under the livesync schema lock).
 // Its client id is kept in livesync_meta; an application deleted by an
-// administrator is created again (with a new client id).
+// administrator is created again (with a new client id). When livesync_meta
+// lost the client id (livesync's tables were dropped, see
+// capture.TablesScript), the instance-wide public application named Name
+// with the callback redirect URI is adopted instead of creating a second.
 func Ensure(ctx context.Context, extraRedirectURIs []string) (*App, error) {
 	if !setting.OAuth2.Enabled {
 		return nil, ErrOAuth2Disabled
@@ -118,6 +125,19 @@ func ensureLocked(ctx context.Context, redirects []string) (*App, error) {
 			app = nil
 		case err != nil:
 			return nil, fmt.Errorf("livesync: read the OAuth2 application: %w", err)
+		}
+	}
+	if app == nil {
+		orphans, err := findOrphans(ctx, redirects[0])
+		if err != nil {
+			return nil, err
+		}
+		if len(orphans) > 0 {
+			app = orphans[0]
+			if err := livesync_model.SetMeta(ctx, MetaClientID, app.ClientID); err != nil {
+				return nil, err
+			}
+			log.Info("livesync: adopted the existing OAuth2 application of the Next UI (client id %s)", app.ClientID)
 		}
 	}
 	if app == nil {
@@ -162,4 +182,17 @@ func ensureLocked(ctx context.Context, redirects []string) (*App, error) {
 		}
 	}
 	return &App{ClientID: app.ClientID, RedirectURI: redirects[0], Scope: Scope}, nil
+}
+
+// findOrphans returns the instance-wide public applications named Name
+// whose redirect URIs include callback, oldest first: the Next UI's, from
+// before livesync_meta was dropped.
+func findOrphans(ctx context.Context, callback string) ([]*auth_model.OAuth2Application, error) {
+	var apps []*auth_model.OAuth2Application
+	if err := db.GetEngine(ctx).Where("uid = ? AND name = ? AND confidential_client = ?", 0, Name, false).OrderBy("id").Find(&apps); err != nil {
+		return nil, fmt.Errorf("livesync: look for the OAuth2 application: %w", err)
+	}
+	return slices.DeleteFunc(apps, func(app *auth_model.OAuth2Application) bool {
+		return !slices.Contains(app.RedirectURIs, callback)
+	}), nil
 }

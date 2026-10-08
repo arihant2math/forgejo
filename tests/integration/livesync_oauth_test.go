@@ -95,7 +95,7 @@ func TestLivesyncOAuth(t *testing.T) {
 	assert.False(t, stored.ConfidentialClient, "a public client: PKCE, no secret")
 	assert.Equal(t, []string{app.RedirectURI}, stored.RedirectURIs)
 	count := func() int64 {
-		n, err := db.GetEngine(ctx).Where("name = ?", oauthapp.Name).Count(&auth_model.OAuth2Application{})
+		n, err := db.GetEngine(ctx).Where("name = ? AND uid = 0", oauthapp.Name).Count(&auth_model.OAuth2Application{})
 		require.NoError(t, err)
 		return n
 	}
@@ -150,6 +150,17 @@ func TestLivesyncOAuth(t *testing.T) {
 			// package scope was asked for.
 			req = NewRequest(t, "GET", "/api/v1/packages/user2").AddTokenAuth(tokens.AccessToken)
 			MakeRequest(t, req, http.StatusForbidden)
+			// The account and organizations are read-only to it (PLAN
+			// §4.9): no SSH keys, OAuth2 applications or org hooks from a
+			// token held by the browser.
+			req = NewRequestWithJSON(t, "POST", "/api/v1/user/keys", map[string]string{"title": "next", "key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGs4GE3ZIPkDvJwOLkhw3Ms1CVTX4ALUj9e8pnGhGmXg"}).AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusForbidden)
+			req = NewRequestWithJSON(t, "POST", "/api/v1/user/applications/oauth2", map[string]any{"name": "x", "redirect_uris": []string{"https://example.com/"}}).AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusForbidden)
+			req = NewRequestWithJSON(t, "POST", "/api/v1/orgs/org3/hooks", map[string]any{"type": "forgejo", "config": map[string]string{"url": "https://example.com/", "content_type": "json"}}).AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusForbidden)
+			req = NewRequest(t, "GET", "/api/v1/orgs/org3").AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusOK)
 
 			// livesync accepts it (the hello uses the same check).
 			req = NewRequest(t, "GET", "/-/sync/grants").AddTokenAuth(tokens.AccessToken)
@@ -219,6 +230,26 @@ func TestLivesyncOAuth(t *testing.T) {
 		v, _, err := livesync_model.GetMeta(ctx, oauthapp.MetaClientID)
 		require.NoError(t, err)
 		assert.Equal(t, recreated.ClientID, v)
+		assert.EqualValues(t, 1, count())
+	})
+
+	t.Run("client id forgotten", func(t *testing.T) {
+		// livesync_meta was dropped (uninstall script): the instance's
+		// application is adopted, not created a second time; a user's
+		// application of the same name is not.
+		before := livesync_service.OAuthApp()
+		require.NotNil(t, before)
+		_, err := auth_model.CreateOAuth2Application(ctx, auth_model.CreateOAuth2ApplicationOptions{
+			Name: oauthapp.Name, UserID: 2, RedirectURIs: []string{before.RedirectURI},
+		})
+		require.NoError(t, err)
+		_, err = db.GetEngine(ctx).Where("name = ?", oauthapp.MetaClientID).Delete(&livesync_model.Meta{})
+		require.NoError(t, err)
+		require.NoError(t, livesync_service.Init(ctx))
+		assert.Equal(t, before, livesync_service.OAuthApp(), "adopted")
+		v, _, err := livesync_model.GetMeta(ctx, oauthapp.MetaClientID)
+		require.NoError(t, err)
+		assert.Equal(t, before.ClientID, v)
 		assert.EqualValues(t, 1, count())
 	})
 

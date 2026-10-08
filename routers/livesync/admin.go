@@ -54,6 +54,9 @@ type uiStatus struct {
 	Served bool   `json:"served"`
 	Source string `json:"source,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// ClassicHeader is the template that adds the Next UI's toggle and
+	// prefetch hints to classic pages (classic.go).
+	ClassicHeader string `json:"classic_header,omitempty"`
 }
 
 // serveAdmin returns the page's handler; inner is upstream's handler (for
@@ -66,7 +69,7 @@ func serveAdmin(inner http.Handler, s *spa) http.HandlerFunc {
 		view := adminView{Status: livesync_service.CollectStatus(req.Context())}
 		switch {
 		case s.available():
-			view.UI = uiStatus{Served: true, Source: s.source}
+			view.UI = uiStatus{Served: true, Source: s.source, ClassicHeader: classicHeader}
 		case livesync_service.State() != livesync_service.StateRunning:
 			view.UI = uiStatus{Reason: "livesync is not running"}
 		default:
@@ -287,9 +290,13 @@ p{margin:4px 0}.muted{color:var(--muted)}
 <p class="muted">Run it as a privileged database user (it says which), then restart Forgejo. (While livesync runs, the writer checks the triggers every TRIGGER_CHECK_INTERVAL and reinstalls them itself in INSTALL_MODE auto.)</p>
 <pre>{{.InstallScript}}</pre>{{end}}
 {{if .UninstallScript}}<h2>Kill switch</h2>
-<p class="muted">To turn livesync off, set <code>[livesync] ENABLED = false</code> on every instance and restart: with INSTALL_MODE = auto Forgejo removes the triggers and empties the outbox at start; with verify, a DBA runs this script. Enabling livesync again reinstalls the triggers and makes clients re-bootstrap.</p>
+<p class="muted">To turn livesync off, set <code>[livesync] ENABLED = false</code> on every instance and restart: with INSTALL_MODE = auto Forgejo removes the triggers and empties the outbox at start; with verify, a DBA runs this script. Enabling livesync again reinstalls the triggers and makes clients re-bootstrap. The Next UI's OAuth2 application{{with $.OAuth}} ({{.ClientID}}){{end}} is not removed: browsers that signed in keep refreshing API tokens; to revoke them, delete the application "Forgejo Next" in Site administration &gt; Applications (livesync creates a new one when enabled again).</p>
 <pre>{{.UninstallScript}}</pre>{{end}}
 {{end}}
+
+{{if .UI.ClassicHeader}}<h2>Classic pages</h2>
+<p class="muted">To add the "Try Forgejo Next" toggle and prefetch hints for the Next UI to every classic page (sign-in included), install this as <code>templates/custom/header.tmpl</code> in Forgejo's custom directory (or add its last line to yours) and restart Forgejo.</p>
+<pre>{{.UI.ClassicHeader}}</pre>{{end}}
 
 <h2>Pipeline</h2>
 <table>

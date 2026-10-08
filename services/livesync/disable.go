@@ -58,7 +58,8 @@ func Disable(ctx context.Context) error {
 		return fmt.Errorf("%w; the installed triggers keep filling livesync_change; remove them by hand (see /-/sync/admin while enabled, or capture.UninstallScript)", err)
 	}
 	if report.Dropped > 0 {
-		log.Info("livesync: disabled: removed its capture triggers (%d statements) and emptied livesync_change; enabling it again reinstalls them and makes clients re-bootstrap", report.Dropped)
+		log.Info("livesync: disabled: removed its capture triggers (%d statements) and emptied livesync_change; enabling it again reinstalls them and makes clients re-bootstrap. "+
+			"The Next UI's OAuth2 application \"Forgejo Next\" is kept (signed-in browsers keep refreshing API tokens): delete it in Site administration > Applications to revoke them", report.Dropped)
 	}
 	return nil
 }

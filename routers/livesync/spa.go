@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	repo_model "forgejo.org/models/repo"
@@ -115,13 +116,23 @@ type spa struct {
 	fsys   fs.FS // nil: no build
 	source string
 
-	mu    sync.Mutex
-	index *spaBody            // the last rendered index.html
-	files map[string]*spaBody // text files (rewritten for the sub-path), by path
+	mu      sync.Mutex
+	index   *spaBody            // the last rendered index.html
+	classic *spaBody            // the last rendered classic.js (classic.go)
+	files   map[string]*spaBody // text files (rewritten for the sub-path), by path
+	build   string              // index.html's version the cache was last warmed for
+
+	warms sync.WaitGroup // running warm goroutines (tests wait for them)
 }
 
-// spaBody is a response body with its compressed variants (computed once,
-// on first use).
+// spaBody is a response body with its compressed variants.
+//
+// Compression never runs on the request path at the best quality (brotli
+// q11 compresses about 0.5 MB/s): the variants come from the build's
+// precompressed siblings (<file>.br, <file>.gz, when the file needs no
+// sub-path rewrite), or are computed in the background (warm, or the first
+// request), at most compressSlots at a time; until they are ready a request
+// gets a fast on-the-fly compression (brotli q4, as bootstrap responses).
 type spaBody struct {
 	key   string // what it was made from (modification time, size, config)
 	ctype string
@@ -129,9 +140,22 @@ type spaBody struct {
 	etag  string
 	csp   string // index.html only
 
-	once   sync.Once
+	once     sync.Once
+	started  atomic.Bool                 // a request started compress
+	variants atomic.Pointer[spaVariants] // nil until compressed
+}
+
+// spaVariants are a body's precompressed encodings (nil: not worth it).
+type spaVariants struct {
 	br, gz []byte
 }
+
+// compressSlots bounds the best-quality compressions running at once
+// (after a deploy every file of the new build needs one).
+var compressSlots = make(chan struct{}, 2)
+
+// minCompressed: smaller bodies are sent as they are.
+const minCompressed = 512
 
 func newSPA(dir string) *spa {
 	s := &spa{files: map[string]*spaBody{}}
@@ -152,34 +176,76 @@ func newSPA(dir string) *spa {
 		s.fsys = nil
 		return s
 	}
-	go s.warm()
+	s.startWarm()
 	return s
+}
+
+// startWarm runs warm in the background.
+func (s *spa) startWarm() {
+	s.warms.Go(s.warm)
+}
+
+// buildVersion identifies the build on disk by its index.html (Vite
+// writes it last; a deploy replaces it).
+func (s *spa) buildVersion() (string, error) {
+	st, err := fs.Stat(s.fsys, "index.html")
+	if err != nil {
+		return "", err
+	}
+	return st.ModTime().String() + "/" + strconv.FormatInt(st.Size(), 10), nil
 }
 
 // available reports whether there is a build to serve.
 func (s *spa) available() bool { return s != nil && s.fsys != nil }
 
-// warm renders index.html and compresses the build's text files once, so
-// that the first visitors do not wait for brotli.
+// warm renders index.html and compresses the build's text files, so that
+// the first visitors do not wait for brotli; run at start and whenever the
+// build changes (renderIndex notices). It also drops the cached files that
+// are no longer in the build, so that the cache holds what is on disk
+// (older builds' hashed files stay cached only as long as they are kept
+// next to the new ones).
 func (s *spa) warm() {
+	if v, err := s.buildVersion(); err == nil {
+		s.mu.Lock()
+		s.build = v
+		s.mu.Unlock()
+	}
+	seen := map[string]bool{}
 	_ = fs.WalkDir(s.fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !servable(p) || !textType(p) {
 			return nil
 		}
+		if info, err := d.Info(); err != nil || info.Size() > maxCachedFile {
+			return nil
+		}
+		seen[p] = true
 		if b, err := s.file(p); err == nil {
-			b.compressed()
+			b.compress()
 		}
 		return nil
 	})
+	s.mu.Lock()
+	for p := range s.files {
+		if !seen[p] {
+			delete(s.files, p)
+		}
+	}
+	s.mu.Unlock()
 	if b, err := s.renderIndex(); err == nil {
-		b.compressed()
+		b.compress()
 	}
 }
 
 // servable reports whether a build file may be served: not the Vite
-// manifest, not source maps (written but not referenced, F1), no dot files.
+// manifest, not source maps (written but not referenced, F1), not the
+// precompressed siblings (served as the Content-Encoding of their file),
+// no dot files.
 func servable(p string) bool {
-	if strings.HasSuffix(p, ".map") || p == "index.html" {
+	switch path.Ext(p) {
+	case ".map", ".br", ".gz":
+		return false
+	}
+	if p == "index.html" {
 		return false
 	}
 	for seg := range strings.SplitSeq(p, "/") {
@@ -286,8 +352,11 @@ func (s *spa) file(p string) (*spaBody, error) {
 	if err != nil {
 		return nil, err
 	}
-	data = rewriteBase(data, p, setting.AppSubURL)
-	b = &spaBody{key: key, ctype: contentType(p), raw: data, etag: etag(data)}
+	rewritten := rewriteBase(data, p, setting.AppSubURL)
+	b = &spaBody{key: key, ctype: contentType(p), raw: rewritten, etag: etag(rewritten)}
+	if bytes.Equal(rewritten, data) {
+		s.precompressed(b, p, st.ModTime())
+	}
 	s.mu.Lock()
 	s.files[p] = b
 	s.mu.Unlock()
@@ -299,26 +368,52 @@ func etag(data []byte) string {
 	return `W/"` + hex.EncodeToString(sum[:16]) + `"`
 }
 
-// compressed computes the brotli and gzip variants once.
-func (b *spaBody) compressed() {
-	b.once.Do(func() {
-		if len(b.raw) < 512 {
+// precompressed takes b's variants from the build's <p>.br and <p>.gz
+// when both exist and are not older than the file (a build step may write
+// them; F1/F5).
+func (s *spa) precompressed(b *spaBody, p string, modTime time.Time) {
+	var v spaVariants
+	for _, enc := range []struct {
+		ext string
+		dst *[]byte
+	}{{".br", &v.br}, {".gz", &v.gz}} {
+		st, err := fs.Stat(s.fsys, p+enc.ext)
+		if err != nil || st.IsDir() || st.ModTime().Before(modTime) || st.Size() > maxCachedFile {
 			return
 		}
-		var br bytes.Buffer
-		bw := brotli.NewWriterLevel(&br, brotli.BestCompression)
-		_, _ = bw.Write(b.raw)
-		_ = bw.Close()
-		var gz bytes.Buffer
-		gw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
-		_, _ = gw.Write(b.raw)
-		_ = gw.Close()
-		b.br, b.gz = br.Bytes(), gz.Bytes()
+		data, err := fs.ReadFile(s.fsys, p+enc.ext)
+		if err != nil {
+			return
+		}
+		*enc.dst = data
+	}
+	b.once.Do(func() { b.variants.Store(&v) })
+}
+
+// compress computes the best-quality variants (once; blocking).
+func (b *spaBody) compress() {
+	b.once.Do(func() {
+		v := &spaVariants{}
+		if len(b.raw) >= minCompressed {
+			compressSlots <- struct{}{}
+			defer func() { <-compressSlots }()
+			var br bytes.Buffer
+			bw := brotli.NewWriterLevel(&br, brotli.BestCompression)
+			_, _ = bw.Write(b.raw)
+			_ = bw.Close()
+			var gz bytes.Buffer
+			gw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
+			_, _ = gw.Write(b.raw)
+			_ = gw.Close()
+			v.br, v.gz = br.Bytes(), gz.Bytes()
+		}
+		b.variants.Store(v)
 	})
 }
 
 // write sends b (compressed when the client accepts it), answering
-// If-None-Match with 304.
+// If-None-Match with 304. Before the best-quality variants are ready it
+// starts them in the background and compresses this response quickly.
 func (b *spaBody) write(w http.ResponseWriter, req *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", b.ctype)
@@ -329,15 +424,38 @@ func (b *spaBody) write(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
+	enc := negotiateEncoding(req.Header.Get("Accept-Encoding"))
+	v := b.variants.Load()
+	if v == nil {
+		if b.started.CompareAndSwap(false, true) {
+			go b.compress()
+		}
+		if len(b.raw) >= minCompressed && (enc == "br" || enc == "gzip") {
+			h.Set("Content-Encoding", enc)
+			w.WriteHeader(http.StatusOK)
+			if req.Method == http.MethodHead {
+				return
+			}
+			var cw io.WriteCloser
+			if enc == "br" {
+				cw = brotli.NewWriterOptions(w, brotli.WriterOptions{Quality: 4, LGWin: 18})
+			} else {
+				cw, _ = gzip.NewWriterLevel(w, gzip.DefaultCompression)
+			}
+			_, _ = cw.Write(b.raw)
+			_ = cw.Close()
+			return
+		}
+		v = &spaVariants{}
+	}
 	body := b.raw
-	b.compressed()
-	switch enc := negotiateEncoding(req.Header.Get("Accept-Encoding")); {
-	case enc == "br" && b.br != nil:
+	switch {
+	case enc == "br" && v.br != nil:
 		h.Set("Content-Encoding", "br")
-		body = b.br
-	case enc == "gzip" && b.gz != nil:
+		body = v.br
+	case enc == "gzip" && v.gz != nil:
 		h.Set("Content-Encoding", "gzip")
-		body = b.gz
+		body = v.gz
 	}
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
@@ -393,9 +511,16 @@ func (s *spa) renderIndex() (*spaBody, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := st.ModTime().String() + "/" + strconv.FormatInt(st.Size(), 10) + "/" + setting.AppSubURL + "/" + string(cfg)
+	version := st.ModTime().String() + "/" + strconv.FormatInt(st.Size(), 10)
+	key := version + "/" + setting.AppSubURL + "/" + string(cfg)
 	s.mu.Lock()
 	b := s.index
+	if s.build != "" && s.build != version {
+		// A new build was deployed into the directory: compress it in
+		// the background and forget the files that are gone.
+		s.build = version
+		s.startWarm()
+	}
 	s.mu.Unlock()
 	if b != nil && b.key == key {
 		return b, nil
@@ -472,7 +597,7 @@ func documentCSP(doc []byte) string {
 		"form-action 'self'",
 		"frame-ancestors 'self'",
 		"require-trusted-types-for 'script'",
-		"trusted-types " + protocol.TrustedTypesPolicy + " default",
+		"trusted-types " + protocol.TrustedTypesPolicy,
 	}, "; ")
 }
 

@@ -247,6 +247,10 @@ func TestReaderOutboxRecreatedEmpty(t *testing.T) {
 	b := c.next(t)
 	assert.Equal(t, []int64{1}, ids(b))
 	assert.EqualValues(t, 1, b.Cursor)
+	// Its Commit of that batch (cursor 1) could otherwise land after the
+	// cursor set below. (Not stopped: cancelling a running query can close
+	// the last connection of the in-memory SQLite database.)
+	require.Eventually(t, func() bool { return storedCursor(t) == "1" }, 5*time.Second, time.Millisecond)
 
 	// A counter at the cursor (nothing restarted) keeps the cursor.
 	resetOutbox(t)

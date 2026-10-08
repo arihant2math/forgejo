@@ -112,6 +112,21 @@ func TestInitWithoutDatabase(t *testing.T) {
 		set(t, "", "postgres")
 		assert.ErrorIs(t, Init(t.Context()), ErrDisabled)
 	})
+	t.Run("disabled with invalid settings", func(t *testing.T) {
+		// Still disabled (Wrap runs the kill switch for ErrDisabled
+		// only), not ErrInvalidSettings.
+		set(t, "[livesync]\nENABLED = false\nSEND_BUFFER = -1\n", "postgres")
+		err := Init(t.Context())
+		require.ErrorIs(t, err, ErrDisabled)
+		require.NotErrorIs(t, err, ErrInvalidSettings)
+		assert.Equal(t, InstallModeAuto, Setting.InstallMode)
+		set(t, "[livesync]\nENABLED = false\nINSTALL_MODE = x\n", "postgres")
+		require.ErrorIs(t, Init(t.Context()), ErrDisabled)
+		assert.Equal(t, InstallModeVerify, Setting.InstallMode, "an invalid INSTALL_MODE does not let Disable change the schema")
+		set(t, "[livesync]\nENABLED = false\nINSTALL_MODE = verify\nPOLL_INTERVAL = soon\n", "postgres")
+		require.ErrorIs(t, Init(t.Context()), ErrDisabled)
+		assert.Equal(t, InstallModeVerify, Setting.InstallMode)
+	})
 	t.Run("sqlite", func(t *testing.T) {
 		set(t, "[livesync]\nENABLED = true\n", "sqlite3")
 		err := Init(t.Context())

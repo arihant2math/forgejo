@@ -104,6 +104,18 @@ func (b *Batch) Defer(id int64, until time.Time) {
 	b.deferred[id] = until
 }
 
+// Consumed returns the number of the batch's rows Commit deletes: all but
+// the deferred ones (those come back in a later batch).
+func (b *Batch) Consumed() int {
+	n := len(b.Changes)
+	for _, c := range b.Changes {
+		if _, ok := b.deferred[c.ID]; ok {
+			n--
+		}
+	}
+	return n
+}
+
 // Commit deletes the batch's rows from the outbox (the deferred ones are
 // kept and marked Deferred) and stores Cursor under
 // MetaCursor. A consumer that writes its results in a database transaction

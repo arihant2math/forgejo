@@ -1,0 +1,7 @@
+{{/* Forgejo Next (livesync, PLAN §4.10): a "Try Forgejo Next" toggle and
+prefetch hints for the Next UI on every classic page, the sign-in page
+included, so that the app is cached by the time the user enters it.
+Install this file as templates/custom/header.tmpl in Forgejo's custom
+directory (or add the line below to the header.tmpl you have) and restart
+Forgejo. Harmless while livesync is off: the script is then a 404. */}}
+<script type="module" src="{{AppSubUrl}}/-/next/classic.js"></script>

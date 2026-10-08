@@ -13,8 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/setting"
@@ -22,6 +24,7 @@ import (
 	"forgejo.org/services/livesync/protocol"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/gzip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,10 +68,12 @@ func writeDist(t *testing.T) string {
 	return dir
 }
 
-// spaHandler is the running handler with the fixture build.
+// spaHandler is the running handler with the fixture build, once its
+// cache is warm (so that no background work reads settings a test mocks).
 func spaHandler(t *testing.T, dir string, inner http.Handler) *handler {
 	t.Helper()
 	s := newSPA(dir)
+	s.warms.Wait()
 	return &handler{inner: inner, own: newRoutes(inner, s), spa: s, answers: newAnswers()}
 }
 
@@ -137,7 +142,7 @@ func TestDocumentCSP(t *testing.T) {
 	assert.NotContains(t, csp, hash(`{"a":1}`), "data blocks are not hashed")
 	assert.NotContains(t, csp, "unsafe-eval")
 	assert.Contains(t, csp, "require-trusted-types-for 'script'")
-	assert.Contains(t, csp, "trusted-types forgejo-next default")
+	assert.True(t, strings.HasSuffix(csp, "; trusted-types forgejo-next"), "only the forgejo-next policy (no implicit default policy): %s", csp)
 	assert.Contains(t, csp, "object-src 'none'")
 	assert.Contains(t, csp, "connect-src 'self'")
 }
@@ -262,6 +267,117 @@ func checkDocument(t *testing.T, rec *httptest.ResponseRecorder, sub string) {
 	sum := sha256.Sum256([]byte(boot))
 	assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "script-src 'self' 'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"';")
 	assert.NotEmpty(t, rec.Header().Get("ETag"))
+}
+
+// Compression never waits for brotli q11 on the request path: before the
+// background compression is done a response is compressed quickly; the
+// build's precompressed siblings are used when the file needs no rewrite;
+// a new build in the directory is compressed again and the files that are
+// gone are dropped from the cache.
+func TestSPACompression(t *testing.T) {
+	t.Run("on the fly", func(t *testing.T) {
+		raw := []byte(strings.Repeat("export const x = 1;\n", 100))
+		b := &spaBody{ctype: "text/javascript; charset=utf-8", raw: raw, etag: etag(raw)}
+		for _, enc := range []string{"br", "gzip"} {
+			req := httptest.NewRequest(http.MethodGet, "/x.js", nil)
+			req.Header.Set("Accept-Encoding", enc)
+			rec := httptest.NewRecorder()
+			b.write(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, enc, rec.Header().Get("Content-Encoding"))
+			assert.Equal(t, raw, decode(t, enc, rec.Body.Bytes()))
+		}
+		assert.Eventually(t, func() bool { return b.variants.Load() != nil }, 10*time.Second, time.Millisecond, "compressed in the background")
+		rec := get(t, http.HandlerFunc(b.write), "/x.js", "Accept-Encoding", "br")
+		assert.Equal(t, "br", rec.Header().Get("Content-Encoding"))
+		assert.Equal(t, strconv.Itoa(rec.Body.Len()), rec.Header().Get("Content-Length"))
+		assert.Equal(t, raw, decode(t, "br", rec.Body.Bytes()))
+	})
+
+	t.Run("precompressed", func(t *testing.T) {
+		dir := writeDist(t)
+		side := strings.Repeat("export const side = 1;\n", 50)
+		based := "const B=\"/-/next/\";" + side
+		var br, gz bytes.Buffer
+		bw := brotli.NewWriter(&br)
+		_, _ = bw.Write([]byte("SIDECAR"))
+		require.NoError(t, bw.Close())
+		gw := gzip.NewWriter(&gz)
+		_, _ = gw.Write([]byte("SIDECAR"))
+		require.NoError(t, gw.Close())
+		for name, content := range map[string][]byte{
+			"assets/side.js": []byte(side), "assets/side.js.br": br.Bytes(), "assets/side.js.gz": gz.Bytes(),
+			"assets/based.js": []byte(based), "assets/based.js.br": br.Bytes(), "assets/based.js.gz": gz.Bytes(),
+		} {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), content, 0o644))
+		}
+		later := time.Now().Add(time.Second) // the siblings are not older than their file
+		for _, name := range []string{"side.js.br", "side.js.gz", "based.js.br", "based.js.gz"} {
+			require.NoError(t, os.Chtimes(filepath.Join(dir, "assets", name), later, later))
+		}
+		for _, sub := range []string{"", "/sub"} {
+			defer test.MockVariableValue(&setting.AppSubURL, sub)()
+			h := spaHandler(t, dir, innerMarker)
+			for _, enc := range []string{"br", "gzip"} {
+				rec := get(t, h, sub+"/-/next/assets/side.js", "Accept-Encoding", enc)
+				assert.Equal(t, enc, rec.Header().Get("Content-Encoding"))
+				assert.Equal(t, "SIDECAR", string(decode(t, enc, rec.Body.Bytes())), "the build's %s file", enc)
+				// A file the sub-path rewrites cannot use them.
+				rec = get(t, h, sub+"/-/next/assets/based.js", "Accept-Encoding", enc)
+				want := "SIDECAR"
+				if sub != "" {
+					want = strings.Replace(based, "/-/next/", sub+"/-/next/", 1)
+				}
+				assert.Equal(t, want, string(decode(t, enc, rec.Body.Bytes())), "sub=%q", sub)
+			}
+			assert.Equal(t, http.StatusNotFound, get(t, h, sub+"/-/next/assets/side.js.br").Code)
+			assert.Equal(t, http.StatusNotFound, get(t, h, sub+"/-/next/assets/side.js.gz").Code)
+		}
+	})
+
+	t.Run("new build", func(t *testing.T) {
+		dir := writeDist(t)
+		h := spaHandler(t, dir, innerMarker)
+		s := h.spa
+		cached := func(p string) bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.files[p] != nil
+		}
+		require.True(t, cached("assets/vendor-def.js"), "warmed")
+		version, err := s.buildVersion()
+		require.NoError(t, err)
+		assert.Equal(t, version, s.build)
+
+		// Deploy: the old chunk is gone, index.html changes.
+		require.NoError(t, os.Remove(filepath.Join(dir, "assets", "vendor-def.js")))
+		index, err := os.ReadFile(filepath.Join(dir, "index.html"))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), append(index, "<!-- v2 -->\n"...), 0o644))
+		rec := get(t, h, "/-/next/")
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "<!-- v2 -->")
+		s.warms.Wait()
+		assert.False(t, cached("assets/vendor-def.js"), "dropped from the cache")
+		assert.True(t, cached("assets/index-abc.js"))
+		assert.Equal(t, http.StatusNotFound, get(t, h, "/-/next/assets/vendor-def.js").Code)
+	})
+}
+
+func decode(t *testing.T, enc string, data []byte) []byte {
+	t.Helper()
+	var r io.Reader = bytes.NewReader(data)
+	switch enc {
+	case "br":
+		r = brotli.NewReader(r)
+	case "gzip":
+		gr, err := gzip.NewReader(r)
+		require.NoError(t, err)
+		r = gr
+	}
+	res, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return res
 }
 
 func TestSPANoBuild(t *testing.T) {

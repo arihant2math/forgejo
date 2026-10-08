@@ -9,8 +9,8 @@ export interface ResizeHandleProps {
   value: number;
   min: number;
   max: number;
-  /** While dragging (every pointer move; keep it cheap: no React state). */
-  onResize: (value: number) => void;
+  /** While dragging (every pointer move; keep it cheap: no React state). `handle` is this separator. */
+  onResize: (value: number, handle: HTMLElement) => void;
   /** Once the drag or key press ends: persist. */
   onCommit: (value: number) => void;
 }
@@ -34,7 +34,7 @@ export function ResizeHandle({label, value, min, max, onResize, onCommit}: Resiz
     if (!d) return;
     d.last = clamp(d.start + e.clientX - d.x);
     e.currentTarget.setAttribute('aria-valuenow', String(d.last));
-    onResize(d.last);
+    onResize(d.last, e.currentTarget);
   };
   const onPointerUp = () => {
     const d = drag.current;
@@ -47,7 +47,7 @@ export function ResizeHandle({label, value, min, max, onResize, onCommit}: Resiz
     if (next === undefined) return;
     e.preventDefault();
     const v = clamp(next);
-    onResize(v);
+    onResize(v, e.currentTarget);
     onCommit(v);
   };
   return (

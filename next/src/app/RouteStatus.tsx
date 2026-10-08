@@ -3,13 +3,17 @@
 
 import {Link, type ErrorComponentProps} from '@tanstack/react-router';
 import {FileQuestion, RefreshCw} from 'lucide-react';
+import {useEffect} from 'react';
 import {Button, EmptyState} from '../ui/index.ts';
 import {CenteredScreen} from './LoggedOut.tsx';
 import {isChunkError, reloadOnce} from './reload.ts';
 
 /** A route failed to load or render. A missing chunk (an old build) reloads once. */
 export function RouteError({error}: ErrorComponentProps) {
-  if (isChunkError(error) && reloadOnce()) return null;
+  const chunk = isChunkError(error);
+  useEffect(() => {
+    if (chunk) reloadOnce();
+  }, [chunk]);
   return (
     <CenteredScreen>
       <EmptyState

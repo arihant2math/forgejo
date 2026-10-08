@@ -35,7 +35,11 @@ import {markOnce} from './rum.ts';
 import {openSSE, openWebSocket, type Transport, type TransportEnv} from './transport.ts';
 
 export interface SyncAuth {
-  /** A current access token (OAuth2 or a personal access token). */
+  /**
+   * A current access token (OAuth2 or a personal access token). Rejects with
+   * an error named "SignedOut" when there is no session (the client then
+   * stops as `unauthorized`); any other rejection is retried.
+   */
   token(): Promise<string>;
   /** The server refused the token: a new one, or null when signed out. */
   refresh(): Promise<string | null>;
@@ -169,7 +173,7 @@ export class SyncClient {
   private workspaceOrder = new Map<string, number>();
   private readonly offPool: () => void;
   private readonly onOnline = () => {
-    if (this.stopped) return;
+    if (this.stopped || this.status.connection === 'unauthorized') return;
     this.attempts = 0;
     const session = this.session;
     if (session) {
@@ -408,7 +412,12 @@ export class SyncClient {
     try {
       token = await this.o.auth.token();
     } catch (err) {
-      this.setStatus({lastError: String(err)});
+      if (signedOut(err)) {
+        // No session any more: stop reconnecting until the app signs in again (it reloads).
+        this.setStatus({connection: 'unauthorized', lastError: String(err)});
+      } else {
+        this.setStatus({lastError: String(err)});
+      }
       session.transport.close();
       return;
     }
@@ -985,7 +994,7 @@ export class SyncClient {
   }
 
   private pump(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.status.connection === 'unauthorized') return;
     if (offline()) return;
     const now = this.now();
     let nextRetry = Number.POSITIVE_INFINITY;
@@ -1164,6 +1173,10 @@ export class SyncClient {
 /** A list from the wire: Go encodes an empty (nil) slice as null. */
 function list<T>(x: readonly T[] | null | undefined): readonly T[] {
   return x ?? [];
+}
+
+function signedOut(err: unknown): boolean {
+  return err instanceof Error && err.name === 'SignedOut';
 }
 
 /** The browser says it is offline (an unknown state counts as online). */

@@ -40,6 +40,11 @@ export interface DataOptions {
   /** Ask the browser not to evict the database (default true). */
   persistStorage?: boolean;
   env?: TabsEnv & {indexedDB?: IDBFactory; IDBKeyRange?: typeof IDBKeyRange; transport?: TransportEnv};
+  /**
+   * This tab was elected leader but cannot lead (its sync modules failed to
+   * load). It has given up the leadership already; the app should reload.
+   */
+  onFatal?: (err: unknown) => void;
   /** Tab holds of tabs not heard from for this long are dropped (ms, default 60 s). */
   tabTimeout?: number;
 }
@@ -121,6 +126,8 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const listeners = new Map<string, Set<(e: never) => void>>();
   const workspace = observable({current: undefined as Workspace | undefined}, {}, {deep: false});
   listeners.set('workspace', new Set([(e: SyncEvents['workspace']) => {
+    // Every session fetches it; observers only hear about a real change.
+    if (JSON.stringify(e.workspace) === JSON.stringify(workspace.current)) return;
     runInAction(() => {
       workspace.current = e.workspace;
     });
@@ -325,7 +332,17 @@ export async function openData(opts: DataOptions): Promise<Data> {
       // hydrated (the persister defers it).
       await firstRoute;
     }
-    const [{SyncClient}, {Persister}] = await modules;
+    let loaded: Awaited<typeof modules>;
+    try {
+      loaded = await modules;
+    } catch (err) {
+      // Holding the leader lock without leading would stop every tab of the user from syncing.
+      runInAction(() => Object.assign(status, {lastError: String(err)}));
+      tabs.close();
+      opts.onFatal?.(err);
+      return;
+    }
+    const [{SyncClient}, {Persister}] = loaded;
     if (isClosed()) return;
     leading = true;
     hydrator.trackSeen = false;

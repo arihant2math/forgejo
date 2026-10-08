@@ -11,6 +11,7 @@ import {resumeWipes, signOut} from '../auth/signout.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {openData} from '../sync/data.ts';
 import {sitePath, uiPath} from './config.ts';
+import {reloadOnce} from './reload.ts';
 import {hasUser, readSplash} from './splash.ts';
 import type {App, Session} from './store.ts';
 
@@ -26,17 +27,28 @@ export async function openSession(config: NextConfig): Promise<Session | undefin
   resumeWipes(Number.isSafeInteger(userId) ? userId : undefined);
   if (!Number.isSafeInteger(userId) || userId <= 0) return undefined;
   const auth = new AuthSession(config.oauth, userId);
+  // The leader's modules, fetched while IndexedDB is read (data.ts loads them lazily).
+  void import('../sync/client.ts').catch(() => undefined);
   const data = await openData({
     userId, auth, endpoint: sitePath(config, '/-/sync'), ...(config.version ? {buildId: config.version} : {}),
+    onFatal: (err) => {
+      // The sync modules of this build are gone (a deploy) or unreachable: reload once.
+      console.error('livesync: this tab cannot sync', err);
+      reloadOnce();
+    },
   });
   await data.firstRoute;
   return {userId, auth, data};
 }
 
+/** This tab is signing out: its own `logout` broadcast (heard by followOtherTabs' channel) must not reload it midway. */
+let signingOut = false;
+
 /** Sign out now (no warning); then the logged-out screen. */
 export async function performSignOut(app: App): Promise<void> {
   const s = app.session;
-  if (!s) return;
+  if (!s || signingOut) return;
+  signingOut = true;
   await signOut({
     auth: s.auth, close: () => s.data.close(),
     // Forgejo's classic sign-out (same-origin POST passes its cross-origin protection).
@@ -97,6 +109,7 @@ export function followOtherTabs(app: App): () => void {
       return;
     }
     if (m.t === 'logout' && m.userId === s.userId) {
+      if (signingOut) return;
       s.auth.close();
       void s.data.close().finally(() => {
         location.replace(app.config.base);

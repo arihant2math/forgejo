@@ -22,9 +22,11 @@ const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Meta', 'Alt', 'AltGraph', 'C
 const NAMED = new Set(['enter', 'escape', 'tab', 'backspace', 'delete', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'home', 'end', 'pageup', 'pagedown', ' ']);
 
 /** The chord an event types, in keymap notation ("mod+k", "g", "?", "shift+enter"); undefined for a bare modifier. */
-export function chordOf(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, apple: boolean): string | undefined {
+export function chordOf(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> & {code?: string}, apple: boolean): string | undefined {
   if (MODIFIER_KEYS.has(e.key) || e.key === 'Dead' || e.key === 'Unidentified' || !e.key) return undefined;
-  const lower = e.key.toLowerCase();
+  // A letter key of a non-Latin layout (Cyrillic, Greek, …): its position, as on a US layout.
+  const physical = /^Key([A-Z])$/.exec(e.code ?? '')?.[1];
+  const lower = e.key.length === 1 && !/^[\x20-\x7e]$/.test(e.key) && physical ? physical.toLowerCase() : e.key.toLowerCase();
   const letter = /^[a-z0-9]$/.test(lower);
   const named = NAMED.has(lower);
   const key = lower === ' ' ? 'space' : letter || named ? lower : e.key;
@@ -123,7 +125,9 @@ export class ShortcutRegistry {
 
   /** Handles a keydown; returns whether a shortcut ran (or a sequence started). */
   handle(e: KeyboardEvent): boolean {
-    if (e.defaultPrevented || e.isComposing) return false;
+    // keyCode 229: a key the IME is handling (some browsers do not set isComposing).
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only IME signal some browsers give
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return false;
     const chord = chordOf(e, this.apple);
     if (!chord) return false;
     const target = e.target instanceof Element ? e.target : null;
@@ -134,6 +138,8 @@ export class ShortcutRegistry {
       let best: {binding: Binding; depth: number} | undefined;
       let prefix = false;
       for (const c of candidates) {
+        // Holding a key repeats only movement (J/K in a list), never a toggle such as ⌘K.
+        if (e.repeat && c.binding.id !== 'list.next' && c.binding.id !== 'list.prev') continue;
         if (c.keys === keys) {
           if (!best || c.depth > best.depth || (c.depth === best.depth && c.binding.seq > best.binding.seq)) best = c;
         } else if (c.keys.startsWith(`${keys} `)) {

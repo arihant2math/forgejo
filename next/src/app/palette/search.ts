@@ -14,13 +14,30 @@ import type {Issue, Repository} from '../../protocol/types.gen.ts';
 export interface SearchResults {
   repos: Repository[];
   issues: {issue: Issue; repo: Repository | undefined}[];
+  /** Every issue that matched (undefined when too many to keep): the candidates of a narrower query. */
+  matched?: Issue[] | undefined;
 }
+
+/** A previous search whose matches a query that extends it can be narrowed from. */
+export interface Narrowing {
+  query: string;
+  matched: readonly Issue[];
+}
+
+/** Matches kept for narrowing at most (a one-letter query matches nearly everything: scan again). */
+const KEEP = 20_000;
 
 export interface SearchOptions {
   repoLimit?: number;
   issueLimit?: number;
   /** Repositories not in the pool yet (Data.peek). */
   extraRepos?: ReadonlyMap<number, Repository>;
+  /**
+   * The previous keystroke's search: when this query extends it (more letters
+   * or words, no issue number), only its matches can match (typing narrows;
+   * a delta that arrives meanwhile shows at the next full scan).
+   */
+  narrow?: Narrowing | undefined;
 }
 
 const lowered = new WeakMap<object, string>();
@@ -52,17 +69,24 @@ function isBoundary(text: string, i: number): boolean {
   return !((c >= 48 && c <= 57) || (c >= 97 && c <= 122) || c > 127);
 }
 
+/** One word in text: 3 at the start, 2 at a word start, 1 inside, -1 absent. */
+function wordScore(text: string, w: string): number {
+  let i = text.indexOf(w);
+  if (i < 0) return -1;
+  let best = i === 0 ? 3 : isBoundary(text, i) ? 2 : 1;
+  while (best < 2 && (i = text.indexOf(w, i + 1)) >= 0) {
+    if (isBoundary(text, i)) best = 2;
+  }
+  return best;
+}
+
 /** Scores text against words: every word must occur; prefixes and word starts score higher. -1: no match. */
 export function score(text: string, words: readonly string[]): number {
   let total = 0;
   for (const w of words) {
-    let i = text.indexOf(w);
-    if (i < 0) return -1;
-    let best = i === 0 ? 3 : isBoundary(text, i) ? 2 : 1;
-    while (best < 2 && (i = text.indexOf(w, i + 1)) >= 0) {
-      if (isBoundary(text, i)) best = 2;
-    }
-    total += best;
+    const s = wordScore(text, w);
+    if (s < 0) return -1;
+    total += s;
   }
   return total;
 }
@@ -89,6 +113,10 @@ function pushTop<T>(top: Ranked<T>[], r: Ranked<T>, limit: number): void {
   top.splice(i, 0, r);
 }
 
+function* dataOf<T>(entities: Iterable<{data: T}>): Iterable<T> {
+  for (const e of entities) yield e.data;
+}
+
 export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}): SearchResults {
   const {words, number} = terms(query);
   if (!words.length) return {repos: [], issues: []};
@@ -108,36 +136,64 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   if (opts.extraRepos) for (const r of opts.extraRepos.values()) if (!seenRepos.has(r.id)) considerRepo(r);
 
   const repoOf = (id: number): Repository | undefined => repoStore.get(id)?.data ?? opts.extraRepos?.get(id);
-  const issues: Ranked<Issue>[] = [];
-  // Words other than the number must match the title or the repository's name.
+  // Words other than the number match the title or the repository's name.
   const textWords = number === undefined ? words : words.filter((w) => !/^#?\d+$/.test(w));
-  for (const e of pool.model('Issue').all()) {
-    const issue = e.data;
+  // Per word, the repositories whose name has it (scored once, not per issue: no string is built per issue).
+  const inRepo = textWords.map((w) => {
+    const m = new Map<number, number>();
+    const add = (r: Repository) => {
+      const t = wordScore(repoText(r), w);
+      if (t >= 0) m.set(r.id, t);
+    };
+    for (const e of repoStore.all()) add(e.data);
+    if (opts.extraRepos) for (const r of opts.extraRepos.values()) add(r);
+    return m;
+  });
+  /** Every word in the title or the repository's name, at least `needTitle` of them in the title; -1 otherwise. */
+  const match = (issue: Issue, needTitle: number): number => {
+    const title = lower(issue, () => issue.title);
+    let total = 0;
+    let inTitle = 0;
+    for (let k = 0; k < textWords.length; k++) {
+      let t = wordScore(title, textWords[k] ?? '');
+      if (t >= 0) {
+        inTitle++;
+      } else {
+        t = inRepo[k]?.get(issue.repo_id) ?? -1;
+        if (t < 0) return -1;
+      }
+      total += t;
+    }
+    return inTitle >= needTitle ? total : -1;
+  };
+  const issues: Ranked<Issue>[] = [];
+  const prev = opts.narrow;
+  const narrowed = prev && number === undefined && terms(prev.query).number === undefined && query.toLowerCase().startsWith(prev.query.toLowerCase());
+  const candidates: Iterable<Issue> = narrowed ? prev.matched : dataOf(pool.model('Issue').all());
+  let matched: Issue[] | undefined = [];
+  for (const issue of candidates) {
     let s: number;
     if (number !== undefined && issue.number === number) {
-      if (!textWords.length) {
-        s = 4;
-      } else {
-        const r = repoOf(issue.repo_id);
-        const t = score(`${lower(issue, () => issue.title)} ${r ? repoText(r) : ''}`, textWords);
-        if (t < 0) continue;
-        s = 4 + t;
-      }
+      const t = textWords.length ? match(issue, 0) : 0;
+      if (t < 0) continue;
+      s = 4 + t;
     } else {
-      s = score(lower(issue, () => issue.title), words);
-      if (s < 0) {
-        // "repo words + title words": try the repository's name with the title.
-        const r = repoOf(issue.repo_id);
-        if (!r || words.length < 2) continue;
-        s = score(`${lower(issue, () => issue.title)} ${repoText(r)}`, words);
-        if (s < 0) continue;
-      }
+      // One word: the title. Several: the title has at least one, the rest may name the repository.
+      s = match(issue, 1);
+      if (s < 0) continue;
       if (issue.state === 'open') s += 0.5;
+    }
+    // An issue whose repository is not known here cannot be opened: no slot for it.
+    if (!repoOf(issue.repo_id)) continue;
+    if (matched) {
+      if (matched.length < KEEP) matched.push(issue);
+      else matched = undefined;
     }
     pushTop(issues, {item: issue, score: s, updated: issue.updated_at}, issueLimit);
   }
   return {
     repos: repos.map((r) => r.item),
     issues: issues.map((r) => ({issue: r.item, repo: repoOf(r.item.repo_id)})),
+    matched,
   };
 }

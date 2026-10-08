@@ -258,7 +258,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   await input.fill('dark mode');
   await expect(page.getByRole('option', {name: /Add dark mode to the dashboard/})).toBeVisible();
   const searches = await page.evaluate(() => performance.getEntriesByName('palette:search').map((e) => e.duration));
-  expect(searches.length).toBeGreaterThan(3);
+  expect(searches.length).toBeGreaterThan(0); // typing is deferred: keystrokes may share a search
   expect(Math.max(...searches)).toBeLessThan(16);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/dev\/next-e2e\/issues\/\d+$/);

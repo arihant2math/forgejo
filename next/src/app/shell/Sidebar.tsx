@@ -171,11 +171,14 @@ function SidebarResize() {
       value={width}
       min={SIDEBAR_MIN}
       max={SIDEBAR_MAX}
-      onResize={(w) => {
-        // No React state while dragging: only the CSS variable the layout reads.
-        document.documentElement.style.setProperty('--sidebar-width', `${String(w)}px`);
+      onResize={(w, handle) => {
+        // While dragging, only the sidebar's own width changes (no React state, and not the
+        // root variable, whose change restyles the whole document on every pointer move).
+        handle.parentElement?.style.setProperty('width', `${String(w)}px`);
       }}
       onCommit={(w) => {
+        document.documentElement.style.setProperty('--sidebar-width', `${String(w)}px`);
+        for (const aside of document.querySelectorAll<HTMLElement>('aside[aria-label="Sidebar"]')) aside.style.removeProperty('width');
         writeSplash({sidebarWidth: w});
         setWidth(w);
       }}

@@ -11,7 +11,7 @@ const KEY = 'bootRetry';
 /** Whether an error is a failed dynamic import (a route chunk). */
 export function isChunkError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /dynamically imported module|Importing a module script failed|error loading dynamically imported module|Failed to fetch/i.test(msg);
+  return /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(msg);
 }
 
 /** Reloads unless this tab already did for a failed boot; returns whether it reloads. */

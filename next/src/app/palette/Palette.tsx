@@ -8,14 +8,14 @@
 import {useNavigate} from '@tanstack/react-router';
 import {CircleDot, CircleCheck, GitPullRequest, GitPullRequestClosed, Home, Inbox, Keyboard, LogOut, Monitor, Moon, SunMoon, Sun, BookMarked} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
-import {useMemo, useState} from 'react';
+import {useDeferredValue, useMemo, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '../../ui/Command.tsx';
 import type {LucideIcon} from '../../ui/index.ts';
 import {requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint, type ShortcutId} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
-import {score, searchPool, type SearchResults} from './search.ts';
+import {type Narrowing, score, searchPool, type SearchResults} from './search.ts';
 
 type Navigate = ReturnType<typeof useNavigate>;
 
@@ -57,17 +57,31 @@ const COMMANDS: PaletteCommand[] = [
 ];
 
 /** Searches the pool, timed (User Timing measure "palette:search"). Untracked: no subscriptions to what it read. */
-function search(app: App, query: string): SearchResults {
+function search(app: App, query: string, narrow: Narrowing | undefined): SearchResults {
   const s = app.session;
   if (!s || !query.trim()) return {repos: [], issues: []};
   const t0 = performance.now();
-  const results = untracked(() => searchPool(s.data.pool, query, {extraRepos: s.data.peek('Repository')}));
+  const results = untracked(() => searchPool(s.data.pool, query, {extraRepos: s.data.peek('Repository'), narrow}));
   try {
     performance.measure('palette:search', {start: t0, end: performance.now(), detail: {query: query.length}});
   } catch {
     // No User Timing.
   }
   return results;
+}
+
+/** Searches as the user types, each search narrowing the previous one's matches. */
+class Searcher {
+  private prev: Narrowing | undefined;
+  private readonly app: App;
+  constructor(app: App) {
+    this.app = app;
+  }
+  run(query: string): SearchResults {
+    const r = search(this.app, query, this.prev);
+    this.prev = r.matched ? {query, matched: r.matched} : undefined;
+    return r;
+  }
 }
 
 /** The dialog stays mounted once opened (it fades out); each opening starts with an empty query. */
@@ -89,7 +103,11 @@ export function Palette({open}: {open: boolean}) {
 function PaletteBody({app}: {app: App}) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
-  const results = useMemo(() => search(app, query), [app, query]);
+  // The input never waits for the search (a large pool's first keystroke scans it all);
+  // each search narrows the previous one's matches while typing.
+  const deferred = useDeferredValue(query);
+  const [searcher] = useState(() => new Searcher(app));
+  const results = useMemo(() => searcher.run(deferred), [searcher, deferred]);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const commands = words.length ? COMMANDS.filter((c) => score(`${c.label} ${c.keywords ?? ''}`.toLowerCase(), words) >= 0) : COMMANDS;
   const close = () => {

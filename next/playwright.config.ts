@@ -26,7 +26,9 @@ export default defineConfig({
     // Depends on "build": the build project's server writes dist/, which Forgejo serves (ASSETS_DIR).
     {name: 'forgejo', testMatch: 'forgejo.spec.ts', dependencies: ['build'], timeout: 90_000},
   ],
-  webServer: [
+  // NEXT_E2E_NO_SERVERS=1: run only against what is already up (e.g. --project forgejo against a
+  // Forgejo serving next/dist: the build server would rebuild dist under it).
+  webServer: process.env.NEXT_E2E_NO_SERVERS ? [] : [
     // Always this checkout's fresh build: never test whatever already listens on the port.
     {command: 'npx vite build && npx vite preview --host 127.0.0.1', url: 'http://127.0.0.1:4173/-/next/', reuseExistingServer: false},
     {command: 'npx vite --host 127.0.0.1', url: 'http://127.0.0.1:5173/-/next/', reuseExistingServer: false},

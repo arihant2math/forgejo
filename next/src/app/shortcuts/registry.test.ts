@@ -114,3 +114,18 @@ test('a handled key is not typed (preventDefault); defaultPrevented and IME even
   const composing = new KeyboardEvent('keydown', {key: 'c', isComposing: true});
   expect(r.handle(composing)).toBe(false);
 });
+
+test('held keys repeat movement only; non-Latin layouts use the key\'s position', () => {
+  const r = new ShortcutRegistry({apple: false});
+  const ran: string[] = [];
+  r.bind('palette.open', () => ran.push('palette'));
+  r.bind('list.next', () => ran.push('next'));
+  r.pushScope('list');
+  press(r, 'k', {ctrlKey: true, repeat: true});
+  press(r, 'j', {repeat: true});
+  expect(ran).toEqual(['next']);
+  r.bind('go.issues', () => ran.push('issues'));
+  press(r, 'п', {code: 'KeyG'});
+  press(r, 'ш', {code: 'KeyI'});
+  expect(ran).toEqual(['next', 'issues']);
+});

@@ -32,7 +32,17 @@ export function findRepo(data: Data, owner: string, name: string): number | unde
 
 const looked = new Map<string, number | undefined>();
 
-async function fetchRepoId(app: App, owner: string, name: string): Promise<number | undefined> {
+/** A loader waits at most this long for the network: the page then renders (render first). */
+const LOOKUP_TIMEOUT = 3000;
+
+function fetchRepoId(app: App, owner: string, name: string): Promise<number | undefined> {
+  return Promise.race([
+    lookup(app, owner, name),
+    new Promise<undefined>((resolve) => setTimeout(resolve, LOOKUP_TIMEOUT)),
+  ]);
+}
+
+async function lookup(app: App, owner: string, name: string): Promise<number | undefined> {
   const key = `${owner}/${name}`.toLowerCase();
   if (looked.has(key)) return looked.get(key);
   const s = app.session;
@@ -40,12 +50,12 @@ async function fetchRepoId(app: App, owner: string, name: string): Promise<numbe
   try {
     const token = await s.auth.token();
     const res = await fetch(sitePath(app.config, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`), {
-      headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit',
+      headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', signal: AbortSignal.timeout(LOOKUP_TIMEOUT),
     });
     const id = res.ok ? (await res.json() as {id?: unknown}).id : undefined;
     const found = typeof id === 'number' && id > 0 ? id : undefined;
-    // Remember a definite answer only (a 404 too); a network error is tried again.
-    if (res.ok || res.status === 404) looked.set(key, found);
+    // Remember a found repository only; a 404 (it may be created or shared later) and errors are asked again.
+    if (found !== undefined) looked.set(key, found);
     return found;
   } catch {
     return undefined;

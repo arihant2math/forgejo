@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	livesync_model "forgejo.org/models/livesync"
@@ -25,6 +26,8 @@ import (
 	"forgejo.org/services/livesync/hub"
 	"forgejo.org/services/livesync/idempotency"
 	"forgejo.org/services/livesync/materialize"
+	"forgejo.org/services/livesync/metrics"
+	"forgejo.org/services/livesync/oauthapp"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/synclog"
 )
@@ -45,6 +48,9 @@ var (
 	// ErrUnsupportedDatabase is returned by Init on databases other than
 	// PostgreSQL and MySQL/MariaDB (i.e. SQLite).
 	ErrUnsupportedDatabase = errors.New("livesync supports only PostgreSQL and MySQL/MariaDB")
+	// ErrInvalidSettings is matched by the error Init returns for an
+	// invalid [livesync] section.
+	ErrInvalidSettings = errors.New("invalid [livesync] settings")
 )
 
 // instance is one successful Init. Its context is cancelled by Shutdown (or by
@@ -58,6 +64,11 @@ type instance struct {
 	perms  *perm.Cache
 	hub    *hub.Hub
 	idem   *idempotency.Service
+	// writing: this instance holds the sync log writer lease.
+	writing atomic.Bool
+	// oauth is the Next UI's OAuth2 client (nil when it could not be
+	// provisioned, e.g. with Forgejo's OAuth2 provider off).
+	oauth *oauthapp.App
 }
 
 // readerStopTimeout bounds how long Shutdown waits for the outbox reader
@@ -71,6 +82,9 @@ const hubStopTimeout = 5 * time.Second
 var (
 	mu      sync.Mutex
 	current *instance
+	// initErr is the error of the last Init (nil after a successful one):
+	// why livesync is not serving (the admin page shows it).
+	initErr error
 )
 
 // Init loads the [livesync] settings and, when livesync is enabled on a
@@ -92,19 +106,22 @@ var (
 // parent context, is what stops livesync in an orderly way. Calling Init again
 // shuts the previous instance down first (tests do this; the web server calls
 // it once).
-func Init(ctx context.Context) error {
+func Init(ctx context.Context) (err error) {
 	mu.Lock()
 	defer mu.Unlock()
 	shutdownLocked()
+	defer func() { initErr = err }()
 
 	s, err := loadSettings(setting.CfgProvider)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrInvalidSettings, err)
 	}
 	Setting = s
 	if !s.Enabled {
 		return ErrDisabled
 	}
+	// The metrics show a degraded livesync too (up, outbox backlog).
+	metrics.Register(collector{})
 	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {
 		return fmt.Errorf("%w (DB_TYPE is %q)", ErrUnsupportedDatabase, setting.Database.Type)
 	}
@@ -120,6 +137,12 @@ func Init(ctx context.Context) error {
 	}
 	if err := ensureCapture(ctx, s.InstallMode); err != nil {
 		return err
+	}
+
+	oauth, err := oauthapp.Ensure(ctx, s.OAuthRedirectURIs)
+	if err != nil {
+		// Sync sessions with personal access tokens still work.
+		log.Warn("livesync: the Next UI cannot sign in: %v", err)
 	}
 
 	head, err := synclog.Head(ctx)
@@ -147,8 +170,9 @@ func Init(ctx context.Context) error {
 		return fmt.Errorf("livesync: start the sync log tailer: %w", err)
 	}
 	writer := make(chan struct{})
-	go runWriter(instCtx, s, tailer, idem, writer)
-	current = &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms, hub: hb, idem: idem}
+	inst := &instance{ctx: instCtx, cancel: cancel, tailer: tailer, writer: writer, perms: perms, hub: hb, idem: idem, oauth: oauth}
+	go runWriter(instCtx, s, tailer, idem, &inst.writing, writer)
+	current = inst
 	log.Info("livesync: started (db=%s, install mode=%s)", setting.Database.Type, s.InstallMode)
 	return nil
 }
@@ -237,6 +261,26 @@ func Context() context.Context {
 		return ctx
 	}
 	return current.ctx
+}
+
+// InitError returns the error of the last Init (nil after a successful
+// one, also once that instance was shut down): why livesync is not
+// serving.
+func InitError() error {
+	mu.Lock()
+	defer mu.Unlock()
+	return initErr
+}
+
+// OAuthApp returns the running instance's Next UI OAuth2 client, nil when
+// livesync is not running or the client could not be provisioned.
+func OAuthApp() *oauthapp.App {
+	mu.Lock()
+	defer mu.Unlock()
+	if current == nil || current.ctx.Err() != nil {
+		return nil
+	}
+	return current.oauth
 }
 
 // Running reports whether livesync is initialised and not shut down.

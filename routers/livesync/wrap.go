@@ -27,32 +27,49 @@ const (
 
 // Wrap runs livesync.Init and returns the handler the web server must serve.
 //
-// When livesync is disabled, the database is not supported (SQLite), the
-// capture triggers are missing or stale (logged with the DDL that installs
-// them) or Init fails otherwise, it logs why and returns inner itself,
-// unchanged: Forgejo then behaves
-// exactly as upstream. Otherwise it registers livesync's graceful-shutdown hook
-// and returns a handler that serves /-/sync/* and /-/next/* itself, runs the
-// API v1 writes that carry an Idempotency-Key through the idempotency layer
-// (idempotency.go) and passes every other request to inner untouched.
+// When livesync is disabled it runs the kill switch (livesync.Disable: the
+// capture triggers of an earlier run are removed) and returns inner
+// itself; so it does on SQLite and with invalid [livesync] settings:
+// Forgejo then behaves exactly as upstream. When livesync is enabled but
+// Init fails (the capture triggers are missing or stale — logged with the
+// DDL that installs them — or anything else), Forgejo serves the classic
+// UI through a thin handler that only adds the admin page and the health
+// check (degraded, admin.go). Otherwise it registers livesync's
+// graceful-shutdown hook and returns a handler that serves /-/sync/* and
+// /-/next/* itself, the Next UI's document to opted-in browsers on the
+// routes it supports (spa.go), runs the API v1 writes that carry an
+// Idempotency-Key through the idempotency layer (idempotency.go) and
+// passes every other request to inner untouched.
 func Wrap(inner http.Handler) http.Handler {
-	if err := livesync_service.Init(graceful.GetManager().HammerContext()); err != nil {
+	ctx := graceful.GetManager().HammerContext()
+	if err := livesync_service.Init(ctx); err != nil {
 		var notInstalled *capture.NotInstalledError
 		switch {
-		case errors.Is(err, livesync_service.ErrDisabled) || errors.Is(err, livesync_service.ErrUnsupportedDatabase):
+		case errors.Is(err, livesync_service.ErrDisabled):
 			log.Info("livesync: not serving: %v; serving the classic UI only", err)
+			if err := livesync_service.Disable(ctx); err != nil {
+				log.Warn("livesync: disabled, but its capture triggers could not be removed: %v", err)
+			}
+			return inner
+		case errors.Is(err, livesync_service.ErrUnsupportedDatabase):
+			log.Info("livesync: not serving: %v; serving the classic UI only", err)
+			return inner
+		case livesync_service.State() != livesync_service.StateDegraded:
+			// Invalid settings: nothing to show on an admin page.
+			log.Error("livesync: failed to start, serving the classic UI only: %v", err)
+			return inner
 		case errors.As(err, &notInstalled):
 			// An operational state rather than a crash: in INSTALL_MODE
 			// verify a DBA has to run the DDL; in auto mode the database
 			// user lacks the privileges. Either way the DDL is needed.
 			// The triggers that are installed keep writing to the outbox,
 			// which nothing drains until livesync runs again.
-			log.Warn("livesync: not serving, serving the classic UI only: %v; the installed capture triggers keep filling livesync_change until livesync runs again", err)
+			log.Warn("livesync: not serving, serving the classic UI only: %v; the installed capture triggers keep filling livesync_change until livesync runs again (see %s)", err, adminPath)
 			log.Info("livesync: DDL that installs the capture triggers (run it as a privileged database user, then restart Forgejo):\n%s", notInstalled.Status.Script())
 		default:
-			log.Error("livesync: failed to start, serving the classic UI only: %v", err)
+			log.Error("livesync: failed to start, serving the classic UI only: %v (see %s)", err, adminPath)
 		}
-		return inner
+		return newDegraded(inner)
 	}
 	// The instance context is only cancelled by Shutdown or by a later Init,
 	// so this hook runs exactly once for this instance at graceful shutdown.
@@ -63,6 +80,7 @@ func Wrap(inner http.Handler) http.Handler {
 type handler struct {
 	inner   http.Handler // upstream Forgejo
 	own     http.Handler // livesync's routes (routes.go)
+	spa     *spa         // the Next UI's build (spa.go)
 	answers http.Handler // the idempotency layer's own responses (idempotency.go)
 	// idempotency returns the running instance's idempotency store (nil
 	// when stopped); a variable for tests.
@@ -70,7 +88,8 @@ type handler struct {
 }
 
 func newHandler(inner http.Handler) *handler {
-	return &handler{inner: inner, own: newRoutes(), answers: newAnswers(), idempotency: livesync_service.Idempotency}
+	s := newSPA(livesync_service.Setting.AssetsDir)
+	return &handler{inner: inner, own: newRoutes(inner, s), spa: s, answers: newAnswers(), idempotency: livesync_service.Idempotency}
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -78,6 +97,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if !ok {
 		if path, ok := keyed(req); ok {
 			h.serveKeyed(w, req, path)
+			return
+		}
+		if h.spa.document(req) {
+			// Through the answers router: Forgejo's protocol middlewares
+			// (access log, panic recovery) as for livesync's own routes.
+			h.answer(w, req, func(w http.ResponseWriter, req *http.Request) { h.spa.serveIndex(w, req, true) })
 			return
 		}
 		h.inner.ServeHTTP(w, req)

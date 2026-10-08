@@ -692,12 +692,18 @@ func TestLivesyncCaptureVerifyMode(t *testing.T) {
 	}
 	assert.Equal(t, []string{"comment/missing"}, missing)
 
-	// Wrap passes through: plain Forgejo.
+	// Wrap serves the classic UI, plus the admin page and the health
+	// check (B8: degraded).
 	inner := routers.NormalRoutes()
-	assert.Same(t, inner, livesync_router.Wrap(inner))
+	wrapped := livesync_router.Wrap(inner)
+	assert.NotSame(t, inner, wrapped)
 	assert.False(t, livesync_service.Running())
-	defer test.MockVariableValue(&testWebRoutes, livesyncRoutes(inner))()
-	MakeRequest(t, NewRequest(t, "GET", "/-/sync/health"), http.StatusNotFound)
+	assert.Equal(t, livesync_service.StateDegraded, livesync_service.State())
+	defer test.MockVariableValue(&testWebRoutes, livesyncRoutes(wrapped))()
+	resp := MakeRequest(t, NewRequest(t, "GET", "/-/sync/health"), http.StatusServiceUnavailable)
+	assert.JSONEq(t, `{"status":"degraded"}`, resp.Body.String())
+	MakeRequest(t, NewRequest(t, "GET", "/-/sync/grants"), http.StatusNotFound) // upstream's 404
+	MakeRequest(t, NewRequest(t, "GET", "/api/v1/version"), http.StatusOK)
 	assert.Equal(t, epochs, livesyncEpochs(t), "verify mode changes nothing")
 
 	// The DBA runs the DDL; verify mode now starts and bumps the epoch.

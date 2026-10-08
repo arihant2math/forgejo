@@ -373,3 +373,41 @@ func TestPostgresTriggerState(t *testing.T) {
 	state, _ = pgTriggerState(r, "s")
 	assert.Equal(t, StateStale, state)
 }
+
+func TestUninstallStatements(t *testing.T) {
+	n := len(catalog.Tracked())
+	for _, dialect := range []string{"postgres", "mysql"} {
+		st := statusAll(dialect, StateMissing)
+		assert.False(t, st.Installed())
+		assert.Empty(t, st.UninstallStatements())
+		assert.Empty(t, st.UninstallScript())
+	}
+
+	st := statusAll("postgres", StateOK)
+	st.Objects[1].State = StateMissing // that table's trigger is gone already
+	st.Objects[2].State = StateStale
+	st.Objects = append(st.Objects, Object{Kind: KindTrigger, Table: "notice", Name: pgTriggerName, State: StateExtra})
+	assert.True(t, st.Installed())
+	stmts := st.UninstallStatements()
+	require.Len(t, stmts, n+1, "every existing trigger (stale and extra ones too), then the function")
+	assert.Equal(t, pgDropTrigger("db", st.Objects[2].Table), stmts[0])
+	assert.Equal(t, pgDropTrigger("db", "notice"), stmts[n-1])
+	assert.Equal(t, `DROP FUNCTION IF EXISTS "db"."livesync_capture"()`, stmts[n], "no CASCADE: unknown dependents make it fail")
+	script := st.UninstallScript()
+	assert.True(t, strings.HasPrefix(script, "-- Remove the Forgejo livesync capture triggers, PostgreSQL schema \"db\".\n"))
+	for _, stmt := range stmts {
+		assert.Contains(t, script, "\n"+stmt+";\n")
+	}
+	assert.Contains(t, script, `-- DROP TABLE IF EXISTS "db"."livesync_change";`, "dropping the tables is offered, commented out")
+
+	st = statusAll("mysql", StateOK)
+	st.Objects = append(st.Objects, Object{Kind: KindTrigger, Table: "notice", Name: "livesync_notice_ai", State: StateExtra})
+	stmts = st.UninstallStatements()
+	require.Len(t, stmts, 3*n+1)
+	assert.Equal(t, "DROP TRIGGER IF EXISTS `"+mysqlTriggerName(catalog.Tracked()[0].Name, mysqlEvents[0])+"`", stmts[0])
+	assert.Equal(t, "DROP TRIGGER IF EXISTS `livesync_notice_ai`", stmts[3*n])
+	script = st.UninstallScript()
+	assert.Contains(t, script, "USE `db`;\n")
+	assert.Contains(t, script, "-- DROP TABLE IF EXISTS `livesync_meta`;")
+	assert.NotContains(t, script, "\nDROP TABLE", "the tables are never dropped by the script as is")
+}

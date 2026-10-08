@@ -80,6 +80,11 @@ type Batch struct {
 	// Cursor is the reader's cursor once this batch is processed: every id
 	// at or below it is processed or given up. Commit persists it.
 	Cursor int64
+	// Seen is when the reader first saw the oldest change of the batch (or
+	// the gap a late transaction's change fills); zero when unknown (rows
+	// found by the sweep, deferred rows delivered again). For the
+	// materialize lag metric.
+	Seen time.Time
 
 	committed bool
 	deferred  map[int64]time.Time // change id -> not before
@@ -471,7 +476,7 @@ func (r *Reader) readNew(ctx context.Context, now time.Time) (int, error) {
 	} else if len(gaps) > 0 {
 		cursor = gaps[0][0] - 1
 	}
-	if err := r.deliver(ctx, rows, cursor); err != nil {
+	if err := r.deliver(ctx, rows, cursor, now); err != nil {
 		return 0, err
 	}
 	for _, g := range gaps {
@@ -502,12 +507,16 @@ func (r *Reader) recheckHoles(ctx context.Context) error {
 		after = rows[len(rows)-1].ID
 		full := len(rows) == r.cfg.BatchSize
 		if rows = r.due(rows, time.Now()); len(rows) > 0 {
+			var seen time.Time
 			next := r.holes.clone()
 			for _, c := range rows {
+				if i := next.index(c.ID); i >= 0 && (seen.IsZero() || next.r[i].since.Before(seen)) {
+					seen = next.r[i].since
+				}
 				next.remove(c.ID)
 			}
 			cursor := r.cursorFor(&next, r.high)
-			if err := r.deliver(ctx, rows, cursor); err != nil {
+			if err := r.deliver(ctx, rows, cursor, seen); err != nil {
 				return err
 			}
 			r.holes, r.cursor = next, cursor
@@ -534,7 +543,7 @@ func (r *Reader) sweep(ctx context.Context) error {
 		full := len(rows) == r.cfg.BatchSize
 		if rows = r.due(rows, time.Now()); len(rows) > 0 {
 			log.Debug("livesync: outbox reader found %d late or deferred row(s) at or below its cursor %d", len(rows), r.cursor)
-			if err := r.deliver(ctx, rows, r.cursor); err != nil {
+			if err := r.deliver(ctx, rows, r.cursor, time.Time{}); err != nil {
 				return err
 			}
 		}
@@ -570,8 +579,8 @@ func (r *Reader) deferredDue(now time.Time) bool {
 
 // deliver hands rows to the consumer and commits the batch if the consumer
 // did not.
-func (r *Reader) deliver(ctx context.Context, rows []livesync_model.Change, cursor int64) error {
-	b := &Batch{Changes: rows, Cursor: cursor}
+func (r *Reader) deliver(ctx context.Context, rows []livesync_model.Change, cursor int64, seen time.Time) error {
+	b := &Batch{Changes: rows, Cursor: cursor, Seen: seen}
 	if err := r.consumer.Consume(ctx, b); err != nil {
 		return fmt.Errorf("consume %d change(s): %w", len(rows), err)
 	}

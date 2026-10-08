@@ -29,6 +29,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/services/livesync/synclog"
 )
@@ -129,6 +130,7 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 		}
 		work = append(work, r)
 	}
+	appended := 0
 	err := m.inWriterTx(ctx, func(ctx context.Context) error {
 		entries, plan, err := m.materialize(ctx, work)
 		if err != nil {
@@ -137,6 +139,7 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 		if entries, err = plan.withPermissionEpoch(ctx, entries); err != nil {
 			return err
 		}
+		appended = len(entries)
 		first, err := m.writer.Append(ctx, entries)
 		if err != nil {
 			return err
@@ -148,6 +151,11 @@ func (m *Materializer) Consume(ctx context.Context, b *capture.Batch) error {
 	})
 	if err != nil {
 		return err
+	}
+	metrics.Materialized.Add(float64(len(b.Changes)))
+	metrics.LogEntries.Add(float64(appended))
+	if !b.Seen.IsZero() {
+		metrics.MaterializeLag.Observe(time.Since(b.Seen).Seconds())
 	}
 	for _, k := range hot {
 		m.hot.done(k, now)

@@ -10,6 +10,7 @@ import (
 
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/protocol"
 
 	"github.com/coder/websocket"
@@ -59,6 +60,7 @@ func (h *Hub) ServeWebSocket(w http.ResponseWriter, req *http.Request, auth Auth
 		_ = ws.Close(websocket.StatusGoingAway, "server shutting down")
 		return
 	}
+	metrics.SessionsOpened.WithLabelValues(TransportWebSocket).Inc()
 	defer c.stop()
 	writer := make(chan struct{})
 	go func() {

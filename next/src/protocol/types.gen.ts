@@ -1298,6 +1298,111 @@ export interface SessionMessage {
 export const SessionHeader = "X-Livesync-Session";
 
 //////////
+// source: next.go
+
+/**
+ * NextConfigElementID is the id of the JSON data block with NextConfig
+ * in index.html.
+ */
+export const NextConfigElementID = "forgejo-next-config";
+/**
+ * NextUICookie / NextUICookieValue: the opt-in cookie.
+ */
+export const NextUICookie = "ui";
+export const NextUICookieValue = "next";
+/**
+ * TrustedTypesPolicy is the Trusted Types policy name the CSP allows
+ * (besides "default").
+ */
+export const TrustedTypesPolicy = "forgejo-next";
+/**
+ * NextConfig is the server configuration of the Next UI.
+ */
+export interface NextConfig {
+  /**
+   * AppURL is Forgejo's public URL (ends with "/"), AppSubURL its path
+   * ("" or "/sub", no trailing slash), Base the UI's base path
+   * (AppSubURL + "/-/next/").
+   */
+  app_url: string;
+  app_sub_url: string;
+  base: string;
+  /**
+   * AppName is the instance's name ([DEFAULT] APP_NAME).
+   */
+  app_name: string;
+  /**
+   * Version is Forgejo's version (WelcomeMessage.build_id).
+   */
+  version: string;
+  /**
+   * Protocol is ProtocolVersion.
+   */
+  protocol: number /* int */;
+  /**
+   * OAuth is the UI's OAuth2 client; null when the UI cannot sign in
+   * (Forgejo's OAuth2 provider is disabled).
+   */
+  oauth: NextOAuth | null;
+}
+/**
+ * NextOAuth describes the Next UI's OAuth2 client (a public client: PKCE
+ * with S256 is required, there is no secret). Send exactly Scope (as is):
+ * an authorization with another scope string fails while the user has a
+ * grant. Forgejo shows the consent page at every authorization of a public
+ * client. Access tokens expire ([oauth2] ACCESS_TOKEN_EXPIRATION_TIME, 1 h
+ * by default); refresh them with the refresh token at TokenURL
+ * (grant_type=refresh_token, client_id). There is no revocation endpoint
+ * for the client: signing out forgets the tokens (the grant stays listed
+ * in the user's settings until revoked there).
+ */
+export interface NextOAuth {
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  authorize_url: string;
+  token_url: string;
+}
+/**
+ * RUMReport is the body of POST /-/sync/rum (Content-Type
+ * application/json, at most 8 KiB, anonymous allowed, rate-limited per
+ * client address; 204 on success, 400/413/415/429 otherwise): browser
+ * timings in milliseconds by mark, and event counts. Unknown marks and
+ * events are ignored (counted as rejected); values must be finite, timings
+ * between 0 and 10 minutes, counts between 0 and 1000. They feed
+ * Prometheus histograms and counters only; nothing is stored.
+ */
+export interface RUMReport {
+  marks?: { [key: RUMMark]: number /* float64 */};
+  events?: { [key: RUMEvent]: number /* int */};
+}
+/**
+ * RUMMark names a timing (milliseconds; boot marks from appStart, mutation
+ * marks from the local apply).
+ */
+export type RUMMark = string;
+export const RUMFirstPaintFromCache: RUMMark = "firstPaintFromCache";
+export const RUMDataOpen: RUMMark = "dataOpen";
+export const RUMWSOpen: RUMMark = "wsOpen";
+export const RUMCaughtUp: RUMMark = "caughtUp";
+export const RUMHydrateRoute: RUMMark = "hydrateRoute";
+export const RUMHydrateAll: RUMMark = "hydrateAll";
+export const RUMMutationLocal: RUMMark = "mutationLocal";
+export const RUMMutationAcked: RUMMark = "mutationAcked";
+export const RUMMutationConfirmed: RUMMark = "mutationConfirmed";
+export const RUMInteraction: RUMMark = "inp";
+/**
+ * RUMEvent names a counted client event (offline queue outcomes).
+ */
+export type RUMEvent = string;
+export const RUMIntentFlushed: RUMEvent = "intentFlushed";
+export const RUMIntentRetried: RUMEvent = "intentRetried";
+export const RUMIntentFailed: RUMEvent = "intentFailed";
+export const RUMConflictMerged: RUMEvent = "conflictMerged";
+export const RUMConflictOverride: RUMEvent = "conflictOverride";
+export const RUMConflictDiscarded: RUMEvent = "conflictDiscarded";
+
+//////////
 // source: protocol.go
 /*
 Package protocol defines livesync's wire types (PLAN §4.4, §4.6): the

@@ -125,7 +125,8 @@ func TestLivesyncCaptureMySQLPrivileges(t *testing.T) {
 	require.ErrorAs(t, err, &myErr)
 	assert.False(t, livesync_service.Running())
 	inner := routers.NormalRoutes()
-	assert.Same(t, inner, livesync_router.Wrap(inner), "Wrap passes through")
+	assert.NotSame(t, inner, livesync_router.Wrap(inner), "Wrap serves the classic UI and the admin page (degraded)")
+	assert.Equal(t, livesync_service.StateDegraded, livesync_service.State())
 
 	// A privileged user (the DBA) runs the DDL.
 	for _, stmt := range nie.Status.Statements() {

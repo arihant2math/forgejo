@@ -5,6 +5,7 @@ package livesync
 
 import (
 	"errors"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ func TestLoadSettings(t *testing.T) {
 			SessionCheckInterval: 5 * time.Minute,
 			SummaryRecency:       90 * 24 * time.Hour, WorkspaceMaxRepos: 200,
 			IdempotencyTTL: 7 * 24 * time.Hour, IdempotencySyncWait: 2 * time.Second,
+			TriggerCheckInterval: time.Minute,
 		}
 		fn(&s)
 		return s
@@ -71,6 +73,15 @@ func TestLoadSettings(t *testing.T) {
 		{"[livesync]\nIDEMPOTENCY_TTL = 0\n", Settings{}, true},
 		{"[livesync]\nIDEMPOTENCY_SYNC_WAIT = -1s\n", Settings{}, true},
 		{"[livesync]\nIDEMPOTENCY_SYNC_WAIT = briefly\n", Settings{}, true},
+		{"[livesync]\nTRIGGER_CHECK_INTERVAL = 0\n", def(func(s *Settings) { s.TriggerCheckInterval = 0 }), false},
+		{"[livesync]\nTRIGGER_CHECK_INTERVAL = 5s\n", def(func(s *Settings) { s.TriggerCheckInterval = 5 * time.Second }), false},
+		{"[livesync]\nTRIGGER_CHECK_INTERVAL = -1s\n", Settings{}, true},
+		{"[livesync]\nTRIGGER_CHECK_INTERVAL = often\n", Settings{}, true},
+		{"[livesync]\nASSETS_DIR = /srv/next\n", def(func(s *Settings) { s.AssetsDir = "/srv/next" }), false},
+		{"[livesync]\nASSETS_DIR = next/dist\n", def(func(s *Settings) { s.AssetsDir = filepath.Join(setting.AppWorkPath, "next/dist") }), false},
+		{"[livesync]\nOAUTH_REDIRECT_URIS = http://127.0.0.1/-/next/callback, ,https://dev.example/-/next/callback\n", def(func(s *Settings) {
+			s.OAuthRedirectURIs = []string{"http://127.0.0.1/-/next/callback", "https://dev.example/-/next/callback"}
+		}), false},
 	}
 	for _, c := range cases {
 		t.Run(c.ini, func(t *testing.T) {
@@ -110,8 +121,23 @@ func TestInitWithoutDatabase(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		set(t, "[livesync]\nENABLED = true\nINSTALL_MODE = x\n", "mysql")
 		err := Init(t.Context())
-		require.Error(t, err)
+		require.ErrorIs(t, err, ErrInvalidSettings)
 		assert.False(t, errors.Is(err, ErrDisabled) || errors.Is(err, ErrUnsupportedDatabase))
+		assert.Equal(t, StateStopped, State(), "invalid settings are not a degraded livesync")
+	})
+	t.Run("degraded", func(t *testing.T) {
+		// Enabled on MySQL without a database: Init fails after the
+		// settings, which is the degraded state.
+		set(t, "[livesync]\nENABLED = true\n", "mysql")
+		err := Init(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, StateDegraded, State())
+		assert.Equal(t, err, InitError())
+		st := CollectStatus(t.Context())
+		assert.Equal(t, StateDegraded, st.State)
+		assert.Equal(t, err.Error(), st.Error)
+		assert.NotEmpty(t, st.Errors, "the parts that need the database are reported as errors")
+		assert.Nil(t, st.Hub)
 	})
 
 	assert.False(t, Running())

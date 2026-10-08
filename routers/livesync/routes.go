@@ -25,7 +25,37 @@ import (
 // registered here: the middlewares below wrap the ResponseWriter (hiding
 // Hijack and write deadlines), so they are dispatched in handler.ServeHTTP
 // before this router (sync.go).
-func newRoutes() http.Handler {
+//
+// inner is upstream's handler (the admin page asks it about the session), s
+// the Next UI's build.
+func newRoutes(inner http.Handler, s *spa) http.Handler {
+	r := newRouter()
+
+	r.Get(syncPrefix+"/health", health)
+	r.Get(syncPrefix+"/grants", grants)
+	r.Post(syncPrefix+"/send", sendMessage)
+	r.Get(syncPrefix+"/bootstrap", serveBootstrap)
+	r.Get(syncPrefix+"/load", serveLoad)
+	r.Get(syncPrefix+"/workspace", serveWorkspace)
+	r.Get(adminPath, serveAdmin(inner, s))
+	r.Post(syncPrefix+"/rum", serveRUM)
+
+	// The Next UI (spa.go).
+	r.Methods("GET,HEAD", nextPrefix+"/assets/*", s.serveAsset)
+	r.Methods("GET,HEAD", nextPrefix+"/sw.js", s.serveServiceWorker)
+	r.Methods("GET,POST", nextPrefix+"/opt-in", serveOptIn)
+	r.Methods("GET,POST", nextPrefix+"/opt-out", serveOptOut)
+	r.Get(nextPrefix+"/config", serveConfig)
+	r.Methods("GET,HEAD", nextPrefix, s.serveRoot)
+	r.Methods("GET,HEAD", nextPrefix+"/*", s.serveRoot)
+
+	return r
+}
+
+// newRouter returns an empty router with Forgejo's protocol middlewares
+// (panic recovery, process manager, access and router logs) and JSON 404 /
+// 405 answers.
+func newRouter() *web.Route {
 	// A web.Route literal instead of web.NewRoute(): in tests NewRoute resets
 	// the API v1 permission bookkeeping collected by routers.NormalRoutes().
 	r := &web.Route{R: chi.NewRouter()}
@@ -39,14 +69,6 @@ func newRoutes() http.Handler {
 		routing.UpdateFuncInfo(req.Context(), methodNotAllowedInfo)
 		methodNotAllowed(w, req)
 	})
-
-	r.Get(syncPrefix+"/health", health)
-	r.Get(syncPrefix+"/grants", grants)
-	r.Post(syncPrefix+"/send", sendMessage)
-	r.Get(syncPrefix+"/bootstrap", serveBootstrap)
-	r.Get(syncPrefix+"/load", serveLoad)
-	r.Get(syncPrefix+"/workspace", serveWorkspace)
-
 	return r
 }
 

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	livesync_model "forgejo.org/models/livesync"
 	user_model "forgejo.org/models/user"
@@ -27,6 +28,7 @@ import (
 	"forgejo.org/services/auth"
 	"forgejo.org/services/authz"
 	"forgejo.org/services/livesync/idempotency"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/protocol"
 
 	chi "github.com/go-chi/chi/v5"
@@ -255,6 +257,7 @@ func (h *handler) serveKeyed(w http.ResponseWriter, req *http.Request, path stri
 		}
 	}
 	if svc == nil {
+		metrics.Idempotency.WithLabelValues(outcomeRefused).Inc()
 		h.answer(w, req, answerUnavailable)
 		return
 	}
@@ -271,7 +274,13 @@ func (h *handler) serveKeyed(w http.ResponseWriter, req *http.Request, path stri
 
 // prepare checks a keyed request, authenticates it, reads its body and
 // reserves its key. It returns the write to run, or the answer to send.
-func prepare(req *http.Request, svc *idempotency.Service, path string) (*keyedWrite, answerFunc) {
+func prepare(req *http.Request, svc *idempotency.Service, path string) (kw *keyedWrite, ans answerFunc) {
+	outcome := outcomeRefused
+	defer func() {
+		if kw == nil {
+			metrics.Idempotency.WithLabelValues(outcome).Inc()
+		}
+	}()
 	keys := req.Header.Values(protocol.HeaderIdempotencyKey)
 	if len(keys) != 1 || !idempotency.ValidKey(keys[0]) {
 		return nil, answerJSON(http.StatusBadRequest, "Idempotency-Key must be one value of 1 to 255 printable ASCII characters")
@@ -322,10 +331,13 @@ func prepare(req *http.Request, svc *idempotency.Service, path string) (*keyedWr
 	}
 	switch begun.Outcome {
 	case idempotency.Replay:
+		outcome = outcomeReplay
 		return nil, func(w http.ResponseWriter, req *http.Request) { replay(req.Context(), w, svc, begun.Record) }
 	case idempotency.InFlight:
+		outcome = outcomeInFlight
 		return nil, answerJSON(http.StatusConflict, "a request with this Idempotency-Key is in progress; retry later", "Retry-After", "1")
 	case idempotency.Mismatch:
+		outcome = outcomeMismatch
 		return nil, answerJSON(http.StatusUnprocessableEntity, "this Idempotency-Key was used for a different request")
 	}
 	return &keyedWrite{svc: svc, user: u, path: path, body: body, res: begun.Reservation}, nil
@@ -399,6 +411,14 @@ func (h *handler) run(w http.ResponseWriter, req *http.Request, kw *keyedWrite) 
 		}
 	}
 	duplicate := rec != nil
+	switch {
+	case duplicate:
+		metrics.Idempotency.WithLabelValues(outcomeDuplicate).Inc()
+	case res.Recovered:
+		metrics.Idempotency.WithLabelValues(outcomeRecovered).Inc()
+	default:
+		metrics.Idempotency.WithLabelValues(outcomeRun).Inc()
+	}
 	if rec == nil {
 		rec = newRecorder(w)
 		h.inner.ServeHTTP(rec, withBody(req, kw.body))
@@ -456,8 +476,25 @@ func synced(ctx context.Context, svc *idempotency.Service, status int, low, high
 	if status >= http.StatusBadRequest {
 		return svc.SyncedNow(ctx, low, high)
 	}
-	return svc.WaitSynced(ctx, low, high)
+	start := time.Now()
+	id, ok := svc.WaitSynced(ctx, low, high)
+	metrics.SyncWait.Observe(time.Since(start).Seconds())
+	if !ok && ctx.Err() == nil {
+		metrics.SyncWaitTimeouts.Inc()
+	}
+	return id, ok
 }
+
+// Outcomes of keyed writes (metrics.Idempotency).
+const (
+	outcomeRun       = "run"
+	outcomeRecovered = "recovered"
+	outcomeDuplicate = "duplicate"
+	outcomeReplay    = "replay"
+	outcomeInFlight  = "in_flight"
+	outcomeMismatch  = "mismatch"
+	outcomeRefused   = "refused"
+)
 
 // replay answers with a completed record's stored response. A record
 // completed without a sync id (the wait timed out, or the outbox position

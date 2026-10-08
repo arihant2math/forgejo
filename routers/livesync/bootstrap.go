@@ -18,6 +18,7 @@ import (
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/bootstrap"
 	"forgejo.org/services/livesync/materialize"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 
@@ -65,7 +66,63 @@ func badRequest(w http.ResponseWriter, message string) {
 	writeJSON(w, http.StatusBadRequest, errorResponse{Message: message})
 }
 
+// serveSnapshot serves a bootstrap or load and records its metrics.
 func serveSnapshot(w http.ResponseWriter, req *http.Request, load bool) {
+	endpoint := "bootstrap"
+	if load {
+		endpoint = "load"
+	}
+	cw := &countingWriter{ResponseWriter: w}
+	start := time.Now()
+	defer func() {
+		status := cw.code()
+		metrics.Bootstraps.WithLabelValues(endpoint, strconv.Itoa(status)).Inc()
+		metrics.BootstrapBytes.WithLabelValues(endpoint).Add(float64(cw.n))
+		if status == http.StatusOK {
+			metrics.BootstrapDuration.WithLabelValues(endpoint).Observe(time.Since(start).Seconds())
+		}
+	}()
+	streamSnapshot(cw, req, load)
+}
+
+// countingWriter counts the bytes of a response and keeps its status.
+type countingWriter struct {
+	http.ResponseWriter
+	status int
+	n      int64
+}
+
+func (c *countingWriter) WriteHeader(status int) {
+	if c.status == 0 {
+		c.status = status
+	}
+	c.ResponseWriter.WriteHeader(status)
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	n, err := c.ResponseWriter.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// Flush passes flushes on (the bootstrap streams).
+func (c *countingWriter) Flush() {
+	if f, ok := c.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (c *countingWriter) code() int {
+	if c.status == 0 {
+		return http.StatusOK
+	}
+	return c.status
+}
+
+func streamSnapshot(w http.ResponseWriter, req *http.Request, load bool) {
 	perms := livesync_service.Permissions()
 	if perms == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Message: http.StatusText(http.StatusServiceUnavailable)})

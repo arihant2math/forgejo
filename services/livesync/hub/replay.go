@@ -12,6 +12,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/services/livesync/synclog"
@@ -293,6 +294,7 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 	if h.replayFailed(s, gen, err) {
 		return 0, false
 	}
+	metrics.Replays.Inc()
 	if scanned+len(keys) > h.cfg.MaxReplay {
 		// A bootstrap is cheaper than going on.
 		h.restartLive(s, gen, protocol.BootstrapReplayTooLong)

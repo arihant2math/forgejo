@@ -6,6 +6,8 @@ package livesync
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"forgejo.org/modules/log"
@@ -38,10 +40,10 @@ var (
 // check, the entity index backfill, the log retention and the cleanup of
 // expired idempotency records. Every instance
 // runs it; exactly one at a time is the writer (the others retry).
-func runWriter(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempotency.Service, done chan<- struct{}) {
+func runWriter(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempotency.Service, writing *atomic.Bool, done chan<- struct{}) {
 	defer close(done)
 	for {
-		err := lead(ctx, s, tailer, idem)
+		err := lead(ctx, s, tailer, idem, writing)
 		if ctx.Err() != nil {
 			return
 		}
@@ -58,13 +60,15 @@ func runWriter(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *id
 
 // lead acquires the writer lease and does the writer's work until the lease
 // is lost or ctx is done.
-func lead(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempotency.Service) error {
+func lead(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempotency.Service, writing *atomic.Bool) error {
 	w, err := synclog.AcquireWriter(ctx, tailer.Wake)
 	if err != nil {
 		return err
 	}
 	defer w.Release()
 	log.Info("livesync: this instance is the sync log writer")
+	writing.Store(true)
+	defer writing.Store(false)
 
 	leadCtx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -79,11 +83,14 @@ func lead(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempot
 	if err != nil {
 		return err
 	}
+	watcher := make(chan struct{})
+	go watchTriggers(leadCtx, s, watcher)
 	defer func() {
 		stop()
 		if !reader.Wait(readerStopTimeout) {
 			log.Warn("livesync: the outbox reader did not stop within %s", readerStopTimeout)
 		}
+		<-watcher
 	}()
 
 	check := time.NewTicker(leaseCheckInterval)
@@ -136,6 +143,51 @@ func lead(ctx context.Context, s Settings, tailer *synclog.Tailer, idem *idempot
 			case more:
 				backfill.Reset(backfillPause)
 			}
+		}
+	}
+}
+
+// watchTriggers checks the capture triggers every TRIGGER_CHECK_INTERVAL
+// while this instance is the writer (capture.Ensure, which is what Init
+// does): a trigger can go while livesync runs — another instance started
+// with ENABLED = false and removed them (Disable), a DBA dropped them, an
+// upgrade recreated a table. With INSTALL_MODE auto they are reinstalled at
+// once; either way the schema epochs of the tables found broken are bumped
+// once they are healthy again, and the writer's epoch check turns them into
+// re-bootstrap markers (the changes in between were not captured).
+func watchTriggers(ctx context.Context, s Settings, done chan<- struct{}) {
+	defer close(done)
+	if s.TriggerCheckInterval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(s.TriggerCheckInterval)
+	defer ticker.Stop()
+	var reported string // the last broken state logged, to log it once
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		report, err := capture.Ensure(ctx, s.InstallMode == InstallModeAuto)
+		if ctx.Err() != nil {
+			return
+		}
+		var notInstalled *capture.NotInstalledError
+		switch {
+		case errors.As(err, &notInstalled):
+			if msg := err.Error(); msg != reported {
+				reported = msg
+				log.Warn("livesync: the capture triggers are missing or stale while livesync runs; changes of those tables are not synced until they are repaired: %v; the DDL:\n%s", err, notInstalled.Status.Script())
+			}
+		case err != nil:
+			log.Warn("livesync: check the capture triggers: %v", err)
+		case len(report.Repaired) > 0:
+			reported = ""
+			log.Warn("livesync: the capture triggers of %d table(s) were missing or stale while livesync ran (another instance with ENABLED = false, a DBA, or a migration removed them); they are installed again and their schema epochs bumped (clients re-bootstrap): %s",
+				len(report.Repaired), strings.Join(report.Repaired, ", "))
+		default:
+			reported = ""
 		}
 	}
 }

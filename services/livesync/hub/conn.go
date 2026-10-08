@@ -10,6 +10,7 @@ import (
 
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 )
@@ -231,8 +232,13 @@ func encode(msg any) (outItem, bool) {
 		return outItem{}, false
 	}
 	it := outItem{data: data, size: len(data)}
-	if m, ok := msg.(*protocol.CaughtUpMessage); ok {
+	switch m := msg.(type) {
+	case *protocol.CaughtUpMessage:
 		it.pos = m.SyncID
+	case *protocol.BootstrapRequiredMessage:
+		metrics.BootstrapRequired.WithLabelValues(m.Reason).Inc()
+	case *protocol.GroupRevokedMessage:
+		metrics.GroupsRevoked.Inc()
 	}
 	return it, true
 }
@@ -379,6 +385,7 @@ func (c *conn) addedLocked(size int, bounded bool) {
 		// Too slow: drop what was not sent; the client resumes from the
 		// last frame it got.
 		c.queue, c.queued = nil, 0
+		metrics.SlowConsumers.Inc()
 		c.endLocked(closeTryAgain, "client too slow", &protocol.ResumeFromCursorMessage{Type: protocol.MsgResumeFromCursor, SyncID: c.lastTo})
 		return
 	}
@@ -534,6 +541,8 @@ func (c *conn) take() []frame {
 			continue
 		}
 		c.lastFrame = time.Now()
+		metrics.Frames.Inc()
+		metrics.FrameBytes.Add(float64(len(data)))
 		frames = append(frames, frame{data, at})
 	}
 	return frames

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/protocol"
 )
 
@@ -115,6 +116,7 @@ func (h *Hub) ServeSSE(w http.ResponseWriter, req *http.Request, auth Authentica
 		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
 		return
 	}
+	metrics.SessionsOpened.WithLabelValues(TransportSSE).Inc()
 	defer c.stop()
 	var raw [16]byte
 	_, _ = rand.Read(raw[:])

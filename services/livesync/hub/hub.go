@@ -32,6 +32,7 @@
 package hub
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -42,6 +43,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
+	"forgejo.org/services/livesync/metrics"
 	"forgejo.org/services/livesync/perm"
 	"forgejo.org/services/livesync/protocol"
 )
@@ -241,8 +243,13 @@ func (h *Hub) Deliver(_ context.Context, entries []livesync_model.LogEntry) {
 	if len(entries) == 0 {
 		return
 	}
+	start := time.Now()
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	defer func() {
+		h.mu.Unlock()
+		metrics.FanOut.Observe(time.Since(start).Seconds())
+		metrics.Delivered.Add(float64(len(entries)))
+	}()
 	for i := range entries {
 		e := &entries[i]
 		switch {
@@ -587,4 +594,63 @@ func changeSize(ch *protocol.Change) int {
 func groupKind(group string) string {
 	kind, _, _ := protocol.ParseGroup(group)
 	return kind
+}
+
+// Transports, as named by Stats and the metrics.
+const (
+	TransportWebSocket = "ws"
+	TransportSSE       = "sse"
+)
+
+// Stats is a snapshot of the hub for the metrics and the admin page.
+type Stats struct {
+	// Position is the last sync id the tailer delivered to the hub.
+	Position int64
+	// Sessions counts the open sessions by transport.
+	Sessions map[string]int
+	// Subscriptions counts the subscriptions of all sessions.
+	Subscriptions int
+	// Users are the viewers with the most subscriptions (at most the
+	// number asked for), most first.
+	Users []UserStats
+}
+
+// UserStats is one viewer's share of the hub.
+type UserStats struct {
+	ViewerID      int64 `json:"viewer_id"`
+	Sessions      int   `json:"sessions"`
+	Subscriptions int   `json:"subscriptions"`
+}
+
+// Stats returns a snapshot of the hub with the top viewers by
+// subscriptions. It visits every session (O(sessions)): for scrapes and the
+// admin page, not for anything per delta.
+func (h *Hub) Stats(top int) Stats {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	st := Stats{Position: h.pos.Load(), Sessions: map[string]int{TransportWebSocket: 0, TransportSSE: 0}}
+	for c := range h.conns {
+		if _, ok := c.t.(*sseTransport); ok {
+			st.Sessions[TransportSSE]++
+		} else {
+			st.Sessions[TransportWebSocket]++
+		}
+		st.Subscriptions += len(c.subs)
+	}
+	if top <= 0 {
+		return st
+	}
+	for viewer, conns := range h.byUser {
+		st.Users = append(st.Users, UserStats{ViewerID: viewer, Sessions: len(conns), Subscriptions: h.subCount[viewer]})
+	}
+	slices.SortFunc(st.Users, func(a, b UserStats) int {
+		if c := cmp.Compare(b.Subscriptions, a.Subscriptions); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ViewerID, b.ViewerID)
+	})
+	if len(st.Users) > top {
+		st.Users = st.Users[:top]
+	}
+	return st
 }

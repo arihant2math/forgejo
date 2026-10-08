@@ -74,6 +74,41 @@ describe('boardLayout', () => {
     expect(server).toEqual([10, 21, 11, 20]);
   });
 
+  test('property: the layout with pending moves equals the server applying them in turn (B9), whatever moved before', () => {
+    fc.assert(fc.property(
+      fc.array(fc.tuple(fc.integer({min: 0, max: 2}), fc.integer({min: 0, max: 20})), {minLength: 1, maxLength: 10}),
+      fc.array(fc.tuple(fc.nat(), fc.integer({min: 0, max: 2}), fc.nat()), {minLength: 1, maxLength: 6}),
+      (placed, steps) => {
+        const ids = [10, 11, 12];
+        const cards = placed.map(([c, s], i) => card(i + 1, ids[c] ?? 10, s));
+        const moves: [number, Move][] = [];
+        // The server: the columns as they are, each move applied in turn (remove, insert at position).
+        const server = new Map(boardLayout(cols, cards, [], all).cards);
+        for (const [pick, target, gapSeed] of steps) {
+          const before = boardLayout(cols, cards, moves, all);
+          const issueId = cards[pick % cards.length]?.issueId ?? 1;
+          const column = ids[target] ?? 10;
+          const n = before.cards.get(column)?.length ?? 0;
+          const m = moveTo(before, issueId, column, gapSeed % (n + 1));
+          if (!m) continue;
+          moves.push([issueId, m]);
+          for (const l of server.values()) {
+            const at = l.indexOf(issueId);
+            if (at >= 0) l.splice(at, 1);
+          }
+          server.get(m.column)?.splice(m.position, 0, issueId);
+          expect(boardLayout(cols, cards, moves, all).cards).toEqual(server);
+        }
+      },
+    ), {numRuns: 2000});
+  });
+
+  test('a move whose echo arrived while its layer is still pending shows once, where it went', () => {
+    // 20 moved to the top of column 12; the server already says so (sorting 0); the layer is still there.
+    const cards = [card(10, 12, 1), card(11, 12, 2), card(20, 12, 0)];
+    expect(boardLayout(cols, cards, [[20, {column: 12, position: 0}]], all).cards.get(12)).toEqual([20, 10, 11]);
+  });
+
   test('a move into a column that is gone leaves the card out until the server answers', () => {
     const l = boardLayout(cols, [card(1, 10, 1)], new Map([[1, {column: 77, position: 0}]]), all);
     expect([...l.cards.values()].flat()).toEqual([]);

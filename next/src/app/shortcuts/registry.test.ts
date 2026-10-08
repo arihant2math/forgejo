@@ -207,3 +207,19 @@ test('shadowed(): a key an inner scope has taken does not advertise the outer bi
   pop();
   expect(r.shadowed('issue.labels')).toBe(false);
 });
+
+test('a dialog fading out (data-state="closed") does not keep the keys: C right after Esc', () => {
+  const r = new ShortcutRegistry({apple: false});
+  let ran = 0;
+  r.bind('create', () => ran++);
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  const inside = document.createElement('button');
+  dialog.append(inside);
+  document.body.append(dialog);
+  press(r, 'c', {}, inside);
+  expect(ran).toBe(0);
+  dialog.setAttribute('data-state', 'closed');
+  press(r, 'c', {}, inside);
+  expect(ran).toBe(1);
+});

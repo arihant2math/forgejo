@@ -44,15 +44,15 @@ export function orderColumns(columns: Iterable<ProjectColumn>): ProjectColumn[] 
 
 /** `moves`: every pending move, in the order made ([card, move]; a card can be moved more than once). */
 export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Card>, moves: Iterable<readonly [number, Move]>, shown: (issueId: number) => boolean): BoardLayout {
+  // Moved cards start in their server places: an earlier move's position was counted with them there.
   const pending = [...moves];
-  const moved = new Set(pending.map(([id]) => id));
   const cols = orderColumns(columns);
   const defaultColumn = (cols.find((c) => c.default) ?? cols[0])?.id;
   const out = new Map<number, number[]>();
   for (const c of cols) out.set(c.id, []);
   const placed: Card[] = [];
   for (const c of cards) {
-    if (moved.has(c.issueId) || !shown(c.issueId)) continue;
+    if (!shown(c.issueId)) continue;
     placed.push(c);
   }
   placed.sort((a, b) => a.sorting - b.sorting || a.id - b.id);

@@ -56,7 +56,8 @@ function isTextField(el: Element | null): boolean {
  */
 function inOverlay(el: Element | null): boolean {
   const overlay = el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]');
-  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts');
+  // A menu or dialog fading out (Radix: data-state="closed") has let go of the keys already.
+  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts') && overlay?.getAttribute('data-state') !== 'closed';
 }
 
 interface Binding {

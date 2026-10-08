@@ -99,8 +99,19 @@ class Form {
   }
 
   setRepo(id: number): void {
-    // The text goes along: its draft moves to the new repository.
-    void editing(this.app).intents.discardDraft(draftKey(this.repoId));
+    const {intents} = editing(this.app);
+    const theirs = untracked(() => intents.drafts.get(draftKey(id)))?.text ?? '';
+    if (theirs.trim()) {
+      // That repository has a draft of its own: it comes back, and this text stays this repository's draft.
+      this.flush();
+      this.title = theirs.split('\n')[0] ?? '';
+      this.body = theirs.split('\n').slice(2).join('\n');
+      this.restored = true;
+    } else {
+      // Otherwise the text goes along: its draft moves to the new repository.
+      clearTimeout(this.timer);
+      void intents.discardDraft(draftKey(this.repoId));
+    }
     this.repoId = id;
     this.labels = [];
     this.assignee = 0;

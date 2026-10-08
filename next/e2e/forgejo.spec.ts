@@ -79,8 +79,9 @@ function idb(page: Page) {
   }, userId);
 }
 
-async function context(browser: Browser): Promise<BrowserContext> {
-  return browser.newContext();
+/** `noWorker`: requests blocked with `route` must reach the network (F5's service worker would answer them from its cache). */
+async function context(browser: Browser, {noWorker = false} = {}): Promise<BrowserContext> {
+  return browser.newContext(noWorker ? {serviceWorkers: 'block'} : {});
 }
 
 test('sign in with PKCE through the classic consent page: tokens, opt-in cookie, the shell', async ({browser}) => {
@@ -263,7 +264,7 @@ test('keyboard: G I / G P / G N, ? for the shortcuts, and hints in tooltips and 
 });
 
 test('the sidebar width persists into the next boot\'s first frame', async ({browser}) => {
-  const ctx = await context(browser);
+  const ctx = await context(browser, {noWorker: true});
   const page = await ctx.newPage();
   await signIn(page);
   const handle = page.getByRole('separator', {name: 'Resize the sidebar'});
@@ -349,7 +350,7 @@ test('signing in in one tab brings a logged-out tab in', async ({browser}) => {
 });
 
 test('the signed-in boot shell has the app shell\'s geometry (no shift when React mounts)', async ({browser}) => {
-  const ctx = await context(browser);
+  const ctx = await context(browser, {noWorker: true});
   const page = await ctx.newPage();
   await signIn(page);
   const boxes = async (p: Page) => Promise.all([

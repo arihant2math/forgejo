@@ -8,6 +8,7 @@ import {describe, expect, test} from 'vitest';
 import type {Issue} from '../protocol/types.gen.ts';
 import {Hydrator} from './hydrate.ts';
 import {MODEL_NAMES} from './models.ts';
+import {IntentDb} from '../intents/store.ts';
 import {BLOBS, DRAFTS, IDB_VERSION, INTENTS, type Layout, layout, META, modelStore, openDatabase, readMeta, request} from './idb.ts';
 import {MetaCache} from './meta.ts';
 import {CHUNK_VALUES, type Commit, Persister} from './persist.ts';
@@ -108,6 +109,43 @@ describe('schema', () => {
     expect(await all(db2, DRAFTS)).toHaveLength(1);
     expect(((await readMeta(db2)).get('droppedModels') as string[]).length).toBe(MODEL_NAMES.length);
     db2.close();
+  });
+
+  test('F5 (version 3): a version-2 database keeps its intents and drafts and gains the intent-id index the queue reads by', async () => {
+    const factory = new IDBFactory();
+    const v2 = layout();
+    v2[INTENTS] = {keyPath: 'seq', autoIncrement: true, indexes: {}};
+    const db1 = await openDatabase(11, {factory, layout: v2, version: 2});
+    const rec = {id: 'i1', intent: {kind: 'issue.state', id: 'i1', key: 'k1', issueId: 1, repoId: 1, created: 1, state: 'closed', base: 'open'}, state: 'queued', attempts: 0, updated: 1};
+    await putRaw(db1, INTENTS, [rec]);
+    await putRaw(db1, DRAFTS, [{key: 'failed:i0', kind: 'failed', title: 'Closing the issue', text: 'kept', at: 1}]);
+    db1.close();
+    const db2 = await openDatabase(11, {factory});
+    expect(db2.version).toBe(IDB_VERSION);
+    expect([...db2.transaction(INTENTS, 'readonly').objectStore(INTENTS).indexNames]).toEqual(['id']);
+    const store = new IntentDb(db2);
+    expect(await store.get('i1')).toEqual({...rec, seq: 1});
+    expect((await store.drafts()).map((d) => d.text)).toEqual(['kept']);
+    expect(await store.unsynced()).toBe(2);
+    db2.close();
+  });
+
+  test('any later layout change keeps every intent and draft (property)', async () => {
+    await fc.assert(fc.asyncProperty(fc.array(fc.string(), {maxLength: 5}), fc.array(fc.string(), {maxLength: 5}), fc.boolean(), async (intents, drafts, dropModel) => {
+      const factory = new IDBFactory();
+      const db1 = await openDatabase(12, {factory});
+      await putRaw(db1, INTENTS, intents.map((t, k) => ({id: `i${String(k)}`, text: t})));
+      await putRaw(db1, DRAFTS, drafts.map((t, k) => ({key: `d${String(k)}`, text: t})));
+      db1.close();
+      const next = layout();
+      if (dropModel) Reflect.deleteProperty(next, modelStore('Issue'));
+      next[INTENTS] = {keyPath: 'seq', autoIncrement: true, indexes: {id: 'id', at: 'updated'}};
+      Reflect.deleteProperty(next, DRAFTS);
+      const db2 = await openDatabase(12, {factory, layout: next, version: IDB_VERSION + 1});
+      expect((await all(db2, INTENTS)).length).toBe(intents.length);
+      expect((await all(db2, DRAFTS)).length).toBe(drafts.length);
+      db2.close();
+    }), {numRuns: 30});
   });
 
   test('a layout that forgets intents or drafts does not delete them', async () => {

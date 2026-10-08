@@ -15,7 +15,7 @@
 import {autorun, observable, runInAction} from 'mobx';
 import {forgetUser, writeSplash} from '../app/splash.ts';
 import {type HydrateStats, Hydrator} from '../data/hydrate.ts';
-import {deleteDatabase, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
+import {deleteDatabase, DRAFTS, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
 import {MetaCache} from '../data/meta.ts';
 import {groupKind, type ModelName, type ModelTypes, STRUCTURE_KINDS} from '../data/models.ts';
 import type {Persister} from '../data/persist.ts';
@@ -52,6 +52,8 @@ export interface DataOptions {
 export interface Data {
   readonly userId: number;
   readonly pool: Pool;
+  /** The user's database (the intent queue and drafts live in it too: intents/store.ts). */
+  readonly db: IDBDatabase;
   /** The sync status (mirrored from the leader in follower tabs). */
   readonly status: SyncStatus;
   /** Whether this tab is the leader. Observable. */
@@ -64,7 +66,7 @@ export interface Data {
   readonly workspace: {current: Workspace | undefined};
   /** Resolves once everything IndexedDB holds of these groups is in the pool (it does not hold them). */
   hydrate(groups: string[]): Promise<void>;
-  /** Intents not synced yet (the offline queue, F5). */
+  /** Changes not synced yet: queued intents and failed ones kept as drafts (F5). */
   countIntents(): Promise<number>;
   /**
    * What IndexedDB held of a peeked model (DataOptions.peekModels) when the
@@ -449,12 +451,12 @@ export async function openData(opts: DataOptions): Promise<Data> {
   markOnce('dataOpen');
 
   const data: Data = {
-    userId, pool, status, role, firstRoute, hydrated, workspace,
+    userId, pool, db, status, role, firstRoute, hydrated, workspace,
     async hydrate(groups) {
       await hydrator.groups(groups);
     },
     peek: <M extends ModelName>(m: M) => (peeked.get(m) ?? new Map()) as ReadonlyMap<number, ModelTypes[M]>,
-    countIntents: () => request(db.transaction(INTENTS, 'readonly').objectStore(INTENTS).count()),
+    countIntents: () => unsynced(db),
     hold(group) {
       myHolds.set(group, (myHolds.get(group) ?? 0) + 1);
       if (myHolds.get(group) !== 1) return;
@@ -505,11 +507,21 @@ export async function openData(opts: DataOptions): Promise<Data> {
   return data;
 }
 
-/** The number of unsynced intents in a user's database (the database must exist). */
+/** Queued intents and failed ones kept as drafts (see intents/store.ts: the records are not read here). */
+async function unsynced(db: IDBDatabase): Promise<number> {
+  const tx = db.transaction([INTENTS, DRAFTS], 'readonly');
+  const [n, kinds] = await Promise.all([
+    request(tx.objectStore(INTENTS).count()),
+    request(tx.objectStore(DRAFTS).getAll() as IDBRequest<{kind?: string}[]>),
+  ]);
+  return n + kinds.filter((d) => d.kind === 'failed').length;
+}
+
+/** The number of unsynced changes in a user's database (the database must exist). */
 export async function pendingIntentCount(userId: number, factory?: IDBFactory): Promise<number> {
   const db = await openDatabase(userId, factory ? {factory} : {});
   try {
-    return await request(db.transaction(INTENTS, 'readonly').objectStore(INTENTS).count());
+    return await unsynced(db);
   } finally {
     db.close();
   }

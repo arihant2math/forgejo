@@ -16,6 +16,8 @@ export interface NoticeSpec {
   description?: string;
   /** One action button (Retry). Running it dismisses the notice. */
   action?: {label: string; run: () => void};
+  /** Stays until dismissed or acted on (an update ready to load). */
+  sticky?: boolean;
   /** Fading out. */
   closing?: boolean;
 }
@@ -41,7 +43,7 @@ export function notify(app: App, spec: Omit<NoticeSpec, 'id' | 'closing'>): numb
       if (old) timers.delete(old.id);
     }
   });
-  if (!(spec.tone === 'danger' && spec.action)) {
+  if (!spec.sticky && !(spec.tone === 'danger' && spec.action)) {
     timers.set(id, {left: spec.tone === 'danger' ? 2 * TTL : TTL, started: 0, timer: undefined});
     resumeNotice(app, id);
   }

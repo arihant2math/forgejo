@@ -4,12 +4,14 @@
 // A signed-in session for component tests: a real pool and auth state, the
 // rest of the data layer stubbed (no IndexedDB, no network).
 
+import {IDBFactory} from 'fake-indexeddb';
 import {observable} from 'mobx';
 import {AuthSession} from '../auth/session.ts';
 import type {EntityRecord} from '../data/entity.ts';
+import {openDatabase} from '../data/idb.ts';
 import type {ModelName, ModelTypes} from '../data/models.ts';
 import {Pool} from '../data/pool.ts';
-import type {Issue, Repository, User, Workspace} from '../protocol/types.gen.ts';
+import type {Comment, Issue, Repository, User, Workspace} from '../protocol/types.gen.ts';
 import type {SyncStatus} from '../sync/client.ts';
 import type {Data} from '../sync/data.ts';
 import type {Session} from '../app/store.ts';
@@ -51,6 +53,8 @@ export function fakeSession(opts: {userId?: number; workspace?: Workspace} = {})
   const held = new Map<string, number>();
   const data = {
     userId, pool, status, role: observable({leader: true}),
+    // The queue's store (intents/store.ts takes a promise of it): a fresh in-memory IndexedDB.
+    db: openDatabase(userId, {factory: new IDBFactory()}),
     firstRoute: Promise.resolve({records: 0, ms: 0}), hydrated: Promise.resolve({records: 0, ms: 0}),
     workspace: observable({current: opts.workspace}, {}, {deep: false}),
     held,
@@ -81,4 +85,14 @@ export function fakeSession(opts: {userId?: number; workspace?: Workspace} = {})
   } as unknown as FakeData;
   const auth = new AuthSession(null, userId, {BroadcastChannel: null, locks: null});
   return {userId, auth, data};
+}
+
+export function comment(id: number, issueId: number, body: string, extra: Partial<Comment> = {}): Comment {
+  return {
+    id, issue_id: issueId, type: 'comment', poster_id: 1, original_author: '', original_author_id: 0, body, body_html: '', content_version: 0,
+    label_id: 0, old_project_id: 0, project_id: 0, old_milestone_id: 0, milestone_id: 0, time_id: 0, assignee_id: 0, assignee_team_id: 0,
+    removed_assignee: false, resolve_doer_id: 0, old_title: '', new_title: '', old_ref: '', new_ref: '', dependent_issue_id: 0, line: 0,
+    extra_lines_count: 0, path: '', diff_hunk: '', commit_id: '', review_id: 0, invalidated: false, ref_repo_id: 0, ref_issue_id: 0,
+    ref_comment_id: 0, ref_action: 0, ref_is_pull: false, created_at: T, updated_at: T, ...extra,
+  };
 }

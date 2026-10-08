@@ -91,7 +91,11 @@ export async function requestSignOut(app: App): Promise<void> {
 export function switchToClassic(app: App): void {
   const here = `${location.pathname}${location.search}`;
   const back = location.pathname.startsWith(app.config.base) ? sitePath(app.config, '/') : here;
-  location.assign(`${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(back)}`);
+  const go = () => {
+    location.assign(`${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(back)}`);
+  };
+  // The service worker goes with the opt-in (its own chunk; never in the way of leaving).
+  void import('./sw.ts').then((m) => m.removeServiceWorker(app)).catch(() => undefined).finally(go);
 }
 
 /** Signs in again (session expired) or for the first time, coming back to this page. */

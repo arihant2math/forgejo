@@ -6,6 +6,7 @@
 // connection fields of the sync status and the auth state, nothing else, so
 // deltas and position updates do not re-render it.
 
+import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {Button, Status, type StatusTone, Tooltip} from '../../ui/index.ts';
 import {signInHere} from '../session.ts';
@@ -34,16 +35,23 @@ export const SyncIndicator = observer(function SyncIndicator() {
   const {data, auth} = useSession();
   const v = describe(data.status.connection, data.status.loading, auth.status.state);
   const pending = app.ui.pendingIntents;
+  // Opens the "Unsynced changes" panel (its own chunk). Always the same button: focus stays when the count changes.
+  const open = () => {
+    runInAction(() => {
+      app.ui.unsyncedOpen = true;
+    });
+  };
+  const words = pending > 0 ? `${v.label} · ${String(pending)} pending` : v.label;
   return (
     <div className="flex items-center gap-2">
-      <Tooltip content={pending ? `${v.detail} ${String(pending)} not synced yet.` : v.detail}>
-        <span role="status">
-          <Status tone={v.tone}>
-            {v.label}
-            {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
-          </Status>
-        </span>
+      <Tooltip content={pending ? `${v.detail} ${String(pending)} not synced yet: see them.` : v.detail}>
+        <Status tone={v.tone} onClick={open} label={`${words}: show unsynced changes`}>
+          {v.label}
+          {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
+        </Status>
       </Tooltip>
+      {/* The live region: announces the connection, apart from the button (not every pending change). */}
+      <span role="status" className="sr-only">{v.label}</span>
       {v.signIn && app.config.oauth && (
         <Button size="sm" variant="primary" onClick={() => {
           signInHere(app);

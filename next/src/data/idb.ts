@@ -27,7 +27,7 @@
 import type {EntityRecord} from './entity.ts';
 import {MODEL_NAMES, type ModelName} from './models.ts';
 
-export const IDB_VERSION = 2;
+export const IDB_VERSION = 3;
 
 /**
  * Model stores written by an older layout than this are recreated (and their
@@ -71,8 +71,8 @@ export type Layout = Record<string, StoreLayout>;
 export function layout(): Layout {
   const out: Layout = {
     [META]: {keyPath: 'k', indexes: {}},
-    // F5 defines the intent records; keyed by a client sequence, looked up by entity.
-    [INTENTS]: {keyPath: 'seq', autoIncrement: true, indexes: {}},
+    // The offline queue (F5, intents/store.ts): keyed by a sequence (the queue's order across tabs), looked up by intent id.
+    [INTENTS]: {keyPath: 'seq', autoIncrement: true, indexes: {id: 'id'}},
     [DRAFTS]: {keyPath: 'key', indexes: {}},
     [BLOBS]: {keyPath: 'sha', indexes: {atime: 'atime'}},
   };

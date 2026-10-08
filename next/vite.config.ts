@@ -7,6 +7,7 @@ import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
 import {previewConfig} from './tools/vite-plugin-preview-config.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
+import {serviceWorker} from './tools/vite-plugin-sw.ts';
 
 // Radix primitives the app uses get a chunk each. Radix's internal packages
 // (context, presence, popper, focus-scope, …) share one chunk: left to
@@ -43,6 +44,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     shell({bootRoutes: BOOT_ROUTES}),
+    serviceWorker(),
     previewConfig(),
   ],
   css: {

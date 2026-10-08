@@ -95,7 +95,7 @@ describe('boot', () => {
 
   test('unknown paths below the base: not found', async () => {
     await renderApp('/-/next/no/such/page');
-    expect(screen.getByText('Page not found')).toBeTruthy();
+    expect(screen.getByText('Not available here')).toBeTruthy();
   });
 
   test('the gallery route is available in dev', async () => {
@@ -200,16 +200,48 @@ describe('signed in', () => {
     expect(s.data.held.has('repo:20')).toBe(false);
   });
 
-  test('an unknown repository offline: not available here', async () => {
+  test('an unknown repository offline: not available offline, with what is', async () => {
     const s = signedIn();
-    const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
-    Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => false});
+    const {connectivity} = await import('./online.ts');
+    runInAction(() => {
+      connectivity.online = false;
+    });
     try {
       await renderApp('/nobody/nothing/issues', s);
-      expect(screen.getByText('Not available here')).toBeTruthy();
+      expect(screen.getByText('Not available offline')).toBeTruthy();
+      expect(screen.getByRole('navigation', {name: 'Available on this device'}).textContent).toContain('My issues');
     } finally {
-      if (online) Object.defineProperty(navigator, 'onLine', online);
+      runInAction(() => {
+        connectivity.online = true;
+      });
     }
+  });
+
+  test('an issue created offline: its page shows it at once, and the URL becomes its number once Forgejo created it', async () => {
+    const s = signedIn();
+    const app0 = createApp(config(), s);
+    const {editing} = await import('../intents/session.ts');
+    const {tempNum} = await import('../intents/intents.ts');
+    const t = crypto.randomUUID();
+    const temp = tempNum(t);
+    editing(app0).intents.submit({kind: 'issue.create', issueId: temp, repoId: 20, tempId: t, title: 'Made offline', body: 'Body typed offline', labelIds: [], assigneeIds: [], milestoneId: 0});
+    const router = createAppRouter(app0, createMemoryHistory({initialEntries: [`/acme/website/issues/new-${t}`]}));
+    await router.load();
+    render(<App app={app0} router={router}/>);
+    await waitFor(() => {
+      expect(screen.getByRole('main').querySelector('article h2')?.textContent).toContain('Made offline');
+    });
+    expect(screen.getByText('Body typed offline')).toBeTruthy();
+    expect(screen.getByText('New')).toBeTruthy();
+    // Created: the server's issue arrives and the temporary id is remapped; the URL follows (replace).
+    act(() => {
+      s.data.put('Issue', 'repo:20', issue(555, 20, 42, 'Made offline'));
+      runInAction(() => editing(app0).intents.remapped.set(temp, 555));
+    });
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/acme/website/issues/42');
+    });
+    expect(router.history.length).toBe(1);
   });
 
   test('the sync indicator: offline with pending intents, signed out with a sign-in button', async () => {
@@ -221,7 +253,8 @@ describe('signed in', () => {
         app.ui.pendingIntents = 3;
       });
     });
-    expect(screen.getByRole('status').textContent).toBe('Offline· 3 pending');
+    expect(screen.getByRole('status').textContent).toBe('Offline');
+    expect(screen.getByRole('button', {name: /show unsynced changes/}).textContent).toBe('Offline· 3 pending');
     act(() => {
       runInAction(() => {
         s.auth.status.state = 'expired';

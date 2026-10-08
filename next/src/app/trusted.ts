@@ -19,16 +19,39 @@
 
 interface Policy {
   createHTML(s: string): unknown;
+  createScriptURL(s: string): unknown;
 }
 
 let policy: Policy | null | undefined;
 
+/** The one script URL the policy lets through: the service worker's (app/sw.ts), set before it is used. */
+let workerUrl: string | undefined;
+
 function getPolicy(): Policy | null {
   if (policy !== undefined) return policy;
-  const tt = (globalThis as {trustedTypes?: {createPolicy(name: string, rules: {createHTML(s: string): string}): Policy}}).trustedTypes;
+  const tt = (globalThis as {trustedTypes?: {createPolicy(name: string, rules: {createHTML(s: string): string; createScriptURL(s: string): string}): Policy}}).trustedTypes;
   // Without Trusted Types (older browsers, tests) the template takes the string as is.
-  policy = tt ? tt.createPolicy('forgejo-next', {createHTML: (s) => s}) : null;
+  policy = tt ? tt.createPolicy('forgejo-next', {
+    createHTML: (s) => s,
+    createScriptURL: (s) => {
+      if (workerUrl === undefined || s !== workerUrl) throw new TypeError(`forgejo-next: script URL refused: ${s}`);
+      return s;
+    },
+  }) : null;
   return policy;
+}
+
+/**
+ * The service worker's URL as a TrustedScriptURL (`register` is a Trusted
+ * Types sink). Only this exact same-origin path below the app's base is
+ * allowed: `{base}sw.js`.
+ */
+export function workerScriptURL(base: string): string {
+  const url = `${base}sw.js`;
+  if (!url.startsWith('/') || url.startsWith('//')) throw new TypeError('forgejo-next: the service worker must be same-origin');
+  workerUrl = url;
+  const p = getPolicy();
+  return (p ? p.createScriptURL(url) : url) as string;
 }
 
 const DROP = new Set([

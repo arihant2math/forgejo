@@ -37,3 +37,18 @@ export const control = 'interactive inline-flex shrink-0 items-center rounded-md
 export const controlHeight = {sm: 'h-control-sm', md: 'h-control'} as const;
 
 export type ControlSize = keyof typeof controlHeight;
+
+/** A text field's box (Input, TextArea): border, surface, placeholder, hover, focus, invalid, disabled. */
+export const field = 'border border-border bg-surface text-fg placeholder:text-fg-subtle hover:border-border-strong focus-visible:outline-offset-0 aria-invalid:border-danger aria-invalid:outline-danger disabled:opacity-disabled';
+
+/** The quiet hover of ghost controls (Button ghost, a clickable Status). */
+export const ghostHover = 'text-fg-muted hover:bg-hover hover:text-fg';
+
+/** A message's parts (Notice, Callout): its icon, then title, description and actions. */
+export const message = {
+  icon: 'mt-0.5',
+  body: 'flex min-w-0 flex-1 flex-col gap-1',
+  title: 'text-base font-medium text-fg',
+  description: 'text-sm text-fg-muted',
+  actions: 'flex flex-wrap gap-2 pt-1',
+} as const;

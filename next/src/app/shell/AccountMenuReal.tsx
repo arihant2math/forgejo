@@ -8,6 +8,7 @@ import type {ReactElement} from 'react';
 import {
   Menu, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
 } from '../../ui/index.ts';
+import {connectivity, onlineOnly} from '../online.ts';
 import {requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import type {ThemePreference} from '../splash.ts';
@@ -42,9 +43,9 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
             <MenuRadioItem value="dark">Dark</MenuRadioItem>
           </MenuRadioGroup>
         </MenuSub>
-        <MenuItem icon={Monitor} onSelect={() => {
+        <MenuItem icon={Monitor} disabled={!connectivity.online} onSelect={() => {
           switchToClassic(app);
-        }}>Switch to the classic UI</MenuItem>
+        }}>{connectivity.online ? 'Switch to the classic UI' : onlineOnly('The classic UI')}</MenuItem>
         <MenuSeparator/>
         <MenuItem icon={LogOut} danger onSelect={() => {
           void requestSignOut(app);

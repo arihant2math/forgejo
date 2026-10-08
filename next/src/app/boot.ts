@@ -7,8 +7,8 @@
 // Suspense (F1). Network work (token refresh, sync) starts in the background.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {runInAction} from 'mobx';
 import {optIn} from '../auth/optin.ts';
+import {isSpaRoute, sitePathOf} from '../sw/routes.ts';
 import {loadConfig, uiPath} from './config.ts';
 import {isChunkError} from './reload.ts';
 import {createAppRouter, type AppRouter} from './router.tsx';
@@ -20,16 +20,30 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   const config = await loadConfig();
   const callback = location.pathname.startsWith(uiPath(config, 'callback'));
   preloadRoute(app0(config));
+  // The offline queue's chunk loads while IndexedDB is read (it is not on the boot route's bundle).
+  const queueModule = callback ? undefined : import('../intents/session.ts');
+  queueModule?.catch(() => undefined);
   const session = callback ? undefined : await openSession(config);
   const app = createApp(config, session);
   const router = createAppRouter(app);
-  await router.load();
+  // Pending changes are in the overlay before the first frame (they show at once after a reload);
+  // with none queued (the usual case) the first frame does not wait for the queue. Never fatal.
+  const queue = session && queueModule ? startQueue(app, session, queueModule) : undefined;
+  await Promise.all([router.load(), queue]);
   const failed = router.state.matches.find((m) => m.status === 'error' && isChunkError(m.error));
   if (failed) throw failed.error;
   // The callback page signs in and leaves; it must not follow the other tabs (its own
   // sign-in broadcast would reload it before it leaves, and the code is single-use).
   if (!callback) started(app, router);
   return {app, router};
+}
+
+async function startQueue(app: App, session: NonNullable<App['session']>, m: Promise<{startEditing: (app: App) => Promise<unknown>}>): Promise<void> {
+  const pending = await session.data.countIntents().catch(() => 1);
+  const started = m.then((q) => q.startEditing(app)).catch((err: unknown) => {
+    console.error('intents: the queue could not be started', err);
+  });
+  if (pending > 0) await started;
 }
 
 function app0(config: App['config']): App {
@@ -66,16 +80,15 @@ function started(app: App, router: AppRouter): void {
   followOtherTabs(app);
   const s = app.session;
   if (!s) return;
-  void s.data.countIntents().then((n) => {
-    runInAction(() => {
-      app.ui.pendingIntents = n;
-    });
-  }, () => undefined);
   s.data.on('wrongUser', ({viewerId}) => {
     console.error(`livesync: the session belongs to user ${String(viewerId)}, not to this device's user ${String(s.userId)}`);
   });
-  // Canonical URLs reload into this UI only with the opt-in cookie.
-  void optIn(app.config);
+  // Canonical URLs reload into this UI only with the opt-in cookie. Not from a page the app does not
+  // have (the service worker's offline fallback): that would opt a user who left back in.
+  // Nor from the service worker's cached shell (marked): only a document the server sent proves the opt-in.
+  const site = sitePathOf(location.pathname, app.config.app_sub_url);
+  const cached = document.querySelector('meta[name="forgejo-next-cached"]') !== null;
+  if (!cached && (location.pathname.replace(/\/$/, '') === app.config.base.replace(/\/$/, '') || (site !== undefined && isSpaRoute(site)))) void optIn(app.config);
   // The splash for the next boot: the route and the shape of its page.
   const remember = () => {
     const leaf = router.state.matches.at(-1);

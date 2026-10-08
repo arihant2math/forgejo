@@ -14,13 +14,18 @@ import {
 } from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {lazy, type ReactNode, Suspense} from 'react';
+import {lazy, type ReactNode, Suspense, useEffect, useRef, useState} from 'react';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Code, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
-import {firstOf, priorityIcon, statusIcon, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
+import {useApp} from '../../app/store.ts';
+import {DELETED} from '../../intents/overlay.ts';
+import {editing} from '../../intents/session.ts';
+import {issueComments} from '../../intents/view.ts';
+import {firstOf, priorityIcon, statusIcon, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
 import {labelKind, scopedValue} from '../issues/labels.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
+import {CommentActions, CommentBody} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
 import {Reactions} from './Reactions.tsx';
 
@@ -32,7 +37,10 @@ type Item = {kind: 'comment'; id: number; at: string} | {kind: 'review'; id: num
 /** The issue's timeline items in order (observes membership of its comments and reviews). */
 function useItems(issueId: number): Item[] {
   const pool = usePool();
-  const comments = pool.model('Comment').by('issue_id', issueId);
+  const app = useApp();
+  const {overlay, intents} = editing(app);
+  // The pool's comments and the ones posted here not synced yet (a deleted one hides itself: CommentBody).
+  const comments = issueComments(pool, overlay, issueId, intents.remapped);
   const reviews = pool.model('Review').by('issue_id', issueId);
   return untracked(() => {
     const out: Item[] = [];
@@ -98,21 +106,46 @@ function Card({poster, original, at, badge, children, footer}: {poster: number; 
 }
 
 const CommentItem = observer(function CommentItem({id}: {id: number}) {
-  const c = usePool().model('Comment').get(id);
+  const pool = usePool();
+  const overlay = useOverlay();
+  const c = pool.model('Comment').get(id) ?? overlay.createdEntity('Comment', id) as Entity<'Comment'> | undefined;
   if (!c) return null;
   const type = c.get('type');
   if (type === 'comment' || type === 'code' || type === 'dismiss_review') {
-    const html = c.get('body_html');
-    return (
-      <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
-        badge={type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
-        footer={<Reactions issueId={c.get('issue_id')} commentId={id}/>}>
-        {html ? <Markdown html={html}/> : <p className="text-base text-fg-subtle">No text.</p>}
-      </Card>
-    );
+    if (overlay.field('Comment', id, DELETED)) return null;
+    return <CommentCard c={c} type={type}/>;
   }
   return <EventLine comment={c}/>;
 });
+
+/** A comment's card: its header (with the viewer's actions), its body or editor, its reactions. */
+function CommentCard({c, type}: {c: Entity<'Comment'>; type: string}) {
+  const [edit, setEdit] = useState(false);
+  const actions = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    // Back to the comment's actions once its editor closes.
+    if (!edit && refocus.current) actions.current?.focus();
+    refocus.current = false;
+  }, [edit]);
+  return (
+    <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+      badge={<>
+        {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
+        {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
+          setEdit(true);
+        }}/>}
+      </>}
+      footer={<Reactions issueId={c.get('issue_id')} commentId={c.id}/>}>
+      <CommentBody c={c} edit={edit} onEditDone={() => {
+        refocus.current = true;
+        setEdit(false);
+      }} onReopen={() => {
+        setEdit(true);
+      }}/>
+    </Card>
+  );
+}
 
 const REVIEW_LOOK: Record<string, {tone: BadgeTone; text: string}> = {
   APPROVED: {tone: 'success', text: 'approved'},

@@ -1479,7 +1479,8 @@ does) **and** MySQL 8.0 (binlog on).
       `permission_changed`, which a resume does not re-derive (round 3), so that the client's position never passes held entries the
       new units drop (round-3 re-review).
     - **Backpressure** (*superseded 2026-10-08 for live changes: a change that does not fit makes its subscription catch up from
-      the log, and a session is slow when its queue is not drained within `DRAIN_TIMEOUT` — see B8, *Burst backpressure*; the rest
+      the log, and a session is slow when messages wait and the writer finishes no frame within `DRAIN_TIMEOUT` — see B8, *Burst
+      backpressure* and its issue round 2; the rest
       of this bullet is the B5 design*): per-session queue bounded by `SEND_BUFFER` bytes, **live changes and control messages** (review round 1: pongs,
       errors, …; control messages are encoded when queued, so their size is exact; one item larger than the buffer may enter an empty
       queue, else it could never be sent); replays wait for room instead. Overflow ⇒ the unsent queue is dropped,
@@ -2382,7 +2383,7 @@ does) **and** MySQL 8.0 (binlog on).
     MySQL 8.0 42 pass / 1 skip**, no testlogger "FATAL ERROR"; fork-diff check unchanged.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
-- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*)
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncOAuth`, `TestLivesyncSPA`, `TestLivesyncAdminDegraded`, `TestLivesyncAdminRunning`, `TestLivesyncDisable`, `TestLivesyncTriggerWatch`, `TestLivesyncUninstallMonotonicIDs`, `TestLivesyncHubSlowConsumer`, `TestLivesyncCaptureVerifyMode` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofumpt, golangci-lint (0 issues), deadcode diff clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`; review round 1 fixed, no open items; the `TestLivesyncHubSlowConsumer/sse` flake root-caused and fixed, see notes; its product note (a burst above `SEND_BUFFER` disconnected fast clients) fixed 2026-10-08 — see *Burst backpressure*; its issue round 2 (`DRAIN_TIMEOUT` disconnected slow-but-steady clients during replays, log tails and bursts that fit) fixed 2026-10-08 — see *Burst backpressure, issue round 2*; no open items)
 - **Scope:** `services/livesync/oauthapp` (ensure a public client, redirect
   `{AppURL}-/next/callback`, PKCE; confirm scope behaviour with/without
   `ENABLE_ADDITIONAL_GRANT_SCOPES`; expose client_id to the SPA via the inlined config).
@@ -2606,7 +2607,8 @@ does) **and** MySQL 8.0 (binlog on).
       release (`releaseHeldLocked` now returns false without touching anything; it used to queue them as bounded live changes and
       overflow the session) ⇒ the subscription is `behind` and pages from its cursor (it used to replay with `MAX_REPLAY` ⇒
       `replay_too_long` on a large burst after a touch epoch, which bulk writes nearly always carry).
-    - **Slow consumer = not drained in time** (`conn.checkDrain`, `[livesync] DRAIN_TIMEOUT`, default 5 s, > 0): a session whose
+    - **Slow consumer = not drained in time** (*criterion changed in issue round 2: no frame finished within `DRAIN_TIMEOUT` while
+      messages wait, see below; the 630 KB/s figure in this bullet no longer holds*) (`conn.checkDrain`, `[livesync] DRAIN_TIMEOUT`, default 5 s, > 0): a session whose
       oldest queued message has waited longer than that for the writer (`conn.pendingSince`, reset when the writer takes the
       queue; a per-session `time.AfterFunc`, armed when the queue becomes non-empty, re-armed for the remainder, stopped by `stop`;
       never counts a stopped session) is closed exactly as before (`slowLocked`: queue dropped, `resume_from_cursor{lastTo}`, WS
@@ -2647,6 +2649,40 @@ does) **and** MySQL 8.0 (binlog on).
       `services/livesync/...`, `routers/livesync/...`, `models/livesync/...`, `tests/integration/...` (0 issues), `go vet`,
       deadcode diff clean, `gen-protocol.sh --check` up to date; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`,
       `go.mod`, `go.sum`). MariaDB not run (no trigger change).
+    - **Issue round 2 (2026-10-08): `DRAIN_TIMEOUT` also disconnected slow-but-steady clients.** *Root cause:* `pendingSince` was
+      reset only by `take()`, and the writer cannot take again before it has written everything it took last time; so a session was
+      closed whenever writing **one writer step** took longer than `DRAIN_TIMEOUT` while anything waited behind it. Replays, catch-ups
+      and log tails refill the queue to `SEND_BUFFER/2` through `waitRoom` right after each take, so each step is ≈ 2 MiB with the
+      defaults and the client needed ≈ 420–630 KB/s (≈ 3.4–5 Mbit/s): mobile links got `resume_from_cursor`, reconnected and replayed
+      again with at most one step of progress per round (none when the welcome alone was slow); a live burst that fits in the buffer
+      (1–3 MiB) disconnected a slow reader as soon as any later message (change, pong) waited 5 s behind it. Before B8's fix replays
+      and log tails just waited for room (only `WriteTimeout` 10 s per frame of ≤ 256 KiB, ≈ 26 KB/s), and such a burst only failed
+      beyond 4 MiB. *Fix (`conn.write`):* the criterion measures **progress**, not the wait behind the in-flight step: every frame
+      written while something is queued resets `pendingSince` to now. A session is slow when messages wait and the writer finished no
+      frame for `DRAIN_TIMEOUT` (`checkDrain` unchanged otherwise: the timer re-arms for the remainder). Requirement: one frame
+      (≤ `maxFrameBytes` 256 KiB; replays/catch-ups pack changes into full frames, log messages are ≤ 128 KiB, live frames are usually
+      small) per `DRAIN_TIMEOUT` while something waits — ≈ 52 KB/s worst case with the defaults (vs ≈ 26 KB/s before B8, when a frame
+      had the 10 s `WriteTimeout`; raise `DRAIN_TIMEOUT` for slower links — the settings doc says so). A client that does not read is
+      still closed `DRAIN_TIMEOUT` after its socket filled (the writer is stuck in one write, nothing completes); memory is still
+      bounded by the queue (catch-ups and replays wait for room), so a slow reader that keeps up frame by frame stays connected and
+      pages through the log. Doc comments (`Config.DrainTimeout`, package doc, `settings.go` `DRAIN_TIMEOUT`, `SlowConsumers` metric)
+      updated. No wire, setting or metric change.
+      *Tests (`hub/burst_test.go`):* client reading 2000 B/ms (a frame of 2 × 100 KiB changes ≈ 100 ms; a step of half / three
+      quarters of `SEND_BUFFER` 2 MiB ≥ 500 ms), `DRAIN_TIMEOUT` 250 ms: **`TestSlowSteadyReplay`** (since = 0, 24 changes ≈ 2.4 MB:
+      all in order, `caught_up`, no close, no slow-consumer metric), **`TestSlowSteadyBurst`** (12 live changes ≈ 1.2 MB that fit,
+      then one more change + a ping 50 ms later: all 13 + pong, no close), **`TestSlowSteadyLogTail`** (100 lines of 20 KiB ≈ 2 MB,
+      job done: every line, offsets contiguous, `done`, no close). With the old `conn.go` all three fail with `resume_from_cursor`
+      (after 11 of 24 changes, 12 of 13, 60 of 100 lines). `TestSlowConsumer` (non-reading client) and `TestSlowReader` (a frame
+      takes 300 ms > 200 ms) still close. **Also fixed: `TestSlowReader` flaked** (2/60 under `-race`, before and after this change):
+      the client read at 5 B/ms from the start, so the ≈ 2 KB welcome took ≈ 400 ms and `caught_up`, when queued after the writer
+      had taken the welcome alone, waited past `DRAIN_TIMEOUT`; the rate is now set after `caught_up` (`fakeTransport.setRate`, under
+      its mutex — the field was read unsynchronised by the writer).
+      *Commands:* hub package `-race -count=10` green (103 s), `TestSlowReader|TestSlowSteady` `-race -count=40` green, livesync +
+      `routers/livesync` unit tests; `TestLivesync*|TestVersion` on PG 16 (`gtestschema`: 50 pass, 3 MySQL-only skips) and MySQL 8.0
+      binlog on (52 pass, 1 skip), `TestLivesyncHub*` `-test.count 3` on both, no testlogger "FATAL ERROR"; gofumpt, `go vet`,
+      golangci-lint (`services/livesync/...`, `routers/livesync/...`, `models/livesync/...`: 0 issues), deadcode diff clean,
+      `gen-protocol.sh --check` up to date; fork diff unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+      MariaDB not run (no trigger change).
     - **B9 gap (one log-tail poller per job) left as is:** sharing a poller across sessions means cross-session state in the hub
       (one reader per job feeding sessions with different offsets/tasks, per-session permission checks every 10 s, per-session
       room waits and pending lines, restarts handed between goroutines) — a new concurrency surface, not a cheap change; still

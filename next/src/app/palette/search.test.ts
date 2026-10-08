@@ -56,10 +56,13 @@ test('50 000 issues: a keystroke searches well within a frame', () => {
   const p = pool(50_000);
   searchPool(p, 'f'); // first search builds the lower-case cache
   const times: number[] = [];
-  for (const q of ['fo', 'foo', 'foot', 'footer', 'pag', '#4242', 'acme pag']) {
-    const t0 = performance.now();
-    searchPool(p, q);
-    times.push(performance.now() - t0);
+  // Three rounds (the first also warms the JIT): one slow stretch of a shared machine does not decide.
+  for (let round = 0; round < 3; round++) {
+    for (const q of ['fo', 'foo', 'foot', 'footer', 'pag', '#4242', 'acme pag']) {
+      const t0 = performance.now();
+      searchPool(p, q);
+      times.push(performance.now() - t0);
+    }
   }
   times.sort((a, b) => a - b);
   // The browser budget is 16 ms (e2e asserts it); jsdom on a shared CI box gets slack.

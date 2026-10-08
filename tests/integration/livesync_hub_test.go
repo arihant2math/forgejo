@@ -24,6 +24,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/capture"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/services/livesync/synclog"
@@ -467,7 +468,6 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 	onApplicationRun(t, func(t *testing.T, u *url.URL) {
 		livesyncWaitBackfill(t)
 		livesyncSettle(t)
-		const comments = 400
 		for _, transport := range []string{"ws", "sse"} {
 			t.Run(transport, func(t *testing.T) {
 				cl := livesyncDialWith(t, u, transport, livesyncSmallBuffers())
@@ -475,15 +475,46 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 				cl.waitType(protocol.MsgWelcome)
 				caughtUp := cl.waitType(protocol.MsgCaughtUp)
 				cl.pause()
+
+				// The comments arrive in deliveries of 3 (≈ 26 KB of changes,
+				// well below SEND_BUFFER even when two land in one 16 ms frame
+				// window): the writer writes them until the sockets are full
+				// (the kernel absorbs a few MB first), then the queue grows
+				// past SEND_BUFFER and the session is closed. Root cause of
+				// the B6/B7 flake: the old test inserted the 400 comments as
+				// fast as it could, and when the tailer, behind under load,
+				// handed the hub more than SEND_BUFFER of them in one Deliver,
+				// the queue overflowed inside that one call — the writers are
+				// woken only once Deliver is done (B5 final review) — so not
+				// a single frame was written ("frames were written until the
+				// socket was full" failed with 0 comments received). That is
+				// the designed bound (a burst above SEND_BUFFER in one tailer
+				// batch disconnects even a reading client, which resumes from
+				// its position), not what this test is about.
+				slow, _ := livesyncMetric(t, "forgejo_livesync_slow_consumer_disconnects_total")
 				random := make([]byte, 2<<10)
-				for i := range comments {
-					_, _ = rand.Read(random)
-					content := fmt.Sprintf("slow %s %d %x", transport, i, random) // hardly compressible
-					require.NoError(t, db.Insert(t.Context(), &issues_model.Comment{Type: issues_model.CommentTypeComment, IssueID: 1, PosterID: 2, Content: content}))
+				written := 0
+				for {
+					overflowed, _ := livesyncMetric(t, "forgejo_livesync_slow_consumer_disconnects_total")
+					if overflowed > slow {
+						break
+					}
+					require.Less(t, written, 3000, "the session never overflowed")
+					require.NoError(t, db.WithTx(t.Context(), func(ctx context.Context) error {
+						for range 3 {
+							_, _ = rand.Read(random)
+							content := fmt.Sprintf("slow %s %d %x", transport, written, random) // hardly compressible
+							written++
+							if err := db.Insert(ctx, &issues_model.Comment{Type: issues_model.CommentTypeComment, IssueID: 1, PosterID: 2, Content: content}); err != nil {
+								return err
+							}
+						}
+						return nil
+					}))
+					livesyncWaitHub(t)
 				}
 				livesyncSettle(t)
 				last := livesyncLogHead(t)
-				time.Sleep(200 * time.Millisecond) // delivered by the hub
 				cl.resume()
 
 				positions := map[int64]bool{caughtUp.SyncID: true}
@@ -505,9 +536,9 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 						t.Fatalf("unexpected %+v", m)
 					}
 				}
-				t.Logf("%s: %d of %d comments received before resume_from_cursor %d", transport, received, comments, resume.SyncID)
+				t.Logf("%s: %d of %d comments received before resume_from_cursor %d", transport, received, written, resume.SyncID)
 				assert.Positive(t, received, "frames were written until the socket was full")
-				assert.Less(t, received, comments, "the unsent changes were dropped")
+				assert.Less(t, received, written, "the unsent changes were dropped")
 				assert.True(t, positions[resume.SyncID], "resume_from_cursor names a position the client was sent")
 				assert.Less(t, resume.SyncID, last)
 				status := cl.waitClosed()
@@ -517,4 +548,18 @@ func TestLivesyncHubSlowConsumer(t *testing.T) {
 			})
 		}
 	})
+}
+
+// livesyncWaitHub waits until the hub has received every sync log entry
+// written so far.
+func livesyncWaitHub(t *testing.T) {
+	t.Helper()
+	head := livesyncLogHead(t)
+	assert.Eventually(t, func() bool {
+		if h := livesyncLogHead(t); h > head {
+			head = h
+		}
+		hub := livesync_service.Hub()
+		return hub != nil && hub.Stats(0).Position >= head
+	}, livesyncWait, 2*time.Millisecond, "the hub received the log")
 }

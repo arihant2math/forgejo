@@ -3712,6 +3712,180 @@ does) **and** MySQL 8.0 (binlog on).
   edit in a second context, reconnect ⇒ converged, one comment not two; warm offline boot
   renders the list.
 - **Notes/decisions:**
+  * **Files.**
+    * `src/intents/` (built on F4's seam; F4's overlay/ops/rest/view were extended, not replaced):
+      * `intents.ts` — every offline-capable kind of PLAN §5.4 (see *Intent kinds*), `intentOps`, `describeIntent`,
+        `intentText`, `POLICY`, `CREATES`, `chainOf` (serial queue per entity), `groupOf` (echo group), `tempNum`/`isTemp`,
+        `tempRefs`, `remapIntent`.
+      * `overlay.ts` — F4's overlay plus string set members (reaction contents, viewed paths), `create` ops (locally
+        created entities as real `Entity` objects under a negative temporary id: `created(model)`, `createdEntity`) and the
+        `DELETED` pseudo-field.
+      * `executor.ts` — `Intents`: the queue mirror in every tab, the flusher in the leader, conflict policies, drafts.
+      * `store.ts` — `IntentDb` over the user's IndexedDB (`intents`, `drafts`, remaps in `meta`).
+      * `rest.ts` — API v1 / B9 requests (`api: 'v1' | 'sync'`), `NotReady` (wait) vs `UnsendableIntent` (fail).
+      * `effects.ts` — `effectHeld`, `serverScalar`, `lastChangedBy` (who made the change a scalar overrides).
+      * `merge3.ts` — line-based diff3 with git's markers. `view.ts` — every UI reader through the overlay.
+      * `session.ts` — `startEditing(app)` (boot) / `editing(app)`, the BroadcastChannel, notices, pending count.
+    * `src/sw/` — `sw.ts` (the worker), `routes.ts` (pure decisions: `isSpaRoute`, `sitePathOf`, `strategy`, build meta);
+      `tools/vite-plugin-sw.ts` builds `dist/sw.js` with rolldown.
+    * `src/app/` — `sw.ts` (registration, update path, page-side kill switch, `removeServiceWorker`), `online.ts`
+      (`connectivity`, `onlineOnly()`), `Available.tsx` ("available on this device"), `shell/Unsynced.tsx` (the panel),
+      changes to `boot.ts`, `session.ts`, `trusted.ts` (`workerScriptURL`), `notices.ts` (`sticky`), `store.ts`
+      (`ui.unsyncedOpen`), `RouteStatus.tsx`, `shell/{Shell,SyncIndicator,AccountMenuReal}.tsx`, `palette/Palette.tsx`.
+    * `src/features/issue/Editing.tsx` (description editor, comment composer/edit/delete, conflict UI, override callouts),
+      `IssueView.tsx` (temporary issue URLs), `Timeline.tsx`, `Sidebar.tsx`; `features/issues/cells.tsx` (`PendingCell`,
+      `TitleCell` through the overlay), `IssueList.tsx`; `features/repo/repoPage.tsx`.
+    * `src/ui/` — new primitives `Callout`, `Entry`/`EntryList`, `TextArea`, `ProseSource`, `PendingIcon`/`PendingBadge`;
+      `Status {onClick, label}`, `Notice` tone `warning`, `SectionHeading {id}`; recipes `field`, `ghostHover`, `message`
+      (Input/TextArea, Button ghost/Status, Notice/Callout share them). Tokens: `--delay-pending` (1 s) and
+      `--animate-pending` (fade in after the delay; `none` with reduced motion).
+    * `src/data/idb.ts` — `IDB_VERSION` 3: index `id` on `intents` (fixed in place; records kept). `src/sync/data.ts` —
+      `Data.db`, `countIntents()` counts queued intents + failed drafts.
+    * Tests: `intents/{executor,converge,regressions,merge3}.test.ts`, `sw/routes.test.ts`, `data/idb.test.ts` (v2→v3
+      migration + property), `app/App.test.tsx`; harness `src/test/{fakeForgejo,fakeTabs}.ts`; `e2e/offline.spec.ts`.
+  * **The queue (PLAN §5.3–§5.4).**
+    * **Submit (any tab):** the overlay layer is applied in the same action (≤ 1 frame), the record
+      `{id, intent, state: queued, attempts}` is added to `intents` (autoIncrement `seq` = the queue's order across tabs)
+      with a fresh `Idempotency-Key`, then announced (`added`) on `BroadcastChannel forgejo-next:<userId>:intents`. A
+      follower's hand-over **is** the stored record: nothing is lost if the leader dies before hearing about it.
+    * **Leader only sends.** Gate: leader ∧ `status.connection === 'live'` (F2 sets `live` only when every subscription of
+      the session caught up; a socket that survives a short offline spell stays live) ∧ `navigator.onLine` ∧ not held.
+    * **Per entity serial** (`chainOf`: `i:<issueId>`, `n:<notificationId>`): one intent in flight, and an **acked**
+      intent holds back the entity's next one until its echo is in the pool (it is then prepared against the state that
+      includes it). Exceptions: a **parked** conflict holds back only later edits of the same text (`textTarget`:
+      `body:<issue>`, `comment:<id>`); an intent that refers to an entity created offline waits for the create without
+      holding the entity back. ≤ 6 sends in flight across entities.
+    * **Before each send** the leader reads `intents` from IndexedDB (`unknownBefore`): records stored by a tab that died
+      before announcing them are learnt, and an earlier unsent intent of the entity goes first (two ordering bugs the
+      property test found).
+    * **Request frozen with its key:** built at the first attempt against the freshest pool (`requestFor`) and stored in
+      the record (`req`) **before** it is sent; every retry — by this tab or the next leader — is the same request under
+      the same key (B7: replay, never a 422). New keys only for a B9 rebase, a resolved conflict, a retried draft.
+    * **Answers:** 2xx ⇒ `acked {v, created}` (+ remap, below) then confirm; network error / 429 / 5xx ⇒ backoff
+      (base 1 s, cap 5 min, `Retry-After` honoured), same key, no attempt limit (shown in the panel after 2 attempts);
+      409 + `Retry-After` (B7 in flight) ⇒ wait without spending attempts; 409 with `{body, content_version}` (B9) ⇒
+      merge (below); other 409 ⇒ done if the effect is held, else failed; 404 on a removal ⇒ done; 401 ⇒ refresh once;
+      other 4xx / redirect / 422 ⇒ **failed**. A missing repository/issue/profile in the pool ⇒ `NotReady` (backoff, note).
+    * **Confirmation (no flicker):** with `X-Livesync-Sync-Id = v` the layer is dropped when `Data.whenSynced(group, v)`
+      resolves (barrier after 3 s), else when the pool shows the effect; ≤ 60 s. A group this tab does not hold is done
+      at once. Followers drop the layer on `done {group, v}` after their own `whenSynced` (mirror). An entity whose
+      confirmation timed out is `stale` until its queue empties: no "already on the server" shortcut and no pool-based
+      rebase for it (the server's 409 decides).
+    * **"Already done":** an intent whose effect the pool already shows (`effectHeld`) is done without a request.
+    * **Signed out:** `token()` rejecting with `SignedOut` (or a refresh returning null) **holds** the queue (PLAN §4.9)
+      until the session is live again; the queue is keyed by user (DB per user); other token errors back off.
+    * **Take-over:** the new leader re-reads `intents`, drafts and remaps, posts `leader` (followers re-read), confirms
+      acked records again (no resend) and resends queued ones with their frozen request. Tabs re-read on
+      `visibilitychange` too. Without Web Locks every tab leads (F2): B7 dedupes identical keys; not otherwise guarded.
+  * **Conflict policies (PLAN §5.4, `POLICY`).**
+    * Sets: add/remove against the current server set (assignees: the whole list from `membersAsOf`).
+    * Scalars (state, title, milestone, due date): last writer wins; if the server value differs from the intent's `base`
+      (and from the new value) when it is prepared, an `Override {who, field, theirs, mine, undo}` is raised after the
+      ack: an inline `Callout` on the issue ("You overrode @alice's change to the title · Undo · Dismiss") and a notice when
+      the issue is not on screen. Undo submits the inverse intent. Dismiss/undo is broadcast (`overrideGone`).
+    * Description: `{text, baseText, baseVersion}`; the base is taken **when the editor opens** (`EditBase`, stored with
+      the draft). If the server text moved: `merge3(base, theirs, mine)`; clean ⇒ sent under a new key with the server's
+      version; conflict ⇒ **parked** with `{theirs, version, merged}` — the editor shows the merge with markers ("Keep
+      mine" / "Use theirs" / edit and Save, refused while markers remain); `resolve` replaces the parked record **in its
+      queue position** (same `seq`) with a new intent based on theirs. `baseVersion: -1` (an unsynced edit's text) lets
+      the server's 409 provide the current text.
+    * Comment edit: parked when `updated_at` changed and the text differs from the base (PLAN: compare `updated_unix`);
+      B9's `expected_version` checks again (409: same text ⇒ new version + key, else parked). Deleting a comment fails
+      its parked edit to the drafts (text kept).
+    * Creates (issue, comment, review): the overlay holds an `Entity` under `tempNum(tempId)`; the answer's id is
+      remapped **in the ack's transaction** (dependent records + `meta.intentRemaps`, newest 500), then broadcast
+      (`remap`). `remapKnown` rewrites later intents made under the temporary id (the page still shows it until the
+      echo). Views hide a created entity once its server copy is in the pool (`issueComments`). URL: an issue created
+      offline is at `/{owner}/{repo}/issues/new-<tempId>` (`tempIssuePath`); the page replaces it with the real number
+      (`router.navigate({replace: true})`) once created.
+    * Failed (4xx, target deleted, group revoked, issue dropped, dependency failed/discarded): **one transaction** moves
+      the record to `drafts` (`failed:<id>` with the intent, its text, the reason); the layer is removed; a danger notice
+      offers Retry. Dependents of a failed or discarded create fail too (`orphans()`, also after a crash).
+  * **Intent kinds** (API in parentheses): `issue.create` (POST issues), `issue.state`/`issue.title`/`issue.deadline`/
+    `issue.milestone` (PATCH issue), `issue.body` (B9 PATCH `/issues/{id}/body`), `issue.pin` (POST/DELETE pin),
+    `issue.lock` (PUT/DELETE lock), `issue.label` (POST/DELETE labels), `issue.assignee` (PATCH assignees),
+    `issue.dependency` (POST/DELETE dependencies), `issue.subscribe` (PUT/DELETE subscriptions/{user}),
+    `issue.reviewer` (POST/DELETE requested_reviewers), `reaction` (issue or comment reactions), `comment.create`,
+    `comment.edit` (B9 PATCH `/comments/{id}/body`), `comment.delete`, `review.submit` (POST reviews with `commit_id` and
+    the locally drafted comments), `board.move` (B9 card move with `position`), `pr.viewed` (B9 PUT viewed),
+    `notification.status` (PATCH threads `?to-status=`). UI wired in F5: state/labels/assignees/milestone/priority (F4
+    pickers), title display, description, comments (create/edit/delete). The rest have intents, requests, effects,
+    overlay readers (`view.ts`) and tests, for F6/F7 to wire.
+    * **Adding a kind (F6–F8):** a variant in `intents.ts` + `intentOps` + `describeIntent` (+ `intentText` if it carries
+      text) + `POLICY` (+ `CREATES` and `createdId` for a create, + `tempRefs`/`remapIntent` if it can refer to a created
+      entity) + `chainOf`/`groupOf` if not issue-scoped; its request in `rest.ts`; `effectHeld` (and `removes()` if a 404
+      means done) in `effects.ts`/`executor.ts`; a reader in `view.ts`; a case in `executor.test.ts`.
+    * **Online-only** actions are not intents: disable them offline with `connectivity.online` and say why with
+      `onlineOnly('Merging')` (`app/online.ts`). F5 applies it to "Switch to the classic UI" (menu, palette). F7: merge,
+      branch, file edits, releases, actions, stopwatch, settings.
+  * **Drafts and the panel (APIs for F6–F8).**
+    * `editing(app).intents`: `submit(input)`, `records`/`drafts`/`remapped`/`overrides` (observable maps/array),
+      `pending`, `failedCount`, `pendingOn(issueId)` (one key observed), `conflictOf(kind, id)` (one key observed),
+      `resolve(id, text)`, `retry(draftKey)`, `discard(id)` (never-sent or parked only: `discardable`), `resubmit(i)`,
+      `discardDraft`, `restoreDraft`, `keepText({key, title, issueId, repoId, text, base?})`, `undoOverride`,
+      `dismissOverride`.
+    * Texts being typed are kept as `text:*` drafts (debounced 400 ms; `TextEditor` in `Editing.tsx`): a reload or a crash
+      never loses them; Esc/Cancel discards with an Undo notice. F6's CodeMirror composer should keep using `keepText`.
+    * The "Unsynced changes" panel (`app.ui.unsyncedOpen`; the sync indicator is a button that opens it): Conflicts
+      (Resolve → the issue), Not sent (Retry / Copy / Discard with Undo), Syncing/Waiting (discard with Undo while never
+      sent), Drafts. The indicator shows "· N pending" (queued + failed); the sign-out warning counts the same.
+    * Pending marks: `PendingCell` after the title in rows and the page header, `NotSynced` on unrendered text; both fade
+      in only after 1 s (online edits confirmed sooner never show them).
+  * **Boot.** The queue's chunk is imported in parallel with IndexedDB; the first frame waits for it only when
+    `countIntents() > 0` (then the stored layers are in the overlay before the first frame), never on an empty queue.
+    Boot JS 148.6 / 150 KB br (F4: 146.8): the sync indicator button, `sw/routes.ts` (opt-in guard), chunking. **≈ 1.4 KB
+    left** — F6 must move something off the boot route before adding to it.
+  * **Service worker (`src/sw/sw.ts`, `dist/sw.js`, B8 serves it at `{base}sw.js`, scope `{app_sub_url}/`).**
+    * Registered after the first paint (idle) by `app/sw.ts`, through the `forgejo-next` Trusted Types policy's
+      `createScriptURL`, which allows exactly `{base}sw.js`.
+    * **Install** (versioned): fetches the shell `{base}` (no-cache), checks its `<meta name="forgejo-next-build">` equals
+      the worker's build version (else the install fails: the server runs another build, whose sw.js will install), then
+      `cache.addAll` every hashed asset (no `.map`, not sw.js) and stores the shell last. Waits (no skipWaiting).
+    * **Activate:** deletes other `forgejo-next-*` caches, enables navigation preload, claims clients.
+    * **Assets** `{base}assets/*`: cache first (only this build's files are added).
+    * **Navigations** (top-level documents only; frames untouched): `navigator.onLine === false` ⇒ the cached shell.
+      Online ⇒ the browser's own navigation request (navigation preload) — **a fetch made by the worker is not a document
+      navigation for B8** (`Sec-Fetch-Dest`), which would serve the classic page; without preload, app pages fetch the
+      shell from the network and other pages pass through. App pages (`isSpaRoute`, below the base) fall back to the
+      shell after 4 s without an answer; classic pages wait for the network; a failed request ⇒ the shell (the app's
+      "Not available offline / Not available here" page lists what is). Classic documents' bodies are never read.
+    * **Update path:** an app document carrying another build's meta ⇒ `registration.update()`; `notice{new_build}`
+      (Data `newBuild`) ⇒ `update()`; a new worker installed and waiting ⇒ sticky notice "A new version is ready ·
+      Reload" ⇒ `skipWaiting` ⇒ `controllerchange` ⇒ reload (another tab's Reload just reloads). Unsynced intents are
+      durable: the reload is safe.
+    * **Kill switch:** the page calls `update()` at start; sw.js 404/410 ⇒ unregister + delete caches. The worker checks
+      sw.js at most every 30 min (time kept in its cache) and when one of the app's own pages answers 404 ⇒ deletes its
+      caches and unregisters. A build made with `NEXT_SW_KILL=1` installs a worker that unregisters itself.
+      "Switch to the classic UI" unregisters the worker; boot opts in again only on the app's own pages.
+    * The build plugin fails if `sw.js` loses the exact base literal B8 rewrites under a sub-path.
+  * **Not available offline** (PLAN §5.5): unknown routes (the worker's fallback for classic pages), an unknown
+    repository and an issue not on this device say so and list Home, My issues, My pull requests, Inbox and the
+    repositories on this device (`AvailableOffline`); no spinner offline (the closed-tier search stops).
+  * **Measured.** Offline warm boot (service worker shell + IndexedDB, list of 12 issues): `firstPaintFromCache` 83–194 ms
+    (three reloads, sandbox Chromium); local apply in the same frame (F4's measurement holds; F5 adds one IndexedDB write
+    after the layer).
+  * **Commands / verification.** `npm run check` (lint, stylelint, typecheck, unit tests, build, budget).
+    `CONVERGE_RUNS=3000 npx vitest run --project unit src/intents/converge.test.ts` for a long property run (default 60;
+    timeout scales). Playwright: as F4 (`NEXT_FORGEJO_URL=…`, `ASSETS_DIR = next/dist`); `e2e/offline.spec.ts` is in the
+    `forgejo` project (6 tests: offline labels/description/comments with a second user, the description conflict UI,
+    offline warm boot < 300 ms + "not available offline", two tabs with the leader closed mid-flush (one comment), the
+    update path, the kill switch). The update and kill-switch tests rewrite `dist/sw.js` / `index.html` in place and
+    restore them (they need Forgejo serving `next/dist`).
+  * **Deviations / limits / for later.**
+    * Background prefetch of lazy tiers (PLAN §5.5) is not in F5's tracker scope: left for F6/F8.
+    * `notice{new_build}` compares Forgejo's version (`buildId` = `config.version`), not the app build: deploying a new
+      `ASSETS_DIR` build without a Forgejo upgrade is found by the worker's navigations (meta mismatch) and at boot, not
+      pushed to open tabs. **Backend follow-up:** send/compare the build meta.
+    * B7's crash-window dedupe matches comments by user + issue + body within the window: two identical comments queued
+      back to back whose second first attempt hits a 5xx could be merged into one (not reproduced). Backend follow-up.
+    * Online reload of a temporary issue URL (`new-<tempId>`) before it is created reaches the server, which does not
+      know it (classic 404); offline the worker serves the app.
+    * Overrides are kept in memory (lost on reload); a crash between the ack and the notice loses the notice (the change
+      itself is on the server).
+    * The `editing()` autorun and visibility listener live as long as the page (one session per page load).
+    * Reactions, dependencies, subscriptions, reviewers, pin/lock, deadline, board moves, viewed files, inbox status and
+      review submit have no UI yet (F6/F7).
+  * **Reviews.** (see below)
 
 #### F6 — Inbox, boards, search, saved views, create flows, comments
 - [ ] **Status**

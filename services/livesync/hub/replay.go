@@ -83,10 +83,16 @@ func (c *conn) drainWork() {
 // withSlot runs one database read or check of the session in a slot of
 // the hub's semaphore (never hold one while waiting for the client).
 func (c *conn) withSlot(f func() error) error {
+	return c.withSlotCtx(c.ctx, f)
+}
+
+// withSlotCtx is withSlot for work that ctx (the session's context or one
+// derived from it) may cancel: it stops waiting for a slot then.
+func (c *conn) withSlotCtx(ctx context.Context, f func() error) error {
 	select {
 	case c.h.checks <- struct{}{}:
-	case <-c.ctx.Done():
-		return c.ctx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	defer func() { <-c.h.checks }()
 	return f()
@@ -329,7 +335,7 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 			if len(full) > 0 && full[0].SyncID == e.SyncID {
 				e, full = &full[0], full[1:]
 			}
-			if !c.waitRoom() {
+			if !c.waitRoom(c.ctx) {
 				return 0, false
 			}
 			if e.Grp == protocol.GroupAll {

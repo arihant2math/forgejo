@@ -24,7 +24,10 @@ import (
 // cached grants for the viewer's own repositories) is checked when the
 // tail starts and again before every message with lines, and at least
 // every logRecheck; a tail that lost it is closed (log_closed forbidden).
-// Database reads take the hub's check slots like replays.
+// Database reads take the hub's check slots like replays, one read of the
+// session's tails at a time (withTailSlot); a read is bounded by lines and
+// bytes (LogSource.Lines), and lines read but not sent yet are sent next,
+// never read again.
 
 // DefaultLogInterval is the default Config.LogInterval.
 const DefaultLogInterval = time.Second
@@ -32,6 +35,9 @@ const DefaultLogInterval = time.Second
 const (
 	// maxLogTails bounds the tails of one session.
 	maxLogTails = 8
+	// maxLogTailRunners bounds the tail goroutines of one session: the
+	// running tails and those still finishing after log_untail (runTails).
+	maxLogTailRunners = 2 * maxLogTails
 	// logBatch is the most lines one log message carries.
 	logBatch = 500
 	// logBatchBytes: a log message is cut after this many bytes of lines.
@@ -73,19 +79,31 @@ type LogJob struct {
 type LogSource interface {
 	// Job returns the state of a job's log, or ErrLogNotFound.
 	Job(ctx context.Context, jobID int64) (*LogJob, error)
-	// Lines reads at most limit lines of job's task log from offset.
-	Lines(ctx context.Context, job *LogJob, offset, limit int64) ([]protocol.LogLine, error)
+	// Lines reads lines of job's task log from offset: at most limit
+	// lines and, beyond the first one, about maxBytes bytes of them (by
+	// the source's own size estimate; the caller keeps what it does not
+	// send at once, so a source may return more).
+	Lines(ctx context.Context, job *LogJob, offset, limit, maxBytes int64) ([]protocol.LogLine, error)
 }
 
-// logTail is one running tail of a session.
+// logTail is one tail of a session: the client's request for a job's log.
 type logTail struct {
 	jobID  int64
 	taskID int64 // the task the client holds lines of (resume)
 	offset int64
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // logTailStart handles log_tail: (re)starts the tail of a job.
+//
+// Each job has at most one goroutine (runTails): a restart, or a tail after
+// an untail, while the job's goroutine still finishes the stopped tail
+// (waiting for a slot or for room, in a read) is handed to that goroutine,
+// which runs the newest request next; requests in between are dropped. So
+// log_tail frames sent in a loop cannot start goroutines without bound:
+// the session has at most maxLogTails tails and maxLogTailRunners
+// goroutines.
 func (c *conn) logTailStart(m *protocol.LogTailMessage) {
 	if c.h.cfg.Logs == nil || m.JobID <= 0 || m.Offset < 0 {
 		c.send(&protocol.LogClosedMessage{Type: protocol.MsgLogClosed, JobID: m.JobID, Reason: protocol.LogClosedForbidden})
@@ -96,21 +114,40 @@ func (c *conn) logTailStart(m *protocol.LogTailMessage) {
 		old.cancel()
 		delete(c.tails, m.JobID)
 	}
-	if len(c.tails) >= maxLogTails {
+	running := c.tailRunners[m.JobID]
+	if len(c.tails) >= maxLogTails || !running && len(c.tailRunners) >= maxLogTailRunners {
 		c.tailMu.Unlock()
 		c.send(&protocol.LogClosedMessage{Type: protocol.MsgLogClosed, JobID: m.JobID, Reason: protocol.LogClosedLimit})
 		return
 	}
 	ctx, cancel := context.WithCancel(c.ctx)
-	t := &logTail{jobID: m.JobID, taskID: m.TaskID, offset: m.Offset, cancel: cancel}
-	c.tails[m.JobID] = t
-	c.tailWG.Add(1)
+	c.tails[m.JobID] = &logTail{jobID: m.JobID, taskID: m.TaskID, offset: m.Offset, ctx: ctx, cancel: cancel}
+	if !running {
+		c.tailRunners[m.JobID] = true
+		c.tailWG.Add(1)
+		go c.runTails(m.JobID)
+	}
 	c.tailMu.Unlock()
-	go func() {
-		defer c.tailWG.Done()
-		defer c.logTailEnd(t)
-		c.runLogTail(ctx, t)
-	}()
+}
+
+// runTails is the goroutine of a job's tails: it runs the job's current
+// tail until it ends, then the one that replaced it meanwhile, if any.
+func (c *conn) runTails(jobID int64) {
+	defer c.tailWG.Done()
+	var done *logTail
+	for {
+		c.tailMu.Lock()
+		t := c.tails[jobID]
+		if t == nil || t == done || t.ctx.Err() != nil {
+			delete(c.tailRunners, jobID)
+			c.tailMu.Unlock()
+			return
+		}
+		c.tailMu.Unlock()
+		c.runLogTail(t.ctx, t)
+		c.logTailEnd(t)
+		done = t
+	}
 }
 
 // logTailStop handles log_untail.
@@ -146,6 +183,19 @@ func (c *conn) logSend(ctx context.Context, t *logTail, msg any) bool {
 	return true
 }
 
+// withTailSlot runs a database read of tail ctx in a check slot of the
+// hub: the session's tails take turns (one read at a time, as its replays
+// are serialised), and a stopped tail stops waiting.
+func (c *conn) withTailSlot(ctx context.Context, f func() error) error {
+	select {
+	case c.tailSlot <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-c.tailSlot }()
+	return c.withSlotCtx(ctx, f)
+}
+
 // runLogTail polls the job and sends its new lines until the log is
 // complete, the tail is stopped or the session ends.
 func (c *conn) runLogTail(ctx context.Context, t *logTail) {
@@ -158,7 +208,7 @@ func (c *conn) runLogTail(ctx context.Context, t *logTail) {
 	first, quiet := true, 0
 	for {
 		var job *LogJob
-		err := c.withSlot(func() error {
+		err := c.withTailSlot(ctx, func() error {
 			var err error
 			job, err = src.Job(ctx, t.jobID)
 			return err
@@ -203,26 +253,32 @@ func (c *conn) runLogTail(ctx context.Context, t *logTail) {
 			return
 		}
 		sent := false
+		// Lines read but not sent yet (a read can return more than one
+		// message carries): they are sent next instead of being read
+		// again.
+		var pending []protocol.LogLine
 		for t.offset < job.Length {
-			var lines []protocol.LogLine
-			err := c.withSlot(func() error {
-				var err error
-				lines, err = src.Lines(ctx, job, t.offset, min(logBatch, job.Length-t.offset))
-				return err
-			})
-			if ctx.Err() != nil {
-				return
+			if len(pending) == 0 {
+				err := c.withTailSlot(ctx, func() error {
+					var err error
+					pending, err = src.Lines(ctx, job, t.offset, min(logBatch, job.Length-t.offset), logBatchBytes)
+					return err
+				})
+				if ctx.Err() != nil {
+					return
+				}
+				if err != nil {
+					log.Error("livesync: log tail of job %d: read: %v", t.jobID, err)
+					closed(protocol.LogClosedError)
+					return
+				}
+				if len(pending) == 0 {
+					break // the index is ahead of the file: next poll
+				}
 			}
-			if err != nil {
-				log.Error("livesync: log tail of job %d: read: %v", t.jobID, err)
-				closed(protocol.LogClosedError)
-				return
-			}
-			if len(lines) == 0 {
-				break // the index is ahead of the file: next poll
-			}
-			lines = cutLines(lines)
-			if !c.waitRoom() {
+			lines := cutLines(pending)
+			pending = pending[len(lines):]
+			if !c.waitRoom(ctx) {
 				return
 			}
 			msg := &protocol.LogMessage{Type: protocol.MsgLog, JobID: t.jobID, TaskID: job.TaskID, Offset: t.offset, Lines: lines}
@@ -295,7 +351,7 @@ func cutLines(lines []protocol.LogLine) []protocol.LogLine {
 // repository's jobs (its actions unit).
 func (c *conn) logReadable(ctx context.Context, repoID int64) (bool, error) {
 	var ok bool
-	err := c.withSlot(func() error {
+	err := c.withTailSlot(ctx, func() error {
 		d, granted, err := c.h.cfg.Perms.Check(ctx, c.viewer, protocol.RepoGroup(repoID))
 		ok = granted && d.Units.Allows(protocol.UnitActions)
 		return err

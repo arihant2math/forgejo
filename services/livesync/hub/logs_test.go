@@ -6,6 +6,7 @@ package hub
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,10 +24,23 @@ type fakeLogs struct {
 	jobs  map[int64]LogJob
 	lines map[int64][]string
 	reads int
+	// readLines counts the lines Lines returned.
+	readLines int
+	// gate, when set, blocks Job (ignoring the context, like a slow
+	// database read) until it is closed; inJob counts the calls inside.
+	gate  chan struct{}
+	inJob int
 }
 
 func (f *fakeLogs) Job(_ context.Context, jobID int64) (*LogJob, error) {
 	f.mu.Lock()
+	if gate := f.gate; gate != nil {
+		f.inJob++
+		f.mu.Unlock()
+		<-gate
+		f.mu.Lock()
+		f.inJob--
+	}
 	defer f.mu.Unlock()
 	j, ok := f.jobs[jobID]
 	if !ok {
@@ -37,7 +51,9 @@ func (f *fakeLogs) Job(_ context.Context, jobID int64) (*LogJob, error) {
 	return &j, nil
 }
 
-func (f *fakeLogs) Lines(_ context.Context, job *LogJob, offset, limit int64) ([]protocol.LogLine, error) {
+// Lines ignores maxBytes: the tail must cope with a source that returns
+// more than one message carries.
+func (f *fakeLogs) Lines(_ context.Context, job *LogJob, offset, limit, _ int64) ([]protocol.LogLine, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reads++
@@ -46,6 +62,7 @@ func (f *fakeLogs) Lines(_ context.Context, job *LogJob, offset, limit int64) ([
 	for i := offset; i < int64(len(all)) && i < offset+limit; i++ {
 		res = append(res, protocol.LogLine{T: i, C: all[i]})
 	}
+	f.readLines += len(res)
 	return res, nil
 }
 
@@ -195,6 +212,101 @@ func TestLogTail(t *testing.T) {
 	n := len(cl.c.tails)
 	cl.c.tailMu.Unlock()
 	assert.Zero(t, n)
+}
+
+// TestLogTailLongLines: lines read but not sent in one message (128 KiB)
+// are sent next, not read again (each line is read once).
+func TestLogTailLongLines(t *testing.T) {
+	logs := &fakeLogs{jobs: map[int64]LogJob{}, lines: map[int64][]string{}}
+	const n = 40
+	long := strings.Repeat("x", 64<<10)
+	for i := range n {
+		logs.add(10, strconv.Itoa(i)+long)
+	}
+	logs.set(1, LogJob{RepoID: 1, TaskID: 10, Done: true, Final: true})
+	x := newHarness(t, Config{Logs: logs, LogInterval: 5 * time.Millisecond})
+	cl := x.connect(nil)
+	cl.hello(5)
+	cl.expect(protocol.MsgCaughtUp)
+
+	cl.send(&protocol.LogTailMessage{Type: protocol.MsgLogTail, JobID: 1})
+	var got int64
+	for messages := 0; ; messages++ {
+		m := cl.expect(protocol.MsgLog)
+		require.Equal(t, got, m.Offset)
+		require.LessOrEqual(t, len(m.Lines), 1, "two 64 KiB lines exceed a message")
+		for _, l := range m.Lines {
+			require.True(t, strings.HasPrefix(l.C, strconv.FormatInt(got, 10)+"x"))
+			got++
+		}
+		if m.Done {
+			require.Equal(t, n, messages+1)
+			break
+		}
+	}
+	assert.EqualValues(t, n, got)
+	logs.mu.Lock()
+	defer logs.mu.Unlock()
+	assert.Equal(t, n, logs.readLines, "every line is read once")
+	assert.Equal(t, 1, logs.reads)
+}
+
+// TestLogTailRestarts: log_tail / log_untail frames in a loop while the
+// job's read hangs start no goroutines beyond the limits, and stopped
+// tails stop waiting for the hub's check slots.
+func TestLogTailRestarts(t *testing.T) {
+	logs := &fakeLogs{jobs: map[int64]LogJob{}, lines: map[int64][]string{}, gate: make(chan struct{})}
+	for id := int64(1); id <= 3*maxLogTailRunners; id++ {
+		logs.set(id, LogJob{RepoID: 1, TaskID: id})
+		logs.add(id, "line")
+	}
+	x := newHarness(t, Config{Logs: logs, LogInterval: 5 * time.Millisecond})
+	cl := x.connect(nil)
+	cl.hello(5)
+	cl.expect(protocol.MsgCaughtUp)
+	runners := func() int {
+		cl.c.tailMu.Lock()
+		defer cl.c.tailMu.Unlock()
+		return len(cl.c.tailRunners)
+	}
+
+	// Job 1's first read hangs; restarts are handed to its goroutine.
+	for range 50 {
+		cl.send(&protocol.LogTailMessage{Type: protocol.MsgLogTail, JobID: 1})
+	}
+	assert.Eventually(t, func() bool {
+		logs.mu.Lock()
+		defer logs.mu.Unlock()
+		return logs.inJob == 1
+	}, 5*time.Second, time.Millisecond)
+	assert.Equal(t, 1, runners())
+	// Tails of other jobs started and stopped at once: they wait for the
+	// session's read (job 1's) and end when stopped; at most
+	// maxLogTailRunners goroutines at any time, the rest is refused.
+	for id := int64(2); id <= 3*maxLogTailRunners; id++ {
+		cl.send(&protocol.LogTailMessage{Type: protocol.MsgLogTail, JobID: id})
+		cl.send(&protocol.LogUntailMessage{Type: protocol.MsgLogUntail, JobID: id})
+		require.LessOrEqual(t, runners(), maxLogTailRunners)
+	}
+	assert.Eventually(t, func() bool { return runners() == 1 }, 5*time.Second, time.Millisecond, "stopped tails end while job 1's read hangs")
+	assert.LessOrEqual(t, len(x.h.checks), 1, "one check slot for the session's tails")
+	for {
+		select {
+		case m := <-cl.tr.msgs:
+			require.Equal(t, protocol.MsgLogClosed, m.Type, "%+v", m)
+			require.Equal(t, protocol.LogClosedLimit, m.Reason)
+			continue
+		default:
+		}
+		break
+	}
+
+	// Released: job 1's newest tail runs (once).
+	close(logs.gate)
+	m := cl.expect(protocol.MsgLog)
+	assert.EqualValues(t, 1, m.JobID)
+	assert.Equal(t, []string{"line"}, lineTexts(m.Lines))
+	cl.quiet(30 * time.Millisecond)
 }
 
 func TestCutLines(t *testing.T) {

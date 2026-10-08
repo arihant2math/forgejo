@@ -181,11 +181,16 @@ type conn struct {
 	// lastFrame: when the last delta was encoded (the writer's own).
 	lastFrame time.Time
 
-	// tails are the session's Actions log tails (logs.go), guarded by
-	// tailMu; tailWG counts their goroutines (stop waits for them).
-	tailMu sync.Mutex
-	tails  map[int64]*logTail
-	tailWG sync.WaitGroup
+	// tails are the session's Actions log tails (logs.go): the tail
+	// wanted for each job, guarded by tailMu with tailRunners, the jobs
+	// that have a goroutine (it may still be finishing a stopped tail);
+	// tailWG counts the goroutines (stop waits for them) and tailSlot
+	// makes the session's tails take turns for the hub's check slots.
+	tailMu      sync.Mutex
+	tails       map[int64]*logTail
+	tailRunners map[int64]bool
+	tailWG      sync.WaitGroup
+	tailSlot    chan struct{}
 }
 
 func (h *Hub) newConn(t transport, auth Authenticator) *conn {
@@ -193,6 +198,7 @@ func (h *Hub) newConn(t transport, auth Authenticator) *conn {
 	c := &conn{
 		h: h, t: t, auth: auth, ctx: ctx, cancel: cancel,
 		subs: map[string]*sub{}, holds: map[*sub]int64{}, tails: map[int64]*logTail{},
+		tailRunners: map[int64]bool{}, tailSlot: make(chan struct{}, 1),
 		workNotify: make(chan struct{}, 1), notify: make(chan struct{}, 1), workerDone: make(chan struct{}),
 	}
 	c.room = sync.NewCond(&c.mu)
@@ -398,15 +404,25 @@ func (c *conn) addedLocked(size int, bounded bool) {
 	c.wake = true
 }
 
-// waitRoom blocks a replay until the queue is at most half full; false
-// when the session ended.
-func (c *conn) waitRoom() bool {
+// waitRoom blocks a replay or a log tail until the queue is at most half
+// full; false when the session ended or ctx (the session's, or a log
+// tail's, derived from it) was cancelled.
+func (c *conn) waitRoom(ctx context.Context) bool {
+	if ctx != c.ctx {
+		// c.stop wakes the waiters of the session's context; a tail's
+		// own cancellation must wake them too.
+		defer context.AfterFunc(ctx, func() {
+			c.mu.Lock()
+			c.room.Broadcast()
+			c.mu.Unlock()
+		})()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for !c.ending && c.ctx.Err() == nil && c.queued >= c.h.cfg.SendBuffer/2 {
+	for !c.ending && ctx.Err() == nil && c.queued >= c.h.cfg.SendBuffer/2 {
 		c.room.Wait()
 	}
-	return !c.ending && c.ctx.Err() == nil
+	return !c.ending && ctx.Err() == nil
 }
 
 // setHold / clearHold maintain the holds (call with Hub.mu held).

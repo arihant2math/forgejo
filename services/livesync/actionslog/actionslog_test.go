@@ -24,6 +24,20 @@ func TestMain(m *testing.M) {
 	unittest.MainTest(m)
 }
 
+func TestLinesWithin(t *testing.T) {
+	// Lines of 10, 20, 30 and 40 bytes.
+	idx := []int64{0, 10, 30, 60}
+	const size = 100
+	assert.EqualValues(t, 1, linesWithin(idx, size, 0, 4, 0), "at least one")
+	assert.EqualValues(t, 1, linesWithin(idx, size, 0, 4, 29))
+	assert.EqualValues(t, 2, linesWithin(idx, size, 0, 4, 30))
+	assert.EqualValues(t, 3, linesWithin(idx, size, 0, 4, 60))
+	assert.EqualValues(t, 4, linesWithin(idx, size, 0, 4, 100))
+	assert.EqualValues(t, 3, linesWithin(idx, size, 0, 3, 1000), "limit")
+	assert.EqualValues(t, 2, linesWithin(idx, size, 2, 4, 70), "the last line ends at size")
+	assert.EqualValues(t, 1, linesWithin(idx, size, 2, 4, 69))
+}
+
 func TestSource(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	defer test.MockVariableValue(&setting.Actions.Enabled, true)()
@@ -59,15 +73,34 @@ func TestSource(t *testing.T) {
 	assert.False(t, job.Expired)
 	assert.NotEmpty(t, job.Steps, "FullSteps adds Set up job / Complete job")
 
-	lines, err := src.Lines(ctx, job, 1, 5)
+	lines, err := src.Lines(ctx, job, 1, 5, 1<<20)
 	require.NoError(t, err)
 	require.Len(t, lines, 2)
 	assert.Equal(t, "two", lines[0].C)
 	assert.Equal(t, "three", lines[1].C)
 	assert.Positive(t, lines[0].T)
-	lines, err = src.Lines(ctx, job, 3, 5)
+	lines, err = src.Lines(ctx, job, 3, 5, 1<<20)
 	require.NoError(t, err)
 	assert.Empty(t, lines, "past the index")
+	// The byte budget, by the line index: one stored line is the time
+	// stamp, a space, the content and a newline.
+	lineSize := task.LogIndexes[1] - task.LogIndexes[0]
+	lines, err = src.Lines(ctx, job, 0, 5, lineSize)
+	require.NoError(t, err)
+	require.Len(t, lines, 1)
+	assert.Equal(t, "one", lines[0].C)
+	lines, err = src.Lines(ctx, job, 0, 5, 1)
+	require.NoError(t, err)
+	assert.Len(t, lines, 1, "at least one line")
+
+	// A task whose row is gone (cleaned up): the log expired.
+	_, err = db.GetEngine(ctx).ID(task.ID).Delete(&actions_model.ActionTask{})
+	require.NoError(t, err)
+	job, err = src.Job(ctx, 192)
+	require.NoError(t, err)
+	assert.True(t, job.Expired)
+	assert.True(t, job.Done)
+	assert.Zero(t, job.TaskID)
 
 	// Actions disabled: as if the job did not exist.
 	defer test.MockVariableValue(&setting.Actions.Enabled, false)()

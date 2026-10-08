@@ -67,12 +67,16 @@ func (Source) Job(ctx context.Context, jobID int64) (*hub.LogJob, error) {
 	return res, nil
 }
 
-// Lines implements hub.LogSource.
-func (Source) Lines(ctx context.Context, job *hub.LogJob, offset, limit int64) ([]protocol.LogLine, error) {
+// Lines implements hub.LogSource. The line index (the byte offset of each
+// line in the log) bounds the read to about maxBytes bytes of stored lines
+// (time stamp and content) before the file is opened, so long lines are
+// not read only to be dropped.
+func (Source) Lines(ctx context.Context, job *hub.LogJob, offset, limit, maxBytes int64) ([]protocol.LogLine, error) {
 	task, ok := job.Handle.(*actions_model.ActionTask)
 	if !ok || offset < 0 || offset >= int64(len(task.LogIndexes)) || limit <= 0 {
 		return nil, nil
 	}
+	limit = linesWithin(task.LogIndexes, task.LogSize, offset, limit, maxBytes)
 	rows, err := actions_module.ReadLogs(ctx, task.LogInStorage, task.LogFilename, task.LogIndexes[offset], limit)
 	if err != nil {
 		return nil, fmt.Errorf("read the log of task %d: %w", task.ID, err)
@@ -82,4 +86,21 @@ func (Source) Lines(ctx context.Context, job *hub.LogJob, offset, limit int64) (
 		lines = append(lines, protocol.LogLine{T: r.GetTime().AsTime().UnixMilli(), C: r.GetContent()})
 	}
 	return lines, nil
+}
+
+// linesWithin is how many of at most limit lines from offset fit in
+// maxBytes (at least one) by the line index: line i spans
+// [indexes[i], indexes[i+1]), the last one ends at size.
+func linesWithin(indexes []int64, size, offset, limit, maxBytes int64) int64 {
+	end := func(i int64) int64 {
+		if i+1 < int64(len(indexes)) {
+			return indexes[i+1]
+		}
+		return size
+	}
+	n := int64(1)
+	for n < limit && offset+n < int64(len(indexes)) && end(offset+n)-indexes[offset] <= maxBytes {
+		n++
+	}
+	return n
 }

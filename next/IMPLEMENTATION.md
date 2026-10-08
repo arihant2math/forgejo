@@ -3545,6 +3545,35 @@ does) **and** MySQL 8.0 (binlog on).
   - **Seen, not in scope:** posting such a body through API v1 takes upstream ≈ 28 s in `references.FindAllMentionsMarkdown`
     + `FindAllIssueReferencesMarkdown` alone (both render it with goldmark), inside the comment's request; that is upstream
     behaviour and no livesync path.
+- [ ] **Open after round 3** — 2026-10-08: 1 verified finding (major) recorded, not fixed.
+- **Notes/decisions:**
+  - **(R4-1, major, open) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
+    before any bound applies, so one cheap post still freezes the global writer for seconds to minutes, on every edit**
+    (`services/livesync/materialize/rendercost.go`). ef2ad5e passes the repository's metas to `renderCost`; for the
+    regexp tracker style `structureCost` calls `scan()`, which runs `trackerRefs.FindAllStringIndex(segment, -1)` over
+    each paragraph, with `trackerRefs = regexplru.GetCompiled(metas["regexp"])` — whatever the owner set in
+    `ExternalTrackerRegexpPattern`. Nothing validates the pattern (no binding tags in `services/forms/repo_form.go:181`;
+    API v1 PATCH copies it as is). Go's regexp is O(len(input) × program size) and a small pattern can expand to a very
+    large program. `renderCost` runs synchronously on the writer goroutine in `loader.render`, before the busy check,
+    before `share.allow` and outside `renderBounded`, so neither `renderWait`, the render share, the abandoned-render cap
+    nor `l.budget` limits it, and it runs again on every body change in that repository with no duty cycle. Round 2's
+    `renderCost` did not take metas: a regression of this fix, in the same class as the finding it fixed.
+    **Evidence** (HEAD ef2ad5e, `go test -overlay` scratch tests, no repository file changed; body
+    `strings.Repeat("abcdefghijklmnop", 4000)`, 64 000 bytes; `renderCost` alone): pattern `(\w{1,999}Z)` (12 bytes)
+    1.17 s; `(\w{1,999}Z|...)` with 10 alternatives (111 bytes) 13.15 s; with 100 alternatives (1 101 bytes) 4 m 52.6 s —
+    each time an estimate of 32 ms (no `Z` in the body, so k = 0 and nothing is counted). End to end: repo_unit 68
+    (repo 48) set to style regexp with the 10-alternative pattern, `Materializer.Consume` of issue 9 with that body plus
+    one cheap issue took 13.77 s; the rendering itself was then abandoned after 1 s, so almost all of the stall is
+    `renderCost`. Each later edit of the body repeats the full stall (renderCost runs before the share check). Any user
+    can create a repository and set this style through API v1 or the settings page; upstream runs the pattern only when
+    someone views the page, for that viewer.
+    **Possible remedies:** do not execute the owner's regexp on the writer — for style=regexp charge a conservative cost
+    from `len(content)`, the program size and the line count, or skip writer rendering for that style altogether; or
+    compute `renderCost` inside the bounded job so that `renderWait` covers it.
+    **Verified otherwise:** the round-3 finding's two cases are fixed (the writer abandons a rendering after
+    `renderWait`); materialize unit tests pass with `-race` (SQLite); the other `services/livesync/...`,
+    `routers/livesync` and `models/livesync` unit tests pass; PG 16 integration `TestLivesyncAuditBodies` (including
+    "superlinear body") and `TestLivesyncConformance` pass; the working tree was clean.
 
 
 ### Frontend

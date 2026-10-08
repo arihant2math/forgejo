@@ -93,3 +93,13 @@ export function writeSplash(patch: Partial<Splash>): void {
     // Storage blocked: the next boot uses the defaults.
   }
 }
+
+/** Removes the local DB marker (sign-out): the next boot shows the logged-out shell. */
+export function forgetUser(): void {
+  try {
+    const {user: _user, initial: _initial, ...rest} = readSplash();
+    localStorage.setItem(SPLASH_KEY, JSON.stringify(rest));
+  } catch {
+    // Storage blocked.
+  }
+}

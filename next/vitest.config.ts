@@ -19,6 +19,19 @@ export default defineConfig({
           setupFiles: ['src/test/setup.ts'],
         },
       },
+      {
+        // The data layer against a real Forgejo (NEXT_FORGEJO_URL; skipped
+        // without it), in Node: its own fetch, WebSocket and streams.
+        extends: true,
+        test: {
+          name: 'integration',
+          environment: 'node',
+          include: ['integration/**/*.test.ts'],
+          setupFiles: ['integration/setup.ts'],
+          testTimeout: 120_000,
+          hookTimeout: 60_000,
+        },
+      },
     ],
   },
 });

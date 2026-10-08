@@ -20,7 +20,7 @@ export default defineConfig({
   },
   projects: [
     {name: 'build', testMatch: 'boot.spec.ts', use: {baseURL: 'http://127.0.0.1:4173'}},
-    {name: 'dev', testMatch: 'gallery.spec.ts', use: {baseURL: 'http://127.0.0.1:5173'}},
+    {name: 'dev', testMatch: ['gallery.spec.ts', 'hydrate.bench.spec.ts'], use: {baseURL: 'http://127.0.0.1:5173'}},
   ],
   webServer: [
     // Always this checkout's fresh build: never test whatever already listens on the port.

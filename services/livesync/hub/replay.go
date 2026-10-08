@@ -56,11 +56,14 @@ func (c *conn) workLoop() {
 // meanwhile, or an epoch named the viewer) — between two steps, so that a
 // subscription that is never live again (it catches up from a group
 // written faster than the client reads) holds up neither the others nor
-// the check of the session's token.
+// the check of the session's token. It stops once the session ends (next).
 func (c *conn) drainWork(due bool, tick <-chan time.Time) {
 	h := c.h
+	if !c.next() {
+		return
+	}
 	h.skipIdle(c)
-	for c.ctx.Err() == nil {
+	for {
 		select {
 		case <-tick:
 			due = true
@@ -91,7 +94,25 @@ func (c *conn) drainWork(due bool, tick <-chan time.Time) {
 		case !revalidate:
 			return
 		}
+		if !c.next() {
+			return
+		}
 	}
+}
+
+// next reports whether the worker goes on to its next step: not once the
+// session ends — from the moment it is ending, not only once its context
+// is cancelled, which happens when the writer returns, after the frame it
+// is writing (up to WriteTimeout for a client that does not read).
+// Nothing queued after the final message is sent, and a replay or
+// catch-up step cannot complete (waitRoom fails at once): going on would
+// busy-loop through the session's work (and the log reads of each replay
+// step) until the writer gives up.
+func (c *conn) next() bool {
+	if c.onStep != nil {
+		c.onStep()
+	}
+	return !c.ended()
 }
 
 // withSlot runs one database read or check of the session in a slot of
@@ -213,8 +234,8 @@ func (h *Hub) skipIdle(c *conn) {
 // process does the next step of s's replay (checking its permission
 // first when needed): one replay of its range up to the hub's position,
 // or, when it is behind, one page of its catch-up. Unless s is live (or
-// gone) then, it is handed back to the session's worker, queued after the
-// session's other work (drainWork).
+// gone, or the session ends) then, it is handed back to the session's
+// worker, queued after the session's other work (drainWork).
 func (h *Hub) process(s *sub) {
 	c := s.c
 	h.mu.Lock()
@@ -254,7 +275,7 @@ func (h *Hub) process(s *sub) {
 			h.goLiveLocked(s, cursor)
 		}
 	}
-	if !s.removed && s.state != stateLive && !s.queued && c.ctx.Err() == nil {
+	if !s.removed && s.state != stateLive && !s.queued && !c.ended() {
 		s.queued = true
 		c.work = append(c.work, s)
 	}

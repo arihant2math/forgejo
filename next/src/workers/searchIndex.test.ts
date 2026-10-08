@@ -30,7 +30,7 @@ test('replace and remove', () => {
   expect(ix.search('crash', 10).hits).toEqual([]);
 });
 
-test('10 000 issues: a query takes well under a frame (16 ms is asserted in the browser, e2e/f6.spec.ts)', () => {
+test('10 000 issues: a query takes well under a frame (16 ms is asserted in the browser, e2e/forgejo/work.spec.ts)', () => {
   const words = ['crash', 'save', 'theme', 'login', 'api', 'sync', 'offline', 'board', 'label', 'search', 'render', 'cache'];
   const ix = createIndex();
   const docs: SearchDoc[] = [];
@@ -39,6 +39,6 @@ test('10 000 issues: a query takes well under a frame (16 ms is asserted in the 
   const times: number[] = [];
   for (const q of ['cra', 'theme log', 'offlne', 'org3 sync', '4242', 'render cache issue']) times.push(ix.search(q, 20).ms);
   times.sort((a, b) => a - b);
-  // Node is faster than a browser worker; the browser numbers are in e2e/f6.spec.ts.
+  // Node is faster than a browser worker; the browser numbers are in e2e/forgejo/work.spec.ts.
   expect(times.at(-1)).toBeLessThan(50);
 });

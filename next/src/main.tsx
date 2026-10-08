@@ -14,14 +14,28 @@ followSystemTheme();
 const root = document.getElementById('root');
 // The static boot shell stays on screen until the route is ready; then one
 // commit replaces it (no Suspense fallback, see app/boot.ts).
+/** `localStorage.profile = '1'`: this load renders with React's profiling build (app/profile.tsx). */
+function profiling(): boolean {
+  try {
+    return localStorage.getItem('profile') === '1';
+  } catch {
+    return false;
+  }
+}
+
 if (root) {
   bootApp().then(({app, router}) => {
     bootSucceeded();
-    createRoot(root).render(
+    const tree = (
       <StrictMode>
         <App app={app} router={router}/>
-      </StrictMode>,
+      </StrictMode>
     );
+    // localStorage.profile = '1': React's profiling build (app/profile.tsx).
+    if (profiling()) void import('./app/profile.tsx').then((m) => m.profiledRoot(root, tree)).catch(() => {
+      createRoot(root).render(tree);
+    });
+    else createRoot(root).render(tree);
   }, (error: unknown) => {
     // A chunk of an older build (deleted after a deploy), a network error, or
     // local storage that cannot be opened: reload once, then a Reload screen.

@@ -10,6 +10,7 @@ import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {markOnce} from '../../sync/rum.ts';
+import {sitePath} from '../config.ts';
 import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
@@ -117,6 +118,10 @@ function AppShell({app}: {app: App}) {
       // Pull requests awaiting the viewer's review: their diffs and files onto this device (PLAN §5.5, F7).
       void import('../../code/prefetch.ts').then((m) => {
         m.startPrefetch(app);
+      }).catch(() => undefined);
+      // Real-user measurements to /-/sync/rum (PLAN §5.8, app/rum.ts).
+      void import('../rum.ts').then((m) => {
+        m.startRum(sitePath(app.config, '/-/sync/rum'));
       }).catch(() => undefined);
     });
   }, [app]);

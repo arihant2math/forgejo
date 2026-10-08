@@ -1,10 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Browser checks. F1: the boot shell against the production build (vite
-// preview) and the primitive gallery against the dev server. F3: sign-in,
-// shell, palette and shortcuts against a real Forgejo (NEXT_FORGEJO_URL).
-// F8 grows this into the full e2e suite driven from a Go test.
+// Browser checks (F8: one suite, IMPLEMENTATION.md has the commands).
+//
+//   build    e2e/boot.spec.ts against the production build (vite preview)
+//   dev      e2e/gallery.spec.ts and the hydration benchmark against the dev server
+//   forgejo  e2e/forgejo/*.spec.ts against a real Forgejo with livesync serving next/dist
+//            (NEXT_FORGEJO_URL; skipped without it). `next/tools/dev-forgejo.sh e2e pg|mysql|all`
+//            starts a fresh Forgejo per database and runs it; e2e/lib/ holds the shared helpers.
 
 import {defineConfig, devices} from '@playwright/test';
 
@@ -22,13 +25,11 @@ export default defineConfig({
   projects: [
     {name: 'build', testMatch: 'boot.spec.ts', use: {baseURL: 'http://127.0.0.1:4173'}},
     {name: 'dev', testMatch: ['gallery.spec.ts', 'hydrate.bench.spec.ts'], use: {baseURL: 'http://127.0.0.1:5173'}},
-    // F3 against a real Forgejo serving this checkout's build (skipped without NEXT_FORGEJO_URL).
-    // Depends on "build": the build project's server writes dist/, which Forgejo serves (ASSETS_DIR).
-    // F4 (issues.spec.ts): lists, detail and optimistic edits against the same server.
-    // F5 (offline.spec.ts): offline edits, conflicts, the service worker, two tabs.
-    // F6 (f6.spec.ts): inbox, boards, offline create, search, saved views, the composer.
-    // One worker: both files share the server's users and issues (and timings are measured).
-    {name: 'forgejo', testMatch: ['forgejo.spec.ts', 'issues.spec.ts', 'offline.spec.ts', 'f6.spec.ts', 'f7.spec.ts'], dependencies: ['build'], timeout: 180_000, workers: 1},
+    // Against a real Forgejo serving this checkout's build. Depends on "build" when run with the servers
+    // below: that server writes dist/, which Forgejo serves (ASSETS_DIR); dev-forgejo.sh e2e builds it
+    // first and runs this project alone (NEXT_E2E_NO_SERVERS=1, --no-deps).
+    // One worker: the files share the server's users and repositories, and timings are measured.
+    {name: 'forgejo', testMatch: 'forgejo/**/*.spec.ts', dependencies: ['build'], timeout: 180_000, workers: 1},
   ],
   // NEXT_E2E_NO_SERVERS=1: run only against what is already up (e.g. --project forgejo against a
   // Forgejo serving next/dist: the build server would rebuild dist under it).

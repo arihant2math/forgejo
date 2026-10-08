@@ -1,49 +1,36 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// F5 against a real Forgejo with livesync serving this build (forgejo.spec.ts
-// has the server setup): offline edits — labels, the description, comments —
-// while a second user edits the same issue, then reconnecting converges with
-// no duplicates; the description conflict resolved in the editor; a warm
-// boot offline from the service worker; two tabs with the leader closed in
-// the middle of a flush; the service worker's update path and kill switch.
+// Offline (F5) against a real Forgejo with livesync serving this build:
+// offline edits — labels, the description, comments — while a second user
+// edits the same issue, then reconnecting converges with no duplicates; the
+// description conflict resolved in the editor; "not available offline"; two
+// tabs with the leader closed in the middle of a flush; the service worker's
+// update path and kill switch. (The offline warm boot is timed in perf.spec.ts.)
 // Seeded with tools/seed-issues.ts (repository f5).
 
-import {execFileSync} from 'node:child_process';
 import {readFileSync, renameSync, utimesSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {type BrowserContext, expect, type Page, test} from '@playwright/test';
-import {api, BASE, basic, signIn, USER, watch} from './helpers.ts';
+import {expect, test} from '@playwright/test';
+import {api, type ApiIssue, newIssue, seed} from '../lib/api.ts';
+import {activity, indicator, sidebarProp, signedIn, toggleLabel as addLabel, watch} from '../lib/app.ts';
+import {goOffline, goOnline, storedGroup, swReady} from '../lib/device.ts';
+import {aliceAuth as alice, BASE, DIST, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
 
 const REPO = 'f5';
-const ALICE = {user: 'alice', password: 'alicealice1'};
-const alice = basic(ALICE.user, ALICE.password);
-const DIST = resolve(process.cwd(), 'dist');
-
-interface ApiIssue {
-  number: number;
-  id: number;
-  title: string;
-  body: string;
-  labels: {name: string}[];
-}
 
 test.beforeAll(async () => {
   test.setTimeout(10 * 60_000);
-  execFileSync('node', ['tools/seed-issues.ts', '--url', BASE, '--repo', REPO, '--issues', '12'], {stdio: 'inherit'});
+  seed(REPO, 12);
   // alice may write here (the seed makes her a collaborator of the repository).
   await api('PUT', `/repos/${USER}/${REPO}/collaborators/alice`, {permission: 'write'});
 });
 
 /** A fresh open issue with a known body, for one test. */
-async function freshIssue(title: string): Promise<ApiIssue> {
-  const res = await api('POST', `/repos/${USER}/${REPO}/issues`, {title, body: 'Line one.\n\nLine two.\n\nLine three.'});
-  expect(res.status).toBe(201);
-  return await res.json() as ApiIssue;
-}
+const freshIssue = (title: string) => newIssue(USER, REPO, title, 'Line one.\n\nLine two.\n\nLine three.');
 
 async function issue(n: number): Promise<ApiIssue> {
   return await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(n)}`)).json() as ApiIssue;
@@ -52,71 +39,6 @@ async function issue(n: number): Promise<ApiIssue> {
 async function comments(n: number): Promise<string[]> {
   const list = await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(n)}/comments`)).json() as {body: string}[];
   return list.map((c) => c.body);
-}
-
-async function signedIn(ctx: BrowserContext): Promise<Page> {
-  const page = await ctx.newPage();
-  await signIn(page);
-  return page;
-}
-
-/** The sync indicator (a button: its text is the state and the pending count). */
-const indicator = (page: Page) => page.getByRole('button', {name: /: show unsynced changes$/});
-const sidebarProp = (page: Page, name: string) =>
-  page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: new RegExp(`^${name}$`)}).locator('xpath=following-sibling::dd[1]');
-const activity = (page: Page) => page.getByRole('region', {name: 'Activity'});
-
-/** Waits until the service worker controls the page and has this build cached. */
-async function swReady(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(async () => {
-    const reg = await navigator.serviceWorker.getRegistration();
-    const keys = await caches.keys();
-    return Boolean(reg?.active && navigator.serviceWorker.controller) && keys.some((k) => k.startsWith('forgejo-next-'));
-  }), {timeout: 30_000}).toBe(true);
-}
-
-/** Whether this device holds the repository's group (stored once its bootstrap finished, not while on screen only). */
-async function stored(page: Page, owner: string, repo: string): Promise<boolean> {
-  const {id} = await (await api('GET', `/repos/${owner}/${repo}`)).json() as {id: number};
-  return await page.evaluate(async (group) => {
-    const name = (await indexedDB.databases()).map((d) => d.name).find((n) => n?.startsWith('forgejo-next:'));
-    if (!name) return false;
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const r = indexedDB.open(name);
-      r.onsuccess = () => {
-        resolve(r.result);
-      };
-      r.onerror = () => {
-        reject(r.error ?? new Error('open failed'));
-      };
-    });
-    const key = await new Promise<IDBValidKey | undefined>((resolve) => {
-      const r = db.transaction('meta').objectStore('meta').getKey(group);
-      r.onsuccess = () => {
-        resolve(r.result);
-      };
-    });
-    db.close();
-    return key !== undefined;
-  }, `group:repo:${String(id)}`);
-}
-
-async function goOffline(ctx: BrowserContext, page: Page): Promise<void> {
-  await ctx.setOffline(true);
-  await expect(indicator(page)).toContainText('Offline', {timeout: 10_000});
-}
-
-async function goOnline(ctx: BrowserContext, page: Page): Promise<void> {
-  await ctx.setOffline(false);
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-}
-
-async function addLabel(page: Page, name: string): Promise<void> {
-  await page.keyboard.press('l');
-  await page.getByPlaceholder('Add or remove labels…').fill(name);
-  await expect(page.getByRole('option', {name: new RegExp(`^${name}\\b`)})).toBeVisible();
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Escape');
 }
 
 test('offline edits (labels, description, comments) while another user edits the same issue converge with no duplicates', async ({browser}) => {
@@ -192,28 +114,15 @@ test('a description conflict is shown in the editor and resolved there', async (
   await ctx.close();
 });
 
-test('a warm boot offline renders the list from the service worker and IndexedDB in under 300 ms', async ({browser}) => {
+test('a page the app does not have offline says so and lists what is available', async ({browser}) => {
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${REPO}/issues`);
   await expect(page.getByRole('listbox', {name: 'Issues'}).getByRole('option').first()).toBeVisible({timeout: 20_000});
   await swReady(page);
-  // Warm: the repository is on this device (its group stored), not only on screen.
-  await expect.poll(() => stored(page, USER, REPO), {timeout: 30_000}).toBe(true);
+  await expect.poll(async () => storedGroup(page, `repo:${String((await (await api('GET', `/repos/${USER}/${REPO}`)).json() as {id: number}).id)}`), {timeout: 30_000}).toBe(true);
   await ctx.setOffline(true);
-  // The first boot served by the worker fills the browser's code cache for its responses (measured and logged
-  // only: ≈ 200–350 ms here); the warm boots after it are the target.
-  const times: number[] = [];
-  for (let run = 0; run < 4; run++) {
-    const resp = await page.reload();
-    expect(resp?.fromServiceWorker()).toBe(true);
-    await expect(page.getByRole('listbox', {name: 'Issues'}).getByRole('option').first()).toBeVisible();
-    times.push(await page.evaluate(() => performance.getEntriesByName('firstPaintFromCache')[0]?.startTime ?? Number.NaN));
-  }
-  console.log('offline boot firstPaintFromCache (ms), first from the worker then warm:', times.map((t) => Math.round(t)));
-  test.info().annotations.push({type: 'offlineWarmBootMs', description: JSON.stringify(times.map((t) => Math.round(t)))});
-  expect(Math.max(...times.slice(1))).toBeLessThan(300);
-  // A page the app does not have offline says so and lists what is available (no blank screen).
+  // No blank screen, no spinner: what is on this device.
   await page.goto(`${BASE}/${USER}/${REPO}/wiki`);
   await expect(page.getByText('Not available offline')).toBeVisible();
   await expect(page.getByRole('navigation', {name: 'Available on this device'})).toContainText('My issues');

@@ -117,7 +117,8 @@ const ProjectsValue = observer(function ProjectsValue({issue}: {issue: Entity<'I
           const pid = c.get('project_id');
           const title = pool.model('Project').get(pid)?.get('title') ?? pool.model('ProjectRef').get(pid)?.get('title') ?? `Project ${String(pid)}`;
           const column = pool.model('ProjectColumn').get(c.get('column_id'))?.get('title');
-          return <span key={c.id} className="truncate">{title}{column && <span className="text-fg-subtle"> · {column}</span>}</span>;
+          // The board opens from here (the triage path: issue → its board).
+          return <span key={c.id} className="truncate"><TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}}>{title}</Link></TextLink>{column && <span className="text-fg-subtle"> · {column}</span>}</span>;
         })}
       </PropertyValue>
     </Property>

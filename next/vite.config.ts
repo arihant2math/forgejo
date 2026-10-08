@@ -33,6 +33,8 @@ export function vendorChunk(id: string): string | null {
   if (!m?.[1]) return null;
   const pkg = m[1].replace('\\', '/');
   if (pkg === 'lucide-react' && /[\\/]icons[\\/]/.test(id)) return null;
+  // React's profiling build (localStorage.profile, app/profile.tsx) loads only when asked: never with react-dom.
+  if (pkg === 'react-dom' && id.includes('profiling')) return 'vendor-react-dom-profiling';
   const radix = /^@radix-ui\/react-(.+)$/.exec(pkg);
   if (radix?.[1] && radixPrimitives.has(radix[1])) return `vendor-radix-ui-${radix[1]}`;
   if (pkg.startsWith('@radix-ui/')) return radixFocus.has(pkg.slice('@radix-ui/'.length)) ? 'vendor-radix-ui-focus' : 'vendor-radix-ui-internal';

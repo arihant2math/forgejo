@@ -62,9 +62,17 @@ type Settings struct {
 	// tracked table (B4).
 	PermCacheTTL time.Duration
 	// SEND_BUFFER (default 4194304 = 4 MiB): the bytes queued for one sync
-	// session at most (changes and control messages); a client that does
-	// not read fast enough is disconnected with resume_from_cursor (B5).
+	// session at most (changes and control messages). A burst of changes
+	// larger than that does not disconnect the client: its subscriptions
+	// catch up from the sync log as it reads (B5; flake/product note of B8).
 	SendBuffer int
+	// DRAIN_TIMEOUT (default 5s): a sync session is too slow when messages
+	// wait in its queue and the client has not read one more frame (at most
+	// 256 KiB) for this long: it is disconnected with resume_from_cursor. A
+	// client that reads steadily is not (≈ 52 KB/s with full frames, which
+	// only large replays, catch-ups and log tails write); raise it for
+	// slower links.
+	DrainTimeout time.Duration
 	// MAX_SUBSCRIPTIONS (default 1000): the groups one user may subscribe
 	// at once on an instance, over all of their sessions (B5).
 	MaxSubscriptions int
@@ -158,6 +166,9 @@ func loadSettings(rootCfg setting.ConfigProvider) (Settings, error) {
 	s.MaxReplay = sec.Key("MAX_REPLAY").MustInt(hub.DefaultMaxReplay)
 	if s.SessionCheckInterval, err = sec.Key("SESSION_CHECK_INTERVAL").MustDuration(hub.DefaultRevalidateInterval); err != nil {
 		return s, fmt.Errorf("invalid [livesync] SESSION_CHECK_INTERVAL: %w", err)
+	}
+	if s.DrainTimeout, err = sec.Key("DRAIN_TIMEOUT").MustDuration(hub.DefaultDrainTimeout); err != nil || s.DrainTimeout <= 0 {
+		return s, fmt.Errorf("invalid [livesync] DRAIN_TIMEOUT %q (want a duration > 0)", sec.Key("DRAIN_TIMEOUT").String())
 	}
 	if s.SummaryRecency, err = sec.Key("SUMMARY_RECENCY").MustDuration(90 * 24 * time.Hour); err != nil {
 		return s, fmt.Errorf("invalid [livesync] SUMMARY_RECENCY: %w", err)

@@ -28,6 +28,7 @@ func (c *conn) workLoop() {
 	revalidate := time.NewTicker(c.h.cfg.RevalidateInterval)
 	defer revalidate.Stop()
 	for {
+		due := false
 		select {
 		case <-c.ctx.Done():
 			return
@@ -42,20 +43,33 @@ func (c *conn) workLoop() {
 			}
 			continue
 		case <-revalidate.C:
-			c.h.mu.Lock()
-			c.revalidate = true
-			c.h.mu.Unlock()
+			due = true
 		case <-c.workNotify:
 		}
-		c.drainWork()
+		c.drainWork(due, revalidate.C)
 	}
 }
 
-func (c *conn) drainWork() {
+// drainWork does the session's queued work: one step of a subscription at
+// a time (Hub.process hands it back, queued last, until it is live), and
+// the re-validation of the session when it is due (due, or tick fired
+// meanwhile, or an epoch named the viewer) — between two steps, so that a
+// subscription that is never live again (it catches up from a group
+// written faster than the client reads) holds up neither the others nor
+// the check of the session's token.
+func (c *conn) drainWork(due bool, tick <-chan time.Time) {
 	h := c.h
 	h.skipIdle(c)
 	for c.ctx.Err() == nil {
+		select {
+		case <-tick:
+			due = true
+		default:
+		}
 		h.mu.Lock()
+		if due {
+			c.revalidate, due = true, false
+		}
 		// Before the welcome the flag stays (hello kicks the worker again).
 		revalidate := c.revalidate && c.welcomed
 		if revalidate {
@@ -196,42 +210,53 @@ func (h *Hub) skipIdle(c *conn) {
 	}
 }
 
-// process replays s from its cursor (checking its permission first when
-// needed) until it is live, revoked or removed.
+// process does the next step of s's replay (checking its permission
+// first when needed): one replay of its range up to the hub's position,
+// or, when it is behind, one page of its catch-up. Unless s is live (or
+// gone) then, it is handed back to the session's worker, queued after the
+// session's other work (drainWork).
 func (h *Hub) process(s *sub) {
 	c := s.c
-	scanned := 0 // log entries scanned for s's replay (MaxReplay)
-	for c.ctx.Err() == nil {
-		h.mu.Lock()
-		if s.removed || s.state == stateLive {
-			h.mu.Unlock()
-			return
-		}
-		check := s.recheck
-		s.recheck = false
-		gen, cursor, units, until := s.gen, s.cursor, s.units, h.pos.Load()
+	h.mu.Lock()
+	if s.removed || s.state == stateLive {
 		h.mu.Unlock()
+		return
+	}
+	check := s.recheck
+	s.recheck = false
+	gen, cursor, units, until, behind, scanned := s.gen, s.cursor, s.units, h.pos.Load(), s.behind, s.scanned
+	h.mu.Unlock()
 
-		if check {
-			h.check(s)
-			continue
+	n, ok := 0, true
+	switch {
+	case check:
+		h.check(s)
+		ok = false // the step was the check
+	case cursor >= until:
+	case behind:
+		cursor, ok = h.catchUp(s, gen, cursor, until, units)
+	default:
+		n, ok = h.replay(s, gen, cursor, until, units, scanned)
+		cursor = until
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ok && !s.removed && s.gen == gen {
+		s.cursor = cursor
+		s.scanned += n
+		if behind {
+			// The page is queued: frames may claim it.
+			c.raiseHold(s, cursor)
+			h.checkBarrierLocked(c)
 		}
-		if cursor < until {
-			n, ok := h.replay(s, gen, cursor, until, units, scanned)
-			if !ok {
-				continue
-			}
-			scanned += n
-			cursor = until
+		if !s.recheck && cursor >= h.pos.Load() {
+			h.goLiveLocked(s, cursor)
 		}
-		h.mu.Lock()
-		if !s.removed && s.gen == gen {
-			s.cursor = cursor
-			if !s.recheck && cursor >= h.pos.Load() {
-				h.goLiveLocked(s, cursor)
-			}
-		}
-		h.mu.Unlock()
+	}
+	if !s.removed && s.state != stateLive && !s.queued && c.ctx.Err() == nil {
+		s.queued = true
+		c.work = append(c.work, s)
 	}
 }
 
@@ -275,8 +300,12 @@ func (h *Hub) check(s *sub) {
 			c.sendAtHold(s, &protocol.BootstrapRequiredMessage{Type: protocol.MsgBootstrapRequired, Group: s.group, Reason: protocol.BootstrapPermissionChanged})
 		}
 		h.setDecisionLocked(s, d)
-		if s.state == stateRecheck && s.holding {
-			h.releaseHeldLocked(s)
+		if s.state == stateRecheck && s.holding && !h.releaseHeldLocked(s) {
+			// The session's queue has no room for them: catch up from
+			// the log instead (process goes on from s.cursor).
+			h.dropHeldLocked(s)
+			s.behind = true
+			metrics.CatchUps.Inc()
 		}
 	}
 }
@@ -306,6 +335,44 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 		h.restartLive(s, gen, protocol.BootstrapReplayTooLong)
 		return 0, false
 	}
+	if !h.sendKeys(s, gen, keys, units) {
+		return 0, false
+	}
+	return len(keys), true
+}
+
+// catchUp sends the next page (at most replayBatch entries) of s's group
+// after cursor, up to until, to s, which fell behind (fallBehindLocked):
+// as a replay (the newest state of each entity in the page, markers), but
+// paged and without MaxReplay — the client is connected and reads, it
+// would have got these changes live — and only once the session's queue
+// has room, so nothing waits in memory for the client. It returns the
+// position s is complete up to once the page is sent; false as replay.
+func (h *Hub) catchUp(s *sub, gen uint64, cursor, until int64, units perm.UnitSet) (int64, bool) {
+	c := s.c
+	if !c.waitRoom(c.ctx) {
+		return 0, false
+	}
+	var keys []livesync_model.LogEntry
+	err := c.withSlot(func() (err error) {
+		keys, err = synclog.ReadKeys(c.ctx, s.group, cursor, until, replayBatch)
+		return err
+	})
+	if h.replayFailed(s, gen, err) || !h.sendKeys(s, gen, keys, units) {
+		return 0, false
+	}
+	if len(keys) == replayBatch {
+		return keys[len(keys)-1].SyncID, true
+	}
+	return until, true
+}
+
+// sendKeys sends what a replay sends of keys (replayPlan), reading the
+// payloads replayBatch at a time and waiting for room in the send buffer
+// before each change. False when it did not complete (restarted, to be
+// retried, or the session ended).
+func (h *Hub) sendKeys(s *sub, gen uint64, keys []livesync_model.LogEntry, units perm.UnitSet) bool {
+	c := s.c
 	items := replayPlan(keys, units, s.kind)
 	for len(items) > 0 {
 		chunk := items[:min(len(items), replayBatch)]
@@ -322,13 +389,13 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 			return err
 		})
 		if h.replayFailed(s, gen, err) {
-			return 0, false
+			return false
 		}
 		h.mu.Lock()
 		stale := s.removed || s.gen != gen
 		h.mu.Unlock()
 		if stale {
-			return 0, false // unsubscribed, or the client restarted the replay
+			return false // unsubscribed, or the client restarted the replay
 		}
 		for _, i := range chunk {
 			e := &keys[i]
@@ -336,7 +403,7 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 				e, full = &full[0], full[1:]
 			}
 			if !c.waitRoom(c.ctx) {
-				return 0, false
+				return false
 			}
 			if e.Grp == protocol.GroupAll {
 				var marker protocol.RebootstrapMarker
@@ -346,11 +413,11 @@ func (h *Hub) replay(s *sub, gen uint64, cursor, until int64, units perm.UnitSet
 				// position before the marker (conn.capLocked).
 				c.sendCapped(bootstrapFor(s.group, &marker, protocol.Model(e.Model)), e.SyncID-1)
 			} else {
-				c.enqueueChange(*change(e), false)
+				c.enqueueChange(*change(e))
 			}
 		}
 	}
-	return len(keys), true
+	return true
 }
 
 // replayFailed handles an error of a replay read: true when the replay

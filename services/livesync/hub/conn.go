@@ -42,10 +42,12 @@ const (
 	stateReplay subState = iota
 	// stateLive: the hub sends the group's changes after liveFrom.
 	stateLive
-	// stateRecheck: a permission epoch at cursor may concern the
-	// subscription; it is checked again and catches up from cursor. For
-	// the client it is still caught up: frames do not claim completeness
-	// beyond its hold (conn.holds).
+	// stateRecheck: the subscription is not live but, for the client,
+	// still caught up: frames do not claim completeness beyond its hold
+	// (conn.holds). Either a permission epoch at cursor may concern it (it
+	// is checked again, recheck, and catches up from cursor), or its live
+	// changes did not fit in the session's queue (behind: it catches up
+	// from cursor by paging through the log).
 	stateRecheck
 )
 
@@ -65,8 +67,20 @@ type sub struct {
 	// gen changes when the client restarts the replay (a subscribe with a
 	// new since): a running replay starts over from the new cursor.
 	gen uint64
+	// replaying: the client asked for a replay (hello, subscribe with a
+	// since) that has not gone live yet; it waits for caught_up (counted
+	// by conn.replaying).
+	replaying bool
+	// scanned: the log entries this replay scanned so far (MaxReplay).
+	scanned int
 	// recheck: the permission must be checked before the replay goes on.
 	recheck bool
+	// behind (stateRecheck): the group's changes after cursor did not fit
+	// in the session's queue (fallBehindLocked; or the entries held for a
+	// re-check did not); it catches up by paging through the log, without
+	// MaxReplay (the client is connected and reads; it would have got
+	// them live), raising its hold as it goes.
+	behind  bool
 	queued  bool // in conn.work
 	removed bool
 	// The index entries of dec (byRepo, byRow).
@@ -142,9 +156,12 @@ type conn struct {
 	// registration and the welcome (sent right after it).
 	selfPending []protocol.Change
 	subs        map[string]*sub
-	// busy counts the subscriptions that are not live (replay, recheck).
-	busy int
-	// catchUp: send caught_up when busy drops to 0.
+	// replaying counts the subscriptions whose replay the client waits
+	// for (sub.replaying). Those in stateRecheck that do not replay for
+	// the client (checked again, or behind) are caught up for it: they
+	// only cap the positions claimed (holds).
+	replaying int
+	// catchUp: send caught_up when replaying drops to 0.
 	catchUp    bool
 	work       []*sub
 	revalidate bool
@@ -166,6 +183,13 @@ type conn struct {
 	// wake: the current critical section of mu queued something or ended
 	// the session; unlock wakes the writer after releasing mu.
 	wake bool
+	// pendingSince: when the writer last made progress while something
+	// was queued (zero: the queue is empty): when the oldest message in
+	// the queue was queued, or the writer finished a frame since then,
+	// whichever is later. drainTimer ends the session when that is longer
+	// ago than Config.DrainTimeout (checkDrain).
+	pendingSince time.Time
+	drainTimer   *time.Timer
 	// holds: the subscriptions in stateRecheck and the position up to
 	// which each is complete (frames claim no more than the lowest).
 	holds  map[*sub]int64
@@ -283,24 +307,42 @@ func (c *conn) pushLocked(it outItem) {
 	c.addedLocked(it.size, true)
 }
 
-// enqueueChange queues a change for the next delta frame. A live change
-// that makes the queue exceed the send buffer ends the session with
-// resume_from_cursor (replays wait for room instead, see waitRoom).
-func (c *conn) enqueueChange(ch protocol.Change, live bool) {
+// enqueueChange queues a change of a replay for the next delta frame
+// (replays wait for room instead of being bounded, see waitRoom).
+func (c *conn) enqueueChange(ch protocol.Change) {
 	c.mu.Lock()
 	defer c.unlock()
-	c.enqueueChangeLocked(ch, live)
+	c.enqueueChangeLocked(ch, false)
 }
 
 // enqueueDelivered and sendDelivered queue a live change or a control
 // message of a delivery without waking the writer: Hub.Deliver wakes it
 // once the hub's position includes the delivery, so that the frame
 // carrying its changes claims it (to).
-func (c *conn) enqueueDelivered(ch protocol.Change) {
+//
+// A change of a subscription (sub) that does not fit in the queue's share
+// for changes (fitsLocked) is not queued: false, and the subscription
+// catches up from the log instead (Hub.fallBehindLocked). Other changes
+// (the viewer's own profile) are bounded like control messages.
+func (c *conn) enqueueDelivered(ch protocol.Change, sub bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if sub && !c.ending && !c.fitsLocked(changeSize(&ch)) {
+		return false
+	}
 	c.enqueueChangeLocked(ch, true)
 	c.wake = false
+	return true
+}
+
+// fitsLocked reports whether size more bytes of live changes fit in the
+// queue: changes may fill three quarters of the send buffer, the rest is
+// left to control messages (a full queue of changes during a burst must
+// not turn a pong or a bootstrap_required into an overflow). One change
+// larger than that may enter an empty queue.
+func (c *conn) fitsLocked(size int) bool {
+	room := c.h.cfg.SendBuffer - c.h.cfg.SendBuffer/4
+	return c.queued == 0 || c.queued+size <= room
 }
 
 // sendDelivered queues a control message of a delivery after which the
@@ -388,20 +430,60 @@ func (c *conn) enqueueChangeLocked(ch protocol.Change, live bool) {
 }
 
 // addedLocked accounts for size bytes just queued; bounded: end the
-// session if the queue now exceeds the send buffer. One item larger than
-// the buffer is allowed into an empty queue (it could never be sent
-// otherwise).
+// session if the queue now exceeds the send buffer (live changes of
+// subscriptions never get there: they fall behind first, see
+// enqueueDelivered; this bounds control messages, e.g. a client that sends
+// pings without reading the pongs). One item larger than the buffer is
+// allowed into an empty queue (it could never be sent otherwise).
 func (c *conn) addedLocked(size int, bounded bool) {
 	c.queued += size
 	if bounded && c.queued > c.h.cfg.SendBuffer && c.queued > size {
-		// Too slow: drop what was not sent; the client resumes from the
-		// last frame it got.
-		c.queue, c.queued = nil, 0
-		metrics.SlowConsumers.Inc()
-		c.endLocked(closeTryAgain, "client too slow", &protocol.ResumeFromCursorMessage{Type: protocol.MsgResumeFromCursor, SyncID: c.lastTo})
+		c.slowLocked()
 		return
 	}
+	if c.pendingSince.IsZero() {
+		c.pendingSince = time.Now()
+		if c.drainTimer == nil && c.ctx.Err() == nil {
+			c.drainTimer = time.AfterFunc(c.h.cfg.DrainTimeout, c.checkDrain)
+		}
+	}
 	c.wake = true
+}
+
+// slowLocked ends a session that does not keep up: what was not sent is
+// dropped and the client resumes from the last frame it got.
+func (c *conn) slowLocked() {
+	c.queue, c.queued, c.pendingSince = nil, 0, time.Time{}
+	metrics.SlowConsumers.Inc()
+	c.endLocked(closeTryAgain, "client too slow", &protocol.ResumeFromCursorMessage{Type: protocol.MsgResumeFromCursor, SyncID: c.lastTo})
+}
+
+// checkDrain (drainTimer) ends the session when messages wait in its
+// queue and the writer has not finished writing a frame for longer than
+// DrainTimeout (pendingSince), i.e. the client did not read one frame
+// (at most maxFrameBytes) within that time: a slow consumer. The queue's
+// size does not decide that (a burst larger than the send buffer makes
+// subscriptions catch up from the log instead), nor how long the client
+// takes to read all the writer took in one step (up to half the send
+// buffer for replays, catch-ups and log tails, three quarters during a
+// burst): a client that reads steadily, however slowly, makes progress
+// frame by frame. A writer stuck in one write with nothing queued behind
+// it is ended by WriteTimeout, which is longer.
+func (c *conn) checkDrain() {
+	c.mu.Lock()
+	defer c.unlock()
+	waited := time.Since(c.pendingSince)
+	switch {
+	case c.ending || c.pendingSince.IsZero() || c.ctx.Err() != nil:
+		// Nothing waits, or the session ends anyway (stop: the writer is
+		// gone, it is not a slow client).
+		c.drainTimer = nil
+	case waited >= c.h.cfg.DrainTimeout:
+		c.drainTimer = nil
+		c.slowLocked()
+	default:
+		c.drainTimer.Reset(c.h.cfg.DrainTimeout - waited)
+	}
 }
 
 // waitRoom blocks a replay or a log tail until the queue is at most half
@@ -438,6 +520,16 @@ func (c *conn) clearHold(s *sub) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.holds, s)
+}
+
+// raiseHold moves s's hold up to pos: s, catching up (behind), queued its
+// group's entries up to pos (call after queueing them).
+func (c *conn) raiseHold(s *sub, pos int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if hold, ok := c.holds[s]; ok && hold < pos {
+		c.holds[s] = pos
+	}
 }
 
 // end closes the session after the queued messages and final (if not nil)
@@ -528,7 +620,7 @@ func (c *conn) take() []frame {
 	pos := c.h.pos.Load()
 	c.mu.Lock()
 	items := c.queue
-	c.queue, c.queued = nil, 0
+	c.queue, c.queued, c.pendingSince = nil, 0, time.Time{}
 	prevTo := c.lastTo
 	to := pos
 	for _, hold := range c.holds {
@@ -581,7 +673,8 @@ func onlyChanges(items []outItem) bool {
 
 // write sends one encoded message that makes the client's caught-up
 // groups complete up to pos (0: a message without a position); false when
-// the session is broken.
+// the session is broken. A frame written is progress (pendingSince, see
+// checkDrain).
 func (c *conn) write(data []byte, pos int64) bool {
 	ctx, cancel := context.WithTimeout(c.ctx, c.h.cfg.WriteTimeout)
 	defer cancel()
@@ -589,10 +682,14 @@ func (c *conn) write(data []byte, pos int64) bool {
 		log.Debug("livesync: sync session of user %d: write: %v", c.viewer, err)
 		return false
 	}
+	c.mu.Lock()
 	if pos > 0 {
-		c.mu.Lock()
 		c.lastTo = max(c.lastTo, pos)
-		c.mu.Unlock()
 	}
+	if !c.pendingSince.IsZero() {
+		// Progress: what waits behind the frame waits from now on.
+		c.pendingSince = time.Now()
+	}
+	c.mu.Unlock()
 	return true
 }

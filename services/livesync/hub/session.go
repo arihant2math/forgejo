@@ -51,6 +51,10 @@ func (c *conn) stop() {
 	c.cancel()
 	c.mu.Lock()
 	c.room.Broadcast()
+	if c.drainTimer != nil {
+		c.drainTimer.Stop()
+		c.drainTimer = nil
+	}
 	c.mu.Unlock()
 	// Wait for a message being handled; later ones are dropped (handle).
 	c.handleMu.Lock()
@@ -325,10 +329,15 @@ func (h *Hub) subscribeLocked(c *conn, reqs []request, at checkpoint) (granted [
 			// (Re)start the replay from since.
 			if s.state == stateLive {
 				s.state = stateReplay
-				c.busy++
+			}
+			if !s.replaying {
+				s.replaying = true
+				c.replaying++
 			}
 			h.dropHeldLocked(s) // held entries start after the old cursor
+			s.behind = false    // a replay the client asked for (MaxReplay)
 			s.cursor = *since
+			s.scanned = 0
 			s.gen++
 			h.queueLocked(s)
 		}
@@ -359,12 +368,16 @@ func (h *Hub) checkpoint() checkpoint {
 	return checkpoint{pos: h.pos.Load(), permSeq: h.permSeq}
 }
 
-// caughtUpLocked sends caught_up when the session waits for one and every
-// subscription is live.
+// caughtUpLocked sends caught_up when the session waits for one and no
+// replay the client asked for is still running. Subscriptions checked
+// again or catching up (behind) are caught up for the client and do not
+// delay it — one that catches up from a group written faster than the
+// client reads may never be live again —, but caught_up claims no more
+// than they were sent (position).
 func (h *Hub) caughtUpLocked(c *conn) {
-	if c.catchUp && c.busy == 0 {
+	if c.catchUp && c.replaying == 0 {
 		c.catchUp = false
-		c.send(&protocol.CaughtUpMessage{Type: protocol.MsgCaughtUp, SyncID: h.pos.Load()})
+		c.send(&protocol.CaughtUpMessage{Type: protocol.MsgCaughtUp, SyncID: c.position()})
 	}
 }
 
@@ -441,7 +454,7 @@ func (c *conn) hello(m *protocol.HelloMessage) {
 	c.grants = welcome.Grants
 	c.welcomed = true
 	for _, ch := range c.selfPending {
-		c.enqueueChange(ch, false)
+		c.enqueueChange(ch)
 	}
 	c.selfPending = nil
 	if c.revalidate {
@@ -568,8 +581,11 @@ func (h *Hub) removeSubLocked(s *sub) {
 	if h.subCount[c.viewer]--; h.subCount[c.viewer] <= 0 {
 		delete(h.subCount, c.viewer)
 	}
+	if s.replaying {
+		s.replaying = false
+		c.replaying--
+	}
 	if s.state != stateLive {
-		c.busy--
 		c.clearHold(s)
 	}
 	if s.queued {
@@ -607,8 +623,13 @@ func (h *Hub) goLiveLocked(s *sub, from int64) {
 	}
 	s.state = stateLive
 	s.liveFrom = from
+	s.behind = false
+	s.scanned = 0
+	if s.replaying {
+		s.replaying = false
+		s.c.replaying--
+	}
 	h.dropHeldLocked(s)
-	s.c.busy--
 	s.c.clearHold(s)
 	h.caughtUpLocked(s.c)
 	h.checkBarrierLocked(s.c)

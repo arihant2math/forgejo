@@ -66,11 +66,22 @@ type message struct {
 }
 
 type fakeTransport struct {
-	msgs   chan message
-	raw    chan string
-	gate   chan struct{} // when not nil, writes wait for it
-	mu     sync.Mutex
-	closed int
+	msgs chan message
+	raw  chan string
+	gate chan struct{} // when not nil, writes wait for it
+	mu   sync.Mutex
+	// bytesPerMs, when set, makes writes take that long (a slow reader;
+	// setRate).
+	bytesPerMs int
+	closed     int
+}
+
+// setRate makes the client read bytesPerMs bytes per millisecond from now
+// on (0: at once).
+func (f *fakeTransport) setRate(bytesPerMs int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.bytesPerMs = bytesPerMs
 }
 
 func newFakeTransport() *fakeTransport {
@@ -81,6 +92,16 @@ func (f *fakeTransport) write(ctx context.Context, data []byte) error {
 	if f.gate != nil {
 		select {
 		case <-f.gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f.mu.Lock()
+	rate := f.bytesPerMs
+	f.mu.Unlock()
+	if rate > 0 {
+		select {
+		case <-time.After(time.Duration(len(data)/rate) * time.Millisecond):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -888,38 +909,6 @@ func TestReplayTooLong(t *testing.T) {
 	chs, _ := cl2.changes(3)
 	assert.Equal(t, []int64{4, 5, 6}, versions(chs))
 	cl2.expect(protocol.MsgCaughtUp)
-}
-
-// A session that does not read is closed with resume_from_cursor once its
-// live changes exceed the send buffer; what was not sent is dropped.
-func TestSlowConsumer(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000})
-	tr := newFakeTransport()
-	cl := x.connect(tr)
-	cl.hello(2, protocol.GroupRequest{Group: "repo:1"})
-	cl.expect(protocol.MsgCaughtUp)
-	x.append(upsert("repo:1", protocol.ModelLabel, 1, protocol.UnitIssuesOrPulls))
-	x.deliver()
-	_, to := cl.changes(1)
-	assert.EqualValues(t, 1, to)
-
-	tr.gate = make(chan struct{}) // the client stops reading
-	x.append(upsert("repo:1", protocol.ModelLabel, 2, protocol.UnitIssuesOrPulls))
-	x.deliver()
-	time.Sleep(20 * time.Millisecond) // the writer is now blocked
-	var many []synclog.Entry
-	for i := range 40 {
-		many = append(many, upsert("repo:1", protocol.ModelLabel, int64(10+i), protocol.UnitIssuesOrPulls))
-	}
-	x.append(many...)
-	x.deliver()
-	close(tr.gate)
-	chs, _ := cl.changes(1) // the frame the writer was writing
-	assert.EqualValues(t, 2, chs[0].V)
-	m := cl.expect(protocol.MsgResumeFromCursor)
-	assert.EqualValues(t, 1, m.SyncID, "the last frame written when the buffer overflowed")
-	assert.Eventually(t, func() bool { return tr.closeCode() == closeTryAgain }, 5*time.Second, time.Millisecond)
-	cl.quiet(50 * time.Millisecond)
 }
 
 // barrier_ok once the hub delivered everything committed before the

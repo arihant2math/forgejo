@@ -166,7 +166,7 @@ func Init(ctx context.Context) (err error) {
 	hb := hub.New(instCtx, hub.Config{
 		Perms: perms, Profile: ownProfile, BuildID: setting.AppVer, Schemas: materialize.Schemas(),
 		SendBuffer: s.SendBuffer, MaxSubscriptions: s.MaxSubscriptions, MaxConnections: s.MaxConnections,
-		MaxReplay: s.MaxReplay, RevalidateInterval: s.SessionCheckInterval,
+		MaxReplay: s.MaxReplay, RevalidateInterval: s.SessionCheckInterval, DrainTimeout: s.DrainTimeout,
 		Logs: actionslog.Source{}, LogInterval: s.LogTailInterval,
 	}, head)
 	idem, err := idempotency.Start(instCtx, idempotency.Config{TTL: s.IdempotencyTTL, SyncWait: s.IdempotencySyncWait})

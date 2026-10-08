@@ -15,6 +15,7 @@ import (
 	"forgejo.org/modules/setting"
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/idempotency"
 )
 
 // Path prefixes owned by livesync. Requests below them never reach the
@@ -56,12 +57,20 @@ func Wrap(inner http.Handler) http.Handler {
 	// The instance context is only cancelled by Shutdown or by a later Init,
 	// so this hook runs exactly once for this instance at graceful shutdown.
 	graceful.GetManager().RunAtShutdown(livesync_service.Context(), livesync_service.Shutdown)
-	return &handler{inner: inner, own: newRoutes()}
+	return newHandler(inner)
 }
 
 type handler struct {
-	inner http.Handler // upstream Forgejo
-	own   http.Handler // livesync's routes (routes.go)
+	inner   http.Handler // upstream Forgejo
+	own     http.Handler // livesync's routes (routes.go)
+	answers http.Handler // the idempotency layer's own responses (idempotency.go)
+	// idempotency returns the running instance's idempotency store (nil
+	// when stopped); a variable for tests.
+	idempotency func() *idempotency.Service
+}
+
+func newHandler(inner http.Handler) *handler {
+	return &handler{inner: inner, own: newRoutes(), answers: newAnswers(), idempotency: livesync_service.Idempotency}
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {

@@ -117,7 +117,7 @@ func TestOwnPath(t *testing.T) {
 // livesync runs, without a database: livesync is not Running here, so health
 // answers 503 — which still proves the request was served by livesync.
 func TestHandlerRouting(t *testing.T) {
-	h := &handler{inner: innerMarker, own: newRoutes()}
+	h := newHandler(innerMarker)
 	cases := []struct {
 		sub, method, path string
 		want              int
@@ -169,9 +169,9 @@ func TestHandlerRouting(t *testing.T) {
 // original path (upstream normalises it itself).
 func TestHandlerInnerUntouched(t *testing.T) {
 	var got string
-	h := &handler{inner: http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+	h := newHandler(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
 		got = req.URL.Path
-	}), own: newRoutes()}
+	}))
 	for _, p := range []string{"//api/v1/version/", "/-/syncx//", "/user//settings"} {
 		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, p, nil))
 		assert.Equal(t, p, got)

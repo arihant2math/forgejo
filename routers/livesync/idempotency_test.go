@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -15,7 +16,9 @@ import (
 	"forgejo.org/modules/optional"
 	"forgejo.org/modules/setting"
 	"forgejo.org/modules/test"
+	"forgejo.org/modules/web/middleware"
 	"forgejo.org/services/authz"
+	app_context "forgejo.org/services/context"
 	"forgejo.org/services/livesync/protocol"
 
 	"github.com/stretchr/testify/assert"
@@ -58,12 +61,12 @@ func TestKeyedPassthrough(t *testing.T) {
 	var gotReq *http.Request
 	var gotW http.ResponseWriter
 	var gotBody string
-	h := &handler{inner: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	h := newHandler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		gotReq, gotW = req, w
 		b, _ := io.ReadAll(req.Body)
 		gotBody = string(b)
 		w.WriteHeader(http.StatusCreated)
-	}), own: newRoutes()}
+	}))
 	for _, c := range []struct {
 		method, path string
 		key          bool
@@ -90,7 +93,7 @@ func TestKeyedPassthrough(t *testing.T) {
 // refused, never run without its key being honoured.
 func TestKeyedStopped(t *testing.T) {
 	called := false
-	h := &handler{inner: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), own: newRoutes()}
+	h := newHandler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
 	req := httptest.NewRequest("POST", "/api/v1/repos/a/b/issues", strings.NewReader(`{}`))
 	req.Header.Set(protocol.HeaderIdempotencyKey, "k")
 	w := httptest.NewRecorder()
@@ -216,4 +219,72 @@ func TestCredentialScope(t *testing.T) {
 		assert.False(t, distinct[s], "%q twice", s)
 		distinct[s] = true
 	}
+}
+
+func TestIssuesCredentials(t *testing.T) {
+	for _, c := range []struct {
+		method, path string
+		want         bool
+	}{
+		{"POST", "/user/applications/oauth2", true},
+		{"PATCH", "/user/applications/oauth2/3", true},
+		{"DELETE", "/user/applications/oauth2/3", false},
+		{"POST", "/users/user2/tokens", true},
+		{"POST", "/admin/users/user2/tokens", true},
+		{"POST", "/user/actions/runners", true},
+		{"POST", "/orgs/org3/actions/runners", true},
+		{"POST", "/repos/user2/repo1/actions/runners", true},
+		{"POST", "/admin/actions/runners", true},
+		{"POST", "/repos/user2/repo1/issues", false},
+		{"POST", "/repos/user2/repo1/actions/runners/3", false},
+		{"POST", "/users/user2/tokens/extra", false},
+	} {
+		assert.Equal(t, c.want, issuesCredentials(c.method, c.path), "%s %s", c.method, c.path)
+	}
+}
+
+func TestFormToken(t *testing.T) {
+	for q, want := range map[string]bool{
+		"":                     false,
+		"page=1":               false,
+		"token=abc":            true,
+		"access_token=abc&x=1": true,
+		"token=":               true, // API v1 ignores it, but refusing is simpler than mirroring that
+		"tokens=abc":           false,
+	} {
+		values, err := url.ParseQuery(q)
+		require.NoError(t, err)
+		assert.Equal(t, want, formToken(values), q)
+	}
+}
+
+// The layer's own answers go through the common protocol middlewares
+// (context data, the wrapped response writer of the access log and the
+// process entry), like livesync's other endpoints.
+func TestAnswersMiddlewares(t *testing.T) {
+	h := newHandler(http.NotFoundHandler())
+	called := false
+	req := httptest.NewRequest("POST", "/api/v1/repos/a/b/issues", nil)
+	w := httptest.NewRecorder()
+	h.answer(w, req, func(w http.ResponseWriter, req *http.Request) {
+		called = true
+		_, wrapped := w.(*app_context.Response)
+		assert.True(t, wrapped, "%T", w)
+		assert.NotNil(t, middleware.GetContextData(req.Context()))
+		w.WriteHeader(http.StatusConflict)
+	})
+	assert.True(t, called)
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+// The recorder drops a body the status does not allow, as net/http does,
+// so none is stored or replayed.
+func TestRecorderNoBody(t *testing.T) {
+	r := newRecorder(nil)
+	r.WriteHeader(http.StatusNoContent)
+	n, err := r.Write([]byte(`{"token":"x"}`))
+	assert.Zero(t, n)
+	require.ErrorIs(t, err, http.ErrBodyNotAllowed)
+	assert.Zero(t, r.body.Len())
+	assert.False(t, r.omitted)
 }

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -97,7 +99,8 @@ func (b *Batch) Defer(id int64, until time.Time) {
 	b.deferred[id] = until
 }
 
-// Commit deletes the batch's rows from the outbox and stores Cursor under
+// Commit deletes the batch's rows from the outbox (the deferred ones are
+// kept and marked Deferred) and stores Cursor under
 // MetaCursor. A consumer that writes its results in a database transaction
 // calls Commit with that transaction's context, so that processing and
 // acknowledging are atomic; otherwise the reader calls it after Consume
@@ -121,6 +124,22 @@ func (b *Batch) Commit(ctx context.Context) error {
 		}
 		if _, err := e.In("id", ids[start:end]).Delete(&livesync_model.Change{}); err != nil {
 			return fmt.Errorf("livesync: delete processed outbox rows: %w", err)
+		}
+	}
+	if len(b.deferred) > 0 {
+		// Marked, so that the idempotency layer (B7) does not wait for
+		// rows the consumer has handled by postponing them.
+		deferred := make([]int64, 0, len(b.deferred))
+		for id := range b.deferred {
+			deferred = append(deferred, id)
+		}
+		slices.Sort(deferred)
+		e, err := livesync_model.MasterEngine(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := e.In("id", deferred).Cols("deferred").Update(&livesync_model.Change{Deferred: true}); err != nil {
+			return fmt.Errorf("livesync: mark deferred outbox rows: %w", err)
 		}
 	}
 	if err := livesync_model.SetMeta(ctx, MetaCursor, strconv.FormatInt(b.Cursor, 10)); err != nil {
@@ -254,18 +273,11 @@ func LastAssignedID(ctx context.Context) (int64, error) {
 	var last int64
 	switch {
 	case setting.Database.Type.IsPostgreSQL():
-		// The id column's sequence; last_value is the last id handed out
-		// once is_called, the next one before. Not transactional, which is
-		// what is wanted here.
-		var seq string
-		if _, err := e.SQL("SELECT COALESCE(pg_get_serial_sequence(?, 'id'), '')", table).Get(&seq); err != nil {
+		query, err := PositionQuery(ctx)
+		if err != nil {
 			return 0, err
 		}
-		if seq == "" {
-			return 0, fmt.Errorf("%s.id has no sequence", table)
-		}
-		// seq is quoted and schema-qualified by pg_get_serial_sequence.
-		if _, err := e.SQL("SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM " + seq).Get(&last); err != nil {
+		if _, err := e.SQL("SELECT " + query).Get(&last); err != nil {
 			return 0, err
 		}
 	case setting.Database.Type.IsMySQL():
@@ -291,6 +303,46 @@ func LastAssignedID(ctx context.Context) (int64, error) {
 		}
 	}
 	return last, nil
+}
+
+// outboxSequence caches the name of the outbox id's sequence on
+// PostgreSQL, per database and schema.
+var outboxSequence struct {
+	sync.Mutex
+	key, name string
+}
+
+// PositionQuery returns, on PostgreSQL, a scalar subquery (parenthesised)
+// whose value is LastAssignedID, so that a statement can record the outbox
+// position without a round trip of its own; "" on other databases. The
+// sequence's name is looked up once.
+func PositionQuery(ctx context.Context) (string, error) {
+	if !setting.Database.Type.IsPostgreSQL() {
+		return "", nil
+	}
+	key := setting.Database.Host + "/" + setting.Database.Name + "/" + setting.Database.Schema
+	outboxSequence.Lock()
+	defer outboxSequence.Unlock()
+	if outboxSequence.key != key || outboxSequence.name == "" {
+		e, err := livesync_model.MasterEngine(ctx)
+		if err != nil {
+			return "", err
+		}
+		table := livesync_model.Change{}.TableName()
+		var seq string
+		if _, err := e.SQL("SELECT COALESCE(pg_get_serial_sequence(?, 'id'), '')", table).Get(&seq); err != nil {
+			return "", err
+		}
+		if seq == "" {
+			return "", fmt.Errorf("%s.id has no sequence", table)
+		}
+		outboxSequence.key, outboxSequence.name = key, seq
+	}
+	// The id column's sequence (quoted and schema-qualified by
+	// pg_get_serial_sequence); last_value is the last id handed out once
+	// is_called, the next one before. Not transactional, which is what is
+	// wanted here.
+	return "(SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM " + outboxSequence.name + ")", nil
 }
 
 // minCycleGap is the shortest time between the starts of two reader cycles.

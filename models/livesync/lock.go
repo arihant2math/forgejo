@@ -36,7 +36,8 @@ const schemaLockName = "livesync.schema"
 // on a fresh database ("relation … already exists", "Duplicate key name").
 //
 // The lock is held on a dedicated pooled connection while fn runs its queries
-// on others, so the pool needs room for at least two connections. On SQLite
+// on others, so the pool needs room for at least two connections (CheckPool
+// asks for MinOpenConns). On SQLite
 // (unit tests only; livesync never runs there) fn is called without a lock.
 func WithSchemaLock(ctx context.Context, fn func(ctx context.Context) error) error {
 	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {
@@ -46,8 +47,8 @@ func WithSchemaLock(ctx context.Context, fn func(ctx context.Context) error) err
 	if err != nil {
 		return err
 	}
-	if n := master.DB().Stats().MaxOpenConnections; n == 1 {
-		return errors.New("livesync: needs at least 2 database connections ([database] MAX_OPEN_CONNS = 1)")
+	if err := checkPool(master); err != nil {
+		return err
 	}
 	conn, err := master.DB().Conn(ctx)
 	if err != nil {
@@ -107,6 +108,37 @@ func releaseLock(conn *sql.Conn, name string) {
 	}
 }
 
+// MinOpenConns is the smallest [database] MAX_OPEN_CONNS livesync runs with
+// (0, unlimited, is fine). An instance pins up to two pooled connections for
+// as long as it runs — the idempotency instance lock (every instance) and the
+// sync log writer lease (the writer instance) — and needs at least one more
+// for everything else: the materializer's transaction, the outbox reader,
+// the tailer, its HTTP endpoints and Forgejo's own requests (which then take
+// turns on it), briefly a second one while it checks another instance's lock
+// (idempotency) or holds the schema lock at start. With fewer, every query
+// that is not on a pinned connection would wait forever.
+const MinOpenConns = 3
+
+// CheckPool refuses a connection pool too small for livesync (see
+// MinOpenConns). Init calls it before anything else touches the database.
+func CheckPool() error {
+	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {
+		return nil
+	}
+	master, err := MasterXORMEngine()
+	if err != nil {
+		return err
+	}
+	return checkPool(master)
+}
+
+func checkPool(master *xorm.Engine) error {
+	if n := master.DB().Stats().MaxOpenConnections; n > 0 && n < MinOpenConns {
+		return fmt.Errorf("livesync: needs at least %d database connections, [database] MAX_OPEN_CONNS is %d (it pins one for its instance lock and one for the sync log writer lease, and works on the others)", MinOpenConns, n)
+	}
+	return nil
+}
+
 // MasterXORMEngine returns the master *xorm.Engine behind db.DefaultContext.
 func MasterXORMEngine() (*xorm.Engine, error) {
 	engined, ok := db.DefaultContext.(db.Engined)
@@ -144,8 +176,8 @@ func TryLease(ctx context.Context, name string) (*Lease, error) {
 	if err != nil {
 		return nil, err
 	}
-	if n := master.DB().Stats().MaxOpenConnections; n == 1 {
-		return nil, errors.New("livesync: needs at least 2 database connections ([database] MAX_OPEN_CONNS = 1)")
+	if err := checkPool(master); err != nil {
+		return nil, err
 	}
 	conn, err := master.DB().Conn(ctx)
 	if err != nil {

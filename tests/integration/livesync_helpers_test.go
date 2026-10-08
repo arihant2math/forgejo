@@ -373,6 +373,13 @@ func livesyncServe(t *testing.T) {
 // livesyncServeWith is livesyncServe with extra [livesync] settings.
 func livesyncServeWith(t *testing.T, kv map[string]string) {
 	t.Helper()
+	livesyncServeInner(t, kv, routers.NormalRoutes())
+}
+
+// livesyncServeInner is livesyncServeWith with another handler than
+// Forgejo's as Wrap's inner (e.g. one that fails on purpose).
+func livesyncServeInner(t *testing.T, kv map[string]string, inner http.Handler) {
+	t.Helper()
 	livesyncResetCapture(t)
 	t.Cleanup(func() {
 		livesync_service.Shutdown()
@@ -382,7 +389,7 @@ func livesyncServeWith(t *testing.T, kv map[string]string) {
 	settings := map[string]string{"ENABLED": "true", "INSTALL_MODE": "auto"}
 	maps.Copy(settings, kv)
 	livesyncConfig(t, settings)
-	wrapped := livesync_router.Wrap(routers.NormalRoutes())
+	wrapped := livesync_router.Wrap(inner)
 	require.True(t, livesync_service.Running(), "livesync failed to start, see the log")
 	t.Cleanup(test.MockVariableValue(&testWebRoutes, livesyncRoutes(wrapped)))
 }

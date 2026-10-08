@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,7 +24,10 @@ import (
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	"forgejo.org/modules/setting"
 	"forgejo.org/modules/timeutil"
+	"forgejo.org/routers"
+	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/idempotency"
 	"forgejo.org/services/livesync/protocol"
 	"forgejo.org/tests"
@@ -76,7 +81,7 @@ func livesyncInFlight(t *testing.T, userID int64, req *RequestWrapper, body []by
 	_, err := db.GetEngine(t.Context()).Insert(&livesync_model.Idempotency{
 		UserID: userID, Key: r.Header.Get(protocol.HeaderIdempotencyKey), State: livesync_model.IdempotencyInFlight,
 		Method: r.Method, Path: r.URL.Path,
-		RequestHash: idempotency.RequestHash(r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("Content-Type"), "all|all", body),
+		RequestHash: idempotency.RequestHash(r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("Content-Type"), r.Header.Get("Sudo"), "all|all", body),
 		Owner:       instance + "/attempt", OutboxLow: low, CreatedUnix: created, UpdatedUnix: created,
 	})
 	require.NoError(t, err)
@@ -348,6 +353,114 @@ func TestLivesyncIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, livesyncSyncID(t, again), rec.SyncID)
 	})
+
+	t.Run("credential-issuing routes", func(t *testing.T) {
+		// Their response carries a secret upstream keeps only hashed: not
+		// stored, so not keyed (400), and nothing created.
+		before, err := db.GetEngine(t.Context()).Count(&livesync_model.Idempotency{})
+		require.NoError(t, err)
+		MakeRequest(t, livesyncKeyed(t, "POST", "/api/v1/user/applications/oauth2", token, "oauth2", map[string]any{"name": "idem-app", "redirect_uris": []string{"https://example.com/cb"}}), http.StatusBadRequest)
+		n, err := db.GetEngine(t.Context()).Where("name = ?", "idem-app").Count(&auth_model.OAuth2Application{})
+		require.NoError(t, err)
+		assert.Zero(t, n)
+		MakeRequest(t, livesyncKeyed(t, "POST", "/api/v1/repos/user2/repo1/actions/runners", token, "runner", map[string]any{"token": "x"}), http.StatusBadRequest)
+		after, err := db.GetEngine(t.Context()).Count(&livesync_model.Idempotency{})
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("token in the query or form", func(t *testing.T) {
+		// API v1 prefers a query/form token to the header: the layer
+		// would key on another user, and hash the token.
+		body := map[string]any{"title": "idem query token"}
+		MakeRequest(t, livesyncKeyed(t, "POST", issues+"?token="+token, "", "qtoken", body), http.StatusBadRequest)
+		MakeRequest(t, livesyncKeyed(t, "POST", issues+"?access_token="+token, token, "qtoken", body), http.StatusBadRequest)
+		form := NewRequestWithBody(t, "POST", issues, strings.NewReader("title=idem+query+token&token="+token)).
+			SetHeader("Content-Type", "application/x-www-form-urlencoded").AddTokenAuth(token).SetHeader(protocol.HeaderIdempotencyKey, "ftoken")
+		MakeRequest(t, form, http.StatusBadRequest)
+		assert.Zero(t, livesyncIssueCount(t, "idem query token"))
+	})
+
+	t.Run("authenticated before the body is read", func(t *testing.T) {
+		body := &livesyncReadCounter{r: strings.NewReader(`{"title":"idem unread"}`)}
+		req := NewRequestWithBody(t, "POST", issues, body).SetHeader("Content-Type", "application/json").SetHeader(protocol.HeaderIdempotencyKey, "unread")
+		MakeRequest(t, req, http.StatusUnauthorized)
+		assert.Zero(t, body.n)
+	})
+
+	t.Run("sudo", func(t *testing.T) {
+		admin := livesyncToken(t, unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1}))
+		body := map[string]any{"title": "idem sudo", "body": "as someone else"}
+		var created struct {
+			ID     int64 `json:"id"`
+			Poster struct {
+				ID int64 `json:"id"`
+			} `json:"user"`
+		}
+		DecodeJSON(t, MakeRequest(t, livesyncKeyed(t, "POST", issues, admin, "sudo", body).SetHeader("Sudo", "user2"), http.StatusCreated), &created)
+		assert.EqualValues(t, 2, created.Poster.ID)
+		// Another user to act as: another request, not a replay of user2's.
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, admin, "sudo", body).SetHeader("Sudo", "user4"), http.StatusUnprocessableEntity)
+		assert.EqualValues(t, 1, livesyncIssueCount(t, "idem sudo"))
+
+		// The crash-window check looks for what the user acted as created.
+		crashBody := map[string]any{"title": "idem sudo crash", "body": "x"}
+		raw, _ := json.Marshal(crashBody)
+		req := livesyncKeyed(t, "POST", issues, admin, "sudo-crash", crashBody).SetHeader("Sudo", "user2")
+		low, err := idempotency.Position(t.Context())
+		require.NoError(t, err)
+		livesyncInFlight(t, 1, req, raw, "00000000000000ab", timeutil.TimeStampNow()-1, low)
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, admin, "", crashBody).SetHeader("Sudo", "user2"), http.StatusCreated)
+		resp := MakeRequest(t, livesyncKeyed(t, "POST", issues, admin, "sudo-crash", crashBody).SetHeader("Sudo", "user2"), http.StatusCreated)
+		assert.Empty(t, resp.Header().Get(protocol.HeaderIdempotentReplay))
+		assert.EqualValues(t, 1, livesyncIssueCount(t, "idem sudo crash"))
+	})
+
+	t.Run("long non-ASCII path", func(t *testing.T) {
+		// The stored path is cut at a character boundary (and made valid
+		// UTF-8): the request runs (here: 404) instead of failing with 500.
+		for i, p := range []string{
+			issues + "/" + url.PathEscape(strings.Repeat("é", 600)) + "/comments",
+			issues + "/%FF/comments",
+		} {
+			resp := MakeRequest(t, livesyncKeyed(t, "POST", p, token, fmt.Sprintf("long-%d", i), map[string]any{"body": "x"}), NoExpectedStatus)
+			assert.Less(t, resp.Code, http.StatusInternalServerError, resp.Body.String())
+			var rec livesync_model.Idempotency
+			has, err := db.GetEngine(t.Context()).Where("user_id = 2 AND idem_key = ?", fmt.Sprintf("long-%d", i)).Get(&rec)
+			require.NoError(t, err)
+			require.True(t, has)
+			assert.Equal(t, livesync_model.IdempotencyCompleted, rec.State)
+		}
+	})
+
+	t.Run("account checks", func(t *testing.T) {
+		// A replay is refused like API v1 refuses the account.
+		user4 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+		token4 := livesyncToken(t, user4)
+		body := map[string]any{"title": "idem prohibited"}
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, token4, "account", body), http.StatusCreated)
+		_, err := db.GetEngine(t.Context()).Exec("UPDATE `user` SET prohibit_login = ? WHERE id = 4", true)
+		require.NoError(t, err)
+		defer func() {
+			_, err := db.GetEngine(context.Background()).Exec("UPDATE `user` SET prohibit_login = ? WHERE id = 4", false)
+			require.NoError(t, err)
+		}()
+		resp := MakeRequest(t, livesyncKeyed(t, "POST", issues, token4, "account", body), http.StatusForbidden)
+		assert.Contains(t, resp.Body.String(), "prohibited from signing in")
+		assert.Empty(t, resp.Header().Get(protocol.HeaderIdempotentReplay))
+	})
+}
+
+// livesyncReadCounter counts the bytes read from a request body.
+type livesyncReadCounter struct {
+	r io.Reader
+	n int
+}
+
+func (c *livesyncReadCounter) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
 }
 
 // livesyncIssueRef is the part of an API v1 issue the tests read.
@@ -391,4 +504,200 @@ func TestLivesyncIdempotencyDelta(t *testing.T) {
 		keyed := measure(func(i int) string { return fmt.Sprintf("bench-%d", i) })
 		t.Logf("label create: %s plain, %s with Idempotency-Key (incl. the wait for the materializer)", plain, keyed)
 	})
+}
+
+// TestLivesyncIdempotencyServerErrors runs the layer in front of an inner
+// handler that fails on purpose (X-Test-Fail): a 5xx or a panic releases the
+// record, and the next retry is recovered (crash-window check, then run).
+// It also checks that rows the materializer deferred do not hold the sync
+// wait up.
+func TestLivesyncIdempotencyServerErrors(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	real := routers.NormalRoutes()
+	inner := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.Header.Get("X-Test-Fail") {
+		case "after-commit":
+			// The write commits, then the server fails.
+			real.ServeHTTP(httptest.NewRecorder(), req)
+			w.WriteHeader(http.StatusBadGateway)
+		case "before-commit":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "panic":
+			panic("livesync test: inner panics")
+		case "hot":
+			livesyncHotDeferred(t)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			real.ServeHTTP(w, req)
+		}
+	})
+	livesyncServeInner(t, map[string]string{"HOT_COALESCE": "1h"}, inner)
+	livesyncSettle(t)
+	token := livesyncToken(t, &user_model.User{ID: 2})
+	const issues = "/api/v1/repos/user2/repo1/issues"
+	record := func(t *testing.T, key string) livesync_model.Idempotency {
+		t.Helper()
+		var rec livesync_model.Idempotency
+		has, err := db.GetEngine(t.Context()).Where("user_id = 2 AND idem_key = ?", key).Get(&rec)
+		require.NoError(t, err)
+		require.True(t, has)
+		return rec
+	}
+
+	t.Run("5xx after the commit", func(t *testing.T) {
+		body := map[string]any{"title": "idem 502", "body": "x"}
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "502", body).SetHeader("X-Test-Fail", "after-commit"), http.StatusBadGateway)
+		rec := record(t, "502")
+		assert.Equal(t, livesync_model.IdempotencyInFlight, rec.State)
+		assert.Empty(t, rec.Owner, "released")
+		assert.EqualValues(t, 1, livesyncIssueCount(t, "idem 502"))
+		// The retry finds the issue the failed attempt created.
+		resp := MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "502", body), http.StatusCreated)
+		var created livesyncIssueRef
+		DecodeJSON(t, resp, &created)
+		assert.Positive(t, created.ID)
+		livesyncSyncID(t, resp)
+		assert.EqualValues(t, 1, livesyncIssueCount(t, "idem 502"))
+		assert.Equal(t, livesync_model.IdempotencyCompleted, record(t, "502").State)
+	})
+
+	t.Run("5xx before the commit", func(t *testing.T) {
+		body := map[string]any{"title": "idem 500"}
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "500", body).SetHeader("X-Test-Fail", "before-commit"), http.StatusInternalServerError)
+		assert.Empty(t, record(t, "500").Owner)
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "500", body), http.StatusCreated)
+		assert.EqualValues(t, 1, livesyncIssueCount(t, "idem 500"))
+	})
+
+	t.Run("panic", func(t *testing.T) {
+		body := map[string]any{"title": "idem panic"}
+		assert.Panics(t, func() {
+			MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "panic", body).SetHeader("X-Test-Fail", "panic"), NoExpectedStatus)
+		})
+		rec := record(t, "panic")
+		assert.Equal(t, livesync_model.IdempotencyInFlight, rec.State)
+		assert.Empty(t, rec.Owner, "released")
+		MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "panic", body), http.StatusCreated)
+		assert.EqualValues(t, 1, livesyncIssueCount(t, "idem panic"))
+	})
+
+	t.Run("deferred hot rows do not hold the wait", func(t *testing.T) {
+		// The write's range holds a notification row the materializer
+		// deferred for HOT_COALESCE (1 h): the sync id comes at once.
+		start := time.Now()
+		resp := MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "hot", map[string]any{"title": "idem hot"}).SetHeader("X-Test-Fail", "hot"), http.StatusCreated)
+		livesyncSyncID(t, resp)
+		assert.Less(t, time.Since(start), 1500*time.Millisecond)
+		_, err := db.GetEngine(t.Context()).Exec("DELETE FROM livesync_change")
+		require.NoError(t, err)
+	})
+}
+
+// livesyncHotDeferred changes notification 1 twice, the second time while
+// the materializer's coalescing delay for it runs, and waits until that
+// change is deferred.
+func livesyncHotDeferred(t *testing.T) {
+	ctx := context.Background()
+	handled := func() bool { // every outbox row consumed or deferred
+		for _, c := range livesyncOutbox(t) {
+			if !c.Deferred {
+				return false
+			}
+		}
+		return true
+	}
+	_, err := db.GetEngine(ctx).Exec("UPDATE notification SET updated_unix = updated_unix + 1 WHERE id = 1")
+	require.NoError(t, err)
+	require.Eventually(t, handled, livesyncWait, 5*time.Millisecond)
+	_, err = db.GetEngine(ctx).Exec("UPDATE notification SET updated_unix = updated_unix + 1 WHERE id = 1")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		rows := livesyncOutbox(t)
+		return len(rows) > 0 && rows[len(rows)-1].Tbl == "notification" && handled()
+	}, livesyncWait, 5*time.Millisecond)
+}
+
+// TestLivesyncIdempotencyLateMaterializer: with IDEMPOTENCY_SYNC_WAIT = 0
+// and no materializer running (the test holds the writer lease), a keyed
+// write answers without X-Livesync-Sync-Id and stores sync_id -1 with its
+// outbox range; once the materializer runs, a replay computes the sync id,
+// which covers the write, and stores it.
+func TestLivesyncIdempotencyLateMaterializer(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	lease, err := livesync_model.TryLease(t.Context(), "livesync.writer")
+	require.NoError(t, err)
+	defer lease.Release()
+	livesyncServeWith(t, map[string]string{"IDEMPOTENCY_SYNC_WAIT": "0s"})
+	token := livesyncToken(t, &user_model.User{ID: 2})
+	const issues = "/api/v1/repos/user2/repo1/issues"
+	body := map[string]any{"title": "idem no materializer"}
+	cursor := livesyncLogHead(t)
+
+	resp := MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "late-mat", body), http.StatusCreated)
+	assert.NotContains(t, resp.Header(), protocol.HeaderSyncID)
+	var created livesyncIssueRef
+	DecodeJSON(t, resp, &created)
+	var rec livesync_model.Idempotency
+	_, err = db.GetEngine(t.Context()).Where("user_id = 2 AND idem_key = 'late-mat'").Get(&rec)
+	require.NoError(t, err)
+	assert.Equal(t, livesync_model.IdempotencyCompleted, rec.State)
+	assert.EqualValues(t, -1, rec.SyncID)
+	assert.Greater(t, rec.OutboxHigh, rec.OutboxLow)
+	again := MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "late-mat", body), http.StatusCreated)
+	assert.NotContains(t, again.Header(), protocol.HeaderSyncID, "still not materialized")
+	assert.Equal(t, "true", again.Header().Get(protocol.HeaderIdempotentReplay))
+
+	// The writer role takes over (it retries the lease every 2 s).
+	lease.Release()
+	var syncID int64
+	require.Eventually(t, func() bool {
+		r := MakeRequest(t, livesyncKeyed(t, "POST", issues, token, "late-mat", body), http.StatusCreated)
+		v := r.Header().Get(protocol.HeaderSyncID)
+		if v == "" {
+			return false
+		}
+		syncID, err = strconv.ParseInt(v, 10, 64)
+		return err == nil
+	}, 20*time.Second, 50*time.Millisecond)
+	livesyncCovered(t, cursor, syncID, protocol.ModelIssue, created.ID)
+	var stored livesync_model.Idempotency
+	_, err = db.GetEngine(t.Context()).Where("user_id = 2 AND idem_key = 'late-mat'").Get(&stored)
+	require.NoError(t, err)
+	assert.Equal(t, syncID, stored.SyncID)
+	assert.EqualValues(t, 1, livesyncIssueCount(t, "idem no materializer"))
+}
+
+// TestLivesyncIdempotencyPool: livesync pins two pooled connections (its
+// instance lock and the writer lease) and needs one to work with: it
+// refuses to start with MAX_OPEN_CONNS 2, and keyed writes work with 3.
+func TestLivesyncIdempotencyPool(t *testing.T) {
+	livesyncSkipSQLite(t)
+	defer tests.PrepareTestEnv(t)()
+	master, err := livesync_model.MasterXORMEngine()
+	require.NoError(t, err)
+	t.Cleanup(func() { master.DB().SetMaxOpenConns(setting.Database.MaxOpenConns) })
+
+	master.DB().SetMaxOpenConns(2)
+	livesyncConfig(t, map[string]string{"ENABLED": "true", "INSTALL_MODE": "auto"})
+	err = livesync_service.Init(context.Background())
+	require.ErrorContains(t, err, "needs at least 3 database connections")
+	assert.False(t, livesync_service.Running())
+
+	master.DB().SetMaxOpenConns(livesync_model.MinOpenConns)
+	livesyncServe(t)
+	token := livesyncToken(t, &user_model.User{ID: 2})
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- MakeRequest(t, livesyncKeyed(t, "POST", "/api/v1/repos/user2/repo1/issues", token, "pool", map[string]any{"title": "idem pool"}), NoExpectedStatus)
+	}()
+	select {
+	case resp := <-done:
+		assert.Equal(t, http.StatusCreated, resp.Code)
+		livesyncSyncID(t, resp)
+	case <-time.After(30 * time.Second):
+		master.DB().SetMaxOpenConns(setting.Database.MaxOpenConns)
+		t.Fatal("a keyed write with MAX_OPEN_CONNS 3 did not finish")
+	}
 }

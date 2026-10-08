@@ -108,6 +108,9 @@ func Init(ctx context.Context) error {
 	if !setting.Database.Type.IsPostgreSQL() && !setting.Database.Type.IsMySQL() {
 		return fmt.Errorf("%w (DB_TYPE is %q)", ErrUnsupportedDatabase, setting.Database.Type)
 	}
+	if err := livesync_model.CheckPool(); err != nil {
+		return err
+	}
 
 	if err := EnsureTables(ctx); err != nil {
 		return err

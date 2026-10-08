@@ -61,18 +61,32 @@ const (
 )
 
 // WaitSynced waits, at most the configured SyncWait, until the outbox holds
-// no row with an id in (low, high] — every such row that was committed when
-// WaitSynced was called has been consumed by the materializer, in the
-// transaction that appended its entries — and returns the sync log head read
-// afterwards: every entry produced from those rows has a sync id at or below
-// it. ok is false when the wait timed out, ctx ended or the database failed.
+// no row with an id in (low, high] that the materializer has not handled —
+// every such row that was committed when WaitSynced was called has been
+// consumed, in the transaction that appended its entries, or deferred — and
+// returns the sync log head read afterwards: every entry produced from the
+// consumed rows has a sync id at or below it. ok is false when the wait
+// timed out, ctx ended or the database failed.
 //
 // Rows of transactions that were not committed yet are invisible and do not
 // hold the wait up (they are not the caller's write: its transaction
-// committed before high was read). Rows the materializer deferred (hot
-// tables, at most HOT_COALESCE) do.
+// committed before high was read). Rows the materializer deferred (a row of a
+// hot table changed again within HOT_COALESCE, marked Deferred) do not
+// either: they may be anyone's, and their entry follows within HOT_COALESCE;
+// waiting for them would hold up unrelated writes that overlap them.
 func (s *Service) WaitSynced(ctx context.Context, low, high int64) (int64, bool) {
-	deadline := time.Now().Add(s.cfg.SyncWait)
+	return s.waitSynced(ctx, low, high, s.cfg.SyncWait)
+}
+
+// SyncedNow is WaitSynced without the wait: one check. The HTTP layer uses
+// it for error responses (status >= 400), which normally commit nothing and
+// are not worth holding up for other writes' rows.
+func (s *Service) SyncedNow(ctx context.Context, low, high int64) (int64, bool) {
+	return s.waitSynced(ctx, low, high, 0)
+}
+
+func (s *Service) waitSynced(ctx context.Context, low, high int64, wait time.Duration) (int64, bool) {
+	deadline := time.Now().Add(wait)
 	poll := firstPoll
 	for {
 		woken := s.signal.C() // before the check: a commit after it wakes us
@@ -105,7 +119,7 @@ func (s *Service) WaitSynced(ctx context.Context, low, high int64) (int64, bool)
 }
 
 // outboxPending reports whether the outbox holds a committed row with an id
-// in (low, high].
+// in (low, high] that the materializer has not deferred.
 func outboxPending(ctx context.Context, low, high int64) (bool, error) {
 	if high <= low {
 		return false, nil
@@ -115,7 +129,7 @@ func outboxPending(ctx context.Context, low, high int64) (bool, error) {
 		return false, err
 	}
 	var id int64
-	has, err := e.SQL("SELECT id FROM livesync_change WHERE id > ? AND id <= ? ORDER BY id LIMIT 1", low, high).Get(&id)
+	has, err := e.SQL("SELECT id FROM livesync_change WHERE id > ? AND id <= ? AND deferred = ? ORDER BY id LIMIT 1", low, high, false).Get(&id)
 	if err != nil {
 		return false, fmt.Errorf("livesync: read the outbox: %w", err)
 	}

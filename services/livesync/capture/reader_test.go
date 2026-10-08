@@ -459,6 +459,10 @@ func TestReaderDefer(t *testing.T) {
 	}
 	assert.Equal(t, []int64{1, 2}, got)
 	assert.Equal(t, []int64{2}, outboxIDs(t), "deferred: not deleted")
+	var kept livesync_model.Change
+	_, err = db.GetEngine(t.Context()).ID(2).Get(&kept)
+	require.NoError(t, err)
+	assert.True(t, kept.Deferred, "deferred: marked")
 	insertChange(t, 3)
 	assert.Equal(t, []int64{3}, ids(fc.next(t)))
 	b := fc.next(t)

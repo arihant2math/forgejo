@@ -35,10 +35,13 @@ import (
 	"sync"
 	"time"
 
+	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
 	"forgejo.org/modules/timeutil"
+	"forgejo.org/modules/util"
+	"forgejo.org/services/livesync/capture"
 )
 
 // Defaults of Config.
@@ -77,6 +80,12 @@ type Service struct {
 
 	mu    sync.Mutex
 	lease *livesync_model.Lease // nil while lost
+	// stopping is set once the instance context is done: no request
+	// enters any more (Enter), no attempt begins (Begin).
+	stopping bool
+	// pending counts the requests between Enter and their release: the
+	// instance lock is kept until it is 0 (drain).
+	pending int
 
 	running sync.Map // owner -> struct{}: attempts running in this process
 	signal  Signal
@@ -116,9 +125,13 @@ func (s *Service) keepLease(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Attempts still running hold their records: releasing the
-			// lock now would let a retry on another instance take them
-			// for crashed ones and run the write a second time.
+			// Requests that entered may still begin or be running an
+			// attempt: releasing the lock now would let a retry on
+			// another instance take them for crashed ones and run the
+			// write a second time.
+			s.mu.Lock()
+			s.stopping = true
+			s.mu.Unlock()
 			s.drain(drainTimeout)
 			s.mu.Lock()
 			if s.lease != nil {
@@ -153,21 +166,53 @@ func (s *Service) keepLease(ctx context.Context) {
 // attempts still running.
 var drainTimeout = 10 * time.Second
 
-// drain waits until no attempt runs in this process, at most timeout.
+// drain waits until no request that entered is left and no attempt runs in
+// this process, at most timeout.
 func (s *Service) drain(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		busy := false
-		s.running.Range(func(any, any) bool {
-			busy = true
-			return false
-		})
+		s.mu.Lock()
+		busy := s.pending > 0
+		s.mu.Unlock()
+		if !busy {
+			s.running.Range(func(any, any) bool {
+				busy = true
+				return false
+			})
+		}
 		if !busy {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	log.Warn("livesync: stopping with idempotent writes still running; a retry may run them again")
+}
+
+// ErrUnavailable is returned by Begin while the instance is stopping or has
+// lost its instance lock: an attempt must not start then (a retry elsewhere
+// could take it for a crashed one). The caller answers 503.
+var ErrUnavailable = errors.New("livesync: the idempotency store is not available")
+
+// Enter registers a keyed request as soon as the HTTP layer has the store,
+// before it reads the body and authenticates: a stopping instance keeps its
+// lock until every request that entered has called the returned release
+// (once, when it has answered). It reports false once the instance is
+// stopping: the request must then be refused (503).
+func (s *Service) Enter() (release func(), ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping {
+		return nil, false
+	}
+	s.pending++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.mu.Lock()
+			s.pending--
+			s.mu.Unlock()
+		})
+	}, true
 }
 
 // Stop waits (at most timeout) until the instance lock is released; the
@@ -195,13 +240,15 @@ type Request struct {
 }
 
 // RequestHash is the fingerprint that tells a retry from another request
-// sent with the same key: method, path, query, content type, what the
-// credentials may do (scope, repository restriction: a stored response must
-// not reach a token that could not have made the request) and body. The
-// token itself is not part of it: a client refreshes it between retries.
-func RequestHash(method, path, rawQuery, contentType, credentials string, body []byte) string {
+// sent with the same key: method, path, query, content type, the Sudo header
+// (API v1 then acts as that user), what the credentials may do (scope,
+// repository restriction: a stored response must not reach a token that
+// could not have made the request) and body. The token itself is not part
+// of it (the HTTP layer refuses tokens in the query or form): a client
+// refreshes it between retries.
+func RequestHash(method, path, rawQuery, contentType, sudo, credentials string, body []byte) string {
 	h := sha256.New()
-	for _, part := range []string{method, path, rawQuery, contentType, credentials} {
+	for _, part := range []string{method, path, rawQuery, contentType, sudo, credentials} {
 		fmt.Fprintf(h, "%d:%s\n", len(part), part)
 	}
 	h.Write(body)
@@ -262,7 +309,8 @@ type Reservation struct {
 var errBusy = errors.New("livesync: idempotency record changed concurrently")
 
 // Begin reserves req's key for an attempt of this instance, or says why the
-// request must not run.
+// request must not run. It returns ErrUnavailable while the instance is
+// stopping or has lost its instance lock.
 func (s *Service) Begin(ctx context.Context, req Request) (*Begun, error) {
 	for range 3 {
 		b, err := s.begin(ctx, req)
@@ -276,13 +324,15 @@ func (s *Service) Begin(ctx context.Context, req Request) (*Begun, error) {
 }
 
 func (s *Service) begin(ctx context.Context, req Request) (*Begun, error) {
-	e, err := livesync_model.MasterEngine(ctx)
-	if err != nil {
-		return nil, err
+	s.mu.Lock()
+	unavailable := s.stopping || s.lease == nil
+	s.mu.Unlock()
+	if unavailable {
+		// Stopping: the lock goes soon. Lost: other instances already
+		// take this one's attempts for crashed ones.
+		return nil, ErrUnavailable
 	}
-	// The outbox position before the attempt: every outbox row the request
-	// writes gets a higher id.
-	low, err := Position(ctx)
+	e, err := livesync_model.MasterEngine(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -291,20 +341,13 @@ func (s *Service) begin(ctx context.Context, req Request) (*Begun, error) {
 	// that reads the record must find its owner running.
 	s.running.Store(owner, struct{}{})
 	now := timeutil.TimeStampNow()
-	path := req.Path
-	if len(path) > 1024 {
-		path = path[:1024]
-	}
-	query := `INSERT INTO livesync_idempotency (user_id, idem_key, state, method, path, request_hash, status, sync_id, owner, outbox_low, outbox_high, created_unix, updated_unix)
-		VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, ?, ?)`
-	if setting.Database.Type.IsMySQL() {
-		query += " ON DUPLICATE KEY UPDATE id = id"
-	} else {
-		query += " ON CONFLICT (user_id, idem_key) DO NOTHING"
-	}
-	if _, err := e.Exec(query, req.UserID, req.Key, livesync_model.IdempotencyInFlight, req.Method, path, req.Hash, owner, low, now, now); err != nil {
+	id, low, reserved, err := reserve(ctx, e, req, owner, now)
+	if err != nil {
 		s.running.Delete(owner)
-		return nil, fmt.Errorf("livesync: reserve idempotency key: %w", err)
+		return nil, err
+	}
+	if reserved {
+		return &Begun{Outcome: Run, Reservation: &Reservation{id: id, owner: owner, Low: low, Since: now}}, nil
 	}
 	rec, has, err := getRecord(ctx, req.UserID, req.Key)
 	if err != nil || !has {
@@ -315,6 +358,8 @@ func (s *Service) begin(ctx context.Context, req Request) (*Begun, error) {
 		return nil, err
 	}
 	if rec.Owner == owner && rec.State == livesync_model.IdempotencyInFlight {
+		// Inserted after all (a driver that reports found rather than
+		// changed rows).
 		return &Begun{Outcome: Run, Reservation: &Reservation{id: rec.ID, owner: owner, Low: rec.OutboxLow, Since: rec.CreatedUnix}}, nil
 	}
 
@@ -355,6 +400,66 @@ func (s *Service) begin(ctx context.Context, req Request) (*Begun, error) {
 		return nil, errBusy
 	}
 	return &Begun{Outcome: Run, Reservation: &Reservation{id: rec.ID, owner: owner, Low: rec.OutboxLow, Recovered: true, Since: rec.CreatedUnix}}, nil
+}
+
+// maxPathLength is the size of livesync_idempotency.path (characters).
+const maxPathLength = 1024
+
+// storedPath makes a request path storable: valid UTF-8 (a decoded %FF is
+// not) and at most maxPathLength bytes, cut at a character boundary. It is
+// stored for operators only; the request hash decides.
+func storedPath(path string) string {
+	path = strings.ToValidUTF8(path, "\uFFFD")
+	path, _ = util.SplitStringAtByteN(path, maxPathLength)
+	return path
+}
+
+// reserve inserts req's record in flight, owned by owner, unless (user, key)
+// exists: reserved reports whether this call inserted it, and then id and low
+// (the outbox position before the attempt, stored as outbox_low) are set.
+// One statement on PostgreSQL (the position is a subquery, the row comes
+// back with RETURNING); elsewhere the position is read first and the insert
+// reports through its affected rows. Either way a key that exists costs no
+// extra outbox position read on PostgreSQL, one on MySQL.
+func reserve(ctx context.Context, e db.Engine, req Request, owner string, now timeutil.TimeStamp) (id, low int64, reserved bool, err error) {
+	path := storedPath(req.Path)
+	const columns = "INSERT INTO livesync_idempotency (user_id, idem_key, state, method, path, request_hash, status, sync_id, owner, outbox_low, outbox_high, created_unix, updated_unix) "
+	if setting.Database.Type.IsPostgreSQL() {
+		position, err := capture.PositionQuery(ctx)
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("livesync: read the outbox position: %w", err)
+		}
+		has, err := e.SQL(columns+"VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, "+position+", 0, ?, ?) ON CONFLICT (user_id, idem_key) DO NOTHING RETURNING id, outbox_low",
+			req.UserID, req.Key, livesync_model.IdempotencyInFlight, req.Method, path, req.Hash, owner, now, now).Get(&id, &low)
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("livesync: reserve idempotency key: %w", err)
+		}
+		return id, low, has, nil
+	}
+	// The outbox position before the attempt: every outbox row the request
+	// writes gets a higher id.
+	if low, err = Position(ctx); err != nil {
+		return 0, 0, false, err
+	}
+	query := columns + "VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, ?, ?)"
+	if setting.Database.Type.IsMySQL() {
+		query += " ON DUPLICATE KEY UPDATE id = id"
+	} else {
+		query += " ON CONFLICT (user_id, idem_key) DO NOTHING"
+	}
+	res, err := e.Exec(query, req.UserID, req.Key, livesync_model.IdempotencyInFlight, req.Method, path, req.Hash, owner, low, now, now)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("livesync: reserve idempotency key: %w", err)
+	}
+	// 1: inserted; 0: the key exists (MySQL's ON DUPLICATE KEY UPDATE
+	// that changes nothing counts 0).
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return 0, 0, false, nil
+	}
+	if id, err = res.LastInsertId(); err != nil || id <= 0 {
+		return 0, 0, false, nil // the caller reads the record
+	}
+	return id, low, true, nil
 }
 
 func (s *Service) newOwner() string {
@@ -410,7 +515,10 @@ type Response struct {
 	// SyncID is the X-Livesync-Sync-Id sent, or -1 when it is not known
 	// (the wait timed out): a replay computes it from Low and High then.
 	SyncID int64
-	High   int64 // the outbox position after the attempt
+	// High is the outbox position after the attempt, or -1 when it could
+	// not be read (a replay then uses the position at the replay, which is
+	// above every row the attempt committed).
+	High int64
 }
 
 // Complete stores the attempt's response; later requests with the key get

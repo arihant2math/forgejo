@@ -24,6 +24,11 @@ type Change struct {
 	RowID int64  `xorm:"NOT NULL"`
 	// Op is 'I', 'U' or 'D'.
 	Op string `xorm:"CHAR(1) NOT NULL"`
+	// Deferred is set by the materializer when it postponed the row
+	// (capture.Batch.Defer: a hot-table row changed again within
+	// HOT_COALESCE); the row stays until it is processed. The idempotency
+	// layer does not wait for such rows (B7). The triggers never set it.
+	Deferred bool `xorm:"NOT NULL DEFAULT false"`
 }
 
 // TableName implements xorm's TableName interface.
@@ -138,7 +143,9 @@ type Idempotency struct {
 	Owner string `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	// OutboxLow is the outbox position (last assigned livesync_change id)
 	// before the first attempt ran, OutboxHigh the position after the
-	// completing attempt: the outbox rows of the write lie in between (B7).
+	// completing attempt (-1: it could not be read; a replay reads the
+	// current position instead): the outbox rows of the write lie in
+	// between (B7).
 	OutboxLow   int64              `xorm:"NOT NULL DEFAULT 0"`
 	OutboxHigh  int64              `xorm:"NOT NULL DEFAULT 0"`
 	CreatedUnix timeutil.TimeStamp `xorm:"INDEX NOT NULL"`

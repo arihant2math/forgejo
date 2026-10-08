@@ -8,8 +8,10 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"forgejo.org/models/db"
 	livesync_model "forgejo.org/models/livesync"
@@ -72,18 +74,19 @@ func TestValidKey(t *testing.T) {
 }
 
 func TestRequestHash(t *testing.T) {
-	base := RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "all", []byte(`{"title":"x"}`))
+	base := RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "", "all", []byte(`{"title":"x"}`))
 	assert.Len(t, base, 64)
-	assert.Equal(t, base, RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "all", []byte(`{"title":"x"}`)))
+	assert.Equal(t, base, RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "", "all", []byte(`{"title":"x"}`)))
 	for _, other := range []string{
-		RequestHash("PUT", "/api/v1/repos/a/b/issues", "", "application/json", "all", []byte(`{"title":"x"}`)),
-		RequestHash("POST", "/api/v1/repos/a/c/issues", "", "application/json", "all", []byte(`{"title":"x"}`)),
-		RequestHash("POST", "/api/v1/repos/a/b/issues", "x=1", "application/json", "all", []byte(`{"title":"x"}`)),
-		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "text/plain", "all", []byte(`{"title":"x"}`)),
-		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "all", []byte(`{"title":"y"}`)),
-		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "write:issue|all", []byte(`{"title":"x"}`)),
+		RequestHash("PUT", "/api/v1/repos/a/b/issues", "", "application/json", "", "all", []byte(`{"title":"x"}`)),
+		RequestHash("POST", "/api/v1/repos/a/c/issues", "", "application/json", "", "all", []byte(`{"title":"x"}`)),
+		RequestHash("POST", "/api/v1/repos/a/b/issues", "x=1", "application/json", "", "all", []byte(`{"title":"x"}`)),
+		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "text/plain", "", "all", []byte(`{"title":"x"}`)),
+		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "", "all", []byte(`{"title":"y"}`)),
+		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "", "write:issue|all", []byte(`{"title":"x"}`)),
+		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json", "user4", "all", []byte(`{"title":"x"}`)),
 		// Parts cannot be shifted into each other.
-		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json{", "all", []byte(`"title":"x"}`)),
+		RequestHash("POST", "/api/v1/repos/a/b/issues", "", "application/json{", "", "all", []byte(`"title":"x"}`)),
 	} {
 		assert.NotEqual(t, base, other)
 	}
@@ -286,6 +289,30 @@ func TestWaitSynced(t *testing.T) {
 		t.Fatal("WaitSynced did not return")
 	}
 
+	// Rows the materializer deferred (hot rows, marked by Batch.Commit)
+	// do not hold the wait up; SyncedNow checks once.
+	low2, err := Position(ctx)
+	require.NoError(t, err)
+	hot := &livesync_model.Change{Tbl: "notification", RowID: 1, Op: livesync_model.OpUpdate, Deferred: true}
+	_, err = db.GetEngine(ctx).Insert(hot)
+	require.NoError(t, err)
+	head, ok = s.WaitSynced(ctx, low2, hot.ID)
+	assert.True(t, ok)
+	assert.Equal(t, int64(20), head)
+	open := &livesync_model.Change{Tbl: "label", RowID: 8, Op: livesync_model.OpUpdate}
+	_, err = db.GetEngine(ctx).Insert(open)
+	require.NoError(t, err)
+	start = time.Now()
+	_, ok = s.SyncedNow(ctx, low2, open.ID)
+	assert.False(t, ok)
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+	_, err = db.GetEngine(ctx).ID(open.ID).Delete(&livesync_model.Change{})
+	require.NoError(t, err)
+	head, ok = s.SyncedNow(ctx, low2, open.ID)
+	assert.True(t, ok)
+	assert.Equal(t, int64(20), head)
+	high = open.ID
+
 	// A cancelled request stops waiting.
 	_, err = db.GetEngine(ctx).Insert(&livesync_model.Change{Tbl: "label", RowID: 9, Op: livesync_model.OpUpdate})
 	require.NoError(t, err)
@@ -360,6 +387,50 @@ func TestFindDuplicate(t *testing.T) {
 }
 
 // A stopping instance keeps its lock while its attempts run.
+// A request that entered (Enter) but has not begun keeps the lock too, and
+// nothing begins or enters once the instance is stopping (finding: the
+// shutdown drain used to see only begun attempts).
+func TestStopDrainsEntered(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, livesync_model.SyncTables(t.Context()))
+	ctx, cancel := context.WithCancel(context.Background())
+	s, err := Start(ctx, Config{})
+	require.NoError(t, err)
+	release, ok := s.Enter()
+	require.True(t, ok)
+	cancel()
+	assert.False(t, s.Stop(100*time.Millisecond), "the lock is kept while an entered request is pending")
+	_, ok = s.Enter()
+	assert.False(t, ok, "no request enters a stopping instance")
+	_, err = s.Begin(t.Context(), Request{UserID: 9, Key: "late", Method: "POST", Path: "/p", Hash: "h"})
+	require.ErrorIs(t, err, ErrUnavailable)
+	_, has, err := getRecord(t.Context(), 9, "late")
+	require.NoError(t, err)
+	assert.False(t, has, "a stopping instance reserves nothing")
+	release()
+	release() // idempotent
+	assert.True(t, s.Stop(time.Second))
+}
+
+func TestStoredPath(t *testing.T) {
+	assert.Equal(t, "/api/v1/repos/a/b", storedPath("/api/v1/repos/a/b"))
+	// A decoded %FF is not UTF-8.
+	assert.Equal(t, "/api/v1/x\uFFFDy", storedPath("/api/v1/x\xffy"))
+	// Cut at a character boundary, at most maxPathLength bytes.
+	long := "/api/v1/" + strings.Repeat("é", 600)
+	got := storedPath(long)
+	assert.True(t, utf8.ValidString(got))
+	assert.LessOrEqual(t, len(got), maxPathLength)
+	assert.Greater(t, len(got), maxPathLength-8)
+
+	// And it can be stored: the record of such a request is reserved.
+	s := prepare(t, Config{})
+	b, err := s.Begin(t.Context(), Request{UserID: 3, Key: "long", Method: "POST", Path: long + "\xff", Hash: "h"})
+	require.NoError(t, err)
+	assert.Equal(t, Run, b.Outcome)
+	assert.True(t, utf8.ValidString(record(t, 3, "long").Path))
+}
+
 func TestStopDrains(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	require.NoError(t, livesync_model.SyncTables(t.Context()))

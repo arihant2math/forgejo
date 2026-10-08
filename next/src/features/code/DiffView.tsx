@@ -80,7 +80,9 @@ function useHighlights(repoId: number, base: string, head: string, count: number
         next[f] = h;
         return next;
       });
-    }, () => undefined);
+    }, () => {
+      asked.delete(f); // not loaded (a grammar, the worker): asked again when the file is next near the view
+    });
   }, [src, repoId, base, head, asked]);
   return {hl, want};
 }

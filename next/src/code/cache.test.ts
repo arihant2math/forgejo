@@ -24,6 +24,9 @@ test('values survive the memory level (a new cache on the same database reads th
   expect(a.peek(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
   await flush();
   const b = new CodeCache(d, {budget: 1e9});
+  // `has` answers from the metadata record and reads nothing into memory (prefetch checks without churning it).
+  expect(await b.has(`tree:3:${SHA}:`)).toBe(true);
+  expect(await b.has(`tree:4:${SHA}:`)).toBe(false);
   expect(b.peek(`tree:3:${SHA}:`)).toBeUndefined();
   expect(await b.get(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
   const hl = await b.get<{spans: Uint32Array}>(`hl:3:${SHA}:go`);

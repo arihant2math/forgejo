@@ -12,7 +12,7 @@
 import {untracked} from 'mobx';
 import {sitePath} from '../app/config.ts';
 import type {App} from '../app/store.ts';
-import {filePath} from './diff.ts';
+import {filePath, parseDiff} from './diff.ts';
 import {fetchCommits, poolCommits, pullOf} from './pull.ts';
 import {codeSource} from './source.ts';
 
@@ -84,9 +84,11 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
     if (!c) continue;
     report.pulls.push(issueId);
     try {
-      const had = await src.hasDiff(pr.base_repo_id, c.base, c.head);
-      const files = await src.diff(pr.base_repo_id, c.base, c.head);
-      if (!had) report.diffs++;
+      // Already on this device: fetched by an earlier run (or opened). Nothing is read back into memory.
+      if (await src.hasDiff(pr.base_repo_id, c.base, c.head)) continue;
+      // Parsed here, not kept: the page parses it again when it is opened.
+      const files = parseDiff(await src.diffText(pr.base_repo_id, c.base, c.head));
+      report.diffs++;
       let bytes = 0;
       for (const f of files.slice(0, MAX_FILES)) {
         if (signal?.aborted || f.binary || f.status === 'deleted') continue;

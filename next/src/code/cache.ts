@@ -178,6 +178,17 @@ export class CodeCache {
     return rec.v;
   }
 
+  /** Whether an entry is stored (its small metadata record only: the value is not read). */
+  async has(key: string): Promise<boolean> {
+    if (this.mem.has(key)) return true;
+    if (this.closed) return false;
+    try {
+      return await request(this.db.transaction(BLOBS, 'readonly').objectStore(BLOBS).count(`m:${key}`)) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   /** Stores a value (memory at once, IndexedDB in the background). Only immutable content, or a hint that says so. */
   put(key: string, v: unknown, size = sizeOf(v)): void {
     this.mem.set(key, v, size);

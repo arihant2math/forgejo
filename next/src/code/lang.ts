@@ -7,6 +7,9 @@
 // render as plain text. Pure.
 
 /** The grammars the code worker can load (workers/highlight.ts has one import per id). */
+/** Above this many characters a text is shown plain (checked before it is sent to the worker too). */
+export const HIGHLIGHT_MAX_CHARS = 1_000_000;
+
 export const LANGS = [
   'javascript', 'jsx', 'typescript', 'tsx', 'json', 'jsonc', 'go', 'python', 'rust', 'java', 'kotlin', 'c', 'cpp', 'csharp', 'php',
   'ruby', 'shellscript', 'yaml', 'toml', 'ini', 'xml', 'html', 'css', 'scss', 'less', 'markdown', 'sql', 'docker', 'make', 'lua',

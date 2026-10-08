@@ -16,7 +16,7 @@
 
 import {createCssVariablesTheme, createHighlighterCore, type HighlighterCore, type LanguageRegistration} from '@shikijs/core';
 import {createJavaScriptRegexEngine} from '@shikijs/engine-javascript';
-import type {Lang} from '../code/lang.ts';
+import {HIGHLIGHT_MAX_CHARS, type Lang} from '../code/lang.ts';
 
 /** Token classes (the page's table in features/code/syntax.ts maps them to utilities). */
 export const SYN = {plain: 0, keyword: 1, string: 2, comment: 3, function: 4, constant: 5, parameter: 6, punctuation: 7, link: 8} as const;
@@ -103,7 +103,7 @@ const LOADERS: Record<Lang, Loader> = {
 const THEME = 'forgejo';
 
 /** Above these a text is shown plain (highlighting it would take seconds and memory for little use). */
-export const MAX_CHARS = 1_000_000;
+export const MAX_CHARS = HIGHLIGHT_MAX_CHARS;
 export const MAX_LINES = 40_000;
 /**
  * Longer lines are left plain (minified files; and a TextMate grammar can
@@ -113,7 +113,7 @@ export const MAX_LINES = 40_000;
 const MAX_LINE = 400;
 
 let core: Promise<HighlighterCore> | undefined;
-const loaded = new Map<Lang, Promise<boolean>>();
+const loaded = new Map<Lang, Promise<void>>();
 
 function highlighter(): Promise<HighlighterCore> {
   core ??= createHighlighterCore({
@@ -124,13 +124,14 @@ function highlighter(): Promise<HighlighterCore> {
   return core;
 }
 
-function loadLang(h: HighlighterCore, lang: Lang): Promise<boolean> {
+/** Loads a grammar; a failed load (its chunk not reachable) rejects and is tried again next time. */
+function loadLang(h: HighlighterCore, lang: Lang): Promise<void> {
   let p = loaded.get(lang);
   if (!p) {
-    p = LOADERS[lang]().then(async (m) => {
-      await h.loadLanguage(...m.default);
-      return true;
-    }, () => false);
+    p = LOADERS[lang]().then((m) => h.loadLanguage(...m.default));
+    p.catch(() => {
+      loaded.delete(lang);
+    });
     loaded.set(lang, p);
   }
   return p;
@@ -142,14 +143,14 @@ function classOf(color: string | undefined): number {
   return (m?.[1] ? VARS[m[1]] : undefined) ?? SYN.plain;
 }
 
-/** Highlights text (lines split on \n; a \r before it is part of the line). null: plain (unknown grammar, too big). */
+/** Highlights text (lines split on \n; a \r before it is part of the line). null: plain (unknown grammar, too big); rejects when the grammar does not load. */
 export async function highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
   if (!lang || !(lang in LOADERS) || text.length > MAX_CHARS) return null;
   let lineCount = 1;
   for (let i = text.indexOf('\n'); i >= 0 && lineCount <= MAX_LINES; i = text.indexOf('\n', i + 1)) lineCount++;
   if (lineCount > MAX_LINES) return null;
   const h = await highlighter();
-  if (!await loadLang(h, lang)) return null;
+  await loadLang(h, lang);
   const tokens = h.codeToTokensBase(text, {lang, theme: THEME, tokenizeMaxLineLength: MAX_LINE});
   return compact(tokens, text);
 }

@@ -3,11 +3,11 @@
 
 // The code worker (PLAN §5.1, §5.7; Comlink): syntax highlighting and diff
 // parsing stay off the main thread. Started by the first code view
-// (src/code/source.ts), as two instances: one parses diffs, one highlights
-// (files, and a diff's files one at a time as the page shows them).
+// (src/code/source.ts): files, and a diff's files one at a time as the page
+// shows them (the page parses diffs itself: see source.ts).
 
 import {expose, transfer} from 'comlink';
-import {DEL, type DiffFile, filePath, parseDiff} from '../code/diff.ts';
+import {DEL, type DiffFile, filePath} from '../code/diff.ts';
 import {type Lang, langOf} from '../code/lang.ts';
 import {highlight, type Highlight} from './highlight.ts';
 
@@ -59,18 +59,12 @@ async function highlightFile(f: DiffFile): Promise<Highlight | null> {
   return {spans: Uint32Array.from(spans), starts};
 }
 
-// The page runs two instances of this module (src/code/source.ts): one parses diffs, the other
-// highlights — a highlight that runs away (a grammar backtracking on crafted text) is stopped by
-// terminating its instance, and never holds up a diff.
+// A highlight that runs away (a grammar backtracking on crafted text) is stopped by terminating
+// the worker (src/code/source.ts).
 const api = {
   /** Highlights a file's text (null: plain). */
   async highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
     return out(await highlight(text, lang));
-  },
-
-  /** Parses a diff. */
-  parseDiff(text: string): DiffFile[] {
-    return parseDiff(text);
   },
 
   /** Highlights one file of a diff, per diff line (null: plain). */

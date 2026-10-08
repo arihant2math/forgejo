@@ -15,7 +15,7 @@ function fakeData(script: (LogMessage | LogClosedMessage)[]) {
   const asks: unknown[] = [];
   let subs = 0;
   const data = {
-    tailLog: (jobId: number, from: unknown, fn: (m: LogMessage | LogClosedMessage) => void) => {
+    tailLog: (_job: number, from: unknown, fn: (m: LogMessage | LogClosedMessage) => void) => {
       asks.push(from);
       if (++subs > 50) throw new Error('re-subscribed in a loop');
       for (const m of script) fn(m);

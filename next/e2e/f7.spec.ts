@@ -84,8 +84,11 @@ test.beforeAll(async () => {
       {operation: 'create', path: 'docs/a b.txt', content: b64('spaces in the name\n')},
     ],
   });
-  // A 5 000-line pull request (by dev) and a small one by alice that requests dev's review.
-  await changeFiles(REPO, {branch: 'main', new_branch: 'big', message: 'Big change', files: [{operation: 'create', path: 'src/big.ts', content: b64(tsFile(BIG))}]});
+  // A 5 000-line pull request (by dev; ten files, so scrolling crosses files: the file list follows) and a
+  // small one by alice that requests dev's review.
+  await changeFiles(REPO, {branch: 'main', new_branch: 'big', message: 'Big change', files: Array.from({length: 10}, (_, i) => ({
+    operation: 'create', path: `src/big/part${String(i)}.ts`, content: b64(tsFile(BIG / 10)),
+  }))});
   bigPull = await (await ok(await api('POST', `/repos/${USER}/${REPO}/pulls`, {head: 'big', base: 'main', title: 'A big change'}), 'big pull')).json() as Pull;
   await changeFiles(REPO, {branch: 'main', new_branch: 'small', message: 'Small change', files: [
     {operation: 'update', path: 'src/other.go', content: b64(goFile(40).replace('"value", 3)', '"value is", 3)')), sha: await blobSha('src/other.go')},
@@ -95,8 +98,8 @@ test.beforeAll(async () => {
   await ok(await api('POST', `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/requested_reviewers`, {reviewers: [USER]}, alice), 'review request');
 });
 
-async function blobSha(path: string): Promise<string> {
-  const r = await (await ok(await api('GET', `/repos/${USER}/${REPO}/contents/${path}`), 'contents get')).json() as {sha: string};
+async function blobSha(path: string, ref?: string): Promise<string> {
+  const r = await (await ok(await api('GET', `/repos/${USER}/${REPO}/contents/${path}${ref ? `?ref=${ref}` : ''}`), 'contents get')).json() as {sha: string};
   return r.sha;
 }
 
@@ -204,6 +207,10 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({page},
     });
     po.observe({type: 'longtask', buffered: false});
     const frames: number[] = [];
+    // Frames in which the file in view changed (the file list's cursor follows it): the costliest.
+    const boundary: number[] = [];
+    const inView = () => document.querySelector('[role=listbox][aria-label="Changed files"] [aria-selected=true]')?.textContent ?? '';
+    let file = inView();
     let last = performance.now();
     const step = 120; // px per frame (≈ 7 200 px/s)
     const total = Math.min(scroller.scrollHeight - scroller.clientHeight, 600 * step);
@@ -212,12 +219,15 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({page},
       await new Promise((res) => requestAnimationFrame(res));
       const now = performance.now();
       frames.push(now - last);
+      const f = inView();
+      if (f !== file) boundary.push(now - last);
+      file = f;
       last = now;
     }
     po.disconnect();
     const sorted = [...frames].sort((a, b) => a - b);
     const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
-    return {frames: frames.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: sorted.at(-1) ?? 0, over32: frames.filter((f) => f > 32).length, longTasks, rows: document.querySelectorAll('[role=list][aria-label=Changes] > [role=listitem]').length, height: scroller.scrollHeight};
+    return {frames: frames.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: sorted.at(-1) ?? 0, over32: frames.filter((f) => f > 32).length, longTasks, boundary, rows: document.querySelectorAll('[role=list][aria-label=Changes] > [role=listitem]').length, height: scroller.scrollHeight};
   });
   console.log(`diff scroll (${String(BIG)} lines): ${JSON.stringify(r)}`);
   await info.attach('diff-scroll.json', {body: JSON.stringify(r), contentType: 'application/json'});
@@ -229,6 +239,9 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({page},
   // 600 frames over 32 ms): at most 2 % here; on real hardware none.
   expect(r.over32).toBeLessThanOrEqual(12);
   expect(Math.max(0, ...r.longTasks)).toBeLessThan(50);
+  // Crossing into the next file re-renders the file list, not the diff.
+  expect(r.boundary.length).toBeGreaterThanOrEqual(5);
+  expect(Math.max(...r.boundary)).toBeLessThan(50);
 });
 
 /** Whether the code cache holds a key (IndexedDB `blobs`, d:<key>). */
@@ -267,7 +280,9 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await page.reload();
   const t0 = Date.now();
   await expect.poll(() => cached(page, `diff:${String(repoId)}:${reviewPull.merge_base}:${reviewPull.head.sha}`), {timeout: 90_000, intervals: [1000]}).toBe(true);
-  await expect.poll(() => cached(page, `raw:${String(repoId)}:${reviewPull.head.sha}:src/new.ts`), {timeout: 30_000}).toBe(true);
+  // The head's files, by blob SHA (what the file view reads).
+  const newTs = await blobSha('src/new.ts', reviewPull.head.sha);
+  await expect.poll(() => cached(page, `blob:${String(repoId)}:${newTs}`), {timeout: 30_000}).toBe(true);
   console.log(`prefetched after ${String(Date.now() - t0)} ms`);
   // The service worker serves the app offline.
   await expect.poll(() => page.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active && navigator.serviceWorker.controller)), {timeout: 30_000}).toBe(true);
@@ -319,8 +334,10 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   const comments = await (await api('GET', `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/reviews/${String(mine[0]?.id)}/comments`)).json() as {path: string; body: string; position: number; original_position: number}[];
   expect(comments.map((c) => [c.path, c.body])).toEqual([['src/new.ts', 'Offline nit: name this better.']]);
   // Viewed files reached the server too (B9).
+  // B9 takes the issue's id (a pull request's own id differs from it).
+  const issue = await (await ok(await api('GET', `/repos/${USER}/${REPO}/issues/${String(reviewPull.number)}`), 'issue')).json() as {id: number};
   await expect.poll(async () => {
-    const v = await (await fetch(`${BASE}/-/sync/api/issues/${String(reviewPull.id)}/viewed`, {headers: {Authorization: `token ${token}`}})).json() as {files?: Record<string, string>};
+    const v = await (await fetch(`${BASE}/-/sync/api/issues/${String(issue.id)}/viewed`, {headers: {Authorization: `token ${token}`}})).json() as {files?: Record<string, string>};
     return Object.values(v.files ?? {}).filter((s) => s === 'viewed').length;
   }, {timeout: 30_000}).toBeGreaterThan(0);
   await info.attach('offline-review.json', {body: JSON.stringify({review: mine[0], comments}), contentType: 'application/json'});

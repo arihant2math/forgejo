@@ -6,7 +6,9 @@
 // trees, blobs, blames and diffs; API v1 for commit lists and compares of
 // full SHAs — so an answer is cached forever (cache.ts) and a cached answer
 // never needs the network: views that were seen once work offline.
-// Highlighting and diff parsing go to the code worker (Comlink).
+// Highlighting goes to the code worker (Comlink). Diffs are parsed here: the
+// parse is a few ms per 5k lines, and a parsed diff (an object per line)
+// coming back from a worker costs the main thread 3-4x that to deserialize.
 //
 // Requests carry the session's token in a header only (`credentials:
 // 'omit'`, no redirects). Only complete 2xx answers are cached (B9: a diff
@@ -21,8 +23,8 @@ import {APIPrefix, type APIBlame, type APITree, type APITreeEntry} from '../prot
 import type {CodeWorkerApi, Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
-import type {DiffFile} from './diff.ts';
-import {langOf} from './lang.ts';
+import {type DiffFile, parseDiff} from './diff.ts';
+import {HIGHLIGHT_MAX_CHARS, langOf} from './lang.ts';
 
 export type {Highlight} from '../workers/code.worker.ts';
 
@@ -140,11 +142,10 @@ function commitInfo(c: ApiCommit): CommitInfo {
 
 export class CodeSource {
   readonly cache: CodeCache;
-  /** The worker module runs twice: a parser and a highlighter (stopped and replaced when a highlight runs away). */
-  private parser: {w: Worker; api: Remote<CodeWorkerApi>} | undefined;
-  private highlighter: {w: Worker; api: Remote<CodeWorkerApi>} | undefined;
+  /** The highlighter (stopped and replaced when a highlight runs away or the worker fails). */
+  private highlighter: Highlighter | undefined;
   private readonly inflight = new Map<string, Promise<unknown>>();
-  /** Diffs parsed in the worker this session (key → files); the worker keeps them for highlighting. */
+  /** Diffs parsed this session (key → files). */
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
   /** The same, once parsed (a diff opened again paints in its first frame). */
   private readonly parsedDone = new Map<string, DiffFile[]>();
@@ -162,26 +163,37 @@ export class CodeSource {
     });
   }
 
-  private spawn(name: string): {w: Worker; api: Remote<CodeWorkerApi>} {
+  private spawn(): Highlighter {
     const at = workerUrl.indexOf('assets/');
     const url = at >= 0 ? `${this.app.config.base}${workerUrl.slice(at)}` : workerUrl;
-    const w = new Worker(appWorkerURL(this.app.config.base, url), {type: 'module', name});
-    return {w, api: wrap<CodeWorkerApi>(w)};
-  }
-
-  private parse(): Remote<CodeWorkerApi> {
-    this.parser ??= this.spawn('code-parse');
-    return this.parser.api;
+    const w = new Worker(appWorkerURL(this.app.config.base, url), {type: 'module', name: 'code-highlight'});
+    let fail: (err: Error) => void = () => undefined;
+    const failed = new Promise<never>((_, reject) => {
+      fail = reject;
+    });
+    failed.catch(() => undefined);
+    const h: Highlighter = {w, api: wrap<CodeWorkerApi>(w), failed, stop: () => {
+      if (this.highlighter === h) this.highlighter = undefined;
+      w.terminate();
+      fail(new Error('The highlighter stopped.'));
+    }};
+    // A worker that fails to load (a build replaced under the page) never answers: calls fail now, the next starts another.
+    w.addEventListener('error', () => {
+      h.stop();
+    });
+    return h;
   }
 
   /**
    * Runs a highlight with a watchdog: a TextMate grammar can backtrack for
    * minutes on crafted text (a file in a pull request). Past HIGHLIGHT_LIMIT
    * the highlighter is terminated (a new one starts with the next call) and
-   * the text is plain (null) — every call waiting on it too.
+   * the text is plain (null, cached: it would run away again). A failure (a
+   * grammar or the worker not loading, the highlighter stopped under the call)
+   * rejects: not cached, asked again later.
    */
   private async watched(run: (api: Remote<CodeWorkerApi>) => Promise<Highlight | null>): Promise<Highlight | null> {
-    this.highlighter ??= this.spawn('code-highlight');
+    this.highlighter ??= this.spawn();
     const h = this.highlighter;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'timeout'>((resolve) => {
@@ -190,15 +202,10 @@ export class CodeSource {
       }, HIGHLIGHT_LIMIT);
     });
     try {
-      const r = await Promise.race([run(h.api), timeout]);
+      const r = await Promise.race([run(h.api), timeout, h.failed]);
       if (r !== 'timeout') return r;
-      if (this.highlighter === h) {
-        this.highlighter = undefined;
-        h.w.terminate();
-      }
+      h.stop();
       return null;
-    } catch {
-      return null; // terminated under it (another call's timeout): plain
     } finally {
       clearTimeout(timer);
     }
@@ -321,17 +328,17 @@ export class CodeSource {
     });
   }
 
-  /** Whether a diff is on this device (prefetched or seen). */
-  async hasDiff(repoId: number, base: string, head: string): Promise<boolean> {
-    return await this.cache.get(CodeSource.diffKey(repoId, base, head)) !== undefined;
+  /** Whether a diff is on this device (prefetched or seen; its text is not read). */
+  hasDiff(repoId: number, base: string, head: string): Promise<boolean> {
+    return this.cache.has(CodeSource.diffKey(repoId, base, head));
   }
 
-  /** The diff parsed in the worker (once per session and diff). */
+  /** The diff parsed (once per session and diff). */
   diff(repoId: number, base: string, head: string): Promise<DiffFile[]> {
     const key = CodeSource.diffKey(repoId, base, head);
     let p = this.parsed.get(key);
     if (!p) {
-      p = this.diffText(repoId, base, head).then((text) => this.parse().parseDiff(text));
+      p = this.diffText(repoId, base, head).then(parseDiff);
       p.then((files) => {
         this.parsedDone.set(key, files);
         // A few parsed diffs stay in memory.
@@ -362,7 +369,7 @@ export class CodeSource {
   /** A file's highlighting, cached by blob SHA (null: plain). */
   highlight(repoId: number, blobSha: string, path: string, text: string): Promise<Highlight | null> {
     const lang = langOf(path);
-    if (!lang) return Promise.resolve(null);
+    if (!lang || text.length > HIGHLIGHT_MAX_CHARS) return Promise.resolve(null);
     // A timeout caches null: this content stays plain on this device (it would run away again).
     return this.cached(`hl:${String(repoId)}:${blobSha}:${lang}`, () => this.watched((api) => api.highlight(text, lang)));
   }
@@ -412,9 +419,16 @@ export class CodeSource {
   close(): void {
     this.off();
     this.cache.close();
-    this.parser?.w.terminate();
-    this.highlighter?.w.terminate();
+    this.highlighter?.stop();
   }
+}
+
+interface Highlighter {
+  w: Worker;
+  api: Remote<CodeWorkerApi>;
+  /** Rejects when the worker fails or is stopped. */
+  failed: Promise<never>;
+  stop: () => void;
 }
 
 const sources = new WeakMap<Session, CodeSource>();

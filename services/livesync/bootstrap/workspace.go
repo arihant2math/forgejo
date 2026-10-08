@@ -51,7 +51,7 @@ func Workspace(ctx context.Context, perms *perm.Cache, viewerID int64, maxRepos 
 			reason = protocol.WorkspaceProfile
 		case protocol.GroupPrefixProfiles:
 			reason = protocol.WorkspaceDirectory
-		case protocol.GroupPrefixOrg:
+		case protocol.GroupPrefixOrg, protocol.GroupPrefixTeam:
 			reason = protocol.WorkspaceMember
 		case protocol.GroupPrefixOwner:
 			// The viewer's own and their organizations' (the others are

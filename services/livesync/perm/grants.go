@@ -153,6 +153,7 @@ const (
 	kindOwner
 	kindRepo
 	kindIssue
+	kindTeam
 )
 
 // parseGroup splits a group name into its kind and id (0 for the profile
@@ -181,6 +182,8 @@ func parseGroup(group string) (groupKind, int64) {
 		return kindRepo, id
 	case protocol.GroupPrefixIssue:
 		return kindIssue, id
+	case protocol.GroupPrefixTeam:
+		return kindTeam, id
 	}
 	return kindInvalid, 0
 }
@@ -227,9 +230,30 @@ func compute(ctx context.Context, viewer *user_model.User, viewerID int64) (*Gra
 	if err != nil {
 		return nil, err
 	}
+	var teamless []int64 // member organizations the viewer is in no team of
 	for id := range in.orgs {
-		g.groups[protocol.OrgGroup(id)] = unitBase | unitMembers
+		units := unitBase | unitMembers
+		switch projects, inTeam := in.orgTeamProjects(id); {
+		case !inTeam:
+			teamless = append(teamless, id)
+		case projects:
+			units |= unitProjects
+		}
+		g.groups[protocol.OrgGroup(id)] = units
 		g.groups[protocol.OwnerGroup(id)] = unitBase
+	}
+	g.addTeams(in)
+	if len(teamless) > 0 {
+		orgs, err := usersByID(ctx, teamless)
+		if err != nil {
+			return nil, err
+		}
+		for id, org := range orgs {
+			g.basis.addUser(org)
+			if orgProjectsByVisibility(org) {
+				g.groups[protocol.OrgGroup(id)] |= unitProjects
+			}
+		}
 	}
 	repoIDs, err := in.relatedRepos(ctx, viewer.ID)
 	if err != nil {
@@ -573,6 +597,8 @@ func checkGroup(ctx context.Context, viewer *user_model.User, group string) (d D
 		return Decision{Units: unitBase, Basis: basis}, profileVisible(ctx, &u, viewer), nil
 	case kindOrg:
 		return checkOrg(ctx, viewer, id)
+	case kindTeam:
+		return checkTeam(ctx, viewer, id)
 	case kindOwner:
 		return checkOwner(ctx, viewer, id)
 	case kindRepo:
@@ -624,6 +650,95 @@ func profileVisible(ctx context.Context, u, viewer *user_model.User) bool {
 	return user_model.IsUserVisibleToViewer(ctx, u, viewer)
 }
 
+// addTeams grants the team:{id} groups of the viewer's teams. The other
+// teams an owner of their organization (or a site administrator) may read
+// are granted on demand (checkTeam): an organization can have many.
+func (g *Grants) addTeams(in *viewerInputs) {
+	for _, t := range in.teams {
+		if in.orgs[t.OrgID] { // checkTeam: and a member of the organization
+			g.groups[protocol.TeamGroup(t.ID)] = unitBase
+		}
+	}
+}
+
+// checkTeam decides team:{id}: its members, the owners of its organization
+// and site administrators (API v1's reqTeamMembership and GetTeamMembers,
+// which also wants an organization membership; the web team pages'
+// requireTeamMember, where site administrators count as owners).
+func checkTeam(ctx context.Context, viewer *user_model.User, id int64) (Decision, bool, error) {
+	team, err := org_model.GetTeamByID(ctx, id)
+	if org_model.IsErrTeamNotExist(err) {
+		return Decision{}, false, nil
+	} else if err != nil {
+		return Decision{}, false, fmt.Errorf("livesync: check team:%d: %w", id, err)
+	}
+	d := Decision{Units: unitBase, Basis: Basis{}}
+	if viewer.IsAdmin {
+		return d, true, nil
+	}
+	member, err := org_model.IsTeamMember(ctx, team.OrgID, team.ID, viewer.ID)
+	if err != nil {
+		return Decision{}, false, fmt.Errorf("livesync: check team:%d: %w", id, err)
+	}
+	if !member {
+		// IsOrganizationOwner, without its Error log for an organization
+		// without an owners team (fixtures have such).
+		owners, err := org_model.GetOwnerTeam(ctx, team.OrgID)
+		switch {
+		case org_model.IsErrTeamNotExist(err):
+		case err != nil:
+			return Decision{}, false, fmt.Errorf("livesync: check team:%d: %w", id, err)
+		default:
+			if member, err = org_model.IsTeamMember(ctx, team.OrgID, owners.ID, viewer.ID); err != nil {
+				return Decision{}, false, fmt.Errorf("livesync: check team:%d: %w", id, err)
+			}
+		}
+	}
+	if !member {
+		return d, false, nil
+	}
+	// GET /teams/{id}/members also requires an organization membership
+	// (org_user), which a team member always has, unless the rows disagree.
+	orgMember, err := org_model.IsOrganizationMember(ctx, team.OrgID, viewer.ID)
+	if err != nil {
+		return Decision{}, false, fmt.Errorf("livesync: check team:%d: %w", id, err)
+	}
+	return d, orgMember, nil
+}
+
+// orgTeamProjects decides the projects unit of the organization's group
+// for a viewer in a team of organization orgID (inTeam): upstream's
+// Organization.UnitPermission(viewer, unit.TypeProjects), which gates the
+// organization's project pages (/{org}/-/projects, reqUnitAccess), is
+// then the best projects access of their teams (any access for an owner
+// team), and projects reports whether it is at least read.
+func (in *viewerInputs) orgTeamProjects(orgID int64) (projects, inTeam bool) {
+	for _, t := range in.teams {
+		if t.OrgID != orgID {
+			continue
+		}
+		inTeam = true
+		if t.IsOwnerTeam() {
+			return true, true
+		}
+		for _, u := range in.teamUnits[t.ID] {
+			if u.Type == unit_model.TypeProjects && u.AccessMode >= perm_model.AccessModeRead {
+				return true, true
+			}
+		}
+	}
+	return false, inTeam
+}
+
+// orgProjectsByVisibility decides the projects unit of organization org's
+// group for a signed-in viewer in none of its teams (who may see org):
+// Organization.UnitPermission gives read on a public or limited
+// organization, nothing on a private one — also to site administrators,
+// whom the visibility check lets see it.
+func orgProjectsByVisibility(org *user_model.User) bool {
+	return org.Visibility == structs.VisibleTypePublic || org.Visibility == structs.VisibleTypeLimited
+}
+
 func checkOrg(ctx context.Context, viewer *user_model.User, id int64) (Decision, bool, error) {
 	org, ok, err := lookupUser(ctx, id)
 	if err != nil || !ok || !org.IsOrganization() {
@@ -643,6 +758,11 @@ func checkOrg(ctx context.Context, viewer *user_model.User, id int64) (Decision,
 	}
 	if member {
 		d.Units |= unitMembers
+	}
+	// Organization projects (and their columns) need the projects unit
+	// (backend audit), decided as upstream decides it.
+	if org_model.OrgFromUser(&org).UnitPermission(ctx, viewer, unit_model.TypeProjects) >= perm_model.AccessModeRead {
+		d.Units |= unitProjects
 	}
 	return d, true, nil
 }

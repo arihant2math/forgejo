@@ -25,7 +25,8 @@ func TestPostgresDDL(t *testing.T) {
 	assert.Contains(t, body, `INSERT INTO "my""schema"."livesync_change" (tbl, row_id, op) VALUES (TG_TABLE_NAME, OLD.id, 'D');`)
 	assert.Contains(t, body, `VALUES (TG_TABLE_NAME, NEW.id, 'U');`)
 	assert.Contains(t, body, `VALUES (TG_TABLE_NAME, NEW.id, 'I');`)
-	assert.Contains(t, body, `PERFORM pg_notify('livesync', TG_TABLE_SCHEMA);`)
+	assert.NotContains(t, body, "pg_notify", "no NOTIFY: it serialises the cluster's commits (backend audit)")
+	assert.Contains(t, body, "change capture v2")
 	assert.NotContains(t, body, "$livesync$", "the body must not end the dollar quote")
 	assert.NotContains(t, body, "?", "xorm rewrites ? placeholders on PostgreSQL")
 

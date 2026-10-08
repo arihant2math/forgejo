@@ -61,7 +61,13 @@ func authenticateResult(req *http.Request) (*user_model.User, auth.Authenticatio
 	case *auth.AuthenticationSuccess:
 		result = out.Result
 	case *auth.AuthenticationError:
-		log.Error("livesync: authentication: %v", out.Error)
+		if req.Context().Err() != nil {
+			// The client went away (or the server is stopping) during
+			// the token lookup: nothing went wrong.
+			log.Debug("livesync: authentication: %v", out.Error)
+		} else {
+			log.Error("livesync: authentication: %v", out.Error)
+		}
 		return nil, nil, &authError{http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)}
 	default:
 		return nil, nil, &authError{http.StatusUnauthorized, "a valid access token is required"}

@@ -13,6 +13,7 @@ import (
 	git_model "forgejo.org/models/git"
 	issues_model "forgejo.org/models/issues"
 	org_model "forgejo.org/models/organization"
+	perm_model "forgejo.org/models/perm"
 	access_model "forgejo.org/models/perm/access"
 	project_model "forgejo.org/models/project"
 	pull_model "forgejo.org/models/pull"
@@ -240,8 +241,10 @@ var specs = func() map[string]*spec {
 		rowSpec[org_model.TeamUser]{
 			model: protocol.ModelTeamUser, schema: protocol.SchemaTeamUser,
 			id: func(r *org_model.TeamUser) int64 { return r.ID },
+			// Who is in a team: its members, the organization's owners and
+			// site administrators only (see protocol.TeamGroup).
 			place: func(_ *loader, r *org_model.TeamUser) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
+				return protocol.TeamGroup(r.TeamID), protocol.UnitNone
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamUser) (any, error) {
 				return &protocol.TeamUser{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, UserID: r.UID}, nil
@@ -254,8 +257,10 @@ var specs = func() map[string]*spec {
 		rowSpec[org_model.TeamRepo]{
 			model: protocol.ModelTeamRepo, schema: protocol.SchemaTeamRepo,
 			id: func(r *org_model.TeamRepo) int64 { return r.ID },
+			// A team's repositories (possibly private ones the other
+			// members cannot read): as TeamUser.
 			place: func(_ *loader, r *org_model.TeamRepo) (string, protocol.Unit) {
-				return protocol.OrgGroup(r.OrgID), protocol.UnitMembers
+				return protocol.TeamGroup(r.TeamID), protocol.UnitNone
 			},
 			dto: func(_ context.Context, _ *loader, r *org_model.TeamRepo) (any, error) {
 				return &protocol.TeamRepo{ID: r.ID, OrgID: r.OrgID, TeamID: r.TeamID, RepoID: r.RepoID}, nil
@@ -285,7 +290,7 @@ var specs = func() map[string]*spec {
 			},
 			dto: func(_ context.Context, _ *loader, r *repo_model.Collaboration) (any, error) {
 				return &protocol.Collaboration{
-					ID: r.ID, RepoID: r.RepoID, UserID: r.UserID, Permission: r.Mode.String(),
+					ID: r.ID, RepoID: r.RepoID, UserID: r.UserID, Permission: collaboratorPermission(r.Mode),
 					CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
 				}, nil
 			},
@@ -818,4 +823,14 @@ func projectDTO(r *project_model.Project) *protocol.Project {
 		p.ClosedAt = optTS(r.ClosedDateUnix)
 	}
 	return p
+}
+
+// collaboratorPermission is what every reader of a repository may know of a
+// collaborator's access mode (protocol.Collaboration): read or write, not
+// whether they administer it (backend audit).
+func collaboratorPermission(mode perm_model.AccessMode) string {
+	if mode >= perm_model.AccessModeWrite {
+		return perm_model.AccessModeWrite.String()
+	}
+	return mode.String()
 }

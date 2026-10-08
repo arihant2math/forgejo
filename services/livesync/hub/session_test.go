@@ -48,7 +48,7 @@ func (x *harness) epoch(ch protocol.PermissionChange, more ...synclog.Entry) {
 // pings without reading the pongs is closed like a slow one, and the queue
 // never holds more than the buffer.
 func TestControlMessagesBounded(t *testing.T) {
-	x := newHarness(t, Config{SendBuffer: 2000})
+	x := newHarness(t, Config{SendBuffer: 2400})
 	tr := newFakeTransport()
 	cl := x.connect(tr)
 	cl.hello(2)
@@ -61,7 +61,7 @@ func TestControlMessagesBounded(t *testing.T) {
 		cl.c.mu.Lock()
 		queued := cl.c.queued
 		cl.c.mu.Unlock()
-		require.LessOrEqual(t, queued, 2000)
+		require.LessOrEqual(t, queued, 2400)
 	}
 	close(tr.gate)
 	assert.Equal(t, "first", cl.expect(protocol.MsgPong).ID)
@@ -200,7 +200,7 @@ func TestEpochDuringCheckConcerns(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			at := x.h.checkpoint()
-			reqs, ok := cl.c.check([]protocol.GroupRequest{{Group: "repo:1"}}, nil)
+			reqs, ok := cl.c.check([]protocol.GroupRequest{{Group: "repo:1"}}, nil, false)
 			require.True(t, ok)
 			require.True(t, reqs[0].ok)
 			payload, _ := json.Marshal(tc.ch)
@@ -219,7 +219,7 @@ func TestEpochDuringCheckConcerns(t *testing.T) {
 	x.h.mu.Unlock()
 	at := x.h.checkpoint()
 	at.permSeq--
-	reqs, _ := cl.c.check([]protocol.GroupRequest{{Group: "repo:1"}}, nil)
+	reqs, _ := cl.c.check([]protocol.GroupRequest{{Group: "repo:1"}}, nil, false)
 	x.h.mu.Lock()
 	x.h.subscribeLocked(cl.c, reqs, at)
 	assert.True(t, cl.c.subs["repo:1"].recheck)
@@ -283,7 +283,8 @@ func TestPermissionChangedUnits(t *testing.T) {
 	cl := x.connect(nil)
 	w := cl.hello(4, protocol.GroupRequest{Group: "org:3"})
 	require.Equal(t, []string{"org:3"}, grantGroups(w.Granted))
-	require.Equal(t, []protocol.Unit{protocol.UnitMembers}, w.Granted[0].Units)
+	// org3 is public: its projects unit stays (backend audit).
+	require.Equal(t, []protocol.Unit{protocol.UnitProjects, protocol.UnitMembers}, w.Granted[0].Units)
 	cl.expect(protocol.MsgCaughtUp)
 
 	_, err := db.GetEngine(t.Context()).Exec("DELETE FROM org_user WHERE org_id = 3 AND uid = 4")
@@ -322,8 +323,8 @@ func TestPermissionChangedUnits(t *testing.T) {
 // it (the client contract in protocol.GroupRequest): a change undone in
 // between needs nothing, the replay is filtered by the current units.
 func TestPermissionChangedResume(t *testing.T) {
-	// leave: user4 leaves org3 (members ⇒ none); more is delivered with
-	// the epoch.
+	// leave: user4 leaves org3 (members ⇒ none but projects: org3 is
+	// public); more is delivered with the epoch.
 	leave := func(t *testing.T, x *harness, more ...synclog.Entry) {
 		_, err := db.GetEngine(t.Context()).Exec("DELETE FROM org_user WHERE org_id = 3 AND uid = 4")
 		require.NoError(t, err)
@@ -365,7 +366,8 @@ func TestPermissionChangedResume(t *testing.T) {
 			}
 		}
 	}
-	members := []protocol.Unit{protocol.UnitMembers}
+	members := []protocol.Unit{protocol.UnitProjects, protocol.UnitMembers}
+	outside := []protocol.Unit{protocol.UnitProjects}
 
 	t.Run("units shrank", func(t *testing.T) {
 		x := newHarness(t, Config{})
@@ -376,7 +378,7 @@ func TestPermissionChangedResume(t *testing.T) {
 		leave(t, x)
 		missed(t, cl)
 		units, _ := resume(t, x, x.h.pos.Load())
-		assert.Empty(t, units, "the client holds members: it must bootstrap")
+		assert.Equal(t, outside, units, "the client holds members: it must bootstrap")
 	})
 
 	t.Run("units grew", func(t *testing.T) {
@@ -386,7 +388,7 @@ func TestPermissionChangedResume(t *testing.T) {
 		x.deliver()
 		cl := x.connect(nil)
 		w := cl.hello(4, protocol.GroupRequest{Group: "org:3"})
-		require.Empty(t, w.Granted[0].Units)
+		require.Equal(t, outside, w.Granted[0].Units)
 		cl.expect(protocol.MsgCaughtUp)
 		join(t, x)
 		missed(t, cl)

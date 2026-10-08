@@ -23,15 +23,15 @@ import (
 // The doorbell wakes the outbox reader as soon as a change may have been
 // committed, so it does not have to wait for its next poll (PLAN §4.3):
 //
-//   - on PostgreSQL, LISTEN livesync rings when any instance, this one
-//     included, commits a captured change (the trigger function calls
-//     pg_notify; notifications are sent at commit, one per transaction);
-//   - on MySQL, which has no NOTIFY, a passive observer of the master
-//     engine's statements rings after every COMMIT and every successful
-//     INSERT/UPDATE/DELETE/REPLACE (which may be autocommitted: it cannot
-//     tell), except livesync's own (see withQuietTx);
-//   - polling (PollInterval) is the safety net and, on MySQL, the
-//     cross-instance mechanism.
+//   - a passive observer of the master engine's statements rings after
+//     every COMMIT and every successful INSERT/UPDATE/DELETE/REPLACE (which
+//     may be autocommitted: it cannot tell), except livesync's own (see
+//     withQuietTx). It sees this process's writes only;
+//   - polling (PollInterval) is the safety net and the cross-instance
+//     mechanism: writes made through another Forgejo instance reach the
+//     writer instance's reader within PollInterval. (Until the backend
+//     audit the PostgreSQL trigger function sent a NOTIFY, which serialised
+//     all commits of the cluster; see ddl.go.)
 //
 // A ring is only a hint: the reader re-reads the outbox, which is cheap when
 // nothing is new, and it runs at most one cycle per minCycleGap however
@@ -101,7 +101,7 @@ func ringAll() {
 	}
 }
 
-// commitObserver is the in-process doorbell on MySQL. It wraps the master
+// commitObserver is the in-process doorbell. It wraps the master
 // engine's xorm logger rather than being a contexts.Hook: xorm does not chain
 // hook contexts (the context returned by the LAST hook's BeforeProcess is
 // used for the query and handed to every AfterProcess), and Forgejo's

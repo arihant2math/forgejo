@@ -14,6 +14,7 @@ import (
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
 	org_model "forgejo.org/models/organization"
+	perm_model "forgejo.org/models/perm"
 	access_model "forgejo.org/models/perm/access"
 	repo_model "forgejo.org/models/repo"
 	unit_model "forgejo.org/models/unit"
@@ -220,7 +221,7 @@ func TestGrants(t *testing.T) {
 	assert.Equal(t, []protocol.Unit{}, groups["profile:2"])
 	assert.Contains(t, groups, protocol.GroupProfilesPublic)
 	assert.Contains(t, groups, protocol.GroupProfilesLimited)
-	assert.Equal(t, []protocol.Unit{protocol.UnitMembers}, groups["org:3"])
+	assert.Equal(t, []protocol.Unit{protocol.UnitProjects, protocol.UnitMembers}, groups["org:3"], "the owners team reads the projects")
 	assert.Contains(t, groups["repo:1"], protocol.UnitIssues)
 	assert.Contains(t, groups["repo:1"], protocol.UnitCode)
 	assert.Contains(t, groups, "repo:2", "own private repository")
@@ -609,6 +610,9 @@ func TestCheckGroups(t *testing.T) {
 		groups = append(groups, protocol.OrgGroup(u.ID), protocol.ProfileGroup(u.ID), protocol.UserGroup(u.ID), protocol.OwnerGroup(u.ID))
 	}
 	groups = append(groups, "owner:999999")
+	for id := int64(1); id <= 25; id++ {
+		groups = append(groups, protocol.TeamGroup(id))
+	}
 	readable := 0
 	for _, cached := range []bool{false, true} {
 		for _, viewer := range users {
@@ -757,4 +761,76 @@ func TestCheckOwner(t *testing.T) {
 	_, ok, err := NewCache(0, 0).Check(ctx, 4, "owner:23")
 	require.NoError(t, err)
 	assert.False(t, ok)
+}
+
+// Backend audit: an organization's group carries the projects unit as
+// upstream's Organization.UnitPermission(viewer, TypeProjects) decides it
+// (the organization's project pages): a team member by their teams'
+// projects unit (an owner team always), anyone else only on a public or
+// limited organization — not a site administrator who is no member of a
+// private one.
+func TestOrgProjectsUnit(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	projects := func(viewer, org int64) bool {
+		c := NewCache(0, 0)
+		d, ok, err := c.Check(ctx, viewer, protocol.OrgGroup(org))
+		require.NoError(t, err)
+		require.True(t, ok, "user %d may see org %d", viewer, org)
+		got, err := c.CheckGroups(ctx, viewer, []string{protocol.OrgGroup(org)})
+		require.NoError(t, err)
+		assert.Equal(t, d.Units, got[protocol.OrgGroup(org)].Units, "CheckGroups agrees")
+		return d.Units.Allows(protocol.UnitProjects)
+	}
+	assert.True(t, projects(2, 3), "owners team of org3")
+	assert.True(t, projects(4, 3), "org3 is public")
+	assert.False(t, projects(5, 23), "user5's team in the private org23 has no projects unit")
+	assert.False(t, projects(1, 23), "a site administrator who is no member of org23")
+	_, err := db.GetEngine(ctx).Insert(&org_model.TeamUnit{OrgID: 23, TeamID: 17, Type: unit_model.TypeProjects, AccessMode: perm_model.AccessModeRead})
+	require.NoError(t, err)
+	assert.True(t, projects(5, 23), "with the unit")
+	g, err := NewCache(0, 0).Grants(ctx, 5)
+	require.NoError(t, err)
+	assert.Contains(t, groupsOf(g)["org:23"], protocol.UnitProjects, "in the implicit grants too")
+}
+
+// Backend audit: who is in a team and which repositories it has
+// (team:{id}) are for its members, the organization's owners and site
+// administrators, as upstream's reqTeamMembership decides; the implicit
+// grants list the viewer's own teams.
+func TestTeamGroup(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	c := NewCache(0, 0)
+	for _, tc := range []struct {
+		viewer int64
+		group  string
+		ok     bool
+	}{
+		{4, "team:2", true},  // a member
+		{4, "team:7", false}, // another team of the same organization
+		{4, "team:1", false}, // its owners team
+		{2, "team:7", true},  // an owner of org3
+		{1, "team:7", true},  // a site administrator
+		{5, "team:2", false}, // no member of org3
+		{2, "team:999999", false},
+	} {
+		d, ok, err := c.Check(ctx, tc.viewer, tc.group)
+		require.NoError(t, err)
+		assert.Equal(t, tc.ok, ok, "user %d %s", tc.viewer, tc.group)
+		if ok {
+			assert.Empty(t, d.Units.Units())
+		}
+		got, err := NewCache(0, 0).CheckGroups(ctx, tc.viewer, []string{tc.group})
+		require.NoError(t, err)
+		assert.Equal(t, tc.ok, got[tc.group].Units != 0, "CheckGroups agrees: user %d %s", tc.viewer, tc.group)
+	}
+	g, err := c.Grants(ctx, 4)
+	require.NoError(t, err)
+	assert.Contains(t, groupsOf(g), "team:2")
+	assert.NotContains(t, groupsOf(g), "team:7")
+	g, err = c.Grants(ctx, 2)
+	require.NoError(t, err)
+	assert.Contains(t, groupsOf(g), "team:14")
+	assert.NotContains(t, groupsOf(g), "team:7", "an owner's other teams: on demand")
 }

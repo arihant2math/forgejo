@@ -23,8 +23,13 @@ import (
 // auto, it removes the triggers and empties the outbox
 // (capture.Uninstall); with INSTALL_MODE verify (Forgejo may not change
 // the schema) it only logs the DDL a DBA runs to remove them. Enabling
-// livesync again later reinstalls them and bumps every schema epoch, so
-// clients re-bootstrap what changed meanwhile.
+// livesync again later bumps every schema epoch, so clients re-bootstrap
+// what changed meanwhile: in auto mode because the triggers are installed
+// again (a repair), in verify mode because Disable records every tracked
+// table as pending (capture.MarkAllPending; backend audit) — a DBA may
+// drop the triggers and create them again while livesync is off, and
+// healthy triggers at the next start would not reveal the changes lost in
+// between.
 //
 // All instances sharing a database must agree on ENABLED: a running
 // instance in auto mode puts the triggers back within
@@ -44,6 +49,9 @@ func Disable(ctx context.Context) error {
 		return err
 	}
 	if Setting.InstallMode == InstallModeVerify {
+		if err := capture.MarkAllPending(ctx); err != nil {
+			return err
+		}
 		st, err := capture.Inspect(ctx)
 		if err != nil {
 			return err

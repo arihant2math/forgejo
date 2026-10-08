@@ -3233,6 +3233,349 @@ does) **and** MySQL 8.0 (binlog on).
     check above; `TestLivesyncConformance` on PG and MySQL (46 pass, 2 `7-restart` skipped); `npm run typecheck`, ESLint
     on `conformance/`, `npm test` (292, unchanged); `package.json`/`package-lock.json` unchanged.
 
+#### Backend audit
+- [x] **Round 1** — 2026-10-08: the 14 verified findings of the backend audit of B1–B10 fixed (none rejected). Details per
+  finding below; the earlier milestones' notes are left as written, the corrections are here.
+- **Notes/decisions:**
+  - **(1, blocker) One oversized payload jammed the sync log; a failing batch was retried forever.** Root causes fixed one
+    by one. *Bounded bodies:* the bodies of IssueBody, Comment, Review and Release carry at most `protocol.MaxBodyBytes`
+    (64 KiB) of body and `MaxBodyHTMLBytes` (256 KiB) of HTML, measured as JSON-encoded (`materialize.jsonLen`: a control
+    character counts 6 bytes; `truncateJSON` cuts at a character boundary). A longer body is sent as a prefix with
+    `body_html: ""` and **`body_truncated: true`**; HTML that is too long, not rendered in time or failed also gives
+    `body_html: ""` + `body_truncated` with the complete body. The entity's change hash includes the complete source when
+    it is cut, so an edit of the tail is still a change. **New gap endpoint `GET /-/sync/api/bodies/{model}/{id}`**
+    (`IssueBody|Comment|Review|Release`) → `protocol.APIBody{body, body_html, truncated, content_version}`: the entity is
+    placed exactly as the materializer places it (`materialize.LoadBody`, same specs) and readable by whoever may read
+    that group+unit (`apiRequest.readable`, 404 otherwise); rendered on request like upstream. *Backstop:* any payload
+    over `maxPayloadBytes` (1 MiB; e.g. a diff hunk of a minified line) is a DTO error (logged, skipped) instead of an
+    INSERT the database refuses. *Byte-bounded appends:* `Writer.Append` inserts with one hand-written multi-row INSERT per
+    chunk of ≤ 100 rows **and** ≤ 2 MiB of payload (a larger entry alone), well below MariaDB's 16 MiB
+    `max_allowed_packet`. *No payloads in SQL logs:* payloads are passed as `synclog.payloadArg` (a `driver.Valuer` whose
+    `String()` is `<payload of N bytes>`), so upstream's `[Error SQL Query]` / `[Slow SQL Query]` / `LOG_SQL` lines, which
+    print every argument with `%v`, stay small (SURFACE.md). *Isolation instead of retrying forever:* a batch that fails
+    is retried once whole; the next attempt (`Materializer.failures > 0`) materializes it **row by row**
+    (`Materializer.isolate`), each row in its own writer transaction without the acknowledgement, then one transaction
+    acknowledges the batch. A row that fails alone while an empty writer transaction succeeds (the database works) is
+    tried once more and then **skipped** (Error log) and its table's schema epoch is bumped in the acknowledging
+    transaction (`capture.BumpEpoch`, now exported and locking the row `FOR UPDATE` in a transaction so the
+    materializer's and `Ensure`'s bumps cannot overwrite each other): `HandleEpochs` turns it into re-bootstrap markers
+    (reason `trigger_repaired`, whose doc now says "changes may have been lost") and a repair walk, exactly like a change
+    lost while a trigger was missing. Any other failure (database down, `ErrNotWriter`, shutdown) is returned and the
+    reader retries; rows already written are written again then and their unchanged index hashes make that a no-op.
+    *Bounded reads:* the tailer reads 100 entries per batch (was 500) and replays read payloads 100 at a time
+    (`replayPayloadBatch`; keys still 500), so one read holds a few tens of MB at worst. Tests: `TestJSONLen`,
+    `TestTruncateJSON`, `TestConsumeLongBody` (70 000 control characters: cut, no render, LoadBody returns all of it, a
+    tail edit emits), `TestConsumeIsolatesPoisonRow` (a label row xorm cannot load: first Consume fails, the second emits
+    the good row, skips the bad one, bumps `schema_epoch.label`, acknowledges; HandleEpochs writes the Label marker),
+    `TestAppendChunks` (row and byte bounds, gap-free, `payloadArg` formatting), integration `TestLivesyncAuditBodies`
+    ("long body": a 300 KiB control-character comment through API v1 ⇒ bounded entry, `body_truncated`, the full body
+    and HTML from the endpoint for a reader of the public repository, 404 for an unknown entity, a model without a body,
+    and a private repository's comment for a non-reader).
+  - **(2) Markdown rendering inside the 1-minute writer transaction.** Every body is rendered with its own context
+    (`renderContext`): not derived from the transaction's (a lookup cut off on the transaction's session would abort it,
+    and a deadline on a derived context does not reach the session's queries at all), cancelled when the caller's
+    context ends or after `renderTimeout` (5 s): the markup service's user lookups then fail at once and the result is
+    discarded (`body_html: ""`, `body_truncated`). The lookups run on other pooled connections, i.e. outside the writer
+    transaction. Each writer transaction has a render budget (`txRenderBudget`, 30 s, within `writerTxTimeout`); a
+    strict loader (the normal batch transaction) returns `errRenderBudget` once it is used up and the batch is then
+    materialized row by row (finding 1's `isolate`), each row with a budget of its own, where an exhausted budget leaves
+    the remaining bodies without HTML instead. Snapshots and previews use the per-render timeout only. With bodies cut at
+    64 KiB a single render has at most ≈ 9 000 mentions. Tests: `TestConsumeHTMLLimits` (60 KB of `#1 ` ⇒ HTML over the
+    limit; `renderTimeout` = 1 ns ⇒ no HTML), `TestConsumeRenderBudget` (budget 1 ns: the batch of two comments is
+    isolated and both are rendered completely; strict vs lenient loader).
+  - **(3) Synced body_html kept file preview code.** `renderMarkdown` replaces every `div.file-preview-box` with a
+    paragraph linking the previewed lines (`stripFilePreviews`, golang.org/x/net/html: the last link of the box header's
+    title, i.e. the file link, `…?display=source#L1-L2` for a rendered file type; boxes without a header link — written
+    by hand in the markdown — are left as they are); the client can show the lines through the permission-checked
+    `/-/sync/api/repos/{id}/raw/{commit}/{path}`. `RenderPreview` (POST /-/sync/api/markdown) and the bodies endpoint
+    render the same way. **Purging what was kept:** `renderVersion` ("1") is part of the render environment hash, so
+    snapshots no longer reuse logged HTML; and a new mechanism, **content versions** (`materialize.contentVersions`,
+    `livesync_meta materialized_content.<tbl>`): when a table's version moves, `HandleEpochs` writes re-bootstrap markers
+    (reason `placement_changed`, its doc widened to "or changed what they carry") **without** an index walk (groups and
+    units are unchanged, so bootstraps are not held by the gate). issue, comment, review, release are at version 1:
+    **at the upgrade every client re-bootstraps those models once.** Tests: `TestStripFilePreviews`, the content-version
+    case of `TestHandleEpochs`, integration `TestLivesyncAuditBodies` ("no file previews": API v1's `/markdown` renders a
+    `file-preview-box` for a README permalink of user2/repo1, the synced comment and the preview endpoint link it).
+  - **(4) Organization projects ignored the projects unit.** Organization Project/ProjectColumn are now in `org:{id}`
+    with **unit `projects`**, granted as upstream's `Organization.UnitPermission(viewer, TypeProjects)` decides it: a
+    viewer in one of the organization's teams by their teams' projects access (any for an owner team), anyone else only
+    on a public or limited organization — **not a site administrator who is not a member of a private one** (they keep
+    `org:{id}` with `members`). `perm.checkOrg` calls `UnitPermission`; the implicit grants and `CheckGroups` use the
+    batched `viewerInputs.orgTeamProjects` / `orgProjectsByVisibility` (by team membership, whatever `org_user` says, as
+    upstream; a fixture with a `team_user` row but no `org_user` row showed the difference). Team unit / membership
+    changes are already permission epochs naming the members (`t<id>`, `u<id>`). Placement versions: project 4,
+    project_board 2 (markers + repair walk). Tests: `TestOrgProjectsUnit` (owners team, public org, user5's team without
+    the unit in private org23, a non-member site admin; with the unit added; grants agree), `TestOwnerGroupReachable`
+    corrected (user5 and admin user1 get no Project/columns in `org:23` and no `projects` unit; after giving team 17 the
+    unit user5 does), `TestProjectRefPlacement`, `TestGrants`, hub `TestPermissionChanged*` (org3 is public: a leaving
+    member keeps `projects`).
+  - **(5) INSTALL_MODE=verify: triggers dropped and reinstalled by a DBA while disabled went unnoticed.** `Disable` in
+    verify mode now records **every tracked table** in `capture_pending` (`capture.MarkAllPending`, under the schema
+    lock) on a database livesync ran on: the next `Ensure` that finds the triggers healthy bumps every epoch (markers +
+    repair walks). Conservative: one full re-bootstrap after a verify-mode disable/enable cycle even when nothing was
+    lost. Test: `TestLivesyncDisable` extended (verify mode: the DBA runs `UninstallStatements`, a label is written,
+    the DBA runs `Statements()`; enabling in verify mode bumps every epoch and writes the Label marker).
+  - **(6) No log incarnation id.** `livesync_meta log_id` (24 hex characters) is created by the writer's `init` with the
+    head row (and anew whenever the head row is missing: new tables, wiped bookkeeping; added once to an existing log).
+    `synclog.LogID`; **`WelcomeMessage.log_id`, `BootstrapHeader.log_id`** (omitted while unknown), and
+    **`HelloMessage.log_id`**: when the client's is not the server's, every position of that hello is answered with
+    `bootstrap_required{cursor_unknown}` (the subscription stays live), even if the new head has passed it. A hello
+    without `log_id` (older clients) is not checked. **Client contract (F2):** store the `log_id` of the welcome /
+    bootstrap your positions come from, send it in every hello, and on a welcome with another `log_id` drop all positions
+    (re-bootstrap). **Restores:** a backup that contains livesync's tables restores its old id; after such a restore run
+    `DELETE FROM livesync_meta WHERE name = 'log_id'` before starting Forgejo (documented on `synclog.LogID`; positions
+    ahead of the restored head were already `cursor_unknown`). Tests: hub `TestForeignLogID` (foreign id ⇒
+    `cursor_unknown`; own id or none ⇒ replay), synclog `TestLogID` (created, kept, new after the meta is wiped).
+  - **(7) Writer lease failover waited hours for a dead holder.** `TryLease` configures the lease's session to be ended by
+    the server after `LeaseIdleTimeout` (30 s) without a statement: PostgreSQL `idle_session_timeout` (14+) and TCP
+    keepalives (`tcp_keepalives_idle/interval/count`, for PG < 14 and dead peers), MySQL/MariaDB `SET SESSION
+    wait_timeout`; a keepalive goroutine pings the held lease every `LeaseKeepalive` (5 s) whatever its holder is busy
+    with (a long trim or a materializer transaction can delay the writer loop's own `Check`), and records a failed ping
+    for `Check`. The connection is closed on `Release` instead of going back to the pool with these settings. So a holder
+    whose host vanished frees the lock within ≈ 30 s. Test: integration `TestLivesyncLeaseIdleTimeout` (keepalive off,
+    timeout 2 s ⇒ another session takes the lock within seconds and the silent holder's `Check` fails; keepalive on ⇒
+    still held after 4 s), both databases.
+  - **(8) Repair walk skipped rows in no group.** In repair mode `BackfillStep` deletes the index rows of entities that
+    are in no group now **and of the rows they place** (`grouplessDependents`: a draft release's attachments, a comment's
+    reactions, transitively) when those are in no group either; and a re-bootstrap marker of a table now also names the
+    models of its dependents (`markedTables`: release ⇒ Release + Attachment; comment ⇒ + Attachment, Reaction,
+    ContentHistory; review ⇒ + Comment …), since a lost change of a release moves its attachments too. Test:
+    `TestRepairDropsGrouplessIndexRows` (release set back to draft during a gap ⇒ Release and Attachment markers, both
+    index rows gone; published again unchanged ⇒ both emitted).
+  - **(9) Idempotency records for read-only API v1 POSTs.** `keyed()` passes `POST /api/v1/{markup,markdown,markdown/raw}`
+    and the same below `/api/v1/repos/{owner}/{repo}/` through without a record (`apiV1ReadOnlyPost`), and
+    `maxResponseBody` is 1 MiB (larger responses are streamed and stored without body, as before). Test: `TestKeyed`.
+  - **(10) PG trigger NOTIFY serialised all commits.** The capture function (body marker **v2**) no longer calls
+    `pg_notify`; the reader is woken by the in-process `commitObserver` on PostgreSQL too, and writes made through
+    **another instance** are found by polling: `POLL_INTERVAL`'s default for the reader is now **100 ms on both
+    databases** (the tailer keeps 250 ms + LISTEN on PostgreSQL; the writer's single `pg_notify('livesync_log')` per
+    materializer commit is unchanged). Upgrade: in auto mode the stale v1 function is repaired once (all epochs bumped,
+    markers); **in verify mode livesync stays degraded until the DBA runs the new DDL** (the admin page shows it). Tests:
+    `TestPostgresDDL` (no `pg_notify`, v2), `TestLivesyncCaptureDoorbell` (PG now behaves like MySQL: observer for
+    autocommit and COMMIT, a raw write from another connection waits for the poll).
+  - **(11) TeamUser/TeamRepo went to every org member.** New group kind **`team:{id}`** (`protocol.TeamGroup`,
+    `GroupPrefixTeam`) holds a team's TeamUser and TeamRepo rows (unit none); readable by the team's members, the
+    organization's owners and site administrators (`perm.checkTeam`: `IsTeamMember`, `IsOrganizationOwner`, as API v1's
+    `reqTeamMembership`, plus `IsOrganizationMember` as `GET /teams/{id}/members` wants — a fixture `team_user` row without
+    `org_user` showed the difference). Team and TeamUnit stay in `org:{id}` `members` (upstream shows teams to members). Implicit
+    grants list the viewer's **own** teams (an owner's other teams are granted on demand: an organization can have many);
+    the workspace lists them with reason `member`; bootstraps of `team:{id}` read `team_user`/`team_repo` by `team_id`;
+    the hub routes TeamUser/TeamRepo markers to `team:` and (for clients holding the old placement) `org:` groups.
+    Placement version 1 of team_user and team_repo. **For F2/F6:** subscribe the `team:{id}` grants like the other
+    implicit ones; who is in another team (as an owner) needs a `subscribe`/bootstrap of that `team:{id}`. Tests:
+    `TestTeamGroup`, `TestCheckGroups` (now with 25 team groups), `TestSnapshotFilters`, `TestConsumePlacement`,
+    `TestLivesyncPermDifferential` (every team × fixture user against API v1 `GET /teams/{id}/members`),
+    `TestLivesyncPermEpochs` (a removed member's TeamUser delete goes to `team:2`, which they can no longer read).
+    Hub tests with `SendBuffer: 2000` now use 2400: user2's welcome grew by its team grants and the projects unit.
+  - **(12) Collaboration.permission revealed admins.** `protocol.Collaboration.permission` is `read` or `write`
+    (`collaboratorPermission`: admin/owner read as write): assignability stays visible, administration does not. Content
+    version 1 of collaboration (markers, no walk). Test: `TestCollaboratorPermission`.
+  - **(13) SURFACE.md gaps.** Added: `db.TxContext` (the "one quiet transaction" coupling), the SQL log hooks' argument
+    printing (why `payloadArg`), `GetCommentByID`/`IsErrCommentNotExist`, `IsErrOrgNotExist`, `db.ListOptionsAll`,
+    `timeutil.TimeStampNow`, the notification status/source constants, and this round's new symbols
+    (`Organization.UnitPermission`, `OrgFromUser`, `GetTeamByID`, `IsTeamMember`, `IsOrganizationOwner`, `perm.AccessMode`,
+    the file preview markup, the lease session settings); the commit observer row says it runs on PostgreSQL too.
+  - **(14) OAuth scope rationale.** `oauthapp.Scope`'s comment now states what the scope does not protect: with
+    `write:repository` a stolen token can add webhooks, writable deploy keys and admin collaborators (lasting access) on
+    every repository the user administers. Decision: keep the scope (the UI needs `write:repository`; API v1 has nothing
+    narrower) and the refresh token lifetime (`[oauth2] REFRESH_TOKEN_EXPIRATION_TIME` is instance-wide; livesync cannot
+    shorten it for its client); instances that want less exposure lower that setting. **For F3:** keep the access token
+    in memory only and the refresh token in IndexedDB of the `/-/next` origin, never in a cookie or `localStorage`
+    readable by classic pages. `TestLivesyncOAuth` now shows a deploy key (writable), a webhook and an admin
+    collaborator added with the Next token on user2/repo1 (and removed again).
+  - **Upgrade effect, all together:** one re-bootstrap of every model at the first start of this version (placement
+    versions project/project_board/team_user/team_repo with repair walks, content versions issue/comment/review/release/
+    collaboration, and in auto mode the v2 capture function bumping every epoch).
+  - **Also changed on the way.** `routers/livesync.authenticateResult` logs a token lookup that failed because the request
+    went away at Debug, not Error (seen once in `TestLivesyncOAuth` on MySQL). `perm.checkTeam` finds the owners team with
+    `GetOwnerTeam` instead of `IsOrganizationOwner`, which logs an Error for an organization without one (a fixture).
+  - **Known, not fixed (pre-existing):** the SQLite unit tests of `services/livesync/capture` are flaky: with `-count=8`,
+    2 of 3 runs on the **unchanged** branch failed too (`no such table: system_setting` from `resetOutbox` once the
+    shared in-memory database is gone, first in `TestWithQuietTx` / `TestReaderDefer` after `TestReaderBatchSize`). A
+    single run usually passes. Worth a separate fix: something closes every pooled connection, perhaps a reader left
+    running by an earlier test or the outbox drop/recreate tests.
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...`
+    and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `go mod tidy -diff` (clean); `next/tools/gen-protocol.sh` then `--check` (up to date; `npm run typecheck` in `next/`
+    green with the new types); unit tests of `models/livesync`, `services/livesync/...`, `routers/livesync` (all green
+    except the flaky capture tests above); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`):
+    52 pass** and **MySQL 8.0: 54 pass**, 0 fail, then the tests changed after that run (`TestLivesyncPermDifferential`,
+    `TestLivesyncOAuth`, `TestLivesyncAuditBodies`, `TestLivesyncLeaseIdleTimeout`) again on both, green, with no testlogger
+    "FATAL ERROR"; `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines in the server
+    logs); the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+- [x] **Round 2** — 2026-10-08: 1 verified finding (major) fixed.
+- **Notes/decisions:**
+  - **(R2-1, major) Round 1's fix 2 was incomplete: anyone could stall the sync log by posting bodies that are cheap to
+    post and expensive to render.** The writer renders every body serially for everyone (upstream renders on the viewer's
+    own request); round 1 bounded one rendering (5 s) and one transaction (30 s), not what a poster can take over time
+    (API v1 has no default rate limit; 9 000 `@user2` took 1.45 s and produced HTML over `MaxBodyHTMLBytes` that was
+    thrown away). Measured per markup feature (scratch test with `markup.Init(markup_service.ProcessorHelper())`, repo 1,
+    SQLite) before choosing the fix: @mention 0.13–0.15 ms per occurrence (DB lookup each); **a SHA-like word that is not
+    a commit ≈ 4 ms** (`IsReferenceExist`'s error on a missing object discards the cat-file process, so each spawns
+    `git`: 1 000 took 4 s); a file permalink of this instance 15 ms (repository, permission and blob read, for a preview
+    box we strip anyway); **cross-repository references are quadratic per text node** (1 000 on one line 0.36 s, 3 000
+    3.6 s, 21 000 2 min 40 s) **and `renderTimeout` does not interrupt them** — the deadline only makes lookups fail; CPU
+    work (goldmark, the processors' regexps) runs to completion. Plain text, `#1` refs, URLs, emoji are linear and cheap
+    (64 KiB ≤ ~250 ms). Three bounds (`services/livesync/materialize/rendercost.go`):
+    1. **Cost estimate before rendering** (`renderCost`, in `loader.render`, so writer and snapshots alike — it is a
+       function of the body, so a snapshot carries what the log carries): bytes × 0.5 µs + mention occurrences
+       (`references.FindAllMentionsBytes`) × 150 µs + distinct SHA-like words × 70 µs + `/src/commit/` permalinks × 15 ms +
+       `#N` refs × 10 µs + (cross-repo refs)² × 0.4 µs. Over **`maxRenderCost` = 250 ms** the body is **not rendered**:
+       `body_html: ""` + `body_truncated` with the complete body; the client gets the HTML from `GET
+       /-/sync/api/bodies/{model}/{id}`, which renders on request (like upstream's page view; no cost check there, nor in
+       `POST /-/sync/api/markdown`). That takes ≈ 1 600 mentions, 16 permalinks, 800 cross refs or 3 500 SHA-like words;
+       the estimates were checked against measured times for each feature at 100–21 000 tokens (within ~2×; the
+       quadratic term over-estimates refs spread over lines, which is safe). The audit's 9 000-mention body costs no
+       writer time now.
+    2. **SHA lookups in one process** (`prefillCommits`, in `renderMarkdown`): every distinct SHA-like word of the body is
+       checked through the repository's one `git cat-file --batch-check` (write a name, `git.ReadBatchLine`, a missing
+       object is `ErrNotExist` and keeps the process) and the answers prefill `RenderContext.ShaExistCache`, which
+       `hashCurrentPatternProcessor` consults first; kept per loader and repository (`loader.commits`). Same answers as
+       `IsReferenceExist`; the process runs with the repository's context (it is reused), the loop stops at the render
+       deadline. 1 000 missing SHAs: 4 s → 66 ms. Applies to the bodies endpoint and previews too.
+    3. **Render share of the writer** (`renderShare`, `Materializer.share`, used by the writer's loaders only): token
+       buckets of render time filled with wall time — **overall 25 % (burst 20 s) and per repository 10 % (burst 10 s)**;
+       a body is rendered while both of its buckets hold time, and the time it took is charged to both (overdraft ≤ one
+       rendering). Otherwise it is sent with `body_truncated` (fetched on request) instead of the log falling behind:
+       rendering can no longer take more than a quarter of the writer's time whoever posts, and one repository not more
+       than a tenth, so other repositories keep their HTML. At most 1 000 per-repository buckets are kept (full ones are
+       dropped). Not used by snapshots (on the requester's request) or the bodies endpoint. A body sent without HTML for
+       lack of share stays so until it changes (its index hash does not include the HTML), and snapshots reuse that entry
+       — consistent with the log; the client fetches it like any truncated body.
+    New metrics `forgejo_livesync_render_seconds_total` and `forgejo_livesync_render_skipped_total{reason=cost|share|timeout}`.
+    `protocol` comment on long bodies widened (free comment, not in `types.gen.ts`); SURFACE.md's markup row lists the
+    new upstream couplings (`ShaExistCache`, `WithCatFileBatchCheck`/`ReadBatchLine`/`IsErrNotExist`,
+    `FindAllMentionsBytes`, and the measured processor costs — re-measure on upstream merges). Unchanged: per-render
+    `renderTimeout`, `txRenderBudget` + isolation (round 1). **Not addressed (upstream behaviour):** the bodies endpoint
+    and `POST /-/sync/api/markdown` render on request without a cost check, so one such request can still take seconds
+    of CPU (as upstream's issue page and `/api/v1/markdown` do); it runs on the requester's goroutine, not the writer.
+    Tests: `TestRenderCost` (ordinary and 64 KiB plain bodies under the limit; 9 000 mentions, 20 permalinks, 1 000
+    cross refs, 5 000 SHA-like words over), `TestConsumeRenderCost` (production markup helper: a 2 000-mention issue body
+    is sent truncated without being rendered — `renderCount` — while the other issue's body of the batch gets its mention
+    link; `LoadBody`+`Render` renders all 2 000), `TestConsumeRenderShare` (repository 1's share used up ⇒ its body has
+    no HTML, repository 2's has; after 20 s (fake clock) it renders again), `TestRenderShare` (per-repository and overall
+    buckets, refill, bounded map), `TestPrefillCommits` (existing full and short SHA true, missing false, preset entries
+    kept, the process still answers `IsReferenceExist`, rendered links), integration `TestLivesyncAuditBodies` "expensive
+    body" (2 000 mentions through API v1 ⇒ comment entry truncated without HTML, the next comment rendered, the bodies
+    endpoint returns the 2 000 mention links). **Sensitivity checked:** with `maxRenderCost` = 1 h and `allow` always
+    true, `TestConsumeRenderCost` and `TestConsumeRenderShare` fail.
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...` and
+    `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `next/tools/gen-protocol.sh --check` (up to date, no protocol type changed); unit tests of `models/livesync`,
+    `services/livesync/...`, `routers/livesync` (green); `./integrations.pgsql.test -test.run TestLivesync` on **PG 16
+    (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**, 0 fail (incl. `TestLivesyncConformance` and the new "expensive
+    body" subtest); the only testlogger "FATAL ERROR" is the known upstream MySQL `Error 1213` deadlock in `CreateComment`
+    under `TestLivesyncBootstrapConvergence`'s concurrent comment writers (B6 notes; the test passes);
+    `next/tools/dev-forgejo.sh conformance all` (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); the fork-diff check (§2.2)
+    is unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+- [x] **Round 3** — 2026-10-08: 1 verified finding (major) fixed.
+- **Notes/decisions:**
+  - **(R3-1, major) Round 2's `renderCost` missed CPU-bound inputs: one cheap post still froze the global writer for
+    17–43 s, and the render share let it repeat.** The audit's bodies: 13 000 × `# a` (52 KB, any repository: goldmark's
+    heading ids `a`, `a-1`, … are found by trying every suffix in turn, quadratic) — estimated 26 ms, rendered 17.5 s
+    in `Consume`; and 10 900 × `ABC-1 ` in a repository whose external tracker has the alphanumeric style (any owner can
+    set it) — `issueIndexPatternProcessor` runs `FindRenderizableReferenceNumeric` and the style's pattern over the rest
+    of the text node before each reference it links — estimated 33 ms, 43 s. `renderTimeout` cannot interrupt CPU work,
+    and the share's `allow` (before) / `charge` (after) let any one body run to its end, so a second 43 s body followed the
+    first. **Root cause:** the writer ran the rendering itself, so any input the estimate did not know cost the writer its
+    full rendering time. A scratch probe of ~110 body shapes (CommonMark's pathological inputs, Forgejo's processors,
+    external tracker styles; 64 KiB each, SQLite) found more of the class: 16 000 empty headings 43 s, a table header of
+    1 000 cells over 30 000 one-`|` rows 31 s (rows are padded to the header), 8 000 setext headings 6 s, `a**b` +
+    21 000 × `c* ` 3.4 s, 32 000 nested `-\t` markers 2.6 s, `*a_ ` × 16 000 2.4 s, `[a](b` × 13 000 1 s, 5 000
+    fenced `go` blocks 0.5 s, `!1 ` × 20 000 then one `ABC-1` (alphanumeric style) 103 s. Two changes:
+    1. **The writer waits for a rendering for at most `renderWait` (1 s) and abandons a slower one**
+       (`loader.renderBounded`, used by `loader.render`, i.e. the writer and snapshots). `renderMarkdown` is split into
+       `prepareRender` (on the caller's goroutine: the metas, the loader's git repository and SHA cache, the render
+       context) and `renderJob.run` (only what the job holds; a markup panic becomes an error). The job runs on its own
+       goroutine; when the wait ends first the job's context is cancelled (its lookups fail at once), the body is sent
+       with `body_truncated` (HTML from `GET /-/sync/api/bodies` on request), the loader gives the job its git
+       repository and SHA cache (`l.gitRepos` / `l.commits` entries removed; the next rendering of that repository opens
+       another), and a goroutine waits for the job's end, closes the repository and charges the time beyond the wait to
+       the repository's render share (`renderShare.chargeRepo`; the overall bucket is charged only what the writer
+       waited, and `renderShare` now has its own mutex). **At most `maxAbandonedRenders` (2) abandoned renderings run at
+       a time** (`abandonedRenders`); while they do, `loader.render` renders nothing (reason `busy`), so abandoned work
+       takes at most two cores; a loader rendering at that moment may add one beyond the cap (the writer is one goroutine;
+       snapshots being built concurrently are not counted ahead). So one body costs the writer at most ≈ 1 s, the share's
+       overdraft is bounded by `renderWait` instead of by the rendering, and the worst an attacker gets is bodies without
+       HTML (fetched on request) while two cores run their renderings — not a frozen sync log. Unchanged: on-request
+       renderings (`FullBody.Render`, `RenderPreview`) stay synchronous with `renderTimeout` (upstream behaviour, see
+       round 2).
+    2. **`renderCost` counts the superlinear constructs** (`structureCost`, a line scan that errs on counting more; it now
+       takes the repository's metas): (headings + footnotes)² × 170 ns (any ATX heading after container markers, any line
+       of only `=`/`-` as a setext underline, every `[^`; the ids are made of rendered text, so which headings collide is
+       not knowable from the source and all are counted), Σ per line (block quote/list markers)² × 3 ns, table cells
+       ((max `|` per line + 1) × lines × 1 µs, when a delimiter row exists), fence lines × 50 µs, per paragraph (`*` + `_`)²
+       × 8 ns and `[`² × 6 ns, and for the alphanumeric/regexp tracker styles, per text node (a line with
+       `EnableHardLineBreakInComments`, else a paragraph) containing a match of the style's pattern, (style matches +
+       `#N`/`!N` refs) × bytes × 100 ns. Each constant is the slowest measured rate of its construct; the slow bodies
+       above are all over `maxRenderCost` now (estimates about 1–5× the measured time), and ordinary long documents (100
+       sections with lists, code, tables), 64 KiB of text, an alphanumeric changelog and one reference per line stay under
+       it. Linear but slow-ish inputs are left to the bounded wait: chroma highlights a fenced block at up to ≈ 5 µs per
+       byte (64 KiB of `html` or `c`: 0.25–0.35 s). The estimate is the first line (most bodies of the class never reach
+       a goroutine); the bounded wait is what makes an unknown slow input harmless.
+    **Also fixed on the way:** `issueIndexPatternProcessor` writes `Metas["index"]` into the map it is given, and
+    `renderMarkdown` passed `repo.ComposeMetas`'s cached map, so a rendering with an external tracker reference changed
+    the repository's `renderEnv` (and so entity change hashes) for later loaders using that repository object — and an
+    abandoned rendering would have written the map concurrently. `prepareRender` renders with a copy. New label values of
+    `forgejo_livesync_render_skipped_total{reason}`: `abandoned`, `busy`. SURFACE.md's markup row lists the measured
+    constructs, the `Metas["index"]` write and the reliance on the markup service being safe on several goroutines.
+    Tests: `TestRenderCost` (the audit's two bodies and every probe shape above over the limit with their measured
+    times in the case names; ordinary long document, text, changelog, numeric refs in an alphanumeric repository,
+    alphanumeric refs in a numeric one under it; without hard line breaks a paragraph is one text node),
+    `TestConsumeRenderAbandoned` (`maxRenderCost` = 1 h so that 5 000 empty headings reach the writer, `renderWait`
+    = 100 ms: `Consume` returns in < 1 s with that body truncated and the batch's other body rendered; with
+    `maxAbandonedRenders` = 1 the next body is not rendered (`renderCount`); after the abandoned rendering ends its time
+    is charged to repository 1's share and rendering resumes), `TestRenderBounded` (fast render waited for; slow one
+    abandoned with the loader's git repository and SHA cache handed over; the next rendering opens another repository
+    and links a commit), `TestRenderKeepsMetas` (repo 48, alphanumeric tracker: no `index` in the cached metas, same
+    `renderEnv` after rendering — fails without the copy), integration `TestLivesyncAuditBodies` "superlinear body" (a
+    comment set to 13 000 × `# a` with SQL — upstream's own API v1 post of it takes ≈ 50 s in mention/reference
+    parsing — then a comment posted through API v1: its entry arrives within 5 s, rendered; the slow one is truncated
+    without HTML). **Sensitivity checked:** with `structureCost` disabled and `renderWait` = 1 h (round 2's behaviour)
+    the integration subtest fails (16 s); with only `structureCost` disabled it passes through abandonment (the log shows
+    the abandon warning).
+  - **Commands run.** gofumpt (clean); golangci-lint `./models/livesync/... ./services/livesync/... ./routers/livesync/...`
+    and `--build-tags 'sqlite sqlite_unlock_notify' ./tests/integration/...` (0 issues); `go vet`; deadcode diff (clean);
+    `next/tools/gen-protocol.sh --check` (up to date, no protocol type changed); unit tests of `models/livesync`,
+    `services/livesync/...`, `routers/livesync` (green), `services/livesync/materialize` also with `-race` (green);
+    `./integrations.pgsql.test -test.run TestLivesync` on **PG 16 (`gtestschema`): 52 pass** and **MySQL 8.0: 54 pass**,
+    0 fail, no testlogger "FATAL ERROR", no rendering abandoned in the suite; `next/tools/dev-forgejo.sh conformance all`
+    (48/48 on pg and on mysql, 0 `[E]`/`[F]` lines); the fork-diff check (§2.2) is unchanged (`assets/go-licenses.json`,
+    `cmd/web.go`, `go.mod`, `go.sum`).
+  - **Seen, not in scope:** posting such a body through API v1 takes upstream ≈ 28 s in `references.FindAllMentionsMarkdown`
+    + `FindAllIssueReferencesMarkdown` alone (both render it with goldmark), inside the comment's request; that is upstream
+    behaviour and no livesync path.
+- [ ] **Open after round 3** — 2026-10-08: 1 verified finding (major) recorded, not fixed.
+- **Notes/decisions:**
+  - **(R4-1, major, open) Round 3's fix runs each repository's own external-tracker regexp over every body on the writer,
+    before any bound applies, so one cheap post still freezes the global writer for seconds to minutes, on every edit**
+    (`services/livesync/materialize/rendercost.go`). ef2ad5e passes the repository's metas to `renderCost`; for the
+    regexp tracker style `structureCost` calls `scan()`, which runs `trackerRefs.FindAllStringIndex(segment, -1)` over
+    each paragraph, with `trackerRefs = regexplru.GetCompiled(metas["regexp"])` — whatever the owner set in
+    `ExternalTrackerRegexpPattern`. Nothing validates the pattern (no binding tags in `services/forms/repo_form.go:181`;
+    API v1 PATCH copies it as is). Go's regexp is O(len(input) × program size) and a small pattern can expand to a very
+    large program. `renderCost` runs synchronously on the writer goroutine in `loader.render`, before the busy check,
+    before `share.allow` and outside `renderBounded`, so neither `renderWait`, the render share, the abandoned-render cap
+    nor `l.budget` limits it, and it runs again on every body change in that repository with no duty cycle. Round 2's
+    `renderCost` did not take metas: a regression of this fix, in the same class as the finding it fixed.
+    **Evidence** (HEAD ef2ad5e, `go test -overlay` scratch tests, no repository file changed; body
+    `strings.Repeat("abcdefghijklmnop", 4000)`, 64 000 bytes; `renderCost` alone): pattern `(\w{1,999}Z)` (12 bytes)
+    1.17 s; `(\w{1,999}Z|...)` with 10 alternatives (111 bytes) 13.15 s; with 100 alternatives (1 101 bytes) 4 m 52.6 s —
+    each time an estimate of 32 ms (no `Z` in the body, so k = 0 and nothing is counted). End to end: repo_unit 68
+    (repo 48) set to style regexp with the 10-alternative pattern, `Materializer.Consume` of issue 9 with that body plus
+    one cheap issue took 13.77 s; the rendering itself was then abandoned after 1 s, so almost all of the stall is
+    `renderCost`. Each later edit of the body repeats the full stall (renderCost runs before the share check). Any user
+    can create a repository and set this style through API v1 or the settings page; upstream runs the pattern only when
+    someone views the page, for that viewer.
+    **Possible remedies:** do not execute the owner's regexp on the writer — for style=regexp charge a conservative cost
+    from `len(content)`, the program size and the line count, or skip writer rendering for that style altogether; or
+    compute `renderCost` inside the bounded job so that `renderWait` covers it.
+    **Verified otherwise:** the round-3 finding's two cases are fixed (the writer abandons a rendering after
+    `renderWait`); materialize unit tests pass with `-race` (SQLite); the other `services/livesync/...`,
+    `routers/livesync` and `models/livesync` unit tests pass; PG 16 integration `TestLivesyncAuditBodies` (including
+    "superlinear body") and `TestLivesyncConformance` pass; the working tree was clean.
+
+
 ### Frontend
 
 #### F1 — Toolchain, tokens, primitives, shell

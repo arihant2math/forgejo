@@ -650,7 +650,7 @@ func TestProjectRefPlacement(t *testing.T) {
 	consume(t, m, change(1, "project", 7, "U"), change(2, "project", 1, "U"))
 	rows, entries := takeLog(t, &cursor)
 	assert.Equal(t, []logRow{
-		{"org:3", "", "Project", "U", 7},
+		{"org:3", "projects", "Project", "U", 7},
 		{"owner:3", "", "ProjectRef", "U", 7},
 		{"repo:1", "projects", "Project", "U", 1},
 	}, rows)
@@ -666,12 +666,12 @@ func TestProjectRefPlacement(t *testing.T) {
 	exec(t, "UPDATE project SET description = 'secret plans', updated_unix = updated_unix + 10 WHERE id = 7")
 	consume(t, m, change(3, "project", 7, "U"))
 	rows, _ = takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"org:3", "", "Project", "U", 7}}, rows)
+	assert.Equal(t, []logRow{{"org:3", "projects", "Project", "U", 7}}, rows)
 	// Closing it: both.
 	exec(t, "UPDATE project SET is_closed = ? WHERE id = 7", true)
 	consume(t, m, change(4, "project", 7, "U"))
 	rows, entries = takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"org:3", "", "Project", "U", 7}, {"owner:3", "", "ProjectRef", "U", 7}}, rows)
+	assert.Equal(t, []logRow{{"org:3", "projects", "Project", "U", 7}, {"owner:3", "", "ProjectRef", "U", 7}}, rows)
 	require.NoError(t, json.Unmarshal([]byte(entries[1].Payload), &ref))
 	assert.Equal(t, true, ref["closed"])
 
@@ -683,8 +683,8 @@ func TestProjectRefPlacement(t *testing.T) {
 	consume(t, m, change(5, "project", 7, "U"))
 	rows, _ = takeLog(t, &cursor)
 	assert.Equal(t, []logRow{
-		{"owner:3", "", "Project", "D", 7},
-		{"org:3", "", "Project", "U", 7},
+		{"owner:3", "projects", "Project", "D", 7},
+		{"org:3", "projects", "Project", "U", 7},
 		{"owner:3", "", "ProjectRef", "U", 7},
 	}, rows)
 
@@ -692,7 +692,7 @@ func TestProjectRefPlacement(t *testing.T) {
 	exec(t, "DELETE FROM project WHERE id = 7")
 	consume(t, m, change(6, "project", 7, "D"))
 	rows, _ = takeLog(t, &cursor)
-	assert.Equal(t, []logRow{{"org:3", "", "Project", "D", 7}, {"owner:3", "", "ProjectRef", "D", 7}}, rows)
+	assert.Equal(t, []logRow{{"org:3", "projects", "Project", "D", 7}, {"owner:3", "", "ProjectRef", "D", 7}}, rows)
 	assert.Empty(t, indexRows(t, projectRefKey))
 }
 
@@ -754,7 +754,7 @@ func TestHandleEpochsPlacementAndPermissions(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, placed["user"])
 	assert.EqualValues(t, 1, placed["label"])
-	assert.EqualValues(t, 3, placed["project"])
+	assert.EqualValues(t, 4, placed["project"])
 	assert.EqualValues(t, 0, placed["milestone"])
 	require.NoError(t, m.HandleEpochs(ctx))
 	rows, _ = takeLog(t, &cursor)

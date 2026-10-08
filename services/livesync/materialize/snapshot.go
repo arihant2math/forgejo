@@ -303,11 +303,15 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("user", builder.Eq{"id": id}),
 			from("org_user", org),
 			from("team", org),
-			from("team_user", org),
-			from("team_repo", org),
 			from("team_unit", org),
 			from("project", projects).holding(protocol.ModelProject),
 			from("project_board", builder.In("project_id", sel("project", projects))),
+		}, nil
+	case protocol.GroupPrefixTeam:
+		team := builder.Eq{"team_id": id}
+		return []source{
+			from("team_user", team),
+			from("team_repo", team),
 		}, nil
 	}
 	return nil, fmt.Errorf("livesync: not a client group: %q", req.Group)

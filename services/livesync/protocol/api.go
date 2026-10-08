@@ -40,6 +40,7 @@ package protocol
 //	POST   /-/sync/api/projects/{id}/columns/{column}/cards APICardMove     → 204; 503 + Retry-After when concurrent moves kept it from completing (write:issue)
 //	PATCH  /-/sync/api/issues/{id}/body                     APIBodyEdit     → 200 APIBodyEdited, 409 APIBodyConflict (write:issue)
 //	PATCH  /-/sync/api/comments/{id}/body                   APIBodyEdit     → 200 APIBodyEdited, 409 APIBodyConflict (write:issue)
+//	GET    /-/sync/api/bodies/{model}/{id}                  → 200 APIBody (model IssueBody, Comment, Review or Release)
 //	GET    /-/sync/api/issues/{id}/viewed[?head={sha}]      → 200 APIViewedFiles (a pull request's issue)
 //	PUT    /-/sync/api/issues/{id}/viewed                   APIViewedUpdate → 200 APIViewedFiles (write:repository)
 //	POST   /-/sync/api/markdown                             APIMarkdownRequest → 200 APIMarkdownResponse
@@ -166,6 +167,20 @@ type APIBodyEdited struct {
 type APIBodyConflict struct {
 	Message        string `json:"message"`
 	Body           string `json:"body"`
+	ContentVersion int    `json:"content_version"`
+}
+
+// APIBody is the complete body of an entity whose sync log payload has
+// BodyTruncated (see MaxBodyBytes), with its HTML rendered now exactly as
+// the sync log renders body_html (but without the size limits). BodyHTML is
+// empty and Truncated true only when even this rendering exceeded the
+// server's time budget. ContentVersion is the entity's content_version
+// (0 for Review and Release, which have none). Readable by whoever may read
+// the entity in its group (404 otherwise).
+type APIBody struct {
+	Body           string `json:"body"`
+	BodyHTML       string `json:"body_html"`
+	Truncated      bool   `json:"truncated,omitempty"`
 	ContentVersion int    `json:"content_version"`
 }
 

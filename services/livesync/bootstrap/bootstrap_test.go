@@ -16,9 +16,12 @@ import (
 	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
 	livesync_model "forgejo.org/models/livesync"
+	org_model "forgejo.org/models/organization"
+	perm_model "forgejo.org/models/perm"
 	access_model "forgejo.org/models/perm/access"
 	project_model "forgejo.org/models/project"
 	repo_model "forgejo.org/models/repo"
+	unit_model "forgejo.org/models/unit"
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
@@ -396,15 +399,33 @@ func TestOwnerGroupReachable(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok, "the projects and their columns are not readable")
 
-	// A member gets the project itself in org:23.
-	res = stream(t, perms, 5, "org:23", nil)
-	var full *protocol.Project
-	for _, ch := range res.changes {
-		if ch.M == protocol.ModelProject && ch.ID == project.ID {
-			full = &protocol.Project{}
-			decode(ch.D, full)
+	// Backend audit: org:23 holds the project itself, and its columns,
+	// with the projects unit, which a member has through a team with that
+	// unit only (upstream: Organization.UnitPermission). user5's team has
+	// the packages unit only, and a site administrator who is no member of
+	// the private organization has none.
+	projectOf := func(res response) *protocol.Project {
+		for _, ch := range res.changes {
+			if ch.M == protocol.ModelProject && ch.ID == project.ID {
+				full := &protocol.Project{}
+				decode(ch.D, full)
+				return full
+			}
+			assert.NotEqual(t, protocol.ModelProjectColumn, ch.M)
 		}
+		return nil
 	}
+	for _, viewer := range []int64{5, 1} {
+		res = stream(t, perms, viewer, "org:23", nil)
+		assert.Nil(t, projectOf(res), "user %d", viewer)
+		assert.NotContains(t, res.header.Units, protocol.UnitProjects, "user %d", viewer)
+	}
+	_, err = db.GetEngine(ctx).Insert(&org_model.TeamUnit{OrgID: 23, TeamID: 17, Type: unit_model.TypeProjects, AccessMode: perm_model.AccessModeRead})
+	require.NoError(t, err)
+	perms = perm.NewCache(time.Minute, 0)
+	res = stream(t, perms, 5, "org:23", nil)
+	assert.Contains(t, res.header.Units, protocol.UnitProjects)
+	full := projectOf(res)
 	require.NotNil(t, full, "org:23 holds the project")
 	assert.Equal(t, "the secret plans", full.Description)
 	assert.EqualValues(t, 2, full.CreatorID)

@@ -389,14 +389,14 @@ func (h *Hub) catchUp(s *sub, gen uint64, cursor, until int64, units perm.UnitSe
 }
 
 // sendKeys sends what a replay sends of keys (replayPlan), reading the
-// payloads replayBatch at a time and waiting for room in the send buffer
+// payloads replayPayloadBatch at a time and waiting for room in the send buffer
 // before each change. False when it did not complete (restarted, to be
 // retried, or the session ended).
 func (h *Hub) sendKeys(s *sub, gen uint64, keys []livesync_model.LogEntry, units perm.UnitSet) bool {
 	c := s.c
 	items := replayPlan(keys, units, s.kind)
 	for len(items) > 0 {
-		chunk := items[:min(len(items), replayBatch)]
+		chunk := items[:min(len(items), replayPayloadBatch)]
 		items = items[len(chunk):]
 		var ids []int64
 		for _, i := range chunk {

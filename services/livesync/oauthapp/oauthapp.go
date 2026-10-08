@@ -47,12 +47,29 @@ const Name = "Forgejo Next"
 // access to repositories, issues, organizations, users and notifications
 // (routers/livesync requiredScopes); the UI writes issues and pull
 // requests, repository metadata (watch, star, labels, milestones) and
-// notifications through API v1. No write:user / write:organization: the
-// token lives in the browser (refresh token in IndexedDB), and those
-// would let a stolen one add SSH keys, OAuth2 applications, hooks or emails
-// to the account or change organizations. A later milestone that needs
-// them widens Scope; Ensure then revokes the old grants (one forced
-// sign-in, see the package documentation).
+// notifications through API v1. A later milestone that needs more widens
+// Scope; Ensure then revokes the old grants (one forced sign-in, see the
+// package documentation).
+//
+// What the scope does and does not protect (corrected by the backend
+// audit): without write:user / write:organization a stolen token cannot add
+// SSH keys, OAuth2 applications or e-mail addresses to the account, nor
+// change organizations or their hooks. But write:repository opens the whole
+// /repos/{owner}/{repo} API group, so on every repository the user
+// administers a stolen token can add webhooks, writable deploy keys and
+// admin collaborators, start a transfer or set push mirrors: access that
+// lasts after the token is revoked, equivalent to an SSH key for those
+// repositories (TestLivesyncOAuth shows it). The UI needs write:repository
+// for its everyday writes (repository metadata, viewed files), and API v1
+// has no narrower scope, so the protection is where the token lives and for
+// how long: the access token in memory, the refresh token (valid for
+// [oauth2] REFRESH_TOKEN_EXPIRATION_TIME, 730 h by default — an
+// instance-wide setting livesync cannot shorten for its client alone) in
+// IndexedDB, both readable by script of the Next UI's origin only. Note
+// that an XSS on a classic page can already mint a full-scope personal
+// access token with the session cookie; the token adds the refresh token's
+// lifetime outside that case. Instances that want less exposure lower
+// REFRESH_TOKEN_EXPIRATION_TIME (users then sign in again more often).
 const Scope = "write:issue write:repository read:user read:organization write:notification"
 
 // Meta names in livesync_meta.

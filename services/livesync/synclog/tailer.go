@@ -33,7 +33,9 @@ type TailerConfig struct {
 	// woken (default 250 ms on PostgreSQL, which also has LISTEN, 100 ms on
 	// MySQL, where polling is the cross-instance mechanism).
 	PollInterval time.Duration
-	// BatchSize bounds the entries per read and per Deliver (default 500).
+	// BatchSize bounds the entries per read and per Deliver (default 100:
+	// with the payload limits of the materializer, a read holds a few MB in
+	// the worst case).
 	BatchSize int
 }
 
@@ -53,13 +55,13 @@ type Tailer struct {
 // Head; earlier entries are served by ReadSince replays) until ctx is done.
 func StartTailer(ctx context.Context, cfg TailerConfig, from int64, sink Sink) (*Tailer, error) {
 	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = capture.DefaultPollIntervalMySQL
+		cfg.PollInterval = capture.DefaultPollInterval
 		if setting.Database.Type.IsPostgreSQL() {
-			cfg.PollInterval = capture.DefaultPollIntervalPostgres
+			cfg.PollInterval = capture.DefaultPollIntervalListen
 		}
 	}
 	if cfg.BatchSize <= 0 {
-		cfg.BatchSize = 500
+		cfg.BatchSize = 100
 	}
 	t := &Tailer{cfg: cfg, sink: sink, wake: make(chan struct{}, 1), pos: from, done: make(chan struct{})}
 	if setting.Database.Type.IsPostgreSQL() {

@@ -5,6 +5,8 @@ package synclog
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -304,4 +306,62 @@ func TestTailer(t *testing.T) {
 	require.NoError(t, stale.read(t.Context()))
 	assert.Equal(t, []int64{6}, behind.ids())
 	assert.Equal(t, [][2]int64{{3, 5}}, behind.skipped, "the sink is told")
+}
+
+// Appends are split by rows and by payload bytes; every entry lands, in
+// order and gap-free. Payload arguments log as their size (backend audit:
+// a failing INSERT's arguments were logged in full).
+func TestAppendChunks(t *testing.T) {
+	resetLog(t)
+	ctx := t.Context()
+	defer func(rows, bytes int) { appendChunkRows, appendChunkBytes = rows, bytes }(appendChunkRows, appendChunkBytes)
+	appendChunkRows, appendChunkBytes = 3, 10
+	w, err := AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	defer w.Release()
+	var entries []Entry
+	for i, size := range []int{1, 20, 4, 4, 4, 0, 9, 2, 30} {
+		e := entry("repo:1", int64(i))
+		e.Payload = strings.Repeat("x", size)
+		entries = append(entries, e)
+	}
+	assert.EqualValues(t, 1, appendEntries(t, w, entries...))
+	got, err := ReadSince(ctx, "", 0, 100)
+	require.NoError(t, err)
+	require.Len(t, got, len(entries))
+	for i, e := range got {
+		assert.EqualValues(t, i+1, e.SyncID)
+		assert.EqualValues(t, i, e.EntityID)
+		assert.Equal(t, entries[i].Payload, e.Payload)
+	}
+	assert.Equal(t, "[<payload of 3 bytes> 7]", fmt.Sprint([]any{payloadArg("abc"), 7}))
+}
+
+// The log's incarnation id is created with its head, kept by later writers
+// and created anew when the head is gone (the tables created anew).
+func TestLogID(t *testing.T) {
+	resetLog(t)
+	ctx := t.Context()
+	w, err := AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	id, err := LogID(ctx)
+	require.NoError(t, err)
+	assert.Len(t, id, 24)
+	w.Release()
+
+	w, err = AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	again, err := LogID(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, id, again, "kept")
+	w.Release()
+
+	_, err = db.GetEngine(ctx).Exec("DELETE FROM livesync_meta")
+	require.NoError(t, err)
+	w, err = AcquireWriter(ctx, nil)
+	require.NoError(t, err)
+	defer w.Release()
+	fresh, err := LogID(ctx)
+	require.NoError(t, err)
+	assert.NotEqual(t, id, fresh, "a new log, a new id")
 }

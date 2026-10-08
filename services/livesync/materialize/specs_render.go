@@ -240,7 +240,7 @@ func issueSpec() *spec {
 				if full {
 					summary.dto = issueDTO(issue)
 					dto := &protocol.IssueBody{ID: issue.ID, RepoID: issue.RepoID, Body: issue.Content, ContentVersion: issue.ContentVersion}
-					l.markdown(l.repos[issue.RepoID], issue.Content, &dto.BodyHTML)
+					l.markdown(l.repos[issue.RepoID], &dto.Body, &dto.BodyHTML, &dto.BodyTruncated)
 					body.dto, body.renders = dto, l.takeRenders()
 				}
 				res[id] = []entity{summary, body}
@@ -323,7 +323,7 @@ func commentDTO(l *loader, r *issues_model.Comment) *protocol.Comment {
 		RefCommentID: r.RefCommentID, RefAction: int(r.RefAction), RefIsPull: r.RefIsPull,
 		CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
 	}
-	l.markdown(l.issueRepo(r.IssueID), r.Content, &res.BodyHTML)
+	l.markdown(l.issueRepo(r.IssueID), &res.Body, &res.BodyHTML, &res.BodyTruncated)
 	return res
 }
 
@@ -360,7 +360,7 @@ func reviewSpec() *spec {
 				Official: r.Official, CommitID: r.CommitID, Stale: r.Stale, Dismissed: r.Dismissed,
 				CreatedAt: ts(r.CreatedUnix), UpdatedAt: ts(r.UpdatedUnix),
 			}
-			l.markdown(l.issueRepo(r.IssueID), r.Content, &res.BodyHTML)
+			l.markdown(l.issueRepo(r.IssueID), &res.Body, &res.BodyHTML, &res.BodyTruncated)
 			return res, nil
 		},
 	}.spec("review")
@@ -384,7 +384,7 @@ func releaseSpec() *spec {
 				Draft: r.IsDraft, Prerelease: r.IsPrerelease, IsTag: r.IsTag, NumCommits: r.NumCommits,
 				HideArchiveLinks: r.HideArchiveLinks, OriginalAuthor: r.OriginalAuthor, CreatedAt: ts(r.CreatedUnix),
 			}
-			l.markdown(l.repos[r.RepoID], r.Note, &res.BodyHTML)
+			l.markdown(l.repos[r.RepoID], &res.Body, &res.BodyHTML, &res.BodyTruncated)
 			return res, nil
 		},
 	}.spec("release")

@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -19,6 +20,7 @@ import (
 	livesync_model "forgejo.org/models/livesync"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/setting"
+	api "forgejo.org/modules/structs"
 	"forgejo.org/modules/test"
 	livesync_service "forgejo.org/services/livesync"
 	"forgejo.org/services/livesync/oauthapp"
@@ -27,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 )
 
 type livesyncTokens struct {
@@ -161,6 +164,34 @@ func TestLivesyncOAuth(t *testing.T) {
 			MakeRequest(t, req, http.StatusForbidden)
 			req = NewRequest(t, "GET", "/api/v1/orgs/org3").AddTokenAuth(tokens.AccessToken)
 			MakeRequest(t, req, http.StatusOK)
+			// But write:repository opens all of /repos/{o}/{r} (backend
+			// audit): on a repository the user administers, the token can
+			// add webhooks, writable deploy keys and admin collaborators —
+			// access that outlives the token. The scope does not protect
+			// those; the threat model in oauthapp.Scope says so.
+			pub, _, err := ed25519.GenerateKey(nil)
+			require.NoError(t, err)
+			sshPub, err := ssh.NewPublicKey(pub)
+			require.NoError(t, err)
+			req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/keys", map[string]any{
+				"title": fmt.Sprintf("next-%v", additional), "key": string(ssh.MarshalAuthorizedKey(sshPub)), "read_only": false,
+			}).AddTokenAuth(tokens.AccessToken)
+			var deployKey api.DeployKey
+			DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &deployKey)
+			req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/hooks", map[string]any{
+				"type": "forgejo", "config": map[string]string{"url": "https://example.com/", "content_type": "json"},
+			}).AddTokenAuth(tokens.AccessToken)
+			var hook api.Hook
+			DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &hook)
+			req = NewRequestWithJSON(t, "PUT", "/api/v1/repos/user2/repo1/collaborators/user4", map[string]string{"permission": "admin"}).AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusNoContent)
+			for _, path := range []string{
+				fmt.Sprintf("/api/v1/repos/user2/repo1/keys/%d", deployKey.ID),
+				fmt.Sprintf("/api/v1/repos/user2/repo1/hooks/%d", hook.ID),
+				"/api/v1/repos/user2/repo1/collaborators/user4",
+			} {
+				MakeRequest(t, NewRequest(t, "DELETE", path).AddTokenAuth(tokens.AccessToken), http.StatusNoContent)
+			}
 
 			// livesync accepts it (the hello uses the same check).
 			req = NewRequest(t, "GET", "/-/sync/grants").AddTokenAuth(tokens.AccessToken)

@@ -302,13 +302,13 @@ func TestLivesyncCaptureReader(t *testing.T) {
 	assert.Equal(t, fmt.Sprint(lastChange.ID), v)
 }
 
-// The doorbells, each on its own, with polling effectively off:
-//   - PostgreSQL: LISTEN/NOTIFY is the only doorbell (no statement observer),
-//     for this instance's autocommitted writes and transactions alike, and for
-//     writes from another connection (another instance);
-//   - MySQL: the statement observer on the master engine rings for an
-//     autocommitted write and for a transaction's COMMIT; a write from another
-//     connection rings nothing and waits for the poll.
+// The doorbells, each on its own, with polling effectively off: the
+// statement observer on the master engine rings for an autocommitted write
+// and for a transaction's COMMIT; a write from another connection rings
+// nothing and waits for the poll. The same on both databases: the
+// PostgreSQL trigger function no longer sends a NOTIFY (backend audit: it
+// serialised every commit of the cluster), so nothing rings for writes of
+// other instances there either.
 //
 // Latencies are measured from just before the write to the delivery.
 func TestLivesyncCaptureDoorbell(t *testing.T) {
@@ -319,7 +319,7 @@ func TestLivesyncCaptureDoorbell(t *testing.T) {
 
 	batches := newLivesyncBatches()
 	livesyncStartReader(t, capture.Config{PollInterval: time.Hour, SweepInterval: time.Hour}, batches)
-	time.Sleep(300 * time.Millisecond) // let LISTEN start, and its initial ring pass
+	time.Sleep(300 * time.Millisecond) // let the start-up cycle pass
 
 	// An autocommitted write through Forgejo's engine.
 	l := newProbeLabel("autocommit")
@@ -357,14 +357,7 @@ func TestLivesyncCaptureDoorbell(t *testing.T) {
 		require.NoError(t, err)
 		return id
 	}
-	if setting.Database.Type.IsPostgreSQL() {
-		start = time.Now()
-		id := rawInsert("elsewhere")
-		batches.waitFor(t, "label", id, 3*time.Second)
-		t.Logf("write from another connection → reader (NOTIFY): %s", time.Since(start))
-		return
-	}
-	// MySQL: no doorbell for it (the SELECT above is not a write either)...
+	// No doorbell for it (the SELECT above is not a write either)...
 	id := rawInsert("elsewhere")
 	batches.none(t, "label", id, 500*time.Millisecond)
 	// ...until the next write through the engine rings, or the poll.

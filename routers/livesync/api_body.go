@@ -11,8 +11,11 @@ import (
 	issues_model "forgejo.org/models/issues"
 	access_model "forgejo.org/models/perm/access"
 	issue_service "forgejo.org/services/issue"
+	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/protocol"
 	pull_service "forgejo.org/services/pull"
+
+	chi "github.com/go-chi/chi/v5"
 )
 
 // Conflict-checked body edits (protocol/api.go): issue_service.ChangeContent
@@ -62,6 +65,35 @@ func (a *apiRequest) bodyIssue(issueID, posterID int64) (*issues_model.Issue, bo
 
 func canReadIssue(perm access_model.Permission, issue *issues_model.Issue) bool {
 	return perm.CanReadIssuesOrPulls(issue.IsPull)
+}
+
+// apiFullBody answers GET /-/sync/api/bodies/{model}/{id}: the complete
+// body of an entity whose sync log payload is BodyTruncated, rendered now
+// (protocol.APIBody). The entity is placed as the materializer places it,
+// and readable by whoever may read it there (404 otherwise).
+func apiFullBody(w http.ResponseWriter, req *http.Request) {
+	a := apiAuth(w, req, "")
+	if a == nil {
+		return
+	}
+	id, ok := a.id("id")
+	if !ok {
+		return
+	}
+	body, found, err := materialize.LoadBody(a.ctx, protocol.Model(chi.URLParam(req, "model")), id)
+	if err != nil {
+		a.internal("load the body", err)
+		return
+	}
+	if !found {
+		a.notFound()
+		return
+	}
+	if !a.readable(body.Group, body.Unit) {
+		return
+	}
+	html, complete := body.Render(a.ctx)
+	a.json(http.StatusOK, protocol.APIBody{Body: body.Body, BodyHTML: html, Truncated: !complete, ContentVersion: body.ContentVersion})
 }
 
 // apiIssueBody answers PATCH /-/sync/api/issues/{id}/body.

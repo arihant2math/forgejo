@@ -53,6 +53,23 @@ var (
 		Help: "Sync log entries appended by this instance's writer.",
 	})
 
+	// RenderSeconds counts the time this instance's writer and snapshots
+	// spent rendering markdown bodies for the sync log.
+	RenderSeconds = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace, Name: "render_seconds_total",
+		Help: "Time spent rendering markdown bodies for the sync log and snapshots.",
+	})
+	// RenderSkipped counts the bodies sent without HTML (body_truncated)
+	// because rendering them was estimated to be too expensive (cost), the
+	// writer's render share was used up (share), the rendering was not
+	// waited for to its end (abandoned) or abandoned renderings still ran
+	// (busy), or the rendering timed out (timeout; also counted for bodies
+	// rendered on request).
+	RenderSkipped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Name: "render_skipped_total",
+		Help: "Markdown bodies not rendered for the sync log, by reason (cost, share, abandoned, busy, timeout).",
+	}, []string{"reason"})
+
 	// FanOut: the time the hub takes to apply one batch of log entries
 	// from the tailer (fan-out to the subscriptions, epochs, markers).
 	FanOut = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -176,7 +193,7 @@ var registerOnce sync.Once
 func Register(extra ...prometheus.Collector) {
 	registerOnce.Do(func() {
 		all := []prometheus.Collector{
-			MaterializeLag, Materialized, LogEntries, FanOut, Delivered, SessionsOpened, SlowConsumers, CatchUps, Frames, FrameBytes,
+			MaterializeLag, Materialized, LogEntries, RenderSeconds, RenderSkipped, FanOut, Delivered, SessionsOpened, SlowConsumers, CatchUps, Frames, FrameBytes,
 			Replays, BootstrapRequired, GroupsRevoked, Bootstraps, BootstrapBytes, BootstrapDuration,
 			Idempotency, SyncWait, SyncWaitTimeouts, RUM, RUMEvents, RUMRejected,
 		}

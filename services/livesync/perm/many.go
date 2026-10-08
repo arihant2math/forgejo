@@ -162,6 +162,19 @@ func checkGroups(ctx context.Context, viewer *user_model.User, groups []string, 
 			if viewer.IsAdmin || member[id] {
 				d.Units |= unitMembers
 			}
+			// The projects unit (checkOrg: by team membership, whatever
+			// org_user says).
+			in, err := loadInputs()
+			if err != nil {
+				return err
+			}
+			projects, inTeam := in.orgTeamProjects(id)
+			if !inTeam {
+				projects = orgProjectsByVisibility(org)
+			}
+			if projects {
+				d.Units |= unitProjects
+			}
 			add(protocol.OrgGroup(id), d)
 		}
 	}

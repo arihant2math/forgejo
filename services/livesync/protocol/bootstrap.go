@@ -101,6 +101,9 @@ type BootstrapHeader struct {
 	Group string `json:"group"`
 	// Watermark is the sync log head read before the snapshot was taken.
 	Watermark int64 `json:"watermark"`
+	// LogID is the incarnation of the sync log the watermark is a position
+	// in (WelcomeMessage.LogID).
+	LogID string `json:"log_id,omitempty"`
 	// Units are the viewer's units in the group the response was filtered
 	// by (canonical order, as in a Grant).
 	Units []Unit `json:"units"`
@@ -192,7 +195,8 @@ const (
 	// WorkspaceDirectory: a shared profile directory.
 	WorkspaceDirectory = "directory"
 	// WorkspaceMember: an organization the viewer is a member of: its
-	// org:{id} and owner:{id} groups.
+	// org:{id} and owner:{id} groups; and the team:{id} groups of their
+	// teams (of every team of an organization they own).
 	WorkspaceMember = "member"
 	// WorkspaceRepoOwner: a group of the owner of a repository of the
 	// workspace that holds what the repository's entities refer to besides

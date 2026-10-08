@@ -91,6 +91,37 @@ func TestLivesyncDisable(t *testing.T) {
 	st, err = capture.Inspect(ctx)
 	require.NoError(t, err)
 	assert.True(t, st.Healthy(), "verify mode leaves the triggers")
+
+	// Backend audit: the DBA runs the logged DDL, users write, the DBA
+	// installs the triggers again before livesync is enabled. They are
+	// healthy then, but the label written in between was never captured:
+	// enabling (in verify mode) must still bump every epoch and tell
+	// clients to re-bootstrap, which Disable arranged by recording every
+	// table as pending.
+	epochs = livesyncEpochs(t)
+	master := livesyncMaster(t)
+	for _, stmt := range st.UninstallStatements() {
+		_, err := master.Exec(stmt)
+		require.NoError(t, err)
+	}
+	gone, err := capture.Inspect(ctx)
+	require.NoError(t, err)
+	require.False(t, gone.Installed())
+	livesyncInsertLabel(t) // not captured
+	for _, stmt := range gone.Statements() {
+		_, err := master.Exec(stmt)
+		require.NoError(t, err)
+	}
+	cursor = livesyncLogHead(t)
+	livesyncConfig(t, map[string]string{"ENABLED": "true", "INSTALL_MODE": "verify"})
+	require.NoError(t, livesync_service.Init(ctx))
+	after = livesyncEpochs(t)
+	for _, tbl := range catalog.Tracked() {
+		assert.Equal(t, epochs[tbl.Name]+1, after[tbl.Name], tbl.Name)
+	}
+	livesyncWaitLog(t, cursor, livesyncWait, func(e *livesync_model.LogEntry) bool {
+		return protocol.Op(e.Op) == protocol.OpRebootstrap && e.Model == string(protocol.ModelLabel)
+	})
 }
 
 // A running livesync puts back capture triggers that went away while it

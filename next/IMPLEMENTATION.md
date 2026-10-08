@@ -1787,7 +1787,7 @@ does) **and** MySQL 8.0 (binlog on).
       `cmd/web.go`, `go.mod`, `go.sum`). MariaDB not run (no trigger change).
 
 #### B6 — Bootstrap + partial load
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08 (final check: `TestLivesyncBootstrap*` (API, differential, convergence, large) + `TestLivesyncPermDifferential` + `TestVersion` green on PG 16/`gtestschema` and MySQL 8.0 binlog on, no testlogger "FATAL ERROR"; livesync unit tests, `go vet`, gofmt clean; `gen-protocol.sh --check` up to date; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review round 1 fixed (15/16, item 4 completed in round 2), round 2 fixed; **one open major item: `owner:{id}` exposes full owner `Project` rows to viewers who cannot see the owner, see *Open items***)
 - **Scope:** `GET /-/sync/bootstrap?group=` (NDJSON, first line `{watermark, schema}`,
   br/gzip, streaming, cancellable; summary tier = open + updated in the last 90 days,
   `SUMMARY_RECENCY` key), `GET /-/sync/load?group=issue:N` (lazy tier),
@@ -1850,7 +1850,8 @@ does) **and** MySQL 8.0 (binlog on).
     load, tracked times are in `user:`). `user:` access, notifications (**read ones only if updated since the cutoff**), stopwatches,
     issue watches, watches, stars, blocks, viewed files, tracked times (not deleted), the user's pending reviews and their comments (+
     reactions, attachments, revisions). `profile:` the private user + their projects/columns; directories: the users of that visibility;
-    `org:` the org's profile, memberships, teams (+ users/repos/units), org labels, org projects/columns.
+    `org:` the org's profile, memberships, teams (+ users/repos/units), org labels, org projects/columns. **(Review round 2: org labels
+    and user/org projects moved to the new `owner:{id}` group; `profile:`/`org:` keep the projects' columns — see *Review round 2*.)**
   - **Profiles a bootstrap refers to (orchestrator note B3/B4).** `materialize.userRefs` reads the DTO fields that name users
     (`poster_id`, `user_id`, `owner_id`, `assignee_id`, … — `TestUserRefFields` makes every integer `*_id` field of every DTO classified).
     At the end the groups of those users' User entities are decided (`ProfileGroups`) and checked for the viewer (cached grants first,
@@ -1874,6 +1875,8 @@ does) **and** MySQL 8.0 (binlog on).
     (`repo_model.BuilderWatchAnything`, checked on demand, reason `watch`), sorted by `repository.updated_unix` desc, capped at
     `WORKSPACE_MAX_REPOS` (`truncated`). Units are the grants'. Review round 1: the watched repositories are decided in one batch, and the
     organizations owning the listed repositories that the viewer may see without being a member come before them (reason `repo_owner`). Admins get only their own relations (B4 rule). Pins are client-side.
+    Review round 2: also the owner groups — the viewer's own `owner:{me}` (`profile`), member organizations' (`member`) and those of the
+    listed repositories' owners (`repo_owner`, decided in the same batch as the organizations).
   - **Transport.** `Content-Type: application/x-ndjson; charset=utf-8`, `Cache-Control: no-store`, `Vary: Accept-Encoding`, chunked;
     `Accept-Encoding` ⇒ `br` (quality 4, 256 KiB window) > `gzip` (default level) > identity; the encoder and the HTTP writer are
     flushed after the header and after every chunk; cancelled with the request context (checked between chunks, DB reads use it).
@@ -1955,7 +1958,7 @@ does) **and** MySQL 8.0 (binlog on).
        entities may be stale after missed deltas until their pages are loaded again (documented). `TestSnapshotTiers` checks the page
        ranges, `TestStream`/`TestLivesyncBootstrapAPI` the header fields. **For F2:** implement exactly this; the doc comment on
        `BootstrapHeader` (and `types.gen.ts`) is the only definition.
-    4. *(major) referenced org groups left partial.* Contract: an embedded profile line only adds the entity — it is no bootstrap of its
+    4. *(major) referenced org groups left partial — **reachability completed in review round 2**, see below.* Contract: an embedded profile line only adds the entity — it is no bootstrap of its
        group and does not set or raise that group's position (`messages.go`'s positions rule amended); to hold a referenced group,
        bootstrap it and subscribe from that bootstrap's watermark (`end.refs` no longer says "subscribe with since = watermark").
        Reachability: the workspace lists the organizations owning its repositories that the viewer may see (reason **`repo_owner`**,
@@ -2019,7 +2022,7 @@ does) **and** MySQL 8.0 (binlog on).
         and the API v1 endpoints the differential test uses.
     - **Known gaps added:** dependencies are not live (like cross-references: the next load refreshes them); with `[attachment] ENABLED
       = false` API v1 answers 404 for assets while livesync still sends attachment metadata (config-dependent like reactions; not
-      fixed); the closed-page cost (item 2); org labels of organizations the viewer may not see (item 4).
+      fixed); the closed-page cost (item 2); ~~org labels of organizations the viewer may not see (item 4)~~ (resolved in round 2).
     - **Commands run (round 1):** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...
       ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), livesync unit tests with
       `-race` (every package but `capture`, which needs a real DB), `next/tools/gen-protocol.sh --check` (regenerated: `before`,
@@ -2029,6 +2032,102 @@ does) **and** MySQL 8.0 (binlog on).
       `go.sum`). The first full PG run failed once in the convergence test: a fixture reload resets id sequences, so the paused
       phase's comment reused the id of a comment an earlier test created (its reload delete was in the log); the check now reads
       the log from a cursor taken before the pause (`9da58e8`).
+  - **Review round 2 (1 finding, fixed): org labels and owner projects unreachable for viewers who cannot see the owner** (round 1's
+    item 4, left open). An outside collaborator of a private organization's repository, or a restricted user with access to a
+    repository of a limited organization, got `IssueLabel`/`ProjectIssue` rows (`repo:{id}`) naming org labels / org projects placed
+    only in `org:{owner}`, which `perm` refuses them (`HasOrgOrUserVisible`); upstream shows them those labels (issue JSON, the
+    repository's label page) and projects (issue list filter, issue sidebar). **Decision: a new group kind `owner:{id}`
+    (`protocol.OwnerGroup`, `GroupPrefixOwner`) holding what an owner shares with its repositories — organization labels and the
+    projects a user or organization owns — instead of a derived per-repository label entity (labels × repositories copies, one
+    label edit fanning out to every repository) or labels embedded in summaries like profiles (not live: label edits and newly
+    attached org labels would not reach the client until the next bootstrap).** One entity, one group, live like any other group.
+    - **Readable** (`perm/owner.go`) like upstream's `RetrieveLabels` / `retrieveProjects` (SURFACE.md): by everyone who may read the
+      owner's own group (`HasOrgOrUserVisible` for an organization, `profileVisible` for a user), else **through a repository of the
+      owner whose issues or pull requests the viewer may read** — without seeing the owner, only collaborators have access
+      (`GetUserRepoPermission`), so the candidates are the viewer's `collaboration` rows on the owner's repositories; the one with the
+      smallest id decides and is the decision's `RepoID` (so B5's `byRepo` index re-checks the subscription on that repository's
+      epochs; the re-check then finds another repository if there is one). Units: base only (every entity `UnitNone`). Implicit
+      grants: `owner:{me}`, `owner:{org}` for member organizations, and the owner of every granted repository with issues/pulls
+      (`Grants.addOwner`, `ownerRepos` for the through-a-repository case; `Grants.decision` is now the one place a cached decision is
+      built, used by `Check` and `CheckGroups`). `CheckGroups` decides owner groups in its batch (`checkOwners`: owner rows and
+      memberships with the organizations', one collaboration query for the owners not visible, `repoPermission` from the viewer's
+      inputs). Epochs: `Owners` now also re-check `owner:{id}` subscriptions (hub `permissionLocked`/`epochConcerns`) and drop cached
+      grants holding it (`perm.changedGroups`); repository epochs reach through-a-repository decisions via `RepoID`; the viewer's
+      collaboration/team changes via `Users`; owner/repository row touches via the decision's `Basis` (owner row + deciding repository).
+    - **Placement:** `label` with `org_id` → `owner:{org_id}`; `project` with `repo_id = 0` (user or organization project) →
+      `owner:{owner_id}`; **`project_board` unchanged** (`org:{id}` / `profile:{id}`, new `loader.columnPlace`): upstream shows an
+      owner's boards only on the owner's pages, so a viewer reading through a repository gets the project (title) of a card, not its
+      columns (`ProjectIssue.column_id` stays unresolved for them, as upstream). Placement versions **label 1, project 2** ⇒ existing
+      databases get `placement_changed` markers for Label and Project and a repair walk once (moves: `D` in `org:`/`profile:`, `U` in
+      `owner:`); hub `modelKinds`: Label `repo, owner, org`, Project `repo, owner, org, profile` (old kinds kept for the markers).
+      Snapshots: `owner:{id}` = `label(org_id)` + `project(owner_id, repo_id = 0)`; `org:`/`profile:` read only the columns now.
+    - **Reachability:** a `repo:{id}` response's `end.refs` lists `owner:{repo owner}` when readable (never embedded;
+      `materialize.RepositoryOwner`, `bootstrap.ownerRefs`; `BootstrapEnd.Refs` doc updated); the workspace lists the owner groups
+      (see *Workspace*). `protocol` docs: `OwnerGroup`, `OrgGroup`/`ProfileGroup` (columns only), `Unit`, `PermissionChange`,
+      `Grants`, `Workspace*` reasons; `types.gen.ts` regenerated (`GroupPrefixOwner` + comments).
+    - **For F2:** hold `owner:{id}` of every repository you hold (the workspace lists them; `end.refs` names it); org labels / owner
+      projects arrive there, columns in `org:`/`profile:` when readable. `owner:{id}` may be granted while `org:{id}` is not.
+    - **Tests:** `perm` **`TestCheckOwner`** (every fixture viewer × every user/org: `Check(owner:)` ⇔ visible (upstream functions) or
+      some repository of the owner with `GetUserRepoPermission` issues/pulls, `RepoID` = the smallest such when not visible, implicit
+      grants agree; user4 → `owner:23` through repository 40 while `org:23` is refused, with and without cached grants; repository /
+      owner epochs drop the cached grants; gone without the collaboration), `TestCheckGroups` (owner groups added: batch = `Check`,
+      `RepoID` and `Basis` included); `hub` **`TestOwnerGroupThroughRepository`** (user4 subscribed to `owner:23` receives its label
+      delta, an epoch of another repository leaves it alone, issues/pulls disabled on repository 40 + its epoch ⇒ `group_revoked`;
+      verified to fail with `RepoID` not set), `TestOwnerEpoch` (owner epoch ⇒ `org:3` and `owner:3` revoked); `materialize`
+      `TestProfilePlacement` (project → `owner:2`, its column → `profile:2`), `TestConsumePlacement`, `TestHandleEpochsPlacementAndPermissions`
+      (Label/Project markers, versions), `TestSnapshotFilters` (`org:3`/`owner:3` models), `TestSnapshotCoversPlacement` (unchanged, covers
+      `owner:`); `bootstrap` **`TestOwnerGroupReachable`** (an org label, org project + column on a new issue of repository 40: user4's
+      `repo:40` bootstrap names them and lists `owner:23` but not `org:23` in `end.refs`, `owner:23` holds exactly the label and the
+      project, the workspace lists `owner:23` as `repo_owner` and no `org:23`; user10 refused, member user5 allowed), `TestStream`
+      (refs `owner:2`/`owner:3`, never embedded), `TestWorkspace` (reasons of `owner:2`/`owner:3`). Integration
+      **`TestLivesyncBootstrapDifferential`** extended: an org label (API) and org project (DB) on an issue of repository 40; for
+      every viewer × repository every org label / owner project named by `IssueLabel`/`ProjectIssue` (of the repository's owner) is
+      in the `owner:` bootstrap that `end.refs` lists, asserted to happen at least once for an organization whose `org:` group the
+      viewer may not read; for every viewer × user `owner:{id}` 404 ⇔ bootstrap 404, readable ⇒ the owner is visible through API v1
+      (`/orgs|users/{name}` 200) or the viewer reads the issues/pulls of one of its repositories, org labels ⊆ `/orgs/{org}/labels`
+      when visible. Fixture quirks (label 4 of org3 on user2/repo1's issue, user2's project 4 on org3's repository 32 — upstream's
+      `NewIssueLabel` / `Project.CanBeAccessedByOwnerRepo` refuse such rows) are left out of that check; such a foreign label/project
+      is in its own owner's group, readable or not. **`TestLivesyncPermDifferential`** extended: for every viewer × user/organization,
+      `owner:{id}` granted ⇔ `/orgs/{org}` or `/users/{name}` 200 or the viewer reads (as compared with API v1 in the same test) the
+      issues or pull requests of one of its repositories; implicit owner grants = the on-demand check (it first failed with
+      "unexpected implicit grant owner:N" until the test knew the new kind).
+    - **Known gaps:** an issue keeps its project card after its repository is transferred (`TransferOwnership` removes old org labels,
+      not project cards); the card then names the old owner's project, in that owner's `owner:` group, which the new readers may not
+      read (upstream's sidebar still shows the title). `ProjectIssue.column_id` of owner projects is unresolved for viewers reading only
+      through a repository (as upstream).
+    - **Commands run (round 2):** gofumpt (clean), `golangci-lint run ./services/livesync/... ./routers/livesync/... ./models/livesync/...
+      ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), livesync unit tests with
+      `-race` (all packages), `next/tools/gen-protocol.sh` (regenerated) and `--check`, `TestLivesyncBootstrapDifferential` on PG
+      (123 s; e.g. Label 147, Project 144, IssueLabel 111, ProjectIssue 167 compared), and `./integrations.pgsql.test -test.run
+      'TestLivesync|TestVersion'` on PG 16 (`gtestschema`) and MySQL 8.0 binlog on — results below.
+    - **Results (round 2, from the reviewer's re-run on the working tree):** livesync unit tests pass (all packages),
+      `gen-protocol.sh --check` up to date, gofmt clean; `TestLivesync|TestVersion` on PG 16 (35 pass, 3 skips, no testlogger
+      "FATAL ERROR") and MySQL 8.0 binlog on (37 pass, 1 skip). The MySQL run logged one testlogger "FATAL ERROR": the upstream
+      `UPDATE issue SET num_comments` deadlock (`Error 1213`) between the convergence test's concurrent comment writers; the test
+      still passed, unrelated to the fix (see *Tests*). Code committed as `d38b900`.
+  - **Final check (2026-10-08):** working tree committed; gofmt clean, `go vet` (sqlite tags) clean, livesync unit tests pass
+    (all packages incl. `routers/livesync`), `gen-protocol.sh --check` up to date; `TestLivesyncBootstrap*` (API, Differential,
+    Convergence, Large) + `TestVersion` pass on PG 16 (`gtestschema`; differential 129 s) and MySQL 8.0 binlog on (differential
+    183 s), `TestLivesyncPermDifferential` passes on both, no testlogger "FATAL ERROR" in either run; fork diff unchanged
+    (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`).
+  - **Open items (unresolved at milestone close; for the orchestrator / a follow-up):**
+    1. *(major, `services/livesync/materialize/load.go` ~312 `projectPlace`) The `owner:{id}` group gives full owner `Project` rows
+       (description, creator, timestamps) to viewers who cannot see the owner; upstream shows them only the project title.*
+       `projectPlace` puts every user/organization project (`repo_id = 0`) whole into `owner:{owner_id}` with the unchanged DTO
+       (`protocol.Project`: Title, Description, CreatorID, Closed, TemplateType, CardType, timestamps). `checkOwner`, `checkOwners`
+       and `Grants.addOwner` grant `owner:{id}` to any collaborator who may read issues or pulls in one of the owner's repositories,
+       even when `HasOrgOrUserVisible` refuses them the owner. Upstream (`routers/web/repo/issue.go` `retrieveProjects`: issue list
+       filter, issue sidebar) gives such a viewer only the project titles and their open/closed split; the project page
+       (`/{org}/-/projects/{id}`, which renders the description) is behind `UserAssignmentWeb`/`OrgAssignment` and answers 404 for an
+       owner the viewer cannot see; API v1 has no projects endpoint. Concrete case: user4, an outside collaborator on repository 40
+       of private org 23, bootstraps `owner:23` and receives the Description and CreatorID of every org-23 project (before round 2
+       those rows were only in `org:23`, which user4 is refused). Same for a private individual's projects (formerly `profile:{id}`),
+       now readable by any collaborator on that user's repositories. Columns were kept back for exactly this reason
+       (`columnPlace`), the project bodies were not. Permission leaks are a top risk (PLAN §risks); `TestCheckOwner` and the
+       differential check only that the group is reachable, not which `Project` fields upstream shows. Fix options: (a) put only
+       what upstream shows (id, title, closed, owner_id) in `owner:{id}` as a reduced entity and keep the full `Project` in
+       `org:`/`profile:`; or (b) explicitly accept the wider exposure and record it as a known gap here and in SURFACE.md. Neither is
+       done. Org labels are fine (the repository label page shows org label names, colours and descriptions to such readers).
   - **Sandbox note:** the root filesystem reports little free space (≈ 0.3 GB at one point although only 39 GB of 252 GB were used:
     the host disk is shared). Leftover `/tmp/prepared-forgejo*` / `/tmp/appdata*` dirs of killed unit-test runs (≈ 2.4 GB) and MySQL
     binary logs (the large bootstrap test writes ≈ 0.7 GB per MySQL run) were the reclaimable part: `rm -rf /tmp/prepared-forgejo*`,

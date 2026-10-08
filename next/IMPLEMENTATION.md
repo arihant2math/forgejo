@@ -2196,6 +2196,120 @@ does) **and** MySQL 8.0 (binlog on).
   ⇒ no duplicate; `X-Livesync-Sync-Id` ≥ the delta's `v` for that write; requests without
   the header are untouched (byte-identical passthrough).
 - **Notes/decisions:**
+  - **Files.** `services/livesync/idempotency/{idempotency,wait,dedupe}.go` (+ SQLite unit tests `idempotency_test.go`);
+    `routers/livesync/idempotency.go` (+ `idempotency_test.go`), dispatch in `wrap.go`; `services/livesync/writes.go`
+    (`Idempotency()`), `livesync.go` (start/stop), `writer.go` (cleanup, `Consumed` hook), `perms.go` (`delivered` hook),
+    `settings.go`; `services/livesync/protocol/writes.go` (header names + the client contract; regenerated
+    `next/src/protocol/types.gen.ts`); `models/livesync/tables.go` (`livesync_idempotency.owner`, `outbox_low`, `outbox_high`,
+    added by Sync, `TablesVersion` stays 1); `capture.LastAssignedID` (exported, was `lastAssignedID`); `materialize.Config.Consumed`;
+    `tests/integration/livesync_idempotency_test.go`; `livesyncResetCapture` also empties `livesync_idempotency`.
+  - **Interception** (`handler.ServeHTTP`, before inner): a request is *keyed* iff it has an `Idempotency-Key` header (checked first:
+    requests without it cost one map lookup and reach inner as the same `*http.Request`/`ResponseWriter`, body unread —
+    `TestKeyedPassthrough`), the method is POST/PUT/PATCH/DELETE (GET/HEAD with a key: untouched) and the path, normalised like
+    `ownPath` (slashes, `AppSubURL` stripped), starts with `/api/v1/` (`/api/forgejo/v1` is not covered). Keyed requests: 503 +
+    `Retry-After: 2` while livesync is stopped (never run without the key honoured); one key value of 1–255 printable ASCII else 400;
+    body buffered (≤ 16 MiB, else 413); **identity**: `authMethods` (OAuth2 + `AccessToken{PermitBearer}`, B4) on a clone with its own
+    body copy (token extraction may `ParseForm`) — success ⇒ the user; a bad/expired token or basic auth with a *password* (OAuth2 reads
+    basic passwords as JWTs) ⇒ 401; no token but another `Authorization` scheme (HTTP signatures, …) ⇒ 400; no credentials ⇒ 401.
+    Decision: only tokens, because any other credential API v1 accepts would make the write run without a user to key on. API v1 still
+    checks the account and scopes itself (no `checkAccount`/livesync scope rule here).
+  - **Request hash** (`idempotency.RequestHash`): sha256 over length-prefixed method, normalised path, raw query, Content-Type,
+    **credential scope** (`credentialScope`: the token's normalised scope + its reducer — all / public / sorted specific repo ids) and the
+    body. Same key + different hash ⇒ 422. The credential part keeps a response stored for a broad token from being replayed to a
+    narrower token of the same user (scope bypass); OAuth refreshes keep the grant's scope, so retries match. The token itself is not
+    hashed.
+  - **Store** (`livesync_idempotency`, per running instance `idempotency.Service`): `Begin` reads the outbox position *L*
+    (`capture.LastAssignedID`), then one native insert-or-nothing of `(user_id, idem_key)` in flight with `owner = "<instance>/<token>"`
+    and `outbox_low = L`, then reads the row back: own owner ⇒ **Run**; else expired (older than TTL, not cleaned yet) ⇒ deleted, start
+    over; hash differs ⇒ **Mismatch** (422); completed ⇒ **Replay**; in flight and the owner *alive* ⇒ **InFlight** (409 `{message}` +
+    `Retry-After: 1`); in flight and the owner dead (or `owner = ''`: released) ⇒ compare-and-swap the owner ⇒ **Run, `Recovered`**
+    (`outbox_low` and `created_unix` of the first attempt kept). **Liveness:** every instance holds the DB lock `livesync.idem.<16 hex
+    id>` (`models/livesync.TryLease`; PG advisory / MySQL `GET_LOCK`, pinned connection, pinged every 30 s and re-taken if lost) for its
+    lifetime; an owner of this process is alive iff its token is in the in-process `running` set (registered *before* the insert/CAS);
+    another instance's owner is alive iff its lock is held (try-lock; errors count as alive). So a crash is detected **immediately** by a
+    retry on the restarted server (no heartbeat timeout). One extra pinned DB connection per instance. On shutdown the lock is kept until
+    the running attempts finished (≤ 10 s, `drain`), so a graceful restart does not let a retry run them twice. `Complete` (state
+    completed, status, headers JSON, body, sync id, `outbox_high`, owner cleared) and `Release` (owner cleared, nothing stored) are CAS
+    on the owner: an attempt that was taken over stores nothing (logged). **What is stored:** every response with status < 500; ≥ 500 ⇒
+    `Release` (unknown outcome; the next retry is `Recovered`). A panic in inner ⇒ `Release` + re-panic. Headers are stored minus
+    `Set-Cookie`, `Date`, `Content-Length`, hop-by-hop and `X-Livesync-*`; a body over 16 MiB is streamed to the client (no sync id) and
+    stored without body + `X-Livesync-Body-Omitted: true`. **Replay** = stored status, headers, body + `X-Livesync-Idempotent-Replay:
+    true` + the stored `X-Livesync-Sync-Id`. **TTL / cleanup:** `IDEMPOTENCY_TTL` (7 d); the writer role deletes expired records
+    (1000 per statement) with the log retention (at start, then every 10 min).
+  - **`X-Livesync-Sync-Id` — what it guarantees (client contract in `protocol/writes.go`, TS `HeaderSyncID`).** *Every sync log
+    entry produced from the rows the request committed before API v1 answered has `v` ≤ the header value*, whichever group it lies in;
+    and those entries are already in the log when the response is sent. So a client holds the write's effect in a group once that
+    group's B5 position (highest `v` received, raised by `delta.to`/`caught_up`/`pong`/`barrier_ok`) is ≥ the value; that is when it drops
+    the write's overlay. Mechanism: *L* = outbox position before the first attempt, *H* = after inner returned; the write's outbox rows
+    have ids in (L, H] (ids are assigned inside the writing transaction, which committed before H was read). `WaitSynced` polls until
+    **no row with id in (L, H] is left in `livesync_change`** — the materializer deletes consumed rows in the transaction that appends
+    their entries, so once the write's rows are gone its entries are committed — and then returns `synclog.Head` read afterwards.
+    Uncommitted rows of other transactions in the range are invisible and do not hold it up, unlike the capture cursor (holes would
+    block for up to HOLE_TIMEOUT), which is why the cursor is not used; consumed-but-deferred hot rows (≤ HOT_COALESCE) do hold it up,
+    which makes notification writes covered too. Wake-ups: the local materializer's `Consumed` callback and every tailer delivery
+    (`permSink.delivered`, i.e. a remote writer's progress) broadcast to the waiters; otherwise polls at 5 ms doubling to 100 ms.
+    Bounded by `IDEMPOTENCY_SYNC_WAIT` (2 s; 0 = check once): on timeout (materializer behind/not running) or a cancelled request the
+    header is **absent**, the record stores `sync_id = -1` with `outbox_low/high`, and a later replay computes it then (and stores it).
+    A recovered attempt uses the first attempt's *L*, so its value also covers what the crashed attempt committed. **Not covered:**
+    writes API v1 makes asynchronously after answering (UI notifications for other users, webhooks), and a hot-table row (notification,
+    commit_status, action_run_job) changed again by someone else within HOT_COALESCE (the materializer then keeps only the newest
+    outbox row, outside (L, H], so the wait may end before the row's newest state is in the log; the overlay can flicker for ≤ 1 s).
+    Measured (`TestLivesyncIdempotencyDelta`, label create, 10 sequential, sandbox): PG 7.1 ms plain → 16.1 ms keyed, MySQL 8.0 ms →
+    24.4 ms (reserve + run + materializer round trip + store); the delta's `v` ≤ the header over a real WebSocket.
+  - **Crash-window dedupe** (`idempotency.FindDuplicate`, PLAN §4.8): only for `Recovered` attempts (interrupted by a crash, or the
+    previous attempt answered ≥ 500) of `POST /repos/{o}/{r}/issues`, `…/issues/{n}/comments`, `…/pulls/{n}/reviews` with a JSON body:
+    look on the master for the entity by the same user on the same target with the same content created since the first reservation
+    (− 5 s clock slack) — issues: `repo_id`, `poster_id`, not a PR, title as `NewIssue` stores it (trimmed, ≤ 255 bytes), body; comments:
+    issue by index, `poster_id`, type comment, body; reviews: pull by index, `reviewer_id`, type from `event` (as `preparePullReviewType`),
+    body, **`updated_unix`** (submitting completes an earlier pending review). Compared in Go (MySQL collations are case-insensitive).
+    Found ⇒ inner is called with a synthetic `GET` of the entity (same credentials, sub-path kept) and its body is answered with the
+    create's status (201/201/200) and stored like any response; not found ⇒ the request runs. "Prevented in practice": an entity
+    edited before the retry no longer matches; the code comments of a review whose submit was interrupted are created again; other
+    creates (labels, milestones, attachments, PRs, time entries) simply run again after a crash.
+  - **Settings added:** `IDEMPOTENCY_TTL` (168h, > 0), `IDEMPOTENCY_SYNC_WAIT` (2s, ≥ 0).
+  - **APIs for later milestones.** `livesync_service.Idempotency() *idempotency.Service` (nil when stopped); `Service.Begin/Complete/
+    Release/WaitSynced/Notify`, `idempotency.{Position, RequestHash, ValidKey, FindDuplicate, ErrNoDuplicate, Cleanup, StoreSyncID}`;
+    `protocol.Header{IdempotencyKey, SyncID, IdempotentReplay, BodyOmitted}` (TS consts). **For B9** (gap endpoints must accept
+    `Idempotency-Key`): extend `keyed` with `/-/sync/api/` and run them through `serveKeyed` with livesync's own router as the target
+    instead of `inner` (`run` calls `h.inner`; make the target a parameter then) — the store, hash, wait and replay are path-agnostic;
+    their creates get no crash-window check unless added to `FindDuplicate`. **For B8:** metrics hooks (replays, 409s, sync waits that
+    timed out, wait duration) are not added; the admin page could list in-flight records. **For F2/F5:** send a fresh UUID per intent
+    and the same one on every retry; 409 ⇒ retry after `Retry-After`; 422 ⇒ a bug (key reused); a missing `X-Livesync-Sync-Id` ⇒ keep
+    the overlay until a delta for the entity arrives; replays carry `X-Livesync-Idempotent-Replay: true`.
+  - **Tests.** Unit (SQLite): `idempotency` — `TestValidKey`, `TestRequestHash`, `TestBeginCompleteReplay` (run, in flight in-process,
+    per-user keys, replay fields, mismatch, double complete), `TestReleaseRecovers` (low/since kept), `TestTakeOverInterrupted` (dead
+    instance, own stale owner, expired), `TestCleanup`, `TestWaitSynced` (range semantics, timeout, wake by `Notify`, cancel),
+    `TestSignal`, `TestFindDuplicate` (fixtures: issue/comment/review matches and every non-match), `TestStopDrains` (all with `-race`);
+    `routers/livesync` — `TestKeyed`, `TestKeyedPassthrough`, `TestKeyedStopped`, `TestRecorder` (buffer, stream over the limit,
+    discard), `TestStoredHeadersAndWriteResponse`, `TestReadRequest`, `TestCredentialScope`; settings. Integration (**PG 16
+    `gtestschema` and MySQL 8.0 binlog on**): **`TestLivesyncIdempotency`** — same key twice ⇒ one issue, identical body/Content-Type/sync
+    id + replay header, the Issue and IssueBody entries already in the log at the response with `v` ≤ header; a narrower token of the same
+    user ⇒ 422; different body ⇒ 422; another user's same key ⇒ independent; label add (200) and comment delete (204) replayed with the
+    stored sync id; no header (and GET with a key) ⇒ no sync header, no record; 401/400 auth cases and bad/duplicate keys; **8
+    concurrent duplicates ⇒ exactly one 201 run, the others 409 or replay, one issue**; an in-flight record of a *live* instance (the
+    test holds its lock) ⇒ 409 + Retry-After, after the lock is released ⇒ recovered and run once; **forced crash** (record left in flight
+    by a dead instance after the write committed) for an issue, a comment and a review ⇒ the retry answers with the created entity (=
+    API v1's GET of it), no duplicate, then plain replays; crash before the commit ⇒ runs once; a record stored without sync id gets one
+    at the replay. **`TestLivesyncIdempotencyDelta`** — over a real WebSocket the Issue delta's `v` ≤ the header; latency figures above.
+  - **Commands run:** gofumpt (clean), `golangci-lint run ./models/livesync/... ./services/livesync/... ./routers/livesync/...
+    ./tests/integration/...` (0 issues), `go vet` (+ integration with sqlite tags), deadcode diff (clean), `go mod tidy -diff` (clean),
+    unit tests of every livesync package with `-race`, `next/tools/gen-protocol.sh --check` (up to date), `TestLivesyncIdempotency*`
+    green on PG 16 (`gtestschema`) and MySQL 8.0 (several runs each), full `./integrations.*.test -test.run 'TestLivesync|TestVersion'`:
+    MySQL 39 pass / 1 skip, no testlogger "FATAL ERROR"; PG 36 pass / 3 MySQL-only skips + **`TestLivesyncHubSlowConsumer/sse` failed
+    once** ("frames were written until the socket was full", the B6-noted flake; B7 does not touch the hub) and passed 3/3 when re-run;
+    an earlier full MySQL run printed one testlogger "FATAL ERROR" inside `TestLivesyncBootstrapConvergence` (test passed; line not
+    captured; it passed alone and in the final full run — likely B6's known upstream MySQL deadlock under concurrent comment writes,
+    watch it). Fork-diff check unchanged (`assets/go-licenses.json`, `cmd/web.go`, `go.mod`, `go.sum`). Dev binary smoke test on PG with
+    `ENABLED = true`: the same keyed issue create twice ⇒ 201 + `X-Livesync-Sync-Id: 219` both times, the second with
+    `X-Livesync-Idempotent-Replay: true` and a byte-identical body, one issue; basic auth with a key ⇒ 401; dev DB triggers dropped
+    afterwards. `next/` lint/typecheck not run (only the generated file changed there).
+  - **Not done / known gaps.** Only token-authenticated writes can be keyed. `/api/forgejo/v1` and gap endpoints (B9) are not
+    intercepted yet. No metrics (B8). The hot-table and asynchronous-write limits of the sync id (above). While an instance's lock
+    connection is lost (until the 30 s re-check re-takes it), a retry on another instance treats its running attempts as crashed.
+    Request and response bodies over 16 MiB (above). MariaDB not run (no trigger/DDL change).
+  - **Environment note (disk).** The sandbox disk filled up during B6. `~/.cache/go-build` had grown to 18 GB; deleting entries not
+    used for 4 h (`find ~/.cache/go-build -type f -mmin +240 -delete`, Go re-creates what it needs) freed 12 GB, and old `*.test`
+    binaries in the session scratchpad another 1.4 GB. A full `go test -c` of `tests/integration` is ≈ 165 MB.
 
 #### B8 — OAuth app, SPA serving, admin page, metrics
 - [ ] **Status**

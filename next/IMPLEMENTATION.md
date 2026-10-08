@@ -3046,7 +3046,7 @@ does) **and** MySQL 8.0 (binlog on).
     both.
 
 #### B10 — Headless TS conformance suite (Phase 1 exit)
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08 (final check: `next/tools/dev-forgejo.sh conformance all` green, 48/48 on PG 16 and MySQL 8.0 binlog on, 0 `[E]`/`[F]` server log lines; `npm run typecheck` and ESLint on `conformance/` clean; `package-lock.json` unchanged, `package.json` +1 script line; fork diff = `assets/go-licenses.json`, `cmd/web.go` (1 line + import), `go.mod`, `go.sum`; review round 1 closed, no open findings). **PLAN Phase 1 exit met.**
 - **Scope:** create the first `next/package.json` (private, `"type": "module"`, npm
   lockfile), `next/tsconfig.json` and a `test:conformance` script (Vitest, Node env).
   `next/conformance/`: a minimal raw client (fetch + WebSocket, using

@@ -3888,7 +3888,7 @@ does) **and** MySQL 8.0 (binlog on).
     Round 2: correctness 2 majors (an earlier no-echo layer could resurface after a later intent confirmed; bulk edits sent every request at once) — fixed with tests; performance 2 majors (one pending edit sent every issue down the overlay path; per-issue allocations when grouping) — fixed (per-issue `touches`, numeric group keys, cached names); UI and security: no blockers/majors, security minors fixed (label colours, `.`/`..` names, in-app link shape, `target`, redirects), UI minors partly fixed, the rest listed above. Round 3 (verification of the round-2 majors): 1 major — two intents of an issue both confirmed without a sync id could still bring the earlier layer back — fixed (an intent confirmed by its own effect also drops the earlier waiting layers whose fields/members it sets; test); minors fixed: a freed send slot goes straight to the next waiter (the cap is exact), a barrier asked for while one is pending is sent again afterwards, a connection lost mid-request is reported as an unknown outcome (no "undone"). Not changed: a slow send (409/Retry-After waits) keeps its slot. No blockers or majors remain.
 
 #### F5 — Offline intents + service worker
-- [ ] **Status**
+- [x] **Status** — done 2026-10-08. `npm run check` is green: lint, stylelint, typecheck, 340 Vitest tests, build, and the budget (boot 148.6 KB br JS / 5.9 KB br CSS). All 36 Playwright tests pass (6 in `offline.spec.ts`) against a dev Forgejo on PG with livesync serving the build; the convergence property passed 3000 runs. Three review rounds (data integrity, conflict policy/UX, service worker, UI/performance, then two verification rounds); no open blocker or major.
 - **Scope:** `src/intents`: typed intents (PLAN §5.4 table), durable IDB queue,
   overlay + rebase on deltas, flush rules (after `caught_up`, per-entity serial,
   dependencies, backoff with stable keys), conflict policies (set ops, LWW with override
@@ -4052,8 +4052,11 @@ does) **and** MySQL 8.0 (binlog on).
   * **Not available offline** (PLAN §5.5): unknown routes (the worker's fallback for classic pages), an unknown
     repository and an issue not on this device say so and list Home, My issues, My pull requests, Inbox and the
     repositories on this device (`AvailableOffline`); no spinner offline (the closed-tier search stops).
-  * **Measured.** Offline warm boot (service worker shell + IndexedDB, list of 12 issues): `firstPaintFromCache` 83–194 ms
-    (three reloads, sandbox Chromium); local apply in the same frame (F4's measurement holds; F5 adds one IndexedDB write
+  * **Measured.** Offline warm boot (service worker shell + IndexedDB, list of 12 issues): `firstPaintFromCache` 87–176 ms
+    (12 × 3 warm reloads, sandbox Chromium); the first boot served by a newly installed worker (cold code cache for
+    cache-storage responses) 175–345 ms, logged but not asserted. The test first waits until the repository's group is
+    stored (a group lands in IndexedDB once its bootstrap finished: a page seen for a moment before going offline is
+    honestly "not on this device"); local apply in the same frame (F4's measurement holds; F5 adds one IndexedDB write
     after the layer).
   * **Commands / verification.** `npm run check` (lint, stylelint, typecheck, unit tests, build, budget).
     `CONVERGE_RUNS=3000 npx vitest run --project unit src/intents/converge.test.ts` for a long property run (default 60;
@@ -4074,9 +4077,26 @@ does) **and** MySQL 8.0 (binlog on).
     * Overrides are kept in memory (lost on reload); a crash between the ack and the notice loses the notice (the change
       itself is on the server).
     * The `editing()` autorun and visibility listener live as long as the page (one session per page load).
+    * The worker's self-kill (an app page answered by the server with a classic document, i.e. opted out) also fires
+      where the server's `spaRoute` is stricter than `isSpaRoute` (reserved owner names, `{repo}.git/…`) or a proxy answers
+      a 200 challenge page; harmless (the next app boot registers it again) but it drops the offline cache. A server
+      header marking classic documents (B8 follow-up) would make it exact.
     * Reactions, dependencies, subscriptions, reviewers, pin/lock, deadline, board moves, viewed files, inbox status and
       review submit have no UI yet (F6/F7).
-  * **Reviews.** (see below)
+  * **Reviews.** Round 1, four adversarial reviewers. Data integrity: an effect-held skip past an unconfirmed earlier
+    intent, a resolved conflict moved to the end of the queue, a new leader sending before learning an earlier stored
+    intent, no flush after reconnecting without `caught_up`, temp-id remaps lost on reload — all fixed with regression
+    tests (`regressions.test.ts` R1–R5) and found again by the property where applicable. Conflict policy/UX: overrides
+    and conflicts notified while the issue is open, comment edit on a deleted comment, drafts lost on Esc, parked edits
+    blocking their chain — fixed (M1–M9). Service worker: navigations fetched by the worker got the classic page (now
+    navigation preload), the kill switch never ran (explicit `update()`), stale shell after deploy, Trusted Types for
+    the script URL — fixed. UI/perf: the pending badge animation, live-region noise, duplicated callout styles, the
+    indicator not being a button — fixed. Round 2 (verification): follower discards resolved before the leader acted,
+    cached shells re-opting-in opted-out users, classic pages served the shell, reduced motion, focus after the editors —
+    fixed. Round 3 (verification): a follower took a send's `done` for its discard (Undo could post twice) — the leader
+    now answers every discard (`discarded {ok}`) and blocks the send while removing; the comment menu dropped focus on
+    Escape; Undo could overwrite a reopened editor (the text goes to the Unsynced drafts instead); worker-fetched shells
+    without preload were unmarked; minor items fixed. Open (minor, documented above): the self-kill's false positives.
 
 #### F6 — Inbox, boards, search, saved views, create flows, comments
 - [ ] **Status**

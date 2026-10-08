@@ -340,6 +340,9 @@ test('sign-out in one tab signs out every tab and wipes local data', async ({bro
   expect(left.tokens).toEqual([]);
   expect((await splash(a)).user).toBeUndefined();
   expect(await a.evaluate(() => localStorage.getItem('forgejo-next:wipe'))).toBeNull();
+  // Forgejo's own web session ended too: signing in again asks for the password.
+  expect((await ctx.request.get(`${BASE}/user/settings`, {maxRedirects: 0})).status()).not.toBe(200);
+  expect((await splash(a)).route).toBeUndefined();
   await ctx.close();
 });
 

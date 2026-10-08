@@ -5,7 +5,8 @@
 # dev-forgejo.sh — build this tree and run a throwaway Forgejo against the
 # dev databases from dev-db.sh. Idempotent.
 #
-# Usage: next/tools/dev-forgejo.sh {start|stop|status|build|logs} [pg|mysql]
+# Usage: next/tools/dev-forgejo.sh {start|stop|kill|restart|status|build|logs} [pg|mysql]
+#        next/tools/dev-forgejo.sh conformance [pg|mysql|all] [vitest args…]
 #
 #   pg    -> http://127.0.0.1:3000/  database `forgejo` on 127.0.0.1:5432
 #   mysql -> http://127.0.0.1:3010/  database `forgejo` on 127.0.0.1:3306
@@ -14,6 +15,15 @@
 # Extra app.ini lines can be appended via NEXT_FORGEJO_EXTRA_INI (e.g. a
 # "[livesync]" section). Binary is built without bindata, so STATIC_ROOT_PATH
 # points at this checkout (templates/options/public are read from disk).
+#
+# `kill` stops the server with SIGKILL (no graceful shutdown: a crash).
+# `conformance` (B10) rebuilds the binary, then on each database restarts
+# Forgejo with livesync enabled (conformance_ini below), runs the headless
+# conformance suite (next/conformance) against it — with the hooks the suite
+# uses to crash/restart the server and to reach the database — and stops the
+# server again (NEXT_CONFORMANCE_KEEP=1 leaves it running).
+# NEXT_CONFORMANCE_NO_BUILD=1 reuses the binary. Arguments after the
+# database are passed to Vitest (e.g. a file name filter).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,6 +31,9 @@ ROOT_DIR="${NEXT_DEV_ROOT:-/var/tmp/forgejo-next-dev}"
 BIN="$ROOT_DIR/forgejo"
 cmd="${1:-status}"
 db="${2:-pg}"
+conf_dbs="$db"
+if [ "$cmd" = conformance ] && [ "$db" = all ]; then conf_dbs="pg mysql"; db=pg; fi
+if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
 case "$db" in
 pg|postgres) db=pg; PORT="${NEXT_FORGEJO_PORT:-3000}" ;;
@@ -117,6 +130,75 @@ start() {
   status
 }
 
+# kill_server simulates a crash: SIGKILL, no graceful shutdown hooks run.
+kill_server() {
+  if running; then
+    log "killing pid $(cat "$PIDFILE") (SIGKILL)"
+    kill -9 "$(cat "$PIDFILE")" 2>/dev/null || true
+    local i
+    for i in $(seq 1 40); do running || break; sleep 0.25; done
+  else
+    log "not running"
+  fi
+  rm -f "$PIDFILE"
+}
+
+# conformance_ini is the configuration the suite expects (its
+# CONFORMANCE_MAX_REPLAY must equal MAX_REPLAY): a small replay limit
+# (bootstrap_required{replay_too_long}), a fast trigger watch (a dropped
+# capture trigger is repaired while the server runs: trigger_repaired), and
+# a sync-id wait long enough to crash the server between a write's commit and
+# its idempotency record.
+conformance_ini() {
+  printf '%s\n' '[livesync]' 'ENABLED = true' 'INSTALL_MODE = auto' 'MAX_REPLAY = 100' \
+    'TRIGGER_CHECK_INTERVAL = 2s' 'IDEMPOTENCY_SYNC_WAIT = 30s' '' '[actions]' 'ENABLED = true'
+}
+
+# sql_argv prints, as a JSON array, a command that runs the SQL on its stdin
+# against this instance's database (the suite spawns it; PGPASSWORD is set).
+sql_argv() {
+  if [ "$db" = pg ]; then
+    printf '%s' '["psql","-h","127.0.0.1","-p","5432","-U","postgres","-d","forgejo","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]'
+  else
+    printf '%s' '["mysql","--no-defaults","-h","127.0.0.1","-P","3306","-uroot","-N","-B","-n","forgejo"]'
+  fi
+}
+
+conformance_one() {
+  local self="$REPO/next/tools/dev-forgejo.sh" rc=0
+  NEXT_FORGEJO_EXTRA_INI="$(conformance_ini)
+${NEXT_FORGEJO_EXTRA_INI:-}"
+  export NEXT_FORGEJO_EXTRA_INI # the suite's restarts (CONFORMANCE_START_CMD) write the same app.ini
+  stop
+  start
+  log "conformance suite against $URL ($db)"
+  (
+    cd "$REPO/next"
+    FORGEJO_URL="${URL%/}" FORGEJO_ADMIN_USER=dev FORGEJO_ADMIN_PASSWORD=devdevdev1 \
+      CONFORMANCE_DB="$db" CONFORMANCE_SQL="$(sql_argv)" PGPASSWORD=postgres \
+      CONFORMANCE_KILL_CMD="'$self' kill $db" CONFORMANCE_STOP_CMD="'$self' stop $db" \
+      CONFORMANCE_START_CMD="'$self' start $db" \
+      CONFORMANCE_MAX_REPLAY=100 \
+      npm run test:conformance -- "$@"
+  ) || rc=$?
+  [ "${NEXT_CONFORMANCE_KEEP:-}" = 1 ] || stop
+  return "$rc"
+}
+
+conformance() {
+  local d failed=""
+  [ "${NEXT_CONFORMANCE_NO_BUILD:-}" = 1 ] || build
+  [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && npm ci --no-audit --no-fund)
+  for d in $conf_dbs; do
+    "$REPO/next/tools/dev-forgejo.sh" conformance-one "$d" "$@" || failed="$failed $d"
+  done
+  if [ -n "$failed" ]; then
+    log "conformance FAILED on:$failed"
+    return 1
+  fi
+  log "conformance passed on: $conf_dbs"
+}
+
 stop() {
   if running; then
     log "stopping pid $(cat "$PIDFILE")"
@@ -142,8 +224,11 @@ case "$cmd" in
 build) build ;;
 start) start ;;
 stop) stop ;;
+kill) kill_server ;;
 restart) stop; build; start ;;
 status) status ;;
 logs) tail -n 50 "$WORK"/log/*.log ;;
-*) echo "usage: $0 {start|stop|restart|status|build|logs} [pg|mysql]" >&2; exit 1 ;;
+conformance) conformance "$@" ;;
+conformance-one) conformance_one "$@" ;;
+*) echo "usage: $0 {start|stop|kill|restart|status|build|logs} [pg|mysql] | conformance [pg|mysql|all] [vitest args…]" >&2; exit 1 ;;
 esac

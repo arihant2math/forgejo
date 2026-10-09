@@ -191,7 +191,7 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
           );
         })}
         {/* No API adds an issue to a project or takes it off (B9): the classic page does. */}
-        {write && path && !isTemp(issue.id) && <span className="text-sm"><TextLink><a href={classicHref(app, path)} title={CLASSIC_HINT}>Change in the classic UI</a></TextLink></span>}
+        {write && path && !isTemp(issue.id) && <span className="text-sm"><TextLink><a href={classicHref(app, path)} title={CLASSIC_HINT} data-classic="">Change in the classic UI</a></TextLink></span>}
       </PropertyValue>
     </Property>
   );

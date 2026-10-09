@@ -12,5 +12,5 @@ import {useApp} from './store.ts';
 /** A menu row that opens a classic page (the account menu, a repository's "More"). */
 export function ClassicMenuItem({to, children, icon = AppWindow}: {to: string; children: string; icon?: typeof AppWindow}) {
   const app = useApp();
-  return <MenuItem icon={icon} href={classicHref(app, to)} hint="classic">{children}</MenuItem>;
+  return <MenuItem icon={icon} href={classicHref(app, to)} classic>{children}</MenuItem>;
 }

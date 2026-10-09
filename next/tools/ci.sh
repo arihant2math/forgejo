@@ -11,7 +11,11 @@
 #                primitive gallery and the hydration benchmark (projects build, dev)
 #   5. conformance  the headless protocol suite (B10) on PostgreSQL and MySQL
 #   6. e2e       the Playwright suite against a real Forgejo (next/e2e/forgejo) on
-#                PostgreSQL and MySQL, perf assertions included
+#                PostgreSQL and MySQL, perf assertions included (the crawler aside)
+#   7. crawl     the link crawler (e2e/forgejo/crawl.spec.ts, tagged @crawl) on its own
+#                fresh instance per database: clicks through the app from Home and
+#                fails on dead ends, unmarked exits to classic pages, console errors,
+#                uncaught exceptions and same-origin HTTP errors
 #
 # Every step runs (a failure does not stop the others); the summary lists each
 # step's result and time, and the perf numbers the e2e suite measured. Exit 1
@@ -20,6 +24,7 @@
 #
 #   next/tools/ci.sh                 # everything
 #   next/tools/ci.sh check e2e       # only these steps
+#   next/tools/ci.sh crawl           # the link crawler alone (both databases)
 #   NEXT_CI_DBS=pg next/tools/ci.sh  # conformance and e2e on one database
 #
 # Needs: Go, Node ≥ 22.18, the dev databases (tools/dev-db.sh, started here), a
@@ -32,7 +37,7 @@ NEXT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${NEXT_CI_OUT:-/var/tmp/forgejo-next-ci/$(date -u +%Y%m%dT%H%M%SZ)}"
 DBS="${NEXT_CI_DBS:-all}"
 STEPS=("$@")
-[ ${#STEPS[@]} -eq 0 ] && STEPS=(install check protocol browser conformance e2e)
+[ ${#STEPS[@]} -eq 0 ] && STEPS=(install check protocol browser conformance e2e crawl)
 mkdir -p "$OUT"
 export NEXT_E2E_PERF_OUT="$OUT/perf.jsonl"
 : >"$NEXT_E2E_PERF_OUT"
@@ -70,8 +75,9 @@ for step in "${STEPS[@]}"; do
   protocol) run protocol "$NEXT/tools/gen-protocol.sh" --check ;;
   browser) run browser npx playwright test --project build --project dev ;;
   conformance) run conformance "$NEXT/tools/dev-forgejo.sh" conformance "$DBS" ;;
-  e2e) run e2e "$NEXT/tools/dev-forgejo.sh" e2e "$DBS" ;;
-  *) echo "[ci] unknown step $step (install check protocol browser conformance e2e)" >&2; exit 2 ;;
+  e2e) run e2e "$NEXT/tools/dev-forgejo.sh" e2e "$DBS" --grep-invert @crawl ;;
+  crawl) run crawl "$NEXT/tools/dev-forgejo.sh" e2e "$DBS" --grep @crawl ;;
+  *) echo "[ci] unknown step $step (install check protocol browser conformance e2e crawl)" >&2; exit 2 ;;
   esac
 done
 

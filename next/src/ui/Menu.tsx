@@ -22,8 +22,10 @@ export interface MenuItemProps {
   danger?: boolean | undefined;
   /** A link (a real anchor: middle-click and "copy link" work); selecting it follows the link. */
   href?: string | undefined;
-  /** Muted text after the label ("classic"). */
+  /** Muted text after the label. */
   hint?: string | undefined;
+  /** The link opens a classic Forgejo page (hinted "classic"; the anchor is marked data-classic). */
+  classic?: boolean | undefined;
   children: ReactNode;
 }
 
@@ -31,10 +33,10 @@ export interface MenuItemProps {
 type Parts = Pick<typeof D, 'Item' | 'CheckboxItem' | 'RadioGroup' | 'RadioItem' | 'ItemIndicator' | 'Label' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal'>;
 
 function makeItems(P: Parts) {
-  function Item({icon, shortcut, danger, href, hint, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children' | 'className' | 'style' | 'asChild'>) {
-    const body = <ItemBody icon={icon} shortcut={shortcut} meta={hint}>{children}</ItemBody>;
+  function Item({icon, shortcut, danger, href, hint, classic, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children' | 'className' | 'style' | 'asChild'>) {
+    const body = <ItemBody icon={icon} shortcut={shortcut} meta={hint ?? (classic ? 'classic' : undefined)}>{children}</ItemBody>;
     const cls = cx(menuItem, danger ? 'text-danger' : 'text-fg');
-    if (href !== undefined) return <P.Item asChild className={cls} {...rest}><a href={href}>{body}</a></P.Item>;
+    if (href !== undefined) return <P.Item asChild className={cls} {...rest}><a href={href} data-classic={classic ? '' : undefined}>{body}</a></P.Item>;
     return <P.Item className={cls} {...rest}>{body}</P.Item>;
   }
   function CheckboxItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.CheckboxItem>, 'children' | 'className' | 'style'>) {

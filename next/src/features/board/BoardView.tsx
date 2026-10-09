@@ -407,7 +407,7 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
         <>
           <ContextMenuSeparator/>
           {/* No API removes a card (B9): the issue's classic page sets its projects. */}
-          <ContextMenuItem icon={SquareMinus} href={classicHref(app, path)} hint="classic">Remove from the board…</ContextMenuItem>
+          <ContextMenuItem icon={SquareMinus} href={classicHref(app, path)} classic>Remove from the board…</ContextMenuItem>
         </>
       )}
     </>

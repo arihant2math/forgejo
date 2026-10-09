@@ -1,8 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Bundle budgets (PLAN §5.8): the boot route may ship at most 150 KB of
-// JavaScript and 30 KB of CSS, brotli-compressed. "Boot route" is everything
+// Bundle budgets (PLAN §5.8): the boot route may ship at most 500 KiB of
+// JavaScript and 30 KiB of CSS, brotli-compressed (1 KiB = 1024 B). The JS
+// limit was 150 KB until 2026-10-09; it was raised by decision of the project
+// owner, not to be spent: keep the boot route as small as before and move
+// work off it, the headroom is for server rendering / streaming the bundle
+// later, not for loading more up front. "Boot route" is everything
 // dist/index.html executes or preloads: inline scripts, the entry module and
 // every <link rel=modulepreload>; CSS is the inline <style> plus any linked
 // stylesheet. It also checks that the whole static import graph of the entry
@@ -19,7 +23,8 @@ import {fileURLToPath} from 'node:url';
 import {brotliCompressSync} from 'node:zlib';
 import {BOOT_ROUTES} from './boot.ts';
 
-export const BUDGET = {js: 150_000, css: 30_000, inlineCss: 10_000} as const;
+const KiB = 1024;
+export const BUDGET = {js: 500 * KiB, css: 30 * KiB, inlineCss: 10 * KiB} as const;
 
 export interface Item {
   name: string;
@@ -176,7 +181,7 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
 }
 
 function format(r: Report): string {
-  const kb = (b: number) => `${(b / 1000).toFixed(1)} KB`.padStart(9);
+  const kb = (b: number) => `${(b / KiB).toFixed(1)} KiB`.padStart(10);
   const lines = r.items
     .toSorted((a, b) => b.br - a.br)
     .map((i) => `${i.kind.padEnd(4)}${kb(i.raw)} raw${kb(i.br)} br  ${i.name}`);

@@ -296,7 +296,11 @@ next/conformance/            B10 headless suite        next/e2e/   F8 Playwright
   (stylelint rule); motion tokens `--speed-in: 0s`, `--speed-out: .15s`,
   `--speed-quick: .1s`; honour `prefers-reduced-motion`; no spinners for local data.
   Heavy work (Shiki, diff parsing, search index) runs in workers.
-* Budgets (CI-enforced from F1): boot-route JS ≤ 150 KB br, CSS ≤ 30 KB br.
+* Budgets (CI-enforced from F1): boot-route JS ≤ **500 KiB** br, CSS ≤ 30 KiB br (`tools/budget.ts` `BUDGET`, also
+  asserted by `e2e/forgejo/perf.spec.ts`). The JS limit was 150 KB until 2026-10-09, when the project owner raised it.
+  It is a ceiling, not an allowance: fast loads still come first. Keep new code off the boot route (lazy routes and
+  chunks) as before; the headroom is there for a later foundation pass (server rendering of the first view, streaming
+  the bundle), not for loading more up front.
 * Keyboard first: every action reachable from the shortcut registry and ⌘K.
 * Generated protocol types (`next/src/protocol/types.gen.ts`) are the only definition of
   wire shapes on the client.
@@ -3958,7 +3962,7 @@ does) **and** MySQL 8.0 (binlog on).
     * B8: under a Forgejo `AppSubURL`, the fixed base `/-/next/` needs Vite `experimental.renderBuiltUrl` or rewriting when served.
     * The favicon is `data:,` for now (no request); B8 can point it at Forgejo's.
   * **Budget (`tools/budget.ts`, `npm run budget`).** Sizes are brotli q11, with 1 KB = 1000 B:
-    * JS: inline scripts plus every `<script src>` and `<link rel=modulepreload>` in `dist/index.html` (attributes parsed in any order). Limit 150 KB.
+    * JS: inline scripts plus every `<script src>` and `<link rel=modulepreload>` in `dist/index.html` (attributes parsed in any order). Limit 150 KB (raised to 500 KiB on 2026-10-09, see §2.4; the report is now in KiB).
     * CSS: inline `<style>` plus any linked stylesheet. Limit 30 KB, of which inline at most 10 KB.
     * It fails when:
       * any chunk in the static closure of the entry, or of a `BOOT_ROUTES` module, is not preloaded (no late discovery);

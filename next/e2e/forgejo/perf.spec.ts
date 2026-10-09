@@ -9,7 +9,8 @@
 // NEXT_E2E_PERF_OUT (tools/ci.sh's report; IMPLEMENTATION.md F8 has them).
 //
 //   target (PLAN)                                    measured as                                     asserted
-//   boot-route JS ≤ 150 KB br, CSS ≤ 30 KB br         what Forgejo serves for /-/next/, brotli q11     ≤ budget
+//   boot-route JS ≤ 500 KiB br, CSS ≤ 30 KiB br       what Forgejo serves for /-/next/, brotli q11     ≤ budget
+//   (tools/budget.ts BUDGET)
 //   warm boot → interactive issue list < 300 ms      navigation start → the list's first row in the   median of 8 < 300 ms
 //   (PLAN: p75; p75 is recorded)                     DOM (React committed it: handlers attached), no  (p75 recorded)
 //                                                    bootstrap or load fetched
@@ -41,6 +42,7 @@ import {changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
 import {storedGroup, swReady} from '../lib/device.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {median, quantile, record} from '../lib/perf.ts';
+import {BUDGET} from '../../tools/budget.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 // Not serial: one target missed does not keep the others from being measured (the fixtures are idempotent).
@@ -116,9 +118,9 @@ test('the boot route Forgejo serves stays within the JS and CSS budgets', async 
   const transferred = await page.evaluate((boot) => performance.getEntriesByType('resource')
     .filter((e) => boot.includes(new URL(e.name).pathname))
     .reduce((n, e) => n + (e as PerformanceResourceTiming).encodedBodySize, 0), Object.keys(files).map((f) => new URL(f, `${BASE}/`).pathname));
-  record('budget: boot JS', [js / 1000], {cssKBbr: css / 1000, transferredJsKB: transferred / 1000, files: Object.keys(files).length}, 'KB br');
-  expect(js).toBeLessThanOrEqual(150_000);
-  expect(css).toBeLessThanOrEqual(30_000);
+  record('budget: boot JS', [js / 1024], {cssKiBbr: css / 1024, transferredJsKiB: transferred / 1024, files: Object.keys(files).length}, 'KiB br');
+  expect(js).toBeLessThanOrEqual(BUDGET.js);
+  expect(css).toBeLessThanOrEqual(BUDGET.css);
 });
 
 // ── Warm boot ──────────────────────────────────────────────────────────────

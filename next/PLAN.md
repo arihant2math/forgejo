@@ -608,7 +608,10 @@ discarded.
   each mutation `localApplied → acked → confirmed`. Also offline-queue depth and
   conflict outcomes. These go to a first-party `/-/sync/rum`.
 * `localStorage.profile=1` turns on React Profiler builds.
-* CI budgets: boot-route JS ≤ 150 KB br, CSS ≤ 30 KB br. Playwright perf
+* CI budgets: boot-route JS ≤ 500 KiB br (raised from 150 KB by the project owner,
+  2026-10-09: the limit is a ceiling, not an allowance; fast first load comes from
+  keeping the boot route small, and later from server rendering and streaming the
+  bundle), CSS ≤ 30 KiB br. Playwright perf
   assertions: local mutation < 16 ms, warm boot < 300 ms, offline warm boot < 300 ms.
 
 ---

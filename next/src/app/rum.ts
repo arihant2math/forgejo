@@ -41,6 +41,7 @@ import {
   RUMCaughtUp, RUMDataOpen, RUMFirstPaintFromCache, RUMHydrateAll, RUMHydrateRoute, RUMInteraction, RUMWSOpen,
 } from '../protocol/types.gen.ts';
 import {disturbedSince, putBack, sample, takeCollected} from '../sync/rum.ts';
+import {netSignal} from '../sync/net.ts';
 
 /** Boot marks: the report's name → the performance entry (a mark, or a measure's end), and whether it needs the network. */
 const BOOT: readonly (readonly [RUMMark, string, boolean])[] = [
@@ -57,6 +58,8 @@ export const MAX_REPORTS = 3;
 /** Reports a minute for all tabs of this browser (the server allows 10 per address). */
 export const TAB_BUDGET = 6;
 const MAX_MS = 10 * 60_000;
+/** A report not accepted within this time is given up (it holds one of the host's connections; ms). */
+const POST_MS = 15_000;
 const BUDGET_KEY = 'forgejo-next:rum';
 
 export interface RumEnv {
@@ -258,7 +261,7 @@ export class RumReporter {
     try {
       return await (this.env.fetch ?? fetch)(this.env.url, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(report),
-        credentials: 'omit', cache: 'no-store', keepalive,
+        credentials: 'omit', cache: 'no-store', keepalive, ...keepalive ? {} : {signal: netSignal(POST_MS)},
       });
     } catch {
       return undefined;

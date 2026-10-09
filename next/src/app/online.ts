@@ -24,3 +24,13 @@ if (typeof window !== 'undefined') {
 export function onlineOnly(action: string): string {
   return `${action} needs a connection: it is not queued offline.`;
 }
+
+/**
+ * Whether Forgejo can be asked now: `offline` (the browser, or the sync connection, says so), `unreachable` (the
+ * browser is online but Forgejo has not answered: a stalled network, where a request would only hang until its
+ * deadline) or `online`. Pass the sync status' connection; observable through `connectivity`.
+ */
+export function reach(connection: string | undefined): 'online' | 'offline' | 'unreachable' {
+  if (!connectivity.online || connection === 'offline') return 'offline';
+  return connection === 'unreachable' ? 'unreachable' : 'online';
+}

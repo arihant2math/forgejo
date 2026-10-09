@@ -13,7 +13,7 @@ import type {ReactNode} from 'react';
 import {Button, EmptyState, Icon, type LucideIcon} from '../ui/index.ts';
 import {AvailableOffline} from './Available.tsx';
 import {ClassicLink} from './ClassicLink.tsx';
-import {connectivity} from './online.ts';
+import {reach} from './online.ts';
 import {useApp} from './store.ts';
 
 export interface MissingProps {
@@ -33,11 +33,12 @@ export interface MissingProps {
  * "This repository's files are", "Its description and comments are"). A subject is plural when it starts with
  * "These" or "Those", joins two things with "and", or names a plural noun last ("…'s files", "…'s changes").
  */
-export function missingWords(what: string): {offline: string; notFound: string; tooLarge: string} {
+export function missingWords(what: string): {offline: string; unreachable: string; notFound: string; tooLarge: string} {
   const plural = /^(?:these|those)\b/i.test(what) || /\band\b/i.test(what) || /'s \w+(?:s|es)$/i.test(what) && !/'s \w*ss$/i.test(what);
   const [be, it] = plural ? ['are', 'them'] : ['is', 'it'];
   return {
     offline: `${what} ${be} not on this device. Connect to load ${it}, or open one of these:`,
+    unreachable: `${what} ${be} not on this device, and Forgejo is not answering. ${plural ? 'They load' : 'It loads'} once it is back; meanwhile open one of these:`,
     notFound: `${what} ${plural ? 'do' : 'does'} not exist, or you cannot see ${it}.`,
     tooLarge: `${what} ${be} too large for this view: open ${it} in the classic UI.`,
   };
@@ -45,11 +46,11 @@ export function missingWords(what: string): {offline: string; notFound: string; 
 
 export const Missing = observer(function Missing({what, title, description, icon, classic}: MissingProps) {
   const app = useApp();
-  const offline = !connectivity.online || app.session?.data.status.connection === 'offline';
-  if (offline) {
+  const r = reach(app.session?.data.status.connection);
+  if (r !== 'online') {
     return (
       <div className="flex flex-col items-center">
-        <EmptyState icon={CloudOff} title="Not available offline" description={missingWords(what).offline}/>
+        <EmptyState icon={CloudOff} title={r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo'} description={missingWords(what)[r]}/>
         <AvailableOffline/>
       </div>
     );

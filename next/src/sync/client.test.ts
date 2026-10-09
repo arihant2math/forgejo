@@ -310,6 +310,45 @@ describe('connection', () => {
     expect(t.c.status.transport).toBe('sse');
   });
 
+  test('a stalled network: a hung bootstrap is aborted when the session dies, and loads again after the next welcome', async () => {
+    const t = setup();
+    t.server.workspace.groups = [{group: 'repo:1', units: ['issues'], reason: 'owner'}];
+    t.server.boots.set('repo:1', [{watermark: 20, units: ['issues'], lines: [issueChange(1, 20, 'a')], hang: true}]);
+    const ws = await connected(t);
+    ws.emit(welcome());
+    await vi.waitFor(() => {
+      expect(t.server.requests.filter((r) => r.includes('group=repo')).length).toBe(1);
+    });
+    ws.close(1006); // the connection dies: the hung request is aborted, not left holding a connection
+    await vi.waitFor(() => {
+      expect(FakeWS.all.length).toBe(2);
+    });
+    expect(t.c.status.loading).toBe(1);
+    expect(t.server.requests.filter((r) => r.includes('group=repo')).length).toBe(1); // waits for the network
+    const ws2 = t.ws();
+    ws2.open();
+    await vi.waitFor(() => {
+      expect(ws2.last('hello')).toBeDefined();
+    });
+    ws2.emit(welcome());
+    await vi.waitFor(() => {
+      expect(t.pool.model('Issue').size).toBe(1);
+    });
+    expect(t.server.requests.filter((r) => r.includes('group=repo')).length).toBe(2);
+  });
+
+  test('while unreachable, a new attempt keeps the state (no flapping to "Connecting")', async () => {
+    const t = setup({transport: 'ws'});
+    t.c.start();
+    for (let i = 1; i <= 4; i++) {
+      await vi.waitFor(() => {
+        expect(FakeWS.all.length).toBe(i);
+      });
+      if (i >= 4) expect(t.c.status.connection).toBe('unreachable');
+      t.ws().close(1006);
+    }
+  });
+
   test('a missing pong closes the session', async () => {
     const t = setup({extra: {pingInterval: 5, pongTimeout: 5}});
     const ws = await connected(t);

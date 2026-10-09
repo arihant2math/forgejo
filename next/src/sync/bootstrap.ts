@@ -13,6 +13,7 @@ import {isModel} from '../data/models.ts';
 import type {Pool} from '../data/pool.ts';
 import type {BootstrapEnd, BootstrapHeader, Change} from '../protocol/types.gen.ts';
 import {ndjsonLines} from './ndjson.ts';
+import {netSignal} from './net.ts';
 import {replaceGroup} from './replace.ts';
 
 export class HttpError extends Error {
@@ -46,7 +47,12 @@ export interface LoadRequest {
   /** Called before each batch is applied; false stops applying (the group was released). */
   live?: () => boolean;
   fetch?: typeof fetch;
+  /** How long a load may receive nothing before it is given up (ms, default STALL_MS). */
+  stallMs?: number;
 }
+
+/** A load that receives nothing for this long is given up and retried (ms). */
+export const STALL_MS = 20_000;
 
 export interface LoadResult {
   header: BootstrapHeader;
@@ -72,12 +78,30 @@ export function loadURL(req: LoadRequest): string {
 export async function load(pool: Pool, req: LoadRequest): Promise<LoadResult> {
   const t0 = performance.now();
   const f = req.fetch ?? fetch;
+  // A load that receives nothing for STALL_MS is given up (a stalled network: see net.ts); a large one that
+  // keeps streaming is never cut.
+  const stall = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const alive = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      stall.abort(new DOMException('the load received nothing for a while', 'TimeoutError'));
+    }, req.stallMs ?? STALL_MS);
+  };
+  alive();
   const init: RequestInit = {
     headers: {Authorization: `Bearer ${req.token}`, Accept: 'application/x-ndjson'},
     cache: 'no-store',
+    signal: netSignal(undefined, req.signal ? AbortSignal.any([req.signal, stall.signal]) : stall.signal),
   };
-  if (req.signal) init.signal = req.signal;
-  const res = await f(loadURL(req), init);
+  try {
+    return await loadResponse(pool, req, await f(loadURL(req), init), t0, alive);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function loadResponse(pool: Pool, req: LoadRequest, res: Response, t0: number, alive: () => void): Promise<LoadResult> {
   if (!res.ok || !res.body) {
     let message = res.statusText;
     try {
@@ -98,6 +122,7 @@ export async function load(pool: Pool, req: LoadRequest): Promise<LoadResult> {
   let bytes = 0;
   const live = req.live ?? (() => true);
   for await (const lines of ndjsonLines(res.body)) {
+    alive();
     if (!live()) throw new DOMException('released', 'AbortError');
     if (end) throw new Error('bootstrap: data after the end line');
     const changes: Change[] = [];

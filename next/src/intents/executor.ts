@@ -53,6 +53,7 @@ import {
   HeaderIdempotencyKey, HeaderSyncID, RUMConflictDiscarded, RUMConflictMerged, RUMConflictOverride, RUMIntentFailed, RUMIntentFlushed,
   RUMIntentRetried, RUMMutationAcked, RUMMutationConfirmed, RUMMutationLocal,
 } from '../protocol/types.gen.ts';
+import {netSignal} from '../sync/net.ts';
 import {count, queueDepth, sample} from '../sync/rum.ts';
 import {effectHeld, lastChangedBy, scalarField, serverScalar} from './effects.ts';
 import {chainOf, CREATES, describeIntent, groupOf, type Intent, type IntentInput, intentOps, intentText, isTemp, type Names, newIntent, POLICY, remapIntent, tempNum, tempRefs, uuid} from './intents.ts';
@@ -964,7 +965,7 @@ export class Intents {
         credentials: 'omit',
         // The API answers writes directly: never follow a redirect with the token.
         redirect: 'manual',
-        signal: AbortSignal.timeout(30_000),
+        signal: netSignal(30_000),
       });
       if (this.closed) return undefined;
       return res;

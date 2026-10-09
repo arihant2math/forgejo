@@ -26,7 +26,7 @@ import {
   Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
 } from '../../ui/index.ts';
 import {Missing} from '../../app/Missing.tsx';
-import {connectivity} from '../../app/online.ts';
+import {reach} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {useUser} from '../issues/cells.tsx';
@@ -223,7 +223,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   if (!body) {
     // Offline, an issue never opened on this device has no description here (and nothing more can arrive):
     // say so, as the code views do, instead of a placeholder that never resolves.
-    if (data.status.connection === 'offline' || !connectivity.online) {
+    if (reach(data.status.connection) !== 'online') {
       // With what is on this device (the sentence ends "open one of these:").
       return <Missing what="Its description and comments"/>;
     }

@@ -32,6 +32,7 @@ import {ProtocolVersion} from '../protocol/types.gen.ts';
 import {HttpError, load, type LoadResult} from './bootstrap.ts';
 import {type GroupState, GroupTable} from './groups.ts';
 import {sameUnits} from './replace.ts';
+import {dropRequests, isNetAbort, netSignal} from './net.ts';
 import {markOnce} from './rum.ts';
 import {openSSE, openWebSocket, type Transport, type TransportEnv} from './transport.ts';
 
@@ -143,6 +144,8 @@ interface Session {
   reqSeq: number;
   /** Until the welcome: a connection that neither opens nor fails (dead Wi-Fi, a captive portal) is given up. */
   handshake?: ReturnType<typeof setTimeout> | undefined;
+  /** When the transport was opened (now()). */
+  started: number;
 }
 
 /** A tailed job log: who wants it, and where the session resumes it (the lines received so far of a task). */
@@ -165,6 +168,9 @@ const HEALTH_PROBE_MS = 2000;
  * then closed and Forgejo counts as unreachable at once, with Retry (QA round 2: it read "Connecting" for good).
  */
 const HANDSHAKE_MS = 8000;
+/** The workspace request's deadline, and the wait before it is asked again in the same session (ms). */
+const WORKSPACE_MS = 15_000;
+const WORKSPACE_RETRY_MS = 5000;
 
 /** Timeline events whose rows are not delivered as deltas (B6 conditionals): their issue is loaded again. */
 const CONDITIONAL_EVENTS: ReadonlySet<string> = new Set(['add_dependency', 'remove_dependency', 'issue_ref', 'comment_ref', 'pull_ref', 'change_issue_ref']);
@@ -185,6 +191,11 @@ export class SyncClient {
   private probeTimer: ReturnType<typeof setTimeout> | undefined;
   private transportKind: 'ws' | 'sse';
   private failedOpens = 0;
+  /**
+   * The connection was found dead (a stall: see net.ts): requests in flight were aborted, and bootstraps wait
+   * for the next welcome (or a health probe that answers) instead of hanging on the dead network again.
+   */
+  private netDown = false;
   /** Tab holds (not persisted): group → holders. */
   private readonly ephemeral = new Map<string, Set<string>>();
   private live = new Set<string>();
@@ -517,7 +528,9 @@ export class SyncClient {
       this.setStatus({connection: 'offline'});
       return; // the online event reconnects
     }
-    this.setStatus({connection: 'connecting', transport: this.transportKind});
+    // While Forgejo counts as unreachable, an attempt does not flip the indicator back to "Connecting" (it
+    // flapped every few seconds while a stalled network recovered); the welcome makes it live.
+    this.setStatus({connection: this.status.connection === 'unreachable' ? 'unreachable' : 'connecting', transport: this.transportKind});
     const handlers = {
       open: () => {
         void this.opened(session);
@@ -534,7 +547,7 @@ export class SyncClient {
     const session: Session = {
       transport: undefined as unknown as Transport,
       welcomed: false, subs: new Map(), barriers: new Map(), ping: undefined, pong: undefined, limited: new Set(), everCaughtUp: false,
-      pending: [], reqSeq: 0,
+      pending: [], reqSeq: 0, started: this.now(),
     };
     this.session = session;
     session.handshake = setTimeout(() => {
@@ -577,6 +590,7 @@ export class SyncClient {
   }
 
   private closed(info: {opened: boolean; code?: number; reason?: string}): void {
+    this.lost();
     this.endSession();
     if (this.stopped || this.status.connection === 'unauthorized') return;
     if (!info.opened && this.o.transport !== 'ws' && this.o.transport !== 'sse') {
@@ -587,6 +601,24 @@ export class SyncClient {
       }
     }
     this.scheduleReconnect();
+  }
+
+  /**
+   * The session's transport died, a handshake hung or a pong did not come: requests still in flight may sit on
+   * the same dead network. They are aborted (and bootstraps queued again) so that once the network is back,
+   * the browser's connections are free for the new session's requests.
+   */
+  private lost(): void {
+    this.netDown = true;
+    for (const g of this.running.keys()) this.queue.add(g);
+    dropRequests();
+  }
+
+  /** The network works again (a welcome, or a health probe answered): queued bootstraps may run. */
+  private netUp(): void {
+    if (!this.netDown) return;
+    this.netDown = false;
+    this.pump();
   }
 
   private endSession(): void {
@@ -624,11 +656,23 @@ export class SyncClient {
     if (this.probeTimer !== undefined || this.stopped) return;
     this.probeTimer = setTimeout(() => {
       this.probeTimer = undefined;
-      if (this.stopped || this.session || this.reconnectTimer === undefined || offline()) return;
+      if (this.stopped || this.session?.welcomed || offline()) return;
+      if (!this.session && this.reconnectTimer === undefined) return;
       const f = this.o.env?.fetch ?? fetch;
       void f(`${this.o.endpoint}/health`, {cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(HEALTH_PROBE_MS)}).then((res) => {
-        if (res.ok) this.retryNow();
-        else this.probeHealth();
+        if (!res.ok) {
+          this.probeHealth();
+          return;
+        }
+        this.netUp();
+        // A handshake begun while the network was stalled may hang on a dead connection: start afresh.
+        if (this.session && !this.session.welcomed && this.now() - this.session.started >= HEALTH_PROBE_MS) {
+          this.endSession();
+          this.attempts = 0;
+          this.connect();
+        } else if (!this.session) {
+          this.retryNow();
+        }
       }, () => {
         this.probeHealth();
       });
@@ -641,6 +685,7 @@ export class SyncClient {
     this.attempts = 0;
     clearTimeout(this.probeTimer);
     this.probeTimer = undefined;
+    this.netUp();
     this.connect();
   }
 
@@ -735,6 +780,7 @@ export class SyncClient {
     }
     session.welcomed = true;
     clearTimeout(session.handshake);
+    this.netDown = false;
     // Every persisted version is at most the server's position: purges from now on cover what hydration has not read yet.
     this.pool.noteVersion(msg.server_sync_id);
     this.serverPos = Math.max(this.serverPos, msg.server_sync_id);
@@ -1136,11 +1182,18 @@ export class SyncClient {
     try {
       const token = await this.o.auth.token();
       const f = this.o.env?.fetch ?? fetch;
-      const res = await f(`${this.o.endpoint}/workspace`, {headers: {Authorization: `Bearer ${token}`}, cache: 'no-store'});
+      const res = await f(`${this.o.endpoint}/workspace`, {headers: {Authorization: `Bearer ${token}`}, cache: 'no-store', signal: netSignal(WORKSPACE_MS)});
       if (!res.ok) throw new HttpError(res.status, res.statusText);
       ws = await res.json() as Workspace;
     } catch (err) {
       this.setStatus({lastError: `workspace: ${String(err)}`});
+      // Asked again while this session lasts (a stall or a timeout); a new session asks anyway.
+      const session = this.session;
+      if (session?.welcomed && isNetAbort(err)) {
+        setTimeout(() => {
+          if (this.session === session && !this.stopped) void this.refreshWorkspace();
+        }, WORKSPACE_RETRY_MS);
+      }
       return;
     }
     if (this.stopped || ws.viewer_id !== this.o.userId) return;
@@ -1184,7 +1237,7 @@ export class SyncClient {
 
   private pump(): void {
     if (this.stopped || this.status.connection === 'unauthorized') return;
-    if (offline()) return;
+    if (offline() || this.netDown) return;
     const now = this.now();
     let nextRetry = Number.POSITIVE_INFINITY;
     while (this.running.size < this.o.maxBootstraps) {
@@ -1250,7 +1303,15 @@ export class SyncClient {
       this.pump();
       return;
     }
-    if (!ok && err !== undefined) await this.loadFailed(group, err);
+    if (!ok && err !== undefined) {
+      if (this.netDown && isNetAbort(err)) {
+        this.queue.add(group); // the connection died under it: again once the network is back, no backoff
+      } else {
+        // A load that stalled: is the session still there? (A dead one is closed by the missing pong.)
+        if (isNetAbort(err) && this.session?.welcomed) this.probe(this.session);
+        await this.loadFailed(group, err);
+      }
+    }
     this.o.persister.schedule();
     this.pump();
   }

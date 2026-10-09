@@ -20,6 +20,7 @@ import {sitePath} from '../app/config.ts';
 import {appWorkerURL} from '../app/trusted.ts';
 import type {App, Session} from '../app/store.ts';
 import {APIPrefix, type APIBlame, type APIMarkupRequest, type APIMarkupResponse, type APITree, type APITreeEntry} from '../protocol/types.gen.ts';
+import {netSignal} from '../sync/net.ts';
 import type {CodeWorkerApi, Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
@@ -324,7 +325,7 @@ export class CodeSource {
         ...(body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)}),
         credentials: 'omit',
         redirect: 'manual',
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
+        signal: netSignal(60_000, signal),
       });
     } catch (err) {
       if (signal?.aborted) throw err;

@@ -17,7 +17,7 @@ import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {lazyComponent, whenIdle} from '../../app/lazy.tsx';
 import {preloadEditor} from '../editor/Composer.tsx';
-import {connectivity} from '../../app/online.ts';
+import {reach} from '../../app/online.ts';
 import {isListPath} from '../../app/paths.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
@@ -263,7 +263,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
     if (!pager.done && !pager.loading) pager.more();
   }, [pager, pager.loading, pager.done]);
   // Offline nothing more can arrive: say so at once (no placeholder that never resolves).
-  const offline = data.status.connection === 'offline' || !connectivity.online;
+  const offline = reach(data.status.connection) !== 'online';
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>

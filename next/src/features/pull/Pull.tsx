@@ -23,7 +23,7 @@ import {online, RequestFailed} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
-import {connectivity, onlineOnly} from '../../app/online.ts';
+import {connectivity, onlineOnly, reach} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -623,7 +623,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   if (!pr) return null;
   const repo = pool.model('Repository').get(pr.base_repo_id)?.data;
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
-  const isOnline = connectivity.online;
+  // A stalled network counts as offline: the request would only hang until its deadline.
+  const isOnline = reach(session.data.status.connection) === 'online';
   const closed = issue.get('state') === 'closed';
   const write = canWrite(session, pr.base_repo_id);
   const path = repo ? `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}` : '';

@@ -105,6 +105,8 @@ export interface Boot {
   incomplete?: boolean;
   /** The response is sent once this resolves. */
   gate?: Promise<void>;
+  /** The request never answers (a stalled network) until its signal aborts it; the next one is served. */
+  hang?: boolean;
 }
 
 export class Server {
@@ -128,6 +130,15 @@ export class Server {
       if (list[0] !== b) list.unshift(b);
       this.requests.pop();
       return gate.then(() => this.fetch(input, init));
+    }
+    if (b?.hang) {
+      delete b.hang;
+      if (list[0] !== b) list.unshift(b);
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(init.signal?.reason as Error);
+        }, {once: true});
+      });
     }
     if (!b) return Promise.resolve(new Response('{"message":"Not Found"}', {status: 404}));
     if (b.status) {

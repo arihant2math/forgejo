@@ -9,6 +9,10 @@
 // ServerMessages and accept ClientMessages; neither reconnects by itself.
 
 import type {ClientMessage, ServerMessage} from '../protocol/types.gen.ts';
+import {netSignal} from './net.ts';
+
+/** A message POSTed over SSE that is not accepted within this time ends the transport (ms). */
+const SEND_MS = 15_000;
 
 export interface TransportHandlers {
   /** The transport can send. */
@@ -135,6 +139,7 @@ export function openSSE(endpoint: string, h: TransportHandlers, env: TransportEn
           headers: {'Content-Type': 'application/json', 'X-Livesync-Session': id},
           body,
           cache: 'no-store',
+          signal: netSignal(SEND_MS),
         });
         if (!res.ok) finish({code: res.status, reason: 'send failed'});
       }).catch(() => {

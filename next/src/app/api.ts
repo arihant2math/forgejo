@@ -9,6 +9,7 @@
 
 import {uuid} from '../intents/intents.ts';
 import {APIPrefix, HeaderIdempotencyKey} from '../protocol/types.gen.ts';
+import {netSignal} from '../sync/net.ts';
 import {sitePath} from './config.ts';
 import type {App} from './store.ts';
 
@@ -38,7 +39,6 @@ export async function online<T = unknown>(app: App, req: OnlineRequest): Promise
   const method = req.method ?? 'GET';
   const token = await s.auth.token();
   const body = req.body === undefined ? undefined : JSON.stringify(req.body);
-  const signals = [AbortSignal.timeout(req.timeout ?? 15_000), ...(req.signal ? [req.signal] : [])];
   let res: Response;
   try {
     res = await fetch(sitePath(app.config, `${req.api === 'v1' ? '/api/v1' : APIPrefix}${req.path}`), {
@@ -52,7 +52,7 @@ export async function online<T = unknown>(app: App, req: OnlineRequest): Promise
       ...(body === undefined ? {} : {body}),
       credentials: 'omit',
       redirect: 'manual',
-      signal: AbortSignal.any(signals),
+      signal: netSignal(req.timeout ?? 15_000, req.signal),
     });
   } catch (err) {
     if (req.signal?.aborted) throw err;

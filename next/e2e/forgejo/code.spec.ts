@@ -97,6 +97,10 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   // Hostile file name and content: text.
   await page.goto(code('src/branch/main/docs'));
   await page.getByRole('option', {name: /onerror/}).click();
+  // A markdown file opens rendered (scrubbed: no script, no event handler); its source is text.
+  await expect(page.getByRole('radio', {name: 'Preview'})).toBeVisible({timeout: 15_000});
+  expect(await page.locator('main script, main [onerror]').count()).toBe(0);
+  await page.getByRole('radio', {name: 'Source'}).click();
   await expect(page.getByText('<img src=x onerror=alert(2)>')).toBeVisible({timeout: 15_000});
   expect(await page.locator('main img').count()).toBe(0);
   // A name with a space.
@@ -140,7 +144,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   // Merge is online only: disabled offline, with the reason.
   await page.getByRole('link', {name: 'Conversation'}).click();
-  await expect(page.getByRole('button', {name: 'Merge', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Merge…', exact: true})).toBeDisabled();
   await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
   await page.getByRole('link', {name: 'Files'}).click();
   await expect(list).toBeVisible();

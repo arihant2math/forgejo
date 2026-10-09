@@ -181,8 +181,8 @@ test('the service worker update path: a new build waits, "Reload" activates it',
     await expect(notice).toBeVisible({timeout: 30_000});
     await notice.getByRole('button', {name: 'Reload'}).click();
     await page.waitForLoadState('load');
-    // The page reloads into the new build; its old build's cache is gone.
-    await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith('forgejo-next-'))).catch(() => []), {timeout: 30_000})
+    // The page reloads into the new build; its old build's cache is gone (the avatars' cache is kept across builds).
+    await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith('forgejo-next-') && k !== 'forgejo-next-avatars')).catch(() => []), {timeout: 30_000})
       .toEqual([`forgejo-next-${next}`]);
     await expect.poll(() => page.evaluate(() => document.querySelector('meta[name="forgejo-next-build"]')?.getAttribute('content')).catch(() => ''), {timeout: 30_000}).toBe(next);
   } finally {

@@ -53,6 +53,8 @@ function read(userId: number): SavedView[] {
 
 export class ViewStore {
   readonly views = observable.array<SavedView>([], {deep: false});
+  /** The view the list on screen was opened from (a sidebar or palette pick): the list says when it changed. */
+  readonly opened = observable.box<string | undefined>(undefined);
   private readonly userId: number;
 
   constructor(userId: number) {
@@ -98,6 +100,17 @@ export class ViewStore {
 
   remove(id: string): void {
     this.write(read(this.userId).filter((v) => v.id !== id));
+  }
+
+  /** The view now shows this search (its list's filters, grouping and ordering as they are). */
+  update(id: string, search: SavedView['search']): void {
+    this.write(read(this.userId).map((v) => (v.id === id ? parseView({...v, search}) ?? v : v)));
+  }
+
+  open(id: string): void {
+    runInAction(() => {
+      this.opened.set(id);
+    });
   }
 
   /** The saved view that is exactly this page and search, if any. */

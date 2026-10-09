@@ -281,7 +281,10 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
 
   const views = untracked(() => (app.session ? viewStore(app.session.userId).views.slice() : [])).map((v) => ({v, s: match(v.name)})).filter((x) => x.s >= 0);
   add('Views', words.length ? best(views.map((x) => x.s)) + NAMED_BONUS : 70, views.map(({v}) => ({
-    value: `view:${v.id}`, icon: Layers, label: v.name, run: () => void navigate({to: v.path, search: v.search as never}),
+    value: `view:${v.id}`, icon: Layers, label: v.name, run: () => {
+      if (app.session) viewStore(app.session.userId).open(v.id);
+      void navigate({to: v.path, search: v.search as never});
+    },
   })));
 
   if (words.length) {

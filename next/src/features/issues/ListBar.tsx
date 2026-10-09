@@ -9,7 +9,7 @@
 // view is a link; the list recomputes locally on every change.
 
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
-import {FolderGit2, Layers, ListFilter, Rows3, Search, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
+import {ChevronDown, FolderGit2, Layers, ListFilter, Pencil, Rows3, Save, Search, Trash2, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useRef, useState} from 'react';
@@ -20,10 +20,11 @@ import type {IssueListModel} from './list.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {SaveViewDialog} from '../views/SaveView.tsx';
-import {viewStore} from '../views/views.ts';
+import {type SavedView, viewStore} from '../views/views.ts';
+import {notify} from '../../app/notices.ts';
 import {
-  Avatar, Badge, Button, CommandPopover, Icon, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
-  MenuTrigger, type PickOption,
+  Avatar, Button, CommandPopover, Icon, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  MenuTrigger, type PickOption, PromptDialog,
 } from '../../ui/index.ts';
 import {ResultCount, SelectionCount, usePool} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
@@ -87,7 +88,11 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
   useShortcut('view.save', () => {
     setSaving(true);
   });
-  const saved = viewStore(userId).match(path, viewSearch);
+  const store = viewStore(userId);
+  const saved = store.match(path, viewSearch);
+  // The view this list was opened from, also once its filters changed (then it can be updated, or saved as another).
+  const openedId = store.opened.get();
+  const origin = saved ?? store.views.find((v) => v.id === openedId && v.path === path);
   // "/" searches the list (Linear, GitHub).
   const searchRef = useRef<HTMLInputElement>(null);
   useShortcut('list.search', () => {
@@ -101,7 +106,9 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       {saving && <SaveViewDialog path={path} search={viewSearch} onClose={() => {
         setSaving(false);
       }}/>}
-      {saved && <Badge><Icon icon={Layers} size="sm"/>{saved.name}</Badge>}
+      {origin && <ViewMenu view={origin} changed={!saved} search={viewSearch} onSaveAs={() => {
+        setSaving(true);
+      }}/>}
       <SelectionCount cursor={model.cursor}/>
       <ResultCount model={model}/>
       {stateButtons && STATES.map((s) => (
@@ -343,7 +350,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: 
   // Read untracked: the menu does not re-render on every issue of the workspace (it is built again when it renders).
   else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
   return (
-    <CommandPopover label="Filter" placeholder={repoId === undefined ? 'Filter by status, label, repository or author…' : 'Filter by status, label, person or milestone…'}
+    <CommandPopover label="Filter" placeholder="Filter by…"
       width="md" options={options} empty="Nothing to filter by is on this device."
       onOpenChange={(open) => {
         if (open && repoId !== undefined) loadPeople(app, repoId);
@@ -390,3 +397,48 @@ function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
   }});
   return out;
 }
+
+/**
+ * The saved view on screen: its name, "changed" once the list's filters, grouping or ordering differ from it, and
+ * what can be done with it here (update it with the list as it is, save that as another view, rename, remove).
+ */
+const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {view: SavedView; changed: boolean; search: SavedView['search']; onSaveAs: () => void}) {
+  const app = useApp();
+  const {userId} = useSession();
+  const store = viewStore(userId);
+  const [renaming, setRenaming] = useState(false);
+  return (
+    <>
+      <Menu>
+        <MenuTrigger asChild>
+          <Button size="sm" variant="ghost" icon={Layers} aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
+            {view.name}{changed && <span className="text-fg-subtle">· changed</span>}<Icon icon={ChevronDown} size="sm"/>
+          </Button>
+        </MenuTrigger>
+        <MenuContent>
+          <MenuItem icon={Save} disabled={!changed} onSelect={() => {
+            store.update(view.id, search);
+            notify(app, {tone: 'neutral', title: `Updated the view “${view.name}”`});
+          }}>Update the view with these filters</MenuItem>
+          <MenuItem icon={Layers} onSelect={onSaveAs}>Save as a new view…</MenuItem>
+          <MenuSeparator/>
+          <MenuItem icon={Pencil} onSelect={() => {
+            setRenaming(true);
+          }}>Rename the view…</MenuItem>
+          <MenuItem icon={Trash2} danger onSelect={() => {
+            const removed = view;
+            store.remove(view.id);
+            notify(app, {tone: 'neutral', title: `Removed the view “${removed.name}”`, action: {label: 'Undo', run: () => {
+              store.save(removed.name, removed.path, removed.search);
+            }}});
+          }}>Remove the view</MenuItem>
+        </MenuContent>
+      </Menu>
+      {renaming && <PromptDialog title="Rename the view" label="View name" initial={view.name} maxLength={80} onClose={() => {
+        setRenaming(false);
+      }} onSave={(name) => {
+        store.rename(view.id, name);
+      }}/>}
+    </>
+  );
+});

@@ -364,8 +364,26 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
     const b = commentBody(overlay, c);
     return {text: b.text, version: b.local ? -1 : c.data.content_version, updated: c.data.updated_at};
   }));
+  const draftKey = `text:comment:${String(c.id)}`;
+  // Deleted on Forgejo while it was being edited: the editor goes with the comment, but the text is kept (the
+  // editor's draft) and said, with a way to post it (QA verify3: it vanished without a word).
+  useEffect(() => () => {
+    setTimeout(() => {
+      if (untracked(() => app.session?.data.pool.model('Comment').get(c.id))) return;
+      const text = untracked(() => intents.drafts.get(draftKey))?.text ?? '';
+      if (!text.trim() || text === base.text) return;
+      notify(app, {tone: 'warning', title: 'The comment you were editing was deleted', description: 'Someone deleted it on Forgejo. Your text is kept.', sticky: true,
+        action: {label: 'Post it as a new comment', run: () => {
+          runInAction(() => {
+            intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body: text});
+          });
+          void intents.discardDraft(draftKey);
+        }}});
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- when the editor goes
+  }, []);
   return (
-    <TextEditor draftKey={`text:comment:${String(c.id)}`} title="Editing a comment" issueId={issueId} repoId={repoId} initial={base.text} base={base}
+    <TextEditor draftKey={draftKey} title="Editing a comment" issueId={issueId} repoId={repoId} initial={base.text} base={base}
       label="Comment" saveLabel="Save" autoFocus onCancel={onDone} onReopen={onReopen}
       onSave={(text, b0) => {
         const b = b0 ?? base;

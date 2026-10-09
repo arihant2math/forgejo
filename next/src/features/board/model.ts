@@ -10,6 +10,7 @@
 
 import {computed, createAtom, type IComputedValue, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
+import {notify} from '../../app/notices.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {PROJECT_FIELD} from '../../intents/intents.ts';
@@ -153,7 +154,7 @@ export class BoardModel {
    * shows, the card included): an offline-capable intent (B9 card move).
    * Returns whether something was submitted.
    */
-  move(issueId: number, column: number, gap: number): boolean {
+  move(issueId: number, column: number, gap: number, say = true): boolean {
     const layout = untracked(() => this.layout.get());
     const m = moveTo(layout, issueId, column, gap);
     const from = findCard(layout, issueId);
@@ -162,6 +163,13 @@ export class BoardModel {
     editing(this.app).intents.submit({
       kind: 'board.move', issueId, repoId: issue.repo_id, projectId: this.projectId, columnId: m.column, position: m.position, baseColumn: from.column,
     });
+    // To another column (by key, menu or drag): said, with Undo (and ⌘Z) back to where it was.
+    if (say && m.column !== from.column) {
+      const title = layout.columns.find((c) => c.id === m.column)?.title ?? 'another column';
+      notify(this.app, {tone: 'neutral', title: `#${String(issue.number)} moved to “${title}”`, series: 'board.move', action: {label: 'Undo', run: () => {
+        this.move(issueId, from.column, from.index, false);
+      }}});
+    }
     return true;
   }
 

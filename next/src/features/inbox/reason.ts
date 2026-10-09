@@ -20,9 +20,11 @@ export interface Reason {
 
 export function reasonOf(pool: Pool, n: Notification, me: number, myLogin: string | undefined): Reason | undefined {
   const issue = pool.model('Issue').get(n.issue_id)?.data;
-  if (!issue) return undefined;
+  // The server names who caused it (actor_id: the comment's author, else the issue's), also for an issue that is
+  // not on this device and for a comment whose issue was never opened here.
+  if (!issue) return n.actor_id ? {why: n.comment_id ? 'Commented' : 'Opened', actor: n.actor_id} : undefined;
   const comment = n.comment_id ? pool.model('Comment').get(n.comment_id)?.data : undefined;
-  const actor = comment?.poster_id ?? (n.comment_id ? 0 : issue.poster_id);
+  const actor = comment?.poster_id ?? (n.actor_id || (n.comment_id ? 0 : issue.poster_id));
   const requested = [...pool.model('Review').by('issue_id', issue.id)].some((r) => r.data.state === 'REQUEST_REVIEW' && r.data.reviewer_id === me);
   if (requested) return {why: 'Review requested', actor};
   if (comment && myLogin && new RegExp(`(^|[^\\w/])@${myLogin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(comment.body)) return {why: 'Mentioned', actor};

@@ -161,7 +161,15 @@ const context = /* @__PURE__ */ makeItems(C);
 export function ContextMenu(props: ComponentProps<typeof C.Root>) {
   return <C.Root modal={false} {...props}/>;
 }
-export const ContextMenuTrigger = C.Trigger;
+/** The element the last context menu was opened on (a list): the menu gives the focus back to it when it closes. */
+let opener: HTMLElement | null = null;
+
+export function ContextMenuTrigger({onContextMenuCapture, ...props}: ComponentProps<typeof C.Trigger>) {
+  return <C.Trigger onContextMenuCapture={(e) => {
+    opener = e.currentTarget;
+    onContextMenuCapture?.(e);
+  }} {...props}/>;
+}
 export const {
   Item: ContextMenuItem, CheckboxItem: ContextMenuCheckboxItem, RadioGroup: ContextMenuRadioGroup,
   RadioItem: ContextMenuRadioItem, Label: ContextMenuLabel, Separator: ContextMenuSeparator, Sub: ContextMenuSub,
@@ -173,6 +181,12 @@ export function ContextMenuContent({onCloseAutoFocus, ...props}: Omit<ComponentP
       <C.Content className={content} onFocusOutside={keepOnFocusOutside} onCloseAutoFocus={(e) => {
         onCloseAutoFocus?.(e);
         keepDialogFocus(e);
+        // Back to the list it was opened on (its cursor shows, J/K go on), not to the row the right click focused,
+        // which then wore a focus outline instead of the cursor's edge.
+        if (!e.defaultPrevented && opener?.isConnected && opener.tabIndex >= 0) {
+          e.preventDefault();
+          opener.focus({preventScroll: true});
+        }
       }} {...props}/>
     </C.Portal>
   );

@@ -10,7 +10,7 @@
 
 import {
   Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
-  CalendarClock, createLucideIcon, GitPullRequestClosed, OctagonAlert, Pin, SignalMedium, SignalZero,
+  CalendarClock, createLucideIcon, GitPullRequestClosed, OctagonAlert, Pin, SignalMedium,
 } from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -108,7 +108,10 @@ function bars(name: string, filled: number): LucideIcon {
   return createLucideIcon(name, [bar(0), bar(1), bar(2)]);
 }
 
-const PRIORITY_ICONS: LucideIcon[] = [OctagonAlert, bars('priority-high', 3), bars('priority-medium', 2), bars('priority-low', 1), SignalZero];
+/** No priority: the three bars, all faint (lucide's SignalZero is a lone dot, a stray mark in a menu). */
+export const NoPriorityIcon = bars('priority-none', 0);
+
+const PRIORITY_ICONS: LucideIcon[] = [OctagonAlert, bars('priority-high', 3), bars('priority-medium', 2), bars('priority-low', 1), NoPriorityIcon];
 
 export function priorityIcon(name: string): LucideIcon {
   return PRIORITY_ICONS[Math.min(4, Math.max(0, Math.round(kindRank('priority', name))))] ?? SignalMedium;
@@ -344,7 +347,8 @@ export const ResultCount = observer(function ResultCount({model}: {model: IssueL
     f.status !== undefined || f.priority !== undefined || f.label !== undefined || f.repo !== undefined;
   if (!narrowed) return null;
   const n = model.result.get().ids.length;
-  return <Badge>{n === 1 ? '1 result' : `${String(n)} results`}</Badge>;
+  // Plain text: a chip beside the state buttons read as one more of them, pressed (QA verify3).
+  return <span className="text-sm whitespace-nowrap text-fg-subtle tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
 });
 
 /** The first non-empty string. */

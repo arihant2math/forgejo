@@ -9,7 +9,7 @@
 // two ways as in Linear: a key opens it as a command menu that names its
 // issues, a click on a property under that property (PickerPopover).
 
-import {CalendarClock, KanbanSquare, SignalZero} from 'lucide-react';
+import {CalendarClock, KanbanSquare} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactElement, useEffect, useState} from 'react';
@@ -20,7 +20,7 @@ import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePro
 import type {Label} from '../../protocol/types.gen.ts';
 import {Avatar, CommandDialog, CommandPick, CommandPopover, Icon, LabelDot, LabelIcon, type LucideIcon, matchOptions, type PickOption} from '../../ui/index.ts';
 import {shortDate} from './format.ts';
-import {priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
+import {NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
@@ -159,7 +159,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const scopes = new Set(priorities.map(exclusiveScope));
     if (priorities.length) {
       const none = coverage(issues, (i) => !priorities.some((l) => hasLabel(l.id)(i)));
-      options.push({value: 'none', label: 'No priority', checked: none, leading: <Icon icon={SignalZero} className="text-fg-subtle"/>, onSelect: () => {
+      options.push({value: 'none', label: 'No priority', checked: none, leading: <Icon icon={NoPriorityIcon} className="text-fg-subtle"/>, onSelect: () => {
         for (const scope of scopes) clearScope(app, issues, scope);
       }});
       for (const l of priorities) options.push(labelOption(l, priorityIcon(l.name), false));

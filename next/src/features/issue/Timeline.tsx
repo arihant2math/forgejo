@@ -425,7 +425,7 @@ const TeamName = observer(function TeamName({id}: {id: number}) {
 
 /**
  * A dependency event, from this issue's side: Forgejo writes the same event on both issues, so the direction comes
- * from the dependencies this device knows ("marked this as blocked by #12" / "marked this as blocking #12").
+ * from the dependencies this device knows ("added a dependency: blocked by #12" / "…: blocks #12").
  */
 const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
   const pool = usePool();
@@ -435,9 +435,11 @@ const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
   const blockedBy = viewMembers(pool, overlay, 'IssueDependency', d.issue_id).has(d.dependent_issue_id);
   const blocks = [...pool.model('IssueDependency').by('dependency_id', d.issue_id)].some((x) => x.get('issue_id') === d.dependent_issue_id) ||
     (blocking.get(d.issue_id) ?? []).includes(d.dependent_issue_id);
-  if (add && blockedBy) return <>marked this as blocked by {other}</>;
-  if (add && blocks) return <>marked this as blocking {other}</>;
-  return <>{add ? 'linked a dependency with' : 'removed a dependency with'} {other}</>;
+  // One sentence on both issues, the direction added where this device knows it (a dependency removed since has
+  // none: Forgejo's two events are alike), so the two sides never read as different things.
+  if (add && blockedBy) return <>added a dependency: blocked by {other}</>;
+  if (add && blocks) return <>added a dependency: blocks {other}</>;
+  return <>{add ? 'added a dependency with' : 'removed a dependency with'} {other}</>;
 });
 
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {

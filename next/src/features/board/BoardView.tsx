@@ -254,7 +254,11 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     if (next !== undefined) show(next);
   };
   const shift = (dCol: number, dRow: number) => {
-    if (!editable) return;
+    if (!editable) {
+      // Said, not ignored (QA verify3: a reader's Shift+L did nothing, silently).
+      notify(app, {tone: 'neutral', title: 'You can view this board, not change it', description: 'Moving cards needs write access to its issues.', series: 'board.readonly'});
+      return;
+    }
     const cur = here();
     if (!cur?.at) return;
     const {layout, at} = cur;
@@ -291,8 +295,9 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   });
   // Moves apply to the card under the cursor, where it can go (the palette lists them only then).
   const canShift = (dCol: number, dRow: number) => () => {
-    const cur = editable ? untracked(here) : undefined;
+    const cur = untracked(here);
     if (!cur?.at) return false;
+    if (!editable) return true; // the key says why it moves nothing
     const {layout, at} = cur;
     if (dCol) {
       const ci = layout.columns.findIndex((c) => c.id === at.column);

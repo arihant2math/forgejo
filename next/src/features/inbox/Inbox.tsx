@@ -302,18 +302,25 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
    * Triage keeps the cursor moving: after E/U/pin on the cursor's row, J goes on from there. Read and unread say
    * what they did, with Undo (a row that leaves the Unread view is easy to lose).
    */
-  const triage = (to: (st: string) => 'read' | 'unread' | 'pinned' | undefined, said?: 'read' | 'unread') => () => {
+  type To = (st: string) => 'read' | 'unread' | 'pinned' | undefined;
+  const triage = (to: To, said?: 'read' | 'unread' | 'pin') => () => {
     // Without a cursor (from the palette, before J): the first row, which then has the cursor.
     let targets = cursor.targets();
     if (!targets.length && ids[0] !== undefined) {
       cursor.setActive(ids[0]);
       targets = [ids[0]];
     }
+    triageIds(targets, to, said);
+  };
+  /** Changes the notifications' status and says so, with Undo (keys and the row menu alike). */
+  const triageIds = (targets: readonly number[], to: To, said?: 'read' | 'unread' | 'pin') => {
     const before = new Map(targets.map((id) => [id, status(id)]));
     setStatus(app, targets, to);
     const changed = targets.filter((id) => status(id) !== before.get(id));
     if (!said || !changed.length) return;
-    notify(app, {tone: 'neutral', series: 'inbox', title: `Marked ${changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`} ${said}`, action: {label: 'Undo', run: () => {
+    const what = changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`;
+    const title = said === 'pin' ? `${status(changed[0] ?? 0) === 'pinned' ? 'Pinned' : 'Unpinned'} ${what}` : `Marked ${what} ${said}`;
+    notify(app, {tone: 'neutral', series: 'inbox', title, action: {label: 'Undo', run: () => {
       for (const id of changed) {
         const was = before.get(id);
         if (was === 'read' || was === 'unread' || was === 'pinned') setStatus(app, [id], () => was);
@@ -338,7 +345,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   }, true, () => untracked(() => cursor.selected.size) > 0);
   useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined), 'read'));
   useShortcut('inbox.unread', triage(() => 'unread', 'unread'));
-  useShortcut('inbox.pin', triage(togglePin));
+  useShortcut('inbox.pin', triage(togglePin, 'pin'));
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return;
@@ -429,13 +436,13 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
               <ContextMenuSeparator/>
             </>}
             <ContextMenuItem icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={menuStatus !== undefined && menuStatus !== 'unread'} onSelect={() => {
-              setStatus(app, menuIds, (st) => (st === 'unread' ? 'read' : undefined));
+              triageIds(menuIds, (st) => (st === 'unread' ? 'read' : undefined), 'read');
             }}>{`Mark read${many}`}</ContextMenuItem>
             <ContextMenuItem icon={Mail} shortcut={shortcutHint('inbox.unread')} disabled={menuStatus === 'unread'} onSelect={() => {
-              setStatus(app, menuIds, () => 'unread');
+              triageIds(menuIds, () => 'unread', 'unread');
             }}>{`Mark unread${many}`}</ContextMenuItem>
             <ContextMenuItem icon={Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
-              setStatus(app, menuIds, togglePin);
+              triageIds(menuIds, togglePin, 'pin');
             }}>{menuStatus === 'pinned' ? 'Unpin' : `Pin${many}`}</ContextMenuItem>
           </>
         )}

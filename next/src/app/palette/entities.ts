@@ -20,14 +20,26 @@ function top<T>(hits: Hit<T>[], limit: number): Hit<T>[] {
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
-/** Boards by title, the repository's name for further words (open ones first on a tie). */
-export function searchBoards(pool: Pool, words: readonly string[], limit = 4): Hit<Project>[] {
-  const out: Hit<Project>[] = [];
+/** A board as the palette lists it: a Project, or the ProjectRef of an owner's board the device holds only by reference. */
+export type BoardHit = Pick<Project, 'id' | 'title' | 'closed'>;
+
+/**
+ * Boards by title, the repository's name for further words (open ones first on a tie) — also a user's or an
+ * organization's board known by its reference only (one shared with the viewer through a repository they read).
+ */
+export function searchBoards(pool: Pool, words: readonly string[], limit = 4): Hit<BoardHit>[] {
+  const out: Hit<BoardHit>[] = [];
   for (const e of pool.model('Project').all()) {
     const p = e.data;
     const repo = pool.model('Repository').get(p.repo_id)?.data;
     const s = scoreNamed(p.title.toLowerCase(), (repo?.full_name ?? '').toLowerCase(), words);
     if (s >= 0) out.push({item: p, score: s + (p.closed ? 0 : 0.5), repo});
+  }
+  for (const e of pool.model('ProjectRef').all()) {
+    const p = e.data;
+    if (pool.model('Project').get(p.id)) continue;
+    const s = scoreNamed(p.title.toLowerCase(), pool.model('User').get(p.owner_id)?.data.login.toLowerCase() ?? '', words);
+    if (s >= 0) out.push({item: p, score: s + (p.closed ? 0 : 0.5)});
   }
   return top(out, limit);
 }

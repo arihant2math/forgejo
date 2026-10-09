@@ -20,7 +20,9 @@ export const SidebarViews = observer(function SidebarViews() {
   return (
     <>
       <NavHeading>Views</NavHeading>
-      {store.views.map((v) => <ViewItem key={v.id} view={v} onRemove={() => {
+      {store.views.map((v) => <ViewItem key={v.id} view={v} onOpen={() => {
+        store.open(v.id);
+      }} onRemove={() => {
         store.remove(v.id);
       }} onRename={(name) => {
         store.rename(v.id, name);
@@ -29,15 +31,18 @@ export const SidebarViews = observer(function SidebarViews() {
   );
 });
 
-/** A saved view (kept on this device: the tooltip says so); right click renames or removes it. */
-function ViewItem({view, onRemove, onRename}: {view: SavedView; onRemove: () => void; onRename: (name: string) => void}) {
+/**
+ * A saved view (kept on this device: the tooltip says so); right click renames or removes it, as does the view's
+ * menu in the list's header once it is open.
+ */
+function ViewItem({view, onOpen, onRemove, onRename}: {view: SavedView; onOpen: () => void; onRemove: () => void; onRename: (name: string) => void}) {
   const [renaming, setRenaming] = useState(false);
   return (
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <NavItem asChild icon={Layers} label={view.name}>
-            <Link to={view.path} search={view.search as never} activeOptions={{includeSearch: true, exact: true}} data-view={view.id}
+            <Link to={view.path} search={view.search as never} activeOptions={{includeSearch: true, exact: true}} data-view={view.id} onClick={onOpen}
               title={`${view.name} (a view saved on this device)`}/>
           </NavItem>
         </ContextMenuTrigger>

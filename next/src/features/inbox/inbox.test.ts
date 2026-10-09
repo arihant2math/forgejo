@@ -6,7 +6,7 @@ import type {Notification} from '../../protocol/types.gen.ts';
 import {activityOf, inboxRows, togglePin} from './inbox.ts';
 
 const note = (id: number, repo: number, status: string, at: string): Notification => ({
-  id, user_id: 1, repo_id: repo, status, subject: 'issue', issue_id: id * 10, comment_id: 0, created_at: at, updated_at: at,
+  id, user_id: 1, repo_id: repo, status, subject: 'issue', issue_id: id * 10, comment_id: 0, actor_id: 0, created_at: at, updated_at: at,
 });
 const NOTES = [
   note(1, 1, 'unread', '2026-10-01T00:00:00Z'),

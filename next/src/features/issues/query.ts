@@ -300,6 +300,8 @@ const NO_PRIORITY: GroupKey = {key: 'none', label: 'No priority', rank: 9, name:
 const UNASSIGNED: GroupKey = {key: 'none', label: 'Unassigned', rank: 1, name: '', value: 0};
 const NO_MILESTONE: GroupKey = {key: 'none', label: 'No milestone', rank: Number.MAX_SAFE_INTEGER, name: '', value: 0};
 const NONE: GroupKey = {key: '', label: '', rank: 0, name: '', value: 0};
+/** Milestone group ranks: a tier (open/closed, dated/undated) apart, beyond any due date (ms). */
+const MILESTONE_TIER = 1e15;
 
 function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey {
   const {ctx} = run;
@@ -333,9 +335,11 @@ function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey 
       const m = id ? ctx.milestoneOf(id) : undefined;
       if (!m) return NO_MILESTONE;
       return interned(run, m.id, () => {
-        // Milestones with a due date first, soonest first (a cycle, PLAN §7.3).
+        // Open milestones first, those with a due date soonest first (the current cycle on top, PLAN §7.3), then the
+        // open ones without a date, then the closed ones (QA verify3: a closed "Cycle 13" came before "Cycle 14").
         const due = time(m.due_on);
-        return {key: `m${String(m.id)}`, label: m.title, rank: Number.isNaN(due) ? Number.MAX_SAFE_INTEGER - 1 : due, name: m.title.toLowerCase(), value: m.id};
+        const tier = (m.state === 'closed' ? 2 : 0) + (Number.isNaN(due) ? 1 : 0);
+        return {key: `m${String(m.id)}`, label: m.title, rank: tier * MILESTONE_TIER + (Number.isNaN(due) ? 0 : due), name: m.title.toLowerCase(), value: m.id};
       });
     }
     case 'repo': {

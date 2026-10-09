@@ -1041,6 +1041,10 @@ export interface Notification {
   subject: string; // "issue", "pull", "commit", "repository"
   issue_id: number /* int64 */;
   comment_id: number /* int64 */;
+  /**
+   * ActorID is who caused it: the comment's author, else the issue's (0: unknown).
+   */
+  actor_id: number /* int64 */;
   created_at: string /* RFC 3339, UTC */;
   updated_at: string /* RFC 3339, UTC */;
 }
@@ -1935,7 +1939,7 @@ export const SchemaRelease = 1;
 export const SchemaCommitStatus = 1;
 export const SchemaActionRun = 1;
 export const SchemaActionRunJob = 1;
-export const SchemaNotification = 1;
+export const SchemaNotification = 2; // 2: actor_id
 export const SchemaStopwatch = 1;
 export const SchemaIssueWatch = 1;
 export const SchemaWatch = 1;

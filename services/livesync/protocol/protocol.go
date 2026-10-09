@@ -108,7 +108,7 @@ const (
 	SchemaCommitStatus    = 1
 	SchemaActionRun       = 1
 	SchemaActionRunJob    = 1
-	SchemaNotification    = 1
+	SchemaNotification    = 2 // 2: actor_id
 	SchemaStopwatch       = 1
 	SchemaIssueWatch      = 1
 	SchemaWatch           = 1

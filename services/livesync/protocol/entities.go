@@ -464,13 +464,15 @@ type ActionRunJob struct {
 // Notification is an inbox entry of a user (group user:{user_id}, unit
 // self).
 type Notification struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	RepoID    int64     `json:"repo_id"`
-	Status    string    `json:"status"`  // "unread", "read", "pinned"
-	Source    string    `json:"subject"` // "issue", "pull", "commit", "repository"
-	IssueID   int64     `json:"issue_id"`
-	CommentID int64     `json:"comment_id"`
+	ID        int64  `json:"id"`
+	UserID    int64  `json:"user_id"`
+	RepoID    int64  `json:"repo_id"`
+	Status    string `json:"status"`  // "unread", "read", "pinned"
+	Source    string `json:"subject"` // "issue", "pull", "commit", "repository"
+	IssueID   int64  `json:"issue_id"`
+	CommentID int64  `json:"comment_id"`
+	// ActorID is who caused it: the comment's author, else the issue's (0: unknown).
+	ActorID   int64     `json:"actor_id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

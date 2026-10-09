@@ -14,6 +14,7 @@ import (
 // entity: posters, assignees, owners, … A bootstrap collects them so that
 // the client can reach those profiles (B6: BootstrapEnd.Refs).
 var userRefFields = map[string]bool{
+	"actor_id":        true,
 	"approved_by":     true,
 	"assignee_id":     true,
 	"block_id":        true,

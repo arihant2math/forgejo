@@ -16,8 +16,10 @@ import {classicOfLocation} from '../paths.ts';
 import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
+import {goToCode} from '../goto.ts';
 import {lastBoard} from '../lastBoard.ts';
 import {LoggedOut} from '../LoggedOut.tsx';
+import {pendingWebLogout} from '../../auth/weblogout.ts';
 import {signInHere} from '../session.ts';
 import {shortcuts, useShortcut} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
@@ -74,6 +76,12 @@ const Overlays = observer(function Overlays({app}: {app: App}) {
 function GlobalShortcuts({app}: {app: App}) {
   const navigate = useNavigate();
   useEffect(() => shortcuts.attach(window), []);
+  useEffect(() => {
+    shortcuts.overlayOpen = () => app.ui.paletteOpen || Boolean(app.ui.create) || Boolean(app.ui.picker) || app.ui.shortcutsOpen || app.ui.unsyncedOpen;
+    return () => {
+      shortcuts.overlayOpen = () => false;
+    };
+  }, [app]);
   useShortcut('palette.open', () => {
     runInAction(() => {
       app.ui.paletteOpen = !app.ui.paletteOpen;
@@ -126,8 +134,7 @@ function GlobalShortcuts({app}: {app: App}) {
     };
   }, []);
   useShortcut('go.code', () => {
-    const r = app.session?.data.pool.model('Repository').get(app.ui.repoOpen)?.data;
-    if (r) void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
+    goToCode(app, navigate);
   });
   return null;
 }
@@ -145,7 +152,8 @@ function AppShell({app}: {app: App}) {
     // workspace stored by an earlier session): the first boot after signing in is a cold one.
     if (app.session?.data.workspace.current) markOnce('firstPaintFromCache');
     whenIdle(() => {
-      void Palette.preload().catch(() => undefined);
+      // The overlays a key opens (C, the pickers, ?, the indicator): there at once, offline too.
+      for (const overlay of [Palette, CreateIssue, IssuePicker, Notices, UnsyncedPanel, ShortcutsDialog]) void overlay.preload().catch(() => undefined);
       // After the first paint: the service worker precaches this build (offline boots, PLAN §5.2 step 5).
       void import('../sw.ts').then((m) => {
         m.startServiceWorker(app);
@@ -177,7 +185,9 @@ export function Shell() {
   if (!app.session) {
     // The classic page of this address (a public repository, an issue: readable without an account), and opting out.
     const classic = classicOfLocation(pathname, searchStr);
-    return <LoggedOut appName={app.config.app_name} onSignIn={app.config.oauth ? () => {
+    // Signed out offline: Forgejo's own session ends once the device is online again (auth/weblogout.ts) — said.
+    const webSession = pendingWebLogout() ? 'You are signed out here. Forgejo\'s own session on this device ends as soon as it is back online.' : undefined;
+    return <LoggedOut appName={app.config.app_name} message={webSession} onSignIn={app.config.oauth ? () => {
       signInHere(app);
     } : undefined} classic={{
       page: classicHref(app, classic),

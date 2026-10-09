@@ -87,10 +87,25 @@
   max-height: var(--radix-popper-available-height);
 }
 
-/* A list row's keyboard cursor (data-active): an accent edge on the left, distinct from hover and selection. */
-@utility row-cursor {
-  position: relative;
+/* A sideways scroller whose edge fades where there is more to see (data-more-start / data-more-end, set by its
+ * component from the scroll position): the board's fifth column is discoverable. The mask uses alpha only. */
+@utility edge-fade-x {
+  &[data-more-end] {
+    mask-image: linear-gradient(to right, var(--color-fg) calc(100% - var(--spacing-fade)), transparent);
+  }
 
+  &[data-more-start] {
+    mask-image: linear-gradient(to left, var(--color-fg) calc(100% - var(--spacing-fade)), transparent);
+  }
+
+  &[data-more-start][data-more-end] {
+    mask-image: linear-gradient(to right, transparent, var(--color-fg) var(--spacing-fade), var(--color-fg) calc(100% - var(--spacing-fade)), transparent);
+  }
+}
+
+/* A list row's keyboard cursor (data-active): an accent edge on the left, distinct from hover and selection. The
+ * element is positioned (relative, or sticky: a code line's gutter). */
+@utility row-cursor {
   &[data-active]::before {
     position: absolute;
     inset-block: 0;

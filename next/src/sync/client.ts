@@ -141,6 +141,8 @@ interface Session {
    */
   pending: number[];
   reqSeq: number;
+  /** Until the welcome: a connection that neither opens nor fails (dead Wi-Fi, a captive portal) is given up. */
+  handshake?: ReturnType<typeof setTimeout> | undefined;
 }
 
 /** A tailed job log: who wants it, and where the session resumes it (the lines received so far of a task). */
@@ -158,6 +160,11 @@ const WORKSPACE = 'workspace';
 const UNREACHABLE_AFTER = 3;
 /** How often an unreachable server is probed (ms). */
 const HEALTH_PROBE_MS = 2000;
+/**
+ * How long a connection may take to be welcomed (ms). One that hangs (requests and sockets that never answer) is
+ * then closed and Forgejo counts as unreachable at once, with Retry (QA round 2: it read "Connecting" for good).
+ */
+const HANDSHAKE_MS = 8000;
 
 /** Timeline events whose rows are not delivered as deltas (B6 conditionals): their issue is loaded again. */
 const CONDITIONAL_EVENTS: ReadonlySet<string> = new Set(['add_dependency', 'remove_dependency', 'issue_ref', 'comment_ref', 'pull_ref', 'change_issue_ref']);
@@ -530,6 +537,12 @@ export class SyncClient {
       pending: [], reqSeq: 0,
     };
     this.session = session;
+    session.handshake = setTimeout(() => {
+      if (this.session !== session || session.welcomed) return;
+      this.attempts = Math.max(this.attempts, UNREACHABLE_AFTER - 1);
+      this.setStatus({lastError: 'Forgejo did not answer'});
+      this.closed({opened: false});
+    }, HANDSHAKE_MS);
     session.transport = open(this.o.endpoint, handlers, this.o.env);
   }
 
@@ -580,6 +593,7 @@ export class SyncClient {
     const s = this.session;
     if (!s) return;
     this.session = undefined;
+    clearTimeout(s.handshake);
     if (s.ping !== undefined) clearInterval(s.ping);
     if (s.pong !== undefined) clearTimeout(s.pong);
     for (const b of s.barriers.values()) b.reject(new Error('disconnected'));
@@ -720,6 +734,7 @@ export class SyncClient {
       return;
     }
     session.welcomed = true;
+    clearTimeout(session.handshake);
     // Every persisted version is at most the server's position: purges from now on cover what hydration has not read yet.
     this.pool.noteVersion(msg.server_sync_id);
     this.serverPos = Math.max(this.serverPos, msg.server_sync_id);

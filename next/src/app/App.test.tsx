@@ -146,7 +146,7 @@ describe('signed in', () => {
     await renderApp('/-/next/acme/website/settings', s);
     expect(screen.getByRole('complementary', {name: 'Sidebar'})).toBeTruthy();
     expect(screen.getByRole('heading', {name: 'Not found'})).toBeTruthy();
-    expect((await screen.findByRole('link', {name: /Open in the classic UI/})).getAttribute('href')).toBe('/acme/website/settings');
+    expect((await screen.findByRole('link', {name: /Open this page/})).getAttribute('href')).toBe('/acme/website/settings');
     expect(screen.getByRole('link', {name: /Go to Home/})).toBeTruthy();
   });
 
@@ -167,6 +167,16 @@ describe('signed in', () => {
       expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: 'Issues'}).getAttribute('aria-current')).toBe('page');
     });
     expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
+  });
+
+  test('a repository\'s code address (spaRoutes {code}) opens the app\'s code view; a pull request\'s Files its tab', async () => {
+    const s = signedIn();
+    const code = await renderApp('/acme/website/src/branch/main/README.md', s);
+    expect(code.router.state.location.pathname).toBe('/-/next/code/acme/website/src/branch/main/README.md/-');
+    code.unmount();
+    const files = await renderApp('/acme/website/pulls/3/files', s);
+    expect(files.router.state.location.pathname).toBe('/acme/website/pulls/3');
+    expect(files.router.state.location.search).toEqual({tab: 'files'});
   });
 
   test('a collapsed owner stays collapsed (persisted)', async () => {
@@ -264,6 +274,26 @@ describe('signed in', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(issues);
     });
+  });
+
+  test('choosing a row in the palette leaves the focus to the new page, not to what opened it (its tooltip)', async () => {
+    const {router} = await renderApp('/', signedIn());
+    const issues = screen.getByRole('link', {name: /My issues/});
+    issues.focus();
+    key('k', {ctrlKey: true});
+    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    fireEvent.change(input, {target: {value: 'go to the inbox'}});
+    await waitFor(() => {
+      expect(screen.getByRole('option', {name: /Go to the inbox/})).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('option', {name: /Go to the inbox/}));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/notifications');
+    });
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/^Search repositories, issues/)).toBeNull();
+    });
+    expect(document.activeElement).not.toBe(issues);
   });
 
   test('a repository page holds its group while open', async () => {

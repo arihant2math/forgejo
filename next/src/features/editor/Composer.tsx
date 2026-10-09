@@ -14,11 +14,13 @@ import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type ReactNode, useEffect, useRef, useState} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
-import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
+import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
 import type {APIMarkdownRequest, APIMarkdownResponse} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {Button, ProseSource, SkeletonText, TextArea} from '../../ui/index.ts';
+import {Bold, Italic, Link2} from 'lucide-react';
+import {EditorFrame, IconButton, type LucideIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
+import type {Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
 import {untracked} from 'mobx';
@@ -172,11 +174,26 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
       });
     }
   };
-  const hint = shortcutHint('editor.preview');
   const complete = useSuggestions(repoId);
   const Editor = ready ? Loaded : undefined;
+  const mod = formatKeys('mod+b').replace(/B$/, '');
+  // The box stays the same between Write and Preview (the tabs on top, the text where it was): only its body
+  // changes, at least as tall as the editor's rows.
+  const header = <>
+    <SegmentedControl label="Editor mode" value={preview ? 'preview' : 'write'} onChange={(v) => {
+      setPreview(v === 'preview');
+      if (v === 'write') requestAnimationFrame(() => editor.current?.focus());
+    }} options={[{value: 'write', label: 'Write'}, {value: 'preview', label: 'Preview'}]}/>
+    <span className="ml-auto flex items-center">
+      {FORMATS.map(([kind, icon, label, key]) => (
+        <IconButton key={kind} size="sm" icon={icon} label={label} shortcut={`${mod}${key}`} disabled={preview || !Editor} onClick={() => {
+          editor.current?.format(kind);
+        }}/>
+      ))}
+    </span>
+  </>;
   return (
-    <div className="flex flex-col gap-1.5" onKeyDown={onKeyDown}>
+    <div onKeyDown={onKeyDown}>
       {focusShortcut && <FocusOn id={focusShortcut} focus={() => {
         setPreview(false);
         requestAnimationFrame(() => {
@@ -184,41 +201,39 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
           else area.current?.focus();
         });
       }}/>}
-      {preview ?
-        <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region"><MarkdownPreview repoId={repoId} text={props.value}/></div> :
-        Editor ?
-          <Editor {...props} ref={editor} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
-          <TextArea ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
-            value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} invalid={props.invalid}
-            onFocus={() => {
-              hadFocus.current = true;
-              if (Loaded) setReady(true);
-            }}
-            onChange={(e) => {
-              props.onChange(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                props.onSubmit?.();
-              } else if (e.key === 'Escape' && props.onCancel) {
-                e.preventDefault();
-                props.onCancel();
-              }
-            }}/>}
-      {/* Under the text (Tab from a title goes into the text, never to these first). */}
-      <div className="flex items-center gap-1" role="group" aria-label="Editor mode">
-        <Button size="sm" pressed={!preview} shortcut={hint} tooltip="Write" onClick={() => {
-          setPreview(false);
-          requestAnimationFrame(() => editor.current?.focus());
-        }}>Write</Button>
-        <Button size="sm" pressed={preview} shortcut={hint} tooltip="Preview as Forgejo renders it" onClick={() => {
-          setPreview(true);
-        }}>Preview</Button>
-      </div>
+      <EditorFrame invalid={props.invalid} header={header}>
+        {preview ?
+          <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region" className="outline-none"
+            style={{minHeight: `calc(var(--text-md--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 3)`}}>
+            <MarkdownPreview repoId={repoId} text={props.value}/>
+          </div> :
+          Editor ?
+            <Editor {...props} ref={editor} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
+            <TextArea bare ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
+              value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} invalid={props.invalid}
+              onFocus={() => {
+                hadFocus.current = true;
+                if (Loaded) setReady(true);
+              }}
+              onChange={(e) => {
+                props.onChange(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  props.onSubmit?.();
+                } else if (e.key === 'Escape' && props.onCancel) {
+                  e.preventDefault();
+                  props.onCancel();
+                }
+              }}/>}
+      </EditorFrame>
     </div>
   );
 });
+
+/** The formatting buttons (the editor's keys: ⌘B, ⌘I, ⌘K). */
+const FORMATS: [Format, LucideIcon, string, string][] = [['bold', Bold, 'Bold', 'B'], ['italic', Italic, 'Italic', 'I'], ['link', Link2, 'Link', 'K']];
 
 /**
  * Markdown as Forgejo renders it (in a repository's context): the server's rendering online (batched, cached), the

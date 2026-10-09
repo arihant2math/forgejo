@@ -5,7 +5,8 @@
 // a row's context menu and its "…" menu offer the same rows with the same look
 // and behaviour (PLAN §5.6).
 
-import {Check, ChevronRight, Dot} from 'lucide-react';
+import {Check, ChevronDown, ChevronRight, Dot, MoreHorizontal} from 'lucide-react';
+import {Button} from './Button.tsx';
 import {ContextMenu as C, DropdownMenu as D} from 'radix-ui';
 import {type ComponentProps, type ReactNode, useRef} from 'react';
 import {cx} from './cx.ts';
@@ -105,6 +106,23 @@ function onOwnTrigger(e: CustomEvent<{originalEvent: PointerEvent}>, content: HT
   return false;
 }
 
+/**
+ * A menu item that opened a dialog ("Rename…", "New issue in this column…"): the dialog keeps the focus. Radix
+ * gives it back to the menu's trigger when the menu has faded out, behind the dialog, so typing went nowhere. And
+ * the fading menu takes the focus back itself (its item's pointer-leave focuses the menu, which then unmounts): the
+ * dialog's first field gets it again.
+ */
+function keepDialogFocus(e: Event): void {
+  const open = [...document.querySelectorAll<HTMLElement>('div[role="dialog"], div[role="alertdialog"]')]
+    .find((d) => d.dataset.state !== 'closed' && !d.closest('div[role="menu"]'));
+  if (!open) return;
+  e.preventDefault();
+  if (open.contains(document.activeElement)) return;
+  const field = open.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, div[contenteditable="true"]') ??
+    open.querySelector<HTMLElement>('button:not([disabled])');
+  (field ?? open).focus();
+}
+
 const dropdown = /* @__PURE__ */ makeItems(D);
 
 /**
@@ -121,12 +139,15 @@ export const {
   Label: MenuLabel, Separator: MenuSeparator, Sub: MenuSub,
 } = dropdown;
 
-export function MenuContent({sideOffset = 4, align = 'start', ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style' | 'ref'>) {
+export function MenuContent({sideOffset = 4, align = 'start', onCloseAutoFocus, ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style' | 'ref'>) {
   const ref = useRef<HTMLDivElement>(null);
   return (
     <D.Portal>
       <D.Content ref={ref} sideOffset={sideOffset} align={align} className={content} onFocusOutside={keepOnFocusOutside} onPointerDownOutside={(e) => {
         if (onOwnTrigger(e, ref.current)) e.preventDefault();
+      }} onCloseAutoFocus={(e) => {
+        onCloseAutoFocus?.(e);
+        keepDialogFocus(e);
       }} {...rest}/>
     </D.Portal>
   );
@@ -146,10 +167,28 @@ export const {
   RadioItem: ContextMenuRadioItem, Label: ContextMenuLabel, Separator: ContextMenuSeparator, Sub: ContextMenuSub,
 } = context;
 
-export function ContextMenuContent(props: Omit<ComponentProps<typeof C.Content>, 'className' | 'style'>) {
+export function ContextMenuContent({onCloseAutoFocus, ...props}: Omit<ComponentProps<typeof C.Content>, 'className' | 'style'>) {
   return (
     <C.Portal>
-      <C.Content className={content} onFocusOutside={keepOnFocusOutside} {...props}/>
+      <C.Content className={content} onFocusOutside={keepOnFocusOutside} onCloseAutoFocus={(e) => {
+        onCloseAutoFocus?.(e);
+        keepDialogFocus(e);
+      }} {...props}/>
     </C.Portal>
+  );
+}
+
+/**
+ * A page header's "More" menu (a repository's, an owner's): the one trigger look (ghost, "More", a chevron) and
+ * its items — the place for what is secondary, such as the "In the classic UI" group.
+ */
+export function MoreMenu({label, children}: {label: string; children: ReactNode}) {
+  return (
+    <Menu>
+      <D.Trigger asChild>
+        <Button variant="ghost" size="sm" aria-label={label}><Icon icon={MoreHorizontal} size="sm"/>More<Icon icon={ChevronDown} size="sm"/></Button>
+      </D.Trigger>
+      <MenuContent>{children}</MenuContent>
+    </Menu>
   );
 }

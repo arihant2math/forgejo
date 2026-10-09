@@ -8,7 +8,7 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {Link, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
+import {Link, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {CircleDot, Lock, SearchX} from 'lucide-react';
 import {canWrite} from '../../app/access.ts';
 import {issueLocked, issueTitle} from '../../intents/view.ts';
@@ -28,9 +28,9 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {Icon, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
+import {Button, Icon, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
-import {PendingCell, StateIcon, TitleCell, usePool, UserName} from '../issues/cells.tsx';
+import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -85,13 +85,20 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
   const issue = index < 0 ? created ?? overlay.createdEntity('Issue', index) as Entity<'Issue'> | undefined : findIssue(pool, repoId, index);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const tab = useSearch({strict: false, select: (s: {tab?: PullTabName}) => s.tab});
-  // /pulls/{n} of an issue and /issues/{n} of a pull request: the canonical address (classic redirects too).
-  const onPulls = useRouterState({select: (s) => /\/pulls\/[^/]+\/?$/.test(s.location.pathname)});
+  // /pulls/{n} of an issue and /issues/{n} of a pull request: the canonical address (classic redirects too). The
+  // kind is this page's own route match, never the live location: while the user navigates away this page is still
+  // mounted and the location already names the next page, which must not be taken for a wrong kind (QA round 2: a
+  // pull request "replaced" every navigation away from it with itself).
+  const self = useMatch({strict: false, shouldThrow: false, select: (m) => `${m.routeId}\n${m.pathname}`});
+  const [routeId = '', matchPath = ''] = self?.split('\n') ?? [];
+  const onPulls = routeId.endsWith('/pulls/$index');
+  // Only while this page is the one on screen and no navigation is under way.
+  const settled = useRouterState({select: (s) => s.location.pathname === matchPath && s.resolvedLocation?.pathname === matchPath});
   const isPull = issue?.get('is_pull');
   useEffect(() => {
-    if (isPull === undefined || index <= 0 || isPull === onPulls) return;
+    if (isPull === undefined || index <= 0 || !routeId || !settled || isPull === onPulls) return;
     void navigate({to: isPull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index', params: {owner, repo, index: String(index)}, replace: true});
-  }, [isPull, onPulls, index, navigate, owner, repo]);
+  }, [isPull, onPulls, routeId, settled, index, navigate, owner, repo]);
   if (!issue) return <NotHere owner={owner} repo={repo} repoId={repoId} index={index}/>;
   const pull = issue.get('is_pull') && index > 0;
   return (
@@ -174,6 +181,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
       <article className="flex min-w-0 flex-1 flex-col gap-3 px-4 py-4 @xl:px-8 @xl:py-6">
         <TitleSection issue={issue}/>
         <Byline issue={issue}/>
+        <PropertiesSummary issue={issue}/>
         <Overrides issueId={issue.id}/>
         <BodySection issue={issue}/>
         <Reactions issueId={issue.id} commentId={0}/>
@@ -183,7 +191,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
           <Composer issue={issue}/>
         </div>
       </article>
-      <aside aria-label="Properties" className="shrink-0 border-t border-border @xl:w-pane @xl:border-t-0 @xl:border-l">
+      <aside id={PROPERTIES} tabIndex={-1} aria-label="Properties" className="shrink-0 border-t border-border outline-none @xl:w-pane @xl:border-t-0 @xl:border-l">
         <div className="p-4 @xl:sticky @xl:top-0">
           <IssueSidebar issue={issue}/>
         </div>
@@ -196,10 +204,14 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
 const Composer = observer(function Composer({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
   const locked = issueLocked(editing(useApp()).overlay, issue);
-  if (locked && !canWrite(session, issue.get('repo_id'))) {
-    return <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><Icon icon={Lock} size="sm"/>This conversation is locked: only collaborators can comment.</p>;
-  }
-  return <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>;
+  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><Icon icon={Lock} size="sm"/>{text}</p>;
+  if (locked && !canWrite(session, issue.get('repo_id'))) return note('This conversation is locked: only collaborators can comment.');
+  return (
+    <>
+      {locked && note('This conversation is locked: only collaborators, like you, can comment.')}
+      <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>
+    </>
+  );
 });
 
 /** The header's title: the state icon, the number and the title (the page's h1; the body repeats the title large). */
@@ -209,6 +221,25 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
       <span className="text-fg-subtle tabular-nums">{index > 0 ? `#${String(index)}` : 'New'}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </>
+  );
+});
+
+const PROPERTIES = 'issue-properties';
+
+/**
+ * On a narrow page (a phone) the properties come after the whole conversation: their gist sits under the title,
+ * with a way to them (on a wide page they are beside it, and this row is not shown).
+ */
+const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: Entity<'Issue'>}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 @xl:hidden">
+      <StatusCell issue={issue}/><PriorityCell issue={issue}/><LabelsCell issue={issue}/><AssigneesCell issue={issue}/>
+      <Button size="sm" variant="ghost" onClick={() => {
+        const pane = document.getElementById(PROPERTIES);
+        pane?.scrollIntoView({block: 'start'});
+        pane?.focus({preventScroll: true});
+      }}>All properties</Button>
+    </div>
   );
 });
 
@@ -240,8 +271,9 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
       <PageBody>
         {searching ?
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
-          <Missing what="This issue" icon={SearchX} title="Not found"
-            classic={index > 0 ? `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${String(index)}` : undefined}/>}
+          // Every page of the repository's issues has been asked: Forgejo has no such issue the viewer can see, and
+          // its classic page would say the same (no classic link to a 404).
+          <Missing what="This issue" icon={SearchX} title="Not found"/>}
       </PageBody>
     </>
   );

@@ -35,7 +35,10 @@ export function PromptDialog({title, description, label, initial = '', saveLabel
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
       <Button variant="primary" disabled={!text.trim()} onClick={save}>{saveLabel}</Button>
     </>}>
-      <Input aria-label={label} placeholder={label} value={text} autoFocus className="w-full" maxLength={maxLength} onChange={(e) => {
+      <Input aria-label={label} placeholder={label} value={text} autoFocus onFocus={(e) => {
+        // Renaming: the current name selected, so typing replaces it.
+        e.currentTarget.select();
+      }} className="w-full" maxLength={maxLength} onChange={(e) => {
         setText(e.target.value);
       }} onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.nativeEvent.isComposing) {

@@ -26,12 +26,14 @@ export interface CommandDialogProps {
   label: string;
   /** The children render their own CommandRoot (a caller that controls the selection). */
   bare?: boolean | undefined;
+  /** Whether closing gives the focus back to what had it (false after a command that navigated). */
+  restoreFocus?: (() => boolean) | undefined;
   children: ReactNode;
 }
 
 /** A modal command menu near the top of the viewport. Esc and the overlay close it. */
-export function CommandDialog({open, onOpenChange, label, bare = false, children}: CommandDialogProps) {
-  const focus = useReturnFocus();
+export function CommandDialog({open, onOpenChange, label, bare = false, restoreFocus, children}: CommandDialogProps) {
+  const focus = useReturnFocus(restoreFocus);
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>

@@ -5,7 +5,9 @@
 // groups hold — repositories', organizations' and their own — open ones
 // first, by owner. A short list: projects are few.
 
-import {Link} from '@tanstack/react-router';
+import {Link, useNavigate} from '@tanstack/react-router';
+import {useState} from 'react';
+import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {KanbanSquare} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
@@ -39,6 +41,27 @@ export const BoardsList = observer(function BoardsList() {
     g.list.push(p);
   }
   const sorted = [...groups.values()].sort((a, b) => a.place.key.localeCompare(b.place.key));
+  // J/K walk every board (in the order shown), Enter opens it: the keys of every other list.
+  const order = sorted.flatMap((g) => g.list.map((p) => p.id));
+  const [cursor, setCursor] = useState<number | undefined>();
+  const navigate = useNavigate();
+  useShortcutScope('list');
+  const move = (d: number) => {
+    if (!order.length) return;
+    const at = cursor === undefined ? -1 : order.indexOf(cursor);
+    const next = order[at < 0 ? (d > 0 ? 0 : order.length - 1) : Math.max(0, Math.min(order.length - 1, at + d))];
+    setCursor(next);
+    if (next !== undefined) document.getElementById(`board-${String(next)}`)?.scrollIntoView({block: 'nearest'});
+  };
+  useShortcut('list.next', () => {
+    move(1);
+  });
+  useShortcut('list.prev', () => {
+    move(-1);
+  });
+  useShortcut('list.open', () => {
+    if (cursor !== undefined) void navigate({to: '/-/next/projects/$id', params: {id: String(cursor)}});
+  });
   return (
     <>
       <PageHeader icon={KanbanSquare} title="Boards"/>
@@ -55,7 +78,7 @@ export const BoardsList = observer(function BoardsList() {
                   <ClassicLink size="sm" to={pl.repo ? `/${encodeURIComponent(pl.owner)}/${encodeURIComponent(pl.repo)}/projects/new` : `/${encodeURIComponent(pl.owner)}/-/projects/new`}>New board</ClassicLink>
                 )}>
                 <EntryList>
-                  {list.map((p) => <BoardEntry key={p.id} project={p}/>)}
+                  {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor}/>)}
                 </EntryList>
               </Panel>
             ))}
@@ -65,12 +88,14 @@ export const BoardsList = observer(function BoardsList() {
   );
 });
 
-const BoardEntry = observer(function BoardEntry({project}: {project: Project}) {
+const BoardEntry = observer(function BoardEntry({project, active}: {project: Project; active: boolean}) {
   const pool = usePool();
   const columns = pool.model('ProjectColumn').by('project_id', project.id).size;
   const cards = pool.model('ProjectIssue').by('project_id', project.id).size;
   return (
     <Entry
+      id={`board-${String(project.id)}`}
+      active={active}
       leading={<Icon icon={KanbanSquare}/>}
       title={<TextLink><Link to="/-/next/projects/$id" params={{id: String(project.id)}}>{project.title}</Link></TextLink>}
       meta={`${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}

@@ -6,7 +6,7 @@
 // on the boot route. Markdown is parsed with @lezer/markdown (GFM) and
 // highlighted with lezer's class highlighter (`tok-*` classes); every look
 // comes from the design tokens (the theme below names variables only).
-// The frame (border, focus outline) is the EditorFrame primitive.
+// The frame (border, focus outline, the Write / Preview tabs) is the field's: EditorFrame, in Composer.tsx.
 //
 // The text is the caller's state: typing reports it (onChange), and a new
 // `value` from the caller (cleared after a save, a restored draft) replaces
@@ -23,7 +23,7 @@ import {EditorView, keymap, placeholder as cmPlaceholder} from '@codemirror/view
 import {classHighlighter} from '@lezer/highlight';
 import {GFM, parser} from '@lezer/markdown';
 import {type Ref, useEffect, useImperativeHandle, useRef, useState} from 'react';
-import {EditorFrame} from '../../ui/index.ts';
+import {type Format, formatEdit} from './format.ts';
 
 const markdown = new LanguageSupport(new Language(defineLanguageFacet(), parser.configure([GFM]), [], 'markdown'));
 
@@ -84,6 +84,8 @@ function suggestions(complete: (trigger: '@' | '#', query: string) => Suggestion
 
 export interface MarkdownEditorHandle {
   focus(): void;
+  /** Formats the selection (the toolbar; the keys are ⌘B, ⌘I, ⌘K). */
+  format(kind: Format): void;
 }
 
 export interface MarkdownEditorProps {
@@ -112,7 +114,15 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
   useEffect(() => {
     cb.current = {onChange, onSubmit, onCancel, complete};
   });
-  useImperativeHandle(ref, () => ({focus: () => view.current?.focus()}), []);
+  useImperativeHandle(ref, () => ({
+    focus: () => view.current?.focus(),
+    format: (kind) => {
+      if (view.current) {
+        applyFormat(view.current, kind);
+        view.current.focus();
+      }
+    },
+  }), []);
   const [attrs] = useState(() => new Compartment());
   const contentAttrs = () => EditorView.contentAttributes.of({
     'aria-label': label,
@@ -142,6 +152,10 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
               cb.current.onCancel?.();
               return Boolean(cb.current.onCancel);
             }},
+            // Formatting (⌘K here is the link, not the command menu: the editor keeps it while it has the focus).
+            {key: 'Mod-b', run: (v) => applyFormat(v, 'bold')},
+            {key: 'Mod-i', run: (v) => applyFormat(v, 'italic')},
+            {key: 'Mod-k', run: (v) => applyFormat(v, 'link')},
             // Tab moves the focus on (as in a text area: no keyboard trap); lists indent with ⌘] / ⌘[ (defaultKeymap).
             ...historyKeymap,
             ...defaultKeymap,
@@ -182,9 +196,14 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
     v.dispatch({changes: {from: 0, to: v.state.doc.length, insert: value}, selection: {anchor: value.length}});
   }, [value]);
 
-  return (
-    <EditorFrame invalid={invalid}>
-      <div ref={host}/>
-    </EditorFrame>
-  );
+  // The frame (and the Write / Preview tabs) is the field's (MarkdownField): the editor is its body.
+  return <div ref={host}/>;
+}
+
+/** Formats the main selection as one change (one undo step). */
+function applyFormat(v: EditorView, kind: Format): boolean {
+  const {from, to} = v.state.selection.main;
+  const e = formatEdit(v.state.doc.toString(), from, to, kind);
+  v.dispatch({changes: {from: e.from, to: e.to, insert: e.insert}, selection: {anchor: e.anchor, head: e.head}, userEvent: 'input.format'});
+  return true;
 }

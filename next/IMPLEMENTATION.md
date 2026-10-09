@@ -5372,6 +5372,116 @@ below is the permanent part.
     * Not run in this round:
       * MySQL.
       * golangci-lint, because the sandbox's binary is built with an older Go than the module targets.
+* **Fourth round: the second QA's re-check (2026-10-09, 72 confirmed findings, 1 blocker).** Each was fixed at its
+  cause and re-checked by clicking through the QA instance with the reporters' own scripts (scratchpad, not in the
+  tree). The user's direction stands: the 500 KiB limit, fast first loads, the bundle streamed in behind the first view.
+  * **First load and streaming.**
+    * The document's answer names the route's view chunk and its imports in `Link: …; rel=modulepreload` headers
+      (`routers/livesync/spa_preload.go`, from Vite's manifest; the entry's own modules are left out, index.html
+      preloads them). The browser fetches the view while it parses the document and the entry, not a round trip
+      after the router ran. `routes.test.ts` checks that every module the table names is a lazy view of the router.
+    * After the first paint the views most sessions open next (inbox, my issues, repository lists, an issue, a
+      repository home) load one per idle period (`warmViews`, `app/router.tsx`): the first G N or row click
+      evaluates no module.
+    * The overlays a key opens (C's create dialog, the pickers, the shortcut help, the Unsynced panel, the notices)
+      load on idle with the palette: offline, C opened nothing when its chunk had not been fetched yet (found by the
+      e2e suite run alone).
+    * Home renders placeholders from the first frame (`HomeSkeleton` as the lazy fallback) and settles once: the
+      sections keep their slots (`settledOnce`), "Review requested" waits for the server's answer, and rows of
+      notifications not on the device yet are skeleton rows, never title-less.
+    * The repository home's README is one round trip: `POST /-/sync/api/markup` takes `commit` and reads the file
+      itself (`fileText`, `Missing` when there is none); `RepoHome` asks for it with the tree and warms the
+      highlighter. Boot JS **153.1 KiB** br of 500, CSS 7.4 KiB.
+  * **Navigation and the classic UI.**
+    * The history trap (blocker): an open PR reverted every navigation to itself. `IssueView` decided the canonical
+      kind (issue or PR) from the live location, which is already the destination while the old page is still
+      mounted. It now uses its own route match and redirects only once that location has settled.
+    * Typed code addresses (`/{o}/{r}/src|commits|blame/…`, `commit/<sha>`, branches, tags, releases, actions runs and
+      jobs, `compare/a...b`, `pulls/N/files|commits`) are served by the app (`codeAddress` in `spa.go`, the router's
+      not-found redirect, `isSpaRoute`). Below the base, a code view's address may end in a file name or a dotted ref
+      without the `/-` the app writes (`serveRoot` served 404 for any path with an extension; found in verification).
+    * Classic exits: Code and Commits insert the default branch (`classicPathOf`), the palette keeps the query and the
+      PR tab, the not-found page offers no classic link for what classic does not have, and the pill on a
+      repository's classic pages (wiki, labels, settings, …) returns to that repository (`nearestAppPage`).
+      `?type=assigned|created_by` on typed list URLs filters by the viewer; other classic types say they are not
+      applied.
+    * Repository and owner pages share one `MoreMenu` (ui/Menu.tsx) for their classic exits; breadcrumbs mark only
+      the exact page `aria-current`; the active repository tab scrolls into view on a phone.
+  * **Writes (intents).** A refusal Forgejo answers with 500 (the 4th pin, an issue with open dependencies) or the same
+    500 three times fails the intent with Forgejo's message, rolled back, without Retry. A refusal's notice (any 4xx) has no Retry, which could only be refused again; the
+    Unsynced panel keeps the change with Retry and Discard. Every unsynced row has Discard. Field edits queue per field (`OWN_CHAIN`), so a stuck pin no longer holds a priority change. Closing a
+    blocked issue says which blockers are open and closes nothing. Task-list ticks are saved (a native `change`
+    listener: React's never fired on markup it did not render). The Unsynced panel scrolls, shows excerpts and
+    "Stop sending". A connection hung in its handshake for 8 s is "Can't reach Forgejo". Signing out offline ends
+    the web session when back online, before any new sign-in (`auth/weblogout.ts`).
+  * **Keyboard and focus.** Back, Esc or Undo return to the list with its cursor and focus (`app/listReturn.ts`);
+    Enter opens and Esc clears there (`list.open`, `list.clear`, page-scoped keys). The palette gives focus back to
+    the page it opened, not the sidebar item, and reopens focused at any speed. Code lists show J/K's cursor and take
+    Enter, Backspace and Alt+↑ without DOM focus. Dialogs opened from a menu keep their focus: the fading menu took it
+    back on its item's pointer-leave and then unmounted (found in verification; `keepDialogFocus` refocuses the
+    dialog's first field, and the board e2e spec checks it). Tooltips open on
+    focus only after Tab. `/` focuses the list search; G C says why it cannot go anywhere off a repository. The
+    shortcut help lists only keys that work on the page.
+  * **Boards.** Columns scroll into view under the cursor and the lane fades at an edge with more columns
+    (`BoardLanes`, `edge-fade-x`). C creates in the cursor's column; a personal board offers only repositories it can
+    hold; an issue's Project link opens the board on its card (`?card=`). The default column has a badge, and
+    changing it has Undo. Every move keeps the rank rule (`rankIn`). The Boards list has J/K/Enter. A user board
+    shared with collaborators opens for them.
+  * **Issue detail and create.** The create dialog has Status and Priority chips and hides pickers a reader cannot
+    use. The blocking issue shows "Blocks" (`/issues/N/blocks`), and the timeline reads dependencies, projects, teams,
+    lock reasons and pushed commits (count and links) correctly; a status change is one row. Reactions have names.
+    Unlocking asks first; a locked conversation says so by the composer. The editor's Write/Preview sits above it,
+    keeps its frame, and has Bold, Italic and Link (Mod-B/I/K, `features/editor/format.ts`). On a phone the
+    properties summary sits under the title. Repository lists have New issue, or New pull request (the classic
+    compare page); C stays "Create an issue" everywhere, as its label says.
+  * **Code and PRs.** Review snippets show the code lines (`code/hunk.ts`). Jumping to a file clears the sticky
+    review bar (`scrollPaddingStart`); the end of a diff has no blank screen. Line numbers make `#L` links and ranges,
+    and a linked range is tinted. Expanded context is highlighted; the phone Expand button is opaque. A failed merge
+    is one sentence with Retry; unfinished checks count jobs. Inline comments offer "Add single comment". The Actions
+    status filter is in the URL. Empty repositories show push instructions instead of a dead archive link. Branches
+    show PR, merged and ahead/behind with Compare; releases show asset sizes, downloads, source archives and a
+    "Changes since" link. File pages have their path as tab title. Widths follow one rule: list
+    tabs (issues, commits, branches, actions) run full width as every list does, and document tabs (releases, checks,
+    the conversation with its merge box) use the wide page column.
+  * **Shell, lists and inbox.** Shift+click selects a range. Triage notices replace each other (`series`). Phone
+    rows keep the repository's name (`RefCell`). The theme follows changes made in other tabs (`storage` event).
+    List search tolerates one typo per word and offers "Search everywhere"; a filtered list shows its count and
+    Display shows when it differs from the default. My issues filters by label, repository and author, with the
+    state buttons of repository lists. Saved views say they live on this device. Offline copy agrees in number.
+  * **Speed on a 4× slowed CPU** (inbox, about 140 notifications, longest tasks):
+    | Action | Before | After |
+    |---|---|---|
+    | J ×3 | 102 ms | none over 50 ms |
+    | Wheel scrolling | 60–70 ms per step | none over 50 ms |
+    | Unread on / off | 100 / 70 ms (half of it the test's own role query) | 0–70 ms, none after the first |
+    | G N | 156 ms | 130–260 ms, unchanged: the new page's first layout, which the router's scroll reset forces (`window.scrollTo`) |
+
+    * The virtualizer renders in the next frame instead of inside every scroll event (`useFlushSync: false`,
+      overscan 4) and takes the scroller's size from a ResizeObserver (`pageListRect`): no forced layout per scroll
+      or per mount.
+    * A view change scrolls to the top before the rows change and keeps the router from resetting scroll after the
+      commit (`viewChange`), which forced a full layout. The inbox shows its new view at once and writes the URL a
+      frame later (the router's navigation re-renders the page and every sidebar link: a task of its own).
+  * **The service worker's kill switch** (found by the e2e suite once views warm up on idle): a chunk or avatar
+    fetched through the retiring worker reopened a cache after the page had deleted them. The page now tells the
+    worker to retire before unregistering it, and the worker writes no cache once retired or once its build's cache
+    is gone (`alive`, `sw/sw.ts`), which also holds after it restarted.
+  * **Crawler extended.** It checks that a click arrives where its link points, leaves a PR and an issue through the
+    sidebar and Back (the history trap), types code addresses and `?type=assigned`, takes the pill on more classic
+    pages (labels, activity, issues/new, PR files with `?ui=classic`) and checks each lands in the repository, and
+    fetches every classic exit (no answer ≥ 400).
+  * **Checks (fourth round).**
+    * `npm run check` green: ESLint, Stylelint, typecheck, **478 Vitest tests in 54 files**, build and budget
+      (153.1 / 500 KiB JS, 7.4 / 30 KiB CSS). The protocol types are up to date (`gen-protocol.sh --check`).
+    * `tools/ci.sh crawl e2e` on PostgreSQL: crawler **pass** (0 `[E]` lines); e2e **44 / 44**. The first run had 4
+      failures: 3 specs written for the old behaviour (the board link now carries `?card=`, a refusal's notice has
+      no Retry, Write/Preview is a radio group, reactions have names), updated; and the kill-switch race above,
+      fixed. The server log's 6 `[E]` lines are upstream's (Actions' job emitter and auto-merge on rows a test
+      deleted). The board spec now also checks that a column dialog keeps the focus.
+    * `go test ./routers/livesync/` (with `TestRouteModules`, `TestPreloadHeaders` and the code addresses with
+      dots), go vet and gofumpt clean. `TestLivesyncAPI` passes on PostgreSQL; its README assertion reads the file
+      from git instead of assuming the fixture's text.
+    * Not run in this round: MySQL; golangci-lint (the sandbox's binary is older than the module's Go).
 * **Still open.**
   * PLAN-level items this pass did not take on: labels and milestones management views, comment edit markers, a
     go-to-file finder, sticky group headers (4.2).

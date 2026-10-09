@@ -23,7 +23,7 @@ import {
 } from '@tanstack/react-router';
 import {isLocalPath, sitePath} from './config.ts';
 import {appPageOf, nextPathOf} from './paths.ts';
-import {lazyView} from './lazy.tsx';
+import {lazyView, whenIdle} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
 import {loadRepo, type RepoMatch} from './repo.ts';
 import {
@@ -176,6 +176,8 @@ const boardsRoute = createRoute({
 const boardRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/projects/$id',
+  // `card`: the issue whose card gets the cursor (an issue's Project link opens its board on its card).
+  validateSearch: (s): {card?: number} => (typeof s.card === 'string' && /^-?[1-9]\d{0,15}$/.test(s.card) ? {card: Number(s.card)} : {}),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/board/BoardView.tsx'), 'BoardPage'),
 });
@@ -225,10 +227,23 @@ const nextRepoRoute = createRoute({
   component: ShellNotFound,
 });
 
-/** Any other address inside the shell: the not-found page, with the shell around it (and the classic page). */
+/**
+ * Any other address inside the shell: the not-found page, with the shell around it (and the classic page) — except
+ * a repository's code address (`/{owner}/{repo}/src/branch/main/README.md`, `commits/…`, `compare/a...b`,
+ * `pulls/9/files`; spaRoutes `{code}`), which is the app's page for it: a code view below the base, a pull
+ * request's tab. A pasted link stays in the app. (A catch-all, not a `/$owner/$repo/$` route: that one would also
+ * match a repository's home with an empty rest.)
+ */
 const notFoundRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '$',
+  beforeLoad: ({context: {app}, params}) => {
+    const path = `/${(params._splat ?? '').replace(/^\/+|\/+$/g, '')}`;
+    const segs = path.split('/').filter(Boolean);
+    const to = segs.length > 2 ? nextPathOf(path) : undefined;
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
+    if (to && to !== path) throw redirect({href: sitePath(app.config, to), replace: true});
+  },
   component: ShellNotFound,
 });
 
@@ -250,6 +265,23 @@ const routeTree = rootRoute.addChildren([
   ]),
   ...devRoutes,
 ]);
+
+/**
+ * The views most sessions go to next, loaded one per idle period once the app has painted: the rest of the bundle
+ * streams in behind the first view, and the first G N or row click evaluates no module on the interaction (QA
+ * round 2: ~10 ms of a 4x-slowed navigation). Heavier views (code, boards) load on intent (defaultPreload) or use.
+ */
+export function warmViews(): void {
+  const views = [inboxRoute, myIssuesRoute, repoIssuesRoute, repoIssueRoute, repoHomeRoute];
+  const next = () => {
+    const view = views.shift()?.options.component as {preload?: () => Promise<void>} | undefined;
+    if (!view?.preload) return;
+    view.preload().then(() => {
+      whenIdle(next);
+    }, () => undefined);
+  };
+  whenIdle(next);
+}
 
 export function createAppRouter(app: App, history?: RouterHistory) {
   return createRouter({

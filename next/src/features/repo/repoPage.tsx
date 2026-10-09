@@ -8,19 +8,19 @@
 // not available here.
 
 import {Link, useLoaderData, useNavigate, useParams, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookOpen, ChevronDown, ChevronRight, KanbanSquare, MoreHorizontal, Settings, Slash, Activity} from 'lucide-react';
+import {AppWindow, BookOpen, ChevronRight, KanbanSquare, Settings, Slash, Activity} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
-import {classicOfLocation} from '../../app/paths.ts';
+import {classicOfHere} from '../../app/session.ts';
 import {type RepoMatch, useHold} from '../../app/repo.ts';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {withEnd} from '../../code/refs.ts';
-import {Button, Icon, type LucideIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, TabLink, TabNav, TextLink} from '../../ui/index.ts';
+import {Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink} from '../../ui/index.ts';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
@@ -56,13 +56,16 @@ export function useCanWrite(repoId: number): boolean {
 export function RepoContext({owner, repo, section}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined}) {
   return (
     <>
-      <TextLink><Link to="/$owner" params={{owner}}>{owner}</Link></TextLink>
+      {/* Exact: an ancestor's crumb is no "current page" (TanStack's fuzzy match marked the owner on every page). */}
+      <TextLink><Link to="/$owner" params={{owner}} activeOptions={{exact: true}}>{owner}</Link></TextLink>
       <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
       <TextLink><Link to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>{repo}</Link></TextLink>
       {section && <>
         <Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/>
         <TextLink>
-          <Link to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}}>{section === 'pulls' ? 'Pull requests' : 'Issues'}</Link>
+          <Link to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}}>
+            {section === 'pulls' ? 'Pull requests' : 'Issues'}
+          </Link>
         </TextLink>
       </>}
     </>
@@ -93,6 +96,11 @@ export interface RepoHeaderProps {
  */
 export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle, detail}: RepoHeaderProps) {
   const page = docTitle ?? (typeof title === 'string' ? title : undefined);
+  const notFound = useRepoNotFound();
+  if (repoId === undefined && notFound) {
+    // No such repository: no breadcrumb into it and no page title of a section it does not have.
+    return <PageHeader icon={icon} title={`${owner}/${repo}`} docTitle={`Not found · ${owner}/${repo}`}/>;
+  }
   return (
     <>
       <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title}
@@ -148,17 +156,14 @@ export function RepoTabs({owner, repo, repoId}: {owner: string; repo: string; re
 /** "More": the repository's boards (here) and what only the classic UI has (wiki, activity, settings). */
 const RepoMore = observer(function RepoMore({owner, repo, repoId}: {owner: string; repo: string; repoId: number | undefined}) {
   const s = useSession();
-  const here = useRouterState({select: (st) => classicOfLocation(st.location.pathname, st.location.searchStr)});
+  const app = useApp();
+  const here = useRouterState({select: (st) => classicOfHere(app, st.location.pathname, st.location.searchStr)});
   const navigate = useNavigate();
   const boards = repoId === undefined ? [] : [...s.data.pool.model('Project').by('repo_id', repoId)].filter((p) => !p.get('closed'));
   const admin = repoId !== undefined && repoAccess(s, repoId) === 'admin';
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        <Button variant="ghost" size="sm" aria-label="More of this repository"><Icon icon={MoreHorizontal} size="sm"/>More<Icon icon={ChevronDown} size="sm"/></Button>
-      </MenuTrigger>
-      <MenuContent>
+    <MoreMenu label="More of this repository">
         {boards.length > 0 && <MenuLabel>Boards</MenuLabel>}
         {boards.map((b) => (
           <MenuItem key={b.id} icon={KanbanSquare} onSelect={() => void navigate({to: '/-/next/projects/$id', params: {id: String(b.id)}})}>{b.get('title')}</MenuItem>
@@ -171,13 +176,22 @@ const RepoMore = observer(function RepoMore({owner, repo, repoId}: {owner: strin
         {admin && <ClassicMenuItem to={`${base}/settings`} icon={Settings}>Settings</ClassicMenuItem>}
         <MenuSeparator/>
         <ClassicMenuItem to={here} icon={AppWindow}>This page</ClassicMenuItem>
-      </MenuContent>
-    </Menu>
+    </MoreMenu>
   );
 });
 
-/** The page of a repository that is not known here (no such repository, no access, or offline and not synced). */
+/** Whether the route's loader learnt from Forgejo that the repository does not exist (or is not visible). */
+function useRepoNotFound(): boolean {
+  const loaded: unknown = useLoaderData({strict: false});
+  return (loaded as RepoMatch | undefined)?.notFound === true;
+}
+
+/**
+ * The page of a repository that is not known here (no such repository, no access, or offline and not synced).
+ * When Forgejo answered that it does not exist, the classic UI has no page for it either: Home is the way on.
+ */
 export function Unavailable({owner, repo}: {owner: string; repo: string}) {
-  return <Missing what="This repository" classic={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}/>;
+  const notFound = useRepoNotFound();
+  return <Missing what="This repository" title={notFound ? 'Not found' : undefined} classic={notFound ? undefined : `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}/>;
 }
 

@@ -68,7 +68,8 @@ export function editing(app: App): Editing {
       notify(app, {
         tone: 'danger', title: `${d.title} failed`,
         description: `${d.reason ?? ''} It was undone and kept in Unsynced changes.`.trim(),
-        action: d.intent ? {label: 'Retry', run: () => {
+        // A refusal would be refused again: no Retry (the Unsynced panel still offers it, with the text).
+        action: d.intent && !d.refused ? {label: 'Retry', run: () => {
           intents.retry(d.key);
         }} : {label: 'Review', run: () => {
           openUnsynced(app);

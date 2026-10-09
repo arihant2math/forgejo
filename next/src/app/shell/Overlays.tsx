@@ -14,9 +14,16 @@ import {useApp} from '../store.ts';
 export function ShortcutsDialog() {
   const {ui} = useApp();
   const [active] = useState(() => shortcuts.activeScopes());
+  // On this page's scopes, only what works here: bound now, and not overridden by a key of an inner scope (on a
+  // board L is the next column, not labels). Other pages' scopes are listed in full.
+  const [works] = useState(() => {
+    const bound = shortcuts.bound();
+    return (id: ShortcutId) => KEYMAP[id].scope === 'global' || ((bound.has(id) || 'local' in KEYMAP[id]) && !shortcuts.shadowed(id));
+  });
   const byScope = new Map<Scope, ShortcutId[]>();
   for (const id of Object.keys(KEYMAP) as ShortcutId[]) {
     const scope = KEYMAP[id].scope;
+    if (active.includes(scope) && !works(id)) continue;
     byScope.set(scope, [...byScope.get(scope) ?? [], id]);
   }
   const order = [...byScope.keys()].sort((a, b) => rank(active, a) - rank(active, b));
@@ -26,10 +33,10 @@ export function ShortcutsDialog() {
     });
   };
   return (
-    <Dialog open title="Keyboard shortcuts" size="sm" initialFocus="dialog" onOpenChange={(open) => {
+    <Dialog open title="Keyboard shortcuts" size="sm" initialFocus="dialog" scroll onOpenChange={(open) => {
       if (!open) close();
     }} footer={<DialogClose asChild><Button>Close</Button></DialogClose>}>
-      <div className="flex max-h-dialog-body flex-col gap-3 overflow-y-auto">
+      <div className="flex flex-col gap-3">
         {order.map((scope) => (
           <section key={scope} className="flex flex-col gap-1">
             <SectionHeading>{`${SCOPE_LABELS[scope]}${active.includes(scope) && scope !== 'global' ? ' · on this page' : ''}`}</SectionHeading>

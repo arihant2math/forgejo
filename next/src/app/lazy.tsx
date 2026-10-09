@@ -15,7 +15,8 @@ export interface LazyComponent<P extends object> {
  * an overlay opened from the keyboard must not wait for). Preload it when
  * the app is idle so that it usually renders on the first try.
  */
-export function lazyComponent<P extends object>(load: () => Promise<ComponentType<P>>): LazyComponent<P> {
+/** `fallback`: shown until the chunk is here (a page's placeholders), instead of nothing. */
+export function lazyComponent<P extends object>(load: () => Promise<ComponentType<P>>, fallback: ReactNode = null): LazyComponent<P> {
   let Loaded: ComponentType<P> | undefined;
   let loading: Promise<void> | undefined;
   const preload = () => loading ??= load().then((c) => {
@@ -33,7 +34,7 @@ export function lazyComponent<P extends object>(load: () => Promise<ComponentTyp
         });
       }
     }, []);
-    return Loaded ? <Loaded {...props}/> : null;
+    return Loaded ? <Loaded {...props}/> : fallback;
   }
   return Object.assign(Lazy, {preload});
 }

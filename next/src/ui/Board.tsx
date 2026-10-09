@@ -1,15 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {HTMLAttributes, ReactNode, Ref} from 'react';
+import {type HTMLAttributes, type ReactNode, type Ref, useCallback, useEffect, useRef} from 'react';
 import {cx} from './cx.ts';
 
 export interface BoardColumnProps {
   /** The column's name (its listbox is labelled by it). */
   title: ReactNode;
   count: number;
-  /** Before the title (a colour dot, a default marker). */
+  /** Before the title (a colour dot). */
   leading?: ReactNode;
+  /** After the title (the default column's marker). */
+  badge?: ReactNode;
   /** After the count, right-aligned (the column's menu). */
   actions?: ReactNode;
   /** The column's cards (a virtualized listbox). */
@@ -20,6 +22,47 @@ export interface BoardColumnProps {
   columnId: number;
 }
 
+export interface BoardLanesProps extends Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> {
+  ref?: Ref<HTMLDivElement>;
+  children: ReactNode;
+}
+
+/**
+ * A board's columns side by side, scrolling sideways. The edge fades where more columns are out of view (the
+ * last ones were invisible with nothing to hint at them), and `revealInline` scrolls an element into view.
+ */
+export function BoardLanes({ref, children, ...rest}: BoardLanesProps) {
+  const el = useRef<HTMLDivElement | null>(null);
+  const update = useCallback(() => {
+    const e = el.current;
+    if (!e) return;
+    const start = e.scrollLeft > 1;
+    const end = e.scrollLeft + e.clientWidth < e.scrollWidth - 1;
+    if (start !== e.hasAttribute('data-more-start')) e.toggleAttribute('data-more-start', start);
+    if (end !== e.hasAttribute('data-more-end')) e.toggleAttribute('data-more-end', end);
+  }, []);
+  useEffect(() => {
+    const e = el.current;
+    if (!e) return undefined;
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(e);
+    for (const c of e.children) ro.observe(c);
+    return () => {
+      ro.disconnect();
+    };
+  }, [update]);
+  return (
+    <div {...rest} ref={(node) => {
+      el.current = node;
+      if (typeof ref === 'function') ref(node);
+      else if (ref) ref.current = node;
+    }} onScroll={update} className="edge-fade-x flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto p-3">
+      {children}
+    </div>
+  );
+}
+
 /** A board's lane: a quiet canvas column of fixed width (the board scrolls sideways). */
 const lane = 'flex w-column shrink-0 flex-col rounded-lg bg-canvas';
 
@@ -27,13 +70,14 @@ const lane = 'flex w-column shrink-0 flex-col rounded-lg bg-canvas';
  * One column of a board (Linear's): a quiet canvas lane with a header and
  * its own vertical scroll. Fixed width, so the board scrolls sideways.
  */
-export function BoardColumn({title, count, leading, actions, children, bodyRef, columnId}: BoardColumnProps) {
+export function BoardColumn({title, count, leading, badge, actions, children, bodyRef, columnId}: BoardColumnProps) {
   return (
     <section data-column={columnId} className={cx(lane, 'focus-visible-within')}>
       <header className="flex h-control shrink-0 items-center gap-2 px-3 pt-1 text-base">
         {leading}
         <h2 className="min-w-0 truncate font-medium text-fg">{title}</h2>
         <span className="text-sm text-fg-subtle tabular-nums">{count}</span>
+        {badge}
         {actions && <span className="ml-auto flex items-center">{actions}</span>}
       </header>
       <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-2 pt-1">{children}</div>

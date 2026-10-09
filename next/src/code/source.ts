@@ -238,6 +238,14 @@ export class CodeSource {
   }
 
   /**
+   * Starts the highlighter's worker now (it takes a moment to boot): a page that is about to show code (a README
+   * whose rendering is on its way) does not wait for it afterwards.
+   */
+  preheat(): void {
+    this.highlighter ??= this.spawn();
+  }
+
+  /**
    * Loads a grammar into the highlighter, in the queue: its chunk is then in
    * the service worker's cache (grammars are cached on first use), so a
    * prefetched pull request is highlighted offline too.
@@ -516,6 +524,22 @@ export class CodeSource {
       const res = await this.request('sync', '/markup', undefined, body);
       return ((await readJson(res)) as APIMarkupResponse).html;
     });
+  }
+
+  /**
+   * A markup file at a commit rendered by the server, which reads the file itself (B9 /markup with `commit`): one
+   * round trip for a README, without its tree and blob first. Immutable (by commit), cached like a blob.
+   */
+  renderedAt(repoId: number, commit: string, path: string, ref: {kind: RefKind; name: string}): Promise<string> {
+    return this.cached(CodeSource.renderedKey(repoId, commit, path, ref), async () => {
+      const body: APIMarkupRequest = {repo_id: repoId, ref: `${ref.kind}/${ref.name}`, path, text: '', commit};
+      const res = await this.request('sync', '/markup', undefined, body);
+      return ((await readJson(res)) as APIMarkupResponse).html;
+    });
+  }
+
+  static renderedKey(repoId: number, commit: string, path: string, ref: {kind: RefKind; name: string}): string {
+    return `mdc:${String(repoId)}:${commit}:${ref.kind}:${ref.name}:${path}`;
   }
 
   // ---- API v1 (immutable when addressed by full SHAs) ----

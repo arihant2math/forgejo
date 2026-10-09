@@ -8,7 +8,7 @@ import type {ReactNode} from 'react';
  * the one card look. `label` names it as a region.
  */
 export function Card({children, label, as: Tag = 'div'}: {children: ReactNode; label?: string | undefined; as?: 'div' | 'article' | 'section'}) {
-  return <Tag aria-label={label} className="flex max-w-lg flex-col gap-2 rounded-md border border-border bg-surface p-3">{children}</Tag>;
+  return <Tag aria-label={label} className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-surface p-3">{children}</Tag>;
 }
 
 /**

@@ -11,7 +11,7 @@ import {Link, useNavigate} from '@tanstack/react-router';
 import {ChevronDown, GitBranch, GitCompare, GitPullRequest, Tag} from 'lucide-react';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {observer} from 'mobx-react-lite';
-import {resolveName, shortSha} from '../../code/refs.ts';
+import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CompareInfo} from '../../code/source.ts';
 import {Button, CommandPopover, EmptyState, Icon, type PickOption, SectionHeading} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -119,11 +119,13 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
     );
   }
   const branches = refTable(pool, repoId).branches;
-  if (!branches.has(base) || !branches.has(head)) return null;
+  // Nothing to propose: the same branch, or the same commit.
+  if (!branches.has(base) || !branches.has(head) || base === head || branches.get(base) === branches.get(head)) return null;
   return <ClassicLink size="sm" variant="primary" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${base.split('/').map(encodeURIComponent).join('/')}...${head.split('/').map(encodeURIComponent).join('/')}`}>New pull request</ClassicLink>;
 });
 
-const Compared = observer(function Compared({owner, repo, repoId, baseSha, headSha, scroller}: CodeViewProps & {baseSha: string; headSha: string; scroller: HTMLDivElement | null}) {
+const Compared = observer(function Compared(props: CodeViewProps & {base: string; head: string; baseSha: string; headSha: string; scroller: HTMLDivElement | null}) {
+  const {owner, repo, repoId, baseSha, headSha, scroller} = props;
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
   const src = useSource();
   const key = `compare:${String(repoId)}:${baseSha}:${headSha}`;
@@ -138,7 +140,11 @@ const Compared = observer(function Compared({owner, repo, repoId, baseSha, headS
   const from = mb.state === 'ready' ? mb.value : undefined;
   const diff = useDiff(repoId, from ?? '', from ? headSha : '');
   if (info.state !== 'ready') return <Unloaded loaded={info} what="This comparison"/>;
-  if (!info.value.commits.length) return <EmptyState icon={GitCompare} title="Nothing to compare" description={`${shortSha(headSha)} has no commits that ${shortSha(baseSha)} lacks.`}/>;
+  if (!info.value.commits.length) {
+    // Named as the user chose them (refs, not SHAs).
+    return <EmptyState icon={GitCompare} title="Nothing to compare" description={baseSha === headSha ?
+      `${props.base} and ${props.head} are identical.` : `${props.head} has no commits that ${props.base} lacks.`}/>;
+  }
   return (
     <>
       <div className="border-b border-border">

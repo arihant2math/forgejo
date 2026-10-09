@@ -20,6 +20,9 @@ import {CompareView} from './Compare.tsx';
 import {CommitView, CommitsView} from './History.tsx';
 import {BranchesView, ReleasesView, TagsView} from './Refs.tsx';
 import {SrcView} from './Src.tsx';
+import {EmptyRepo} from './states.tsx';
+import {observer} from 'mobx-react-lite';
+import {usePool} from '../issues/cells.tsx';
 
 export interface CodeViewProps {
   owner: string;
@@ -46,19 +49,24 @@ function viewName(splat: string): string {
  * A code view's frame: the header (title, controls), the repository's tabs
  * and the scroll container, which the body gets (lists virtualize against it).
  */
-export function CodeFrame({view, title, controls, children}: {view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode}) {
+export function CodeFrame({view, title, controls, docTitle, children}: {
+  view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode;
+  /** The tab's title when the title is not text (a file's path: "internal/geo · acme/atlas"). */
+  docTitle?: string | undefined;
+}) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   return (
     <>
       <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={Code2} title={title}
-        docTitle={typeof title === 'string' ? title : viewName(view.splat)}>{controls}</RepoHeader>
+        docTitle={docTitle ?? (typeof title === 'string' ? title : viewName(view.splat))}>{controls}</RepoHeader>
       <PageBody ref={setScroller}>{children(scroller)}</PageBody>
     </>
   );
 }
 
-export function CodePage() {
+export const CodePage = observer(function CodePage() {
   const {owner, repo, repoId} = useRepoPage();
+  const pool = usePool();
   const {_splat: splat = ''} = useParams({strict: false});
   if (repoId === undefined) {
     return (
@@ -69,6 +77,7 @@ export function CodePage() {
     );
   }
   const props: CodeViewProps = {owner, repo, repoId, splat};
+  const repoEmpty = pool.model('Repository').get(repoId)?.get('empty') === true;
   const route = parseCodePath(splat);
   if (!route) {
     return (
@@ -76,6 +85,10 @@ export function CodePage() {
         {() => <Missing what="This page" description="This address does not name a code view." classic={`/${[owner, repo, ...splat.replace(/\/?-$/, '').split('/').filter(Boolean)].map(encodeURIComponent).join('/')}`}/>}
       </CodeFrame>
     );
+  }
+  // An empty repository: one state on every code tab (what to push), not "Branch or tag not found".
+  if (repoEmpty && route.view !== 'actions' && route.view !== 'run' && route.view !== 'releases') {
+    return <CodeFrame view={props} title="Code">{() => <EmptyRepo owner={owner} repo={repo} repoId={repoId}/>}</CodeFrame>;
   }
   switch (route.view) {
     case 'src':
@@ -98,4 +111,4 @@ export function CodePage() {
     case 'run':
       return <RunView {...props} key={`${String(repoId)}:${String(route.run)}`} run={route.run} job={route.job}/>;
   }
-}
+});

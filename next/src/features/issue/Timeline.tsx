@@ -25,11 +25,12 @@ import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {shortSha} from '../../code/refs.ts';
+import {hunkLines} from '../../code/hunk.ts';
 import {CodeLink} from '../code/nav.tsx';
 import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
-import {issueComments} from '../../intents/view.ts';
+import {issueComments, viewMembers} from '../../intents/view.ts';
 import {firstOf, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue} from '../issues/labels.ts';
 import {agoWords, fullDate, shortDate} from '../issues/format.ts';
@@ -38,12 +39,13 @@ import {Markdown} from './Markdown.tsx';
 import {afterPaint} from '../../app/paint.ts';
 import {textOfMarkup} from '../../app/trusted.ts';
 import {Reactions} from './Reactions.tsx';
-import {IssueLink} from './Sidebar.tsx';
+import {blocking, IssueLink} from './Sidebar.tsx';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
 
-type Item = {kind: 'comment'; id: number; at: string} | {kind: 'review'; id: number; at: string};
+/** `swapFrom`: a label event that replaced this label (the same field: a status changed from one to another). */
+type Item = {kind: 'comment'; id: number; at: string; swapFrom?: number} | {kind: 'review'; id: number; at: string};
 
 /** The issue's timeline items in order (observes membership of its comments and reviews). */
 function useItems(issueId: number): Item[] {
@@ -65,8 +67,37 @@ function useItems(issueId: number): Item[] {
       if (st === 'PENDING' || st === 'REQUEST_REVIEW') continue;
       out.push({kind: 'review', id: r.id, at: r.data.created_at});
     }
-    return out.sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
+    out.sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
+    return mergeSwaps(pool, out);
   });
+}
+
+/**
+ * A status (or priority) changed from one value to another is two events in Forgejo (the old label removed, the
+ * new one added, by the same person at once): one row here, "changed the status from [Todo] to [In Progress]".
+ */
+function mergeSwaps(pool: ReturnType<typeof usePool>, items: Item[]): Item[] {
+  const out: Item[] = [];
+  const event = (it: Item | undefined) => (it?.kind === 'comment' && it.swapFrom === undefined ? pool.model('Comment').get(it.id)?.data : undefined);
+  const kindOf = (labelId: number) => {
+    const l = pool.model('Label').get(labelId)?.data;
+    return l ? labelKind(l) : undefined;
+  };
+  for (const it of items) {
+    const a = event(out.at(-1));
+    const b = event(it);
+    if (a?.type === 'label' && b?.type === 'label' && a.poster_id === b.poster_id && (a.body === '1') !== (b.body === '1') &&
+      Math.abs(Date.parse(a.created_at) - Date.parse(b.created_at)) < 60_000) {
+      const kind = kindOf(a.label_id);
+      if (kind && kind === kindOf(b.label_id)) {
+        const [removed, added] = a.body === '1' ? [b, a] : [a, b];
+        out[out.length - 1] = {kind: 'comment', id: added.id, at: it.at, swapFrom: removed.label_id};
+        continue;
+      }
+    }
+    out.push(it);
+  }
+  return out;
 }
 
 // Loaded only for a long timeline (most are short: plain rows).
@@ -89,7 +120,7 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
     });
   }, [partial]);
   if (!items.length) return null;
-  const render = (it: Item) => (it.kind === 'comment' ? <CommentItem id={it.id}/> : <ReviewItem id={it.id}/>);
+  const render = (it: Item) => (it.kind === 'comment' ? <CommentItem id={it.id} swapFrom={it.swapFrom}/> : <ReviewItem id={it.id}/>);
   return (
     <section aria-label="Activity" className="flex flex-col">
       {items.length < VIRTUALIZE_FROM || !scroller ?
@@ -136,7 +167,7 @@ function Card({poster, original, at, badge, children, footer}: {poster: number; 
   );
 }
 
-const CommentItem = observer(function CommentItem({id}: {id: number}) {
+const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; swapFrom?: number | undefined}) {
   const pool = usePool();
   const overlay = useOverlay();
   const c = pool.model('Comment').get(id) ?? overlay.createdEntity('Comment', id) as Entity<'Comment'> | undefined;
@@ -146,7 +177,7 @@ const CommentItem = observer(function CommentItem({id}: {id: number}) {
     if (overlay.field('Comment', id, DELETED)) return null;
     return <CommentCard c={c} type={type}/>;
   }
-  return <EventLine comment={c}/>;
+  return <EventLine comment={c} swapFrom={swapFrom}/>;
 });
 
 /** A comment's card: its header (with the viewer's actions), its body or editor, its reactions. */
@@ -217,7 +248,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const issue = pool.model('Issue').get(c.get('issue_id'))?.data;
   const repo = issue ? pool.model('Repository').get(issue.repo_id)?.data : undefined;
   const files = issue && repo ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.number)}` : undefined;
-  const lines = c.get('diff_hunk').split('\n').filter((l) => l !== '' && !l.startsWith('@@')).slice(-SNIPPET_LINES);
+  const lines = hunkLines(c.get('diff_hunk'), SNIPPET_LINES);
   const reply = () => {
     if (!issue || !text.trim()) return;
     submitReview(editing(app).intents, {
@@ -269,9 +300,9 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
 });
 
 /** One line for an event, by comment type (models/issues/comment.go commentStrings). */
-const EventLine = observer(function EventLine({comment: c}: {comment: Entity<'Comment'>}) {
+const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: Entity<'Comment'>; swapFrom?: number | undefined}) {
   const d = c.data as Comment;
-  const ev = describeEvent(d);
+  const ev = swapFrom === undefined ? describeEvent(d) : {icon: Tag, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
   return (
     <div className="flex min-h-control items-center gap-3 py-1 text-base text-fg-muted">
       <span className="flex size-6 shrink-0 items-center justify-center"><Icon icon={ev.icon} size="sm"/></span>
@@ -299,6 +330,13 @@ const LabelEvent = observer(function LabelEvent({id, added}: {id: number; added:
   const kind = l && labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
   if (!kind) return <>{added ? 'added' : 'removed'} <LabelRef id={id}/></>;
   return <>{added ? `set the ${kind} to` : `removed the ${kind}`} <LabelRef id={id}/></>;
+});
+
+/** "changed the status from [Todo] to [In Progress]" (two label events, one row: mergeSwaps). */
+const LabelSwap = observer(function LabelSwap({from, to}: {from: number; to: number}) {
+  const l = usePool().model('Label').get(to);
+  const kind = l ? labelKind({name: l.get('name'), exclusive: l.get('exclusive')}) : undefined;
+  return <>changed the {kind ?? 'label'} from <LabelRef id={from}/> to <LabelRef id={to}/></>;
 });
 
 /** A due date an event names (Forgejo stores it as "YYYY-MM-DD", a change as "new|old"). */
@@ -330,6 +368,64 @@ const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
   );
 });
 
+/**
+ * "added 3 commits a1b2c3d, e4f5a6b, …" (Forgejo keeps the pushed commits in the event: {"is_force_push", "commit_ids"}),
+ * or "force-pushed from a1b2c3d to e4f5a6b"; each commit links to its page.
+ */
+const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
+  const pool = usePool();
+  const r = pool.model('Repository').get(pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0)?.data;
+  let push: {is_force_push?: unknown; commit_ids?: unknown} = {};
+  try {
+    push = JSON.parse(d.body) as typeof push;
+  } catch {
+    // Not the JSON Forgejo writes: the plain words.
+  }
+  const ids = Array.isArray(push.commit_ids) ? push.commit_ids.filter((x): x is string => typeof x === 'string') : [];
+  const link = (sha: string) => (r ?
+    <TextLink wrap key={sha}><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}><span className="font-mono">{shortSha(sha)}</span></CodeLink></TextLink> :
+    <span key={sha} className="font-mono">{shortSha(sha)}</span>);
+  if (push.is_force_push === true && ids.length === 2) return <>force-pushed from {link(ids[0] ?? '')} to {link(ids[1] ?? '')}</>;
+  if (!ids.length) return <>pushed commits</>;
+  const shown = ids.slice(0, 5);
+  return (
+    <>added {ids.length === 1 ? '1 commit' : `${String(ids.length)} commits`}{' '}
+      {shown.map((sha, i) => <span key={sha}>{i > 0 && ', '}{link(sha)}</span>)}{ids.length > shown.length && `, and ${String(ids.length - shown.length)} more`}</>
+  );
+});
+
+/** A project an event names (the full project when held, else what its owner shares: the ProjectRef). */
+const ProjectName = observer(function ProjectName({id}: {id: number}) {
+  const pool = usePool();
+  const title = pool.model('Project').get(id)?.get('title') ?? pool.model('ProjectRef').get(id)?.get('title');
+  return <span className="font-medium text-fg">{title ?? 'a project'}</span>;
+});
+
+/** A team a review was requested from ("@acme/core" when the organization is known). */
+const TeamName = observer(function TeamName({id}: {id: number}) {
+  const pool = usePool();
+  const t = pool.model('Team').get(id);
+  const org = t ? pool.model('User').get(t.get('org_id'))?.get('login') : undefined;
+  return <span className="font-medium text-fg">{t ? `${org ? `${org}/` : ''}${t.get('name')}` : 'a team'}</span>;
+});
+
+/**
+ * A dependency event, from this issue's side: Forgejo writes the same event on both issues, so the direction comes
+ * from the dependencies this device knows ("marked this as blocked by #12" / "marked this as blocking #12").
+ */
+const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
+  const pool = usePool();
+  const overlay = useOverlay();
+  const add = d.type === 'add_dependency';
+  const other = <IssueRef id={d.dependent_issue_id} from={d.issue_id}/>;
+  const blockedBy = viewMembers(pool, overlay, 'IssueDependency', d.issue_id).has(d.dependent_issue_id);
+  const blocks = [...pool.model('IssueDependency').by('dependency_id', d.issue_id)].some((x) => x.get('issue_id') === d.dependent_issue_id) ||
+    (blocking.get(d.issue_id) ?? []).includes(d.dependent_issue_id);
+  if (add && blockedBy) return <>marked this as blocked by {other}</>;
+  if (add && blocks) return <>marked this as blocking {other}</>;
+  return <>{add ? 'linked a dependency with' : 'removed a dependency with'} {other}</>;
+});
+
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   const m = usePool().model('Milestone').get(id);
   return <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
@@ -358,7 +454,8 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
       if (d.assignee_id === d.poster_id) return {icon: d.removed_assignee ? UserMinus : UserCheck, text: d.removed_assignee ? 'removed their assignment' : 'self-assigned this'};
       return {icon: d.removed_assignee ? UserMinus : UserPlus, text: <>{d.removed_assignee ? 'unassigned' : 'assigned'} <Who id={d.assignee_id}/></>};
     case 'review_request':
-      return {icon: Eye, text: d.removed_assignee ? 'removed a review request' : <>requested a review from <Who id={d.assignee_id} fallback="a team"/></>};
+      return {icon: Eye, text: <>{d.removed_assignee ? 'removed the review request for' : 'requested a review from'} {d.assignee_team_id ?
+        <TeamName id={d.assignee_team_id}/> : <Who id={d.assignee_id} fallback="someone"/>}</>};
     case 'change_title':
       return {icon: Pencil, text: <>changed the title from <s>{d.old_title}</s> to <span className="text-fg">{d.new_title}</span></>};
     case 'issue_ref':
@@ -373,11 +470,11 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'removed_deadline':
       return {icon: CalendarClock, text: deadlineText(d)};
     case 'add_dependency':
-      return {icon: Link2, text: <>added a dependency on <IssueRef id={d.dependent_issue_id} from={d.issue_id}/></>};
     case 'remove_dependency':
-      return {icon: Link2, text: <>removed a dependency on <IssueRef id={d.dependent_issue_id} from={d.issue_id}/></>};
+      return {icon: Link2, text: <DependencyEvent d={d}/>};
     case 'lock':
-      return {icon: Lock, text: 'locked the conversation'};
+      // Forgejo keeps the reason the person chose in the event's content.
+      return {icon: Lock, text: d.body ? <>locked the conversation as <span className="text-fg">{d.body.toLowerCase()}</span></> : 'locked the conversation'};
     case 'unlock':
       return {icon: LockOpen, text: 'unlocked the conversation'};
     case 'pin':
@@ -389,10 +486,12 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'change_target_branch':
       return {icon: ArrowRightLeft, text: <>changed the target branch from <Code>{d.old_ref}</Code> to <Code>{d.new_ref}</Code></>};
     case 'pull_push':
-      return {icon: GitPullRequestArrow, text: 'pushed commits'};
+      return {icon: GitPullRequestArrow, text: <PushEvent d={d}/>};
     case 'project':
+      if (!d.project_id) return {icon: SquareKanban, text: <>removed this from <ProjectName id={d.old_project_id}/></>};
+      return {icon: SquareKanban, text: <>{d.old_project_id ? 'moved this to' : 'added this to'} <ProjectName id={d.project_id}/></>};
     case 'project_board':
-      return {icon: SquareKanban, text: 'changed the project'};
+      return {icon: SquareKanban, text: <>moved this to another column of <ProjectName id={d.project_id}/></>};
     case 'start_tracking':
     case 'stop_tracking':
     case 'add_time_manual':

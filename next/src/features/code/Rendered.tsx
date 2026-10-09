@@ -49,16 +49,33 @@ export function BlobImage({bytes, type, alt}: {bytes: ArrayBuffer | string; type
   return <div className="flex justify-center p-6"><img src={url} alt={alt} className="max-w-full"/></div>;
 }
 
-/** A directory's README as a panel: rendered markup, or the text as is. */
-export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: APITreeEntry; dir: string; at: {kind: RefKind; ref: string}}) {
-  const src = useSource();
+/**
+ * A directory's README as a panel: rendered markup (the server reads and renders it at the commit: one round trip,
+ * no blob first), or the text as is.
+ */
+export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: APITreeEntry; dir: string; at: {kind: RefKind; ref: string; sha: string}}) {
   const path = dir ? `${dir}/${entry.name}` : entry.name;
+  const body = renderable(entry.name) === 'markup' ?
+    <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
+    <PlainReadme repoId={repoId} entry={entry} path={path}/>;
+  return <Panel label="README" title={<><Icon icon={BookOpen} size="sm"/>{entry.name}</>} padded>{body}</Panel>;
+}
+
+/** A markup file at a commit, rendered by the server from the repository (renderedAt). */
+function RenderedAt({repoId, commit, path, at}: {repoId: number; commit: string; path: string; at: {kind: RefKind; ref: string}}) {
+  const src = useSource();
+  const ref = {kind: at.kind, name: at.ref};
+  const key = CodeSource.renderedKey(repoId, commit, path, ref);
+  const html = useLoad(key, () => src.peek<string>(key), () => src.renderedAt(repoId, commit, path, ref));
+  if (html.state !== 'ready') return <Unloaded loaded={html} what="The README" skeleton={<SkeletonText lines={6}/>}/>;
+  return <Markdown html={html.value}/>;
+}
+
+function PlainReadme({repoId, entry, path}: {repoId: number; entry: APITreeEntry; path: string}) {
+  const src = useSource();
   const key = CodeSource.blobKey(repoId, entry.sha);
   const blob = useLoad(key, () => src.peek<FileContent>(key), () => src.blob(repoId, entry.sha, path, entry.size));
-  let body;
-  if (blob.state !== 'ready') body = <Unloaded loaded={blob} what="The README" skeleton={<SkeletonText lines={6}/>}/>;
-  else if (blob.value.kind !== 'text') body = <p className="text-base text-fg-muted">The README is not a text file.</p>;
-  else if (renderable(entry.name) === 'markup') body = <RenderedMarkup repoId={repoId} sha={entry.sha} path={path} text={blob.value.text} at={at}/>;
-  else body = <pre className="font-mono text-code whitespace-pre-wrap text-fg">{blob.value.text}</pre>;
-  return <Panel label="README" title={<><Icon icon={BookOpen} size="sm"/>{entry.name}</>} padded>{body}</Panel>;
+  if (blob.state !== 'ready') return <Unloaded loaded={blob} what="The README" skeleton={<SkeletonText lines={6}/>}/>;
+  if (blob.value.kind !== 'text') return <p className="text-base text-fg-muted">The README is not a text file.</p>;
+  return <pre className="font-mono text-code whitespace-pre-wrap text-fg">{blob.value.text}</pre>;
 }

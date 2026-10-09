@@ -21,7 +21,7 @@ function serverRoutes(): string[] {
   const end = spa.indexOf('\n}', start);
   expect(start).toBeGreaterThan(0);
   return [...spa.slice(start, end).matchAll(/^\s*\{(.*)\},/gm)].map((m) =>
-    `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => `$${p === 'index' ? 'index' : p}`)).join('/')}`);
+    `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => `$${p}`)).join('/')}`);
 }
 
 function router() {
@@ -35,7 +35,8 @@ function canonicalRoutes(): string[] {
 }
 
 test('every server spaRoute is a route of the app', () => {
-  const routes = serverRoutes();
+  // `{code}` (a repository's code address) is the shell's catch-all, which redirects to the code view (below).
+  const routes = serverRoutes().filter((r) => !r.endsWith('/$code'));
   expect(routes).toContain('/');
   expect(routes).toContain('/$owner/$repo/issues/$index');
   const mine = new Set(canonicalRoutes());
@@ -67,4 +68,16 @@ test('no source string is exactly the base: B8 rewrites those under a sub-path (
     if (/(['"`])\/-\/next\/\1/.test(src)) bad.push(f);
   }
   expect(bad).toEqual([]);
+});
+
+test('the server preloads the views the router loads (spa_preload.go routeModules names router.tsx\'s lazy views)', () => {
+  const go = readFileSync(resolve(process.cwd(), '../routers/livesync/spa_preload.go'), 'utf8');
+  const named = [...new Set([...go.matchAll(/"src\/(features\/[\w/]+\.tsx)"/g)].map((m) => m[1] ?? ''))];
+  expect(named.length).toBeGreaterThan(8);
+  const router = readFileSync(resolve(process.cwd(), 'src/app/router.tsx'), 'utf8');
+  const home = readFileSync(resolve(process.cwd(), 'src/features/home/Home.tsx'), 'utf8');
+  for (const m of named) {
+    const lazy = router.includes(`import('../${m}')`) || home.includes(`import('./${m.split('/').at(-1) ?? ''}')`);
+    expect(lazy, m).toBe(true);
+  }
 });

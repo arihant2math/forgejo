@@ -4,6 +4,8 @@
 // What the service worker (sw.ts) decides about a request, as pure
 // functions (tested in routes.test.ts against B8's spaRoutes table).
 
+import {parseCodePath} from '../code/refs.ts';
+
 /** The service worker's caches are named with this prefix and the build version. */
 export const CACHE_PREFIX = 'forgejo-next-';
 
@@ -63,12 +65,25 @@ export function isSpaRoute(path: string, search = ''): boolean {
     if (['notifications', 'issues', 'pulls'].includes(a)) return true;
     return isOwnerName(a) && !profileTab(q);
   }
-  if (segs.length > 4) return false;
   const [owner = '', repo = '', kind, n] = segs;
   if (!isOwnerName(owner) || !NAME.test(repo)) return false;
   if (kind === undefined) return true;
+  // A code address, or a pull request's Files or Commits tab (spa.go codeAddress): the app's code view.
+  if (codeAddress(segs.slice(2))) return true;
+  if (segs.length > 4) return false;
   if (kind !== 'issues' && kind !== 'pulls') return false;
   return n === undefined || /^[1-9]\d{0,17}$/.test(n);
+}
+
+/** spa.go `codeAddress`: what follows a repository in a code page's address (the app's code views mirror it). */
+function codeAddress(rest: string[]): boolean {
+  const [head, second] = rest;
+  if (head === 'pulls') return rest.length === 3 && /^[1-9]\d{0,17}$/.test(second ?? '') && (rest[2] === 'files' || rest[2] === 'commits');
+  if (head === 'src' || head === 'blame' || head === 'commits') {
+    if (rest.length === 1) return true;
+    return (second === 'branch' || second === 'tag' || second === 'commit') && rest.length >= 3 && parseCodePath(rest.join('/')) !== undefined;
+  }
+  return head !== undefined && head !== 'src' && parseCodePath(rest.join('/')) !== undefined;
 }
 
 /** A tab of the classic profile other than its repositories (spa.go `profileTab`). */

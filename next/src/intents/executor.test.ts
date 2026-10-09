@@ -284,6 +284,55 @@ describe('the queue', () => {
     world.close();
   });
 
+  test('a refusal Forgejo answers as a server error fails at once with its words; no Retry offered (QA round 2: pinning a 4th issue)', async () => {
+    const server = new FakeForgejo();
+    const s = scripted(server, [answer(500, {message: 'the max number of pinned issues has been readched'})]);
+    const failed = vi.fn();
+    const world = new World(server, 1, {fetch: s.fetch, onFailed: failed});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.pin', pinned: true});
+    await world.settle();
+    expect(s.calls.length).toBe(1);
+    expect(tab.intents.pending).toBe(0);
+    expect(failed).toHaveBeenCalledTimes(1);
+    const [draft] = await new IntentDb(world.db).drafts();
+    expect(draft?.refused).toBe(true);
+    expect(draft?.reason).toMatch(/unpin one first/);
+    world.close();
+  });
+
+  test('a 500 that says the same thing three times is a refusal, not retried forever', async () => {
+    const server = new FakeForgejo();
+    const no = () => answer(500, {message: 'something deterministic'}, {'Retry-After': '0'});
+    const s = scripted(server, [no(), no(), no(), no()]);
+    const world = new World(server, 1, {fetch: s.fetch});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.assignee', userId: ALICE, add: true});
+    await world.settle(60);
+    expect(s.calls.length).toBe(3);
+    expect(tab.intents.pending).toBe(0);
+    expect([...tab.intents.drafts.values()].map((d) => d.reason)).toEqual(['Something deterministic.']);
+    world.close();
+  });
+
+  test('a change retried after a server error does not hold back the issue\'s other properties', async () => {
+    const server = new FakeForgejo();
+    const s = scripted(server, [new TypeError('lost')]);
+    const world = new World(server, 1, {fetch: s.fetch, backoff: 60_000, maxBackoff: 60_000});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.assignee', userId: ALICE, add: true});
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 3, add: true, drop: []});
+    await world.settle();
+    // The assignee waits for its retry (a minute); the label went meanwhile.
+    expect(server.issues.get(1)?.labels.has(3)).toBe(true);
+    expect(server.issues.get(1)?.assignees.has(ALICE)).toBe(false);
+    expect(tab.intents.pending).toBe(1);
+    world.close();
+  });
+
   test('signed out: the queue is held, not dropped (PLAN §4.9)', async () => {
     const server = new FakeForgejo();
     const world = new World(server, 1, {token: () => Promise.reject(new Error('signed out'))});

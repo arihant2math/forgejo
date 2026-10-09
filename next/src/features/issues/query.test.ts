@@ -134,3 +134,12 @@ describe('runQuery', () => {
     expect(Math.max(...times)).toBeLessThan(80);
   });
 });
+
+test('a search forgives a typo in a word of four letters or more', async () => {
+  const {nearWord} = await import('./query.ts');
+  expect(nearWord('vector tiles: server-side', 'vectr')).toBe(true);
+  expect(nearWord('vector tiles', 'vetcor')).toBe(true);
+  expect(nearWord('vector tiles', 'tilse')).toBe(true);
+  expect(nearWord('vector tiles', 'raster')).toBe(false);
+  expect(nearWord('map', 'mpa')).toBe(false);
+});

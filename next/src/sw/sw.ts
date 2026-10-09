@@ -82,7 +82,19 @@ const NAVIGATION_TIMEOUT = 4000;
 /** The kill switch is checked at most this often while online. */
 const KILL_CHECK = 30 * 60_000;
 
+/**
+ * Retired (the kill switch, from this worker or a page): it still answers the open tabs until they reload, from the
+ * network only, and never opens a cache again (a chunk or an avatar fetched meanwhile recreated one). The build's
+ * cache exists from install until a kill deletes it, so its absence says so too, after the worker restarted.
+ */
+let retired = false;
+
+async function alive(): Promise<boolean> {
+  return !retired && await caches.has(CACHE);
+}
+
 async function killSelf(): Promise<void> {
+  retired = true;
   for (const k of await caches.keys()) if (k.startsWith(CACHE_PREFIX)) await caches.delete(k);
   await sw.registration.unregister();
   // The open tabs load from the network again (their pages stay as they are until then).
@@ -123,7 +135,8 @@ sw.addEventListener('activate', (e) => {
 
 sw.addEventListener('message', (e) => {
   const m = e.data as {t?: string; urls?: unknown} | null;
-  if (m?.t === 'skipWaiting') e.waitUntil(sw.skipWaiting());
+  if (m?.t === 'retire') retired = true;
+  else if (m?.t === 'skipWaiting') e.waitUntil(sw.skipWaiting());
   else if (m?.t === 'version') e.source?.postMessage({t: 'version', version: build.version});
   else if (m?.t === 'avatars' && Array.isArray(m.urls)) e.waitUntil(keepAvatars(m.urls.filter((u): u is string => typeof u === 'string').slice(0, 200)));
 });
@@ -133,6 +146,7 @@ sw.addEventListener('message', (e) => {
  * the avatars' cache, so they show offline too. Only this instance's avatar URLs; those cached already are kept.
  */
 async function keepAvatars(urls: string[]): Promise<void> {
+  if (!await alive()) return;
   const cache = await caches.open(AVATAR_CACHE);
   for (const u of urls) {
     let url: URL;
@@ -179,6 +193,7 @@ const AVATARS_MAX = 500;
  * (offline the app still shows faces, not broken images).
  */
 async function avatar(req: Request): Promise<Response> {
+  if (!await alive()) return fetch(req);
   const cache = await caches.open(AVATAR_CACHE);
   try {
     const res = await fetch(req);
@@ -197,6 +212,7 @@ async function avatar(req: Request): Promise<Response> {
 }
 
 async function asset(req: Request): Promise<Response> {
+  if (!await alive()) return fetch(req);
   const cache = await caches.open(CACHE);
   const hit = await cache.match(req);
   if (hit) return hit;
@@ -285,6 +301,7 @@ const KILL_KEY = `${build.base}__kill-check`;
 
 /** An online navigation: the kill switch, and a newer build on the server. */
 async function afterOnline(path: string, app: boolean, res: Response): Promise<void> {
+  if (!await alive()) return;
   const cache = await caches.open(CACHE);
   // One of the app's own pages is gone: the server may not serve this UI any more — sw.js says.
   let check = res.status === 404 && path.startsWith(build.base);

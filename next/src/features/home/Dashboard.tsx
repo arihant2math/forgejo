@@ -13,6 +13,7 @@ import {Command, GitPullRequest, Inbox, Eye, CircleDot, CloudUpload} from 'lucid
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {connectivity} from '../../app/online.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -26,6 +27,7 @@ import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
 import {issuePath} from '../issues/edits.ts';
 import type {ListSource} from '../issues/list.ts';
 import {useListModel} from '../issues/ListPage.tsx';
+import {HomeSkeleton} from './Home.tsx';
 
 /** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
@@ -40,9 +42,18 @@ interface Item {
   at: string;
 }
 
+/**
+ * Whether this tab has shown Home's content once. Until then (a device's first sync: the workspace and its groups
+ * arrive group by group) Home stays on its placeholders and then appears once, complete — not section by
+ * section with counts that jump and rows that reorder (QA round 2). A device with data shows it at once.
+ */
+let settledOnce = false;
+
 export default observer(function Dashboard() {
   const app = useApp();
   const {userId: me, auth, data} = useSession();
+  const settled = settledOnce || (data.workspace.current !== undefined && data.status.loading === 0);
+  if (settled) settledOnce = true;
   const pool = usePool();
   const overlay = useOverlay();
   const open = (i: Entity<'Issue'> | undefined): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open';
@@ -59,6 +70,7 @@ export default observer(function Dashboard() {
   const mine = [...issues.by('poster_id', me)].filter((i) => i.get('is_pull') && open(i)).map(updated).sort(byTime);
   const pending = (editing(app).overlay.created('Issue') as Entity<'Issue'>[]).map((issue) => ({issue, at: issue.get('created_at')})).sort(byTime);
 
+  if (!settled) return <HomeSkeleton/>;
   const sections: SectionProps[] = [
     {title: 'Unread', icon: Inbox, items: unread, all: '/notifications?filter=unread'},
     {title: 'Assigned to you', icon: CircleDot, items: assigned, all: '/issues?type=assigned'},
@@ -70,9 +82,7 @@ export default observer(function Dashboard() {
       {/* Asked once the session holds a token (the server is asked as the signed-in user). */}
       {auth.status.state === 'ok' && <ReviewRequests/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
-      {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> :
-        // A device still loading (its first sign-in, catching up): placeholders, never an all-clear it cannot know yet.
-        data.workspace.current === undefined || data.status.loading > 0 ? <Loading/> : <Welcome/>}
+      {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
     </PageColumn>
   );
 });
@@ -87,6 +97,14 @@ const ReviewRequests = observer(function ReviewRequests() {
   const list = useListModel(REVIEWS, {}, 'none');
   const items = list.result.get().ids.map((id) => pool.model('Issue').get(id))
     .filter((i): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open').map(updated).sort(byTime);
+  // Its place is kept while the server is asked (online): the sections below do not move when it arrives.
+  if (!items.length && !list.serverAnswered && connectivity.online) {
+    return (
+      <Panel label="Review requested" title={<><Icon icon={Eye} size="sm"/><span className="text-fg">Review requested</span></>}>
+        <ListRow role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}><Skeleton className="h-3 w-64"/></ListRow>
+      </Panel>
+    );
+  }
   if (!items.length) return null;
   return <Section title="Review requested" icon={Eye} items={items} all="/pulls?type=review_requested"/>;
 });
@@ -147,7 +165,8 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
       {s && <RefCell repo={`${s.owner}/${s.repo}`} number={s.number}/>}
       <AgoCell at={at}/>
     </>}>
-      {s ? s.title : 'Not on this device yet'}
+      {/* Its subject is asked of the server (once): a placeholder line meanwhile, never a row without a title. */}
+      {s ? s.title : <Skeleton className="h-3 w-64"/>}
     </ListRow>
   );
 });
@@ -160,23 +179,6 @@ function Hints() {
       issues, <Shortcut keys={shortcutHint('go.pulls')}/> your pull requests, <Shortcut keys={shortcutHint('go.inbox')}/> the inbox,{' '}
       <Shortcut keys={shortcutHint('go.board')}/> your board; <Shortcut keys={shortcutHint('create')}/> creates an issue.
     </>
-  );
-}
-
-/** Home while this device loads what is waiting (static placeholders, no spinner). */
-function Loading() {
-  return (
-    <div aria-busy aria-label="Loading" className="flex flex-col gap-4">
-      {['w-64', 'w-48'].map((w) => (
-        <Panel key={w} label="Loading" title={<Skeleton className="h-3 w-24"/>}>
-          {['w-72', 'w-56', 'w-64'].map((r) => (
-            <ListRow key={r} role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}>
-              <Skeleton className={`h-3 ${r}`}/>
-            </ListRow>
-          ))}
-        </Panel>
-      ))}
-    </div>
   );
 }
 

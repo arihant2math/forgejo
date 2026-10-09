@@ -32,6 +32,10 @@ export interface Filter {
   /** A status and a priority by value (their labels' value, compared without case), in any repository. */
   status?: string | undefined;
   priority?: string | undefined;
+  /** A label by name (compared without case), in any repository. */
+  label?: string | undefined;
+  /** One repository. */
+  repo?: number | undefined;
 }
 
 export interface Query {
@@ -123,6 +127,7 @@ export function parseSearch(q: string | undefined): {words: string[]; number: nu
 export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryContext): QueryResult {
   const {filter, sort, group} = query;
   const search = parseSearch(filter.q);
+  const labelName = filter.label?.toLowerCase();
   const must = filter.labels.filter((l) => l > 0);
   const mustNot = filter.labels.filter((l) => l < 0).map((l) => -l);
   const items: Item[] = [];
@@ -131,6 +136,8 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
     const state = ctx.state(issue);
     if (filter.state !== 'all' && state !== filter.state) continue;
     if (filter.poster !== undefined && issue.poster_id !== filter.poster) continue;
+    if (filter.repo !== undefined && issue.repo_id !== filter.repo) continue;
+    if (labelName !== undefined && !ctx.labels(issue).some((id) => ctx.label(id)?.name.toLowerCase() === labelName)) continue;
     if (filter.milestone !== undefined) {
       const m = ctx.milestone(issue);
       if (filter.milestone === -1 ? m !== 0 : m !== filter.milestone) continue;
@@ -196,7 +203,36 @@ function hasValue(issue: Issue, kind: ScopeKind, value: string, run: Run): boole
 function matches(issue: Issue, s: {words: string[]; number: number | undefined}): boolean {
   if (s.number !== undefined && issue.number === s.number) return true;
   const title = issue.title.toLowerCase();
-  return s.words.every((w) => title.includes(w.replace(/^#/, '')) || `#${String(issue.number)}` === w);
+  return s.words.every((w) => title.includes(w.replace(/^#/, '')) || `#${String(issue.number)}` === w || nearWord(title, w));
+}
+
+/**
+ * A typo (the ⌘K palette forgives them, so the lists do too): a word of 4 letters or more that is one edit — a
+ * letter missing, extra, wrong or two swapped — from the start of a word of the title ("vectr" finds "vector").
+ */
+export function nearWord(title: string, w: string): boolean {
+  if (w.length < 4) return false;
+  for (const t of title.split(/[^\p{L}\p{N}]+/u)) {
+    if (t.length < w.length - 1) continue;
+    // The word as typed against the title word's start of the same length, one longer and one shorter.
+    for (const n of [w.length, w.length + 1, w.length - 1]) {
+      if (n <= t.length && oneEdit(w, t.slice(0, n))) return true;
+    }
+  }
+  return false;
+}
+
+/** Whether a and b are at most one edit apart (Damerau: a swap of neighbours counts as one). */
+function oneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) {
+    if (a.slice(i + 1) === b.slice(i + 1)) return true;
+    return a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+  }
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
 }
 
 function sortKey(issue: Issue, sort: Sort, run: Run): number {

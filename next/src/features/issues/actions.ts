@@ -16,7 +16,7 @@ import type {ShortcutId} from '../../app/shortcuts/index.ts';
 import type {App, PickerKind} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
-import {issueAssigneeIds, issueLabelIds, issueState} from '../../intents/view.ts';
+import {issueAssigneeIds, issueLabelIds, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import type {LucideIcon} from '../../ui/index.ts';
 import {repoLabels} from './candidates.ts';
@@ -55,16 +55,18 @@ export function openPicker(app: App, kind: PickerKind, issueIds: readonly number
  * cancels out offline). Every place that closes from a list, menu or picker goes through here.
  */
 export function changeState(app: App, issues: readonly Entity<'Issue'>[], state: 'open' | 'closed'): void {
-  const changed = untracked(() => {
+  const wanted = untracked(() => {
     const {overlay} = editing(app);
     return issues.filter((i) => issueState(overlay, i) !== state);
   });
+  // Forgejo refuses to close an issue blocked by open ones: said here, before anything changes (QA round 2).
+  const changed = state === 'closed' ? withoutBlocked(app, wanted) : wanted;
   if (!changed.length) return;
   setState(app, changed, state);
   const one = changed.length === 1 ? changed[0] : undefined;
   const pull = untracked(() => changed.every((i) => i.data.is_pull));
   const what = one ? `#${String(untracked(() => one.data.number))}` : `${String(changed.length)} ${pull ? 'pull requests' : 'issues'}`;
-  notify(app, {tone: 'neutral', title: `${state === 'closed' ? 'Closed' : 'Reopened'} ${what}`, action: {label: 'Undo', run: () => {
+  notify(app, {tone: 'neutral', series: 'state', title: `${state === 'closed' ? 'Closed' : 'Reopened'} ${what}`, action: {label: 'Undo', run: () => {
     setState(app, changed, state === 'closed' ? 'open' : 'closed');
   }}});
 }
@@ -74,9 +76,40 @@ export function changeState(app: App, issues: readonly Entity<'Issue'>[], state:
  * status closes the issue, any other status reopens it (the Undo notice of changeState says so).
  */
 export function setWorkflowStatus(app: App, issues: readonly Entity<'Issue'>[], label: Label): void {
-  setLabel(app, issues, label, true);
   const stage = statusStage(scopedValue(label.name));
-  changeState(app, issues, stage === 'done' || stage === 'canceled' ? 'closed' : 'open');
+  const closes = stage === 'done' || stage === 'canceled';
+  // The status and the state change together or not at all: a blocked issue keeps both (it cannot be closed).
+  const target = closes ? withoutBlocked(app, issues) : issues;
+  if (!target.length) return;
+  setLabel(app, target, label, true);
+  changeState(app, target, closes ? 'closed' : 'open');
+}
+
+/** The open issues an issue is blocked by (its dependencies, as far as this device knows them). */
+export function openBlockers(app: App, issue: Entity<'Issue'>): Entity<'Issue'>[] {
+  const pool = app.session?.data.pool;
+  if (!pool) return [];
+  const {overlay} = editing(app);
+  return untracked(() => [...viewMembers(pool, overlay, 'IssueDependency', issue.id)]
+    .map((id) => pool.model('Issue').get(id as number))
+    .filter((d): d is Entity<'Issue'> => d !== undefined && issueState(overlay, d) === 'open'));
+}
+
+/** The issues that can be closed: those blocked by open issues are left out, and the user is told which. */
+function withoutBlocked(app: App, issues: readonly Entity<'Issue'>[]): Entity<'Issue'>[] {
+  const blocked = issues.map((i) => [i, openBlockers(app, i)] as const).filter(([, b]) => b.length > 0);
+  if (!blocked.length) return [...issues];
+  const [first] = blocked;
+  if (first) {
+    const [issue, by] = first;
+    const refs = by.slice(0, 3).map((d) => `#${String(untracked(() => d.data.number))}`).join(', ');
+    notify(app, {
+      tone: 'warning',
+      title: blocked.length === 1 ? `#${String(untracked(() => issue.data.number))} cannot be closed yet` : `${String(blocked.length)} issues cannot be closed yet`,
+      description: `It is blocked by ${refs}, still open. Close ${by.length === 1 ? 'it' : 'them'} first, or remove the dependency.`,
+    });
+  }
+  return issues.filter((i) => !blocked.some(([b]) => b === i));
 }
 
 /**

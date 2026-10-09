@@ -40,6 +40,19 @@ export function checksOf(pool: Pool, pr: PullRequest, head: string): Checks {
   return {statuses, runs: current, summary};
 }
 
+/**
+ * How many checks have not finished, counted as the Checks tab lists them: a run by its jobs (two waiting jobs
+ * are two checks), a status by itself.
+ */
+export function unfinishedChecks(pool: Pool, c: Checks): number {
+  let n = c.statuses.filter((s) => PENDING.has(s.get('state'))).length;
+  for (const r of c.runs) {
+    const jobs = [...pool.model('ActionRunJob').by('run_id', r.id)];
+    n += jobs.length ? jobs.filter((j) => PENDING.has(j.data.status)).length : Number(PENDING.has(r.data.status));
+  }
+  return n;
+}
+
 /** A status's description without a negative duration (a clock skew between runner and server: "Successful in -35s"). */
 export function cleanDescription(text: string): string {
   return text.replace(/\s+(?:in|after)\s+-\d[\dhms ]*$/i, '');

@@ -12,7 +12,7 @@
 // its own card order changes (BoardModel.cards); a card when its issue's
 // fields do. Dragging touches no React state but the dragged card's flag.
 
-import {Link, useNavigate, useParams} from '@tanstack/react-router';
+import {Link, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, SquareMinus, SquarePen, Star, Trash2} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
@@ -23,6 +23,7 @@ import {sitePath} from '../../app/config.ts';
 import {classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
+import {notify} from '../../app/notices.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
@@ -32,7 +33,7 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
-  Badge, BoardCard, BoardColumn, BoardColumnDraft, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
+  Badge, BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
   ContextMenuSeparator, EmptyState, Icon, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
   TextLink,
 } from '../../ui/index.ts';
@@ -67,6 +68,11 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   const repoId = project?.get('repo_id') ?? 0;
   // A repository's project: its issues (the cards) are in the repository's group.
   useHold(data, repoId ? `repo:${String(repoId)}` : undefined);
+  // A user's or an organization's board that is not on this device (a collaborator who knows it from an issue:
+  // its ProjectRef): its owner's group has the board, its columns and cards, for whoever may see the owner (classic
+  // shows it to them too). Held while the page is open.
+  const ref = project ? undefined : pool.model('ProjectRef').get(projectId)?.data;
+  useHold(data, ref ? `${ref.type === 3 ? 'org' : 'profile'}:${String(ref.owner_id)}` : undefined);
   // Cards of older closed issues are in the repository's closed tier (B6), and B9 counts them in positions: the
   // board pages that tier in while it is open — at most CLOSED_PAGES pages (the device does not know whether a
   // closed issue is on the board until it has it; a repository with more old closed issues keeps the rest out).
@@ -104,18 +110,18 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
   const login = owner?.get('login');
   return (
     <>
-      <TextLink><Link to="/-/next/boards">Boards</Link></TextLink>
+      <TextLink><Link to="/-/next/boards" activeOptions={{exact: true}}>Boards</Link></TextLink>
       {repo ? (
         <>
           <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-          <TextLink><Link to="/$owner" params={{owner: repo.get('owner_name')}}>{repo.get('owner_name')}</Link></TextLink>
+          <TextLink><Link to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}}>{repo.get('owner_name')}</Link></TextLink>
           <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-          <TextLink><Link to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}}>{repo.get('name')}</Link></TextLink>
+          <TextLink><Link to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}}>{repo.get('name')}</Link></TextLink>
         </>
       ) : login && (
         <>
           <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-          <TextLink><Link to="/$owner" params={{owner: login}}>{login}</Link></TextLink>
+          <TextLink><Link to="/$owner" params={{owner: login}} activeOptions={{exact: true}}>{login}</Link></TextLink>
         </>
       )}
     </>
@@ -174,13 +180,22 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       app.ui.issueTarget = target;
     });
   }), [app, model, projectId]);
-  // Back on the board (from a card's page): the cursor is where it was, its column focused (J/K go on from there).
-  useEffect(() => {
-    const id = lastCard.get(projectId);
+  // Opened from an issue (?card=): the cursor on its card. Back on the board (from a card's page): where it was,
+  // its column focused (J/K go on from there). Waits for the cards to arrive (a board loaded on demand).
+  const asked = useSearch({strict: false, select: (s: {card?: number}) => s.card});
+  const placed = useRef(false);
+  useEffect(() => autorun(() => {
+    if (placed.current) return;
+    const id = asked ?? lastCard.get(projectId);
     if (id === undefined || model.cursor.activeId !== undefined) return;
-    if (findCard(untracked(() => model.layout.get()), id)) show(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the board mounts
-  }, []);
+    if (findCard(model.layout.get(), id)) {
+      placed.current = true;
+      untracked(() => {
+        show(id);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the card is there
+  }), [asked]);
   useEffect(() => () => {
     runInAction(() => {
       app.ui.issueTarget = [];
@@ -204,6 +219,8 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       const h = handles.current.get(at.column);
       h?.scrollTo(at.index);
       h?.focus();
+      // A column out of view comes into view (the board scrolls sideways as columns scroll down).
+      boardRef.current?.querySelector(`[data-column="${String(at.column)}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
     });
   };
   const here = () => {
@@ -289,6 +306,14 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   useShortcut('issue.assignee', pick('assignees'));
   useShortcut('issue.milestone', pick('milestone'));
   useShortcut('issue.priority', pick('priority'));
+  // C on a board (Linear): the new issue goes on this board, in the cursor's column (else the default one).
+  useShortcut('create', () => {
+    const layout = untracked(() => model.layout.get());
+    const at = here()?.at;
+    const column = at?.column ?? layout.columns.find((c) => c.default)?.id ?? layout.columns[0]?.id;
+    if (column === undefined || !editable) openCreate(app);
+    else newIssueIn(app, projectId, column);
+  });
 
   // Cards call back through a ref: their props stay the same objects across renders.
   const actions = useRef({open, dnd, editable});
@@ -333,7 +358,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         if (!o) setMenuCard(undefined);
       }}>
         <ContextMenuTrigger asChild>
-          <div ref={boardRef} onKeyDown={onKeyDown} className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto p-3"
+          <BoardLanes ref={boardRef} onKeyDown={onKeyDown}
             onContextMenuCapture={(e) => {
               // On a card, or (Shift+F10 / the menu key on a column) the cursor's card; elsewhere no menu.
               const el = (e.target as Element).closest('[data-card]');
@@ -353,7 +378,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
             ))}
             {columns.length === 0 && <EmptyState icon={Columns3} title="No columns yet" description="Add a column to start the board."/>}
             {editable && <AddColumn projectId={projectId}/>}
-          </div>
+          </BoardLanes>
         </ContextMenuTrigger>
         <ContextMenuContent>
           {menuCard !== undefined && <CardMenu model={model} issueId={menuCard} open={open} editable={editable}/>}
@@ -387,9 +412,13 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
   const ci = layout.columns.findIndex((c) => c.id === at?.column);
   const actions = issue ? issueActions(app, [issue]).filter((a) => a.id !== 'open') : [];
   const path = issue && issuePath(app, issue);
+  // One rule for every move to another column, by key or by menu: the card keeps its rank among the column's cards.
+  const moveTo = (columnId: number) => {
+    model.move(issueId, columnId, model.rankIn(issueId, columnId));
+  };
   const moveBy = (d: number) => {
     const col = layout.columns[ci + d];
-    if (col) model.move(issueId, col.id, Math.min(at?.index ?? 0, layout.cards.get(col.id)?.length ?? 0));
+    if (col) moveTo(col.id);
   };
   return (
     <>
@@ -407,7 +436,7 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
       <ContextMenuSub label="Move to" icon={Columns3}>
         {layout.columns.map((c) => (
           <ContextMenuItem key={c.id} disabled={c.id === at?.column} onSelect={() => {
-            model.move(issueId, c.id, 0);
+            moveTo(c.id);
           }}>{c.title}</ContextMenuItem>
         ))}
       </ContextMenuSub>
@@ -473,6 +502,8 @@ const Column = observer(function Column({model, column, index, count, dragging, 
   return (
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
       leading={column.color ? <LabelDot color={column.color}/> : null}
+      // The default column (where new cards and the cards of a deleted column go) says so.
+      badge={column.default ? <Badge>Default</Badge> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count}/> : undefined}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative w-full outline-none"
         style={{height: virtualizer.getTotalSize()}}
@@ -561,7 +592,15 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {
             setDialog('rename');
           }}>Rename…</MenuItem>
           <MenuItem icon={Star} disabled={offline || column.default} onSelect={() => {
-            void editColumn(app, projectId, column.id, {default: true});
+            const before = untracked(() => model.columns.find((c) => c.default));
+            void editColumn(app, projectId, column.id, {default: true}).then((ok) => {
+              if (!ok) return;
+              // Said, with Undo: the default decides where new cards go.
+              notify(app, {tone: 'neutral', title: `“${column.title}” is the default column`, description: 'New cards go there.',
+                ...(before ? {action: {label: 'Undo', run: () => {
+                  void editColumn(app, projectId, before.id, {default: true});
+                }}} : {})});
+            });
           }}>{column.default ? 'The default column' : 'Make it the default'}</MenuItem>
           <MenuItem icon={ArrowLeft} disabled={offline || index === 0} onSelect={() => {
             reorder(-1);

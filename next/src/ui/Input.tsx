@@ -42,16 +42,18 @@ export function Input({size = 'md', invalid, icon, className, ...rest}: InputPro
 /** Multi-line text (markdown source: a description, a comment). Full width; grows with `rows`, resizable vertically. */
 export interface TextAreaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'className' | 'style'> {
   invalid?: boolean | undefined;
+  /** Inside an EditorFrame (the frame draws the box and the focus outline). */
+  bare?: boolean | undefined;
   ref?: Ref<HTMLTextAreaElement>;
 }
 
-export function TextArea({invalid, rows = 6, ...rest}: TextAreaProps) {
+export function TextArea({invalid, bare = false, rows = 6, ...rest}: TextAreaProps) {
   return (
     <textarea
       aria-invalid={invalid}
       rows={rows}
       // The prose size: what is typed reads like what it becomes (ProseSource, the rendering).
-      className={cx('interactive block w-full resize-y rounded-md px-2 py-1.5 text-md', field)}
+      className={cx('block w-full resize-y px-2 py-1.5 text-md', bare ? 'bg-transparent text-fg outline-none placeholder:text-fg-subtle' : cx('interactive rounded-md', field))}
       {...rest}
     />
   );
@@ -62,9 +64,11 @@ export function TextArea({invalid, rows = 6, ...rest}: TextAreaProps) {
  * look — border, surface, hover, focus outline while the editor inside has
  * focus, invalid — around content the editor draws. Full width.
  */
-export function EditorFrame({invalid, children, ref}: {invalid?: boolean | undefined; children: ReactNode; ref?: Ref<HTMLDivElement>}) {
+export function EditorFrame({invalid, header, children, ref}: {invalid?: boolean | undefined; header?: ReactNode; children: ReactNode; ref?: Ref<HTMLDivElement>}) {
   return (
-    <div ref={ref} aria-invalid={invalid} className={cx('interactive block w-full rounded-md text-md focus-ring-within', field)}>
+    <div ref={ref} aria-invalid={invalid} className={cx('interactive block w-full overflow-hidden rounded-md text-md focus-ring-within', field)}>
+      {/* The field's own controls (Write / Preview, formatting): on top, inside the same box, which never moves. */}
+      {header && <div className="flex items-center gap-1 border-b border-border-subtle px-1 py-1">{header}</div>}
       {children}
     </div>
   );

@@ -58,6 +58,41 @@ export function WhenSidebarAway({children}: {children: ReactNode}) {
 /** The page's scroll container, for the router's scroll restoration (router.tsx). */
 export const PAGE_SCROLLER = '[data-scroll-restoration-id="page"]';
 
+/**
+ * A list view's options change (a filter, the grouping, the order): the page goes back to its top now, while the
+ * layout is still clean, and the navigation that writes the view into the URL keeps its scroll
+ * (`navigate({...viewChange(), …})`). The router's own reset ran after the new rows' commit: a forced synchronous
+ * layout of the whole page, half of a 100 ms long task on a 4x slowed CPU (QA round 2).
+ */
+export function viewChange(): {resetScroll: false} {
+  document.querySelector(PAGE_SCROLLER)?.scrollTo({top: 0});
+  return {resetScroll: false};
+}
+
+/**
+ * Virtualizer options for a list that scrolls the page (PageBody): its first rows render for the window's height,
+ * and the scroller's size comes from a ResizeObserver (after layout, before paint), never from a
+ * getBoundingClientRect in the list's layout effect, which forced a synchronous layout of the whole new page on
+ * every navigation to a list (QA round 2).
+ */
+export function pageListRect() {
+  return {
+    initialRect: {width: innerWidth, height: innerHeight},
+    observeElementRect: (instance: {scrollElement: Element | Window | null}, cb: (rect: {width: number; height: number}) => void) => {
+      const el = instance.scrollElement;
+      if (!(el instanceof Element) || typeof ResizeObserver !== 'function') return undefined;
+      const observer = new ResizeObserver(([entry]) => {
+        const box = entry?.borderBoxSize[0];
+        if (box) cb({width: Math.round(box.inlineSize), height: Math.round(box.blockSize)});
+      });
+      observer.observe(el, {box: 'border-box'});
+      return () => {
+        observer.disconnect();
+      };
+    },
+  };
+}
+
 /** The main panel's content below the header (the page's scroll container; lists virtualize against it). */
 export function PageBody({children, ref}: {children: ReactNode; ref?: Ref<HTMLDivElement>}) {
   return <div ref={ref} data-scroll-restoration-id="page" className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
@@ -77,9 +112,10 @@ export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelW
 }
 
 /**
- * A page's reading column inside PageBody (Home, an owner, the boards, releases, checks, a repository's home):
- * centred in the panel, the page gutter, tighter on a narrow page. Every overview page uses it, so moving
- * between them never shifts the content. `wide`: the whole panel's width (a home with a side pane).
+ * A page's reading column inside PageBody (Home, an owner, the boards): centred in the panel, the page gutter,
+ * tighter on a narrow page. Every overview page uses it, so moving between them never shifts the content.
+ * `wide`: the whole panel's width with the same gutter — every repository page that is not a list (its home,
+ * a directory, releases, a pull request's checks); lists (issues, commits, branches, runs) go edge to edge.
  */
 export function PageColumn({children, wide = false}: {children: ReactNode; wide?: boolean}) {
   return <div className={cx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'mx-auto w-full max-w-lg')}>{children}</div>;

@@ -25,7 +25,7 @@ export {
   ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuRadioGroup,
   ContextMenuRadioItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger,
   Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub,
-  MenuTrigger,
+  MenuTrigger, MoreMenu,
 } from './Menu.tsx';
 export {Notice, type NoticeTone} from './Notice.tsx';
 export {PendingBadge, PendingIcon} from './Pending.tsx';
@@ -39,5 +39,5 @@ export {SectionHeading} from './SectionHeading.tsx';
 export {Status, StatusDot, type StatusTone} from './StatusDot.tsx';
 export {Code, TextLink} from './Text.tsx';
 export {Tooltip, TooltipProvider} from './Tooltip.tsx';
-export {BoardCard, BoardColumn, BoardColumnDraft, DropIndicator} from './Board.tsx';
+export {BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, DropIndicator} from './Board.tsx';
 export {PromptDialog} from './PromptDialog.tsx';

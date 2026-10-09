@@ -34,7 +34,7 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
     <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><Icon icon={FileCode} size="sm"/>Browse</CodeLink></Button>
   </>;
   return (
-    <CodeFrame view={props} title={title} controls={controls}>
+    <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
         <EmptyState icon={History} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
@@ -114,6 +114,16 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   const info = useLoad(`commit:${String(repoId)}:${sha}`, () => src.peek<CommitInfo>(`commit:${String(repoId)}:${sha}`), () => src.commit(repoId, sha));
   const diff = useDiff(repoId, '', sha);
   const c = info.state === 'ready' ? info.value : undefined;
+  // No such commit: said once, with the way to the commits (not "this commit's changes do not exist").
+  if (info.state === 'error' && info.status === 404) {
+    return (
+      <CodeFrame view={props} title={shortSha(sha)}>
+        {() => <Unloaded loaded={info} what="This commit" action={
+          <Button asChild><CodeLink owner={owner} repo={repo} to="commits"><Icon icon={History} size="sm"/>All commits</CodeLink></Button>
+        }/>}
+      </CodeFrame>
+    );
+  }
   return (
     <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={
       <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`src/commit/${sha}`}><Icon icon={FileCode} size="sm"/>Browse files</CodeLink></Button>

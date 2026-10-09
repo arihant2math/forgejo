@@ -92,7 +92,8 @@ test('daily triage: inbox → issue → label and priority → its board → car
   await expect(project).toContainText(`Triage board ${RUN}`, {timeout: 15_000});
   const from = /· (.+)$/m.exec(await project.innerText())?.[1]?.trim() ?? '';
   await project.getByRole('link', {name: `Triage board ${RUN}`}).click();
-  await expect(page).toHaveURL(`${BASE}/-/next/projects/${String(pid)}`);
+  // The board opens on the issue's card (QA round 2).
+  await expect(page).toHaveURL(new RegExp(`/-/next/projects/${String(pid)}\\?card=\\d+$`));
   const columns = await page.locator('section[data-column] h2').allInnerTexts();
   const next = columns[columns.indexOf(from) + 1] ?? '';
   expect(next).not.toBe('');
@@ -151,7 +152,7 @@ test('pull request review: review requested → files → a line comment → R �
   await line.hover();
   await line.getByRole('button', {name: /^Comment on line \d+$/}).click();
   await page.getByRole('textbox', {name: 'Review comment'}).fill('Why 33 and not 3?');
-  await page.getByRole('button', {name: 'Add review comment'}).click();
+  await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByText('1 pending comment')).toBeVisible();
   // 4. R: the review dialog; Approve; submit.
   await page.locator('body').click({position: {x: 5, y: 5}});

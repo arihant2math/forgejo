@@ -70,6 +70,8 @@ export interface DraftRecord {
   intent?: Intent;
   /** failed: why. */
   reason?: string;
+  /** failed: Forgejo refused it (a 4xx, or a refusal it reports as a server error): the same again would fail too. */
+  refused?: boolean;
   /** The text the user typed. */
   text?: string;
   /** text: what the edit is based on (an editor restored from it keeps its base: a 3-way merge stays right). */

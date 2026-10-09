@@ -50,6 +50,10 @@ test('missing-content sentences agree with their subject', async () => {
   expect(missingWords('These commits').offline).toBe('These commits are not on this device. Connect to load them, or open one of these:');
   expect(missingWords('This file').offline).toBe('This file is not on this device. Connect to load it, or open one of these:');
   expect(missingWords('These changes').notFound).toBe('These changes do not exist, or you cannot see them.');
+  expect(missingWords('Its description and comments').offline).toBe('Its description and comments are not on this device. Connect to load them, or open one of these:');
+  expect(missingWords('This repository\'s files').offline).toMatch(/^This repository's files are not/);
+  expect(missingWords('This pull request\'s changes').notFound).toBe('This pull request\'s changes do not exist, or you cannot see them.');
+  expect(missingWords('This repository').notFound).toBe('This repository does not exist, or you cannot see it.');
 });
 
 test('classic pages\' way back to the app: the app\'s page for the address, else Home', () => {
@@ -60,12 +64,29 @@ test('classic pages\' way back to the app: the app\'s page for the address, else
   expect(appPageOf('/acme?tab=activity')).toBe('/acme');
   expect(appPageOf('/acme/atlas/issues?state=closed&labels=3')).toBe('/acme/atlas/issues?state=closed&labels=3');
   expect(appPageOf('/acme/atlas/actions/runs/3/jobs/0/attempt/1')).toBe('/-/next/code/acme/atlas/actions/runs/3/jobs/0/attempt/1/-');
-  for (const p of ['/acme/atlas/settings', '/explore/repos', '/acme/atlas/milestones', '//evil.example/x', 'https://evil.example/']) expect(appPageOf(p), p).toBe('/');
+  for (const p of ['/explore/repos', '/user/settings', '//evil.example/x', 'https://evil.example/']) expect(appPageOf(p), p).toBe('/');
+  // A repository's classic-only pages: the nearest page of the app, never Home.
+  for (const p of ['/acme/atlas/settings', '/acme/atlas/milestones', '/acme/atlas/wiki/Home', '/acme/atlas/activity', '/acme/atlas/stars', '/acme/atlas/labels']) {
+    expect(appPageOf(p), p).toBe('/acme/atlas');
+  }
+  expect(appPageOf('/acme/atlas/releases/tag/v0.2.0')).toBe('/-/next/code/acme/atlas/releases/-');
+  expect(appPageOf('/acme/atlas/projects')).toBe('/-/next/boards');
+  expect(appPageOf('/acme/atlas/issues/new')).toBe('/acme/atlas/issues');
 });
 
 test('"This page" in the classic UI keeps the list\'s query', () => {
   expect(classicOfLocation('/issues', '?type=assigned')).toBe('/issues?type=assigned');
   expect(classicOfLocation('/acme/atlas/issues', 'state=closed')).toBe('/acme/atlas/issues?state=closed');
   expect(classicOfLocation('/notifications', '?filter=unread')).toBe('/notifications?filter=unread');
-  expect(classicOfLocation('/-/next/code/acme/atlas/src/-', '?x=1')).toBe('/acme/atlas/src');
+  expect(classicOfLocation('/-/next/code/acme/atlas/src/-', '?x=1')).toBe('/acme/atlas');
+  const ctx = {defaultBranch: () => 'main'};
+  expect(classicOfLocation('/-/next/code/acme/atlas/src/-', '', ctx)).toBe('/acme/atlas/src/branch/main');
+  expect(classicOfLocation('/-/next/code/acme/atlas/commits/-', '', ctx)).toBe('/acme/atlas/commits/branch/main');
+  expect(classicOfLocation('/-/next/code/acme/atlas/src/docs/-', '', ctx)).toBe('/acme/atlas/src/branch/main/docs');
+  expect(classicOfLocation('/-/next/code/acme/atlas/src/tag/v1/-', '', ctx)).toBe('/acme/atlas/src/tag/v1');
+  expect(classicOfLocation('/-/next/code/acme/atlas/branches/-', '', ctx)).toBe('/acme/atlas/branches');
+  // A pull request's tab is its own path in the classic UI.
+  expect(classicOfLocation('/acme/atlas/pulls/91', '?tab=files')).toBe('/acme/atlas/pulls/91/files');
+  expect(classicOfLocation('/acme/atlas/pulls/91', '?tab=commits')).toBe('/acme/atlas/pulls/91/commits');
+  expect(classicOfLocation('/acme/atlas/pulls/91', '?tab=checks')).toBe('/acme/atlas/pulls/91');
 });

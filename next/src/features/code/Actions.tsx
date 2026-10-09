@@ -7,7 +7,7 @@
 // and, once the job finished, is kept by (job, task) in the code cache, so
 // a finished log opens offline and never streams again.
 
-import {Link} from '@tanstack/react-router';
+import {Link, useNavigate, useSearch} from '@tanstack/react-router';
 import {ChevronDown, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
@@ -101,9 +101,10 @@ function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef
   }
 }
 
-type RunFilter = 'all' | 'failure' | 'running' | 'success';
+type RunFilter = 'all' | 'failure' | 'running' | 'success' | 'cancelled';
 const RUN_FILTERS: readonly {value: RunFilter; label: string}[] = [
   {value: 'all', label: 'All'}, {value: 'failure', label: 'Failed'}, {value: 'running', label: 'In progress'}, {value: 'success', label: 'Succeeded'},
+  {value: 'cancelled', label: 'Cancelled'},
 ];
 
 function matches(filter: RunFilter, status: string): boolean {
@@ -137,8 +138,27 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
 export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   const rows = useCodeRows<ActionRun>(props.owner, props.repo, (r) => `actions/runs/${String(r.run_number)}`);
   const pool = usePool();
-  const [filter, setFilter] = useState<RunFilter>('all');
-  const [workflow, setWorkflow] = useState<string | undefined>(undefined);
+  // In the address (?status=failure&workflow=ci.yml): a filtered list can be linked, and Back finds it filtered.
+  const navigate = useNavigate();
+  // The code route parses no search params: these are the address's strings (parsePlainSearch).
+  const rawStatus: unknown = useSearch({strict: false, select: (s): unknown => (s as Record<string, unknown>).status});
+  const rawWorkflow: unknown = useSearch({strict: false, select: (s): unknown => (s as Record<string, unknown>).workflow});
+  const filter: RunFilter = RUN_FILTERS.some((f) => f.value === rawStatus) ? rawStatus as RunFilter : 'all';
+  const workflow = typeof rawWorkflow === 'string' && rawWorkflow ? rawWorkflow : undefined;
+  const setSearch = (patch: {status?: RunFilter; workflow?: string | undefined}) => {
+    void navigate({to: '.', replace: true, search: ((prev: Record<string, unknown>) => {
+      const next = {...prev, ...patch};
+      if (!next.status || next.status === 'all') delete next.status;
+      if (!next.workflow) delete next.workflow;
+      return next;
+    }) as never});
+  };
+  const setFilter = (status: RunFilter) => {
+    setSearch({status});
+  };
+  const setWorkflow = (w: string | undefined) => {
+    setSearch({workflow: w});
+  };
   const all = [...pool.model('ActionRun').by('repo_id', props.repoId)].map((r) => r.data).sort((a, b) => b.run_number - a.run_number);
   const workflows = [...new Set(all.map((r) => r.workflow_id))].sort();
   const runs = all.filter((r) => matches(filter, r.status) && (workflow === undefined || r.workflow_id === workflow));

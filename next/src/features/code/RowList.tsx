@@ -8,7 +8,7 @@
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type ReactNode, useId, useState} from 'react';
+import {type KeyboardEvent, type ReactNode, useCallback, useId, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {plainClick} from '../../app/links.ts';
 import {ListRow} from '../../ui/index.ts';
@@ -40,8 +40,6 @@ interface RowListProps<T> {
    */
   cursor?: number | undefined;
   onCursor?: ((index: number) => void) | undefined;
-  /** Backspace or Alt+ArrowUp: back out of the list (a directory's parent). */
-  onBack?: (() => void) | undefined;
 }
 
 function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void}) {
@@ -59,7 +57,7 @@ function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; s
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, linkOf, cursor: owned, onCursor, onBack}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
   const id = useId();
   const [own, setOwn] = useState(0);
   const cursor = owned ?? own;
@@ -67,17 +65,27 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, l
     if (onCursor) onCursor(n);
     else setOwn(n);
   };
-  // The cursor's edge shows while the list has focus (or always, for a page-owned cursor).
+  // The cursor's edge shows while the list has focus, once J/K moved it (from anywhere on the page: the list then
+  // takes the focus, Linear), or always for a page-owned cursor.
   const [focused, setFocused] = useState(false);
-  const shown = focused || owned !== undefined;
+  const [moved, setMoved] = useState(false);
+  const shown = focused || moved || owned !== undefined;
+  const list = useRef<HTMLDivElement | null>(null);
   const [place, margin] = useScrollMargin(scroller);
+  const setList = useCallback((el: HTMLDivElement | null) => {
+    list.current = el;
+    place(el);
+  }, [place]);
   // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer re-renders this list itself (rows are not memoized)
   const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
   useShortcutScope('list');
   const move = (d: number) => {
-    const n = Math.max(0, Math.min(items.length - 1, cursor + d));
+    // The first J shows the cursor where it is (the first row), the next ones move it.
+    const n = shown ? Math.max(0, Math.min(items.length - 1, cursor + d)) : cursor;
     setCursor(n);
+    setMoved(true);
     v.scrollToIndex(n);
+    list.current?.focus({preventScroll: true});
     const it = items[n];
     if (it !== undefined) onIntent?.(it);
   };
@@ -87,9 +95,14 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, l
   useShortcut('list.prev', () => {
     move(-1);
   });
+  // Enter also without the focus on the list, once the cursor shows (the registry's page-only Enter).
+  useShortcut('list.open', () => {
+    const it = items[cursor];
+    if (shown && it !== undefined) onOpen(it);
+  });
   const onKeyDown = (ev: KeyboardEvent) => {
-    if (onBack && (ev.key === 'Backspace' || (ev.key === 'ArrowUp' && ev.altKey))) onBack();
-    else if (ev.key === 'ArrowDown') move(1);
+    if (ev.altKey) return;
+    if (ev.key === 'ArrowDown') move(1);
     else if (ev.key === 'ArrowUp') move(-1);
     else if (ev.key === 'Enter') {
       const it = items[cursor];
@@ -98,7 +111,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, l
     ev.preventDefault();
   };
   return (
-    <div ref={place} role="listbox" tabIndex={0} aria-label={label} aria-activedescendant={items.length ? `${id}-${String(cursor)}` : undefined} data-shortcuts=""
+    <div ref={setList} role="listbox" tabIndex={0} aria-label={label} aria-activedescendant={items.length ? `${id}-${String(cursor)}` : undefined} data-shortcuts=""
       onKeyDown={onKeyDown} onFocus={() => {
         setFocused(true);
       }} onBlur={() => {

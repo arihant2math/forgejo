@@ -48,6 +48,10 @@ export interface ListSearch {
    */
   status?: string;
   priority?: string;
+  /** A label by name, in any repository (the viewer's lists: the same label is a different one in each repository). */
+  label?: string;
+  /** One repository of the workspace (the viewer's lists). */
+  repo?: number;
 }
 
 /** /issues, /pulls (the viewer's work across repositories). */
@@ -96,10 +100,12 @@ export function listSearch(s: Record<string, unknown>): ListSearch {
   if (sort) out.sort = sort;
   const group = oneOf(GROUPS, s.group);
   if (group) out.group = group;
-  for (const k of ['status', 'priority'] as const) {
+  for (const k of ['status', 'priority', 'label'] as const) {
     const v = s[k];
     if (typeof v === 'string' && v.trim()) out[k] = v.trim().slice(0, 64);
   }
+  const repo = idParam(s.repo);
+  if (repo !== undefined && repo > 0) out.repo = repo;
   return out;
 }
 

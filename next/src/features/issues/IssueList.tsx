@@ -17,7 +17,8 @@
 // go as they scroll). Right click / Shift+F10 opens the same actions as the
 // palette.
 
-import {useNavigate} from '@tanstack/react-router';
+import {useNavigate, useRouterState} from '@tanstack/react-router';
+import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {CircleDashed, FolderGit2, User as UserIcon} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
@@ -25,6 +26,7 @@ import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
+import {pageListRect} from '../../app/shell/Frame.tsx';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
@@ -75,8 +77,11 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller,
+    ...pageListRect(),
     estimateSize: () => ROW,
-    overscan: 8,
+    // As the inbox: rendered with the next frame, not synchronously in each scroll event.
+    useFlushSync: false,
+    overscan: 4,
     getItemKey,
   });
 
@@ -120,13 +125,28 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     onNearEnd?.(rows.length > 0 && last >= rows.length - 15);
   }, [last, rows.length, onNearEnd]);
 
+  const here = useRouterState({select: (st) => st.location.pathname});
   const open = (id: number, newTab = false) => {
     const issue = untracked(() => app.session?.data.pool.model('Issue').get(id));
     const path = issue && issuePath(app, issue);
     if (!path) return;
     if (newTab) window.open(sitePath(app.config, path), '_blank', 'noopener');
-    else void navigate({to: path});
+    else {
+      rememberRow(here, id);
+      void navigate({to: path});
+    }
   };
+  // Back on this list (Esc, Back, a breadcrumb): the cursor on the issue the user came from, and the focus.
+  useLayoutEffect(() => {
+    const back = rememberedRow(here);
+    if (typeof back !== 'number' || cursor.activeId !== undefined) return;
+    const at = untracked(() => model.result.get().rows.findIndex((r) => r.type === 'issue' && r.id === back));
+    if (at < 0) return;
+    cursor.setActive(back);
+    virtualizer.scrollToIndex(at, {align: 'auto'});
+    focusList(listRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
+  }, [hasRows]);
   const move = (delta: number) => {
     const ids = rows.filter((r): r is Extract<Row, {type: 'issue'}> => r.type === 'issue').map((r) => r.id);
     if (!ids.length) return;
@@ -153,6 +173,14 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   useShortcut('list.select', () => {
     if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
   });
+  // Enter and Esc also while nothing has the focus (back from an issue, a click on a notice).
+  useShortcut('list.open', () => {
+    if (cursor.activeId === undefined) return;
+    open(cursor.activeId);
+  });
+  useShortcut('list.clear', () => {
+    cursor.selected.clear();
+  });
   useShortcut('issue.state', picker('status'));
   useShortcut('issue.labels', picker('labels'));
   useShortcut('issue.assignee', picker('assignees'));
@@ -178,8 +206,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   handlers.current = {
     click: (id, e) => {
       if (e.shiftKey) {
-        cursor.selected.toggle(id);
-        cursor.setActive(id);
+        cursor.selectRange(id, ids);
         return;
       }
       if (e.metaKey || e.ctrlKey) {

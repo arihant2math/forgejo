@@ -173,7 +173,9 @@ const IMMEDIATE_MS = 1000;
 
 /** An intent the user may still take back (never attempted, or parked). */
 export function discardable(rec: IntentRecord): boolean {
-  return rec.state === 'parked' || (rec.state === 'queued' && rec.req === undefined);
+  // A queued intent that was attempted (its request frozen: a retry after a server error or no answer) can be
+  // given up too: it may have reached Forgejo, and then the change syncs back as Forgejo has it (the panel says so).
+  return rec.state === 'parked' || rec.state === 'queued';
 }
 
 export class Intents {
@@ -1015,7 +1017,7 @@ export class Intents {
       }
       // Already so (an issue already locked) or a stale view.
       if (effectHeld(this.env.pool, i, this.env.userId)) await this.done(rec, undefined);
-      else await this.fail(rec, message(j, res.status));
+      else await this.fail(rec, message(j, res.status), true);
       return;
     }
     // Removing what is already gone.
@@ -1024,10 +1026,20 @@ export class Intents {
       return;
     }
     if (res.status === 429 || res.status >= 500) {
-      await this.later(rec, wait, `Forgejo answered ${String(res.status)}; retrying.`, true);
+      const j = await json(res);
+      const said = typeof j?.message === 'string' ? j.message.trim().slice(0, 300) : '';
+      // A refusal Forgejo reports as a server error (API v1 answers 500 for "the max number of pinned issues has
+      // been reached"): it will say the same every time. Known ones fail at once; any other 500 that says the same
+      // thing on its third attempt is taken for one too, instead of being retried forever.
+      const note = `Forgejo answered ${String(res.status)}${said ? `: ${said}` : ''}; retrying.`;
+      if (res.status === 500 && said && (refusal(said) || (rec.attempts >= 2 && rec.note === note))) {
+        await this.fail(rec, message(j, res.status), true);
+        return;
+      }
+      await this.later(rec, wait, note, true);
       return;
     }
-    await this.fail(rec, message(await json(res), res.status));
+    await this.fail(rec, message(await json(res), res.status), res.status !== 408);
   }
 
   /** 2xx: remembered with its sync id (and a create's id, remapped in the same transaction), then confirmed. */
@@ -1174,7 +1186,7 @@ export class Intents {
   }
 
   /** It cannot be carried out: the layer goes, the intent and its text become a draft (one transaction). */
-  private async fail(rec: IntentRecord, reason: string): Promise<void> {
+  private async fail(rec: IntentRecord, reason: string, refused = false): Promise<void> {
     this.immediate.delete(rec.id);
     const i = rec.intent;
     const text = intentText(i);
@@ -1184,7 +1196,7 @@ export class Intents {
     const title = rec.title !== undefined && rec.title.length > now.length ? rec.title : now;
     const draft: DraftRecord = {
       key: failedKey(rec.id), kind: 'failed', intent: i, reason, title,
-      issueId: i.issueId, repoId: i.repoId, at: this.now(), ...(text === undefined ? {} : {text}),
+      issueId: i.issueId, repoId: i.repoId, at: this.now(), ...(text === undefined ? {} : {text}), ...(refused ? {refused} : {}),
     };
     const ok = await this.env.db.fail(rec.id, draft);
     if (this.closed || !ok) return;
@@ -1317,8 +1329,24 @@ async function json(res: Response): Promise<Record<string, unknown> | undefined>
   }
 }
 
+/** Server errors that are Forgejo's refusals, not failures (the same answer every time). */
+const REFUSALS: [RegExp, string][] = [
+  [/max(?:imum)? number of pinned issues/i, 'Forgejo pins only a few issues per repository, and that many are pinned already: unpin one first.'],
+  [/still has open dependencies/i, 'It is blocked by issues that are still open: close those first, or remove the dependency.'],
+];
+
+function refusal(said: string): string | undefined {
+  return REFUSALS.find(([re]) => re.test(said))?.[1];
+}
+
+/** What Forgejo said, as a sentence for the user (its own message when there is one, ended with a period). */
 function message(j: Record<string, unknown> | undefined, status: number): string {
-  if (typeof j?.message === 'string' && j.message) return j.message.slice(0, 300);
+  if (typeof j?.message === 'string' && j.message) {
+    const said = j.message.trim().slice(0, 300);
+    const known = refusal(said);
+    if (known) return known;
+    return /[.!?]$/.test(said) ? said.charAt(0).toUpperCase() + said.slice(1) : `${said.charAt(0).toUpperCase()}${said.slice(1)}.`;
+  }
   if (status === 404) return 'It is not there any more, or you cannot see it.';
   if (status === 403) return 'You are not allowed to do this.';
   return `Forgejo answered ${String(status)}.`;

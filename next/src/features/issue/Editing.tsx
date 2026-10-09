@@ -10,7 +10,7 @@
 // so a reload or a crash never loses it. The field is the CodeMirror
 // composer with Forgejo's preview (editor/Composer.tsx).
 
-import {CloudOff, MoreHorizontal, Pencil, Trash2} from 'lucide-react';
+import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useId, useRef, useState} from 'react';
@@ -23,9 +23,9 @@ import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing} from '../../intents/session.ts';
 import {commentBody, issueBody, issueTitle} from '../../intents/view.ts';
 import {
-  Button, Callout, Dialog, EditableHeading, EmptyState, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
+  Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
 } from '../../ui/index.ts';
-import {missingWords} from '../../app/Missing.tsx';
+import {Missing} from '../../app/Missing.tsx';
 import {connectivity} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
@@ -224,7 +224,8 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     // Offline, an issue never opened on this device has no description here (and nothing more can arrive):
     // say so, as the code views do, instead of a placeholder that never resolves.
     if (data.status.connection === 'offline' || !connectivity.online) {
-      return <EmptyState icon={CloudOff} title="Not available offline" description={missingWords('Its description and comments').offline}/>;
+      // With what is on this device (the sentence ends "open one of these:").
+      return <Missing what="Its description and comments"/>;
     }
     return (
       <div className="flex flex-col gap-2 py-1" aria-busy>

@@ -8,6 +8,7 @@
 import {runInAction} from 'mobx';
 import {AUTH_CHANNEL, type AuthMessage, AuthSession} from '../auth/session.ts';
 import {resumeWipes, signOut} from '../auth/signout.ts';
+import {endWebSession, resumeWebLogout} from '../auth/weblogout.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {openData} from '../sync/data.ts';
 import {sitePath, uiPath} from './config.ts';
@@ -27,6 +28,7 @@ export async function openSession(config: NextConfig): Promise<Session | undefin
   const splash = readSplash();
   const userId = hasUser(splash) ? Number(splash.user) : NaN;
   resumeWipes(Number.isSafeInteger(userId) ? userId : undefined);
+  resumeWebLogout();
   if (!Number.isSafeInteger(userId) || userId <= 0) return undefined;
   const auth = new AuthSession(config.oauth, userId);
   // The leader's modules, fetched while IndexedDB is read (data.ts loads them lazily).
@@ -62,11 +64,8 @@ export async function performSignOut(app: App): Promise<void> {
   await signOut({
     auth: s.auth, close: () => s.data.close(),
     // Forgejo's classic sign-out (same-origin POST passes its cross-origin protection).
-    endWebSession: async () => {
-      await fetch(sitePath(app.config, '/user/logout'), {
-        method: 'POST', credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(3000),
-      });
-    },
+    // Remembered and finished later when it cannot be made now (offline): auth/weblogout.ts.
+    endWebSession: () => endWebSession(sitePath(app.config, '/user/logout')),
   });
   location.replace(app.config.base);
 }
@@ -96,6 +95,11 @@ export function classicOfHere(app: App, path: string, search = ''): string {
   const pool = s.data.pool;
   return classicOfLocation(path, search, {
     login: pool.model('User').get(s.userId)?.get('login'),
+    defaultBranch: (owner, repo) => {
+      const full = `${owner}/${repo}`.toLowerCase();
+      for (const r of pool.model('Repository').all()) if (r.get('full_name').toLowerCase() === full) return r.get('default_branch') || undefined;
+      return undefined;
+    },
     board: (id) => {
       const p = pool.model('Project').get(id);
       if (!p) return undefined;

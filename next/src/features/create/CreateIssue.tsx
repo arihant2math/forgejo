@@ -26,13 +26,14 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, Button, CommandPopover, Dialog, Input, LabelDot} from '../../ui/index.ts';
+import {Avatar, Button, CommandPopover, Dialog, Input, LabelDot, LabelIcon} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {loadPeople, repoPeople} from '../issues/people.ts';
-import {usePool} from '../issues/cells.tsx';
-import {exclusiveScope} from '../issues/labels.ts';
+import {priorityIcon, statusIcon, usePool} from '../issues/cells.tsx';
+import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels.ts';
+import {canWrite} from '../../app/access.ts';
 
 /** The dialog's draft in a repository. */
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
@@ -54,11 +55,17 @@ function lastRepo(): number {
   }
 }
 
-/** The repositories on this device that are not archived, by name. */
-function repoChoices(app: App): {id: number; name: string}[] {
+/**
+ * The repositories on this device that are not archived, by name. From a board: only those whose issues the board
+ * can hold (Forgejo's rule: a repository's board, its own issues; an organization's or a user's board, the issues
+ * of that owner's repositories) — a new issue elsewhere could not go on it.
+ */
+function repoChoices(app: App, board?: {projectId: number}): {id: number; name: string}[] {
   const pool = app.session?.data.pool;
   if (!pool) return [];
+  const project = board ? untracked(() => pool.model('Project').get(board.projectId)?.data) : undefined;
   return [...pool.model('Repository').all()].map((e) => e.data).filter((r) => !r.archived)
+    .filter((r) => !project || (project.repo_id ? r.id === project.repo_id : r.owner_id === project.owner_id))
     .map((r) => ({id: r.id, name: r.full_name})).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -83,7 +90,7 @@ class Form {
   constructor(app: App, initialRepo: number, board?: {projectId: number; columnId: number}) {
     this.app = app;
     this.board = board;
-    const repos = repoChoices(app);
+    const repos = repoChoices(app, board);
     // The page's repository (or the one last used); its own draft, if any.
     this.repoId = repos.some((r) => r.id === initialRepo) ? initialRepo : repos[0]?.id ?? 0;
     const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
@@ -184,9 +191,12 @@ class Form {
     const {intents} = editing(this.app);
     void intents.discardDraft(draftKey(this.repoId));
     const tempId = uuid();
+    // A reader's issue has no properties (the pickers are not offered; Forgejo would drop them).
+    const s = this.app.session;
+    const writable = s !== undefined && canWrite(s, this.repoId);
     intents.submit({
-      kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: [...this.labels],
-      assigneeIds: this.assignee ? [this.assignee] : [], milestoneId: this.milestone,
+      kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: writable ? [...this.labels] : [],
+      assigneeIds: writable && this.assignee ? [this.assignee] : [], milestoneId: writable ? this.milestone : 0,
     });
     // On the board it was created from (sent once Forgejo has numbered the issue: it waits for the create).
     if (this.board) {
@@ -238,7 +248,11 @@ const Fields = observer(function Fields({form, onCreate}: {form: Form; onCreate:
   useEffect(() => () => {
     form.flush();
   }, [form]);
-  if (!repoChoices(app).length) return <p className="text-base text-fg-muted">No repository is on this device yet: issues are created in one.</p>;
+  if (!repoChoices(app, form.board).length) {
+    return <p className="text-base text-fg-muted">{form.board ?
+      'No repository whose issues this board can hold is on this device: a board takes the issues of its owner\'s repositories.' :
+      'No repository is on this device yet: issues are created in one.'}</p>;
+  }
   // ⌘↵ creates from anywhere in the form (the Write/Preview tabs, the property buttons), not only from the fields.
   return (
     <div className="flex flex-col gap-3" onKeyDown={(e) => {
@@ -283,22 +297,31 @@ const Description = observer(function Description({form, onCreate}: {form: Form;
   );
 });
 
-/** Repository, labels, assignee, milestone: observes those only (typing does not re-render it). */
+/**
+ * Repository, status, priority, labels, assignee, milestone: observes those only (typing does not re-render it).
+ * Status and priority are chips of their own (the exclusive `status/…` and `priority/…` labels, as everywhere
+ * else), so Labels lists the plain labels. Without write access only the repository is offered: Forgejo drops
+ * what a reader sets on a new issue (QA round 2: silently).
+ */
 const Properties = observer(function Properties({form}: {form: Form}) {
   const app = useApp();
-  const {userId} = useSession();
+  const session = useSession();
+  const {userId} = session;
   const pool = usePool();
   const repoId = form.repoId;
-  const repos = repoChoices(app);
+  const repos = repoChoices(app, form.board);
   const repo = pool.model('Repository').get(repoId)?.data;
+  const writable = repoId > 0 && canWrite(session, repoId);
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
+  const ofKind = (k: 'status' | 'priority') => allLabels.filter((l) => labelKind(l) === k).sort((a, b) => kindRank(k, a.name) - kindRank(k, b.name));
+  const plain = allLabels.filter((l) => labelKind(l) === undefined);
   useEffect(() => {
-    if (repoId) loadPeople(app, repoId);
-  }, [app, repoId]);
+    if (repoId && writable) loadPeople(app, repoId);
+  }, [app, repoId, writable]);
   const people = repoId ? repoPeople(pool, repoId, userId) : [];
   const milestones = repoId ? [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).filter((m) => m.state === 'open')
     .sort((a, b) => a.title.localeCompare(b.title)) : [];
-  const chosenLabels = allLabels.filter((l) => form.labels.includes(l.id));
+  const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
   const who = people.find((u) => u.id === form.assignee);
   const ms = milestones.find((m) => m.id === form.milestone);
   // Every property filters as you type (a repository with many labels or people stays usable).
@@ -309,43 +332,74 @@ const Properties = observer(function Properties({form}: {form: Form}) {
           form.setRepo(r.id);
         }}))}
         trigger={<Button size="sm" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button>}/>
-      {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
-      <CommandPopover label="Labels" placeholder="Add labels…" empty="This repository has no labels."
-        options={allLabels.map((l) => ({
-          value: String(l.id), label: l.name, words: l.description, leading: <LabelDot color={l.color}/>, checked: form.labels.includes(l.id), keepOpen: true,
-          onSelect: () => {
-            form.toggleLabel(l, !form.labels.includes(l.id), allLabels);
-          },
-        }))}
-        trigger={
-          <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag} tooltip="Labels, status and priority">
-            {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
-          </Button>
-        }/>
-      <CommandPopover label="Assignee" placeholder="Assign to…"
-        options={[
-          {value: '0', label: 'Nobody', checked: form.assignee === 0, onSelect: () => {
-            form.setAssignee(0);
-          }},
-          ...people.map((u) => ({
-            value: String(u.id), label: u.id === userId ? `${u.login} (you)` : u.login, words: u.name, leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
-            checked: u.id === form.assignee, onSelect: () => {
-              form.setAssignee(u.id);
+      {writable ? <>
+        <KindChip form={form} kind="status" labels={ofKind('status')} all={allLabels}/>
+        <KindChip form={form} kind="priority" labels={ofKind('priority')} all={allLabels}/>
+        {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
+        <CommandPopover label="Labels" placeholder="Add labels…" empty="This repository has no labels."
+          options={plain.map((l) => ({
+            value: String(l.id), label: l.name, words: l.description, leading: <LabelDot color={l.color}/>, checked: form.labels.includes(l.id), keepOpen: true,
+            onSelect: () => {
+              form.toggleLabel(l, !form.labels.includes(l.id), allLabels);
             },
-          })),
-        ]}
-        trigger={<Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button>}/>
-      <CommandPopover label="Milestone" placeholder="Add to the milestone…"
-        options={[
-          {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
-            form.setMilestone(0);
-          }},
-          ...milestones.map((m) => ({value: String(m.id), label: m.title, checked: m.id === form.milestone, onSelect: () => {
-            form.setMilestone(m.id);
-          }})),
-        ]}
-        trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
+          }))}
+          trigger={
+            <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag}>
+              {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
+            </Button>
+          }/>
+        <CommandPopover label="Assignee" placeholder="Assign to…"
+          options={[
+            {value: '0', label: 'Nobody', checked: form.assignee === 0, onSelect: () => {
+              form.setAssignee(0);
+            }},
+            ...people.map((u) => ({
+              value: String(u.id), label: u.id === userId ? `${u.login} (you)` : u.login, words: u.name, leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
+              checked: u.id === form.assignee, onSelect: () => {
+                form.setAssignee(u.id);
+              },
+            })),
+          ]}
+          trigger={<Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button>}/>
+        <CommandPopover label="Milestone" placeholder="Add to the milestone…"
+          options={[
+            {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
+              form.setMilestone(0);
+            }},
+            ...milestones.map((m) => ({value: String(m.id), label: m.title, checked: m.id === form.milestone, onSelect: () => {
+              form.setMilestone(m.id);
+            }})),
+          ]}
+          trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
+      </> : repoId > 0 && <span className="px-1 text-sm text-fg-subtle">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
+  );
+});
+
+/** The status or the priority of the new issue: one of the repository's exclusive labels of that kind, with its icon. */
+const KindChip = observer(function KindChip({form, kind, labels, all}: {form: Form; kind: 'status' | 'priority'; labels: Label[]; all: readonly Label[]}) {
+  if (!labels.length) return null;
+  const chosen = labels.find((l) => form.labels.includes(l.id));
+  const iconOf = kind === 'status' ? statusIcon : priorityIcon;
+  const name = kind === 'status' ? 'Status' : 'Priority';
+  return (
+    <CommandPopover label={name} placeholder={kind === 'status' ? 'Set the status…' : 'Set the priority…'}
+      options={[
+        {value: '0', label: kind === 'status' ? 'No status' : 'No priority', checked: !chosen, onSelect: () => {
+          if (chosen) form.toggleLabel(chosen, false, all);
+        }},
+        ...labels.map((l) => ({
+          value: String(l.id), label: scopedValue(l.name), leading: <LabelIcon icon={iconOf(l.name)} color={l.color}/>, checked: chosen?.id === l.id,
+          onSelect: () => {
+            form.toggleLabel(l, true, all);
+          },
+        })),
+      ]}
+      trigger={
+        <Button size="sm" variant={chosen ? 'secondary' : 'ghost'} icon={chosen ? undefined : iconOf('')}>
+          {chosen ? <><LabelIcon icon={iconOf(chosen.name)} color={chosen.color}/>{scopedValue(chosen.name)}</> : name}
+        </Button>
+      }/>
   );
 });
 

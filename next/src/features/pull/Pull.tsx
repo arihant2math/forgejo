@@ -46,7 +46,7 @@ import {Markdown} from '../issue/Markdown.tsx';
 import {usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {statusLook, statusTime} from '../code/Actions.tsx';
-import {checksOf, cleanDescription} from './checks.ts';
+import {checksOf, cleanDescription, unfinishedChecks} from './checks.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {useDiff} from '../code/History.tsx';
 import {Ago, commitRow, Sha} from '../code/bits.tsx';
@@ -326,7 +326,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
           setReviewing(true);
         }}/>
         {anchored.elsewhere.length > 0 && <div className="sticky left-0 w-view"><FileNotes items={anchored.elsewhere} title="Comments on files not in this diff" repoId={pr.base_repo_id}/></div>}
-        <DiffView key={`${commits.base}:${head}`} ref={diffRef} repoId={pr.base_repo_id} base={commits.base} head={head} files={files} scroller={scroller} extras={extras} onFile={setCurrent}/>
+        <DiffView key={`${commits.base}:${head}`} ref={diffRef} repoId={pr.base_repo_id} base={commits.base} head={head} files={files} scroller={scroller} extras={extras} onFile={setCurrent} underBar/>
       </div>
       <ReviewDialog open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
     </div>
@@ -337,7 +337,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
 const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview, open}: {pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean}) {
   return (
     // Sticky: the pending count and Review stay in reach anywhere in a long diff.
-    <div className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
+    <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
       <IconButton size="sm" icon={listOpen ? PanelLeftClose : PanelLeftOpen} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
       <span className="min-w-0 truncate">Changes from <Sha sha={pr.merge_base}/> to <Sha sha={head}/></span>
       {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
@@ -404,9 +404,12 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={done}>Cancel</Button>
             {reply && <Button size="sm" disabled={!text.trim()} tooltip="Keep it with your review (sent with Review)" onClick={save}>Add to review</Button>}
+            {/* A first comment on a line: a single comment now (one step, as classic's "Add single comment"), or one
+                kept for the review (Start a review). */}
+            {!reply && !composing.key && <Button size="sm" disabled={!text.trim()} tooltip="Post it now, on its own (works offline: sent when you are back)" onClick={replyNow}>Add single comment</Button>}
             {reply ?
               <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={replyNow}>Reply</Button> :
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={save}>{composing.key ? 'Update comment' : 'Add review comment'}</Button>}
+              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={save}>{composing.key ? 'Update comment' : 'Start a review'}</Button>}
           </div>
         </Card>
       )}
@@ -557,7 +560,7 @@ const ChecksTab = observer(function ChecksTab({owner, repo, pr, commits}: TabPro
   const {statuses, runs} = checksOf(pool, pr, commits.head);
   if (!statuses.length && !runs.length) return <EmptyState icon={Workflow} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
   return (
-    <PageColumn>
+    <PageColumn wide>
       {runs.length > 0 && (
         <section aria-label="Workflow runs" className="flex flex-col">
           <SectionHeading>Workflow runs</SectionHeading>
@@ -630,7 +633,10 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
     online(app, req).then(() => {
       notify(app, {tone: 'success', title: words.done});
     }, (err: unknown) => {
-      notify(app, {tone: 'danger', title: words.failed, description: err instanceof RequestFailed ? err.message : String(err)});
+      // A short, human reason (the server's own words only when they are a sentence for people), and Retry.
+      notify(app, {tone: 'danger', title: words.failed, description: failureText(err), action: {label: 'Retry', run: () => {
+        run(words, req);
+      }}});
     }).finally(() => {
       setBusy(false);
     });
@@ -642,7 +648,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const sum = headSeen ? checksOf(pool, pr, headSeen) : undefined;
   const checks = sum?.summary ?? 'none';
   // Checks still running (the merge dialog says how many; merging waits for them by default).
-  const unfinished = sum ? [...sum.statuses.map((x) => x.get('state')), ...sum.runs.map((r) => r.data.status)].filter((st) => PENDING_CHECKS.has(st)).length : 0;
+  const unfinished = sum ? unfinishedChecks(pool, sum) : 0;
   const behind = pr.commits_behind > 0 ? ` · ${String(pr.commits_behind)} behind ${pr.base_branch}` : '';
   let state: ReactNode;
   if (pr.merged) {
@@ -711,8 +717,21 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
 
 type MergeStyle = typeof STYLES[number][0];
 
-/** Check states that are not finished (checks.ts sums them as pending). */
-const PENDING_CHECKS = new Set(['pending', 'waiting', 'running', 'blocked']);
+/**
+ * Why an online action failed, for people: Forgejo's message when it is one (short, no internal addresses or
+ * stack: a failed hook prints sockets and URLs), else what happened in general. The whole message goes to the
+ * console for whoever needs it.
+ */
+export function failureText(err: unknown): string {
+  const status = err instanceof RequestFailed ? err.status : 0;
+  const said = err instanceof Error ? err.message.trim() : '';
+  if (said && said.length <= 140 && !/\n|https?:\/\/|unix|\.sock\b|\bdial\b|\bpanic\b|[A-Z][a-z]+Error:|PushRejected/.test(said)) return said;
+  if (said) console.warn('Forgejo said:', said);
+  if (status === 0) return 'Forgejo could not be reached.';
+  if (status === 409 || status === 405) return 'Forgejo could not do it now (the branch changed, or a hook refused it). Check the pull request, then try again.';
+  if (status >= 500) return 'Forgejo ran into an error. Try again in a moment.';
+  return `Forgejo refused it (HTTP ${String(status)}).`;
+}
 
 /** Merging is not undone: the commit message and whether the branch goes, confirmed first. */
 function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge}: {

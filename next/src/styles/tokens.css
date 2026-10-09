@@ -122,6 +122,7 @@
   --spacing-blame: 240px; /* the blame column */
   --spacing-blame-narrow: 112px; /* the blame column in a narrow container (a phone): the age and summary */
   --spacing-dialog-body: 60vh; /* a dialog's scrolling content (the shortcuts help) */
+  --spacing-fade: 32px; /* the faded edge of a sideways scroller that has more to show (a board's columns) */
 
   /* Viewport breakpoint (md: and max-md:): below it the sidebar is a drawer (phones, narrow windows). Layouts
    * inside the main panel follow its own width instead (container queries, @xl: = --container-xl). */

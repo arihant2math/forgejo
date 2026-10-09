@@ -11,9 +11,10 @@ import {
   Inbox, KanbanSquare, Layers, Keyboard, LogOut, Milestone, Monitor, Moon, Settings, SquarePen, Sun, SunMoon, User,
 } from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
-import {type ReactNode, useDeferredValue, useEffect, useMemo, useState} from 'react';
+import {type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandRoot} from '../../ui/Command.tsx';
 import {classicHref} from '../classic.ts';
+import {goToCode} from '../goto.ts';
 import type {LucideIcon} from '../../ui/index.ts';
 import {openCreate} from '../create.ts';
 import {lastBoard} from '../lastBoard.ts';
@@ -72,8 +73,7 @@ const COMMANDS: PaletteCommand[] = [
     void nav(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
   }},
   {id: 'code', label: 'Go to the code of this repository', icon: Code2, shortcut: 'go.code', keywords: 'source files tree browse', inRepo: true, run: (app, nav) => {
-    const r = app.session?.data.pool.model('Repository').get(app.ui.repoOpen)?.data;
-    if (r) void nav({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
+    goToCode(app, nav);
   }},
   {id: 'home', label: 'Go home', icon: Home, keywords: 'dashboard', run: (_, nav) => void nav({to: '/'})},
   {id: 'profile', label: 'Your profile and repositories', icon: User, keywords: 'me account', run: (app, nav) => {
@@ -99,7 +99,7 @@ const COMMANDS: PaletteCommand[] = [
     setThemePreference('system');
   }},
   {id: 'classic-page', label: 'Open this page in the classic UI', icon: AppWindow, keywords: 'old forgejo', run: (app) => {
-    location.assign(classicHref(app, classicOfHere(app, currentSitePath(app))));
+    location.assign(classicHref(app, classicOfHere(app, currentSitePath(app), location.search)));
   }},
   {id: 'classic', label: 'Turn off Forgejo Next', icon: Monitor, keywords: 'classic ui old forgejo switch', run: (app) => {
     // Online only (never queued): offline it says why instead.
@@ -150,13 +150,20 @@ export function Palette({open}: {open: boolean}) {
   const app = useApp();
   const [opened, setOpened] = useState({open, n: 0});
   if (open !== opened.open) setOpened({open, n: open ? opened.n + 1 : opened.n});
+  // A row was chosen: the focus goes to the page it led to, not back to the sidebar's Search (and its tooltip).
+  const chose = useRef(-1);
+  const n = opened.n;
   return (
-    <CommandDialog open={open} onOpenChange={(o) => {
+    // Keyed by the opening: Ctrl+K while the last one still fades out opens a new one at once, its input focused
+    // (QA round 2: reopened mid-fade, the old one kept no focus, and typing ran the page's shortcuts).
+    <CommandDialog key={opened.n} open={open} onOpenChange={(o) => {
       runInAction(() => {
         app.ui.paletteOpen = o;
       });
-    }} label="Command menu" bare>
-      <PaletteBody key={opened.n} app={app}/>
+    }} label="Command menu" bare restoreFocus={() => chose.current !== n}>
+      <PaletteBody key={opened.n} app={app} onChoose={() => {
+        chose.current = n;
+      }}/>
     </CommandDialog>
   );
 }
@@ -183,9 +190,15 @@ interface Group {
 /** Commands and other named things whose label matches outrank fuzzy title matches of the same strength. */
 const NAMED_BONUS = 1.5;
 
-function PaletteBody({app}: {app: App}) {
+function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   const navigate = useNavigate();
-  const [query, setQuery] = useState('');
+  // Opened with a query (a list's "Search everywhere"): taken once.
+  const [query, setQuery] = useState(() => untracked(() => app.ui.paletteQuery));
+  useEffect(() => {
+    if (untracked(() => app.ui.paletteQuery)) runInAction(() => {
+      app.ui.paletteQuery = '';
+    });
+  }, [app]);
   // The input never waits for the search (a large pool's first keystroke scans it all);
   // each search narrows the previous one's matches while typing.
   const deferred = useDeferredValue(query);
@@ -201,6 +214,7 @@ function PaletteBody({app}: {app: App}) {
     });
   };
   const run = (fn: () => void) => () => {
+    onChoose();
     close();
     fn();
   };

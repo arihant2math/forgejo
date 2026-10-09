@@ -9,7 +9,8 @@
 import {Link} from '@tanstack/react-router';
 import {BookMarked, CircleDot, Copy, Folder, FolderGit2, GitBranch, GitPullRequest, Globe, Package, SquarePen, Star, GitFork} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useMemo} from 'react';
+import {type ReactNode, useEffect, useMemo} from 'react';
+import {whenIdle} from '../../app/lazy.tsx';
 import {sitePath} from '../../app/config.ts';
 import {openCreate} from '../../app/create.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
@@ -30,6 +31,7 @@ import {entryParts, FilesPanel, RefCommit, treeOrder} from '../code/tree.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate, shortDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
+import {cloneUrl, EmptyRepo} from '../code/states.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -98,8 +100,8 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   if (!sha) {
     return (
       <FilesPanel title={<><Icon icon={GitBranch} size="sm"/>Code</>}>
-        <EmptyState icon={FolderGit2} title={r?.empty ? 'This repository is empty' : 'No code on this device yet'}
-          description={r?.empty ? 'Push a first commit to it.' : 'Its branches have not arrived yet.'}/>
+        {r?.empty ? <EmptyRepo owner={owner} repo={repo} repoId={repoId}/> :
+          <EmptyState icon={FolderGit2} title="No code on this device yet" description="Its branches have not arrived yet."/>}
       </FilesPanel>
     );
   }
@@ -112,6 +114,15 @@ function Tree({owner, repo, repoId, sha, branch, title}: {owner: string; repo: s
   const src = useSource();
   const click = useLinkClick();
   const key = CodeSource.treeKey(repoId, sha, '');
+  // The README is asked for with the tree, not after it (README.md, by far the most common name: the server reads
+  // and renders it in one round trip; another name is asked once the tree names it), and the highlighter starts
+  // meanwhile for its code blocks.
+  useEffect(() => {
+    void src.renderedAt(repoId, sha, 'README.md', {kind: 'branch', name: branch}).catch(() => undefined);
+    whenIdle(() => {
+      src.preheat();
+    });
+  }, [src, repoId, sha, branch]);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, sha, ''));
   const entries = useMemo(() => (tree.state === 'ready' ?
     treeOrder(tree.value.entries) :
@@ -130,7 +141,7 @@ function Tree({owner, repo, repoId, sha, branch, title}: {owner: string; repo: s
           </ListRow>
         )}
       </FilesPanel>
-      {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch}}/>}
+      {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch, sha}}/>}
     </>
   );
 }
@@ -162,7 +173,7 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
   const release = [...pool.model('Release').by('repo_id', repoId)].map((x) => x.data).filter((x) => !x.is_tag && !x.draft && !x.prerelease)
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   if (!r) return null;
-  const clone = `${app.config.app_url}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}.git`;
+  const clone = cloneUrl(app.config.app_url, owner, repo);
   const copy = () => {
     void navigator.clipboard.writeText(clone).then(() => {
       notify(app, {tone: 'success', title: 'Clone URL copied'});
@@ -173,7 +184,8 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
       <Property label="Clone">
         <PropertyValue>
           <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 font-mono text-code break-all text-fg select-all">{clone}</span>
+            {/* One line (the copy button copies it whole), never broken mid-word. */}
+            <span className="min-w-0 truncate font-mono text-code text-fg select-all" title={clone}>{clone}</span>
             <IconButton size="sm" icon={Copy} label="Copy the clone URL" onClick={copy}/>
           </span>
         </PropertyValue>
@@ -210,9 +222,9 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
         <PropertyValue tone="muted"><time dateTime={r.updated_at} title={fullDate(r.updated_at)}>{ago(r.updated_at)}</time></PropertyValue>
       </Property>
       {r.fork && r.parent_id > 0 && <ForkOf parentId={r.parent_id}/>}
-      <Property label="Archive">
+      {!r.empty && <Property label="Archive">
         <PropertyValue tone="muted"><TextLink><a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.default_branch)}.zip`)} download>{r.default_branch}.zip</a></TextLink></PropertyValue>
-      </Property>
+      </Property>}
     </PropertyList>
   );
 });

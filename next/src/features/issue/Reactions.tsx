@@ -65,7 +65,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
             const names = [...(g.mine ? ['you'] : []), ...g.others.filter(Boolean)].join(', ');
             return (
               <li key={g.content}>
-                <ChipButton pressed={g.mine} disabled={!canReact} label={`${names} reacted with ${g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
+                <ChipButton pressed={g.mine} disabled={!canReact} label={`${names} reacted with ${NAMES[g.content] ?? g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
                   toggle(g.content, !g.mine);
                 }}>
                   <span aria-hidden>{EMOJI[g.content] ?? `:${g.content}:`}</span>

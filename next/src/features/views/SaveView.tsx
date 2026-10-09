@@ -14,10 +14,15 @@ export function SaveViewDialog({path, search, onClose}: {path: string; search: S
   const app = useApp();
   const {userId} = useSession();
   return (
-    <PromptDialog title="Save the view" description="This list with its filters, grouping and ordering." label="View name" maxLength={80}
+    <PromptDialog title="Save the view" description="This list with its filters, grouping and ordering, kept on this device." label="View name" maxLength={80}
       onClose={onClose} onSave={(name) => {
         const v = viewStore(userId).save(name, path, search);
-        if (v) notify(app, {tone: 'neutral', title: `Saved the view “${v.name}”`, description: 'It is in the sidebar and the command menu.'});
+        if (!v) return;
+        notify(app, {tone: 'neutral', title: `Saved the view “${v.name}” on this device`, description: 'It is under Views in the sidebar, and in the command menu.'});
+        // The new entry comes into view in the sidebar (it may be below its fold).
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-view="${v.id}"]`)?.scrollIntoView({block: 'nearest'});
+        });
       }}/>
   );
 }

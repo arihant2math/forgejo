@@ -50,6 +50,11 @@ export function Notice({tone = 'neutral', title, description, action, onDismiss,
       onPointerLeave={() => onHold?.(false)}
       onFocus={() => onHold?.(true)}
       onBlur={() => onHold?.(false)}
+      // A click on Undo or Dismiss leaves the focus where the work is (a list keeps its cursor and keys), as a
+      // notice that goes away would otherwise drop it on <body>.
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
       className={cx(floating, 'pointer-events-auto flex items-start gap-2 p-3')}
     >
       <Icon icon={t.icon} className={cx(message.icon, t.text)}/>

@@ -9,7 +9,7 @@
 // tab) and navigate in place; everything else is a normal link.
 
 import {useRouter} from '@tanstack/react-router';
-import {type ChangeEvent, type MouseEvent, useLayoutEffect, useRef} from 'react';
+import {type MouseEvent, useEffect, useEffectEvent, useLayoutEffect, useRef} from 'react';
 import {nextPathOf} from '../../app/paths.ts';
 import {type App, useApp} from '../../app/store.ts';
 import {setMarkup} from '../../app/trusted.ts';
@@ -37,11 +37,24 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
       });
     }
   }, [app, html, tasks]);
-  const onChange = (e: ChangeEvent<HTMLDivElement>) => {
-    const box = e.target as HTMLInputElement;
-    if (!onTask || box.type !== 'checkbox' || box.dataset.task === undefined) return;
-    onTask(Number(box.dataset.task), box.checked);
-  };
+  // A native listener: the checkboxes are not React's elements, and React's onChange for a checkbox is made from
+  // the click on an element it renders, so on the container it never fired (QA round 2: ticks were never saved).
+  const tick = useEffectEvent((i: number, checked: boolean) => {
+    onTask?.(i, checked);
+  });
+  useEffect(() => {
+    const root = ref.current;
+    if (!root || !tasks) return undefined;
+    const onChange = (e: Event) => {
+      const box = e.target;
+      if (!(box instanceof HTMLInputElement) || box.type !== 'checkbox' || box.dataset.task === undefined) return;
+      tick(Number(box.dataset.task), box.checked);
+    };
+    root.addEventListener('change', onChange);
+    return () => {
+      root.removeEventListener('change', onChange);
+    };
+  }, [tasks]);
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const a = (e.target as Element).closest('a');
@@ -62,7 +75,7 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     const q = search.toString();
     void router.navigate({href: `${sub}${path}${q ? `?${q}` : ''}${url.hash}`});
   };
-  return <Prose ref={ref} onClick={onClick} onChange={tasks ? onChange : undefined}/>;
+  return <Prose ref={ref} onClick={onClick}/>;
 }
 
 /**

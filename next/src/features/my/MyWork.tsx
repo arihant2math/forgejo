@@ -56,7 +56,8 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
     <>
       <PageHeader icon={pulls ? GitPullRequest : CircleDot} title={pulls ? 'My pull requests' : 'My issues'}>
         <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
-        <ListControls model={model} stateButtons={false}/>
+        {/* Open / closed / all where every list has them (Linear's one place for the state). */}
+        <ListControls model={model}/>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo
         empty={<EmptyState icon={pulls ? GitPullRequest : CircleDot} title="All clear" description={DESCRIPTIONS[search.type ?? 'all']}/>}/>

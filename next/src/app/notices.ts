@@ -20,6 +20,11 @@ export interface NoticeSpec {
   sticky?: boolean;
   /** Fading out. */
   closing?: boolean;
+  /**
+   * Notices of a series (the inbox's triage, closing and reopening): a new one replaces the one shown, so there is
+   * one Undo, for the latest action (Linear).
+   */
+  series?: string;
 }
 
 /** Notices shown at once; older ones go first. */
@@ -37,6 +42,16 @@ const timers = new Map<number, {left: number; started: number; timer: ReturnType
 export function notify(app: App, spec: Omit<NoticeSpec, 'id' | 'closing'>): number {
   const id = ++seq;
   runInAction(() => {
+    if (spec.series) {
+      for (let i = app.ui.notices.length - 1; i >= 0; i--) {
+        const old = app.ui.notices[i];
+        if (old?.series !== spec.series) continue;
+        const t = timers.get(old.id);
+        if (t?.timer) clearTimeout(t.timer);
+        timers.delete(old.id);
+        app.ui.notices.splice(i, 1);
+      }
+    }
     app.ui.notices.push({...spec, id});
     while (app.ui.notices.length > MAX) {
       const old = app.ui.notices.shift();

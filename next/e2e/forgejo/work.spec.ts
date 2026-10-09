@@ -237,6 +237,12 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', {name: `QA ${stamp}`})).toBeVisible({timeout: 15_000});
   await expect(other.getByRole('heading', {name: `QA ${stamp}`})).toBeVisible({timeout: 15_000});
+  // A dialog opened from the column's menu keeps the focus (QA round 2: the closing menu took it back, so typing
+  // went nowhere).
+  await page.getByRole('button', {name: `Column “QA ${stamp}”`}).click();
+  await page.getByRole('menuitem', {name: /^Rename/}).click();
+  await expect(page.getByRole('textbox', {name: 'Column name'})).toBeFocused();
+  await page.keyboard.press('Escape');
   // Offline, column changes say why; card moves still work (queued).
   await goOffline(devCtx, page);
   await expect(page.getByRole('button', {name: 'Add column'})).toBeDisabled();
@@ -434,7 +440,7 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   await expect(preview.locator('script')).toHaveCount(0);
   await expect(preview.locator('[onerror]')).toHaveCount(0);
   expect(await preview.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href') ?? '').filter((h) => /^\s*javascript:/i.test(h)))).toEqual([]);
-  await page.getByRole('button', {name: 'Write'}).click();
+  await page.getByRole('radio', {name: 'Write'}).click();
   await expect(editor).toBeFocused();
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect(page.getByRole('region', {name: 'Activity'}).locator('strong', {hasText: 'bold'})).toBeVisible({timeout: 20_000});
@@ -443,10 +449,10 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   // A reaction on the issue: counted at once, then on the server.
   await page.getByRole('button', {name: 'Add a reaction'}).first().click();
   await page.getByRole('menuitem', {name: 'Rocket', exact: true}).click();
-  await expect(page.getByRole('button', {name: /you reacted with rocket/})).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', {name: /you reacted with Rocket/})).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/reactions`)).json() as {content: string}[]).map((r) => r.content), {timeout: 15_000})
     .toEqual(['rocket']);
-  await page.getByRole('button', {name: /you reacted with rocket/}).click();
+  await page.getByRole('button', {name: /you reacted with Rocket/}).click();
   await expect.poll(async () => ((await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/reactions`)).json() as unknown[] | null) ?? []).length, {timeout: 15_000}).toBe(0);
 
   // Subscribing (Shift+S), then unsubscribing.

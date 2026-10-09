@@ -43,8 +43,10 @@ export function startServiceWorker(app: App): void {
     const res = await fetch(`${app.config.base}sw.js`, {cache: 'no-store'}).catch(() => undefined);
     if (!res || (res.status !== 404 && res.status !== 410)) return false;
     const old = await container.getRegistration(scope).catch(() => undefined);
+    // The worker still controls this page until it reloads: it stops caching first (sw/sw.ts `retired`).
+    container.controller?.postMessage({t: 'retire'});
     await old?.unregister();
-    for (const k of await caches.keys()) if (k.startsWith('forgejo-next-')) await caches.delete(k);
+    await dropCaches();
     return true;
   };
   void (async () => {
@@ -88,6 +90,19 @@ export function startServiceWorker(app: App): void {
 export async function removeServiceWorker(app: App): Promise<void> {
   const container = (navigator as Partial<Navigator>).serviceWorker;
   const reg = await container?.getRegistration(`${app.config.app_sub_url}/`).catch(() => undefined);
+  container?.controller?.postMessage({t: 'retire'});
   await reg?.unregister().catch(() => false);
-  for (const k of await caches.keys().catch(() => [])) if (k.startsWith('forgejo-next-')) await caches.delete(k);
+  await dropCaches();
+}
+
+/**
+ * Deletes this app's caches, and again a moment later: a fetch the retiring worker had in flight may have opened
+ * one again in between (it checks before it opens, sw/sw.ts `alive`).
+ */
+async function dropCaches(): Promise<void> {
+  const sweep = async () => {
+    for (const k of await caches.keys().catch(() => [])) if (k.startsWith('forgejo-next-')) await caches.delete(k);
+  };
+  await sweep();
+  setTimeout(() => void sweep(), 2000);
 }

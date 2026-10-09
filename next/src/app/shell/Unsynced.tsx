@@ -37,7 +37,7 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const empty = !records.length && !drafts.length;
   const offline = app.session?.data.status.connection !== 'live';
   return (
-    <Dialog open size="lg" title="Unsynced changes" initialFocus="dialog" onOpenChange={(open) => {
+    <Dialog open size="lg" title="Unsynced changes" initialFocus="dialog" scroll onOpenChange={(open) => {
       if (!open) close();
     }} description={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'}
     footer={<Button onClick={close}>Close</Button>}>
@@ -163,7 +163,7 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
       leading={draft.kind === 'failed' ? <Icon icon={CircleAlert} className="text-danger"/> : <Icon icon={CircleDashed}/>}
       title={draft.title}
       meta={w.meta}
-      description={draft.reason}
+      description={excerpt(draft.text) ? <>{excerpt(draft.text)}<br/>{draft.reason}</> : draft.reason}
       actions={<>
         {draft.intent && <IconButton size="sm" icon={RotateCw} label="Retry" onClick={() => {
           intents.retry(draft.key);
@@ -183,16 +183,29 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
   );
 });
 
+/** The start of an intent's text (a comment, a description), so that entries of the same kind can be told apart. */
+function excerpt(text: string | undefined): string | undefined {
+  const t = text?.replace(/\s+/g, ' ').trim();
+  if (!t) return undefined;
+  return t.length > 80 ? `“${t.slice(0, 79)}…”` : `“${t}”`;
+}
+
 function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline: boolean}) {
   const w = where(app, rec.intent);
-  const state = rec.state === 'acked' ? 'Saved; waiting for it to sync back.' : rec.note ?? (offline ? 'Sent when you are back online.' : 'Sending…');
+  const reachable = app.session?.data.status.connection !== 'unreachable';
+  const state = rec.state === 'acked' ? 'Saved; waiting for it to sync back.' :
+    rec.note ?? (!offline ? 'Sending…' : reachable ? 'Sent when you are back online.' : 'Sent when Forgejo can be reached again.');
+  const text = excerpt(intentText(rec.intent));
+  // Attempted already (its request may have reached Forgejo): giving it up stops the retries; whatever Forgejo
+  // has syncs back.
+  const tried = rec.req !== undefined;
   return (
     <Entry
       leading={rec.attempts > 2 ? <Icon icon={TriangleAlert} className="text-warning"/> : <Icon icon={CircleDashed}/>}
       title={describeIntent(rec.intent, names(app))}
       meta={w.meta}
-      description={state}
-      actions={discardable(rec) ? <IconButton size="sm" icon={Trash2} label="Discard (not sent yet)" onClick={() => {
+      description={text ? <>{text}<br/>{state}</> : state}
+      actions={discardable(rec) ? <IconButton size="sm" icon={Trash2} label={tried ? 'Stop sending (it may have reached Forgejo)' : 'Discard (not sent yet)'} onClick={() => {
         discardWithUndo(app, rec);
       }}/> : undefined}
     />

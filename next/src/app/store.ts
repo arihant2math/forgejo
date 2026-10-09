@@ -21,6 +21,8 @@ export interface Session {
 
 export interface UiState {
   paletteOpen: boolean;
+  /** What the palette opens with (a list's search that found nothing here, to search everywhere); taken once. */
+  paletteQuery: string;
   shortcutsOpen: boolean;
   /** The sign-out warning (unsynced intents), with their count. */
   signOut: {pending: number} | undefined;
@@ -59,7 +61,7 @@ export interface App {
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
   const ui = observable<UiState>(
-    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, recentRepo: 0, notices: [], issueTarget: [], picker: undefined, previousPath: undefined},
+    {paletteOpen: false, paletteQuery: '', shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, recentRepo: 0, notices: [], issueTarget: [], picker: undefined, previousPath: undefined},
     {notices: observableShallow, issueTarget: observableRef, picker: observableRef, create: observableRef},
   );
   return {config, session, ui};

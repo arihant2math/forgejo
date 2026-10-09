@@ -33,6 +33,25 @@ function inPopup(to: EventTarget | null): boolean {
   return false;
 }
 
+/**
+ * When the last key was Tab (ms since epoch). A tooltip opens on focus only when the user moved the focus there
+ * with Tab: focus put back by code (a picker or a dialog that closed, a list's Undo) shows none over the page
+ * (QA round 2: "Set priority P" stayed over the property after choosing a value).
+ */
+let tabbedAt = 0;
+let listening = false;
+
+function listen(): void {
+  if (listening || typeof document === 'undefined') return;
+  listening = true;
+  document.addEventListener('keydown', (e) => {
+    tabbedAt = e.key === 'Tab' ? Date.now() : 0;
+  }, true);
+  document.addEventListener('pointerdown', () => {
+    tabbedAt = 0;
+  }, true);
+}
+
 // A trigger can also open a menu or popover (aria-expanded). No tooltip while
 // that is open, and none after it closes until the pointer leaves the trigger
 // or focus moves on (closing returns focus, and the pointer may still rest on it).
@@ -40,8 +59,11 @@ export function Tooltip({content, shortcut, side = 'bottom', children}: TooltipP
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const suppressed = useRef(false);
+  const focusing = useRef(false);
+  listen();
   const onOpenChange = (next: boolean) => {
     if (next && (suppressed.current || trigger.current?.getAttribute('aria-expanded') === 'true')) return;
+    if (next && focusing.current && Date.now() - tabbedAt > 1000) return;
     setOpen(next);
   };
   const popupOpen = () => trigger.current?.getAttribute('aria-expanded') === 'true';
@@ -55,6 +77,13 @@ export function Tooltip({content, shortcut, side = 'bottom', children}: TooltipP
         }}
         onKeyDownCapture={() => {
           if (trigger.current?.hasAttribute('aria-haspopup')) suppressed.current = true;
+        }}
+        onFocusCapture={() => {
+          // Radix opens on focus right after this (no delay): onOpenChange knows it is a focus.
+          focusing.current = true;
+          queueMicrotask(() => {
+            focusing.current = false;
+          });
         }}
         onBlurCapture={(e) => {
           // Focus moving into the popup keeps the suppression (a menu marks its trigger expanded; a dialog

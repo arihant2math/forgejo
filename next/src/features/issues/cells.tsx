@@ -15,6 +15,7 @@ import {
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ListCursor} from './flags.ts';
+import type {IssueListModel} from './list.ts';
 import {useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -297,9 +298,15 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
  * keeps its room.
  */
 export function RefCell({repo, number}: {repo: string; number: number | undefined}) {
+  const ref = number === undefined ? '' : `#${String(number)}`;
+  // At phone width the owner goes and the repository's name stays (truncated): atlas#12 and design-system#12 must
+  // still look different (QA round 2).
+  const slash = repo.indexOf('/') + 1;
   return (
-    <span className="truncate tabular-nums">
-      {repo && <span className="max-md:hidden">{repo}</span>}{number === undefined ? '' : `#${String(number)}`}
+    <span title={repo ? `${repo}${ref}` : undefined} className="flex min-w-0 tabular-nums">
+      {repo && <span className="max-md:hidden">{repo.slice(0, slash)}</span>}
+      {repo && <span className="truncate max-md:max-w-24">{repo.slice(slash)}</span>}
+      <span className="shrink-0">{ref}</span>
     </span>
   );
 }
@@ -327,6 +334,16 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
 export const SelectionCount = observer(function SelectionCount({cursor}: {cursor: ListCursor}) {
   const n = cursor.selected.size;
   return n > 0 ? <Badge tone="accent">{n} selected · Esc clears</Badge> : null;
+});
+
+/** How many rows a narrowed list shows (a search or a filter is in effect): the list itself says nothing of it. */
+export const ResultCount = observer(function ResultCount({model}: {model: IssueListModel}) {
+  const f = model.query.filter;
+  const narrowed = f.q !== undefined || f.labels.length > 0 || f.assignee !== undefined || f.poster !== undefined || f.milestone !== undefined ||
+    f.status !== undefined || f.priority !== undefined || f.label !== undefined || f.repo !== undefined;
+  if (!narrowed) return null;
+  const n = model.result.get().ids.length;
+  return <Badge>{n === 1 ? '1 result' : `${String(n)} results`}</Badge>;
 });
 
 /** The first non-empty string. */

@@ -8,11 +8,12 @@
 // in this tab paints highlighted in its first frame (memory cache), so
 // switching between files never waits.
 
-import {useNavigate} from '@tanstack/react-router';
+import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {ChevronDown, File, Folder, FolderGit2, GitBranch, GitCommitHorizontal, History, ScrollText, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react';
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
+import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha} from '../../code/refs.ts';
@@ -25,7 +26,7 @@ import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {hasRefs, type Loaded, refTable, useLoad, useSource} from './hooks.ts';
-import {Lines} from './Lines.tsx';
+import {Lines, type LinesHandle} from './Lines.tsx';
 import {RowList} from './RowList.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
@@ -82,6 +83,14 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   const tree = useLoad(parentKey, () => (parentKey ? src.peek<APITree>(parentKey) : undefined), () => src.tree(repoId, at.sha, parent));
   const entry = tree.state === 'ready' ? tree.value.entries.find((e) => e.name === name) : undefined;
   const title = <Breadcrumbs owner={props.owner} repo={props.repo} at={at}/>;
+  // Backspace or Alt+↑, from a directory or a file, from anywhere on the page: up a directory.
+  const navigate = useNavigate();
+  const up = () => {
+    if (at.path) void navigate(codeTo(props.owner, props.repo, codeSplat('src', at, parent)));
+  };
+  useShortcutScope('code');
+  useShortcut('code.up', up);
+  useShortcut('code.upAlt', up);
   const controls = <SrcControls {...props} entry={entry}/>;
   let body: (scroller: HTMLDivElement | null) => ReactNode;
   if (!at.path || entry?.type === 'tree') {
@@ -95,7 +104,9 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   } else {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
-  return <CodeFrame view={props} title={title} controls={controls}>{body}</CodeFrame>;
+  // The tab names the file or directory (every file would otherwise be "Code · acme/atlas").
+  const docTitle = `${at.path || 'Files'}${props.blame ? ' (blame)' : ''}`;
+  return <CodeFrame view={props} title={title} controls={controls} docTitle={docTitle}>{body}</CodeFrame>;
 });
 
 /**
@@ -104,14 +115,14 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
  */
 export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
   const parts = at.path ? at.path.split('/') : [];
+  // The root is a named segment ("Files", "History") in the breadcrumb's one style, not a lone "/".
+  const root = view === 'src' ? 'Files' : 'History';
   return (
-    <span className="flex min-w-0 items-center gap-1 font-mono text-code">
-      {/* The repository is in the breadcrumb already: its root is "/" here, "Files" on the root page. */}
-      {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}><span aria-label={`${repo} root`}>/</span></CodeLink></TextLink> :
-        <span className="font-sans">{view === 'src' ? 'Files' : 'History'}</span>}
+    <span className="flex min-w-0 items-center gap-1">
+      {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink></TextLink> : <span>{root}</span>}
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
-          {i > 0 && <span className="text-fg-subtle">/</span>}
+          <span className="text-fg-subtle">/</span>
           {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
             <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
         </span>
@@ -203,17 +214,12 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
   const pathOf = (e: APITreeEntry) => (at.path ? `${at.path}/${e.name}` : e.name);
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
-  const navigate = useNavigate();
   const entries = useMemo(() => treeOrder(tree.entries), [tree]);
   if (!entries.length) return <EmptyState icon={Folder} title="Empty directory"/>;
   return (
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}
       onOpen={rows.onOpen} linkOf={rows.linkOf}
-      // Backspace or Alt+↑: up a directory.
-      onBack={at.path ? () => {
-        void navigate(codeTo(owner, repo, codeSplat('src', at, parentPath(at.path))));
-      } : undefined}
       // Hover or the cursor: fetch the entry and highlight it, so opening it paints at once.
       onIntent={(e) => {
         const p = pathOf(e);
@@ -266,7 +272,7 @@ export function CodeSkeleton() {
 /** A markdown or SVG file: rendered (Preview, the default) or its source with line numbers (Source). */
 function PreviewableFile(props: FileProps & {text: string}) {
   const {repoId, entry, at, text} = props;
-  const [mode, setMode] = useState<'preview' | 'source'>(() => (/^#L\d+$/.test(location.hash) ? 'source' : 'preview'));
+  const [mode, setMode] = useState<'preview' | 'source'>(() => (hashRange(location.hash) ? 'source' : 'preview'));
   const kind = renderable(at.path);
   const toggle = (
     <span className="ml-auto">
@@ -297,26 +303,46 @@ function useHighlight(repoId: number, sha: string, path: string, text: string) {
   return hl.state === 'ready' ? hl.value : null;
 }
 
-/** The line a #L12 link names (0-based), if any. */
-function hashLine(): number | undefined {
-  const m = /^#L(\d+)$/.exec(location.hash);
-  return m ? Number(m[1]) - 1 : undefined;
+/** The lines a link names (#L12, or #L12-L20 / #L12-20), 0-based and ordered, if any. */
+export function hashRange(hash: string): [number, number] | undefined {
+  const m = /^#?L(\d+)(?:-L?(\d+))?$/.exec(hash);
+  if (!m) return undefined;
+  const a = Number(m[1]) - 1;
+  const b = m[2] === undefined ? a : Number(m[2]) - 1;
+  return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
 const TextFile = observer(function TextFile({repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
-  const [active] = useState(hashLine);
-  const line = useCallback((i: number) => (
-    <CodeLine id={`L${String(i + 1)}`} active={i === active} gutter={<LineNo n={i + 1}/>}>
-      <CodeTokens text={lines[i] ?? ''} hl={hl} line={i}/>
-    </CodeLine>
-  ), [lines, hl, active]);
+  // The lines named by the address's #L…: tinted, scrolled to — when the page opens and whenever the hash changes
+  // (a click on a line number, a link to another line of the same file, Back).
+  const hash = useRouterState({select: (s) => s.location.hash});
+  const range = useMemo(() => hashRange(hash), [hash]);
+  const navigate = useNavigate();
+  const view = useRef<LinesHandle>(null);
+  const [initial] = useState(() => range?.[0]);
+  useEffect(() => {
+    if (range) view.current?.scrollToLine(range[0]);
+  }, [range]);
+  const pick = useCallback((n: number, extend: boolean) => {
+    const from = extend && range ? range[0] + 1 : n;
+    const next = from === n ? `L${String(n)}` : `L${String(Math.min(from, n))}-L${String(Math.max(from, n))}`;
+    void navigate({to: '.', hash: next, search: true, replace: true});
+  }, [navigate, range]);
+  const line = useCallback((i: number) => {
+    const named = range !== undefined && i >= range[0] && i <= range[1];
+    return (
+      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={named} gutter={<LineNo n={i + 1} onPick={pick}/>}>
+        <CodeTokens text={lines[i] ?? ''} hl={hl} line={i}/>
+      </CodeLine>
+    );
+  }, [lines, hl, range, pick]);
   useMarkPainted(at.path);
   return (
     <>
       <FileMeta lines={lines.length} size={entry.size}>{toolbar}</FileMeta>
-      <Lines count={lines.length} scroller={scroller} line={line} label={`${at.path}, ${String(lines.length)} lines`} initial={active}/>
+      <Lines ref={view} count={lines.length} scroller={scroller} line={line} label={`${at.path}, ${String(lines.length)} lines`} initial={initial}/>
     </>
   );
 });

@@ -29,11 +29,12 @@ export interface MissingProps {
 }
 
 /**
- * The sentences about something missing, agreeing with their subject ("This file is", "These commits are").
- * A subject starting with "These" or "Those" is plural.
+ * The sentences about something missing, agreeing with their subject ("This file is", "These commits are",
+ * "This repository's files are", "Its description and comments are"). A subject is plural when it starts with
+ * "These" or "Those", joins two things with "and", or names a plural noun last ("…'s files", "…'s changes").
  */
 export function missingWords(what: string): {offline: string; notFound: string; tooLarge: string} {
-  const plural = /^(?:these|those)\b/i.test(what);
+  const plural = /^(?:these|those)\b/i.test(what) || /\band\b/i.test(what) || /'s \w+(?:s|es)$/i.test(what) && !/'s \w*ss$/i.test(what);
   const [be, it] = plural ? ['are', 'them'] : ['is', 'it'];
   return {
     offline: `${what} ${be} not on this device. Connect to load ${it}, or open one of these:`,
@@ -60,7 +61,7 @@ export const Missing = observer(function Missing({what, title, description, icon
       description={description ?? missingWords(what).notFound}
       action={
         <span className="flex flex-wrap justify-center gap-2">
-          {classic && <ClassicLink to={classic} variant="primary">Open in the classic UI</ClassicLink>}
+          {classic && <ClassicLink to={classic} variant="primary">Open this page</ClassicLink>}
           <Button asChild variant={classic ? 'secondary' : 'primary'}><Link to="/"><Icon icon={Home} size="md"/>Go to Home</Link></Button>
         </span>
       }

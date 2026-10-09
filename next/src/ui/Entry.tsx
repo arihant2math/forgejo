@@ -13,6 +13,9 @@ export interface EntryProps {
   description?: ReactNode;
   /** Small buttons, right-aligned. */
   actions?: ReactNode;
+  /** The keyboard cursor is on it (a list of entries the keyboard walks: J/K, Enter): the rows' cursor look. */
+  active?: boolean | undefined;
+  id?: string | undefined;
 }
 
 /**
@@ -20,9 +23,10 @@ export interface EntryProps {
  * changes"): a title with its context, a muted explanation, actions. Long
  * lists use ListRow (fixed height, virtualized) instead.
  */
-export function Entry({leading, title, meta, description, actions}: EntryProps) {
+export function Entry({leading, title, meta, description, actions, active, id}: EntryProps) {
   return (
-    <li className="flex items-start gap-3 border-b border-border-subtle py-2 last:border-b-0">
+    <li id={id} data-active={active ? '' : undefined}
+      className="row-cursor relative flex items-start gap-3 border-b border-border-subtle py-2 last:border-b-0 data-active:bg-selected">
       {leading && <span className="flex h-control-sm shrink-0 items-center text-fg-muted">{leading}</span>}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="flex min-h-control-sm items-center gap-2 text-base">

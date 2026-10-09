@@ -9,12 +9,13 @@
 
 import {Link} from '@tanstack/react-router';
 import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, KanbanSquare, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
-import {runInAction} from 'mobx';
+import {observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
-import {type PickerKind, useApp, useSession} from '../../app/store.ts';
+import {type App, type PickerKind, useApp, useSession} from '../../app/store.ts';
+import {online} from '../../app/api.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
@@ -182,7 +183,11 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
   // itself (no clipping parent: its focus outline stays whole).
   const value = title === undefined ? <PropertyEmpty>No project</PropertyEmpty> : (
     <span className="flex min-w-0 items-center gap-1">
-      {project ? <TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}}>{title}</Link></TextLink> : <span className="truncate">{title}</span>}
+      {/* Also a board known by its reference only (a user's or an organization's): the board page loads it. The
+          card of this issue gets the cursor there. */}
+      {project ?? pool.model('ProjectRef').get(pid) ?
+        <TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}}>{title}</Link></TextLink> :
+        <span className="truncate">{title}</span>}
       {column && <span className="shrink-0 text-fg-subtle">· {column}</span>}
     </span>
   );
@@ -214,12 +219,41 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
   );
 });
 
-/** Blocked by / blocks (IssueDependency, the lazy tier). */
+/**
+ * What an issue blocks, as Forgejo says (online, once per page): the dependencies naming it as the blocker live in
+ * the blocked issues' groups, which are on this device only when those issues were opened.
+ */
+export const blocking = observable.map<number, readonly number[]>({}, {deep: false});
+
+function useBlocks(app: App, issue: Entity<'Issue'>): void {
+  const id = issue.id;
+  useEffect(() => {
+    if (id <= 0) return undefined;
+    const repo = untracked(() => app.session?.data.pool.model('Repository').get(issue.data.repo_id)?.data);
+    if (!repo) return undefined;
+    const ctrl = new AbortController();
+    void online<{id?: unknown}[]>(app, {
+      api: 'v1', signal: ctrl.signal,
+      path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/issues/${String(issue.data.number)}/blocks?limit=50`,
+    }).then((list) => {
+      const ids = (list ?? []).map((x) => x.id).filter((x): x is number => typeof x === 'number');
+      runInAction(() => {
+        blocking.set(id, ids);
+      });
+    }).catch(() => undefined);
+    return () => {
+      ctrl.abort();
+    };
+  }, [app, id, issue]);
+}
+
+/** Blocked by / blocks (IssueDependency, the lazy tier; what it blocks also from Forgejo). */
 const DependenciesValue = observer(function DependenciesValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
   const app = useApp();
   const pool = usePool();
+  useBlocks(app, issue);
   const blockedBy = [...viewMembers(pool, useOverlay(), 'IssueDependency', issue.id)] as number[];
-  const blocks = [...pool.model('IssueDependency').by('dependency_id', issue.id)].map((d) => d.get('issue_id'));
+  const blocks = [...new Set([...[...pool.model('IssueDependency').by('dependency_id', issue.id)].map((d) => d.get('issue_id')), ...blocking.get(issue.id) ?? []])];
   const edit = write && !isTemp(issue.id);
   return (
     <>
@@ -386,9 +420,12 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
       </Property>
       <Property label="Conversation">
         {locked ?
-          <PropertyButton label="Unlock the conversation" onClick={() => {
-            submit({kind: 'issue.lock', locked: false, reason: ''});
-          }}><Icon icon={Lock}/><span>Locked</span></PropertyButton> :
+          // Unlocking asks too (one stray click opened a locked conversation to everyone).
+          <CommandPopover label="Unlock the conversation" placeholder="Unlock it?"
+            options={[{value: 'unlock', label: 'Unlock: everyone who can read it may comment again', icon: LockOpen, onSelect: () => {
+              submit({kind: 'issue.lock', locked: false, reason: ''});
+            }}]}
+            trigger={<PropertyButton label="Unlock the conversation"><Icon icon={Lock}/><span>Locked</span></PropertyButton>}/> :
           // Forgejo asks why (its lock reasons, [repository.issue] LOCK_REASONS by default).
           <CommandPopover label="Lock the conversation" placeholder="Why lock it?"
             options={LOCK_REASONS.map((reason) => ({value: reason, label: reason, onSelect: () => {

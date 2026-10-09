@@ -14,7 +14,7 @@
 // that pushed that scope is mounted (useShortcutScope), innermost first.
 
 /** `editor`: keys a markdown field handles itself while it has the focus (not through the registry). */
-export type Scope = 'global' | 'list' | 'issue' | 'inbox' | 'board' | 'editor' | 'diff' | 'palette';
+export type Scope = 'global' | 'list' | 'issue' | 'inbox' | 'board' | 'code' | 'editor' | 'diff' | 'palette';
 
 export interface KeyDef {
   keys: string;
@@ -28,6 +28,11 @@ export interface KeyDef {
   anywhere?: boolean;
   /** Handled by the focused view itself, not through the registry (listed in the help only). */
   local?: boolean;
+  /**
+   * Only while the focus is on the page itself (<body>) or in a list that takes the app's keys: Enter and Esc of a
+   * list work without clicking into it first, and a focused button or link keeps its own Enter.
+   */
+  page?: boolean;
 }
 
 export const KEYMAP = {
@@ -45,6 +50,11 @@ export const KEYMAP = {
   'list.next': {keys: 'j', label: 'Next item', scope: 'list'},
   'list.prev': {keys: 'k', label: 'Previous item', scope: 'list'},
   'list.select': {keys: 'x', label: 'Select', scope: 'list'},
+  'list.search': {keys: '/', label: 'Search the list', scope: 'list'},
+  'list.open': {keys: 'enter', label: 'Open', scope: 'list', page: true},
+  'list.clear': {keys: 'escape', label: 'Clear the selection', scope: 'list', page: true},
+  'code.up': {keys: 'backspace', label: 'Up a directory', scope: 'code', page: true},
+  'code.upAlt': {keys: 'alt+arrowup', label: 'Up a directory', scope: 'code', page: true},
   'view.save': {keys: 'shift+v', label: 'Save the view', scope: 'list'},
   'inbox.read': {keys: 'e', label: 'Mark read', scope: 'inbox'},
   'inbox.unread': {keys: 'u', label: 'Mark unread', scope: 'inbox'},
@@ -84,6 +94,7 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   issue: 'Issues and pull requests',
   inbox: 'Inbox',
   board: 'Boards',
+  code: 'Code',
   editor: 'Markdown editor',
   diff: 'Diffs',
   palette: 'Command menu',

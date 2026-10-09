@@ -79,9 +79,24 @@ export function appPageOf(classic: string): string {
   const at = classic.search(/[?#]/);
   const path = at < 0 ? classic : classic.slice(0, at);
   const query = at < 0 || classic[at] === '#' ? '' : classic.slice(at + 1).split('#')[0] ?? '';
-  const mapped = nextPathOf(path);
+  const mapped = nextPathOf(path) ?? nearestAppPage(path);
   if (mapped === undefined) return '/';
   return query && !mapped.includes('?') && isListPath(mapped) ? `${mapped}?${query}` : mapped;
+}
+
+/**
+ * The nearest page of the app to a classic page it does not render (the pill on the classic page goes there,
+ * never to an unrelated Home): a release's page is the Releases tab, the repository's projects its boards, a new
+ * issue its issue list, anything else of a repository (wiki, settings, milestones, …) its home.
+ */
+function nearestAppPage(path: string): string | undefined {
+  if (/%(?:2e|2f|5c)/i.test(path)) return undefined;
+  const [a = '', b = '', c] = segments(path);
+  if (!isOwnerName(a) || !NAME.test(b) || b === '-') return undefined;
+  if (c === 'releases' || c === 'tags') return codePath(a, b, c);
+  if (c === 'projects') return '/-/next/boards';
+  if (c === 'issues' || c === 'pulls') return `/${enc(a)}/${enc(b)}/${c}`;
+  return `/${enc(a)}/${enc(b)}`;
 }
 
 /** A repository's sections only the classic UI has (its More menu links them). */
@@ -104,12 +119,20 @@ export interface BoardPlace {
   owner?: string | undefined;
 }
 
+/** What the classic mapping asks the pool. */
+export interface ClassicContext {
+  board?: (id: number) => BoardPlace | undefined;
+  login?: string | undefined;
+  /** A repository's default branch ("owner/name" as in the path). */
+  defaultBranch?: (owner: string, repo: string) => string | undefined;
+}
+
 /**
  * The classic page of an app route (site path, without search). Canonical routes are their own classic URL;
  * the app's pages below the base map back to the classic shape. `board` resolves a board's place, `login`
  * is the viewer (the classic page of the boards list is their projects).
  */
-export function classicPathOf(path: string, ctx: {board?: (id: number) => BoardPlace | undefined; login?: string | undefined} = {}): string {
+export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
   const segs = segments(path);
   if (segs[0] !== '-' || segs[1] !== 'next') return path || '/';
   const [, , a, ...rest] = segs;
@@ -117,6 +140,14 @@ export function classicPathOf(path: string, ctx: {board?: (id: number) => BoardP
   if (a === 'code') {
     const [owner = '', repo = '', ...tail] = rest;
     if (tail.at(-1) === END) tail.pop();
+    // The app's `src`, `commits` and `blame` without a ref mean the default branch; classic has no such page
+    // (`/{owner}/{repo}/src` is a 404): name the branch, or the repository's home when it is not known.
+    const [view, kind] = tail;
+    if ((view === 'src' || view === 'commits' || view === 'blame') && kind !== 'branch' && kind !== 'tag' && kind !== 'commit') {
+      const branch = ctx.defaultBranch?.(owner, repo);
+      if (!branch) return `/${enc(owner)}/${enc(repo)}`;
+      tail.splice(1, 0, 'branch', ...branch.split('/'));
+    }
     return `/${[owner, repo, ...tail].map(enc).join('/')}`;
   }
   if (a === 'projects') {
@@ -136,8 +167,16 @@ export function classicPathOf(path: string, ctx: {board?: (id: number) => BoardP
  * classic UI reads the same `type`, `state`, `labels`, `filter`, …); a page below the base maps to another
  * shape and drops it.
  */
-export function classicOfLocation(path: string, search: string, ctx: Parameters<typeof classicPathOf>[1] = {}): string {
+export function classicOfLocation(path: string, search: string, ctx: ClassicContext = {}): string {
   const mapped = classicPathOf(path, ctx);
+  const params = new URLSearchParams(search.replace(/^\?/, ''));
+  // A pull request's tab is a path of its own in the classic UI (`/pulls/9/files`); Checks has none.
+  const tab = params.get('tab');
+  if (tab !== null && /\/pulls\/[1-9]\d*$/.test(mapped)) {
+    params.delete('tab');
+    const q = params.toString();
+    return `${mapped}${tab === 'files' || tab === 'commits' ? `/${tab}` : ''}${q ? `?${q}` : ''}`;
+  }
   const q = search.replace(/^\?/, '');
   return mapped === (path || '/') && q ? `${mapped}?${q}` : mapped;
 }

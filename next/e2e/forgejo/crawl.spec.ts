@@ -20,8 +20,16 @@
 //   * a same-origin HTTP answer ≥ 400 (EXPECTED_HTTP lists the documented ones).
 //
 // Then it types the addresses no link produces: list searches whose values read
-// as numbers or booleans, and the classic UI's "Back to Forgejo Next" pill on
-// classic pages (each must land on a page of the app, not a dead end).
+// as numbers or booleans, pasted code addresses (/{owner}/{repo}/src/branch/…),
+// and the classic UI's "Back to Forgejo Next" pill on classic pages (each must
+// land on a page of the app, not a dead end; a repository's page in that
+// repository, not on Home).
+//
+// QA round 2 (2026-10-09) added what slipped past it: a click must arrive
+// where its link points (a pull request page once sent every navigation away
+// from it back to itself), every issue and pull request page is left by the
+// sidebar's Home and come back to with Back, and every classic exit's
+// address is requested once: the classic UI must have that page (no 404).
 //
 // The coverage (links seen, clicked, skipped; the route patterns visited and
 // how) is printed and attached (crawl-coverage.json).
@@ -246,6 +254,8 @@ test('the link crawler: every in-app link leads to a page of the app, without er
   const visited: {pattern: string; url: string; via: string; depth: number}[] = [];
   const patterns = new Set<string>();
   const counts = {links: 0, classic: 0, newTab: 0, download: 0, external: 0, duplicate: 0, tooDeep: 0};
+  /** Classic exits by route pattern (each address is requested once after the walk). */
+  const classicExits = new Map<string, {href: string; from: string; text: string}>();
   const queue: Visit[] = [];
   const origin = new URL(BASE).origin;
 
@@ -267,6 +277,8 @@ test('the link crawler: every in-app link leads to a page of the app, without er
       }
       if (l.classic) {
         counts.classic++;
+        const key = routePattern(url.href);
+        if (!classicExits.has(key)) classicExits.set(key, {href: url.href, from, text: l.text});
         continue;
       }
       if (!inApp(url)) {
@@ -301,6 +313,18 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     const dead = await deadEnd(page);
     if (dead) failures.push(`"${dead}": ${via} → ${new URL(url).pathname}`);
     const depth = v?.depth ?? 0;
+    // An issue or a pull request page lets the user go (sidebar Home) and come back (Back).
+    if (/^\/:owner\/:repo\/(?:issues|pulls)\/:n/.test(pattern) && !patterns.has(`leave:${pattern}`)) {
+      patterns.add(`leave:${pattern}`);
+      await page.locator('aside[aria-label="Sidebar"]').getByRole('link', {name: 'Home', exact: true}).first().click();
+      await page.waitForURL((u) => u.pathname === '/', {timeout: 10_000}).catch(() => undefined);
+      await page.waitForTimeout(500);
+      if (new URL(page.url()).pathname !== '/') failures.push(`could not leave ${new URL(url).pathname} by the sidebar's Home: still at ${new URL(page.url()).pathname}`);
+      await page.goBack();
+      await page.waitForURL((u) => u.pathname === new URL(url).pathname, {timeout: 10_000}).catch(() => undefined);
+      if (new URL(page.url()).pathname !== new URL(url).pathname) failures.push(`Back from Home did not return to ${new URL(url).pathname}: at ${new URL(page.url()).pathname}`);
+      await settle(page);
+    }
     plan(url, await linksOf(page), depth);
     // A board's cards are not anchors (drag and drop): the first one is clicked.
     if (await page.locator('[data-card]').count() && !patterns.has('board-card') && depth < MAX_DEPTH) {
@@ -338,7 +362,15 @@ test('the link crawler: every in-app link leads to a page of the app, without er
           await page.locator(`a[href=${JSON.stringify(step.href)}]`).filter({visible: true}).first().click();
         }
         const target = new URL(step.href, before);
-        if (target.pathname !== new URL(before).pathname) await page.waitForURL((u) => u.pathname === target.pathname, {timeout: 15_000}).catch(() => undefined);
+        if (target.pathname !== new URL(before).pathname) {
+          await page.waitForURL((u) => u.pathname === target.pathname, {timeout: 15_000}).catch(() => undefined);
+          // It must stay there (a page that is leaving must not send the user back to itself).
+          await page.waitForTimeout(400);
+          const at = new URL(page.url()).pathname;
+          if (at !== target.pathname && target.pathname !== '/-/next/' && target.pathname !== '/-/next') {
+            failures.push(`a click did not arrive: ${v.label} on ${new URL(v.from).pathname} → ${target.pathname}, but the page is ${at}`);
+          }
+        }
       } else if (v.step.kind === 'card') {
         await page.locator('[data-card]').first().click();
         await page.waitForURL((u) => u.href !== before, {timeout: 15_000}).catch(() => undefined);
@@ -361,6 +393,10 @@ test('the link crawler: every in-app link leads to a page of the app, without er
   // "Back to Forgejo Next" pill on pages the app has no view of (or a view under another address).
   const typed = [
     `/${USER}/${REPO}/issues?q=8`, `/${USER}/${REPO}/issues?q=true`, `/${USER}/${REPO}/pulls?q=1&labels=1`, '/issues?q=false', '/notifications?q=1',
+    `/${USER}/${REPO}/issues?type=assigned`,
+    // Pasted code addresses (QA round 2: they always opened the classic UI).
+    `/${USER}/${REPO}/src/branch/main`, `/${USER}/${REPO}/src/branch/main/README.md`, `/${USER}/${REPO}/commits/branch/main`, `/${USER}/${REPO}/branches`,
+    `/${USER}/${REPO}/releases`, `/${USER}/${REPO}/actions`, `/${USER}/${REPO}/pulls/1/files`,
   ];
   for (const path of typed) {
     await page.goto(new URL(path, BASE).href);
@@ -372,9 +408,12 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     if (!await page.locator('aside[aria-label="Sidebar"]').count()) failures.push(`left the app: ${via} → ${page.url()}`);
   }
   const classicPages = [
-    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,
-    `/${USER}?tab=activity`, '/explore/repos', `/${USER}/${REPO}/issues/2?ui=classic`,
+    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,
+    `/${USER}?tab=activity`, '/explore/repos', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels`, `/${USER}/${REPO}/activity`,
+    `/${USER}/${REPO}/issues/new`,
   ];
+  // A repository's classic page comes back to that repository (its home, a tab, its boards), never to Home.
+  const repoPrefix = [`/${USER}/${REPO}`, `/-/next/code/${USER}/${REPO}/`, '/-/next/boards', '/-/next/projects/'];
   for (const path of classicPages) {
     await page.goto(new URL(path, BASE).href);
     await page.waitForLoadState('domcontentloaded');
@@ -396,6 +435,16 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     }
     const dead = await deadEnd(page);
     if (dead) failures.push(`"${dead}": ${via} → ${new URL(page.url()).pathname}`);
+    const landed = new URL(page.url()).pathname;
+    if (path.startsWith(`/${USER}/${REPO}/`) && !repoPrefix.some((p) => landed.startsWith(p))) failures.push(`${via} left the repository: ${landed}`);
+  }
+
+  // Every classic exit (one per route pattern) names a page the classic UI has: "This page classic" on a code
+  // view once led to /{owner}/{repo}/src, a 404 (QA round 2).
+  for (const [pattern, exit] of classicExits) {
+    const res = await page.request.get(exit.href, {maxRedirects: 5, failOnStatusCode: false});
+    visited.push({pattern: `classic-exit:${pattern}`, url: exit.href, via: `"${exit.text}" on ${new URL(exit.from).pathname}`, depth: 0});
+    if (res.status() >= 400) failures.push(`a classic exit leads to HTTP ${String(res.status())}: "${exit.text}" on ${new URL(exit.from).pathname} → ${new URL(exit.href).pathname}${new URL(exit.href).search}`);
   }
 
   const report = {

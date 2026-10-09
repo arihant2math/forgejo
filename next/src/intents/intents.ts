@@ -178,8 +178,22 @@ export function chainOf(i: Intent): string {
   // The inbox is one queue: a notification marked unread right after "Mark all read" reaches Forgejo after it.
   if (i.kind === 'notification.status' || i.kind === 'notification.readAll') return 'n:inbox';
   if (i.kind === 'board.move') return `b:${String(i.projectId)}`;
+  // Properties that are independent of the rest of the issue have a queue each: one that Forgejo keeps refusing
+  // (or that waits for a retry) does not hold back the issue's other changes (QA round 2: a pin answered 500 held
+  // a priority change back for good). Their requests never read what the main queue changes.
+  const own = OWN_CHAIN[i.kind];
+  if (own) return `i:${String(i.issueId)}:${own}`;
   return `i:${String(i.issueId)}`;
 }
+
+/**
+ * Kinds with a queue of their own per issue. State, labels (status and priority are labels, and closing moves the
+ * status), title, body, milestone and comments stay in the issue's main queue, in the order made.
+ */
+const OWN_CHAIN: Partial<Record<IntentKind, string>> = {
+  'issue.pin': 'pin', 'issue.lock': 'lock', 'issue.subscribe': 'subscribe', 'issue.reviewer': 'reviewer', 'issue.deadline': 'deadline',
+  'issue.assignee': 'assignee', 'issue.dependency': 'dependency', 'issue.project': 'project', 'pr.viewed': 'viewed', 'reaction': 'reaction',
+};
 
 /** The sync group whose position confirms the intent's write (X-Livesync-Sync-Id, B7). */
 export function groupOf(i: Intent, userId: number): string {

@@ -50,6 +50,8 @@ export function queryOf(s: ListSearch, defaults: {group?: Group; sort?: Sort} = 
       q: s.q,
       status: s.status,
       priority: s.priority,
+      label: s.label,
+      repo: s.repo,
     },
     sort: s.sort ?? defaults.sort ?? 'newest',
     group: s.group ?? defaults.group ?? 'none',
@@ -236,6 +238,11 @@ export class IssueListModel {
   dispose(): void {
     this.disposed = true;
     this.off();
+  }
+
+  /** Whether the server's answer is here (a list that needs one: serverAssisted); observable. */
+  get serverAnswered(): boolean {
+    return this.serverIds.get() !== undefined;
   }
 
   /** Whether the list needs the server's answer (mentioned, review requested). */

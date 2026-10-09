@@ -11,6 +11,7 @@
 // issue lists: one virtualized listbox with aria-activedescendant, rows that
 // observe their own fields, and a row set recomputed at most once a frame.
 
+import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {BellOff, CheckCheck, ExternalLink, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, Mail, MailOpen, Pin, Rows3} from 'lucide-react';
@@ -20,8 +21,9 @@ import {type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState} from '
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
+import {afterPaint} from '../../app/paint.ts';
 import type {InboxSearch} from '../../app/search.ts';
-import {PageBody} from '../../app/shell/Frame.tsx';
+import {PageBody, pageListRect, viewChange} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
@@ -117,14 +119,22 @@ class InboxModel {
   }
 }
 
-export default function Inbox() {
+export default observer(function Inbox() {
   const app = useApp();
   const {data} = useSession();
   const search = route.useSearch();
   const navigate = useNavigate();
-  // The view (URL search params) as an observable, applied before paint.
+  // The view (URL search params) as an observable, applied before paint. A view the page set itself is shown at
+  // once and written to the URL a frame later (`pushed`, until the router has it): the router's navigation
+  // re-renders the page and every sidebar link, a task of its own instead of half of the click's (QA round 2).
   const [view] = useState(() => observable.box<InboxSearch>(search, {deep: false}));
+  const pushed = useRef<InboxSearch | null>(null);
   useLayoutEffect(() => {
+    const mine = pushed.current;
+    if (mine) {
+      if (sameView(mine, search)) pushed.current = null;
+      return;
+    }
     runInAction(() => {
       view.set(search);
     });
@@ -133,15 +143,23 @@ export default function Inbox() {
   useEffect(() => () => {
     model.dispose();
   }, [model]);
+  const shown = view.get();
   const set = (patch: {filter?: InboxSearch['filter'] | undefined; group?: InboxSearch['group'] | undefined}) => {
-    const next = {...search, ...patch};
-    void navigate({to: '.', replace: true, search: Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)) as InboxSearch});
+    const next = Object.fromEntries(Object.entries({...view.get(), ...patch}).filter(([, v]) => v !== undefined)) as InboxSearch;
+    const keep = viewChange();
+    pushed.current = next;
+    runInAction(() => {
+      view.set(next);
+    });
+    afterPaint(() => {
+      void navigate({to: '.', replace: true, ...keep, search: next});
+    });
   };
   const readAll = () => {
     // One request for all of them; Undo (Linear): the notifications this marked read become unread again.
     const marked = markAllRead(app, untracked(() => model.result.get().ids));
     if (!marked.length) return;
-    notify(app, {tone: 'neutral', title: `Marked ${String(marked.length)} read`, action: {label: 'Undo', run: () => {
+    notify(app, {tone: 'neutral', series: 'inbox', title: `Marked ${String(marked.length)} read`, action: {label: 'Undo', run: () => {
       setStatus(app, marked, (st) => (st === 'read' ? 'unread' : undefined));
     }}});
   };
@@ -151,22 +169,26 @@ export default function Inbox() {
     <>
       <PageHeader icon={InboxIcon} title="Inbox">
         <SelectionCount cursor={model.cursor}/>
-        <Button size="sm" pressed={search.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
-          set({filter: search.filter === 'unread' ? undefined : 'unread'});
+        <Button size="sm" pressed={shown.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
+          set({filter: shown.filter === 'unread' ? undefined : 'unread'});
         }}>Unread<UnreadCount/></Button>
         <Menu>
           <MenuTrigger asChild><Button size="sm" variant="ghost" icon={Rows3}>Display</Button></MenuTrigger>
           <MenuContent>
-            <MenuCheckboxItem checked={search.group === 'repo'} onCheckedChange={(on) => {
+            <MenuCheckboxItem checked={shown.group === 'repo'} onCheckedChange={(on) => {
               set({group: on ? 'repo' : undefined});
             }}>Group by repository</MenuCheckboxItem>
           </MenuContent>
         </Menu>
         <Button size="sm" variant="ghost" icon={CheckCheck} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
       </PageHeader>
-      <InboxBody model={model} unreadOnly={search.filter === 'unread'} byRepo={search.group === 'repo'}/>
+      <InboxBody model={model} unreadOnly={shown.filter === 'unread'} byRepo={shown.group === 'repo'}/>
     </>
   );
+});
+
+function sameView(a: InboxSearch, b: InboxSearch): boolean {
+  return a.filter === b.filter && a.group === b.group;
 }
 
 const UnreadCount = observer(function UnreadCount() {
@@ -191,8 +213,8 @@ const InboxBody = observer(function InboxBody({model, unreadOnly, byRepo}: {mode
 
 const rowId = (id: number) => `inbox-row-${String(id)}`;
 
-/** The cursor's notification when the inbox was left (Back finds it where it was). Per tab. */
-let lastCursor: number | undefined;
+/** The inbox's place in listReturn (one inbox: its filters do not change the row the user left from). */
+const INBOX = '/notifications';
 
 /** byRepo: grouped by repository (the group header names it; the rows give the number only). */
 const InboxList = observer(function InboxList({model, scroller, byRepo}: {model: InboxModel; scroller: HTMLDivElement | null; byRepo: boolean}) {
@@ -204,8 +226,12 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller,
+    ...pageListRect(),
     estimateSize: () => ROW,
-    overscan: 8,
+    // Rendered with the next frame, not synchronously in every scroll event (QA round 2: 60-100 ms long tasks per
+    // wheel step on a 4x slowed CPU); a few rows past each edge are enough for J/K and the wheel.
+    useFlushSync: false,
+    overscan: 4,
     getItemKey: (i) => {
       const r = rows[i];
       return r ? (r.type === 'note' ? r.id : `g:${r.key}`) : i;
@@ -232,19 +258,21 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   }, [ids, cursor]);
   useEffect(() => autorun(() => {
     const [id] = cursor.active.values();
-    if (id !== undefined) lastCursor = id;
+    if (id !== undefined) rememberRow(INBOX, id);
     const el = listRef.current;
     if (!el) return;
     if (id === undefined) el.removeAttribute('aria-activedescendant');
     else el.setAttribute('aria-activedescendant', rowId(id));
   }), [cursor]);
-  // Back in the inbox: the cursor is where it was.
+  // Back in the inbox: the cursor is where it was, and the list has the focus (Enter, E, Esc work at once).
   useLayoutEffect(() => {
-    if (lastCursor === undefined || cursor.activeId !== undefined) return;
-    const at = untracked(() => model.result.get().rows.findIndex((r) => r.type === 'note' && r.id === lastCursor));
+    const back = rememberedRow(INBOX);
+    if (typeof back !== 'number' || cursor.activeId !== undefined) return;
+    const at = untracked(() => model.result.get().rows.findIndex((r) => r.type === 'note' && r.id === back));
     if (at < 0) return;
-    cursor.setActive(lastCursor);
+    cursor.setActive(back);
     virtualizer.scrollToIndex(at, {align: 'auto'});
+    focusList(listRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the list mounts
   }, []);
 
@@ -285,7 +313,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     setStatus(app, targets, to);
     const changed = targets.filter((id) => status(id) !== before.get(id));
     if (!said || !changed.length) return;
-    notify(app, {tone: 'neutral', title: `Marked ${changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`} ${said}`, action: {label: 'Undo', run: () => {
+    notify(app, {tone: 'neutral', series: 'inbox', title: `Marked ${changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`} ${said}`, action: {label: 'Undo', run: () => {
       for (const id of changed) {
         const was = before.get(id);
         if (was === 'read' || was === 'unread' || was === 'pinned') setStatus(app, [id], () => was);
@@ -301,6 +329,12 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   });
   useShortcut('list.select', () => {
     if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
+  });
+  useShortcut('list.open', () => {
+    if (cursor.activeId !== undefined) open(cursor.activeId);
+  });
+  useShortcut('list.clear', () => {
+    cursor.selected.clear();
   });
   useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined), 'read'));
   useShortcut('inbox.unread', triage(() => 'unread', 'unread'));
@@ -319,13 +353,12 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
       cursor.selected.clear();
     }
   };
-  const handlers = useRef({open, cursor});
-  handlers.current = {open, cursor};
+  const handlers = useRef({open, cursor, ids});
+  handlers.current = {open, cursor, ids};
   const [click] = useState(() => (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => {
     const h = handlers.current;
     if (e.shiftKey) {
-      h.cursor.selected.toggle(id);
-      h.cursor.setActive(id);
+      h.cursor.selectRange(id, h.ids);
       return;
     }
     h.cursor.setActive(id);
@@ -337,11 +370,13 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     const n = untracked(() => app.session?.data.pool.model('Notification').get(id));
     return n ? untracked(() => notificationStatus(editing(app).overlay, n)) : undefined;
   };
-  const [menuId, setMenuId] = useState<number | undefined>();
-  const menuStatus = menuId === undefined ? undefined : status(menuId);
+  // The row menu acts on the selection when the row is in it (and says how many), else on the row.
+  const [menuIds, setMenuIds] = useState<number[]>([]);
+  const menuStatus = menuIds.length === 1 && menuIds[0] !== undefined ? status(menuIds[0]) : undefined;
+  const many = menuIds.length > 1 ? ` (${String(menuIds.length)})` : '';
   return (
     <ContextMenu onOpenChange={(o) => {
-      if (!o) setMenuId(undefined);
+      if (!o) setMenuIds([]);
     }}>
       <ContextMenuTrigger asChild>
         <div
@@ -364,8 +399,9 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
               e.preventDefault();
               return;
             }
-            setMenuId(id);
-            cursor.setActive(id);
+            const sel = untracked(() => cursor.selected.values());
+            setMenuIds(sel.includes(id) ? sel : [id]);
+            if (!sel.includes(id)) cursor.setActive(id);
           }}
           className="relative w-full outline-none"
           style={{height: virtualizer.getTotalSize()}}
@@ -384,21 +420,23 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {menuId !== undefined && (
+        {menuIds.length > 0 && (
           <>
-            <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
-              open(menuId);
-            }}>Open</ContextMenuItem>
-            <ContextMenuSeparator/>
-            <ContextMenuItem icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={menuStatus !== 'unread'} onSelect={() => {
-              setStatus(app, [menuId], (st) => (st === 'unread' ? 'read' : undefined));
-            }}>Mark read</ContextMenuItem>
+            {menuIds.length === 1 && <>
+              <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
+                if (menuIds[0] !== undefined) open(menuIds[0]);
+              }}>Open</ContextMenuItem>
+              <ContextMenuSeparator/>
+            </>}
+            <ContextMenuItem icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={menuStatus !== undefined && menuStatus !== 'unread'} onSelect={() => {
+              setStatus(app, menuIds, (st) => (st === 'unread' ? 'read' : undefined));
+            }}>{`Mark read${many}`}</ContextMenuItem>
             <ContextMenuItem icon={Mail} shortcut={shortcutHint('inbox.unread')} disabled={menuStatus === 'unread'} onSelect={() => {
-              setStatus(app, [menuId], () => 'unread');
-            }}>Mark unread</ContextMenuItem>
+              setStatus(app, menuIds, () => 'unread');
+            }}>{`Mark unread${many}`}</ContextMenuItem>
             <ContextMenuItem icon={Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
-              setStatus(app, [menuId], togglePin);
-            }}>{menuStatus === 'pinned' ? 'Unpin' : 'Pin'}</ContextMenuItem>
+              setStatus(app, menuIds, togglePin);
+            }}>{menuStatus === 'pinned' ? 'Unpin' : `Pin${many}`}</ContextMenuItem>
           </>
         )}
       </ContextMenuContent>

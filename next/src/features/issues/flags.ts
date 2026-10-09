@@ -75,6 +75,18 @@ export class ListCursor {
     this.active.replace(id === undefined ? [] : [id]);
   }
 
+  /**
+   * Shift+click (Linear, Gmail): selects every row from the cursor's (the anchor) to `id` in list order, adding to
+   * the selection; without a cursor it selects `id`. The cursor moves to `id`.
+   */
+  selectRange(id: number, order: readonly number[]): void {
+    const from = this.activeId === undefined ? -1 : order.indexOf(this.activeId);
+    const to = order.indexOf(id);
+    const range = from < 0 || to < 0 ? [id] : order.slice(Math.min(from, to), Math.max(from, to) + 1);
+    this.selected.replace([...untracked(() => this.selected.values()), ...range]);
+    this.setActive(id);
+  }
+
   /** What actions apply to: the selection, else the cursor's issue. */
   targets(): number[] {
     const sel = untracked(() => this.selected.values());

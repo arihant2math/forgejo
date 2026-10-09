@@ -4,7 +4,7 @@
 import {ChevronRight, PanelLeft} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
 import {useApp} from '../store.ts';
-import {Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
+import {cx, Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import {HeaderBar, WhenSidebarAway} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
@@ -50,7 +50,8 @@ export function PageHeader({title, icon, context, children, docTitle}: PageHeade
           <span className="flex max-md:hidden"><Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/></span>
         </nav>
       )}
-      <h1 className="max-w-sm min-w-0 truncate text-base font-medium text-fg max-md:max-w-none max-md:flex-1 max-md:basis-0 max-md:py-2 md:shrink-0">{title}</h1>
+      {/* With controls the title keeps up to max-w-sm beside them; without (an issue's page) it takes the free width. */}
+      <h1 className={cx('min-w-0 truncate text-base font-medium text-fg max-md:max-w-none max-md:flex-1 max-md:basis-0 max-md:py-2', children ? 'max-w-sm md:shrink-0' : 'md:shrink')}>{title}</h1>
       {/* Controls give way on a narrow panel (the search narrows, the rest clips) before the title and the indicator do;
           on a phone they are a scrolling row under the title. The padding keeps their focus rings inside the clip. */}
       {children && (

@@ -74,6 +74,11 @@ export class ShortcutRegistry {
   private bindSeq = 0;
   private scopeSeq = 0;
   private pending: string[] = [];
+  /**
+   * Whether an overlay is opening or open (set by the shell): its keys are its own even before it has the focus —
+   * typing right after Ctrl+K must never run the page's shortcuts ("c" of a search creating an issue).
+   */
+  overlayOpen: () => boolean = () => false;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(opts: {apple?: boolean; keymap?: Readonly<Record<string, KeyDef>>} = {}) {
@@ -169,11 +174,11 @@ export class ShortcutRegistry {
     return -1;
   }
 
-  private eligible(restricted: boolean): {binding: Binding; keys: string; depth: number}[] {
+  private eligible(restricted: boolean, onPage: boolean): {binding: Binding; keys: string; depth: number}[] {
     const out: {binding: Binding; keys: string; depth: number}[] = [];
     for (const b of this.bindings) {
       const def = this.keymap[b.id];
-      if (!def || (restricted && !def.anywhere)) continue;
+      if (!def || (restricted && !def.anywhere) || (def.page && !onPage)) continue;
       const depth = this.depth(def.scope);
       if (depth >= 0) out.push({binding: b, keys: def.keys, depth});
     }
@@ -194,8 +199,9 @@ export class ShortcutRegistry {
     const chord = chordOf(e, this.apple);
     if (!chord) return false;
     const target = e.target instanceof Element ? e.target : null;
-    const restricted = isTextField(target) || inOverlay(target);
-    const candidates = this.eligible(restricted);
+    const restricted = isTextField(target) || inOverlay(target) || this.overlayOpen();
+    const onPage = !target || target === target.ownerDocument.body || target.closest('[data-shortcuts]') !== null;
+    const candidates = this.eligible(restricted, onPage);
     const attempt = (typed: string[]): boolean => {
       const keys = typed.join(' ');
       let best: {binding: Binding; depth: number} | undefined;
@@ -228,9 +234,12 @@ export class ShortcutRegistry {
     if (this.pending.length && attempt([...this.pending, chord])) return true;
     this.reset();
     if (attempt([chord])) return true;
-    // Shift and a letter that is no shortcut of its own: the letter's (the help shows "R"; Caps Lock).
+    // Shift and a letter that is no shortcut of its own: the letter's (the help shows "R"; Caps Lock). Not when
+    // the keymap gives Shift+letter a meaning that this page does not bind (Shift+S on a board must not change
+    // the status).
     const letter = /^shift\+([a-z])$/.exec(chord)?.[1];
-    return letter !== undefined && !candidates.some((c) => c.keys === chord || c.keys.startsWith(`${chord} `)) && attempt([letter]);
+    const meant = Object.values(this.keymap).some((d) => d.keys === chord || d.keys.startsWith(`${chord} `));
+    return letter !== undefined && !meant && attempt([letter]);
   }
 
   /** Listens on a window (the app does this once); returns the function that stops. */

@@ -9,6 +9,7 @@
 // it) for the round trip, and are removed by the first callback that reads
 // them: a code can be exchanged once, by the tab that asked for it.
 
+import {finishWebLogout} from './weblogout.ts';
 import {SIGNIN_FROM} from '../app/history.ts';
 import {forgetUser, readSplash, writeSplash} from '../app/splash.ts';
 import {isLocalPath, redirectUri, sitePath, uiPath} from '../app/config.ts';
@@ -44,6 +45,8 @@ export async function startSignIn(config: NextConfig, returnTo: string, nav: (ur
   const oauth = config.oauth;
   const redirect = redirectUri(config);
   if (!oauth || !redirect) throw new Error('signing in is not available');
+  // A sign-out that could not end Forgejo's web session (offline) ends it first: signing in asks for the password.
+  await finishWebLogout();
   const pending: Pending = {
     state: randomToken(16), verifier: randomToken(32), redirectUri: redirect,
     returnTo: returnable(config, returnTo) ? returnTo : sitePath(config, '/'), at: Date.now(),

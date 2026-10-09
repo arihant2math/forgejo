@@ -153,7 +153,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await row.hover();
   await row.getByRole('button', {name: 'Comment on line 3'}).click();
   await page.getByRole('textbox', {name: 'Review comment'}).fill('Offline nit: name this better.');
-  await page.getByRole('button', {name: 'Add review comment'}).click();
+  await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByText('Offline nit: name this better.')).toBeVisible();
   await expect(page.getByText('1 pending comment')).toBeVisible();
   // R: submit the review offline.

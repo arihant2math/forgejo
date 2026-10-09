@@ -8,6 +8,7 @@ import {App} from './app/App.tsx';
 import {BootFailed} from './app/BootFailed.tsx';
 import {bootApp} from './app/boot.ts';
 import {resumeAfterSignIn} from './app/history.ts';
+import {warmViews} from './app/router.tsx';
 import {bootSucceeded, reloadOnce} from './app/reload.ts';
 import {followSystemTheme} from './app/theme.ts';
 
@@ -38,6 +39,7 @@ if (root) {
       createRoot(root).render(tree);
     });
     else createRoot(root).render(tree);
+    warmViews();
   }, (error: unknown) => {
     // A chunk of an older build (deleted after a deploy), a network error, or
     // local storage that cannot be opened: reload once, then a Reload screen.

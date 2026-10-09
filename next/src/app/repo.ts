@@ -16,6 +16,8 @@ import type {App} from './store.ts';
 export interface RepoMatch {
   /** undefined: unknown here (offline and not synced, or no such repository). */
   repoId: number | undefined;
+  /** Forgejo answered that there is no such repository (or none the viewer can see): no classic page either. */
+  notFound?: boolean;
 }
 
 /** Finds a repository by owner and name in the pool or the peeked records (names are case-insensitive). */
@@ -31,6 +33,8 @@ export function findRepo(data: Data, owner: string, name: string): number | unde
 }
 
 const looked = new Map<string, number | undefined>();
+/** Repositories Forgejo answered 404 for (asked again on the next visit: it may be created or shared later). */
+const absent = new Set<string>();
 
 /** A loader waits at most this long for the network: the page then renders (render first). */
 const LOOKUP_TIMEOUT = 3000;
@@ -52,6 +56,8 @@ async function lookup(app: App, owner: string, name: string): Promise<number | u
     const res = await fetch(sitePath(app.config, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`), {
       headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', signal: AbortSignal.timeout(LOOKUP_TIMEOUT),
     });
+    if (res.status === 404) absent.add(key);
+    else absent.delete(key);
     const id = res.ok ? (await res.json() as {id?: unknown}).id : undefined;
     const found = typeof id === 'number' && id > 0 ? id : undefined;
     // Remember a found repository only; a 404 (it may be created or shared later) and errors are asked again.
@@ -68,7 +74,7 @@ export async function loadRepo(app: App, owner: string, name: string): Promise<R
   if (!s) return {repoId: undefined};
   const repoId = findRepo(s.data, owner, name) ?? await fetchRepoId(app, owner, name);
   if (repoId !== undefined) await s.data.hydrate([`repo:${String(repoId)}`]);
-  return {repoId};
+  return repoId === undefined && absent.has(`${owner}/${name}`.toLowerCase()) ? {repoId, notFound: true} : {repoId};
 }
 
 /** Holds a group while the component is mounted: it is loaded if needed and kept live. */

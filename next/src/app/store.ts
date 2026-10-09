@@ -50,7 +50,7 @@ export interface UiState {
   previousPath: string | undefined;
 }
 
-export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'milestone' | 'reviewers' | 'dependency';
+export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'milestone' | 'reviewers' | 'dependency' | 'project' | 'due';
 
 export interface App {
   readonly config: NextConfig;

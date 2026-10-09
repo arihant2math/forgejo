@@ -91,8 +91,8 @@ class Form {
     this.app = app;
     this.board = board;
     const repos = repoChoices(app, board);
-    // The page's repository (or the one last used); its own draft, if any.
-    this.repoId = repos.some((r) => r.id === initialRepo) ? initialRepo : repos[0]?.id ?? 0;
+    // The page's repository (or the one last opened, or last created in); its own draft, if any.
+    this.repoId = [initialRepo, lastRepo()].find((id) => id > 0 && repos.some((r) => r.id === id)) ?? repos[0]?.id ?? 0;
     const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
     this.title = text.split('\n')[0] ?? '';
     this.body = text.split('\n').slice(2).join('\n');
@@ -216,7 +216,7 @@ export const CreateIssue = observer(function CreateIssue() {
   const [wasOpen, setWasOpen] = useState(false);
   if (Boolean(req) !== wasOpen) {
     setWasOpen(Boolean(req));
-    if (req) setForm(new Form(app, req.repoId || lastRepo(), req.board));
+    if (req) setForm(new Form(app, req.repoId, req.board));
   }
   const close = () => {
     form?.flush();

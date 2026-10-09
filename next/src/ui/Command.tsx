@@ -157,6 +157,11 @@ export interface CommandPopoverProps {
   empty?: ReactNode;
   width?: 'sm' | 'md';
   onOpenChange?: ((open: boolean) => void) | undefined;
+  /**
+   * The list, rendered only while open (instead of `options`): a caller whose choices are costly to compute or
+   * change while it is open (an observer) renders its own CommandPick.
+   */
+  render?: ((onClose: () => void) => ReactNode) | undefined;
 }
 
 /** The options matching every word of the query (in the label or the extra words). */
@@ -170,8 +175,12 @@ export function matchOptions(options: readonly PickOption[], query: string): rea
 }
 
 /** A filterable list of choices under a button (Linear's pickers): type to narrow, Enter takes the first match. */
-export function CommandPopover({trigger, label, placeholder, options, empty = 'No choices here.', width = 'sm', onOpenChange}: CommandPopoverProps) {
+export function CommandPopover({trigger, label, placeholder, options, empty = 'No choices here.', width = 'sm', onOpenChange, render}: CommandPopoverProps) {
   const [open, setOpen] = useState(false);
+  const onClose = () => {
+    setOpen(false);
+    onOpenChange?.(false);
+  };
   return (
     <Popover open={open} onOpenChange={(o) => {
       setOpen(o);
@@ -179,21 +188,43 @@ export function CommandPopover({trigger, label, placeholder, options, empty = 'N
     }}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent width={width}>
-        <CommandPick label={label} placeholder={placeholder} options={options} empty={empty} onClose={() => {
-          setOpen(false);
-          onOpenChange?.(false);
-        }}/>
+        {render ? render(onClose) : <CommandPick label={label} placeholder={placeholder} options={options} empty={empty} onClose={onClose}/>}
       </PopoverContent>
     </Popover>
   );
 }
 
-function CommandPick({label, placeholder, options, empty, onClose}: {label: string; placeholder: string; options: readonly PickOption[]; empty: ReactNode; onClose: () => void}) {
-  const [query, setQuery] = useState('');
-  const shown = matchOptions(options, query);
+export interface CommandPickProps {
+  label: string;
+  placeholder: string;
+  options: readonly PickOption[];
+  empty: ReactNode;
+  onClose: () => void;
+  /** What the choice applies to, above the field (a picker opened by a key: "#12 Fix the login"). */
+  target?: ReactNode;
+  /** The query, when the caller searches itself (`filtered`: the options are the query's matches already). */
+  query?: string | undefined;
+  onQueryChange?: ((query: string) => void) | undefined;
+  filtered?: boolean | undefined;
+}
+
+/**
+ * The list of a picker (in a CommandPopover, or a CommandDialog's `bare` content): type to narrow, Enter takes the
+ * first match; it opens on the current choice, so Enter right away keeps it.
+ */
+export function CommandPick({label, placeholder, options, empty, onClose, target, query: outer, onQueryChange, filtered}: CommandPickProps) {
+  const [own, setOwn] = useState('');
+  const query = outer ?? own;
+  const setQuery = (q: string) => {
+    setOwn(q);
+    onQueryChange?.(q);
+  };
+  const shown = filtered ? options : matchOptions(options, query);
   const first = shown[0]?.value ?? '';
   // Opens on the current choice; the first match is selected whenever the query changes (Enter takes it).
-  const [selected, setSelected] = useState(() => options.find((o) => o.checked === true)?.value ?? first);
+  // The current value of a one-value field (status, priority, milestone); a multi-value field (labels) opens on its first
+  // option, never on one that Enter would take away.
+  const [selected, setSelected] = useState(() => options.find((o) => o.checked === true && !o.keepOpen)?.value ?? first);
   const [seen, setSeen] = useState(query);
   if (seen !== query) {
     setSeen(query);
@@ -213,6 +244,7 @@ function CommandPick({label, placeholder, options, empty, onClose}: {label: stri
   );
   return (
     <CommandRoot label={label} value={selected} onValueChange={setSelected}>
+      {target && <p className="truncate px-3 pt-2 text-sm text-fg-muted">{target}</p>}
       <CommandInput value={query} onValueChange={setQuery} placeholder={placeholder}/>
       <CommandList>
         {!shown.length && <CommandEmpty>{options.length ? 'Nothing matches.' : empty}</CommandEmpty>}

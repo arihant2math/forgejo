@@ -8,8 +8,8 @@
 // shows.
 
 import {Link} from '@tanstack/react-router';
-import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, KanbanSquare, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
-import {type ReactNode, useEffect, useState} from 'react';
+import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
+import {type ReactNode, useEffect} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -21,23 +21,21 @@ import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
-  Badge, Button, Code, CommandPopover, Dialog, Hint, Icon, Input, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
+  Badge, Code, CommandPopover, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, TextLink,
 } from '../../ui/index.ts';
-import {openPicker} from '../issues/actions.ts';
+import {PickerPopover} from '../issues/Picker.tsx';
 import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
-  const app = useApp();
   const session = useSession();
   // Writers change everything; a reader sees the values (Forgejo would refuse the change).
   const write = canWrite(session, issue.get('repo_id'));
-  const pick = (kind: PickerKind) => () => {
-    openPicker(app, kind, [issue.id]);
-  };
+  // A click opens the picker under the property (its key opens the same list as a command menu).
+  const pick = (kind: PickerKind) => ({kind, issueIds: [issue.id]});
   const pull = issue.get('is_pull');
   return (
     <PropertyList>
@@ -71,10 +69,12 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
   );
 });
 
-/** A property's value: a button opening its editor for writers, plain text for readers. */
-function Editable({write, label, shortcut, onClick, children}: {write: boolean; label: string; shortcut?: string | undefined; onClick: () => void; children: ReactNode}) {
+/** A property's value: a button opening its picker for writers, plain text for readers. */
+function Editable({write, label, shortcut, onClick, children}: {
+  write: boolean; label: string; shortcut?: string | undefined; onClick: {kind: PickerKind; issueIds: readonly number[]}; children: ReactNode;
+}) {
   if (!write) return <PropertyValue>{children}</PropertyValue>;
-  return <PropertyButton label={label} shortcut={shortcut} onClick={onClick}>{children}</PropertyButton>;
+  return <PickerPopover kind={onClick.kind} issueIds={onClick.issueIds} trigger={<PropertyButton label={label} shortcut={shortcut}>{children}</PropertyButton>}/>;
 }
 
 const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue'>}) {
@@ -172,7 +172,6 @@ const MilestoneValue = observer(function MilestoneValue({issue}: {issue: Entity<
  * put it on a board of its repository or owner, or take it off (issue.project: offline-capable).
  */
 const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
-  const app = useApp();
   const pool = usePool();
   const overlay = useOverlay();
   const {project: pid, column: cid} = issueProject(pool, overlay, issue.id);
@@ -192,29 +191,9 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
     </span>
   );
   if (!write || isTemp(issue.id)) return <Property label="Project"><PropertyValue>{value}</PropertyValue></Property>;
-  const repo = pool.model('Repository').get(issue.get('repo_id'))?.data;
-  // The boards it can go on: its repository's and its owner's (Forgejo's rule), open ones.
-  const boards = [...pool.model('Project').all()].map((e) => e.data)
-    .filter((p) => !p.closed && (p.repo_id === issue.get('repo_id') || (p.repo_id === 0 && p.owner_id === repo?.owner_id)))
-    .sort((a, b) => a.title.localeCompare(b.title));
-  const set = (projectId: number) => {
-    if (projectId === pid) return;
-    runInAction(() => {
-      editing(app).intents.submit({kind: 'issue.project', issueId: issue.id, repoId: issue.get('repo_id'), projectId, columnId: 0, base: pid});
-    });
-  };
   return (
     <Property label="Project">
-      <CommandPopover label="Project" placeholder="Put it on a board…" empty="No open board of this repository or its owner is on this device."
-        options={[
-          ...(pid ? [{value: 'none', label: 'No project', checked: false, onSelect: () => {
-            set(0);
-          }}] : []),
-          ...boards.map((b) => ({value: String(b.id), label: b.title, icon: KanbanSquare, checked: b.id === pid, onSelect: () => {
-            set(b.id);
-          }})),
-        ]}
-        trigger={<PropertyButton label="Put it on a board">{value}</PropertyButton>}/>
+      <PickerPopover kind="project" issueIds={[issue.id]} trigger={<PropertyButton label="Put it on a board">{value}</PropertyButton>}/>
     </Property>
   );
 });
@@ -260,9 +239,9 @@ const DependenciesValue = observer(function DependenciesValue({issue, write}: {i
       <Property label="Blocked by">
         {blockedBy.length ? <IssueLinks ids={blockedBy} repoId={issue.get('repo_id')}/> : !edit && <PropertyValue><PropertyEmpty>Nothing</PropertyEmpty></PropertyValue>}
         {edit && (
-          <PropertyButton label="Change what blocks this" onClick={() => {
-            openPicker(app, 'dependency', [issue.id]);
-          }}>{blockedBy.length ? <span className="text-sm text-fg-subtle">Change…</span> : <PropertyEmpty>Nothing</PropertyEmpty>}</PropertyButton>
+          <PickerPopover kind="dependency" issueIds={[issue.id]} trigger={
+            <PropertyButton label="Change what blocks this">{blockedBy.length ? <span className="text-sm text-fg-subtle">Change…</span> : <PropertyEmpty>Nothing</PropertyEmpty>}</PropertyButton>
+          }/>
         )}
       </Property>
       {blocks.length > 0 && <Property label="Blocks"><IssueLinks ids={blocks} repoId={issue.get('repo_id')}/></Property>}
@@ -295,60 +274,20 @@ export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An 
 });
 
 const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
-  const app = useApp();
   const due = issueDeadline(useOverlay(), issue);
   const open = issueState(useOverlay(), issue) === 'open';
-  const [dialog, setDialog] = useState(false);
   const late = Boolean(due) && open && Date.parse(due ?? '') < Date.now();
   const value = due ?
     <span className={late ? 'flex items-center gap-2 text-danger' : 'flex items-center gap-2'} title={fullDate(due)}><Icon icon={CalendarClock}/>{shortDate(due)}{late && ' · overdue'}</span> :
     <PropertyEmpty>No due date</PropertyEmpty>;
   return (
     <Property label="Due date">
-      {write && !isTemp(issue.id) ? <PropertyButton label="Set the due date" onClick={() => {
-        setDialog(true);
-      }}>{value}</PropertyButton> : <PropertyValue>{value}</PropertyValue>}
-      {dialog && <DueDialog initial={due?.slice(0, 10) ?? ''} onClose={() => {
-        setDialog(false);
-      }} onSave={(next) => {
-        runInAction(() => {
-          editing(app).intents.submit({kind: 'issue.deadline', issueId: issue.id, repoId: issue.get('repo_id'), due: next, base: due?.slice(0, 10) ?? null});
-        });
-      }}/>}
+      {write && !isTemp(issue.id) ?
+        <PickerPopover kind="due" issueIds={[issue.id]} trigger={<PropertyButton label="Set the due date">{value}</PropertyButton>}/> :
+        <PropertyValue>{value}</PropertyValue>}
     </Property>
   );
 });
-
-/** The due date's editor: a date, or none. */
-function DueDialog({initial, onClose, onSave}: {initial: string; onClose: () => void; onSave: (due: string | null) => void}) {
-  const [value, setValue] = useState(initial);
-  const save = (v: string | null) => {
-    onClose();
-    if ((v ?? '') !== initial) onSave(v);
-  };
-  return (
-    <Dialog open size="sm" title="Due date" onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
-      {initial && <Button variant="ghost" onClick={() => {
-        save(null);
-      }}>Remove</Button>}
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={!/^\d{4}-\d{2}-\d{2}$/.test(value)} onClick={() => {
-        save(value);
-      }}>Save</Button>
-    </>}>
-      <Input type="date" aria-label="Due date" value={value} autoFocus className="w-full" onChange={(e) => {
-        setValue(e.target.value);
-      }} onKeyDown={(e) => {
-        if (e.key === 'Enter' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-          e.preventDefault();
-          save(value);
-        }
-      }}/>
-    </Dialog>
-  );
-}
 
 const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'Issue'>}) {
   const pool = usePool();

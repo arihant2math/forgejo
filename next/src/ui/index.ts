@@ -11,7 +11,7 @@ export {Callout, type CalloutTone} from './Callout.tsx';
 export {Card, Panel} from './Card.tsx';
 export {SegmentedControl, type Segment} from './SegmentedControl.tsx';
 export {AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineAction, LineNo, paintTokens, StepHeader, TabLink, TabNav, type LineTone, type TokenSpans} from './Code.tsx';
-export {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandPopover, CommandRoot, matchOptions, type PickOption} from './Command.tsx';
+export {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandPick, CommandPopover, CommandRoot, matchOptions, type PickOption} from './Command.tsx';
 export {cx} from './cx.ts';
 export {Dialog, DialogClose, DialogTrigger} from './Dialog.tsx';
 export {EmptyState} from './EmptyState.tsx';

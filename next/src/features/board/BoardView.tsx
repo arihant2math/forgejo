@@ -700,9 +700,23 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
   );
 });
 
-/** A new issue that goes on this board, in this column (the create dialog; its repository is the board's, if any). */
+/**
+ * A new issue that goes on this board, in this column (the create dialog). Its repository: the board's; on an
+ * organization's or a user's board, the one most of its cards come from (not the first by name).
+ */
 function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId: number): void {
-  const repoId = untracked(() => app.session?.data.pool.model('Project').get(projectId)?.get('repo_id')) ?? 0;
+  const repoId = untracked(() => {
+    const pool = app.session?.data.pool;
+    if (!pool) return 0;
+    const own = pool.model('Project').get(projectId)?.get('repo_id') ?? 0;
+    if (own) return own;
+    const count = new Map<number, number>();
+    for (const card of pool.model('ProjectIssue').by('project_id', projectId)) {
+      const r = pool.model('Issue').get(card.get('issue_id'))?.get('repo_id');
+      if (r) count.set(r, (count.get(r) ?? 0) + 1);
+    }
+    return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+  });
   openCreate(app, repoId, {projectId, columnId});
 }
 

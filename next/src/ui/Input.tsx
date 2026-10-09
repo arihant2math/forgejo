@@ -66,10 +66,11 @@ export function TextArea({invalid, bare = false, rows = 6, ...rest}: TextAreaPro
  */
 export function EditorFrame({invalid, header, children, ref}: {invalid?: boolean | undefined; header?: ReactNode; children: ReactNode; ref?: Ref<HTMLDivElement>}) {
   return (
-    <div ref={ref} aria-invalid={invalid} className={cx('interactive block w-full overflow-hidden rounded-md text-md focus-ring-within', field)}>
-      {/* The field's own controls (Write / Preview, formatting): on top, inside the same box, which never moves. */}
-      {header && <div className="flex items-center gap-1 border-b border-border-subtle px-1 py-1">{header}</div>}
+    <div ref={ref} aria-invalid={invalid} className={cx('interactive flex w-full flex-col overflow-hidden rounded-md text-md focus-ring-within', field)}>
       {children}
+      {/* The field's own controls (Write / Preview, formatting): on top, inside the same box, which never moves — but
+          after the text in the focus order (Linear: Tab from a title goes to the description, then the toolbar). */}
+      {header && <div className="order-first flex items-center gap-1 border-b border-border-subtle px-1 py-1">{header}</div>}
     </div>
   );
 }

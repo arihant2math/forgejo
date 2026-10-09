@@ -188,7 +188,18 @@ func WithQuietTx(ctx context.Context, fn func(ctx context.Context) error) error 
 	quiet := context.WithValue(ctx, quietKey{}, true)
 	sess := master.NewSession()
 	defer sess.Close()
-	sess.Context(quiet)
+	// The transaction and its statements run under a context that is never
+	// canceled. When the context a transaction began with is canceled,
+	// database/sql rolls it back by itself, and the drivers close the
+	// connection under a statement in flight; the COMMIT or ROLLBACK after
+	// that fails ("transaction has already been committed or rolled back",
+	// "conn closed") and the engine's error hook logs it as a failed query,
+	// once for every client that went away during a bootstrap (QA
+	// 2026-10-09). Instead, a canceled ctx ends the transaction after the
+	// statement in flight: fn's context is still ctx, so fn stops at its
+	// next check and returns an error, and the transaction is rolled back
+	// (sess.Close); a transaction whose fn finished commits as usual.
+	sess.Context(context.WithoutCancel(quiet))
 	if err := sess.Begin(); err != nil {
 		return err
 	}

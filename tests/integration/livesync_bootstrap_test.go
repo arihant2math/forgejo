@@ -6,6 +6,7 @@ package integration
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -27,8 +28,10 @@ import (
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/json"
+	"forgejo.org/modules/log"
 	project_module "forgejo.org/modules/project"
 	"forgejo.org/modules/setting"
+	"forgejo.org/modules/test"
 	"forgejo.org/modules/translation"
 	"forgejo.org/services/livesync/materialize"
 	"forgejo.org/services/livesync/protocol"
@@ -1282,5 +1285,72 @@ func TestLivesyncBootstrapLarge(t *testing.T) {
 		// the bound leaves room for the rest of the server (materializer,
 		// queues) allocating meanwhile in this process (≈ 3–9 MB seen).
 		assert.Less(t, growth, int64(total/2), "memory is bounded by a chunk, not the response")
+	})
+}
+
+// TestLivesyncBootstrapCancelled: clients that go away during a bootstrap (a
+// page closed or navigated) are not server errors. Each request is cut at a
+// different moment; nothing may be logged at error level: neither the
+// bootstrap's own error nor the failed COMMIT/ROLLBACK of a transaction that
+// database/sql had already rolled back because its context was canceled
+// (QA 2026-10-09: "[Error SQL Query] ROLLBACK - sql: transaction has already
+// been committed or rolled back").
+func TestLivesyncBootstrapCancelled(t *testing.T) {
+	livesyncSkipSQLite(t)
+	livesyncServe(t)
+	onApplicationRun(t, func(t *testing.T, u *url.URL) {
+		livesyncWaitBackfill(t)
+		// Enough rows for several chunks, so that a cut lands inside the stream.
+		batch := make([]*issues_model.Issue, 0, 2000)
+		for i := range 2000 {
+			batch = append(batch, &issues_model.Issue{RepoID: 1, Index: int64(200000 + i), PosterID: 2, Title: fmt.Sprintf("cancelled bootstrap %d", i), Content: "x"})
+		}
+		_, err := db.GetEngine(t.Context()).Insert(&batch)
+		require.NoError(t, err)
+		livesyncSettle(t)
+
+		// Info and above: the stop mark below is an Info (cancelled bootstraps are logged at Debug).
+		lc, cleanup := test.NewLogChecker(log.DEFAULT, log.INFO)
+		defer cleanup()
+		lc.Filter("livesync: bootstrap of", "[Error SQL Query]").StopMark("livesync cancelled bootstraps: done")
+
+		token := livesyncToken(t, &user_model.User{ID: 2})
+		for i := range 24 {
+			ctx, cancel := context.WithCancel(t.Context())
+			req, err := http.NewRequestWithContext(ctx, "GET", u.String()+"-/sync/bootstrap?group=repo:1", nil)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Accept-Encoding", "identity")
+			// Cut before the answer (in Prepare), right after the header, or a few chunks in.
+			if i%3 == 0 {
+				time.AfterFunc(time.Duration(i)*time.Millisecond/4, cancel)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil {
+				br := bufio.NewReader(resp.Body)
+				for range i * 40 {
+					if _, err := br.ReadSlice('\n'); err != nil {
+						break
+					}
+				}
+				cancel()
+				resp.Body.Close()
+			}
+			cancel()
+		}
+		// The server notices a cut connection on its next write or statement.
+		time.Sleep(500 * time.Millisecond)
+		log.Info("livesync cancelled bootstraps: done")
+		filtered, stopped := lc.Check(10 * time.Second)
+		require.True(t, stopped)
+		assert.False(t, filtered[0], "a cancelled bootstrap was logged as an error")
+		assert.False(t, filtered[1], "a cancelled bootstrap's transaction was logged as a failed query")
+		// And a whole one still works.
+		s := livesyncBootstrap(t, token, "/-/sync/bootstrap?group=repo:1")
+		mine := s.ids("repo:1", protocol.ModelIssue, func(d map[string]any) bool {
+			title, _ := d["title"].(string)
+			return strings.HasPrefix(title, "cancelled bootstrap ")
+		})
+		assert.Len(t, mine, 2000)
 	})
 }

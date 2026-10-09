@@ -189,7 +189,13 @@ func streamSnapshot(w http.ResponseWriter, req *http.Request, load bool) {
 	}
 	breq.Units = units
 	prepared, pending, err := bootstrap.Prepare(ctx, breq)
-	if err != nil {
+	switch {
+	case err == nil:
+	case ctx.Err() != nil || errors.Is(err, context.Canceled):
+		// The client went away (a page closed or navigated): not a server error.
+		log.Debug("livesync: bootstrap of %s for user %d cancelled: %v", group, viewer.ID, err)
+		return
+	default:
 		log.Error("livesync: bootstrap of %s: %v", group, err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Message: http.StatusText(http.StatusInternalServerError)})
 		return

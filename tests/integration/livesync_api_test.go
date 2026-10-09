@@ -142,6 +142,7 @@ func livesyncAPIScenario(t *testing.T, u *url.URL) {
 	t.Run("markdown", func(t *testing.T) { livesyncAPIMarkdown(t, user2, user5) })
 	t.Run("markup", func(t *testing.T) { livesyncAPIMarkup(t, user2, user5) })
 	t.Run("issue project", func(t *testing.T) { livesyncAPIIssueProject(t, user2, user5) })
+	t.Run("resolve conversation", func(t *testing.T) { livesyncAPIResolve(t, user2, user5) })
 	t.Run("auth", func(t *testing.T) {
 		MakeRequest(t, livesyncAPI(t, "PATCH", "/issues/1/body", "", map[string]any{"body": "x"}), http.StatusUnauthorized)
 		MakeRequest(t, livesyncAPI(t, "GET", "/repos/1/blobs/x", "bad-token", nil), http.StatusUnauthorized)
@@ -704,6 +705,21 @@ func livesyncAPIIssueProject(t *testing.T, user2, user5 string) {
 	MakeRequest(t, livesyncAPI(t, "PUT", "/issues/11/project", user5, protocol.APIIssueProject{ProjectID: 1}), http.StatusForbidden)
 	MakeRequest(t, livesyncAPI(t, "PUT", "/issues/11/project", user2, protocol.APIIssueProject{ColumnID: 2}), http.StatusBadRequest)
 	unittest.AssertNotExistsBean(t, &project_model.ProjectIssue{IssueID: 11})
+}
+
+func livesyncAPIResolve(t *testing.T, user2, user5 string) {
+	// Code comment 5 on pull request 2 of user2/repo1: resolved by user2 (a writer), again (idempotent), then unresolved.
+	for range 2 {
+		MakeRequest(t, livesyncAPI(t, "PUT", "/comments/5/resolved", user2, protocol.APICommentResolved{Resolved: true}), http.StatusNoContent)
+		unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: 5, ResolveDoerID: 2})
+	}
+	MakeRequest(t, livesyncAPI(t, "PUT", "/comments/5/resolved", user2, protocol.APICommentResolved{}), http.StatusNoContent)
+	unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: 5, ResolveDoerID: 0})
+	// Not the poster, a writer or an official reviewer; not a code comment; no such comment.
+	MakeRequest(t, livesyncAPI(t, "PUT", "/comments/5/resolved", user5, protocol.APICommentResolved{Resolved: true}), http.StatusForbidden)
+	MakeRequest(t, livesyncAPI(t, "PUT", "/comments/2/resolved", user2, protocol.APICommentResolved{Resolved: true}), http.StatusUnprocessableEntity)
+	MakeRequest(t, livesyncAPI(t, "PUT", "/comments/99999/resolved", user2, protocol.APICommentResolved{Resolved: true}), http.StatusNotFound)
+	unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: 5, ResolveDoerID: 0})
 }
 
 // livesyncTaskLog makes task's log the DBFS file name with lines, as the

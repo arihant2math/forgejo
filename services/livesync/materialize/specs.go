@@ -26,6 +26,30 @@ import (
 	"forgejo.org/services/livesync/protocol"
 )
 
+// pullStatus is a pull request's mergeability as the protocol names it (protocol.PullRequest.Status): lower case.
+// Status.String() is upper case ("CONFLICT"), which the client never matched: a pull request with conflicts read
+// as mergeable (QA verify3).
+func pullStatus(s issues_model.PullRequestStatus) string {
+	switch s {
+	case issues_model.PullRequestStatusConflict:
+		return "conflict"
+	case issues_model.PullRequestStatusChecking:
+		return "checking"
+	case issues_model.PullRequestStatusMergeable:
+		return "mergeable"
+	case issues_model.PullRequestStatusManuallyMerged:
+		return "manually_merged"
+	case issues_model.PullRequestStatusError:
+		return "error"
+	case issues_model.PullRequestStatusEmpty:
+		return "empty"
+	case issues_model.PullRequestStatusAncestor:
+		return "ancestor"
+	default:
+		return fmt.Sprintf("status_%d", int(s))
+	}
+}
+
 // spec materializes the rows of one tracked table.
 type spec struct {
 	table string
@@ -447,7 +471,7 @@ var specs = func() map[string]*spec {
 			},
 			dto: func(_ context.Context, _ *loader, r *issues_model.PullRequest) (any, error) {
 				p := &protocol.PullRequest{
-					ID: r.ID, IssueID: r.IssueID, Number: r.Index, Status: r.Status.String(),
+					ID: r.ID, IssueID: r.IssueID, Number: r.Index, Status: pullStatus(r.Status),
 					HeadRepoID: r.HeadRepoID, BaseRepoID: r.BaseRepoID, HeadBranch: r.HeadBranch, BaseBranch: r.BaseBranch,
 					MergeBase: r.MergeBase, AllowMaintainerEdit: r.AllowMaintainerEdit, Merged: r.HasMerged,
 					MergeCommitSHA: r.MergedCommitID, MergerID: r.MergerID, CommitsAhead: r.CommitsAhead,

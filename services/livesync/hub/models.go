@@ -72,6 +72,8 @@ var modelKinds = map[protocol.Model][]string{
 	protocol.ModelReview:         {protocol.GroupPrefixIssue, protocol.GroupPrefixUser},
 	protocol.ModelReaction:       {protocol.GroupPrefixIssue, protocol.GroupPrefixUser},
 	protocol.ModelContentHistory: {protocol.GroupPrefixIssue, protocol.GroupPrefixUser},
+	// A review's verdict: its pull request's repo:{id}.
+	protocol.ModelReviewVerdict: {protocol.GroupPrefixRepo},
 	// A release's attachments are in its repo:{id}.
 	protocol.ModelAttachment: {protocol.GroupPrefixIssue, protocol.GroupPrefixUser, protocol.GroupPrefixRepo},
 }

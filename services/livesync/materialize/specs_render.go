@@ -342,11 +342,20 @@ func reviewState(t issues_model.ReviewType) string {
 	return "COMMENT"
 }
 
+// reviewVerdictKey is the entity index key of a review's ReviewVerdict.
+const reviewVerdictKey = "review#verdict"
+
+// reviewSpec: a review row is its Review (the issue's group, or the
+// reviewer's while pending) and, for an approval or a request for changes,
+// its ReviewVerdict in the repository's group.
 func reviewSpec() *spec {
-	return rowSpec[issues_model.Review]{
+	s := rowSpec[issues_model.Review]{
 		model: protocol.ModelReview, schema: protocol.SchemaReview,
 		id: func(r *issues_model.Review) int64 { return r.ID },
 		prepare: func(ctx context.Context, l *loader, rows []*issues_model.Review) error {
+			for _, r := range rows {
+				l.reviews[r.ID] = r
+			}
 			return issueRepos(ctx, l, ids(rows, func(r *issues_model.Review) int64 { return r.IssueID }))
 		},
 		place: func(l *loader, r *issues_model.Review) (string, protocol.Unit) { return l.reviewPlace(r) },
@@ -364,6 +373,47 @@ func reviewSpec() *spec {
 			return res, nil
 		},
 	}.spec("review")
+	s.keys = append(s.keys, reviewVerdictKey)
+	s.models = append(s.models, protocol.ModelReviewVerdict)
+	s.schemas = append(s.schemas, protocol.SchemaReviewVerdict)
+	load := s.load
+	s.load = func(ctx context.Context, l *loader, ids []int64, full bool) (map[int64][]entity, error) {
+		res, err := load(ctx, l, ids, full)
+		if err != nil {
+			return nil, err
+		}
+		for id, ents := range res {
+			r := l.reviews[id]
+			if r == nil {
+				continue
+			}
+			v := entity{key: reviewVerdictKey, model: protocol.ModelReviewVerdict, schema: protocol.SchemaReviewVerdict}
+			v.group, v.unit = l.verdictPlace(r)
+			if full && v.group != "" {
+				v.dto = &protocol.ReviewVerdict{
+					ID: r.ID, IssueID: r.IssueID, ReviewerID: r.ReviewerID, State: reviewState(r.Type),
+					Official: r.Official, Stale: r.Stale, Dismissed: r.Dismissed, CreatedAt: ts(r.CreatedUnix),
+				}
+			}
+			res[id] = append(ents, v)
+		}
+		return res, nil
+	}
+	return s
+}
+
+// verdictPlace is the group and unit of a review's ReviewVerdict: its pull
+// request's repo:{id} (unit pulls) for an approval or a request for changes
+// by a reviewer, no group otherwise.
+func (l *loader) verdictPlace(r *issues_model.Review) (string, protocol.Unit) {
+	issue := l.issues[r.IssueID]
+	if issue == nil || !issue.IsPull || r.ReviewerID <= 0 || (r.Type != issues_model.ReviewTypeApprove && r.Type != issues_model.ReviewTypeReject) {
+		return "", protocol.UnitNone
+	}
+	if group, _ := l.issuePlace(r.IssueID); group == "" {
+		return "", protocol.UnitNone
+	}
+	return protocol.RepoGroup(issue.RepoID), protocol.UnitPulls
 }
 
 func releaseSpec() *spec {

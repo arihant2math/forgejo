@@ -107,6 +107,15 @@ export interface APICardMove {
   cards?: APICard[];
 }
 /**
+ * APICommentResolved resolves (or unresolves) the conversation a pull
+ * request's code comment starts (the classic Files tab's Resolve). The
+ * classic checks: the pull request's poster, a writer of its pull requests
+ * or an official reviewer (403); 422 for any other comment. Idempotent.
+ */
+export interface APICommentResolved {
+  resolved: boolean;
+}
+/**
  * APIIssueProject puts an issue on a project's board (in ColumnID, or the
  * project's default column when 0; at the column's end) or, with
  * ProjectID 0, takes it off its project. An issue is on one project at a
@@ -1177,6 +1186,23 @@ export interface Review {
   updated_at: string /* RFC 3339, UTC */;
 }
 /**
+ * ReviewVerdict is a review's verdict (approved or changes requested) in the
+ * pull request's repository group (unit pulls): a second entity of the review
+ * row, so that list rows show who approved or asked for changes without the
+ * pull request's issue group (where its Review, with the body, is). Same id
+ * as the Review.
+ */
+export interface ReviewVerdict {
+  id: number /* int64 */;
+  issue_id: number /* int64 */;
+  reviewer_id: number /* int64 */;
+  state: string; // "APPROVED", "REQUEST_CHANGES"
+  official: boolean;
+  stale: boolean;
+  dismissed: boolean;
+  created_at: string /* RFC 3339, UTC */;
+}
+/**
  * ReviewState holds a user's "viewed files" of a pull request at a commit
  * (group user:{user_id}, unit self). Values: 0 unviewed, 1 changed since viewed,
  * 2 viewed.
@@ -1876,6 +1902,7 @@ export const ModelBlockedUser: Model = "BlockedUser";
 export const ModelComment: Model = "Comment";
 export const ModelReaction: Model = "Reaction";
 export const ModelReview: Model = "Review";
+export const ModelReviewVerdict: Model = "ReviewVerdict";
 export const ModelReviewState: Model = "ReviewState";
 export const ModelAttachment: Model = "Attachment";
 export const ModelIssueDependency: Model = "IssueDependency";
@@ -1901,7 +1928,7 @@ export const SchemaIssue = 1;
 export const SchemaIssueBody = 1;
 export const SchemaIssueLabel = 1;
 export const SchemaIssueAssignee = 1;
-export const SchemaPullRequest = 1;
+export const SchemaPullRequest = 2; // 2: status in lower case, as documented (1 sent Go's upper-case names)
 export const SchemaAutoMerge = 1;
 export const SchemaBranch = 1;
 export const SchemaRelease = 1;
@@ -1917,6 +1944,7 @@ export const SchemaBlockedUser = 1;
 export const SchemaComment = 1;
 export const SchemaReaction = 1;
 export const SchemaReview = 1;
+export const SchemaReviewVerdict = 1;
 export const SchemaReviewState = 1;
 export const SchemaAttachment = 1;
 export const SchemaIssueDependency = 1;

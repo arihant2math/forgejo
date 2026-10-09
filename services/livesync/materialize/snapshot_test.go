@@ -589,6 +589,7 @@ func TestUserRefFields(t *testing.T) {
 		protocol.Comment{},
 		protocol.Reaction{},
 		protocol.Review{},
+		protocol.ReviewVerdict{},
 		protocol.ReviewState{},
 		protocol.Attachment{},
 		protocol.IssueDependency{},

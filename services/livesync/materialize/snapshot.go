@@ -166,21 +166,27 @@ func (s source) holding(models ...protocol.Model) source {
 }
 
 // child is a table read for each chunk of a source's rows; cond selects the
-// child rows of the chunk's ids.
+// child rows of the chunk's ids; models, if set, are the only models the
+// child's table contributes (see source.holding).
 type child struct {
-	table string
-	cond  func(ids []int64) builder.Cond
+	table  string
+	cond   func(ids []int64) builder.Cond
+	models []protocol.Model
 }
 
 // issueChildren are the summary-tier rows that hang off an issue.
 var issueChildren = []child{
-	{"issue_label", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
-	{"issue_assignees", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
-	{"project_issue", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
-	{"pull_request", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }},
+	{"issue_label", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }, nil},
+	{"issue_assignees", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }, nil},
+	{"project_issue", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }, nil},
+	{"pull_request", func(ids []int64) builder.Cond { return builder.In("issue_id", ids) }, nil},
 	{"pull_auto_merge", func(ids []int64) builder.Cond {
 		return builder.In("pull_id", sel("pull_request", builder.In("issue_id", ids)))
-	}},
+	}, nil},
+	// The verdicts of the pull requests (their Reviews are in the issues' groups).
+	{"review", func(ids []int64) builder.Cond {
+		return builder.In("issue_id", ids).And(builder.In("`type`", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject))
+	}, []protocol.Model{protocol.ModelReviewVerdict}},
 }
 
 // issues is the source of the issues matching cond, with their children.
@@ -248,7 +254,7 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 		return []source{
 			from("issue", builder.Eq{"id": id}),
 			from("comment", issue),
-			from("review", issue),
+			from("review", issue).holding(protocol.ModelReview),
 			from("reaction", issue, onComments),
 			from("attachment", issue, onComments),
 			from("issue_content_history", issue, onComments),
@@ -268,7 +274,7 @@ func snapshotSources(req *SnapshotRequest, page []int64) ([]source, error) {
 			from("forgejo_blocked_user", user),
 			from("review_state", user),
 			from("tracked_time", user.And(builder.Eq{"deleted": false})),
-			from("review", pending),
+			from("review", pending).holding(protocol.ModelReview),
 			from("comment", pendingComments),
 			from("reaction", onPendingComments),
 			from("attachment", onPendingComments),
@@ -367,6 +373,8 @@ func SnapshotModels(req SnapshotRequest) ([]protocol.Model, error) {
 			models := specs[table].models
 			if i == 0 && s.models != nil {
 				models = s.models
+			} else if i > 0 && s.children[i-1].models != nil {
+				models = s.children[i-1].models
 			}
 			for _, m := range models {
 				add(m)

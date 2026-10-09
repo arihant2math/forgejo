@@ -547,18 +547,24 @@ func TestConsumePlacement(t *testing.T) {
 	assert.Equal(t, "PENDING", review.State)
 
 	// Submitting the review changes the review row only: the review, its
-	// comment and the comment's attachment move to the pull request.
+	// comment and the comment's attachment move to the pull request. An
+	// approval also has its verdict in the repository's group (list rows).
 	exec(t, "UPDATE review SET type = 1 WHERE id = 4")
 	consume(t, m, change(20, "review", 4, "U"))
-	rows, _ = takeLog(t, &cursor)
+	rows, entries = takeLog(t, &cursor)
 	assert.Equal(t, []logRow{
 		{"user:1", "self", "Review", "D", 4},
 		{"issue:2", "pulls", "Review", "U", 4},
+		{"repo:1", "pulls", "ReviewVerdict", "U", 4},
 		{"user:1", "self", "Comment", "D", 4},
 		{"issue:2", "pulls", "Comment", "U", 4},
 		{"user:1", "self", "Attachment", "D", 3},
 		{"issue:2", "pulls", "Attachment", "U", 3},
 	}, rows)
+	var verdict protocol.ReviewVerdict
+	require.NoError(t, json.Unmarshal([]byte(entries[2].Payload), &verdict))
+	assert.Equal(t, protocol.ReviewVerdict{ID: 4, IssueID: 2, ReviewerID: verdict.ReviewerID, State: "APPROVED", Official: verdict.Official, CreatedAt: verdict.CreatedAt}, verdict)
+	assert.Positive(t, verdict.ReviewerID)
 
 	// Publishing the draft: the release and its attachment appear.
 	exec(t, "UPDATE `release` SET is_draft = ? WHERE id = 4", false)

@@ -40,6 +40,7 @@ package protocol
 //	POST   /-/sync/api/projects/{id}/columns/{column}/cards APICardMove     → 204; 503 + Retry-After when concurrent moves kept it from completing (write:issue)
 //	PATCH  /-/sync/api/issues/{id}/body                     APIBodyEdit     → 200 APIBodyEdited, 409 APIBodyConflict (write:issue)
 //	PATCH  /-/sync/api/comments/{id}/body                   APIBodyEdit     → 200 APIBodyEdited, 409 APIBodyConflict (write:issue)
+//	PUT    /-/sync/api/comments/{id}/resolved               APICommentResolved → 204           (write:issue)
 //	GET    /-/sync/api/bodies/{model}/{id}                  → 200 APIBody (model IssueBody, Comment, Review or Release)
 //	GET    /-/sync/api/issues/{id}/viewed[?head={sha}]      → 200 APIViewedFiles (a pull request's issue)
 //	PUT    /-/sync/api/issues/{id}/viewed                   APIViewedUpdate → 200 APIViewedFiles (write:repository)
@@ -135,6 +136,14 @@ type APICardMove struct {
 	IssueID  int64     `json:"issue_id,omitempty"`
 	Position *int      `json:"position,omitempty"`
 	Cards    []APICard `json:"cards,omitempty"`
+}
+
+// APICommentResolved resolves (or unresolves) the conversation a pull
+// request's code comment starts (the classic Files tab's Resolve). The
+// classic checks: the pull request's poster, a writer of its pull requests
+// or an official reviewer (403); 422 for any other comment. Idempotent.
+type APICommentResolved struct {
+	Resolved bool `json:"resolved"`
 }
 
 // APIIssueProject puts an issue on a project's board (in ColumnID, or the

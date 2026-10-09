@@ -56,6 +56,9 @@ const MetaPlacementPrefix = "materialized_placement."
 // organization's projects and their columns need the projects unit in
 // org:{id}. Version 1 of team_user and team_repo (backend audit): who is in
 // a team and its repositories moved from org:{id} (members) to team:{id}.
+// Version 1 of review (QA verify3): an approval or a request for changes
+// also has a ReviewVerdict in its pull request's repo:{id}, a second entity
+// of the row (list rows show the verdict without the issue's group).
 var placementVersions = map[string]int64{
 	"label":            1,
 	"user":             1,
@@ -67,6 +70,7 @@ var placementVersions = map[string]int64{
 	"issue_dependency": 1,
 	"team_user":        1,
 	"team_repo":        1,
+	"review":           1,
 }
 
 // MetaContentPrefix + table name is the livesync_meta entry holding the

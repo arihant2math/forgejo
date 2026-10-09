@@ -17,13 +17,12 @@
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Reply, Trash2, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {online, RequestFailed} from '../../app/api.ts';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
-import {connectivity, onlineOnly, reach} from '../../app/online.ts';
+import {onlineOnly, reach} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -35,10 +34,10 @@ import {partition, type ReviewDraft, reviewDrafts, type ReviewEvent, saveDraft, 
 import {type CommitInfo, type CompareInfo, NotCached} from '../../code/source.ts';
 import {newestState, viewedAt, viewedMarks} from '../../code/viewed.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing, notifyQueued} from '../../intents/session.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Callout, Card, Checkbox, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, ProseSource,
+  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, ProseSource,
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
@@ -54,6 +53,7 @@ import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
+import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 
 export type PullTabName = 'files' | 'commits' | 'checks';
 
@@ -378,17 +378,30 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
     done();
   };
   // A thread with posted comments: answer it at once (a one-comment review, as Forgejo's "Reply" does), or resolve it
-  // (no API resolves a conversation: the classic page of the files does).
+  // (in place; a resolved thread folds to one line until shown).
   const posted = items.some((it) => it.kind === 'comment');
+  const pool = usePool();
+  const first = items.find((it) => it.kind === 'comment');
+  const root = first?.kind === 'comment' ? conversationRoot(pool, first.c) : undefined;
+  const resolver = useResolver(root);
+  const [shown, setShown] = useState(false);
   const reply = composing !== undefined && composing.key === undefined && posted;
   const replyNow = () => {
     const a = file && lineAnchor(file, l, head);
     if (!a || !text.trim()) return;
-    submitReview(intents, {issueId: issue.id, repoId: pr.base_repo_id, head, event: 'COMMENT', body: '', drafts: [{key: `reply:${uuid()}`, anchor: a, text, at: Date.now()}]});
+    const id = submitReview(intents, {issueId: issue.id, repoId: pr.base_repo_id, head, event: 'COMMENT', body: '', drafts: [{key: `reply:${uuid()}`, anchor: a, text, at: Date.now()}]});
     done();
-    if (!connectivity.online) notify(app, {tone: 'neutral', title: 'Reply queued', description: 'It is sent when you are back online.'});
+    notifyQueued(app, id, 'Reply queued');
   };
-  const repo = usePool().model('Repository').get(pr.base_repo_id)?.data;
+  if (resolver > 0 && !shown && !composing) {
+    return (
+      <div className="border-y border-border-subtle bg-canvas py-2 pr-4 pl-thread">
+        <ResolvedFold resolver={resolver} onShow={() => {
+          setShown(true);
+        }}/>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2 border-y border-border-subtle bg-canvas py-3 pr-4 pl-thread">
       {items.map((it) => (it.kind === 'comment' ?
@@ -418,7 +431,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
           <Button size="sm" variant="ghost" icon={Reply} onClick={() => {
             setComposing({f, l, initial: ''});
           }}>Reply</Button>
-          {repo && <ClassicLink size="sm" to={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.get('number'))}/files`}>Resolve</ClassicLink>}
+          {root && <ResolveButton root={root} issue={issue}/>}
         </div>
       )}
     </div>
@@ -504,10 +517,10 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
   const ok = !needsBody || body.trim() !== '';
   const submit = () => {
     if (!ok) return;
-    submitReview(intents, {issueId: issue.id, repoId: pr.base_repo_id, head, event, body, drafts});
+    const id = submitReview(intents, {issueId: issue.id, repoId: pr.base_repo_id, head, event, body, drafts});
     setBody('');
     onOpenChange(false);
-    if (!connectivity.online) notify(app, {tone: 'neutral', title: 'Review queued', description: 'It is sent when you are back online.'});
+    notifyQueued(app, id, 'Review queued');
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange} size="md" title="Submit review"
@@ -634,10 +647,11 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
     online(app, req).then(() => {
       notify(app, {tone: 'success', title: words.done});
     }, (err: unknown) => {
-      // A short, human reason (the server's own words only when they are a sentence for people), and Retry.
-      notify(app, {tone: 'danger', title: words.failed, description: failureText(err), action: {label: 'Retry', run: () => {
+      // A short, human reason (the server's own words only when they are a sentence for people). Retry only when
+      // trying again may help: Forgejo refusing it (a 4xx) would refuse it again.
+      notify(app, {tone: 'danger', title: words.failed, description: failureText(err), ...refused(err) ? {} : {action: {label: 'Retry', run: () => {
         run(words, req);
-      }}});
+      }}}});
     }).finally(() => {
       setBusy(false);
     });
@@ -651,6 +665,10 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // Checks still running (the merge dialog says how many; merging waits for them by default).
   const unfinished = sum ? unfinishedChecks(pool, sum) : 0;
   const behind = pr.commits_behind > 0 ? ` · ${String(pr.commits_behind)} behind ${pr.base_branch}` : '';
+  // With conflicts nothing merges, and updating the branch by a merge would conflict the same way: both are disabled
+  // with the reason (they were offered and then failed).
+  const conflict = pr.status === 'conflict';
+  const conflictWhy = conflict ? `It conflicts with ${pr.base_branch}: resolve the conflicts in the branch first.` : undefined;
   let state: ReactNode;
   if (pr.merged) {
     state = (
@@ -660,7 +678,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       </>
     );
   } else if (closed) state = 'Closed without merging';
-  else if (pr.status === 'conflict') state = <><StatusDot tone="danger"/> Conflicts: {pr.conflicted_files.join(', ') || 'resolve them first'}</>;
+  else if (conflict) state = <><StatusDot tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<Code>{f}</Code></Fragment>)}</> : ''}</>;
   else if (pr.status === 'checking') state = <><StatusDot tone="warning"/> Checking whether it can be merged…</>;
   else if (checks === 'pending') state = <><StatusDot tone="warning"/> Checks are not done yet{behind}</>;
   else if (checks === 'failure') state = <><StatusDot tone="danger"/> Some checks failed{behind}</>;
@@ -674,8 +692,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           <Menu>
             <MenuTrigger asChild>
               {/* With checks running or failing, merging now is not the default (Merge when checks succeed is). */}
-              <Button variant={checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || pr.status === 'conflict'}
-                tooltip={offlineWhy('Merging') ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
+              <Button variant={checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || conflict}
+                tooltip={offlineWhy('Merging') ?? conflictWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
                 {checks === 'pending' ? 'Merge now…' : 'Merge…'}<Icon icon={ChevronDown} size="sm"/>
               </Button>
             </MenuTrigger>
@@ -691,17 +709,17 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             <Button disabled={!isOnline || busy} tooltip={offlineWhy('Canceling the auto-merge')} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</Button> :
-            checks === 'pending' && <Button variant="primary" icon={GitMerge} disabled={!isOnline || busy} tooltip={offlineWhy('Scheduling the merge') ?? 'Merge when all checks succeed'} onClick={() => {
+            checks === 'pending' && <Button variant="primary" icon={GitMerge} disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Scheduling the merge') ?? conflictWhy ?? 'Merge when all checks succeed'} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed'},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: 'merge', merge_when_checks_succeed: true, ...seen}});
             }}>Merge when checks succeed</Button>}
           {pr.commits_behind > 0 && (
-            <Button disabled={!isOnline || busy} tooltip={offlineWhy('Updating the branch') ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {
+            <Button disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
             }}>Update branch</Button>
           )}
           {!isOnline && <span className="text-sm text-fg-subtle">{onlineOnly('Merging')}</span>}
-          {isOnline && pr.status === 'conflict' && <span className="text-sm text-fg-subtle">Resolve the conflicts to merge.</span>}
+          {isOnline && conflictWhy && <span className="text-sm text-fg-subtle">{conflictWhy}</span>}
         </div>
       )}
       {style && (
@@ -723,6 +741,11 @@ type MergeStyle = typeof STYLES[number][0];
  * stack: a failed hook prints sockets and URLs), else what happened in general. The whole message goes to the
  * console for whoever needs it.
  */
+/** Forgejo refused the request (a 4xx other than a timeout or a rate limit): trying it again would be refused again. */
+export function refused(err: unknown): boolean {
+  return err instanceof RequestFailed && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
+}
+
 export function failureText(err: unknown): string {
   const status = err instanceof RequestFailed ? err.status : 0;
   const said = err instanceof Error ? err.message.trim() : '';

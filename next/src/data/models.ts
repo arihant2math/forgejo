@@ -47,6 +47,7 @@ export interface ModelTypes {
   Comment: P.Comment;
   Reaction: P.Reaction;
   Review: P.Review;
+  ReviewVerdict: P.ReviewVerdict;
   ReviewState: P.ReviewState;
   Attachment: P.Attachment;
   IssueDependency: P.IssueDependency;
@@ -109,6 +110,7 @@ const defs = {
   Comment: {schema: P.SchemaComment, kinds: ['issue', 'user'], index: ['issue_id', 'review_id']},
   Reaction: {schema: P.SchemaReaction, kinds: ['issue', 'user'], index: ['issue_id', 'comment_id']},
   Review: {schema: P.SchemaReview, kinds: ['issue', 'user'], index: ['issue_id', 'reviewer_id']},
+  ReviewVerdict: {schema: P.SchemaReviewVerdict, kinds: ['repo'], index: ['issue_id']},
   ReviewState: {schema: P.SchemaReviewState, kinds: ['user'], index: ['pull_id']},
   Attachment: {schema: P.SchemaAttachment, kinds: ['issue', 'user', 'repo'], index: ['issue_id', 'comment_id', 'release_id']},
   IssueDependency: {schema: P.SchemaIssueDependency, kinds: ['issue'], index: ['issue_id', 'dependency_id']},

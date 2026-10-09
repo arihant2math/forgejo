@@ -113,6 +113,13 @@ describe('overlay', () => {
     for (const off of offs) off();
   });
 
+  test('intentOps: resolving a conversation shows who resolved it at once (0: open again)', () => {
+    const on = newIntent({kind: 'comment.resolve', issueId: 7, repoId: 10, commentId: 33, resolved: true});
+    expect(intentOps(on, {userId: 5})).toEqual([{t: 'field', model: 'Comment', id: 33, field: 'resolve_doer_id', value: 5}]);
+    const off = newIntent({kind: 'comment.resolve', issueId: 7, repoId: 10, commentId: 33, resolved: false});
+    expect(intentOps(off, {userId: 5})).toEqual([{t: 'field', model: 'Comment', id: 33, field: 'resolve_doer_id', value: 0}]);
+  });
+
   test('intentOps: an exclusive label hides the siblings it replaces; keys are v4 UUIDs', () => {
     const i = newIntent({kind: 'issue.label', issueId: 7, repoId: 10, labelId: 3, add: true, drop: [4, 3]});
     expect(intentOps(i)).toEqual([
@@ -166,6 +173,7 @@ describe('requests (built at send time)', () => {
     expect(req({...r, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'hi'})).toEqual({method: 'POST', api: 'v1', path: `${base}/comments`, body: {body: 'hi'}});
     expect(req({...r, kind: 'comment.edit', commentId: 33, text: 'b', baseText: 'a', baseVersion: 2, baseUpdated: T})).toEqual({method: 'PATCH', api: 'sync', path: '/comments/33/body', body: {body: 'b', expected_version: 2}});
     expect(req({...r, kind: 'comment.delete', commentId: 33})).toEqual({method: 'DELETE', api: 'v1', path: '/repos/dev/big/issues/comments/33'});
+    expect(req({...r, kind: 'comment.resolve', commentId: 33, resolved: true})).toEqual({method: 'PUT', api: 'sync', path: '/comments/33/resolved', body: {resolved: true}});
     expect(req({...r, kind: 'issue.body', text: 'b', baseText: 'a', baseVersion: 1})).toEqual({method: 'PATCH', api: 'sync', path: '/issues/7/body', body: {body: 'b', expected_version: 1}});
     expect(req({...r, kind: 'board.move', projectId: 5, columnId: 6, position: 0, baseColumn: 2})).toEqual({method: 'POST', api: 'sync', path: '/projects/5/columns/6/cards', body: {issue_id: 7, position: 0}});
     expect(req({...r, kind: 'pr.viewed', commitSha: 'abc', files: {'a.go': true}})).toEqual({method: 'PUT', api: 'sync', path: '/issues/7/viewed', body: {commit_sha: 'abc', files: {'a.go': true}}});

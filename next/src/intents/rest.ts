@@ -63,6 +63,8 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
         return {method: 'PATCH', api: 'sync', path: `/comments/${String(i.commentId)}/body`, body: {body: i.text, expected_version: i.baseVersion}};
       case 'comment.delete':
         return {method: 'DELETE', api: 'v1', path: `${repoPath}/issues/comments/${String(i.commentId)}`};
+      case 'comment.resolve':
+        return {method: 'PUT', api: 'sync', path: `/comments/${String(i.commentId)}/resolved`, body: {resolved: i.resolved}};
       case 'reaction':
         if (i.commentId) return {method: i.add ? 'POST' : 'DELETE', api: 'v1', path: `${repoPath}/issues/comments/${String(i.commentId)}/reactions`, body: {content: i.content}};
         break;

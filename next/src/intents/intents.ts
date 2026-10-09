@@ -96,6 +96,8 @@ export type Intent = Base & (
    */
   | {kind: 'comment.edit'; commentId: number; text: string; baseText: string; baseVersion: number; baseUpdated: string}
   | {kind: 'comment.delete'; commentId: number}
+  /** Resolve (or unresolve) the conversation a pull request's code comment starts (gap endpoint, QA verify3). */
+  | {kind: 'comment.resolve'; commentId: number; resolved: boolean}
   /** Submit a review, pinned to the commit the user saw; its code comments were drafted locally. */
   | {kind: 'review.submit'; tempId: string; commitId: string; event: 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENT'; body: string; comments: ReviewComment[]}
   /**
@@ -165,7 +167,7 @@ export const POLICY: Record<IntentKind, 'set' | 'scalar' | 'text' | 'create' | '
   'issue.create': 'create', 'issue.state': 'scalar', 'issue.title': 'scalar', 'issue.body': 'text', 'issue.deadline': 'scalar',
   'issue.milestone': 'scalar', 'issue.pin': 'idempotent', 'issue.lock': 'idempotent', 'issue.label': 'set', 'issue.assignee': 'set',
   'issue.dependency': 'set', 'issue.project': 'idempotent', 'issue.subscribe': 'set', 'issue.reviewer': 'set', 'reaction': 'set', 'comment.create': 'create',
-  'comment.edit': 'text', 'comment.delete': 'idempotent', 'review.submit': 'create', 'board.move': 'idempotent', 'pr.viewed': 'idempotent',
+  'comment.edit': 'text', 'comment.delete': 'idempotent', 'comment.resolve': 'idempotent', 'review.submit': 'create', 'board.move': 'idempotent', 'pr.viewed': 'idempotent',
   'notification.status': 'idempotent', 'notification.readAll': 'idempotent',
 };
 
@@ -193,6 +195,7 @@ export function chainOf(i: Intent): string {
 const OWN_CHAIN: Partial<Record<IntentKind, string>> = {
   'issue.pin': 'pin', 'issue.lock': 'lock', 'issue.subscribe': 'subscribe', 'issue.reviewer': 'reviewer', 'issue.deadline': 'deadline',
   'issue.assignee': 'assignee', 'issue.dependency': 'dependency', 'issue.project': 'project', 'pr.viewed': 'viewed', 'reaction': 'reaction',
+  'comment.resolve': 'resolve',
 };
 
 /** The sync group whose position confirms the intent's write (X-Livesync-Sync-Id, B7). */
@@ -206,6 +209,7 @@ export function groupOf(i: Intent, userId: number): string {
     case 'comment.create':
     case 'comment.edit':
     case 'comment.delete':
+    case 'comment.resolve':
     case 'reaction':
     case 'review.submit':
     case 'issue.dependency':
@@ -219,7 +223,7 @@ export function groupOf(i: Intent, userId: number): string {
 export function tempRefs(i: Intent): number[] {
   const out: number[] = [];
   if (isTemp(i.issueId) && i.kind !== 'issue.create') out.push(i.issueId);
-  if ((i.kind === 'comment.edit' || i.kind === 'comment.delete' || i.kind === 'reaction') && isTemp(i.commentId)) out.push(i.commentId);
+  if ((i.kind === 'comment.edit' || i.kind === 'comment.delete' || i.kind === 'comment.resolve' || i.kind === 'reaction') && isTemp(i.commentId)) out.push(i.commentId);
   if (i.kind === 'issue.dependency' && isTemp(i.dependencyId)) out.push(i.dependencyId);
   return out;
 }
@@ -231,7 +235,7 @@ export function remapIntent(i: Intent, from: number, to: number): Intent {
     out = {...out, ...patch} as Intent;
   };
   if (i.issueId === from) set({issueId: to});
-  if ((i.kind === 'comment.edit' || i.kind === 'comment.delete' || i.kind === 'reaction') && i.commentId === from) set({commentId: to});
+  if ((i.kind === 'comment.edit' || i.kind === 'comment.delete' || i.kind === 'comment.resolve' || i.kind === 'reaction') && i.commentId === from) set({commentId: to});
   if (i.kind === 'issue.dependency' && i.dependencyId === from) set({dependencyId: to});
   return out;
 }
@@ -304,6 +308,9 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
       return [{t: 'field', model: 'Comment', id: i.commentId, field: 'body', value: i.text}];
     case 'comment.delete':
       return [{t: 'field', model: 'Comment', id: i.commentId, field: DELETED, value: true}];
+    case 'comment.resolve':
+      // Who resolved it: the viewer (0: open), as Forgejo records it.
+      return [{t: 'field', model: 'Comment', id: i.commentId, field: 'resolve_doer_id', value: i.resolved ? ctx.userId : 0}];
     case 'review.submit': {
       const id = tempNum(i.tempId);
       const at = new Date(i.created).toISOString();
@@ -373,6 +380,8 @@ export function describeIntent(i: Intent, names: Names = {}): string {
       return 'Editing a comment';
     case 'comment.delete':
       return 'Deleting a comment';
+    case 'comment.resolve':
+      return i.resolved ? 'Resolving a conversation' : 'Reopening a conversation';
     case 'review.submit':
       return 'Submitting a review';
     case 'board.move':

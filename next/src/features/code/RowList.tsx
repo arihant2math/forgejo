@@ -8,9 +8,11 @@
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type ReactNode, useCallback, useId, useRef, useState} from 'react';
+import {useRouterState} from '@tanstack/react-router';
+import {type KeyboardEvent, type ReactNode, useCallback, useId, useLayoutEffect, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {plainClick} from '../../app/links.ts';
+import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {ListRow} from '../../ui/index.ts';
 import {useScrollMargin} from './Lines.tsx';
 
@@ -57,8 +59,14 @@ function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; s
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
   const id = useId();
+  // Back on this list (Back, a breadcrumb): the cursor on the row the user opened, and the focus (as the issue lists).
+  const here = useRouterState({select: (s) => `${s.location.pathname}${s.location.searchStr}`});
+  const onOpen = (item: T) => {
+    if (owned === undefined) rememberRow(here, keyOf(item));
+    openItem(item);
+  };
   const [own, setOwn] = useState(0);
   const cursor = owned ?? own;
   const setCursor = (n: number) => {
@@ -79,6 +87,18 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, l
   // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer re-renders this list itself (rows are not memoized)
   const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
   useShortcutScope('list');
+  const hasItems = items.length > 0;
+  useLayoutEffect(() => {
+    const back = rememberedRow(here);
+    if (owned !== undefined || back === undefined || moved) return;
+    const at = items.findIndex((it) => keyOf(it) === back);
+    if (at < 0) return;
+    setOwn(at);
+    setMoved(true);
+    v.scrollToIndex(at, {align: 'auto'});
+    focusList(list.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
+  }, [hasItems]);
   const move = (d: number) => {
     // The first J shows the cursor where it is (the first row), the next ones move it.
     const n = shown ? Math.max(0, Math.min(items.length - 1, cursor + d)) : cursor;

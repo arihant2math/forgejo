@@ -19,7 +19,6 @@ import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Button, Code, CodeLine, Icon, LabelChip, type LucideIcon, TextLink} from '../../ui/index.ts';
 import {Link} from '@tanstack/react-router';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
@@ -40,6 +39,7 @@ import {afterPaint} from '../../app/paint.ts';
 import {textOfMarkup} from '../../app/trusted.ts';
 import {Reactions} from './Reactions.tsx';
 import {blocking, IssueLink} from './Sidebar.tsx';
+import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
@@ -238,13 +238,17 @@ const SNIPPET_LINES = 4;
 /**
  * A review's comment on code, in the conversation: the lines it is about, its file and line linking to the pull
  * request's Files, the comment, and — on a thread still open — Reply (a one-comment review on the same line,
- * offline-capable) and Resolve (classic: no API resolves a conversation).
+ * offline-capable) and Resolve (offline-capable too). A resolved conversation folds to one line until shown.
  */
 const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const app = useApp();
   const pool = usePool();
   const [replying, setReplying] = useState(false);
   const [text, setText] = useState('');
+  const root = conversationRoot(pool, c.data);
+  const resolver = useResolver(root);
+  const [shown, setShown] = useState(false);
+  const issueEntity = pool.model('Issue').get(c.get('issue_id'));
   const issue = pool.model('Issue').get(c.get('issue_id'))?.data;
   const repo = issue ? pool.model('Repository').get(issue.repo_id)?.data : undefined;
   const files = issue && repo ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.number)}` : undefined;
@@ -258,6 +262,16 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
     setText('');
     setReplying(false);
   };
+  if (resolver > 0 && !shown && !replying) {
+    return (
+      <div className="flex flex-col gap-1 rounded-md border border-border p-3">
+        <span className="text-sm text-fg-muted"><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</span>
+        <ResolvedFold resolver={resolver} onShow={() => {
+          setShown(true);
+        }}/>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border p-3">
       <span className="text-sm text-fg-muted">
@@ -293,7 +307,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
           <Button size="sm" variant="ghost" icon={Reply} onClick={() => {
             setReplying(true);
           }}>Reply</Button>
-          {files && <ClassicLink size="sm" to={`${files}/files`}>Resolve</ClassicLink>}
+          {root && issueEntity && <ResolveButton root={root} issue={issueEntity}/>}
         </div>)}
     </div>
   );

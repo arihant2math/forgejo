@@ -16,7 +16,7 @@ import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
 import {Avatar, Button, Code, EmptyState, Icon, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
-import {DiffView} from './DiffView.tsx';
+import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Ago, commitRow, Sha, summary} from './bits.tsx';
 import {CodeLink, useCodeRows} from './nav.tsx';
@@ -28,10 +28,10 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
   const pool = usePool();
   const r = resolveRef(refTable(pool, props.repoId), props.kind, props.rest);
   // The path's breadcrumb (each directory's history; the path itself opens its source), the ref switcher.
-  const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'History';
+  const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
-    <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><Icon icon={FileCode} size="sm"/>Browse</CodeLink></Button>
+    <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><Icon icon={FileCode} size="sm"/>Browse files</CodeLink></Button>
   </>;
   return (
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
@@ -113,6 +113,7 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   const src = useSource();
   const info = useLoad(`commit:${String(repoId)}:${sha}`, () => src.peek<CommitInfo>(`commit:${String(repoId)}:${sha}`), () => src.commit(repoId, sha));
   const diff = useDiff(repoId, '', sha);
+  const diffRef = useRef<DiffHandle>(null);
   const c = info.state === 'ready' ? info.value : undefined;
   // No such commit: said once, with the way to the commits (not "this commit's changes do not exist").
   if (info.state === 'error' && info.status === 404) {
@@ -130,11 +131,15 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     }>
       {(scroller) => (
         <>
-          <header className="flex flex-col gap-2 border-b border-border px-6 py-4">
+          {/* Pinned to the view's left edge: a wide line scrolls the diff sideways, not the commit's header. */}
+          <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-border px-6 py-4">
             {c ? <CommitMeta owner={owner} repo={repo} c={c}/> : <p className="font-mono text-code text-fg-muted">{sha}</p>}
           </header>
           {diff.state === 'ready' ?
-            <DiffView repoId={repoId} base="" head={sha} files={diff.value} scroller={scroller}/> :
+            <>
+              <ChangedFiles files={diff.value} diff={diffRef}/>
+              <DiffView ref={diffRef} repoId={repoId} base="" head={sha} files={diff.value} scroller={scroller}/>
+            </> :
             <Unloaded loaded={diff} what="This commit's changes"/>}
         </>
       )}

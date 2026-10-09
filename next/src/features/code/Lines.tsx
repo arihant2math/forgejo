@@ -113,9 +113,14 @@ export const Lines = observer(function Lines({count, scroller, line, initial, la
   useLayoutEffect(() => {
     if (follow && scroller && stick.on) scroller.scrollTop = scroller.scrollHeight;
   }, [count, follow, scroller, stick]);
+  // Long lines scroll sideways inside the code only (their gutter sticks to its left edge): the page around it — the
+  // file's header, a job's steps — stays put (QA verify3: a 36 000 px line widened the whole page). Up and down is
+  // still the page's scroll (the virtualizer's).
   return (
-    <div ref={at} role="list" aria-label={label} className="relative min-w-full" style={{height: v.getTotalSize()}}>
-      {v.getVirtualItems().map((it) => <Line key={it.index} index={it.index} start={it.start - offset} line={line}/>)}
+    <div className="overflow-x-auto overflow-y-hidden">
+      <div ref={at} role="list" aria-label={label} className="relative min-w-full" style={{height: v.getTotalSize()}}>
+        {v.getVirtualItems().map((it) => <Line key={it.index} index={it.index} start={it.start - offset} line={line}/>)}
+      </div>
     </div>
   );
 });

@@ -135,6 +135,18 @@
   contain-intrinsic-block-size: auto var(--lazy-block-height);
 }
 
+/* Behind an image file: a checkerboard, so that transparent parts and a light or dark image show on any theme. */
+@utility bg-checker {
+  background-color: var(--color-surface);
+  background-image: conic-gradient(var(--color-canvas-selected) 25%, transparent 0 50%, var(--color-canvas-selected) 0 75%, transparent 0);
+  background-size: calc(var(--spacing-checker) * 2) calc(var(--spacing-checker) * 2);
+}
+
+/* A small image shown enlarged keeps its pixels sharp (an icon, a sprite). */
+@utility pixelated {
+  image-rendering: pixelated;
+}
+
 /* A board card's title: wraps, cut after --card-title-lines lines. */
 @utility clamp-title {
   display: -webkit-box;

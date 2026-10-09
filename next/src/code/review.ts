@@ -77,9 +77,9 @@ export function bodyWith(body: string, stale: readonly ReviewDraft[]): string {
  * Submits the review as an offline intent pinned to `head`, then drops the
  * drafts it carries (a failure keeps the whole text in the failed intent's draft).
  */
-export function submitReview(intents: Pick<Intents, 'submit' | 'discardDraft'>, at: {issueId: number; repoId: number; head: string; event: ReviewEvent; body: string; drafts: readonly ReviewDraft[]}): void {
+export function submitReview(intents: Pick<Intents, 'submit' | 'discardDraft'>, at: {issueId: number; repoId: number; head: string; event: ReviewEvent; body: string; drafts: readonly ReviewDraft[]}): string {
   const {current, stale} = partition(at.drafts, at.head);
-  intents.submit({
+  const sent = intents.submit({
     kind: 'review.submit', issueId: at.issueId, repoId: at.repoId, tempId: uuid(), commitId: at.head, event: at.event,
     body: bodyWith(at.body, stale),
     comments: current.map((d) => {
@@ -88,4 +88,5 @@ export function submitReview(intents: Pick<Intents, 'submit' | 'discardDraft'>, 
     }),
   });
   for (const d of at.drafts) void intents.discardDraft(d.key);
+  return sent.id;
 }

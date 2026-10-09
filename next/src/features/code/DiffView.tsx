@@ -21,7 +21,7 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, IconButton, LineAction, LineNo} from '../../ui/index.ts';
+import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, Icon, IconButton, LineAction, LineNo, ListRow} from '../../ui/index.ts';
 import {useSource} from './hooks.ts';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
 
@@ -325,7 +325,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       return (
         <CodeLine id={id} active={active} tone={l.k === ADD ? 'add' : l.k === DEL ? 'del' : 'none'}
           gutter={<><LineNo n={l.o}/><LineNo n={l.n}/><span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
-          trailing={comment && (
+          action={comment && (
             <LineAction label={`Comment on line ${String(l.k === DEL ? l.o : l.n)}`} onClick={() => {
               comment(row.f, row.l);
             }}/>
@@ -365,3 +365,37 @@ const FileHeader = memo(function FileHeader({file, f, extras}: {file: DiffFile; 
     </CodeFileHeader>
   );
 });
+
+/** A commit's or a comparison's changes list opens by itself up to this many files. */
+const OPEN_FILES = 12;
+
+/**
+ * Above a commit's or a comparison's diff: how many files changed (with the lines added and removed) and the files,
+ * each a jump to its diff. Pinned to the view's left edge (wide lines scroll the diff sideways, not this).
+ */
+export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {current: DiffHandle | null}}) {
+  const [open, setOpen] = useState(files.length <= OPEN_FILES);
+  const additions = files.reduce((n, f) => n + f.additions, 0);
+  const deletions = files.reduce((n, f) => n + f.deletions, 0);
+  return (
+    <section aria-label="Changed files" className="sticky left-0 w-view border-b border-border-subtle py-1">
+      <div className="flex h-control items-center gap-2 px-4 text-sm text-fg-muted">
+        <IconButton size="sm" icon={open ? ChevronDown : ChevronRight} label={open ? 'Hide the files' : 'Show the files'} aria-expanded={open} onClick={() => {
+          setOpen((o) => !o);
+        }}/>
+        <span className="text-fg">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
+        <DiffStat additions={additions} deletions={deletions}/>
+      </div>
+      {open && files.map((f, i) => (
+        <ListRow role="presentation" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`} leading={<Icon icon={FileDiff} size="sm"/>}
+          trailing={<DiffStat additions={f.additions} deletions={f.deletions}/>}
+          onClick={(e) => {
+            e.preventDefault();
+            diff.current?.toFile(i);
+          }}>
+          <span title={filePath(f)}>{filePath(f)}</span>
+        </ListRow>
+      ))}
+    </section>
+  );
+}

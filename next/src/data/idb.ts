@@ -27,7 +27,7 @@
 import type {EntityRecord} from './entity.ts';
 import {MODEL_NAMES, type ModelName} from './models.ts';
 
-export const IDB_VERSION = 3;
+export const IDB_VERSION = 4;
 
 /**
  * Model stores written by an older layout than this are recreated (and their

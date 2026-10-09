@@ -38,6 +38,10 @@ export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
         return pool.model('IssueBody').get(i.issueId)?.data.body === i.text;
       case 'comment.edit':
         return pool.model('Comment').get(i.commentId)?.data.body === i.text;
+      case 'comment.resolve': {
+        const c = pool.model('Comment').get(i.commentId)?.data;
+        return c !== undefined && c.resolve_doer_id > 0 === i.resolved;
+      }
       case 'comment.delete':
         // Absent from a loaded issue group: gone (a group not here says nothing).
         return pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && !pool.model('Comment').get(i.commentId);

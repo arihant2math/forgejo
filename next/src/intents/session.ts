@@ -7,9 +7,10 @@
 // changes shows them at once, online or offline. `editing(app)` is how views
 // reach them.
 
-import {autorun, runInAction, untracked} from 'mobx';
+import {autorun, runInAction, untracked, when} from 'mobx';
 import {sitePath} from '../app/config.ts';
-import {notify} from '../app/notices.ts';
+import {dismissSeries, notify} from '../app/notices.ts';
+import {reach} from '../app/online.ts';
 import type {App, Session} from '../app/store.ts';
 import {APIPrefix} from '../protocol/types.gen.ts';
 import {type Channel, type IntentMessage, Intents} from './executor.ts';
@@ -169,4 +170,17 @@ function broadcast(name: string): Channel {
       ch?.close();
     },
   };
+}
+
+/**
+ * Says that a change was queued while offline (or while Forgejo cannot be reached), and takes the notice back once
+ * the change has been sent: "Review queued" no longer stays after the review went out (QA verify3).
+ */
+export function notifyQueued(app: App, intentId: string, title: string): void {
+  if (reach(app.session?.data.status.connection) === 'online') return;
+  const series = `queued:${intentId}`;
+  notify(app, {tone: 'neutral', title, description: 'It is sent when you are back online.', series});
+  when(() => !editing(app).intents.records.has(intentId), () => {
+    dismissSeries(app, series);
+  });
 }

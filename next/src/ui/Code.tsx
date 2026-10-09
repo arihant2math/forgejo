@@ -97,8 +97,10 @@ export interface CodeLineProps {
   active?: boolean | undefined;
   /** A line a link names (#L12, #L12-L20): tinted, gutter and text. */
   linked?: boolean | undefined;
-  /** After the text (a comment button, a pending mark). */
+  /** After the text (a pending mark, a hunk's Expand). */
   trailing?: ReactNode;
+  /** In the gutter, at its right edge (LineAction): on screen however long the line is. */
+  action?: ReactNode;
   children: ReactNode;
   ref?: Ref<HTMLDivElement>;
   /** For tests and for links to a line (#L12). */
@@ -112,12 +114,15 @@ export interface CodeLineProps {
  * scrolls under it (sticky; positioned, so it paints over the text without a
  * z-index). Only the rows in view exist (virtualized), so few gutters stick.
  */
-export function CodeLine({gutter, tone = 'none', active, linked, trailing, children, ref, id}: CodeLineProps) {
+export function CodeLine({gutter, tone = 'none', active, linked, trailing, action, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined} data-linked={linked ? '' : undefined}
       className={cx('group flex h-line w-max min-w-full font-mono text-code contain-layout', linked ? 'bg-selected text-fg' : lineTone[tone])}>
       {/* The cursor's edge is the gutter's own (sticky, it would cover an edge drawn on the row). */}
-      <span data-active={active ? '' : undefined} className={cx('row-cursor sticky left-0 flex shrink-0', linked ? 'bg-selected' : gutterTone[tone])}>{gutter}</span>
+      <span data-active={active ? '' : undefined} className={cx('row-cursor sticky left-0 flex shrink-0', linked ? 'bg-selected' : gutterTone[tone])}>
+        {gutter}
+        {action && <span className="absolute inset-y-0 right-0 flex items-center">{action}</span>}
+      </span>
       <span className="code-text pr-6 pl-3">{children}</span>
       {trailing}
     </div>
@@ -125,10 +130,12 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, child
 }
 
 /**
- * A small "+" action at the end of a code line (comment on this line), shown
- * on the line's hover or focus. Deliberately plain — no tooltip machinery, no
- * SVG, not sticky: a diff mounts one per line as it scrolls (measured: those
- * cost frames). Its label is its accessible name and title.
+ * A small "+" action in a code line's gutter (comment on this line: CodeLine's
+ * `action`), shown on the line's hover or focus; the gutter is sticky, so it is
+ * on screen however long the line (QA verify3: at the end of the text it went
+ * off screen). Deliberately plain — no tooltip machinery, no SVG: a diff mounts
+ * one per line as it scrolls (measured: those cost frames). Its label is its
+ * accessible name and title.
  */
 export function LineAction({label, onClick}: {label: string; onClick: () => void}) {
   return (

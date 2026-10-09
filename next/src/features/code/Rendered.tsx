@@ -9,7 +9,7 @@
 // a blob: URL runs no script).
 
 import {BookOpen} from 'lucide-react';
-import {useEffect, useMemo} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
 import {CodeSource, type FileContent} from '../../code/source.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
@@ -41,13 +41,30 @@ export function RenderedMarkup({repoId, sha, path, text, at}: {repoId: number; s
 }
 
 /** An image file (raster, or an SVG's text) shown from a blob: URL. */
-export function BlobImage({bytes, type, alt}: {bytes: ArrayBuffer | string; type: string; alt: string}) {
+export function BlobImage({bytes, type, alt, onSize}: {bytes: ArrayBuffer | string; type: string; alt: string; onSize?: (w: number, h: number) => void}) {
   const url = useMemo(() => URL.createObjectURL(new Blob([bytes], {type})), [bytes, type]);
   useEffect(() => () => {
     URL.revokeObjectURL(url);
   }, [url]);
-  return <div className="flex justify-center p-6"><img src={url} alt={alt} className="max-w-full"/></div>;
+  const [small, setSmall] = useState(false);
+  // On a checkerboard (transparent parts show, a white or black image is seen on either theme); a tiny image (an icon)
+  // is shown four times larger with sharp pixels, not as a speck (QA verify3: a 16×16 PNG looked blank).
+  return (
+    <div className="flex justify-center p-6">
+      <img src={url} alt={alt} className={small ? 'pixelated bg-checker w-auto max-w-full border border-border-subtle' : 'bg-checker max-w-full border border-border-subtle'}
+        style={small ? {zoom: SMALL_ZOOM} : undefined}
+        onLoad={(e) => {
+          const {naturalWidth: w, naturalHeight: h} = e.currentTarget;
+          setSmall(w > 0 && h > 0 && w <= SMALL_IMAGE && h <= SMALL_IMAGE);
+          onSize?.(w, h);
+        }}/>
+    </div>
+  );
 }
+
+/** An image at most this large (px) is shown enlarged SMALL_ZOOM times. */
+const SMALL_IMAGE = 64;
+const SMALL_ZOOM = 4;
 
 /**
  * A directory's README as a panel: rendered markup (the server reads and renders it at the commit: one round trip,

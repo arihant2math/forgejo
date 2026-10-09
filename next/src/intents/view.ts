@@ -225,3 +225,9 @@ export function issueSubscribed(pool: Pool, overlay: Overlay, issue: Entity<'Iss
   for (const c of pool.model('Comment').by('issue_id', issue.id)) if (c.get('poster_id') === me && PARTICIPATION.has(c.get('type'))) return true;
   return false;
 }
+
+/** Whether a code comment's conversation is resolved as the user sees it (a pending resolve first), and by whom (0: open). */
+export function commentResolver(overlay: Overlay, c: Entity<'Comment'>): number {
+  const o = overlay.field('Comment', c.id, 'resolve_doer_id');
+  return o ? o.value as number : c.get('resolve_doer_id');
+}

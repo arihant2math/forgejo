@@ -266,9 +266,10 @@ export const PullStateCell = observer(function PullStateCell({issue}: {issue: En
   const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0]?.data;
   const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
   const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';
+  // The verdicts come with the repository (ReviewVerdict), not only once the pull request was opened (its Reviews).
   const latest = new Map<number, string>();
-  for (const r of [...pool.model('Review').by('issue_id', issue.id)].map((e) => e.data).sort((a, b) => a.created_at.localeCompare(b.created_at))) {
-    if (!r.reviewer_id || r.dismissed || (r.state !== 'APPROVED' && r.state !== 'REQUEST_CHANGES')) continue;
+  for (const r of [...pool.model('ReviewVerdict').by('issue_id', issue.id)].map((e) => e.data).sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    if (!r.reviewer_id || r.dismissed) continue;
     latest.set(r.reviewer_id, r.state);
   }
   const verdicts = [...latest.values()];

@@ -130,6 +130,13 @@
     border-radius: var(--radius-sm);
   }
 
+  /* Images flow with the text, as in Forgejo's markdown (the reset makes them blocks): badges and icons in a
+   * sentence stay on its line; an image alone in a paragraph is still a line of its own. */
+  & :where(img) {
+    display: inline;
+    vertical-align: middle;
+  }
+
   & :where(hr) {
     border-top: var(--hairline) solid var(--color-border);
   }

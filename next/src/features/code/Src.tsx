@@ -9,7 +9,7 @@
 // switching between files never waits.
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {ChevronDown, File, Folder, FolderGit2, GitBranch, GitCommitHorizontal, History, ScrollText, Tag} from 'lucide-react';
+import {ChevronDown, File, Folder, FolderGit2, GitBranch, GitCommitHorizontal, History, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
@@ -45,7 +45,7 @@ export const SrcView = observer(function SrcView(props: SrcProps) {
   const r = resolveRef(refs, props.kind, props.rest);
   if (!r) {
     return (
-      <CodeFrame view={props} title={props.rest.join('/') || 'Files'}>
+      <CodeFrame view={props} title={props.rest.join('/') || 'Code'}>
         {() => <NoRef repoId={props.repoId} named={props.kind !== undefined}/>}
       </CodeFrame>
     );
@@ -105,7 +105,7 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
   // The tab names the file or directory (every file would otherwise be "Code · acme/atlas").
-  const docTitle = `${at.path || 'Files'}${props.blame ? ' (blame)' : ''}`;
+  const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
   return <CodeFrame view={props} title={title} controls={controls} docTitle={docTitle}>{body}</CodeFrame>;
 });
 
@@ -115,8 +115,8 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
  */
 export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
   const parts = at.path ? at.path.split('/') : [];
-  // The root is a named segment ("Files", "History") in the breadcrumb's one style, not a lone "/".
-  const root = view === 'src' ? 'Files' : 'History';
+  // The root is a named segment in the breadcrumb's one style, not a lone "/": the tab's name ("Code", "Commits").
+  const root = view === 'src' ? 'Code' : 'Commits';
   return (
     <span className="flex min-w-0 items-center gap-1">
       {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink></TextLink> : <span>{root}</span>}
@@ -134,6 +134,7 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
 const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry}: SrcProps & {at: Resolved; entry: APITreeEntry | undefined}) {
   const app = useApp();
   const pool = usePool();
+  const navigate = useNavigate();
   const file = entry !== undefined && entry.type !== 'tree';
   const def = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
   return (
@@ -147,10 +148,11 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>History</CodeLink>
       </Button>
+      {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
-        <Button size="sm" variant="ghost" asChild>
-          <CodeLink owner={owner} repo={repo} to={codeSplat(blame ? 'src' : 'blame', at, at.path)}><Icon icon={blame ? File : ScrollText} size="sm"/>{blame ? 'Source' : 'Blame'}</CodeLink>
-        </Button>
+        <SegmentedControl label="Show the file as" value={blame ? 'blame' : 'src'} onChange={(v) => {
+          void navigate(codeTo(owner, repo, codeSplat(v, at, at.path)));
+        }} options={[{value: 'src', label: 'Source'}, {value: 'blame', label: 'Blame'}]}/>
       )}
       {file && (
         <Button size="sm" variant="ghost" asChild>
@@ -248,10 +250,12 @@ const FileView = observer(function FileView(props: FileProps) {
   const c = content.value;
   switch (c.kind) {
     case 'text':
+      // An empty file says so (not "1 line · 0 B" over an empty line).
+      if (c.text === '') return <EmptyState icon={File} title="Empty file" description="This file has no content."/>;
       if (props.blame) return <BlameView {...props} text={c.text}/>;
       return renderable(at.path) ? <PreviewableFile {...props} text={c.text}/> : <TextFile {...props} text={c.text}/>;
     case 'image':
-      return <BlobImage bytes={c.bytes} type={c.type} alt={at.path}/>;
+      return <ImageFile bytes={c.bytes} type={c.type} path={at.path} size={entry.size}/>;
     case 'binary':
       return <EmptyState icon={File} title="Binary file" description={`${formatSize(c.size)} — not shown. Use Raw to download it.`}/>;
     case 'large':
@@ -363,13 +367,28 @@ function useMarkPainted(path: string): void {
   }, [path]);
 }
 
-function FileMeta({lines, size, children}: {lines: number; size: number | undefined; children?: ReactNode}) {
+/** A file's facts above it (lines or dimensions, size) and its controls. */
+function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string | undefined; size: number | undefined; children?: ReactNode}) {
   return (
     <div className="flex h-control items-center gap-3 border-b border-border-subtle px-4 text-sm text-fg-subtle tabular-nums">
-      <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>
+      {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
+      {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
       {children}
     </div>
+  );
+}
+
+/** An image file: its dimensions and size, then the image. */
+function ImageFile({bytes, type, path, size}: {bytes: ArrayBuffer; type: string; path: string; size: number | undefined}) {
+  const [dims, setDims] = useState<string>();
+  return (
+    <>
+      <FileMeta dims={dims} size={size}/>
+      <BlobImage bytes={bytes} type={type} alt={path} onSize={(w, h) => {
+        setDims(`${String(w)} × ${String(h)} px`);
+      }}/>
+    </>
   );
 }
 

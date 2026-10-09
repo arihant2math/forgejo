@@ -309,6 +309,15 @@ export class Intents {
     return n;
   }
 
+  /** The temporary id (uuid) of an issue created here and not synced yet (its page: …/issues/new-<tempId>). */
+  tempIdOf(issueId: number): string | undefined {
+    for (const rec of this.records.values()) {
+      const i = rec.intent;
+      if (i.kind === 'issue.create' && i.issueId === issueId) return i.tempId;
+    }
+    return undefined;
+  }
+
   /** Observable: the number of intents pending on an issue (its pending badge). */
   pendingOn(issueId: number): number {
     return this.perIssue.get(issueId) ?? 0;

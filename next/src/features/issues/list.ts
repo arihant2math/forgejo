@@ -22,6 +22,7 @@ import {computed, createAtom, type IComputedValue, observable, runInAction, untr
 import {sitePath} from '../../app/config.ts';
 import {type ListSearch, type MyListType, parseLabels} from '../../app/search.ts';
 import type {App} from '../../app/store.ts';
+import type {Entity} from '../../data/entity.ts';
 import type {ModelName} from '../../data/models.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
@@ -234,9 +235,11 @@ export class IssueListModel {
     const query = this.query;
     const overlayRev = this.overlay.revision;
     const server = this.serverIds.get();
+    // Issues created on this device and not synced yet (observes creations only): listed, marked as pending.
+    const created = this.overlay.created('Issue');
     return untracked(() => {
       const t0 = performance.now();
-      const out = runQuery(this.candidates(server), query, poolContext(this.pool, this.overlay));
+      const out = runQuery([...this.candidates(server), ...this.localCandidates(created)], query, poolContext(this.pool, this.overlay));
       this.lastMs = performance.now() - t0;
       this.listed = new Set(out.ids);
       try {
@@ -260,6 +263,17 @@ export class IssueListModel {
       return out;
     }
     return this.myCandidates(src, server);
+  }
+
+  /** The locally created issues this list shows (its repository, or the viewer's own "created" and "all" lists). */
+  private localCandidates(created: readonly Entity[]): Issue[] {
+    const src = this.source;
+    const out: Issue[] = [];
+    for (const e of created) {
+      const d = e.data as Issue;
+      if (src.kind === 'repo' ? d.repo_id === src.repoId && d.is_pull === src.pulls : !src.pulls && (src.type === undefined || src.type === 'created_by')) out.push(d);
+    }
+    return out;
   }
 
   private *myCandidates(src: Extract<ListSource, {kind: 'my'}>, server: ReadonlySet<number> | undefined): Generator<Issue> {

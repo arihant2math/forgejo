@@ -25,6 +25,13 @@ export function assigneeCandidates(pool: Pool, repoId: number, me: number): numb
   for (const tr of pool.model('TeamRepo').by('repo_id', repoId)) {
     for (const tu of pool.model('TeamUser').by('team_id', tr.data.team_id)) ids.add(tu.data.user_id);
   }
+  // Teams with every repository of the organization have no TeamRepo rows.
+  if (repo) {
+    for (const t of pool.model('Team').by('org_id', repo.owner_id)) {
+      if (!t.data.includes_all_repositories) continue;
+      for (const tu of pool.model('TeamUser').by('team_id', t.id)) ids.add(tu.data.user_id);
+    }
+  }
   return [...ids];
 }
 

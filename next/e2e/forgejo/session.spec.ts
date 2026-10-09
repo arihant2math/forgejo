@@ -232,7 +232,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   // The palette searches what is in the pool when the query changes: wait for the repository it looks for.
   await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible({timeout: 15_000});
   await page.keyboard.press('ControlOrMeta+k');
-  const input = page.getByPlaceholder('Search repositories, issues and commands…');
+  const input = page.getByPlaceholder(/^Search repositories, issues/);
   await expect(input).toBeFocused();
   await input.pressSequentially('website');
   await expect(page.getByRole('option', {name: /acme\/website/})).toBeVisible();

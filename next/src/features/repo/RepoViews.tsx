@@ -9,13 +9,12 @@
 import {getRouteApi} from '@tanstack/react-router';
 import {CircleDot, GitPullRequest} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {EmptyState} from '../../ui/index.ts';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
-import {RepoContext, Unavailable, useRepoPage} from './repoPage.tsx';
+import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 
 const issuesApi = getRouteApi('/shell/$owner/$repo/issues');
 const pullsApi = getRouteApi('/shell/$owner/$repo/pulls');
@@ -26,9 +25,9 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
   const noun = pulls ? 'pull requests' : 'issues';
   return (
     <>
-      <PageHeader icon={pulls ? GitPullRequest : CircleDot} context={<RepoContext owner={owner} repo={repo}/>} title={pulls ? 'Pull requests' : 'Issues'}>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={pulls ? GitPullRequest : CircleDot} title={pulls ? 'Pull requests' : 'Issues'}>
         <ListControls model={model} repoId={repoId} hideGroups={['repo']}/>
-      </PageHeader>
+      </RepoHeader>
       <ListBody model={model} label={pulls ? 'Pull requests' : 'Issues'}
         empty={<EmptyState icon={pulls ? GitPullRequest : CircleDot} title={`No open ${noun}`} description={`This repository has no open ${noun} on this device.`}/>}/>
     </>
@@ -40,8 +39,8 @@ function RepoList({pulls, search}: {pulls: boolean; search: ListSearch}) {
   if (repoId === undefined) {
     return (
       <>
-        <PageHeader icon={pulls ? GitPullRequest : CircleDot} context={<RepoContext owner={owner} repo={repo}/>} title={pulls ? 'Pull requests' : 'Issues'}/>
-        <PageBody><Unavailable/></PageBody>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={pulls ? GitPullRequest : CircleDot} title={pulls ? 'Pull requests' : 'Issues'}/>
+        <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
   }

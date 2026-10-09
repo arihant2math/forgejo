@@ -27,7 +27,7 @@
 //              answers 404), or a build made with NEXT_SW_KILL=1:
 //              the worker deletes its caches and unregisters itself.
 
-import {buildOf, CACHE_PREFIX, cacheName, isSpaRoute, sitePathOf, strategy} from './routes.ts';
+import {AVATAR_CACHE, buildOf, CACHE_PREFIX, cacheName, isSpaRoute, sitePathOf, strategy} from './routes.ts';
 
 interface Build {
   version: string;
@@ -115,7 +115,7 @@ sw.addEventListener('activate', (e) => {
     return;
   }
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k.startsWith(CACHE_PREFIX) && k !== CACHE) await caches.delete(k);
+    for (const k of await caches.keys()) if (k.startsWith(CACHE_PREFIX) && k !== CACHE && k !== AVATAR_CACHE) await caches.delete(k);
     await sw.registration.navigationPreload?.enable().catch(() => undefined);
     await sw.clients.claim();
   })());
@@ -143,11 +143,37 @@ function appPage(path: string): boolean {
 
 sw.addEventListener('fetch', (e) => {
   if (build.kill) return;
-  const s = strategy(e.request, sw.location.origin, build.base);
+  const s = strategy(e.request, sw.location.origin, build.base, SUB);
   if (s === 'asset') e.respondWith(asset(e.request));
+  else if (s === 'avatar') e.respondWith(avatar(e.request));
   // Top-level documents only (not frames); everything else is the browser's.
   else if (s === 'navigate' && e.request.destination === 'document') e.respondWith(navigate(e));
 });
+
+/** Avatars kept at most (oldest first out). */
+const AVATARS_MAX = 500;
+
+/**
+ * An avatar: the network first (a changed picture shows), a copy kept for when the network is not there
+ * (offline the app still shows faces, not broken images).
+ */
+async function avatar(req: Request): Promise<Response> {
+  const cache = await caches.open(AVATAR_CACHE);
+  try {
+    const res = await fetch(req);
+    if (res.ok && res.type === 'basic') {
+      void cache.put(req, res.clone()).then(async () => {
+        const keys = await cache.keys();
+        for (const k of keys.slice(0, Math.max(0, keys.length - AVATARS_MAX))) await cache.delete(k);
+      }).catch(() => undefined);
+    }
+    return res;
+  } catch (err) {
+    const hit = await cache.match(req);
+    if (hit) return hit;
+    throw err;
+  }
+}
 
 async function asset(req: Request): Promise<Response> {
   const cache = await caches.open(CACHE);

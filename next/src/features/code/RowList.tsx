@@ -10,6 +10,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type ReactNode, useId, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {plainClick} from '../../app/links.ts';
 import {ListRow} from '../../ui/index.ts';
 import {useScrollMargin} from './Lines.tsx';
 
@@ -31,6 +32,8 @@ interface RowListProps<T> {
   onOpen: (item: T) => void;
   /** Hover or the cursor reached it (fetch what opening it needs). */
   onIntent?: ((item: T) => void) | undefined;
+  /** The row's link (an anchor: middle-click, a new tab); a plain click still calls onOpen. */
+  linkOf?: ((item: T) => string) | undefined;
   /**
    * A cursor owned by the page (the PR's file list follows the diff: one cursor, the file in view): shown
    * whether or not the list has focus; moving it calls onCursor.
@@ -39,17 +42,22 @@ interface RowListProps<T> {
   onCursor?: ((index: number) => void) | undefined;
 }
 
-function Item({id, start, active, parts, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; onClick: () => void; onEnter: () => void}) {
+function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void}) {
   return (
     <div className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(start)}px)`}}>
-      <ListRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} onClick={onClick} onPointerEnter={onEnter}>
+      <ListRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
+        onClick={(e) => {
+          if (href !== undefined && !plainClick(e)) return;
+          e.preventDefault();
+          onClick();
+        }} onPointerEnter={onEnter}>
         {parts.main}
       </ListRow>
     </div>
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, cursor: owned, onCursor}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
   const id = useId();
   const [own, setOwn] = useState(0);
   const cursor = owned ?? own;
@@ -97,7 +105,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, c
         const item = items[it.index];
         if (item === undefined) return null;
         return (
-          <Item key={keyOf(item)} id={`${id}-${String(it.index)}`} start={it.start - margin} active={shown && it.index === cursor} parts={row(item)}
+          <Item key={keyOf(item)} id={`${id}-${String(it.index)}`} start={it.start - margin} active={shown && it.index === cursor} parts={row(item)} href={linkOf?.(item)}
             onClick={() => {
               setCursor(it.index);
               onOpen(item);

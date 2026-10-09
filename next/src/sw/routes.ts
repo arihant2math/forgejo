@@ -28,30 +28,42 @@ export function sitePathOf(pathname: string, subUrl: string): string | undefined
 // Forgejo's usable names (user_model.IsUsableUsername / repo_model.IsUsableRepoName), loosely: the
 // worker only decides between the app and the offline page, the server decides for real online.
 const NAME = /^(?![.-])[\w.-]+$/;
+// Upstream's top-level routes (user_model.reservedUsernames) that look like /{owner}/{repo}.
+const RESERVED = new Set(['api', 'user', 'org', 'repo', 'admin', 'explore', 'login', 'assets', 'attachments', 'avatar', 'avatars', 'repo-avatars', 'captcha', 'metrics', 'v2', 'issues', 'pulls', 'milestones', 'notifications']);
 
 /**
  * Whether a site path is a canonical route the app renders (B8 spaRoutes):
- * `/`, `/notifications`, `/issues`, `/pulls`, `/{owner}/{repo}/issues[/{n}]`,
+ * `/`, `/notifications`, `/issues`, `/pulls`, `/{owner}/{repo}`, `/{owner}/{repo}/issues[/{n}]`,
  * `/{owner}/{repo}/pulls[/{n}]`. Keep in step with routers/livesync/spa.go.
  */
 export function isSpaRoute(path: string): boolean {
   const segs = path.split('/').filter(Boolean);
   if (segs.length === 0) return true;
   if (segs.length === 1) return ['notifications', 'issues', 'pulls'].includes(segs[0] ?? '');
-  if (segs.length !== 3 && segs.length !== 4) return false;
-  const [owner = '', repo = '', kind = '', n] = segs;
-  if (!NAME.test(owner) || !NAME.test(repo) || owner === 'api' || (kind !== 'issues' && kind !== 'pulls')) return false;
+  if (segs.length > 4) return false;
+  const [owner = '', repo = '', kind, n] = segs;
+  if (!NAME.test(owner) || !NAME.test(repo) || RESERVED.has(owner.toLowerCase())) return false;
+  if (kind === undefined) return true;
+  if (kind !== 'issues' && kind !== 'pulls') return false;
   return n === undefined || /^[1-9]\d{0,17}$/.test(n);
 }
 
 /** How the worker answers a same-origin GET. */
-export type Strategy = 'asset' | 'navigate' | 'pass';
+export type Strategy = 'asset' | 'navigate' | 'avatar' | 'pass';
 
-export function strategy(req: {method: string; mode: string; url: string}, origin: string, base: string): Strategy {
+/** Forgejo's avatar URLs (users, organizations, repositories), below the sub-path. */
+const AVATAR = /^\/(?:avatars?|repo-avatars)\//;
+
+export function strategy(req: {method: string; mode: string; url: string; destination?: string}, origin: string, base: string, sub = ''): Strategy {
   if (req.method !== 'GET') return 'pass';
   const url = new URL(req.url);
   if (url.origin !== origin) return 'pass';
   if (url.pathname.startsWith(`${base}assets/`)) return 'asset';
   if (req.mode === 'navigate') return 'navigate';
+  const site = sitePathOf(url.pathname, sub);
+  if (req.destination === 'image' && site !== undefined && AVATAR.test(site)) return 'avatar';
   return 'pass';
 }
+
+/** The avatars' cache (kept across builds; dropped with the others by the kill switch). */
+export const AVATAR_CACHE = `${CACHE_PREFIX}avatars`;

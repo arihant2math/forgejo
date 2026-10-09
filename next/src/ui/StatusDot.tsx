@@ -17,7 +17,8 @@ export type StatusTone = keyof typeof tones;
 
 /** A small round status marker (decorative: say the status in text next to it). `off`: keeps its place, not drawn (rows line up). */
 export function StatusDot({tone, off = false}: {tone: StatusTone; off?: boolean}) {
-  return <span aria-hidden className={cx('size-2 shrink-0 rounded-full', tones[tone], off && 'invisible')}/>;
+  // inline-block: sized wherever it is put (an inline span, a flex row).
+  return <span aria-hidden className={cx('inline-block size-2 shrink-0 rounded-full', tones[tone], off && 'invisible')}/>;
 }
 
 const status = 'flex h-control-sm items-center gap-1.5 rounded-sm px-1.5 text-sm';

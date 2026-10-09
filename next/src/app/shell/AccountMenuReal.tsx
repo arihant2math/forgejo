@@ -1,15 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {Command, Keyboard, LogOut, Monitor, Palette} from 'lucide-react';
+import {useNavigate, useRouterState} from '@tanstack/react-router';
+import {AppWindow, BookPlus, Building2, Command, Keyboard, LogOut, Monitor, Palette, Settings, User} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ReactElement} from 'react';
 import {
   Menu, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
 } from '../../ui/index.ts';
+import {ClassicMenuItem} from '../ClassicMenuItem.tsx';
 import {connectivity, onlineOnly} from '../online.ts';
-import {requestSignOut, switchToClassic} from '../session.ts';
+import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import type {ThemePreference} from '../splash.ts';
 import {useApp} from '../store.ts';
@@ -18,6 +20,9 @@ import {setThemePreference, themeState} from '../theme.ts';
 /** The account menu (its own chunk: Radix menus are not needed for the first frame). */
 export const AccountMenuReal = observer(function AccountMenuReal({trigger, defaultOpen}: {trigger: ReactElement; defaultOpen: boolean}) {
   const app = useApp();
+  const navigate = useNavigate();
+  const path = useRouterState({select: (st) => st.location.pathname});
+  const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
   const theme = themeState.preference;
   const open = (key: 'paletteOpen' | 'shortcutsOpen') => {
     runInAction(() => {
@@ -28,6 +33,11 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
     <Menu defaultOpen={defaultOpen}>
       <MenuTrigger asChild>{trigger}</MenuTrigger>
       <MenuContent>
+        {login && <MenuItem icon={User} onSelect={() => void navigate({to: '/-/next/$owner', params: {owner: login}})}>Your profile and repositories</MenuItem>}
+        <ClassicMenuItem to="/user/settings" icon={Settings}>Settings</ClassicMenuItem>
+        <ClassicMenuItem to="/repo/create" icon={BookPlus}>New repository</ClassicMenuItem>
+        <ClassicMenuItem to="/org/create" icon={Building2}>New organization</ClassicMenuItem>
+        <MenuSeparator/>
         <MenuItem icon={Command} shortcut={shortcutHint('palette.open')} onSelect={() => {
           open('paletteOpen');
         }}>Command menu</MenuItem>
@@ -43,9 +53,11 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
             <MenuRadioItem value="dark">Dark</MenuRadioItem>
           </MenuRadioGroup>
         </MenuSub>
+        <MenuSeparator/>
+        <ClassicMenuItem to={classicOfHere(app, path)} icon={AppWindow}>This page</ClassicMenuItem>
         <MenuItem icon={Monitor} disabled={!connectivity.online} onSelect={() => {
           switchToClassic(app);
-        }}>{connectivity.online ? 'Switch to the classic UI' : onlineOnly('The classic UI')}</MenuItem>
+        }}>{connectivity.online ? 'Turn off Forgejo Next' : onlineOnly('The classic UI')}</MenuItem>
         <MenuSeparator/>
         <MenuItem icon={LogOut} danger onSelect={() => {
           void requestSignOut(app);

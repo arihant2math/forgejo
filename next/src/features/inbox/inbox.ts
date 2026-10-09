@@ -23,6 +23,19 @@ export interface InboxContext {
   /** The status as the user sees it (pending read/unread/pin included). */
   status(n: Notification): string;
   repoName(repoId: number): string;
+  /**
+   * When its subject last had activity (the order, and the time shown). Forgejo moves a notification's
+   * updated_at when its status changes too (read, pinned): triage must not move it to the top.
+   */
+  activity?: ((n: Notification) => string) | undefined;
+}
+
+/**
+ * A notification's activity time: its updated_at, unless its issue was last updated earlier — then the
+ * later updated_at is a status change (triage), and the issue's time is the activity.
+ */
+export function activityOf(n: Notification, issueUpdated: string | undefined): string {
+  return issueUpdated !== undefined && issueUpdated < n.updated_at ? issueUpdated : n.updated_at;
 }
 
 export interface InboxResult {
@@ -31,9 +44,13 @@ export interface InboxResult {
   ids: number[];
 }
 
-const newestFirst = (a: Notification, b: Notification) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : b.id - a.id);
-
 export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: InboxContext): InboxResult {
+  const at = ctx.activity ?? ((n: Notification) => n.updated_at);
+  const newestFirst = (a: Notification, b: Notification) => {
+    const x = at(a);
+    const y = at(b);
+    return x < y ? 1 : x > y ? -1 : b.id - a.id;
+  };
   const pinned: Notification[] = [];
   const rest: Notification[] = [];
   for (const n of notes) {

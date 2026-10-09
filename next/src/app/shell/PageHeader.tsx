@@ -1,10 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {ChevronRight} from 'lucide-react';
-import type {ReactNode} from 'react';
-import {Icon, type LucideIcon} from '../../ui/index.ts';
-import {HeaderBar} from './Frame.tsx';
+import {ChevronRight, PanelLeft} from 'lucide-react';
+import {type ReactNode, useEffect} from 'react';
+import {useApp} from '../store.ts';
+import {Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
+import {shortcutHint} from '../shortcuts/index.ts';
+import {HeaderBar, WhenSidebarAway} from './Frame.tsx';
+import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
 
 export interface PageHeaderProps {
@@ -14,6 +17,17 @@ export interface PageHeaderProps {
   context?: ReactNode;
   /** Controls after the title (filters, view switches). */
   children?: ReactNode;
+  /** The browser tab's title (default: the title when it is text). */
+  docTitle?: string | undefined;
+}
+
+/** The tab's title: the page's, then the instance's name ("Issues · acme/atlas · Forgejo"). */
+function DocumentTitle({text}: {text: string | undefined}) {
+  const {config} = useApp();
+  useEffect(() => {
+    document.title = text ? `${text} · ${config.app_name}` : config.app_name;
+  }, [text, config.app_name]);
+  return null;
 }
 
 /**
@@ -21,12 +35,14 @@ export interface PageHeaderProps {
  * indicator. The breadcrumb gives way first (ellipsis), then the controls;
  * the title (up to max-w-sm) and the indicator stay.
  */
-export function PageHeader({title, icon, context, children}: PageHeaderProps) {
+export function PageHeader({title, icon, context, children, docTitle}: PageHeaderProps) {
   return (
     <HeaderBar>
-      {icon && <Icon icon={icon} className="text-fg-subtle"/>}
+      <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
+      <WhenSidebarAway><IconButton size="sm" icon={PanelLeft} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/></WhenSidebarAway>
+      {icon && <span className="flex max-md:hidden"><Icon icon={icon} className="text-fg-subtle"/></span>}
       {context && (
-        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted max-md:hidden">
           {context}
           <Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/>
         </nav>

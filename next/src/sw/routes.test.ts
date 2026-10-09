@@ -5,8 +5,8 @@ import {expect, test} from 'vitest';
 import {buildOf, isSpaRoute, sitePathOf, strategy} from './routes.ts';
 
 test('canonical routes (B8 spaRoutes) and the rest', () => {
-  for (const p of ['/', '/notifications', '/issues', '/pulls/', '/acme/web.site/issues', '/acme/web.site/issues/12', '/acme/api/pulls/3']) expect(isSpaRoute(p), p).toBe(true);
-  for (const p of ['/explore', '/acme', '/acme/repo', '/acme/repo/issues/0', '/acme/repo/issues/x', '/acme/repo/wiki', '/api/v1/issues/1', '/.x/repo/issues', '/acme/repo/issues/1/files', '/user/login']) {
+  for (const p of ['/', '/notifications', '/issues', '/pulls/', '/acme/web.site/issues', '/acme/web.site/issues/12', '/acme/api/pulls/3', '/acme/repo']) expect(isSpaRoute(p), p).toBe(true);
+  for (const p of ['/explore', '/acme', '/user/login', '/explore/repos', '/api/v1', '/acme/repo/issues/0', '/acme/repo/issues/x', '/acme/repo/wiki', '/api/v1/issues/1', '/.x/repo/issues', '/acme/repo/issues/1/files', '/user/login']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
 });
@@ -31,4 +31,13 @@ test('strategies: hashed assets cache-first, navigations, everything else untouc
 test('the build version in index.html', () => {
   expect(buildOf('<meta charset="utf-8"><meta name="forgejo-next-build" content="1a2b3c">')).toBe('1a2b3c');
   expect(buildOf('<html>')).toBeUndefined();
+});
+
+test('avatars (images below /avatars, /avatar, /repo-avatars) are kept for offline', () => {
+  const o = 'https://x.test';
+  const img = (path: string) => ({method: 'GET', mode: 'no-cors', url: `${o}${path}`, destination: 'image'});
+  expect(strategy(img('/avatars/abc'), o, '/-/next/')).toBe('avatar');
+  expect(strategy(img('/git/repo-avatars/1-x'), o, '/git/-/next/', '/git')).toBe('avatar');
+  expect(strategy(img('/acme/atlas/raw/branch/main/logo.png'), o, '/-/next/')).toBe('pass');
+  expect(strategy({...img('/avatars/abc'), destination: 'document'}, o, '/-/next/')).toBe('pass');
 });

@@ -25,6 +25,14 @@ export interface TooltipProps {
   children: ReactElement;
 }
 
+const POPUP_ROLES = new Set(['dialog', 'alertdialog', 'menu', 'listbox']);
+
+/** Whether focus went into a dialog, menu or listbox (what a trigger with aria-haspopup opens). */
+function inPopup(to: EventTarget | null): boolean {
+  for (let el = to instanceof Element ? to : null; el; el = el.parentElement) if (POPUP_ROLES.has(el.getAttribute('role') ?? '')) return true;
+  return false;
+}
+
 // A trigger can also open a menu or popover (aria-expanded). No tooltip while
 // that is open, and none after it closes until the pointer leaves the trigger
 // or focus moves on (closing returns focus, and the pointer may still rest on it).
@@ -48,9 +56,12 @@ export function Tooltip({content, shortcut, side = 'bottom', children}: TooltipP
         onKeyDownCapture={() => {
           if (trigger.current?.hasAttribute('aria-haspopup')) suppressed.current = true;
         }}
-        onBlurCapture={() => {
-          // Focus moving into the popup keeps the suppression; anything else ends it.
-          if (!popupOpen()) suppressed.current = false;
+        onBlurCapture={(e) => {
+          // Focus moving into the popup keeps the suppression (a menu marks its trigger expanded; a dialog
+          // opened by it, such as a picker, is recognised by its role), so focus coming back when it closes
+          // shows no tooltip over what is next to the trigger. Anything else ends it.
+          if (popupOpen() || inPopup(e.relatedTarget)) return;
+          suppressed.current = false;
         }}
         onPointerLeave={() => {
           if (!popupOpen()) suppressed.current = false;

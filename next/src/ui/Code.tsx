@@ -45,6 +45,40 @@ export function CodeTokens({text, hl, line}: {text: string; hl?: TokenSpans | nu
   return out;
 }
 
+/**
+ * Highlights a code block of rendered markdown in place (a fenced block in an issue): its text becomes
+ * text nodes inside spans of the same syntax classes as files and diffs (never markup). `hl` covers the
+ * block's lines (the block's text split at "\n").
+ */
+export function paintTokens(el: HTMLElement, hl: TokenSpans): void {
+  const lines = el.textContent.split('\n');
+  const out = document.createDocumentFragment();
+  lines.forEach((text, line) => {
+    if (line > 0) out.append('\n');
+    const from = hl.starts[line];
+    const to = hl.starts[line + 1];
+    if (from === undefined || to === undefined) {
+      out.append(text);
+      return;
+    }
+    let at = 0;
+    for (let k = from; k < to; k++) {
+      const len = hl.spans[2 * k] ?? 0;
+      const cls = SYN[hl.spans[2 * k + 1] ?? 0] ?? '';
+      const part = text.slice(at, at + len);
+      at += len;
+      if (cls) {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = part;
+        out.append(span);
+      } else out.append(part);
+    }
+    if (at < text.length) out.append(text.slice(at));
+  });
+  el.replaceChildren(out);
+}
+
 /** A log line's ANSI spans (code/ansi.ts). */
 export function AnsiText({spans}: {spans: readonly {text: string; color: number; bold: boolean}[]}) {
   return spans.map((s, i) => (s.color || s.bold ? <span key={i} className={cx(ANSI[s.color], s.bold && 'font-semibold')}>{s.text}</span> : s.text));
@@ -72,13 +106,15 @@ export interface CodeLineProps {
 /**
  * One line of code: a fixed-height row (h-line). Wide lines widen the row
  * (w-max), so the page scrolls horizontally rather than wrapping; the gutter
- * scrolls with the text (a sticky gutter per line cost scroll frames).
+ * (line numbers, the diff's +/− tint) stays at the left edge while the text
+ * scrolls under it (sticky; positioned, so it paints over the text without a
+ * z-index). Only the rows in view exist (virtualized), so few gutters stick.
  */
 export function CodeLine({gutter, tone = 'none', active, trailing, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined}
       className={cx('group row-cursor flex h-line w-max min-w-full font-mono text-code contain-layout', lineTone[tone])}>
-      <span className={cx('flex shrink-0', gutterTone[tone])}>{gutter}</span>
+      <span className={cx('sticky left-0 flex shrink-0', gutterTone[tone])}>{gutter}</span>
       <span className="code-text pr-6 pl-3">{children}</span>
       {trailing}
     </div>

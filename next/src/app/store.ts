@@ -36,6 +36,8 @@ export interface UiState {
   notices: NoticeSpec[];
   /** The repository whose page is open (the new-issue dialog's default), 0 for none. */
   repoOpen: number;
+  /** The repository whose page was open last (kept after leaving it: the palette's files), 0 for none yet. */
+  recentRepo: number;
   /** The issue whose page is open (its conflicts and overrides show inline there, not as notices). */
   issueOpen: number | undefined;
   /** The issues the keyboard acts on (the list's selection or cursor, the open issue): the palette offers their actions. */
@@ -44,7 +46,7 @@ export interface UiState {
   picker: {kind: PickerKind; issueIds: readonly number[]} | undefined;
 }
 
-export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'milestone';
+export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'milestone' | 'reviewers' | 'dependency';
 
 export interface App {
   readonly config: NextConfig;
@@ -55,7 +57,7 @@ export interface App {
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
   const ui = observable<UiState>(
-    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, notices: [], issueTarget: [], picker: undefined},
+    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, recentRepo: 0, notices: [], issueTarget: [], picker: undefined},
     {notices: observableShallow, issueTarget: observableRef, picker: observableRef, create: observableRef},
   );
   return {config, session, ui};

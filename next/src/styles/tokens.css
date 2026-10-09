@@ -121,11 +121,16 @@
   --spacing-gutter: 48px; /* a line-number column */
   --spacing-blame: 240px; /* the blame column */
 
+  /* Viewport breakpoint (md: and max-md:): below it the sidebar is a drawer (phones, narrow windows). Layouts
+   * inside the main panel follow its own width instead (container queries, @xl: = --container-xl). */
+  --breakpoint-md: 768px;
+
   /* Max widths (max-w-xs = tooltips, max-w-sm = menus, max-w-md = dialogs, max-w-lg = prose). */
   --container-xs: 280px;
   --container-sm: 320px;
   --container-md: 560px;
   --container-lg: 720px;
+  --container-xl: 960px; /* also a container-query step: @xl: when the main panel is this wide (side panes beside) */
 
   /* ── Radii, shadows (floating surfaces only). ─────────────────────────── */
   --radius-sm: 4px;

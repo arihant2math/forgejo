@@ -69,3 +69,32 @@ export function EditorFrame({invalid, children, ref}: {invalid?: boolean | undef
     </div>
   );
 }
+
+/**
+ * A heading edited in place (an issue's title): the heading's own type size, a hairline box only while
+ * editing. Full width.
+ */
+export function TitleInput({invalid, ...rest}: Omit<InputHTMLAttributes<HTMLInputElement>, 'className' | 'style' | 'size'> & {invalid?: boolean | undefined; ref?: Ref<HTMLInputElement>}) {
+  return <input aria-invalid={invalid} className={cx('interactive -mx-2 block w-full rounded-md px-2 py-0.5 text-xl font-semibold', field)} {...rest}/>;
+}
+
+/** A heading that opens its editor on click (TitleInput): looks like the heading, hovers like a control. */
+export function EditableHeading({label, onEdit, children}: {label: string; onEdit: () => void; children: ReactNode}) {
+  return (
+    <h2 className="text-xl font-semibold text-fg">
+      <button type="button" title={label} onClick={onEdit} className="interactive -mx-2 w-full cursor-text rounded-md px-2 py-0.5 text-left hover:bg-hover">{children}</button>
+    </h2>
+  );
+}
+
+/** A checkbox with its label (a dialog's option). */
+export function Checkbox({label, checked, onChange, disabled}: {label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean | undefined}) {
+  return (
+    <label className="inline-flex items-center gap-2 text-base text-fg has-disabled:opacity-disabled">
+      <input type="checkbox" className="size-4 accent-accent" checked={checked} disabled={disabled} onChange={(e) => {
+        onChange(e.target.checked);
+      }}/>
+      {label}
+    </label>
+  );
+}

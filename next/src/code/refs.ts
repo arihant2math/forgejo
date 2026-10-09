@@ -16,6 +16,7 @@ export type CodeRoute =
   | {view: 'commit'; sha: string}
   | {view: 'branches' | 'tags' | 'releases' | 'actions'}
   | {view: 'compare'; base: string; head: string}
+  /** `job`: the job's index in the run, -1 when the URL names none (the view picks one). */
   | {view: 'run'; run: number; job: number};
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -76,7 +77,7 @@ export function parseCodePath(splat: string): CodeRoute | undefined {
 function parseRun(rest: string[]): CodeRoute | undefined {
   // runs/<number>[/jobs/<index>] (Forgejo's: the run's number in the repository, the job's index in the run).
   if (rest[0] !== 'runs' || !rest[1] || !/^[1-9]\d{0,15}$/.test(rest[1])) return undefined;
-  if (rest.length === 2) return {view: 'run', run: Number(rest[1]), job: 0};
+  if (rest.length === 2) return {view: 'run', run: Number(rest[1]), job: -1};
   if (rest.length === 4 && rest[2] === 'jobs' && rest[3] && /^\d{1,6}$/.test(rest[3])) return {view: 'run', run: Number(rest[1]), job: Number(rest[3])};
   return undefined;
 }

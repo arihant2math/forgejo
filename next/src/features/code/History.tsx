@@ -6,7 +6,6 @@
 // API v1 by full SHA (cached: a page seen once is there offline); the diff
 // from B9 (cached, parsed and highlighted in the worker).
 
-import {useNavigate} from '@tanstack/react-router';
 import {GitCommitHorizontal, History} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
@@ -19,7 +18,7 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {DiffView} from './DiffView.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Ago, commitRow, Sha, summary} from './bits.tsx';
-import {CodeLink, codeTo} from './nav.tsx';
+import {CodeLink, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 
@@ -74,7 +73,7 @@ function useCommitPages(repoId: number, sha: string, path: string) {
 }
 
 function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resolved; scroller: HTMLDivElement | null}) {
-  const navigate = useNavigate();
+  const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
   const {s, more} = useCommitPages(repoId, at.sha, at.path);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
@@ -85,9 +84,7 @@ function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resol
     <>
       <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
         row={commitRow}
-        onOpen={(c) => {
-          void navigate(codeTo(owner, repo, `commit/${c.sha}`));
-        }}/>
+        onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-3">
           {s.failed ? <span className="text-sm text-fg-subtle">{s.failed.state === 'offline' ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}</span> :

@@ -3,7 +3,7 @@
 
 import {expect, test} from 'vitest';
 import type {Notification} from '../../protocol/types.gen.ts';
-import {inboxRows, togglePin} from './inbox.ts';
+import {activityOf, inboxRows, togglePin} from './inbox.ts';
 
 const note = (id: number, repo: number, status: string, at: string): Notification => ({
   id, user_id: 1, repo_id: repo, status, subject: 'issue', issue_id: id * 10, comment_id: 0, created_at: at, updated_at: at,
@@ -40,4 +40,14 @@ test('by repository: groups ordered by their newest notification', () => {
 test('togglePin', () => {
   expect(togglePin('pinned')).toBe('read');
   expect(togglePin('unread')).toBe('pinned');
+});
+
+test('triage keeps a row in place: a status change moves updated_at, not the activity', () => {
+  const n = (id: number, updated: string) => ({...NOTES[0], id, updated_at: updated, status: 'read'}) as Notification;
+  const issueTime: Record<number, string> = {1: '2026-01-02T00:00:00Z', 2: '2026-01-01T00:00:00Z'};
+  // #2 was just read (its updated_at is now), but its issue's last activity is older than #1's.
+  const notes = [n(1, '2026-01-02T00:00:00Z'), n(2, '2026-03-01T00:00:00Z')];
+  const r = inboxRows(notes, {unread: false, byRepo: false}, {...ctx(), activity: (x) => activityOf(x, issueTime[x.id])});
+  expect(r.ids).toEqual([1, 2]);
+  expect(activityOf(n(3, '2026-01-05T00:00:00Z'), undefined)).toBe('2026-01-05T00:00:00Z');
 });

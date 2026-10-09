@@ -90,7 +90,7 @@ test('daily triage: inbox → issue → label and priority → its board → car
   // 4. Its board, from the issue's Project.
   const project = sidebarProp(page, 'Project');
   await expect(project).toContainText(`Triage board ${RUN}`, {timeout: 15_000});
-  const from = /· (.+)$/.exec(await project.innerText())?.[1]?.trim() ?? '';
+  const from = /· (.+)$/m.exec(await project.innerText())?.[1]?.trim() ?? '';
   await project.getByRole('link', {name: `Triage board ${RUN}`}).click();
   await expect(page).toHaveURL(`${BASE}/-/next/projects/${String(pid)}`);
   const columns = await page.locator('section[data-column] h2').allInnerTexts();

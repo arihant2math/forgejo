@@ -102,3 +102,15 @@ test('typing into 50 000 issues: after the first keystroke, each one narrows wit
   // The later keystrokes scan only the earlier matches.
   expect(Math.min(...times.slice(1))).toBeLessThan(16);
 });
+
+test('references name one issue exactly, first', () => {
+  const p = pool(100);
+  const r = searchPool(p, 'website#42');
+  expect(r.exact?.map((x) => x.issue.number)).toEqual([42]);
+  expect(r.issues.some((x) => x.issue.number === 42)).toBe(false);
+  expect(searchPool(p, 'acme/website#42').exact?.length).toBe(1);
+  expect(searchPool(p, 'nope/website#42').exact).toEqual([]);
+  const repoId = searchPool(p, 'website#42').exact?.[0]?.issue.repo_id;
+  expect(searchPool(p, '#42', {contextRepo: repoId}).exact?.map((x) => x.issue.number)).toEqual([42]);
+  expect(terms('acme/atlas#1').ref).toEqual({owner: 'acme', repo: 'atlas', number: 1});
+});

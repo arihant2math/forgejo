@@ -14,6 +14,7 @@ import {editing} from '../../intents/session.ts';
 import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {exclusiveScope} from './labels.ts';
+import {tempIssuePath} from '../issue/paths.ts';
 
 function pool(app: App): Pool {
   const s = app.session;
@@ -100,6 +101,11 @@ export function issuePath(app: App, issue: Entity<'Issue'>): string | undefined 
   return untracked(() => {
     const repo = pool(app).model('Repository').get(issue.data.repo_id)?.data;
     if (!repo) return undefined;
+    // Created on this device and not synced yet: its page by the temporary id.
+    if (issue.id < 0) {
+      const temp = editing(app).intents.tempIdOf(issue.id);
+      return temp ? tempIssuePath(repo.owner_name, repo.name, temp) : undefined;
+    }
     return `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/${issue.data.is_pull ? 'pulls' : 'issues'}/${String(issue.data.number)}`;
   });
 }

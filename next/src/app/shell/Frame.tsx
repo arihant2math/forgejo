@@ -9,14 +9,24 @@
 import type {ReactNode, Ref} from 'react';
 import {cx, Skeleton} from '../../ui/index.ts';
 
-export function ShellFrame({boot, sidebar, children}: {boot?: boolean; sidebar: ReactNode; children: ReactNode}) {
+/**
+ * Wide screens: the sidebar beside the page (collapsible: sidebar-hidden). Narrow ones (below md): a drawer over
+ * the page, opened from the page header's button (drawer-open), closed by the backdrop, Esc or navigating.
+ */
+export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void}) {
   return (
     <div className={cx('flex h-full', boot && 'logged-out:hidden')}>
-      <aside aria-label="Sidebar" className="relative flex w-sidebar shrink-0 flex-col border-r border-border bg-canvas">{sidebar}</aside>
-      <main className="flex min-w-0 flex-1 flex-col bg-surface">{children}</main>
+      <aside aria-label="Sidebar" className={drawer}>{sidebar}</aside>
+      <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay max-md:drawer-open:block" onClick={onBackdrop}/>
+      <main className="@container flex min-w-0 flex-1 flex-col bg-surface">{children}</main>
     </div>
   );
 }
+
+const drawer = cx(
+  'relative flex w-sidebar shrink-0 flex-col border-r border-border bg-canvas md:sidebar-hidden:hidden',
+  'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-popover max-md:hidden max-md:w-pane max-md:shadow-dialog max-md:drawer-open:flex',
+);
 
 /** The sidebar's fixed top (account, search). */
 export function SidebarTop({children}: {children: ReactNode}) {
@@ -30,12 +40,20 @@ export function SidebarBody({children}: {children: ReactNode}) {
 
 /** The main panel's header bar. */
 export function HeaderBar({children}: {children: ReactNode}) {
-  return <header className="flex h-header shrink-0 items-center gap-2 border-b border-border px-4">{children}</header>;
+  return <header className="flex h-header shrink-0 items-center gap-2 border-b border-border px-4 max-md:px-2">{children}</header>;
 }
+
+/** What shows only while the sidebar is not beside the page (collapsed, or a drawer on a narrow screen): its toggle. */
+export function WhenSidebarAway({children}: {children: ReactNode}) {
+  return <span className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex">{children}</span>;
+}
+
+/** The page's scroll container, for the router's scroll restoration (router.tsx). */
+export const PAGE_SCROLLER = '[data-scroll-restoration-id="page"]';
 
 /** The main panel's content below the header (the page's scroll container; lists virtualize against it). */
 export function PageBody({children, ref}: {children: ReactNode; ref?: Ref<HTMLDivElement>}) {
-  return <div ref={ref} className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+  return <div ref={ref} data-scroll-restoration-id="page" className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
 }
 
 /** A sidebar row placeholder with a NavItem's geometry. */
@@ -49,4 +67,9 @@ export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelW
       <Skeleton className={labelWidths[width]}/>
     </div>
   );
+}
+
+/** A page's reading column inside PageBody (a repository's home, an owner): the page gutter, tighter on a narrow page. */
+export function PageColumn({children, wide = false}: {children: ReactNode; wide?: boolean}) {
+  return <div className={cx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'max-w-lg')}>{children}</div>;
 }

@@ -23,8 +23,11 @@ import {APIPrefix, type APIBlame, type APITree, type APITreeEntry} from '../prot
 import type {CodeWorkerApi, Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
+import type {RefKind} from './refs.ts';
 import {type DiffFile, filePath, parseDiff} from './diff.ts';
 import {HIGHLIGHT_MAX_CHARS, type Lang, langOf} from './lang.ts';
+
+export {langOf};
 
 export type {Highlight} from '../workers/code.worker.ts';
 
@@ -119,6 +122,8 @@ export interface CommitInfo {
   authorName: string;
   authorEmail: string;
   authorLogin: string;
+  /** The author's avatar when the commit is linked to a user ("" otherwise, and in commits cached before it was kept). */
+  authorAvatar?: string;
   date: string;
   parents: string[];
 }
@@ -156,14 +161,14 @@ export function decodeFile(bytes: ArrayBuffer, path: string): FileContent {
 interface ApiCommit {
   sha: string;
   commit: {message: string; author: {name: string; email: string; date: string}};
-  author?: {login?: string} | null;
+  author?: {login?: string; avatar_url?: string} | null;
   parents?: {sha: string}[] | null;
 }
 
 function commitInfo(c: ApiCommit): CommitInfo {
   return {
     sha: c.sha, message: c.commit.message, authorName: c.commit.author.name, authorEmail: c.commit.author.email,
-    authorLogin: c.author?.login ?? '', date: c.commit.author.date, parents: (c.parents ?? []).map((p) => p.sha),
+    authorLogin: c.author?.login ?? '', authorAvatar: c.author?.avatar_url ?? '', date: c.commit.author.date, parents: (c.parents ?? []).map((p) => p.sha),
   };
 }
 
@@ -174,6 +179,7 @@ export class CodeSource {
   /** The highlights waiting their turn (one runs at a time: see watched). */
   private queue: Promise<unknown> = Promise.resolve();
   private readonly inflight = new Map<string, Promise<unknown>>();
+  private readonly snippets = new Map<string, Promise<Highlight | null>>();
   /** Diffs parsed this session (key → files). */
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
   /** The same, once parsed (a diff opened again paints in its first frame). */
@@ -300,13 +306,14 @@ export class CodeSource {
     return this.cache.peek<T>(key);
   }
 
-  private async request(api: 'sync' | 'v1', path: string, signal?: AbortSignal): Promise<Response> {
+  private async request(api: 'sync' | 'v1', path: string, signal?: AbortSignal, body?: unknown): Promise<Response> {
     if (!navigator.onLine) throw new NotCached('offline');
     const token = await this.s.auth.token();
     let res: Response;
     try {
       res = await fetch(sitePath(this.app.config, `${api === 'v1' ? '/api/v1' : APIPrefix}${path}`), {
-        headers: {Authorization: `Bearer ${token}`},
+        headers: {Authorization: `Bearer ${token}`, ...(body === undefined ? {} : {'Content-Type': 'application/json'})},
+        ...(body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)}),
         credentials: 'omit',
         redirect: 'manual',
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
@@ -472,11 +479,46 @@ export class CodeSource {
     });
   }
 
+  /** A snippet (a fenced code block of an issue) highlighted, kept in memory for the session (null: plain). */
+  snippet(lang: Lang, text: string): Promise<Highlight | null> {
+    if (text.length > HIGHLIGHT_MAX_CHARS) return Promise.resolve(null);
+    const key = `snip:${lang}:${text}`;
+    const hit = this.snippets.get(key);
+    if (hit) return hit;
+    let lines = 1;
+    for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) lines++;
+    const p = this.watched(lang, lines, (api) => api.highlight(text, lang)).catch(() => null);
+    this.snippets.set(key, p);
+    // A few hundred blocks at most (each key holds its text).
+    for (const k of this.snippets.keys()) {
+      if (this.snippets.size <= 300) break;
+      this.snippets.delete(k);
+    }
+    return p;
+  }
+
   /** Highlighting already in memory (a file switched back to paints highlighted in its first frame). */
   peekHighlight(repoId: number, blobSha: string, path: string): Highlight | null | undefined {
     const lang = langOf(path);
     if (!lang) return null;
     return this.cache.peek(`hl:${String(repoId)}:${blobSha}:${lang}`);
+  }
+
+  /**
+   * A markup file (README.md, docs/…) rendered as Forgejo renders it on its file page (API v1 /markup, mode
+   * "file": relative links and images resolve in the repository at `ref`). Cached by blob SHA and ref (the
+   * same text renders its links per ref); the HTML goes through the Trusted Types gate like every body.
+   */
+  rendered(repoId: number, blobSha: string, path: string, text: string, ref: {kind: RefKind; name: string}): Promise<string> {
+    return this.cached(`md:${String(repoId)}:${blobSha}:${ref.kind}:${ref.name}:${path}`, async () => {
+      const r = this.s.data.pool.model('Repository').get(repoId)?.data;
+      if (!r) throw new NotCached('the repository is not on this device');
+      const res = await this.request('v1', '/markup', undefined, {
+        Text: text, Mode: 'file', FilePath: path, Context: `/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}`,
+        BranchPath: `${ref.kind}/${ref.name.split('/').map(encodeURIComponent).join('/')}`,
+      });
+      return readCapped(res, MAX_FILE * 2);
+    });
   }
 
   // ---- API v1 (immutable when addressed by full SHAs) ----

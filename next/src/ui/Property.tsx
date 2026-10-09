@@ -39,11 +39,13 @@ export function PropertyButton({onClick, label, shortcut, disabled, children, re
   const name = useContext(NameContext);
   const id = useId();
   return (
-    <Tooltip content={label} shortcut={shortcut} side="bottom">
+    // To the side: below, it would cover the next property (and take its first click).
+    <Tooltip content={label} shortcut={shortcut} side="left">
       <button
         ref={ref}
         id={id}
         type="button"
+        aria-haspopup="dialog"
         aria-labelledby={name ? `${name} ${id}` : undefined}
         disabled={disabled}
         onClick={onClick}

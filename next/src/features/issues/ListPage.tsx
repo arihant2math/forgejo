@@ -15,7 +15,8 @@ import {PageBody} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
-import {EmptyState, ListRow, Skeleton} from '../../ui/index.ts';
+import {Button, EmptyState, ListRow, Skeleton} from '../../ui/index.ts';
+import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel, type ListSource} from './list.ts';
@@ -58,6 +59,7 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
   // ref is attached after its children's layout effects ran.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const {data} = useSession();
+  const navigate = useNavigate();
   const src = model.source;
   const q = model.query;
   // Older closed issues are not in the summary (B6): load them when the list can show them.
@@ -81,11 +83,18 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
     q.filter.poster !== undefined || q.filter.milestone !== undefined;
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
   const none = loading ? <ListSkeleton/> : filtered ?
-    <EmptyState icon={SearchX} title="Nothing matches" description="No item on this device matches these filters."/> :
+    <EmptyState icon={SearchX} title="Nothing matches" description="No item on this device matches these filters."
+      action={<Button onClick={() => {
+        // Back to the list's default view (open items, no search, no filter; the grouping and order stay).
+        const {group, sort} = model.search;
+        const next = {...(group ? {group} : {}), ...(sort ? {sort} : {})};
+        model.setSearch(next);
+        void navigate({to: '.', replace: true, search: ((prev: Record<string, unknown>) => ({...(typeof prev.type === 'string' ? {type: prev.type} : {}), ...next})) as never});
+      }}>Clear the search and filters</Button>}/> :
     empty;
   return (
     <PageBody ref={setScroller}>
-      <IssueList model={model} scroller={scroller} empty={none} showRepo={showRepo} label={label}
+      <IssueList model={model} scroller={scroller} empty={none} showRepo={Boolean(showRepo) && q.group !== 'repo'} label={label}
         onNearEnd={onNearEnd}/>
       {pager && wantsClosed && <ClosedFooter pager={pager}/>}
     </PageBody>

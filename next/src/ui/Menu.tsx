@@ -20,6 +20,10 @@ export interface MenuItemProps {
   shortcut?: string | undefined;
   /** Destructive actions are tinted. */
   danger?: boolean | undefined;
+  /** A link (a real anchor: middle-click and "copy link" work); selecting it follows the link. */
+  href?: string | undefined;
+  /** Muted text after the label ("classic"). */
+  hint?: string | undefined;
   children: ReactNode;
 }
 
@@ -27,12 +31,11 @@ export interface MenuItemProps {
 type Parts = Pick<typeof D, 'Item' | 'CheckboxItem' | 'RadioGroup' | 'RadioItem' | 'ItemIndicator' | 'Label' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal'>;
 
 function makeItems(P: Parts) {
-  function Item({icon, shortcut, danger, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children' | 'className' | 'style'>) {
-    return (
-      <P.Item className={cx(menuItem, danger ? 'text-danger' : 'text-fg')} {...rest}>
-        <ItemBody icon={icon} shortcut={shortcut}>{children}</ItemBody>
-      </P.Item>
-    );
+  function Item({icon, shortcut, danger, href, hint, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children' | 'className' | 'style' | 'asChild'>) {
+    const body = <ItemBody icon={icon} shortcut={shortcut} meta={hint}>{children}</ItemBody>;
+    const cls = cx(menuItem, danger ? 'text-danger' : 'text-fg');
+    if (href !== undefined) return <P.Item asChild className={cls} {...rest}><a href={href}>{body}</a></P.Item>;
+    return <P.Item className={cls} {...rest}>{body}</P.Item>;
   }
   function CheckboxItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.CheckboxItem>, 'children' | 'className' | 'style'>) {
     return (

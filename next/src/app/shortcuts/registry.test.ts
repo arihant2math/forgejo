@@ -38,7 +38,7 @@ test('hints: one cap per Apple chord, words for other platforms', () => {
 test('every keymap entry is well-formed and keys are unique per scope', () => {
   const seen = new Set<string>();
   for (const [id, def] of Object.entries(KEYMAP)) {
-    expect(def.keys, id).toMatch(/^((mod|shift|alt)\+)*([a-z0-9]|enter|[?[\]])( ((mod|shift|alt)\+)*([a-z0-9]|enter|[?[\]]))*$/);
+    expect(def.keys, id).toMatch(/^((mod|shift|alt)\+)*([a-z0-9]|enter|escape|[?[\]\\])( ((mod|shift|alt)\+)*([a-z0-9]|enter|escape|[?[\]\\]))*$/);
     const k = `${def.scope}|${def.keys}`;
     expect(seen.has(k), id).toBe(false);
     seen.add(k);

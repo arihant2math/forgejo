@@ -23,7 +23,8 @@ import {
   MenuSub, MenuTrigger,
 } from '../../ui/index.ts';
 import {usePool} from './cells.tsx';
-import {assigneeCandidates, repoLabels} from './candidates.ts';
+import {repoLabels} from './candidates.ts';
+import {loadPeople, repoPeople} from './people.ts';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -176,6 +177,13 @@ function SearchField({value, onChange, onSettle}: {value: string; onChange: (q: 
         if (e.key === 'Escape' && text) {
           e.stopPropagation();
           change('');
+        } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+          // On to the results: the list takes the focus (its cursor on the first row); Enter opens that row.
+          const list = document.querySelector<HTMLElement>('main [role="listbox"]');
+          if (!list) return;
+          e.preventDefault();
+          list.focus();
+          if (e.key === 'Enter') list.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
         }
       }}/>
   );
@@ -225,8 +233,9 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: 
   return (
     <Menu>
       <MenuTrigger asChild>
+        {/* The filter in effect by name ("Label: bug"), the others counted. */}
         <Button size="sm" variant={active.length ? 'secondary' : 'ghost'} icon={ListFilter}>
-          {active.length ? `Filter · ${String(active.length)}` : 'Filter'}
+          <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
         </Button>
       </MenuTrigger>
       <MenuContent>
@@ -252,8 +261,11 @@ const RepoFilters = observer(function RepoFilters({search, repoId, me, set}: {se
   const pool = usePool();
   const labels = repoLabels(pool, repoId);
   const chosen = new Set(parseLabels(search.labels));
-  const users = assigneeCandidates(pool, repoId, me).map((id) => pool.model('User').get(id)?.data).filter((u) => u !== undefined)
-    .sort((a, b) => a.login.localeCompare(b.login));
+  const app = useApp();
+  useEffect(() => {
+    loadPeople(app, repoId);
+  }, [app, repoId]);
+  const users = repoPeople(pool, repoId, me).sort((a, b) => a.login.localeCompare(b.login));
   const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).sort((a, b) => a.title.localeCompare(b.title));
   const toggleLabel = (id: number, on: boolean) => {
     const next = new Set(chosen);

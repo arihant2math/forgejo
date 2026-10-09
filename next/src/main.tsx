@@ -7,9 +7,11 @@ import {createRoot} from 'react-dom/client';
 import {App} from './app/App.tsx';
 import {BootFailed} from './app/BootFailed.tsx';
 import {bootApp} from './app/boot.ts';
+import {resumeAfterSignIn} from './app/history.ts';
 import {bootSucceeded, reloadOnce} from './app/reload.ts';
 import {followSystemTheme} from './app/theme.ts';
 
+resumeAfterSignIn();
 followSystemTheme();
 const root = document.getElementById('root');
 // The static boot shell stays on screen until the route is ready; then one

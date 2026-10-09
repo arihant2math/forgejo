@@ -20,11 +20,13 @@ export interface CommandDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Accessible name of the dialog and the list. */
   label: string;
+  /** The children render their own CommandRoot (a caller that controls the selection). */
+  bare?: boolean | undefined;
   children: ReactNode;
 }
 
 /** A modal command menu near the top of the viewport. Esc and the overlay close it. */
-export function CommandDialog({open, onOpenChange, label, children}: CommandDialogProps) {
+export function CommandDialog({open, onOpenChange, label, bare = false, children}: CommandDialogProps) {
   const focus = useReturnFocus();
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -32,12 +34,20 @@ export function CommandDialog({open, onOpenChange, label, children}: CommandDial
         <D.Overlay className={overlay}>
           <D.Content {...focus} aria-describedby={undefined} className={cx(dialogPanel, 'max-w-md overflow-hidden')}>
             <D.Title className="sr-only">{label}</D.Title>
-            <K label={label} shouldFilter={false} loop>{children}</K>
+            {bare ? children : <K label={label} shouldFilter={false} loop>{children}</K>}
           </D.Content>
         </D.Overlay>
       </D.Portal>
     </D.Root>
   );
+}
+
+/**
+ * The command list's root inside a `bare` CommandDialog, with the selection controlled: `value` is the
+ * selected item's value (the caller picks the first one whenever the results change).
+ */
+export function CommandRoot({label, value, onValueChange, children}: {label: string; value: string; onValueChange: (v: string) => void; children: ReactNode}) {
+  return <K label={label} shouldFilter={false} loop value={value} onValueChange={onValueChange}>{children}</K>;
 }
 
 export interface CommandInputProps {

@@ -5,11 +5,14 @@
 // below the UI's base (`/-/next/code/{owner}/{repo}/…`; B8's spaRoutes has no
 // canonical code routes yet): the part after the repository mirrors
 // Forgejo's own URL, so the classic page is the same path without the prefix.
+// The repository's tab bar is features/repo/repoPage.tsx (every repository page).
 
-import {Link, type LinkProps} from '@tanstack/react-router';
+import {Link, type LinkProps, useNavigate} from '@tanstack/react-router';
+import {sitePath} from '../../app/config.ts';
+import {codePath} from '../../app/paths.ts';
+import {useApp} from '../../app/store.ts';
 import type {ReactNode} from 'react';
 import {withEnd} from '../../code/refs.ts';
-import {TabLink, TabNav} from '../../ui/index.ts';
 
 export const CODE_ROUTE = '/-/next/code/$owner/$repo/$';
 
@@ -43,33 +46,17 @@ export function CodeLink({owner, repo, to, children, className, hash, onPointerE
   return <Link {...props} className={className} onPointerEnter={onPointerEnter}>{children}</Link>;
 }
 
-/** Which tab a code path belongs to. */
-function tabOf(path: string): string {
-  const head = path.split('/')[0] ?? '';
-  if (head === '' || head === 'src' || head === 'blame') return 'code';
-  if (head === 'commit' || head === 'commits' || head === 'compare') return 'commits';
-  if (head === 'actions') return 'actions';
-  return head;
-}
-
-/** The repository's sections: issues and pull requests (lists), then the code views. */
-export function RepoTabs({owner, repo, current}: {owner: string; repo: string; current: string}) {
-  const tab = tabOf(current);
-  const code = (to: string, name: string, label: string) => (
-    <TabLink key={name}>
-      <Link {...codeTo(owner, repo, to)} aria-current={tab === name ? 'page' : undefined} activeProps={{}} activeOptions={{exact: true}}>{label}</Link>
-    </TabLink>
-  );
-  return (
-    <TabNav label="Repository">
-      {code('src', 'code', 'Code')}
-      <TabLink><Link to="/$owner/$repo/issues" params={{owner, repo}}>Issues</Link></TabLink>
-      <TabLink><Link to="/$owner/$repo/pulls" params={{owner, repo}}>Pull requests</Link></TabLink>
-      {code('commits', 'commits', 'Commits')}
-      {code('branches', 'branches', 'Branches')}
-      {code('tags', 'tags', 'Tags')}
-      {code('releases', 'releases', 'Releases')}
-      {code('actions', 'actions', 'Actions')}
-    </TabNav>
-  );
+/**
+ * A code list's rows as links (RowList `onOpen` + `linkOf`): each row's code path, opened in place on a
+ * plain click or Enter, and a real link for middle-click and a new tab.
+ */
+export function useCodeRows<T>(owner: string, repo: string, splatOf: (item: T) => string): {onOpen: (item: T) => void; linkOf: (item: T) => string} {
+  const navigate = useNavigate();
+  const app = useApp();
+  return {
+    onOpen: (item) => {
+      void navigate(codeTo(owner, repo, splatOf(item)));
+    },
+    linkOf: (item) => sitePath(app.config, codePath(owner, repo, splatOf(item))),
+  };
 }

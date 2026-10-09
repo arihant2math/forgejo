@@ -27,6 +27,10 @@
 /* Splash state set on <html> by the inline boot script (src/app/splash.ts). */
 @custom-variant logged-out (&:where([data-shell="logged-out"] *));
 @custom-variant shape-detail (&:where([data-skeleton="detail"] *));
+/* The sidebar collapsed on a wide screen (splash `sidebarHidden`), and the drawer open on a narrow one
+ * (app/shell/sidebar.ts): attributes on <html>, so toggling restyles without re-rendering the shell. */
+@custom-variant sidebar-hidden (&:where([data-sidebar="hidden"] *));
+@custom-variant drawer-open (&:where([data-drawer="open"] *));
 
 /* Motion: the only transition in the app. Entering a state is instant
  * (--speed-in), leaving it fades out (--speed-out); colours and opacity only. */
@@ -133,10 +137,11 @@
   }
 }
 
-/* A container that shows the focus outline while its listbox has keyboard focus (a board column: visible even
- * when the column is empty; its menu button keeps its own ring only). */
+/* A container that shows the focus outline while its listbox has keyboard focus and no item has the cursor (a
+ * board column with no card under the cursor, an empty one: focus stays visible). With a card under the cursor,
+ * the card's own edge is the focus mark (no outline around the whole lane). */
 @utility focus-visible-within {
-  &:has([role="listbox"]:focus-visible) {
+  &:has([role="listbox"]:focus-visible):not(:has([data-active])) {
     outline: var(--focus-ring-width) solid var(--color-focus);
     outline-offset: 0;
   }

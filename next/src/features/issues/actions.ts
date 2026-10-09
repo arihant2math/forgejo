@@ -6,8 +6,10 @@
 // shortcuts (S/L/A/M/P) offer the same ones, with the same labels and keys
 // (PLAN §5.6).
 
-import {CircleCheck, CircleDashed, CircleDot, Copy, CornerDownLeft, ExternalLink, Milestone, SignalHigh, Tag, UserMinus, UserPlus, Users} from 'lucide-react';
+import {AppWindow, CircleCheck, CircleDashed, CircleDot, Copy, CornerDownLeft, ExternalLink, Milestone, SignalHigh, Tag, UserMinus, UserPlus, Users} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
+import {canWrite} from '../../app/access.ts';
+import {classicHref} from '../../app/classic.ts';
 import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
 import type {ShortcutId} from '../../app/shortcuts/index.ts';
@@ -28,9 +30,18 @@ export interface IssueAction {
   run(): void;
 }
 
-/** Opens an issue picker (S/L/A/M/P) for these issues. */
+/** Opens an issue picker (S/L/A/M/P) for these issues — only those the viewer may change (else it says why). */
 export function openPicker(app: App, kind: PickerKind, issueIds: readonly number[]): void {
   if (!issueIds.length) return;
+  const s = app.session;
+  const store = s?.data.pool.model('Issue');
+  if (s && store && issueIds.some((id) => {
+    const repoId = untracked(() => store.get(id)?.data.repo_id);
+    return repoId !== undefined && !canWrite(s, repoId);
+  })) {
+    notify(app, {tone: 'neutral', title: 'Read-only', description: 'You can read this repository but not change its issues.'});
+    return;
+  }
   runInAction(() => {
     app.ui.picker = {kind, issueIds: [...issueIds]};
   });
@@ -51,6 +62,9 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
     const path = one && issuePath(app, one);
     const pull = issues.every((i) => i.data.is_pull);
     const noun = issues.length > 1 ? `${String(issues.length)} ${pull ? 'pull requests' : 'issues'}` : '';
+    // Only what the viewer may change (Forgejo: writers of the repository; the poster may close or reopen their own).
+    const write = issues.every((i) => canWrite(s, i.data.repo_id));
+    const closeable = write || issues.every((i) => i.data.poster_id === me);
     const out: IssueAction[] = [];
     if (path && opts.navigate) {
       const go = opts.navigate;
@@ -58,10 +72,16 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
         go(path);
       }});
     }
-    out.push(
-      {id: 'state', label: allOpen ? `Close${noun ? ` ${noun}` : ''}` : `Reopen${noun ? ` ${noun}` : ''}`, icon: allOpen ? CircleCheck : CircleDot, keywords: 'close reopen state', run: () => {
+    if (closeable) {
+      out.push({id: 'state', label: allOpen ? `Close${noun ? ` ${noun}` : ''}` : `Reopen${noun ? ` ${noun}` : ''}`, icon: allOpen ? CircleCheck : CircleDot, keywords: 'close reopen state', run: () => {
         setState(app, issues, allOpen ? 'closed' : 'open');
-      }},
+        // Undo (Linear): the same edit back, as one more intent (it cancels out offline).
+        notify(app, {tone: 'neutral', title: allOpen ? `Closed ${noun || (one ? `#${String(one.data.number)}` : '')}` : `Reopened ${noun || (one ? `#${String(one.data.number)}` : '')}`, action: {label: 'Undo', run: () => {
+          setState(app, issues, allOpen ? 'open' : 'closed');
+        }}});
+      }});
+    }
+    if (write) out.push(
       {id: 'status', label: 'Change status…', icon: CircleDashed, shortcut: 'issue.state', keywords: 'workflow state', run: () => {
         openPicker(app, 'status', ids);
       }},
@@ -93,6 +113,9 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
         }},
         {id: 'new-tab', label: 'Open in a new tab', icon: ExternalLink, run: () => {
           window.open(url, '_blank', 'noopener');
+        }},
+        {id: 'classic', label: 'Open in the classic UI', icon: AppWindow, keywords: 'old forgejo project time tracking', run: () => {
+          location.assign(classicHref(app, path));
         }},
       );
     }

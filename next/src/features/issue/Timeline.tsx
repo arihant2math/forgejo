@@ -22,7 +22,7 @@ import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {issueComments} from '../../intents/view.ts';
-import {firstOf, priorityIcon, statusIcon, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
+import {firstOf, priorityIcon, statusIcon, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue} from '../issues/labels.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {CommentActions, CommentBody} from './Editing.tsx';
@@ -79,14 +79,19 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
 });
 
 /** The author's name; an observer, so a profile arriving after the timeline renders shows. */
-const Who = observer(function Who({id, fallback}: {id: number; fallback?: string}) {
-  const u = useUser(id);
-  return <span className="font-medium text-fg">{id ? u.name : firstOf(fallback ?? '', 'Someone')}</span>;
-});
+function Who({id, fallback}: {id: number; fallback?: string}) {
+  return <UserName id={id} fallback={firstOf(fallback ?? '', 'Someone')}/>;
+}
 
 /** When, compact, with the full date on hover. */
 function When({at}: {at: string}) {
   return <time dateTime={at} title={fullDate(at)} className="text-fg-subtle">{agoWords(at)}</time>;
+}
+
+/** "edited": a comment changed after it was posted (Forgejo counts its edits: content_version; the time on hover). */
+export function Edited({updated, version}: {updated: string; version: number}) {
+  if (!(version > 0)) return null;
+  return <span className="text-sm text-fg-subtle" title={`Edited ${fullDate(updated)}`}>edited</span>;
 }
 
 /** A card: comments and reviews. */
@@ -133,6 +138,7 @@ function CommentCard({c, type}: {c: Entity<'Comment'>; type: string}) {
   return (
     <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
       badge={<>
+        <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
         {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
         {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
           setEdit(true);

@@ -7,7 +7,6 @@
 // and, once the job finished, is kept by (job, task) in the code cache, so
 // a finished log opens offline and never streams again.
 
-import {useNavigate} from '@tanstack/react-router';
 import {Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
@@ -23,7 +22,8 @@ import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
-import {CodeLink, codeTo} from './nav.tsx';
+import {CodeLink, useCodeRows} from './nav.tsx';
+import {RepoClassic} from './Refs.tsx';
 import {RowList} from './RowList.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
@@ -57,8 +57,8 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
 }
 
 export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
+  const rows = useCodeRows<ActionRun>(props.owner, props.repo, (r) => `actions/runs/${String(r.run_number)}`);
   const pool = usePool();
-  const navigate = useNavigate();
   const runs = [...pool.model('ActionRun').by('repo_id', props.repoId)].map((r) => r.data).sort((a, b) => b.run_number - a.run_number);
   return (
     <CodeFrame view={props} title="Actions">
@@ -72,9 +72,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
               trailing: <><span className="font-mono">{r.ref.replace(/^refs\/(heads|tags)\//, '')}</span><span>{r.event}</span><time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time></>,
             };
           }}
-          onOpen={(r) => {
-            void navigate(codeTo(props.owner, props.repo, `actions/runs/${String(r.run_number)}`));
-          }}/> :
+          onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
         <EmptyState icon={Workflow} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
     </CodeFrame>
   );
@@ -90,19 +88,26 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
   const pool = usePool();
   const run = findRun(pool, props.repoId, props.run);
   const jobs = run ? [...pool.model('ActionRunJob').by('run_id', run.id)].map((j) => j.data).sort((a, b) => a.id - b.id) : [];
-  const job = jobs[props.job];
+  // A run opened without a job shows the one to look at first: the first that failed, else one still going.
+  const first = props.job >= 0 ? props.job : (() => {
+    const failed = jobs.findIndex((j) => j.status === 'failure');
+    if (failed >= 0) return failed;
+    const running = jobs.findIndex((j) => j.status === 'running');
+    return running >= 0 ? running : 0;
+  })();
+  const job = jobs[first];
   const look = statusLook(run?.status ?? '');
   return (
-    <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <Status tone={look.tone}>{look.text}</Status>}>
+    <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <><Status tone={look.tone}>{look.text}</Status><RepoClassic {...props} path={`actions/runs/${String(run.run_number)}`}>Re-run or cancel</RepoClassic></>}>
       {(scroller) => (!run ?
         <EmptyState icon={Workflow} title="Run not found" description="This run does not exist, or is not on this device."/> :
-        <div className="flex min-h-full">
-          <nav aria-label="Jobs" className="sticky top-0 left-0 w-pane shrink-0 self-start border-r border-border py-2">
+        <div className="flex min-h-full flex-col @xl:flex-row">
+          <nav aria-label="Jobs" className="shrink-0 border-b border-border py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
             {jobs.map((j, i) => {
               const jl = statusLook(j.status);
               return (
                 <CodeLink key={j.id} owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
-                  <ListRow role="presentation" active={i === props.job} leading={<StatusDot tone={jl.tone}/>} trailing={jl.text}>{j.name}</ListRow>
+                  <ListRow role="presentation" active={i === first} leading={<StatusDot tone={jl.tone}/>} trailing={jl.text}>{j.name}</ListRow>
                 </CodeLink>
               );
             })}

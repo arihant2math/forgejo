@@ -8,18 +8,18 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {Link, useLocation, useNavigate, useParams, useSearch} from '@tanstack/react-router';
-import {CircleDot, SearchX} from 'lucide-react';
-import {runInAction} from 'mobx';
+import {Link, useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
+import {CircleDot, Lock, SearchX} from 'lucide-react';
+import {canWrite} from '../../app/access.ts';
+import {issueLocked, issueTitle} from '../../intents/view.ts';
+import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useState} from 'react';
-import {AvailableOffline} from '../../app/Available.tsx';
+import {useEffect, useState} from 'react';
 import {lazyComponent, whenIdle} from '../../app/lazy.tsx';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {connectivity} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
-import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
@@ -27,13 +27,14 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {EmptyState, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
+import {Icon, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
-import {PendingCell, StateIcon, TitleCell, usePool, useUser} from '../issues/cells.tsx';
+import {PendingCell, StateIcon, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
-import {RepoContext, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
-import {BodySection, CommentComposer, Overrides} from './Editing.tsx';
+import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
+import {Missing} from '../../app/Missing.tsx';
+import {BodySection, CommentComposer, Overrides, TitleSection} from './Editing.tsx';
 import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
@@ -56,20 +57,18 @@ export function IssueView() {
   // An issue created offline is at "new-<tempId>" until Forgejo numbers it (then the URL is replaced).
   const temp = TEMP_PATH.exec(raw)?.[1];
   const index = temp ? tempNum(temp) : /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;
-  const pulls = useLocation({select: (l) => /\/pulls\/[^/]+\/?$/.test(l.pathname)});
-  const context = <RepoContext owner={owner} repo={repo} pulls={pulls}/>;
   if (repoId === undefined) {
     return (
       <>
-        <PageHeader context={context} title={`#${String(index)}`}/>
-        <PageBody><Unavailable/></PageBody>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} title={`#${String(index)}`}/>
+        <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
   }
-  return <IssuePage key={`${String(repoId)}#${String(index)}`} repoId={repoId} index={index} context={context}/>;
+  return <IssuePage key={`${String(repoId)}#${String(index)}`} repoId={repoId} index={index}/>;
 }
 
-const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId: number; index: number; context: ReactNode}) {
+const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; index: number}) {
   const pool = usePool();
   const app = useApp();
   const {overlay, intents} = editing(app);
@@ -85,11 +84,12 @@ const IssuePage = observer(function IssuePage({repoId, index, context}: {repoId:
   const issue = index < 0 ? created ?? overlay.createdEntity('Issue', index) as Entity<'Issue'> | undefined : findIssue(pool, repoId, index);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const tab = useSearch({strict: false, select: (s: {tab?: PullTabName}) => s.tab});
-  if (!issue) return <NotHere repoId={repoId} index={index} context={context}/>;
+  if (!issue) return <NotHere owner={owner} repo={repo} repoId={repoId} index={index}/>;
   const pull = issue.get('is_pull') && index > 0;
   return (
     <>
-      <PageHeader context={context} title={<IssueTitle issue={issue} index={index}/>}/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} title={<IssueTitle issue={issue} index={index}/>}
+        docTitle={`${issueTitle(editing(app).overlay, issue)} · ${index > 0 ? `#${String(index)}` : 'New'}`}/>
       {pull && <PullTabs owner={owner} repo={repo} index={String(index)} tab={tab}/>}
       <PageBody ref={setScroller}>
         {pull && tab ? <PullTab issue={issue} owner={owner} repo={repo} tab={tab}/> : <IssueContent issue={issue} scroller={scroller}/>}
@@ -148,10 +148,20 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
   useShortcut('issue.assignee', pick('assignees'));
   useShortcut('issue.milestone', pick('milestone'));
   useShortcut('issue.priority', pick('priority'));
+  // Esc: back to where the issue was opened from (a list, with its filters and scroll), else its repository's list.
+  const router = useRouter();
+  useShortcut('issue.back', () => {
+    if (router.history.canGoBack()) router.history.back();
+    else {
+      const r = untracked(() => app.session?.data.pool.model('Repository').get(issue.data.repo_id)?.data);
+      if (r) void router.navigate({to: issue.data.is_pull ? '/$owner/$repo/pulls' : '/$owner/$repo/issues', params: {owner: r.owner_name, repo: r.name}});
+    }
+  });
   return (
-    <div className="flex min-h-full">
-      <article className="flex min-w-0 flex-1 flex-col gap-3 px-8 py-6">
-        <h2 className="text-xl font-semibold text-fg"><TitleCell issue={issue}/></h2>
+    // The properties beside the conversation when the page is wide, under it when it is not (a phone, a narrow window).
+    <div className="flex min-h-full flex-col @xl:flex-row">
+      <article className="flex min-w-0 flex-1 flex-col gap-3 px-4 py-4 @xl:px-8 @xl:py-6">
+        <TitleSection issue={issue}/>
         <Byline issue={issue}/>
         <Overrides issueId={issue.id}/>
         <BodySection issue={issue}/>
@@ -159,17 +169,27 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
         <div className="mt-4 border-t border-border-subtle pt-2">
           <Timeline issueId={issue.id} scroller={scroller}/>
           {issue.get('is_pull') && issue.id > 0 && <MergeBox issue={issue}/>}
-          <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>
+          <Composer issue={issue}/>
         </div>
       </article>
-      <aside aria-label="Properties" className="w-pane shrink-0 border-l border-border">
-        <div className="sticky top-0 p-4">
+      <aside aria-label="Properties" className="order-first shrink-0 border-b border-border @xl:order-none @xl:w-pane @xl:border-b-0 @xl:border-l">
+        <div className="p-4 @xl:sticky @xl:top-0">
           <IssueSidebar issue={issue}/>
         </div>
       </aside>
     </div>
   );
 }
+
+/** The comment box; a locked conversation takes comments from writers only (Forgejo's rule). */
+const Composer = observer(function Composer({issue}: {issue: Entity<'Issue'>}) {
+  const session = useSession();
+  const locked = issueLocked(editing(useApp()).overlay, issue);
+  if (locked && !canWrite(session, issue.get('repo_id'))) {
+    return <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><Icon icon={Lock} size="sm"/>This conversation is locked: only collaborators can comment.</p>;
+  }
+  return <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>;
+});
 
 /** The header's title: the state icon, the number and the title (the page's h1; the body repeats the title large). */
 const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'Issue'>; index: number}) {
@@ -182,19 +202,19 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
 });
 
 const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
-  const author = useUser(issue.get('poster_id'));
+
   const at = issue.get('created_at');
-  const name = issue.get('poster_id') ? author.name : issue.get('original_author') || 'Someone';
+
   return (
     <p className="text-base text-fg-muted">
-      <span className="font-medium text-fg">{name}</span> opened this <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
+      <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
     </p>
   );
 });
 
 /** The issue is not in the pool: an older closed one loads with the closed tier's pages; otherwise it is not here. */
-const NotHere = observer(function NotHere({repoId, index, context}: {repoId: number; index: number; context: ReactNode}) {
+const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: string; repo: string; repoId: number; index: number}) {
   const {data} = useSession();
   const pager = closedPager(data, `repo:${String(repoId)}`);
   useEffect(() => {
@@ -205,13 +225,12 @@ const NotHere = observer(function NotHere({repoId, index, context}: {repoId: num
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>
-      <PageHeader icon={CircleDot} context={context} title={`#${String(index)}`}/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={`#${String(index)}`}/>
       <PageBody>
         {searching ?
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
-          !offline ?
-            <EmptyState icon={SearchX} title="Not found" description="This issue does not exist, or you cannot see it."/> :
-            <EmptyState icon={SearchX} title="Not available offline" description="This issue is not on this device. Connect to load it, or open one of these:" action={<AvailableOffline/>}/>}
+          <Missing what="This issue" icon={SearchX} title="Not found"
+            classic={index > 0 ? `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${String(index)}` : undefined}/>}
       </PageBody>
     </>
   );

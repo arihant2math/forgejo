@@ -14,6 +14,8 @@ export interface Splash {
   theme?: ThemePreference;
   /** Sidebar width in CSS px; clamped to [SIDEBAR_MIN, SIDEBAR_MAX]. */
   sidebarWidth?: number;
+  /** The sidebar is collapsed (wide screens; narrow ones always show it as a drawer). */
+  sidebarHidden?: boolean;
   /** Shape of the last route, so the skeleton matches the page that renders. */
   skeleton?: {shape?: SkeletonShape; rows?: number};
   /**
@@ -58,6 +60,7 @@ export function applySplash(win: Window): void {
     const w = Math.round(Math.min(480, Math.max(180, s.sidebarWidth)));
     html.style.setProperty('--sidebar-width', `${w}px`);
   }
+  if (s.sidebarHidden === true) html.dataset.sidebar = 'hidden';
   html.dataset.shell = typeof s.user === 'string' && s.user ? 'app' : 'logged-out';
   const sk = s.skeleton ?? {};
   html.dataset.skeleton = sk.shape === 'detail' ? 'detail' : 'list';

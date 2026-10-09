@@ -11,35 +11,53 @@ import {observer} from 'mobx-react-lite';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {Project} from '../../protocol/types.gen.ts';
-import {Badge, EmptyState, Entry, EntryList, Icon, SectionHeading, TextLink} from '../../ui/index.ts';
+import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {Badge, EmptyState, Entry, EntryList, Icon, Panel, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
+
+interface Place {
+  key: string;
+  /** The repository's owner and name, or the owner alone. */
+  owner: string;
+  repo?: string | undefined;
+}
 
 export const BoardsList = observer(function BoardsList() {
   const pool = usePool();
   const projects = [...pool.model('Project').all()].map((e) => e.data);
-  const owner = (p: Project) => pool.model('Repository').get(p.repo_id)?.get('full_name') ?? pool.model('User').get(p.owner_id)?.get('login') ?? '';
-  const groups = new Map<string, Project[]>();
+  const place = (p: Project): Place => {
+    const r = pool.model('Repository').get(p.repo_id)?.data;
+    if (r) return {key: r.full_name, owner: r.owner_name, repo: r.name};
+    const u = pool.model('User').get(p.owner_id)?.data;
+    return {key: u?.login ?? '', owner: u?.login ?? ''};
+  };
+  const groups = new Map<string, {place: Place; list: Project[]}>();
   for (const p of projects.sort((a, b) => Number(a.closed) - Number(b.closed) || a.title.localeCompare(b.title))) {
-    const k = owner(p);
-    let g = groups.get(k);
-    if (!g) groups.set(k, g = []);
-    g.push(p);
+    const pl = place(p);
+    let g = groups.get(pl.key);
+    if (!g) groups.set(pl.key, g = {place: pl, list: []});
+    g.list.push(p);
   }
-  const sorted = [...groups].sort((a, b) => a[0].localeCompare(b[0]));
+  const sorted = [...groups.values()].sort((a, b) => a.place.key.localeCompare(b.place.key));
   return (
     <>
       <PageHeader icon={KanbanSquare} title="Boards"/>
       <PageBody>
         {sorted.length === 0 ?
           <EmptyState icon={KanbanSquare} title="No boards on this device" description="Projects of your repositories and organizations show here."/> :
-          <div className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-6">
-            {sorted.map(([name, list]) => (
-              <section key={name} aria-labelledby={`boards-${name}`}>
-                <SectionHeading id={`boards-${name}`}>{name || 'Other'}</SectionHeading>
+          <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-6">
+            {sorted.map(({place: pl, list}) => (
+              <Panel key={pl.key} label={pl.key || 'Other'} padded
+                title={pl.repo ?
+                  <TextLink><Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}}>{pl.key}</Link></TextLink> :
+                  pl.owner ? <TextLink><Link to="/-/next/$owner" params={{owner: pl.owner}}>{pl.owner}</Link></TextLink> : 'Other'}
+                actions={pl.owner && (
+                  <ClassicLink size="sm" to={pl.repo ? `/${encodeURIComponent(pl.owner)}/${encodeURIComponent(pl.repo)}/projects/new` : `/${encodeURIComponent(pl.owner)}/-/projects/new`}>New board</ClassicLink>
+                )}>
                 <EntryList>
                   {list.map((p) => <BoardEntry key={p.id} project={p}/>)}
                 </EntryList>
-              </section>
+              </Panel>
             ))}
           </div>}
       </PageBody>

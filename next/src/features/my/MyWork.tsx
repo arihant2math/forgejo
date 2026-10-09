@@ -16,7 +16,8 @@ import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
 
 const TYPES: {type: MyListType | undefined; label: string}[] = [
-  {type: undefined, label: 'All'},
+  // Everything open in the repositories of the workspace (Forgejo's "In your repositories"), not only the viewer's own.
+  {type: undefined, label: 'Your repositories'},
   {type: 'assigned', label: 'Assigned'},
   {type: 'created_by', label: 'Created'},
   {type: 'mentioned', label: 'Mentioned'},

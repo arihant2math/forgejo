@@ -6,12 +6,13 @@
 // leaf, so a delta re-renders the row it changed and nothing else.
 
 import {Link, useRouterState} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest, Inbox, KanbanSquare, Search, SquarePen} from 'lucide-react';
+import {CircleDot, GitPullRequest, Inbox, KanbanSquare, PanelLeftClose, Search, SquarePen} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useEffect, useState} from 'react';
 import {groupId, groupKind} from '../../data/models.ts';
-import {Avatar, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
+import {Avatar, IconButton, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
+import {repoOfPath} from '../paths.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
@@ -19,6 +20,7 @@ import {openCreate} from '../create.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
+import {toggleSidebar} from './sidebar.ts';
 
 /** New issue (C): Linear's compose button, at the top. */
 function SidebarCreate() {
@@ -111,10 +113,13 @@ function owners(session: Session): Owner[] {
   return list.sort((a, b) => Number(b.id === userId) - Number(a.id === userId) || a.login.localeCompare(b.login));
 }
 
+/** A repository: its home; current on every page of it (lists, issues, code). */
 const RepoItem = memo(function RepoItem({owner, name}: {owner: string; name: string}) {
+  const key = `${owner}/${name}`.toLowerCase();
+  const current = useRouterState({select: (s) => repoOfPath(s.location.pathname) === key});
   return (
     <NavItem asChild inset label={name}>
-      <Link to="/$owner/$repo/issues" params={{owner, repo: name}} activeOptions={{includeSearch: false, exact: false}}/>
+      <Link to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : undefined}/>
     </NavItem>
   );
 });
@@ -226,7 +231,10 @@ export function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <AccountMenu/>
+        <div className="flex min-w-0 items-center gap-1">
+          <div className="min-w-0 flex-1"><AccountMenu/></div>
+          <IconButton size="sm" icon={PanelLeftClose} label="Hide the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/>
+        </div>
         <SidebarCreate/>
         <SidebarSearch/>
       </SidebarTop>

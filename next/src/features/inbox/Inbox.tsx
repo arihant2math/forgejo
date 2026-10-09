@@ -18,6 +18,8 @@ import {autorun, computed, createAtom, type IComputedValue, observable, runInAct
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
+import {sitePath} from '../../app/config.ts';
+import {notify} from '../../app/notices.ts';
 import type {InboxSearch} from '../../app/search.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
@@ -36,7 +38,7 @@ import {AgoCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cell
 import {issuePath} from '../issues/edits.ts';
 import {ListCursor} from '../issues/flags.ts';
 import {setStatus} from './actions.ts';
-import {type InboxResult, inboxRows, togglePin} from './inbox.ts';
+import {activityOf, type InboxResult, inboxRows, togglePin} from './inbox.ts';
 
 const ROW = 32; // ListRow's h-row
 const route = getRouteApi('/shell/notifications');
@@ -59,7 +61,7 @@ class InboxModel {
     this.overlay = overlay;
     this.view = view;
     this.off = pool.onApplied((changes) => {
-      if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository')) return;
+      if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository' || c.model === 'Issue')) return;
       this.scheduled = true;
       requestAnimationFrame(() => {
         this.scheduled = false;
@@ -88,9 +90,11 @@ class InboxModel {
     return untracked(() => {
       const t0 = performance.now();
       // Already in order: inboxRows' own sort of a sorted list is linear.
+      const issues = this.pool.model('Issue');
       const out = inboxRows(all, {unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
         status: (n) => (statuses.get(n.id) as string | undefined) ?? n.status,
         repoName: (id) => this.pool.model('Repository').get(id)?.data.full_name ?? '',
+        activity: (n) => activityOf(n, issues.get(n.issue_id)?.data.updated_at),
       });
       try {
         performance.measure('inbox:query', {start: t0, end: performance.now(), detail: {rows: out.rows.length}});
@@ -128,7 +132,17 @@ export default function Inbox() {
     void navigate({to: '.', replace: true, search: Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)) as InboxSearch});
   };
   const readAll = () => {
-    setStatus(app, untracked(() => model.result.get().ids), (st) => (st === 'unread' ? 'read' : undefined));
+    // Undo (Linear): the notifications this marked read become unread again.
+    const ids = untracked(() => model.result.get().ids);
+    const unread = untracked(() => ids.filter((id) => {
+      const n = data.pool.model('Notification').get(id);
+      return n && notificationStatus(editing(app).overlay, n) === 'unread';
+    }));
+    if (!unread.length) return;
+    setStatus(app, unread, (st) => (st === 'unread' ? 'read' : undefined));
+    notify(app, {tone: 'neutral', title: `Marked ${String(unread.length)} read`, action: {label: 'Undo', run: () => {
+      setStatus(app, unread, (st) => (st === 'read' ? 'unread' : undefined));
+    }}});
   };
   useShortcutScope('inbox');
   useShortcut('inbox.readAll', readAll);
@@ -175,6 +189,9 @@ const InboxBody = observer(function InboxBody({model, unreadOnly}: {model: Inbox
 
 const rowId = (id: number) => `inbox-row-${String(id)}`;
 
+/** The cursor's notification when the inbox was left (Back finds it where it was). Per tab. */
+let lastCursor: number | undefined;
+
 const InboxList = observer(function InboxList({model, scroller}: {model: InboxModel; scroller: HTMLDivElement | null}) {
   const app = useApp();
   const navigate = useNavigate();
@@ -212,11 +229,21 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
   }, [ids, cursor]);
   useEffect(() => autorun(() => {
     const [id] = cursor.active.values();
+    if (id !== undefined) lastCursor = id;
     const el = listRef.current;
     if (!el) return;
     if (id === undefined) el.removeAttribute('aria-activedescendant');
     else el.setAttribute('aria-activedescendant', rowId(id));
   }), [cursor]);
+  // Back in the inbox: the cursor is where it was.
+  useLayoutEffect(() => {
+    if (lastCursor === undefined || cursor.activeId !== undefined) return;
+    const at = untracked(() => model.result.get().rows.findIndex((r) => r.type === 'note' && r.id === lastCursor));
+    if (at < 0) return;
+    cursor.setActive(lastCursor);
+    virtualizer.scrollToIndex(at, {align: 'auto'});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the list mounts
+  }, []);
 
   const open = (id: number, newTab = false) => {
     const s = app.session;
@@ -376,7 +403,9 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick}: {n: Enti
   const issue = pool.model('Issue').get(n.get('issue_id'));
   const repo = pool.model('Repository').get(n.get('repo_id'));
   const unread = status === 'unread';
-  const at = n.get('updated_at');
+  const at = activityOf(n.data, issue?.get('updated_at'));
+  const app = useApp();
+  const path = issue && issuePath(app, issue);
   return (
     <ListRow
       role="option"
@@ -384,7 +413,12 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick}: {n: Enti
       data-note={n.id}
       active={cursor.active.has(n.id)}
       selected={cursor.selected.has(n.id)}
+      // A link (middle-click, a new tab); a plain click opens it here and marks it read.
+      href={path ? sitePath(app.config, path) : undefined}
+      tabIndex={-1}
       onClick={(e) => {
+        if (path && (e.metaKey || e.ctrlKey) && !e.shiftKey) return;
+        e.preventDefault();
         onClick(n.id, e);
       }}
       leading={<>

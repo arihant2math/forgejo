@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {ReactNode} from 'react';
+import {type ReactNode, useState} from 'react';
 import {cx} from './cx.ts';
 
 const sizes = {sm: 'size-4 text-xs', md: 'size-5 text-xs', lg: 'size-6 text-sm'} as const;
@@ -24,9 +24,16 @@ export type AvatarProps = {
 );
 
 export function Avatar({size = 'md', ...props}: AvatarProps) {
+  // A picture that cannot load (offline and not kept, gone) gives way to the initial, never a broken image.
+  const [failed, setFailed] = useState<string | undefined>(undefined);
   const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-border-strong font-medium text-fg select-none', sizes[size]);
   if (props.fromSplash) return <span aria-hidden className={cx(cls, 'splash-initial')}/>;
-  if (props.src) return <img src={props.src} alt={props.name} loading="lazy" decoding="async" className={cx(cls, 'object-cover')}/>;
+  if (props.src && failed !== props.src) {
+    const src = props.src;
+    return <img src={src} alt={props.name} loading="lazy" decoding="async" className={cx(cls, 'object-cover')} onError={() => {
+      setFailed(src);
+    }}/>;
+  }
   return <span role="img" aria-label={props.name} className={cls}>{initial(props.name)}</span>;
 }
 

@@ -14,15 +14,19 @@
 
 import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, Star, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, SquareMinus, Star, Trash2} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {canEditBoard, confirmAccess} from '../../app/access.ts';
+import {classicHref} from '../../app/classic.ts';
+import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {activeHint, formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {classicOfHere} from '../../app/session.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
@@ -92,11 +96,23 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
   const pool = usePool();
   const repo = pool.model('Repository').get(project.get('repo_id'));
   const owner = pool.model('User').get(project.get('owner_id'));
-  const name = repo?.get('full_name') ?? owner?.get('login');
+  const login = owner?.get('login');
   return (
     <>
       <TextLink><Link to="/-/next/boards">Boards</Link></TextLink>
-      {name && <><Icon icon={Slash} size="sm" className="text-fg-subtle"/><span className="min-w-0 truncate">{name}</span></>}
+      {repo ? (
+        <>
+          <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+          <TextLink><Link to="/-/next/$owner" params={{owner: repo.get('owner_name')}}>{repo.get('owner_name')}</Link></TextLink>
+          <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+          <TextLink><Link to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}}>{repo.get('name')}</Link></TextLink>
+        </>
+      ) : login && (
+        <>
+          <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+          <TextLink><Link to="/-/next/$owner" params={{owner: login}}>{login}</Link></TextLink>
+        </>
+      )}
     </>
   );
 });
@@ -110,6 +126,13 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const app = useApp();
   const navigate = useNavigate();
   const projectId = project.id;
+  const session = useSession();
+  // Readers see the board; only those who may change it get drag and drop, moves and column edits.
+  const editable = canEditBoard(session, project.data);
+  const repoForAccess = boardRepo(session, project.get('repo_id'));
+  useEffect(() => {
+    if (repoForAccess) confirmAccess(app, repoForAccess.owner_name, repoForAccess.name, repoForAccess.id);
+  }, [app, repoForAccess]);
   const [model] = useState(() => new BoardModel(app, projectId));
   const [dragging] = useState(() => new KeyedFlags());
   const boardRef = useRef<HTMLDivElement>(null);
@@ -201,6 +224,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     if (next !== undefined) show(next);
   };
   const shift = (dCol: number, dRow: number) => {
+    if (!editable) return;
     const cur = here();
     if (!cur?.at) return;
     const {layout, at} = cur;
@@ -255,8 +279,8 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   useShortcut('issue.priority', pick('priority'));
 
   // Cards call back through a ref: their props stay the same objects across renders.
-  const actions = useRef({open, dnd});
-  actions.current = {open, dnd};
+  const actions = useRef({open, dnd, editable});
+  actions.current = {open, dnd, editable};
   const [cardHandlers] = useState(() => ({
     click: (id: number, e: {metaKey: boolean; ctrlKey: boolean}) => {
       if (!actions.current.dnd.click()) return;
@@ -264,7 +288,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       actions.current.open(id, e.metaKey || e.ctrlKey);
     },
     down: (id: number, e: PointerEvent) => {
-      actions.current.dnd.down(e, id);
+      if (actions.current.editable) actions.current.dnd.down(e, id);
     },
   }));
   const onKeyDown = (e: KeyboardEvent) => {
@@ -288,6 +312,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         {closed && <Badge tone="done">Closed</Badge>}
         {hidden > 0 && <Badge>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Badge>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
+        {editable && <ClassicLink size="sm" to={`${classicOfHere(app, `/-/next/projects/${String(project.id)}`)}/edit`}>Edit board</ClassicLink>}
       </PageHeader>
       <ContextMenu onOpenChange={(o) => {
         if (!o) setMenuCard(undefined);
@@ -309,14 +334,14 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
               model.cursor.setActive(id);
             }}>
             {columns.map((c, i) => (
-              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register}/>
+              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}/>
             ))}
             {columns.length === 0 && <EmptyState icon={Columns3} title="No columns yet" description="Add a column to start the board."/>}
-            <AddColumn projectId={projectId}/>
+            {editable && <AddColumn projectId={projectId}/>}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          {menuCard !== undefined && <CardMenu model={model} issueId={menuCard} open={open}/>}
+          {menuCard !== undefined && <CardMenu model={model} issueId={menuCard} open={open} editable={editable}/>}
         </ContextMenuContent>
       </ContextMenu>
       <DropIndicator ref={indicatorRef}/>
@@ -334,14 +359,19 @@ const ClosedTierBadge = observer(function ClosedTierBadge({repoId}: {repoId: num
   return <Badge tone="warning">Older closed cards may be missing</Badge>;
 });
 
+function boardRepo(s: ReturnType<typeof useSession>, repoId: number) {
+  return repoId ? s.data.pool.model('Repository').get(repoId)?.data : undefined;
+}
+
 /** A card's menu: the issue's actions (as in lists and the palette) and moves to other columns (touch included). */
-function CardMenu({model, issueId, open}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void}) {
+function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void; editable: boolean}) {
   const app = useApp();
   const layout = untracked(() => model.layout.get());
   const at = findCard(layout, issueId);
   const issue = untracked(() => app.session?.data.pool.model('Issue').get(issueId));
   const ci = layout.columns.findIndex((c) => c.id === at?.column);
   const actions = issue ? issueActions(app, [issue]).filter((a) => a.id !== 'open') : [];
+  const path = issue && issuePath(app, issue);
   const moveBy = (d: number) => {
     const col = layout.columns[ci + d];
     if (col) model.move(issueId, col.id, Math.min(at?.index ?? 0, layout.cards.get(col.id)?.length ?? 0));
@@ -351,6 +381,7 @@ function CardMenu({model, issueId, open}: {model: BoardModel; issueId: number; o
       <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
         open(issueId);
       }}>Open</ContextMenuItem>
+      {editable && <>
       <ContextMenuSeparator/>
       <ContextMenuItem icon={ArrowLeft} shortcut={shortcutHint('board.moveLeft')} disabled={ci <= 0} onSelect={() => {
         moveBy(-1);
@@ -365,12 +396,20 @@ function CardMenu({model, issueId, open}: {model: BoardModel; issueId: number; o
           }}>{c.title}</ContextMenuItem>
         ))}
       </ContextMenuSub>
+      </>}
       {actions.length > 0 && <ContextMenuSeparator/>}
       {actions.map((a) => (
         <ContextMenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && activeHint(a.shortcut)} onSelect={() => {
           a.run();
         }}>{a.label}</ContextMenuItem>
       ))}
+      {path && editable && (
+        <>
+          <ContextMenuSeparator/>
+          {/* No API removes a card (B9): the issue's classic page sets its projects. */}
+          <ContextMenuItem icon={SquareMinus} href={classicHref(app, path)} hint="classic">Remove from the board…</ContextMenuItem>
+        </>
+      )}
     </>
   );
 }
@@ -382,9 +421,9 @@ interface CardHandlers {
 
 const cardDomId = (id: number) => `card-${String(id)}`;
 
-const Column = observer(function Column({model, column, index, count, dragging, handlers, register}: {
+const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable}: {
   model: BoardModel; column: ProjectColumn; index: number; count: number; dragging: KeyedFlags; handlers: CardHandlers;
-  register: (id: number, h: ColumnHandle | undefined) => void;
+  register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean;
 }) {
   const cards = model.cards(column.id);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -419,7 +458,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
   return (
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
       leading={column.color ? <LabelDot color={column.color}/> : null}
-      actions={<ColumnMenu model={model} column={column} index={index} count={count}/>}>
+      actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count}/> : undefined}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative w-full outline-none"
         style={{height: virtualizer.getTotalSize()}}
         onFocus={(e) => {
@@ -445,7 +484,11 @@ const Column = observer(function Column({model, column, index, count, dragging, 
 });
 
 const CardItem = observer(function CardItem({issueId, model, dragging, handlers}: {issueId: number; model: BoardModel; dragging: KeyedFlags; handlers: CardHandlers}) {
-  const issue = usePool().model('Issue').get(issueId);
+  const pool = usePool();
+  const issue = pool.model('Issue').get(issueId);
+  // On a board of several repositories (an organization's or a user's), each card says whose it is.
+  const project = pool.model('Project').get(model.projectId);
+  const repoName = issue && project && project.get('repo_id') !== issue.get('repo_id') ? pool.model('Repository').get(issue.get('repo_id'))?.get('name') : undefined;
   const ref = useRef<HTMLDivElement>(null);
   // A native listener: React's synthetic pointer events are delegated (one more hop) and passive-agnostic.
   useEffect(() => {
@@ -467,7 +510,7 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
       }}
       meta={<>
         <StatusCell issue={issue}/>
-        <span>#{issue.get('number')}</span>
+        <span className="min-w-0 truncate">{repoName}#{issue.get('number')}</span>
         <PendingCell issueId={issueId}/>
         <span className="ml-auto flex items-center gap-1"><PriorityCell issue={issue}/><AssigneesCell issue={issue}/></span>
       </>}

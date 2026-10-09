@@ -27,6 +27,8 @@ import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp} from '../../app/store.ts';
+import type {Entity} from '../../data/entity.ts';
+import {editing} from '../../intents/session.ts';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Icon, LabelIcon, ListGroupHeader, ListRow,
 } from '../../ui/index.ts';
@@ -274,8 +276,12 @@ interface RowHandlers {
 const rowId = (id: number) => `issue-row-${String(id)}`;
 
 const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {id: number; cursor: ListCursor; handlers: RowHandlers; showRepo: boolean}) {
+  const app = useApp();
   const pool = usePool();
-  const issue = pool.model('Issue').get(id);
+  // An issue created on this device and not synced yet is in the overlay (temporary, negative id).
+  const issue = pool.model('Issue').get(id) ?? (id < 0 ? editing(app).overlay.createdEntity('Issue', id) as Entity<'Issue'> | undefined : undefined);
+  // A real link: middle-click, ⌘-click and "open in a new tab" are the browser's own; a plain click opens it here.
+  const path = issue && issuePath(app, issue);
   const active = cursor.active.has(id);
   const selected = cursor.selected.has(id);
   if (!issue) return <ListRow role="presentation"> </ListRow>;
@@ -286,17 +292,22 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
       data-issue={id}
       active={active}
       selected={selected}
+      href={path ? sitePath(app.config, path) : undefined}
+      tabIndex={-1}
       onClick={(e) => {
+        if (path && (e.metaKey || e.ctrlKey) && !e.shiftKey) return;
+        e.preventDefault();
         handlers.click(id, e);
       }}
       onAuxClick={(e) => {
-        handlers.aux(id, e);
+        if (!path) handlers.aux(id, e);
       }}
       leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      trailing={<><LabelsCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
+      // Labels give way first on a narrow list (the title keeps its room).
+      trailing={<><span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
     >
       <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
-        {showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
+        {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
       <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </ListRow>

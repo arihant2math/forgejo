@@ -14,6 +14,10 @@ import type {Issue, Repository} from '../../protocol/types.gen.ts';
 export interface SearchResults {
   repos: Repository[];
   issues: {issue: Issue; repo: Repository | undefined}[];
+  /** The best scores (repositories, issues), for ranking the palette's groups against each other; -1 when none. */
+  top?: {repos: number; issues: number};
+  /** Issues the query names exactly ("atlas#85", "acme/atlas#1", "#12" in the repository on screen): first. */
+  exact?: {issue: Issue; repo: Repository | undefined}[];
   /** Every issue that matched (undefined when too many to keep): the candidates of a narrower query. */
   matched?: Issue[] | undefined;
 }
@@ -32,6 +36,8 @@ export interface SearchOptions {
   issueLimit?: number;
   /** Repositories not in the pool yet (Data.peek). */
   extraRepos?: ReadonlyMap<number, Repository>;
+  /** The repository on screen: a bare "#12" names its issue exactly. */
+  contextRepo?: number | undefined;
   /**
    * The previous keystroke's search: when this query extends it (more letters
    * or words, no issue number), only its matches can match (typing narrows;
@@ -51,15 +57,25 @@ function lower(d: object, text: () => string): string {
   return s;
 }
 
-/** The query's terms: lower-cased words; "#12" and "12" also look for issue number 12. */
-export function terms(query: string): {words: string[]; number: number | undefined} {
+/** An issue reference: "repo#12", "owner/repo#12" (lower case). */
+export interface IssueRef {
+  owner?: string | undefined;
+  repo: string;
+  number: number;
+}
+
+/** The query's terms: lower-cased words; "#12" and "12" also look for issue number 12; "repo#12" is a reference. */
+export function terms(query: string): {words: string[]; number: number | undefined; ref?: IssueRef} {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   let number: number | undefined;
+  let ref: IssueRef | undefined;
   for (const w of words) {
     const m = /^#?(\d{1,9})$/.exec(w);
     if (m?.[1]) number = Number(m[1]);
+    const r = /^(?:([\w.-]+)\/)?([\w.-]+)#(\d{1,9})$/.exec(w);
+    if (r?.[2] && r[3]) ref = {owner: r[1], repo: r[2], number: Number(r[3])};
   }
-  return {words, number};
+  return ref ? {words, number, ref} : {words, number};
 }
 
 function isBoundary(text: string, i: number): boolean {
@@ -118,8 +134,12 @@ function* dataOf<T>(entities: Iterable<{data: T}>): Iterable<T> {
 }
 
 export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}): SearchResults {
-  const {words, number} = terms(query);
-  if (!words.length) return {repos: [], issues: []};
+  const t = terms(query);
+  const {ref} = t;
+  // A reference matches by its number in the repositories it names; its other words as usual.
+  const words = ref ? t.words.filter((w) => !w.includes('#')) : t.words;
+  const number = ref ? ref.number : t.number;
+  if (!t.words.length) return {repos: [], issues: []};
   const repoLimit = opts.repoLimit ?? 6;
   const issueLimit = opts.issueLimit ?? 12;
 
@@ -129,13 +149,21 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   const seenRepos = new Set<number>();
   const considerRepo = (r: Repository) => {
     seenRepos.add(r.id);
-    const s = score(repoText(r), words);
+    const s = score(repoText(r), ref ? [ref.owner ? `${ref.owner}/${ref.repo}` : ref.repo] : words);
     if (s >= 0) pushTop(repos, {item: r, score: s, updated: r.updated_at}, repoLimit);
   };
   for (const e of repoStore.all()) considerRepo(e.data);
   if (opts.extraRepos) for (const r of opts.extraRepos.values()) if (!seenRepos.has(r.id)) considerRepo(r);
 
   const repoOf = (id: number): Repository | undefined => repoStore.get(id)?.data ?? opts.extraRepos?.get(id);
+  /** Whether an issue's repository is the one a reference names. */
+  const refRepo = (repoId: number): boolean => {
+    const r = repoOf(repoId);
+    if (!r || !ref) return false;
+    const full = r.full_name.toLowerCase();
+    return ref.owner ? full === `${ref.owner}/${ref.repo}` : full.endsWith(`/${ref.repo}`);
+  };
+  const exact: Ranked<Issue>[] = [];
   // Words other than the number match the title or the repository's name.
   const textWords = number === undefined ? words : words.filter((w) => !/^#?\d+$/.test(w));
   // Per word, the repositories whose name has it (scored once, not per issue: no string is built per issue).
@@ -177,6 +205,11 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   let matched: Issue[] | undefined = [];
   for (const issue of candidates) {
     let s: number;
+    if (number !== undefined && issue.number === number && (ref ? refRepo(issue.repo_id) : textWords.length === 0 && opts.contextRepo === issue.repo_id)) {
+      pushTop(exact, {item: issue, score: 10, updated: issue.updated_at}, 4);
+      continue;
+    }
+    if (ref && issue.number === number) continue;
     if (number !== undefined && issue.number === number) {
       const t = textWords.length ? match(issue, 0) : 0;
       if (t < 0) continue;
@@ -198,6 +231,8 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   return {
     repos: repos.map((r) => r.item),
     issues: issues.map((r) => ({issue: r.item, repo: repoOf(r.item.repo_id)})),
+    top: {repos: repos[0]?.score ?? -1, issues: issues[0]?.score ?? -1},
+    exact: exact.map((r) => ({issue: r.item, repo: repoOf(r.item.repo_id)})),
     matched,
   };
 }

@@ -93,9 +93,9 @@ describe('boot', () => {
     expect(screen.getByText('Signing in is not available on this server.')).toBeTruthy();
   });
 
-  test('unknown paths below the base: not found', async () => {
+  test('unknown paths below the base: the shell (signed out: sign in)', async () => {
     await renderApp('/-/next/no/such/page');
-    expect(screen.getByText('Not available here')).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Sign in'})).toBeTruthy();
   });
 
   test('the gallery route is available in dev', async () => {
@@ -118,10 +118,38 @@ describe('signed in', () => {
     expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['alice', 'acme']);
     const acme = within(sidebar).getByRole('group', {name: 'acme'});
     expect(within(acme).getAllByRole('link').map((a) => a.textContent)).toEqual(['api', 'website']);
-    expect(within(acme).getByRole('link', {name: 'website'}).getAttribute('href')).toBe('/acme/website/issues');
+    expect(within(acme).getByRole('link', {name: 'website'}).getAttribute('href')).toBe('/acme/website');
     expect(screen.getByRole('heading', {name: 'Home'})).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('Live');
     expect(classConflicts(document.body)).toEqual([]);
+  });
+
+  test('an unknown address keeps the shell and offers the classic page', async () => {
+    const s = signedIn();
+    await renderApp('/-/next/acme/website/settings', s);
+    expect(screen.getByRole('complementary', {name: 'Sidebar'})).toBeTruthy();
+    expect(screen.getByRole('heading', {name: 'Not found'})).toBeTruthy();
+    expect((await screen.findByRole('link', {name: /Open in the classic UI/})).getAttribute('href')).toBe('/acme/website/settings');
+    expect(screen.getByRole('link', {name: /Go to Home/})).toBeTruthy();
+  });
+
+  test('a repository\'s address below the base is its home; the sidebar marks it on all its pages', async () => {
+    const s = signedIn();
+    const {router} = await renderApp('/-/next/acme/website/', s);
+    expect(router.state.location.pathname).toBe('/acme/website');
+    const sidebar = screen.getByRole('complementary', {name: 'Sidebar'});
+    expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
+    // The repository header: the owner and the repository are links, the tabs lead everywhere.
+    const crumbs = screen.getByRole('navigation', {name: 'Breadcrumb'});
+    expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/-/next/acme');
+    const tabs = screen.getByRole('navigation', {name: 'Repository'});
+    expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Overview', 'Issues', 'Pull requests', 'Code', 'Commits', 'Branches', 'Tags', 'Releases', 'Actions']);
+    expect(within(tabs).getByRole('link', {name: 'Overview'}).getAttribute('aria-current')).toBe('page');
+    await router.navigate({to: '/$owner/$repo/issues', params: {owner: 'acme', repo: 'website'}});
+    await waitFor(() => {
+      expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: 'Issues'}).getAttribute('aria-current')).toBe('page');
+    });
+    expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
   });
 
   test('a collapsed owner stays collapsed (persisted)', async () => {
@@ -162,7 +190,7 @@ describe('signed in', () => {
     const {router, app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
     expect(app.ui.paletteOpen).toBe(true);
-    const input = await screen.findByPlaceholderText('Search repositories, issues and commands…');
+    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
     fireEvent.change(input, {target: {value: 'footer'}});
     const option = await screen.findByRole('option', {name: /Footer links are broken/});
     expect(option.textContent).toContain('acme/website#7');
@@ -176,12 +204,37 @@ describe('signed in', () => {
     expect(performance.getEntriesByName('palette:search').length).toBeGreaterThan(0);
   });
 
+  test('the palette selects its first row (never Sign out), and an exact reference first', async () => {
+    await renderApp('/', signedIn());
+    key('k', {ctrlKey: true});
+    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const selected = () => document.querySelector('[cmdk-item][data-selected="true"]')?.textContent ?? '';
+    fireEvent.change(input, {target: {value: 'sign out'}});
+    await waitFor(() => {
+      expect(screen.getByRole('option', {name: /Sign out/})).toBeTruthy();
+    });
+    expect(selected()).not.toContain('Sign out');
+    fireEvent.change(input, {target: {value: 'dark theme'}});
+    await waitFor(() => {
+      expect(selected()).toContain('Switch to the dark theme');
+    });
+    fireEvent.change(input, {target: {value: 'website#7'}});
+    await waitFor(() => {
+      expect(selected()).toContain('Footer links are broken');
+    });
+    // Repository-only commands are not offered outside a repository.
+    fireEvent.change(input, {target: {value: 'code of this repository'}});
+    await waitFor(() => {
+      expect(screen.queryByRole('option', {name: /Go to the code/})).toBeNull();
+    });
+  });
+
   test('closing the palette gives focus back to where it was', async () => {
     await renderApp('/', signedIn());
     const issues = screen.getByRole('link', {name: /My issues/});
     issues.focus();
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText('Search repositories, issues and commands…');
+    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
     await waitFor(() => {
       expect(document.activeElement).toBe(input);
     });

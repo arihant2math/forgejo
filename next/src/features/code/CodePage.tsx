@@ -9,17 +9,15 @@
 // and tags, so what was seen once is there offline.
 
 import {useParams} from '@tanstack/react-router';
-import {Code2, FileQuestion} from 'lucide-react';
+import {Code2} from 'lucide-react';
 import {type ReactNode, useState} from 'react';
 import {PageBody} from '../../app/shell/Frame.tsx';
-import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {parseCodePath} from '../../code/refs.ts';
-import {EmptyState} from '../../ui/index.ts';
-import {RepoContext, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
+import {Missing} from '../../app/Missing.tsx';
+import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {ActionsView, RunView} from './Actions.tsx';
 import {CompareView} from './Compare.tsx';
 import {CommitView, CommitsView} from './History.tsx';
-import {RepoTabs} from './nav.tsx';
 import {BranchesView, ReleasesView, TagsView} from './Refs.tsx';
 import {SrcView} from './Src.tsx';
 
@@ -39,8 +37,7 @@ export function CodeFrame({view, title, controls, children}: {view: CodeViewProp
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   return (
     <>
-      <PageHeader icon={Code2} context={<RepoContext owner={view.owner} repo={view.repo}/>} title={title}>{controls}</PageHeader>
-      <RepoTabs owner={view.owner} repo={view.repo} current={view.splat}/>
+      <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={Code2} title={title}>{controls}</RepoHeader>
       <PageBody ref={setScroller}>{children(scroller)}</PageBody>
     </>
   );
@@ -52,8 +49,8 @@ export function CodePage() {
   if (repoId === undefined) {
     return (
       <>
-        <PageHeader icon={Code2} context={<RepoContext owner={owner} repo={repo}/>} title="Code"/>
-        <PageBody><Unavailable/></PageBody>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={Code2} title="Code"/>
+        <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
   }
@@ -62,7 +59,7 @@ export function CodePage() {
   if (!route) {
     return (
       <CodeFrame view={props} title="Code">
-        {() => <EmptyState icon={FileQuestion} title="Not a page here" description="This address does not name a code view."/>}
+        {() => <Missing what="This page" description="This address does not name a code view." classic={`/${[owner, repo, ...splat.replace(/\/?-$/, '').split('/').filter(Boolean)].map(encodeURIComponent).join('/')}`}/>}
       </CodeFrame>
     );
   }

@@ -8,7 +8,10 @@
 // shows.
 
 import {Link} from '@tanstack/react-router';
-import {Bell, BellOff, CalendarClock, GitBranch} from 'lucide-react';
+import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
+import {type ReactNode, useState} from 'react';
+import {canWrite} from '../../app/access.ts';
+import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
@@ -16,8 +19,10 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueDeadline, issueMilestone, issueState, issueSubscribed} from '../../intents/view.ts';
-import {Code, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue, TextLink} from '../../ui/index.ts';
+import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
+import {
+  Button, Code, Dialog, Hint, Icon, Input, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue, TextLink,
+} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
@@ -26,34 +31,50 @@ import {scopedValue} from '../issues/labels.ts';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
+  const session = useSession();
+  // Writers change everything; a reader sees the values (Forgejo would refuse the change).
+  const write = canWrite(session, issue.get('repo_id'));
   const pick = (kind: PickerKind) => () => {
     openPicker(app, kind, [issue.id]);
   };
+  const pull = issue.get('is_pull');
   return (
     <PropertyList>
       <Property label="Status">
-        <PropertyButton label="Change status" shortcut={shortcutHint('issue.state')} onClick={pick('status')}><StatusValue issue={issue}/></PropertyButton>
+        <Editable write={write} label="Change status" shortcut={shortcutHint('issue.state')} onClick={pick('status')}><StatusValue issue={issue}/></Editable>
       </Property>
       <Property label="Priority">
-        <PropertyButton label="Set priority" shortcut={shortcutHint('issue.priority')} onClick={pick('priority')}><PriorityValue issue={issue}/></PropertyButton>
+        <Editable write={write} label="Set priority" shortcut={shortcutHint('issue.priority')} onClick={pick('priority')}><PriorityValue issue={issue}/></Editable>
       </Property>
       <Property label="Labels">
-        <PropertyButton label="Change labels" shortcut={shortcutHint('issue.labels')} onClick={pick('labels')}><LabelsValue issue={issue}/></PropertyButton>
+        <Editable write={write} label="Change labels" shortcut={shortcutHint('issue.labels')} onClick={pick('labels')}><LabelsValue issue={issue}/></Editable>
       </Property>
       <Property label="Assignees">
-        <PropertyButton label="Change assignees" shortcut={shortcutHint('issue.assignee')} onClick={pick('assignees')}><AssigneesValue issue={issue}/></PropertyButton>
+        <Editable write={write} label="Change assignees" shortcut={shortcutHint('issue.assignee')} onClick={pick('assignees')}><AssigneesValue issue={issue}/></Editable>
       </Property>
+      {pull && (
+        <Property label="Reviewers">
+          <Editable write={write} label="Request reviews" onClick={pick('reviewers')}><ReviewersValue issue={issue}/></Editable>
+        </Property>
+      )}
       <Property label="Milestone">
-        <PropertyButton label="Set milestone" shortcut={shortcutHint('issue.milestone')} onClick={pick('milestone')}><MilestoneValue issue={issue}/></PropertyButton>
+        <Editable write={write} label="Set milestone" shortcut={shortcutHint('issue.milestone')} onClick={pick('milestone')}><MilestoneValue issue={issue}/></Editable>
       </Property>
-      <ProjectsValue issue={issue}/>
-      <DependenciesValue issue={issue}/>
-      <DueValue issue={issue}/>
-      {issue.get('is_pull') && <BranchesValue issue={issue}/>}
+      <ProjectsValue issue={issue} write={write}/>
+      <DependenciesValue issue={issue} write={write}/>
+      <DueValue issue={issue} write={write}/>
+      {pull && <BranchesValue issue={issue}/>}
       <SubscribeValue issue={issue}/>
+      {write && !isTemp(issue.id) && <PinLockValue issue={issue}/>}
     </PropertyList>
   );
 });
+
+/** A property's value: a button opening its editor for writers, plain text for readers. */
+function Editable({write, label, shortcut, onClick, children}: {write: boolean; label: string; shortcut?: string | undefined; onClick: () => void; children: ReactNode}) {
+  if (!write) return <PropertyValue>{children}</PropertyValue>;
+  return <PropertyButton label={label} shortcut={shortcut} onClick={onClick}>{children}</PropertyButton>;
+}
 
 const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue'>}) {
   const pool = usePool();
@@ -71,7 +92,9 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
       </>
     );
   }
-  return <><StateGlyph look={look}/><span>{look.label}</span>{status && <span className="truncate text-fg-subtle">({scopedValue(status.name)})</span>}</>;
+  // Merged says it all (a workflow label left at "In Review" is not news then).
+  const merged = pull && isMerged(pool, issue.id);
+  return <><StateGlyph look={look}/><span>{look.label}</span>{status && !merged && <span className="truncate text-fg-subtle">({scopedValue(status.name)})</span>}</>;
 });
 
 const PriorityValue = observer(function PriorityValue({issue}: {issue: Entity<'Issue'>}) {
@@ -92,6 +115,44 @@ const AssigneesValue = observer(function AssigneesValue({issue}: {issue: Entity<
   return <span className="flex flex-col gap-1">{ids.map((id) => <Person key={id} id={id}/>)}</span>;
 });
 
+/** Requested reviewers and those who reviewed, with their verdict (the latest review of each). */
+const ReviewersValue = observer(function ReviewersValue({issue}: {issue: Entity<'Issue'>}) {
+  const pool = usePool();
+  const requested = viewMembers(pool, useOverlay(), 'ReviewRequest', issue.id);
+  const verdicts = new Map<number, {state: string; at: string}>();
+  for (const r of pool.model('Review').by('issue_id', issue.id)) {
+    const d = r.data;
+    if (!d.reviewer_id || d.state === 'PENDING' || d.state === 'REQUEST_REVIEW' || d.dismissed) continue;
+    const prev = verdicts.get(d.reviewer_id);
+    if (!prev || prev.at < d.created_at) verdicts.set(d.reviewer_id, {state: d.state, at: d.created_at});
+  }
+  const ids = [...new Set([...requested as Set<number>, ...verdicts.keys()])].sort((a, b) => a - b);
+  if (!ids.length) return <PropertyEmpty>No reviewers</PropertyEmpty>;
+  return (
+    <span className="flex flex-col gap-1">
+      {ids.map((id) => {
+        const v = verdicts.get(id);
+        const look = requested.has(id) ? REVIEW_LOOK.REQUEST_REVIEW : v ? REVIEW_LOOK[v.state] : undefined;
+        return (
+          <span key={id} className="flex min-w-0 items-center gap-2">
+            <Person id={id}/>
+            {look && <Hint label={look.label}><Icon icon={look.icon} size="sm" className={REVIEW_TONE[look.tone]}/></Hint>}
+          </span>
+        );
+      })}
+    </span>
+  );
+});
+
+const REVIEW_TONE = {APPROVED: 'text-success', REQUEST_CHANGES: 'text-danger', COMMENT: 'text-fg-subtle', REQUEST_REVIEW: 'text-warning'} as const;
+
+const REVIEW_LOOK: Record<string, {icon: LucideIcon; label: string; tone: keyof typeof REVIEW_TONE} | undefined> = {
+  APPROVED: {icon: CircleCheck, label: 'Approved', tone: 'APPROVED'},
+  REQUEST_CHANGES: {icon: CircleX, label: 'Changes requested', tone: 'REQUEST_CHANGES'},
+  COMMENT: {icon: MessageSquare, label: 'Commented', tone: 'COMMENT'},
+  REQUEST_REVIEW: {icon: Clock, label: 'Review requested', tone: 'REQUEST_REVIEW'},
+};
+
 const Person = observer(function Person({id}: {id: number}) {
   const u = useUser(id);
   return <span className="flex items-center gap-2"><UserAvatar id={id}/><span className="truncate">{u.name}</span></span>;
@@ -106,13 +167,15 @@ const MilestoneValue = observer(function MilestoneValue({issue}: {issue: Entity<
 });
 
 /** The projects the issue is on (Project when held, else what the owner shares: ProjectRef, B6) and its column. */
-const ProjectsValue = observer(function ProjectsValue({issue}: {issue: Entity<'Issue'>}) {
+const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
+  const app = useApp();
   const pool = usePool();
   const cards = [...pool.model('ProjectIssue').by('issue_id', issue.id)];
-  if (!cards.length) return null;
+  const path = issuePath(app, issue);
   return (
     <Property label="Project">
       <PropertyValue>
+        {!cards.length && <PropertyEmpty>No project</PropertyEmpty>}
         {cards.map((c) => {
           const pid = c.get('project_id');
           const project = pool.model('Project').get(pid);
@@ -127,19 +190,30 @@ const ProjectsValue = observer(function ProjectsValue({issue}: {issue: Entity<'I
             </span>
           );
         })}
+        {/* No API adds an issue to a project or takes it off (B9): the classic page does. */}
+        {write && path && !isTemp(issue.id) && <span className="text-sm"><TextLink><a href={classicHref(app, path)} title={CLASSIC_HINT}>Change in the classic UI</a></TextLink></span>}
       </PropertyValue>
     </Property>
   );
 });
 
 /** Blocked by / blocks (IssueDependency, the lazy tier). */
-const DependenciesValue = observer(function DependenciesValue({issue}: {issue: Entity<'Issue'>}) {
+const DependenciesValue = observer(function DependenciesValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
+  const app = useApp();
   const pool = usePool();
-  const blockedBy = [...pool.model('IssueDependency').by('issue_id', issue.id)].map((d) => d.get('dependency_id'));
+  const blockedBy = [...viewMembers(pool, useOverlay(), 'IssueDependency', issue.id)] as number[];
   const blocks = [...pool.model('IssueDependency').by('dependency_id', issue.id)].map((d) => d.get('issue_id'));
+  const edit = write && !isTemp(issue.id);
   return (
     <>
-      {blockedBy.length > 0 && <Property label="Blocked by"><IssueLinks ids={blockedBy} repoId={issue.get('repo_id')}/></Property>}
+      <Property label="Blocked by">
+        {blockedBy.length ? <IssueLinks ids={blockedBy} repoId={issue.get('repo_id')}/> : !edit && <PropertyValue><PropertyEmpty>Nothing</PropertyEmpty></PropertyValue>}
+        {edit && (
+          <PropertyButton label="Change what blocks this" onClick={() => {
+            openPicker(app, 'dependency', [issue.id]);
+          }}>{blockedBy.length ? <span className="text-sm text-fg-subtle">Change…</span> : <PropertyEmpty>Nothing</PropertyEmpty>}</PropertyButton>
+        )}
+      </Property>
       {blocks.length > 0 && <Property label="Blocks"><IssueLinks ids={blocks} repoId={issue.get('repo_id')}/></Property>}
     </>
   );
@@ -169,19 +243,61 @@ export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An 
   return <TextLink wrap={inline}><Link to={path}>{text}</Link></TextLink>;
 });
 
-const DueValue = observer(function DueValue({issue}: {issue: Entity<'Issue'>}) {
+const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
+  const app = useApp();
   const due = issueDeadline(useOverlay(), issue);
   const open = issueState(useOverlay(), issue) === 'open';
-  if (!due) return null;
-  const late = open && Date.parse(due) < Date.now();
+  const [dialog, setDialog] = useState(false);
+  const late = Boolean(due) && open && Date.parse(due ?? '') < Date.now();
+  const value = due ?
+    <span className={late ? 'flex items-center gap-2 text-danger' : 'flex items-center gap-2'} title={fullDate(due)}><Icon icon={CalendarClock}/>{shortDate(due)}{late && ' · overdue'}</span> :
+    <PropertyEmpty>No due date</PropertyEmpty>;
   return (
     <Property label="Due date">
-      <PropertyValue tone={late ? 'danger' : 'default'} title={fullDate(due)}>
-        <span className="flex items-center gap-2"><Icon icon={CalendarClock}/>{shortDate(due)}{late && ' · overdue'}</span>
-      </PropertyValue>
+      {write && !isTemp(issue.id) ? <PropertyButton label="Set the due date" onClick={() => {
+        setDialog(true);
+      }}>{value}</PropertyButton> : <PropertyValue>{value}</PropertyValue>}
+      {dialog && <DueDialog initial={due?.slice(0, 10) ?? ''} onClose={() => {
+        setDialog(false);
+      }} onSave={(next) => {
+        runInAction(() => {
+          editing(app).intents.submit({kind: 'issue.deadline', issueId: issue.id, repoId: issue.get('repo_id'), due: next, base: due?.slice(0, 10) ?? null});
+        });
+      }}/>}
     </Property>
   );
 });
+
+/** The due date's editor: a date, or none. */
+function DueDialog({initial, onClose, onSave}: {initial: string; onClose: () => void; onSave: (due: string | null) => void}) {
+  const [value, setValue] = useState(initial);
+  const save = (v: string | null) => {
+    onClose();
+    if ((v ?? '') !== initial) onSave(v);
+  };
+  return (
+    <Dialog open size="sm" title="Due date" onOpenChange={(o) => {
+      if (!o) onClose();
+    }} footer={<>
+      {initial && <Button variant="ghost" onClick={() => {
+        save(null);
+      }}>Remove</Button>}
+      <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      <Button variant="primary" disabled={!/^\d{4}-\d{2}-\d{2}$/.test(value)} onClick={() => {
+        save(value);
+      }}>Save</Button>
+    </>}>
+      <Input type="date" aria-label="Due date" value={value} autoFocus className="w-full" onChange={(e) => {
+        setValue(e.target.value);
+      }} onKeyDown={(e) => {
+        if (e.key === 'Enter' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          e.preventDefault();
+          save(value);
+        }
+      }}/>
+    </Dialog>
+  );
+}
 
 const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'Issue'>}) {
   const pr = [...usePool().model('PullRequest').by('issue_id', issue.id)][0];
@@ -189,9 +305,10 @@ const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'I
   return (
     <Property label="Branches">
       <PropertyValue tone="muted">
-        <span className="flex min-w-0 items-center gap-1 text-sm">
-          <Icon icon={GitBranch} size="sm"/>
-          <Code>{pr.get('head_branch')}</Code>→<Code>{pr.get('base_branch')}</Code>
+        {/* Head, then base, one per line: long names truncate inside the pane (the full name on hover). */}
+        <span className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="flex min-w-0 items-center gap-1" title={pr.get('head_branch')}><Icon icon={GitBranch} size="sm"/><span className="min-w-0 truncate"><Code>{pr.get('head_branch')}</Code></span></span>
+          <span className="flex min-w-0 items-center gap-1" title={pr.get('base_branch')}><Icon icon={ArrowRight} size="sm"/><span className="min-w-0 truncate"><Code>{pr.get('base_branch')}</Code></span></span>
         </span>
       </PropertyValue>
     </Property>
@@ -216,5 +333,32 @@ const SubscribeValue = observer(function SubscribeValue({issue}: {issue: Entity<
         <Icon icon={on ? Bell : BellOff}/><span>{on ? 'Subscribed' : 'Not subscribed'}</span>
       </PropertyButton>
     </Property>
+  );
+});
+
+/** Pinning (to the repository's issue list) and locking the conversation: writers only. */
+const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Issue'>}) {
+  const app = useApp();
+  const overlay = useOverlay();
+  const pinned = issuePinned(overlay, issue);
+  const locked = issueLocked(overlay, issue);
+  const submit = (patch: {kind: 'issue.pin'; pinned: boolean} | {kind: 'issue.lock'; locked: boolean; reason: string}) => {
+    runInAction(() => {
+      editing(app).intents.submit({...patch, issueId: issue.id, repoId: issue.get('repo_id')});
+    });
+  };
+  return (
+    <>
+      <Property label="Pinned">
+        <PropertyButton label={pinned ? 'Unpin' : 'Pin to the list'} onClick={() => {
+          submit({kind: 'issue.pin', pinned: !pinned});
+        }}><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton>
+      </Property>
+      <Property label="Conversation">
+        <PropertyButton label={locked ? 'Unlock the conversation' : 'Lock the conversation'} onClick={() => {
+          submit({kind: 'issue.lock', locked: !locked, reason: ''});
+        }}><Icon icon={locked ? Lock : LockOpen}/><span>{locked ? 'Locked' : 'Open to comments'}</span></PropertyButton>
+      </Property>
+    </>
   );
 });

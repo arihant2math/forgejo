@@ -124,7 +124,7 @@ describe('refs', () => {
     expect(parseCodePath('compare/main...feature/x')).toEqual({view: 'compare', base: 'main', head: 'feature/x'});
     expect(parseCodePath('compare/main')).toBeUndefined();
     expect(parseCodePath('actions/runs/3/jobs/1')).toEqual({view: 'run', run: 3, job: 1});
-    expect(parseCodePath('actions/runs/3')).toEqual({view: 'run', run: 3, job: 0});
+    expect(parseCodePath('actions/runs/3')).toEqual({view: 'run', run: 3, job: -1});
     expect(parseCodePath('branches/x')).toBeUndefined();
     expect(parseCodePath('nope')).toBeUndefined();
     // The END segment: dropped once (a path whose last name is "-" keeps it).

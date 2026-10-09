@@ -5,7 +5,7 @@
 // nobody is signed in on this device, otherwise the app shell (sidebar,
 // the page, and the overlays: ⌘K palette, shortcuts help, sign-out warning).
 
-import {Outlet, useNavigate} from '@tanstack/react-router';
+import {Outlet, useNavigate, useRouterState} from '@tanstack/react-router';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -21,6 +21,7 @@ import {shortcuts, useShortcut} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {ShellFrame} from './Frame.tsx';
 import {Sidebar} from './Sidebar.tsx';
+import {closeDrawer, drawerOpen, toggleSidebar} from './sidebar.ts';
 
 const Palette = lazyComponent(() => import('../palette/Palette.tsx').then((m) => m.Palette));
 const ShortcutsDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.ShortcutsDialog));
@@ -91,6 +92,24 @@ function GlobalShortcuts({app}: {app: App}) {
     const id = app.session && lastBoard(app.session.userId);
     void navigate(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
   });
+  useShortcut('sidebar.toggle', toggleSidebar);
+  // The drawer (narrow screens) closes when a page opens from it, and with Esc.
+  const path = useRouterState({select: (st) => st.location.pathname});
+  useEffect(() => {
+    closeDrawer();
+  }, [path]);
+  useEffect(() => {
+    // Capture, before the shortcut registry: Esc that closes the drawer does nothing else (an issue's "back").
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !drawerOpen()) return;
+      e.stopPropagation();
+      closeDrawer();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, []);
   useShortcut('go.code', () => {
     const r = app.session?.data.pool.model('Repository').get(app.ui.repoOpen)?.data;
     if (r) void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
@@ -129,7 +148,7 @@ function AppShell({app}: {app: App}) {
   return (
     <TooltipProvider>
       <GlobalShortcuts app={app}/>
-      <ShellFrame sidebar={<Sidebar/>}>
+      <ShellFrame sidebar={<Sidebar/>} onBackdrop={closeDrawer}>
         <Outlet/>
       </ShellFrame>
       <Overlays app={app}/>

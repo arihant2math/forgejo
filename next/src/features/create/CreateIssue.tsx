@@ -30,7 +30,8 @@ import {
 } from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {tempIssuePath} from '../issue/paths.ts';
-import {assigneeCandidates, repoLabels} from '../issues/candidates.ts';
+import {repoLabels} from '../issues/candidates.ts';
+import {loadPeople, repoPeople} from '../issues/people.ts';
 import {usePool} from '../issues/cells.tsx';
 import {exclusiveScope} from '../issues/labels.ts';
 
@@ -72,6 +73,8 @@ class Form {
   milestone = 0;
   /** The text came back from a draft (the footer offers to discard it). */
   restored = false;
+  /** Create was asked for without a title: the field says what is missing. */
+  missing = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
   private readonly app: App;
@@ -172,6 +175,7 @@ class Form {
   create(): string | undefined {
     const t = this.title.trim();
     const repo = untracked(() => this.app.session?.data.pool.model('Repository').get(this.repoId)?.data);
+    if (!t) this.missing = true;
     if (!t || !repo) return undefined;
     this.done = true;
     clearTimeout(this.timer);
@@ -228,8 +232,14 @@ const Fields = observer(function Fields({form, onCreate}: {form: Form; onCreate:
     form.flush();
   }, [form]);
   if (!repoChoices(app).length) return <p className="text-base text-fg-muted">No repository is on this device yet: issues are created in one.</p>;
+  // ⌘↵ creates from anywhere in the form (the Write/Preview tabs, the property buttons), not only from the fields.
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" onKeyDown={(e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) {
+        e.preventDefault();
+        onCreate();
+      }
+    }}>
       <Properties form={form}/>
       <Title form={form} onCreate={onCreate}/>
       <Description form={form} onCreate={onCreate}/>
@@ -238,8 +248,11 @@ const Fields = observer(function Fields({form, onCreate}: {form: Form; onCreate:
 });
 
 const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: () => void}) {
+  const missing = form.missing && !form.title.trim();
   return (
-    <Input aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255}
+    <div className="flex flex-col gap-1">
+    <Input aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} invalid={missing}
+      aria-describedby={missing ? 'create-title-missing' : undefined}
       onChange={(e) => {
         form.setTitle(e.target.value);
       }}
@@ -249,6 +262,8 @@ const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: (
           onCreate();
         }
       }}/>
+    {missing && <p id="create-title-missing" role="alert" className="text-sm text-danger">An issue needs a title.</p>}
+    </div>
   );
 });
 
@@ -270,8 +285,10 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const repos = repoChoices(app);
   const repo = pool.model('Repository').get(repoId)?.data;
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
-  const people = repoId ? assigneeCandidates(pool, repoId, userId).map((id) => pool.model('User').get(id)?.data).filter((u) => u !== undefined)
-    .sort((a, b) => a.login.localeCompare(b.login)) : [];
+  useEffect(() => {
+    if (repoId) loadPeople(app, repoId);
+  }, [app, repoId]);
+  const people = repoId ? repoPeople(pool, repoId, userId) : [];
   const milestones = repoId ? [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).filter((m) => m.state === 'open')
     .sort((a, b) => a.title.localeCompare(b.title)) : [];
   const chosenLabels = allLabels.filter((l) => form.labels.includes(l.id));
@@ -347,9 +364,7 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
       </span>
       <Button variant="ghost" onClick={onCancel}>Cancel</Button>
       {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
-      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={() => {
-        if (ready) onCreate();
-      }}>
+      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={onCreate}>
         Create issue
       </Button>
     </>

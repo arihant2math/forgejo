@@ -21,16 +21,17 @@ import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing} from '../../intents/session.ts';
-import {commentBody, issueBody} from '../../intents/view.ts';
-import {Button, Callout, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText} from '../../ui/index.ts';
+import {commentBody, issueBody, issueTitle} from '../../intents/view.ts';
+import {Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput} from '../../ui/index.ts';
+import {canWrite} from '../../app/access.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {useUser} from '../issues/cells.tsx';
-import {Markdown} from './Markdown.tsx';
+import {Markdown, toggleTask} from './Markdown.tsx';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
-export function Rendered({text, html, local}: {text: string; html: string; local: boolean}) {
+export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
   if (local) return <ProseSource text={text}/>;
-  return html ? <Markdown html={html}/> : <p className="text-base text-fg-subtle">No text.</p>;
+  return html ? <Markdown html={html} onTask={onTask}/> : <p className="text-base text-fg-subtle">No text.</p>;
 }
 
 /** Resolves a conflict with one side whole (the merge being typed in the editor is dropped with it). */
@@ -88,6 +89,8 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   // The base the user started from: the restored draft's, else the one when the editor opened.
   const [base] = useState(restored?.base ?? base0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** The keep that the debounce has not run yet (run at once when the editor goes: leaving the page loses nothing). */
+  const pending = useRef<(() => void) | undefined>(undefined);
   /** Saved or cancelled: an autosave still in flight must not bring the draft back. */
   const done = useRef(false);
   const dirty = text !== initial;
@@ -97,6 +100,9 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     return () => {
       openEditors.delete(draftKey);
       clearTimeout(timer.current);
+      const keep = pending.current;
+      pending.current = undefined;
+      if (keep && !done.current) keep();
     };
   }, [draftKey]);
   const change = (t: string) => {
@@ -104,17 +110,21 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     done.current = false;
     clearTimeout(timer.current);
     // Kept while typing (never lost to a reload or a crash); forgotten once saved or cancelled.
-    timer.current = setTimeout(() => {
+    const keep = () => {
+      pending.current = undefined;
       if (t === initial) void intents.discardDraft(draftKey);
       else {
         void intents.keepText({key: draftKey, title, issueId, repoId, text: t, ...(base ? {base} : {})}).then(() => {
           if (done.current) void intents.discardDraft(draftKey);
         });
       }
-    }, 400);
+    };
+    pending.current = keep;
+    timer.current = setTimeout(keep, 400);
   };
   const forget = () => {
     done.current = true;
+    pending.current = undefined;
     clearTimeout(timer.current);
     void intents.discardDraft(draftKey);
   };
@@ -126,6 +136,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   };
   const cancel = () => {
     done.current = true;
+    pending.current = undefined;
     clearTimeout(timer.current);
     if (dirty) {
       // Never dropped silently: the text can come back (and the editor reopens with it).
@@ -160,7 +171,10 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
 /** The description: shown (server HTML, or the source of an unsynced edit), edited, or its conflict resolved. */
 export const BodySection = observer(function BodySection({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
-  const {data} = useSession();
+  const session = useSession();
+  const {data} = session;
+  // Forgejo: the poster, or a writer of the repository.
+  const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
   const {overlay, intents} = editing(app);
   /** Editing, from this base (taken when the editor opens). */
   const [edit, setEdit] = useState<EditBase | false>(false);
@@ -179,7 +193,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   const conflict = intents.conflictOf('issue.body', issue.id);
   const start = () => {
     const b = untracked(() => issueBody(data.pool, overlay, issue.id));
-    if (!b) return;
+    if (!b || !mayEdit) return;
     // The server's text and version, or (-1) the text of an edit not synced yet.
     setEdit({text: b.text, version: b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1});
   };
@@ -225,10 +239,18 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   return (
     <div className="flex items-start gap-2">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {body.text || body.html ? <Rendered {...body}/> : <p className="text-base text-fg-subtle">No description.</p>}
+        {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
+          // Ticking a task edits the description (an offline-capable edit, like the editor's).
+          const b = untracked(() => issueBody(data.pool, overlay, issue.id));
+          if (!b) return;
+          const text = toggleTask(b.text, index, checked);
+          if (text === b.text) return;
+          const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
+          intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
+        } : undefined}/> : <p className="text-base text-fg-subtle">No description.</p>}
         {body.local && <NotSynced/>}
       </div>
-      <IconButton ref={editButton} size="sm" icon={Pencil} label="Edit the description" shortcut={shortcutHint('issue.edit')} onClick={start}/>
+      {mayEdit && <IconButton ref={editButton} size="sm" icon={Pencil} label="Edit the description" shortcut={shortcutHint('issue.edit')} onClick={start}/>}
     </div>
   );
 });
@@ -240,8 +262,25 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
   const {intents} = editing(app);
   /** Edit was chosen: the editor that opens keeps the focus. */
   const chose = useRef(false);
+  const [confirming, setConfirming] = useState(false);
   if (untracked(() => c.data.poster_id) !== userId) return null;
+  const remove = () => {
+    setConfirming(false);
+    const {issue_id: issueId} = untracked(() => c.data);
+    intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
+  };
   return (
+    <>
+    {confirming && (
+      <Dialog open size="sm" title="Delete this comment?" description="It is removed for everyone. This cannot be undone." onOpenChange={(o) => {
+        if (!o) setConfirming(false);
+      }} footer={<>
+        <Button variant="ghost" onClick={() => {
+          setConfirming(false);
+        }}>Cancel</Button>
+        <Button variant="danger" autoFocus onClick={remove}>Delete</Button>
+      </>}/>
+    )}
     <Menu>
       <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
       {/* After Edit the editor takes the focus (Radix would return it to the trigger); otherwise the trigger has it. */}
@@ -254,11 +293,11 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
           onEdit();
         }}>Edit</MenuItem>
         <MenuItem icon={Trash2} danger onSelect={() => {
-          const {issue_id: issueId} = untracked(() => c.data);
-          intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
-        }}>Delete</MenuItem>
+          setConfirming(true);
+        }}>Delete…</MenuItem>
       </MenuContent>
     </Menu>
+    </>
   );
 }
 
@@ -362,5 +401,44 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
         );
       })}
     </div>
+  );
+});
+
+/** The issue's title, renamed in place (click it): Enter or leaving the field saves, Esc cancels. Poster or writers only. */
+export const TitleSection = observer(function TitleSection({issue}: {issue: Entity<'Issue'>}) {
+  const app = useApp();
+  const session = useSession();
+  const {overlay, intents} = editing(app);
+  const [text, setText] = useState<string | undefined>(undefined);
+  const title = issueTitle(overlay, issue);
+  const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
+  if (text === undefined) {
+    if (!mayEdit) return <h2 className="text-xl font-semibold text-fg">{title}</h2>;
+    return <EditableHeading label="Rename" onEdit={() => {
+      setText(title);
+    }}>{title}</EditableHeading>;
+  }
+  const save = () => {
+    const t = text.trim();
+    setText(undefined);
+    if (t && t !== title) {
+      runInAction(() => {
+        intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: t, base: title});
+      });
+    }
+  };
+  return (
+    <TitleInput aria-label="Title" value={text} autoFocus maxLength={255} invalid={!text.trim()} onBlur={save} onChange={(e) => {
+      setText(e.target.value);
+    }} onKeyDown={(e) => {
+      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        save();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setText(undefined);
+      }
+    }}/>
   );
 });

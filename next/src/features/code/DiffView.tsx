@@ -235,7 +235,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras}: {row:
       const h = file.hunks[row.h];
       if (!h) return null;
       return (
-        <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/></>}>
+        <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}>
           {`@@ -${String(h.oldStart)},${String(h.oldLines)} +${String(h.newStart)},${String(h.newLines)} @@${h.section ? ` ${h.section}` : ''}`}
         </CodeLine>
       );
@@ -246,13 +246,12 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras}: {row:
       const comment = extras?.onComment;
       return (
         <CodeLine id={id} active={active} tone={l.k === ADD ? 'add' : l.k === DEL ? 'del' : 'none'}
-          gutter={<><LineNo n={l.o}/><LineNo n={l.n}/></>}
+          gutter={<><LineNo n={l.o}/><LineNo n={l.n}/><span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
           trailing={comment && (
             <LineAction label={`Comment on line ${String(l.k === DEL ? l.o : l.n)}`} onClick={() => {
               comment(row.f, row.l);
             }}/>
           )}>
-          <span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span>
           <CodeTokens text={l.t} hl={hl} line={row.l}/>
         </CodeLine>
       );

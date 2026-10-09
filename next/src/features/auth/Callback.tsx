@@ -10,6 +10,7 @@ import {useEffect, useState} from 'react';
 import {completeSignIn, type SignInResult} from '../../auth/signin.ts';
 import {dropPreviousUser} from '../../auth/signout.ts';
 import {CenteredScreen, LoggedOut} from '../../app/LoggedOut.tsx';
+import {leaveCallback} from '../../app/history.ts';
 import {signInHere} from '../../app/session.ts';
 import {type App, useApp} from '../../app/store.ts';
 import {EmptyState} from '../../ui/index.ts';
@@ -34,7 +35,7 @@ export default function Callback() {
   const [error, setError] = useState<string>();
   useEffect(() => {
     void complete(app).then((r) => {
-      if (r.ok) location.replace(r.returnTo);
+      if (r.ok) leaveCallback(r.returnTo);
       else setError(r.error);
     });
   }, [app]);

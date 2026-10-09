@@ -1,0 +1,58 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// More of what the ⌘K palette finds in the pool (beyond repositories and
+// issues): boards, milestones and people, scored like everything else
+// (search.ts `score`). Untracked by the caller; small stores, one pass each.
+
+import type {Pool} from '../../data/pool.ts';
+import type {Milestone, Project, Repository, User} from '../../protocol/types.gen.ts';
+import {score} from './search.ts';
+
+export interface Hit<T> {
+  item: T;
+  score: number;
+  /** The repository it belongs to, if any. */
+  repo?: Repository | undefined;
+}
+
+function top<T>(hits: Hit<T>[], limit: number): Hit<T>[] {
+  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** Boards by title (open ones first on a tie). */
+export function searchBoards(pool: Pool, words: readonly string[], limit = 4): Hit<Project>[] {
+  const out: Hit<Project>[] = [];
+  for (const e of pool.model('Project').all()) {
+    const p = e.data;
+    const repo = pool.model('Repository').get(p.repo_id)?.data;
+    const s = score(`${p.title} ${repo?.full_name ?? ''}`.toLowerCase(), words);
+    if (s >= 0) out.push({item: p, score: s + (p.closed ? 0 : 0.5), repo});
+  }
+  return top(out, limit);
+}
+
+/** Milestones by title (open ones first on a tie), with their repository. */
+export function searchMilestones(pool: Pool, words: readonly string[], limit = 4): Hit<Milestone>[] {
+  const out: Hit<Milestone>[] = [];
+  for (const e of pool.model('Milestone').all()) {
+    const m = e.data;
+    const repo = pool.model('Repository').get(m.repo_id)?.data;
+    if (!repo) continue;
+    const s = score(`${m.title} ${repo.full_name}`.toLowerCase(), words);
+    if (s >= 0) out.push({item: m, score: s + (m.state === 'open' ? 0.5 : 0), repo});
+  }
+  return top(out, limit);
+}
+
+/** People and organizations by login or name. */
+export function searchPeople(pool: Pool, words: readonly string[], limit = 4): Hit<User>[] {
+  const out: Hit<User>[] = [];
+  for (const e of pool.model('User').all()) {
+    const u = e.data;
+    if (u.type !== 'user' && u.type !== 'organization') continue;
+    const s = score(`${u.login} ${u.full_name}`.toLowerCase(), words);
+    if (s >= 0) out.push({item: u, score: s});
+  }
+  return top(out, limit);
+}

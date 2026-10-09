@@ -10,7 +10,7 @@
 
 import {
   Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
-  GitPullRequestClosed, OctagonAlert, SignalHigh, SignalLow, SignalMedium, SignalZero,
+  createLucideIcon, GitPullRequestClosed, OctagonAlert, SignalMedium, SignalZero,
 } from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -21,7 +21,8 @@ import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, PendingIcon} from '../../ui/index.ts';
+import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, PendingIcon, TextLink} from '../../ui/index.ts';
+import {Link} from '@tanstack/react-router';
 import {ago, fullDate} from './format.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
 
@@ -91,7 +92,19 @@ export function statusIcon(name: string): LucideIcon {
   return stage ? STAGE_ICONS[stage] : Circle;
 }
 
-const PRIORITY_ICONS: LucideIcon[] = [OctagonAlert, SignalHigh, SignalMedium, SignalLow, SignalZero];
+/**
+ * Priority as bars (Linear's look): the filled bars say the level, the others stay faint, so Low is one bar
+ * of three rather than lucide's lone short bar (which reads as a stray mark at 16 px).
+ */
+function bars(name: string, filled: number): LucideIcon {
+  const bar = (i: number) => ['rect', {
+    x: String(3 + i * 7), y: String(14 - i * 5), width: '4', height: String(6 + i * 5), rx: '1', fill: 'currentColor', stroke: 'none',
+    ...(i < filled ? {} : {opacity: '0.3'}), key: `b${String(i)}`,
+  }] as [string, Record<string, string>];
+  return createLucideIcon(name, [bar(0), bar(1), bar(2)]);
+}
+
+const PRIORITY_ICONS: LucideIcon[] = [OctagonAlert, bars('priority-high', 3), bars('priority-medium', 2), bars('priority-low', 1), SignalZero];
 
 export function priorityIcon(name: string): LucideIcon {
   return PRIORITY_ICONS[Math.min(4, Math.max(0, Math.round(kindRank('priority', name))))] ?? SignalMedium;
@@ -177,6 +190,16 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
   const avatar = u?.get('avatar_url') ?? '';
   return {name: firstOf(full, login, `User ${String(id)}`), login, avatar: avatar === '' ? undefined : avatar};
 }
+
+/**
+ * A person's name, a link to their page here (the owner page) when their login is known; `fallback` for
+ * someone not on this device (an imported comment's original author).
+ */
+export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
+  const u = useUser(id);
+  if (!id || !u.login) return <span className="font-medium text-fg">{id ? u.name : fallback}</span>;
+  return <span className="font-medium"><TextLink wrap><Link to="/-/next/$owner" params={{owner: u.login}}>{u.name}</Link></TextLink></span>;
+});
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm'}: {id: number; size?: 'sm' | 'md' | 'lg'}) {
   const u = useUser(id);

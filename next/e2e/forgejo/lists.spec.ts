@@ -148,7 +148,8 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
       await page.keyboard.press('Escape');
     });
     await step('label filter cleared', async () => {
-      await page.getByRole('button', {name: /^Filter/}).click();
+      // The filter button names the filter in effect ("Label: bug").
+      await page.getByRole('button', {name: /^Label: bug/}).click();
       await page.getByRole('menuitem', {name: /^Label: bug/}).click();
     }, openCount);
     return timings;

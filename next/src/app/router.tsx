@@ -19,13 +19,15 @@
 // URL — the same pattern in spaRoutes (backend) so a reload serves the UI.
 
 import {
-  createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type RouterHistory,
+  createRootRouteWithContext, createRoute, createRouter, Outlet, parseSearchWith, redirect, type RouterHistory, stringifySearchWith,
 } from '@tanstack/react-router';
 import {isLocalPath, sitePath} from './config.ts';
+import {nextPathOf} from './paths.ts';
 import {lazyView} from './lazy.tsx';
-import {RouteError, RouteNotFound} from './RouteStatus.tsx';
+import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
 import {loadRepo, type RepoMatch} from './repo.ts';
 import {type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch, type PullSearch, pullSearch} from './search.ts';
+import {PAGE_SCROLLER} from './shell/Frame.tsx';
 import {Shell} from './shell/Shell.tsx';
 import {readSplash, type SkeletonShape} from './splash.ts';
 import type {App} from './store.ts';
@@ -115,6 +117,14 @@ const inboxRoute = createRoute({
 
 // Repository routes resolve the repository (pool, else API v1) and hydrate
 // its group. `$index` stays a string in the URL; views parse it.
+const repoHomeRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/$owner/$repo',
+  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  staticData: {skeleton: 'detail'},
+  component: lazyView(() => import('../features/repo/RepoHome.tsx'), 'RepoHome'),
+});
+
 const repoIssuesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/issues',
@@ -176,6 +186,36 @@ const codeRoute = createRoute({
   component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
 });
 
+// An owner (user or organization): its repositories here, its profile in the classic UI. Below the base like
+// the code views (`/-/next/{owner}` mirrors `/{owner}`, which stays the classic profile).
+const ownerRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/$owner',
+  staticData: {skeleton: 'list'},
+  component: lazyView(() => import('../features/owner/OwnerPage.tsx'), 'OwnerPage'),
+});
+
+/** A repository's address below the base (`/-/next/{owner}/{repo}[/…]`) is its canonical page. */
+const nextRepoRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/$owner/$repo/$',
+  beforeLoad: ({context: {app}, params}) => {
+    const rest = (params._splat ?? '').replace(/^\/+|\/+$/g, '');
+    const to = nextPathOf(`/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}${rest ? `/${rest}` : ''}`);
+    // An address that names no page of the app: the not-found page (with the classic page, if any).
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
+    if (to) throw redirect({href: sitePath(app.config, to), replace: true});
+  },
+  component: ShellNotFound,
+});
+
+/** Any other address inside the shell: the not-found page, with the shell around it (and the classic page). */
+const notFoundRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '$',
+  component: ShellNotFound,
+});
+
 // Dev-only pages: `import.meta.env.DEV` is false in production builds, so
 // they and their chunks are not shipped.
 const devRoutes = import.meta.env.DEV ?
@@ -189,7 +229,8 @@ const routeTree = rootRoute.addChildren([
   callbackRoute,
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute,
-    repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, boardsRoute, boardRoute, codeRoute,
+    repoHomeRoute, repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, boardsRoute, boardRoute, codeRoute,
+    ownerRoute, nextRepoRoute, notFoundRoute,
   ]),
   ...devRoutes,
 ]);
@@ -208,6 +249,14 @@ export function createAppRouter(app: App, history?: RouterHistory) {
     defaultPendingMs: 1000,
     defaultErrorComponent: RouteError,
     defaultNotFoundComponent: RouteNotFound,
+    // Plain query strings, as the classic UI writes them (`?labels=11,-3&milestone=4`): values stay strings (the
+    // routes' validators parse them), never JSON-quoted (`labels=%2211%22`).
+    // Back to a list comes back to where it was scrolled (the page's scroll container: PageBody); a new page
+    // starts at the top.
+    scrollRestoration: true,
+    scrollToTopSelectors: [PAGE_SCROLLER],
+    parseSearch: parseSearchWith((v) => v),
+    stringifySearch: stringifySearchWith(JSON.stringify),
     ...(history ? {history} : {}),
   });
 }
@@ -216,6 +265,7 @@ export type AppRouter = ReturnType<typeof createAppRouter>;
 
 /** Route ids, for views that read their own params (`useParams({from})`). */
 export const ROUTES = {
+  repoHome: repoHomeRoute.id,
   repoIssues: repoIssuesRoute.id,
   repoPulls: repoPullsRoute.id,
   repoIssue: repoIssueRoute.id,

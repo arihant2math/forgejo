@@ -10,27 +10,33 @@
 import {SignalZero} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import {type App, type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
-import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState} from '../../intents/view.ts';
+import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {
   Avatar, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Icon, LabelDot, LabelIcon, type LucideIcon,
 } from '../../ui/index.ts';
 import {priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
-import {assigneeCandidates, repoLabels} from './candidates.ts';
+import {repoLabels} from './candidates.ts';
+import {loadPeople, repoPeople} from './people.ts';
 import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone, setState} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
 
 const TITLES: Record<PickerKind, string> = {
   status: 'Change status', priority: 'Set priority', labels: 'Change labels', assignees: 'Change assignees', milestone: 'Set milestone',
+  reviewers: 'Request reviews', dependency: 'Blocked by',
 };
 
 const PLACEHOLDERS: Record<PickerKind, string> = {
   status: 'Change status to…', priority: 'Set priority to…', labels: 'Add or remove labels…', assignees: 'Assign to…', milestone: 'Move to milestone…',
+  reviewers: 'Ask for a review from…', dependency: 'Blocked by the issue… (number or title)',
 };
+
+/** Issues offered as dependencies at most (the query narrows them). */
+const MAX_DEPENDENCIES = 40;
 
 /** The picker the app has open (app.ui.picker); stays mounted while it fades out. */
 export const IssuePicker = observer(function IssuePicker() {
@@ -80,6 +86,10 @@ function coverage(issues: readonly Entity<'Issue'>[], has: (i: Entity<'Issue'>) 
 
 const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App; kind: PickerKind; issueIds: readonly number[]}) {
   const [query, setQuery] = useState('');
+  const first = untracked(() => app.session?.data.pool.model('Issue').get(issueIds[0] ?? 0)?.data.repo_id);
+  useEffect(() => {
+    if (first !== undefined && (kind === 'assignees' || kind === 'reviewers')) loadPeople(app, first);
+  }, [app, first, kind]);
   const s = app.session;
   if (!s) return null;
   const pool = s.data.pool;
@@ -130,22 +140,64 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
       for (const scope of scopes) clearScope(app, issues, scope);
     })});
     for (const l of priorities) options.push(labelOption(l, priorityIcon(l.name), false));
+    // Priorities are exclusive scoped labels (PLAN §7.3): say so where there are none.
+    if (!priorities.length) groupTitle = 'This repository has no priority labels (exclusive "priority/…" labels set them)';
   } else if (kind === 'labels' && repoId !== undefined) {
     // Status and priority labels have their own pickers (S, P).
     for (const l of repoLabels(pool, repoId)) if (!labelKind(l)) options.push(labelOption(l, undefined, true));
   } else if (kind === 'assignees' && repoId !== undefined) {
-    const users = pool.model('User');
-    const ids = new Set(assigneeCandidates(pool, repoId, s.userId));
-    for (const i of issues) for (const id of issueAssigneeIds(pool, overlay, i.id)) ids.add(id);
-    const people = [...ids].map((id) => users.get(id)).filter((u): u is Entity<'User'> => u !== undefined)
-      .map((u) => u.data).sort((a, b) => (a.id === s.userId ? -1 : b.id === s.userId ? 1 : a.login.localeCompare(b.login)));
-    for (const u of people) {
+    const current = issues.flatMap((i) => issueAssigneeIds(pool, overlay, i.id));
+    for (const u of repoPeople(pool, repoId, s.userId, current)) {
       const checked = coverage(issues, (i) => issueAssigneeIds(pool, overlay, i.id).includes(u.id));
       options.push({
-        key: `u${String(u.id)}`, label: u.id === s.userId ? `${u.full_name || u.login} (you)` : u.full_name || u.login, words: u.login, checked, keepOpen: true,
-        leading: <Avatar name={u.full_name || u.login} src={u.avatar_url || undefined} size="sm"/>,
+        key: `u${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
+        leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
         run: done(() => {
           setAssignee(app, issues, u.id, checked !== 'all');
+        }),
+      });
+    }
+  } else if (kind === 'reviewers' && repoId !== undefined) {
+    const requested = (i: Entity<'Issue'>) => viewMembers(pool, overlay, 'ReviewRequest', i.id);
+    const posters = new Set(issues.map((i) => untracked(() => i.data.poster_id)));
+    for (const u of repoPeople(pool, repoId, s.userId)) {
+      if (posters.has(u.id)) continue; // nobody reviews their own pull request
+      const checked = coverage(issues, (i) => requested(i).has(u.id));
+      options.push({
+        key: `r${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
+        leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
+        run: done(() => {
+          runInAction(() => {
+            for (const i of issues) {
+              if (requested(i).has(u.id) === (checked !== 'all')) continue;
+              editing(app).intents.submit({kind: 'issue.reviewer', issueId: i.id, repoId: i.data.repo_id, userId: u.id, add: checked !== 'all'});
+            }
+          });
+        }),
+      });
+    }
+  } else if (kind === 'dependency' && repoId !== undefined) {
+    const own = new Set(issues.map((i) => i.id));
+    const blockedBy = (i: Entity<'Issue'>) => viewMembers(pool, overlay, 'IssueDependency', i.id);
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const n = /^#?(\d+)$/.exec(words[0] ?? '')?.[1];
+    const all = untracked(() => [...pool.model('Issue').by('repo_id', repoId)].filter((i) => !own.has(i.id))
+      .filter((i) => blockedBy(issues[0] ?? i).has(i.id) || (n ? String(i.data.number).startsWith(n) : words.every((w) => i.data.title.toLowerCase().includes(w))))
+      .sort((a, b) => Number(blockedBy(issues[0] ?? a).has(b.id)) - Number(blockedBy(issues[0] ?? b).has(a.id)) ||
+        Number(a.data.state !== 'open') - Number(b.data.state !== 'open') || b.data.number - a.data.number)
+      .slice(0, MAX_DEPENDENCIES));
+    for (const d of all) {
+      const checked = coverage(issues, (i) => blockedBy(i).has(d.id));
+      options.push({
+        key: `d${String(d.id)}`, label: `#${String(d.data.number)} ${d.data.title}`, words: String(d.data.number), checked, keepOpen: true,
+        leading: <StateGlyph look={stateLook(d.data.state, d.data.is_pull, false)}/>,
+        run: done(() => {
+          runInAction(() => {
+            for (const i of issues) {
+              if (blockedBy(i).has(d.id) === (checked !== 'all')) continue;
+              editing(app).intents.submit({kind: 'issue.dependency', issueId: i.id, repoId: i.data.repo_id, dependencyId: d.id, add: checked !== 'all'});
+            }
+          });
         }),
       });
     }
@@ -170,7 +222,8 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
   }
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = words.length ? options.filter((o) => words.every((w) => `${o.label} ${o.words ?? ''}`.toLowerCase().includes(w))) : options;
+  // The dependency options are already the query's matches (searched over the repository's issues).
+  const shown = words.length && kind !== 'dependency' ? options.filter((o) => words.every((w) => `${o.label} ${o.words ?? ''}`.toLowerCase().includes(w))) : options;
   const allPulls = issues.every((i) => untracked(() => i.data.is_pull));
   const noun = issues.length > 1 ? `${String(issues.length)} ${allPulls ? 'pull requests' : 'issues'}` : '';
   return (

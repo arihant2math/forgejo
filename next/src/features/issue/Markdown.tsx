@@ -52,7 +52,7 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     // The app's page for it (nextPathOf refuses encoded dots, slashes and backslashes, which the router would
     // decode into another path than the one checked); appLinks already pointed some links at the app.
     const site = url.pathname.slice(sub.length);
-    const to = site.startsWith('/-/next/') && !site.startsWith('/-/next/assets/') && !/%(?:2e|2f|5c)/i.test(site) ? site : nextPathOf(site);
+    const to = /^\/-\/next\/(?!assets\/)/.test(site) && !/%(?:2e|2f|5c)/i.test(site) ? site : nextPathOf(site);
     if (!to) return;
     e.preventDefault();
     // As an href (already encoded: the router takes it as is), with the link's query and fragment.

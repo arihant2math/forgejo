@@ -162,7 +162,7 @@ export default function Inbox() {
         </Menu>
         <Button size="sm" variant="ghost" icon={CheckCheck} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
       </PageHeader>
-      <InboxBody model={model} unreadOnly={search.filter === 'unread'}/>
+      <InboxBody model={model} unreadOnly={search.filter === 'unread'} byRepo={search.group === 'repo'}/>
     </>
   );
 }
@@ -174,13 +174,13 @@ const UnreadCount = observer(function UnreadCount() {
   return n ? <span className="text-fg-subtle tabular-nums">{n}</span> : null;
 });
 
-const InboxBody = observer(function InboxBody({model, unreadOnly}: {model: InboxModel; unreadOnly: boolean}) {
+const InboxBody = observer(function InboxBody({model, unreadOnly, byRepo}: {model: InboxModel; unreadOnly: boolean; byRepo: boolean}) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const {rows} = model.result.get();
   return (
     <PageBody ref={setScroller}>
       {rows.length ?
-        <InboxList model={model} scroller={scroller}/> :
+        <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
         <EmptyState icon={BellOff} title={unreadOnly ? 'All caught up' : 'No notifications'}
           description={unreadOnly ? 'Nothing unread. Pinned and read notifications are under “Unread” off.' : 'Mentions, reviews and activity on what you watch show here.'}/>}
     </PageBody>
@@ -192,7 +192,8 @@ const rowId = (id: number) => `inbox-row-${String(id)}`;
 /** The cursor's notification when the inbox was left (Back finds it where it was). Per tab. */
 let lastCursor: number | undefined;
 
-const InboxList = observer(function InboxList({model, scroller}: {model: InboxModel; scroller: HTMLDivElement | null}) {
+/** byRepo: grouped by repository (the group header names it; the rows give the number only). */
+const InboxList = observer(function InboxList({model, scroller, byRepo}: {model: InboxModel; scroller: HTMLDivElement | null; byRepo: boolean}) {
   const app = useApp();
   const navigate = useNavigate();
   const {rows, ids} = model.result.get();
@@ -360,7 +361,7 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
             return (
               <div key={it.key} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
                 {r.type === 'note' ?
-                  <NoteRow id={r.id} cursor={cursor} onClick={click}/> :
+                  <NoteRow id={r.id} cursor={cursor} onClick={click} byRepo={byRepo}/> :
                   <ListGroupHeader leading={r.key === 'pinned' ? <Icon icon={Pin}/> : r.key.startsWith('repo:') ? <Icon icon={FolderGit2}/> : null} label={r.label} count={r.count}/>}
               </div>
             );
@@ -390,14 +391,16 @@ const InboxList = observer(function InboxList({model, scroller}: {model: InboxMo
   );
 });
 
-const NoteRow = observer(function NoteRow({id, cursor, onClick}: {id: number; cursor: ListCursor; onClick: (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => void}) {
+type RowClick = (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => void;
+
+const NoteRow = observer(function NoteRow({id, cursor, onClick, byRepo}: {id: number; cursor: ListCursor; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
   const n = pool.model('Notification').get(id);
   if (!n) return <ListRow role="presentation"> </ListRow>;
-  return <NoteRowBody n={n} cursor={cursor} onClick={onClick}/>;
+  return <NoteRowBody n={n} cursor={cursor} onClick={onClick} byRepo={byRepo}/>;
 });
 
-const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick}: {n: Entity<'Notification'>; cursor: ListCursor; onClick: (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => void}) {
+const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: {n: Entity<'Notification'>; cursor: ListCursor; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
   const status = notificationStatus(useOverlay(), n);
   const issue = pool.model('Issue').get(n.get('issue_id'));
@@ -427,7 +430,7 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick}: {n: Enti
       </>}
       trailing={<>
         {status === 'pinned' && <Icon icon={Pin} size="sm"/>}
-        <span className="truncate">{repo?.get('full_name') ?? ''}{issue ? `#${String(issue.get('number'))}` : ''}</span>
+        <span className="truncate tabular-nums">{byRepo ? '' : repo?.get('full_name') ?? ''}{issue ? `#${String(issue.get('number'))}` : ''}</span>
         <AgoCell at={at}/>
       </>}
     >

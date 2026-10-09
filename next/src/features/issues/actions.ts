@@ -47,6 +47,25 @@ export function openPicker(app: App, kind: PickerKind, issueIds: readonly number
   });
 }
 
+/**
+ * Closes or reopens these issues with an Undo notice (Linear): the same edit back, as one more intent (it
+ * cancels out offline). Every place that closes from a list, menu or picker goes through here.
+ */
+export function changeState(app: App, issues: readonly Entity<'Issue'>[], state: 'open' | 'closed'): void {
+  const changed = untracked(() => {
+    const {overlay} = editing(app);
+    return issues.filter((i) => issueState(overlay, i) !== state);
+  });
+  if (!changed.length) return;
+  setState(app, changed, state);
+  const one = changed.length === 1 ? changed[0] : undefined;
+  const pull = untracked(() => changed.every((i) => i.data.is_pull));
+  const what = one ? `#${String(untracked(() => one.data.number))}` : `${String(changed.length)} ${pull ? 'pull requests' : 'issues'}`;
+  notify(app, {tone: 'neutral', title: `${state === 'closed' ? 'Closed' : 'Reopened'} ${what}`, action: {label: 'Undo', run: () => {
+    setState(app, changed, state === 'closed' ? 'open' : 'closed');
+  }}});
+}
+
 /** The actions available on these issues (untracked: call when a menu opens). */
 export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts: {navigate?: (path: string) => void} = {}): IssueAction[] {
   if (!issues.length) return [];
@@ -74,11 +93,7 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
     }
     if (closeable) {
       out.push({id: 'state', label: allOpen ? `Close${noun ? ` ${noun}` : ''}` : `Reopen${noun ? ` ${noun}` : ''}`, icon: allOpen ? CircleCheck : CircleDot, keywords: 'close reopen state', run: () => {
-        setState(app, issues, allOpen ? 'closed' : 'open');
-        // Undo (Linear): the same edit back, as one more intent (it cancels out offline).
-        notify(app, {tone: 'neutral', title: allOpen ? `Closed ${noun || (one ? `#${String(one.data.number)}` : '')}` : `Reopened ${noun || (one ? `#${String(one.data.number)}` : '')}`, action: {label: 'Undo', run: () => {
-          setState(app, issues, allOpen ? 'open' : 'closed');
-        }}});
+        changeState(app, issues, allOpen ? 'closed' : 'open');
       }});
     }
     if (write) out.push(

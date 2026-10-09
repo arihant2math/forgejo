@@ -22,7 +22,8 @@ import {
 import {priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
 import {loadPeople, repoPeople} from './people.ts';
-import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone, setState} from './edits.ts';
+import {changeState} from './actions.ts';
+import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
 
 const TITLES: Record<PickerKind, string> = {
@@ -122,10 +123,10 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     options.push(
       {key: 'open', label: 'Open', checked: state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, run: done(() => {
-        setState(app, issues, 'open');
+        changeState(app, issues, 'open');
       })},
       {key: 'closed', label: 'Closed', checked: closed, leading: <StateGlyph look={stateLook('closed', pull, false)}/>, run: done(() => {
-        setState(app, issues, 'closed');
+        changeState(app, issues, 'closed');
       })},
     );
     if (repoId !== undefined) {

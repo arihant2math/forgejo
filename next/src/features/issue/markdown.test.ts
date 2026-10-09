@@ -3,7 +3,7 @@
 
 import {expect, test} from 'vitest';
 import {scrub} from '../../app/trusted.ts';
-import {toggleTask} from './Markdown.tsx';
+import {appLinks, toggleTask} from './Markdown.tsx';
 
 test('a task is ticked by its index, outside fenced code', () => {
   const text = '- [ ] one\n```\n- [ ] not a task\n```\n1. [x] two\n  * [ ] three';
@@ -20,4 +20,15 @@ test('a code block keeps its language (for highlighting), not its classes', () =
   const code = tpl.content.querySelector('code');
   expect(code?.getAttribute('data-lang')).toBe('go');
   expect(code?.hasAttribute('class')).toBe(false);
+});
+
+test('rendered links to pages the app renders point at the app (an @mention opens the person here)', () => {
+  const root = document.createElement('div');
+  const o = location.origin;
+  root.innerHTML = `<a class="mention" href="${o}/alice">@alice</a> <a href="/acme/site/issues/3">#3</a> <a href="/acme/site/pulls/4/files">files</a>` +
+    ' <a href="/acme/site/wiki/Home">wiki</a> <a href="https://example.com/x">out</a> <a href="/alice" target="_blank">tab</a>';
+  appLinks(root, '');
+  expect([...root.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+    '/-/next/alice', '/acme/site/issues/3', '/acme/site/pulls/4?tab=files', '/acme/site/wiki/Home', 'https://example.com/x', '/alice',
+  ]);
 });

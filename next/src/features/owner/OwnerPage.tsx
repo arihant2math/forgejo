@@ -76,9 +76,10 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   const users = data.pool.model('User');
   const local = [...users.by('login', owner)][0] ?? [...users.all()].find((u) => u.get('login').toLowerCase() === owner.toLowerCase());
   const remote = useRemote<{id: number; login: string; full_name: string; avatar_url: string; description: string; website: string}>(`/users/${encodeURIComponent(owner)}`);
-  const orgCheck = useRemote<unknown>(`/orgs/${encodeURIComponent(owner)}`);
+  // API v1 users have no type: the org endpoint tells, unless the pool knows (a 404 there means a user).
+  const orgCheck = useRemote<unknown>(local ? undefined : `/orgs/${encodeURIComponent(owner)}`);
   const info: OwnerInfo | undefined = remote.state === 'ready' ?
-    {...remote.value, org: orgCheck.state === 'ready'} :
+    {...remote.value, org: local ? local.get('type') === 'organization' : orgCheck.state === 'ready'} :
     local ? {id: local.id, login: local.get('login'), full_name: local.get('full_name'), avatar_url: local.get('avatar_url'), description: local.get('description'), website: '', org: local.get('type') === 'organization'} :
       undefined;
   const classic = `/${encodeURIComponent(owner)}`;

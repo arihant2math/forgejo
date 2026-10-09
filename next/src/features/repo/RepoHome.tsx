@@ -222,7 +222,7 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
       </Property>
       {r.fork && r.parent_id > 0 && <ForkOf parentId={r.parent_id}/>}
       <Property label="Raw">
-        <PropertyValue tone="muted"><TextLink><a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.default_branch)}.zip`)}>Download ZIP</a></TextLink></PropertyValue>
+        <PropertyValue tone="muted"><TextLink><a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.default_branch)}.zip`)} download>Download ZIP</a></TextLink></PropertyValue>
       </Property>
     </PropertyList>
   );

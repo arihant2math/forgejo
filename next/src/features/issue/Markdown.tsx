@@ -4,8 +4,9 @@
 // Server-rendered markdown (an issue body, a comment, a README): put in
 // through the Trusted Types gate (app/trusted.ts) after every change of the
 // HTML, never by React. Links to pages this UI renders (issues, pull
-// requests, lists, repositories, code, people: app/paths.ts nextPathOf)
-// navigate in place; everything else is a normal link.
+// requests, lists, repositories, code, people: app/paths.ts nextPathOf) point
+// at the app's page (an @mention opens the person's page here, also in a new
+// tab) and navigate in place; everything else is a normal link.
 
 import {useRouter} from '@tanstack/react-router';
 import {type ChangeEvent, type MouseEvent, useLayoutEffect, useRef} from 'react';
@@ -26,6 +27,7 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
   useLayoutEffect(() => {
     if (!ref.current) return;
     setMarkup(ref.current, html);
+    appLinks(ref.current, app.config.app_sub_url);
     highlightBlocks(app, ref.current);
     if (tasks) {
       ref.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, i) => {
@@ -48,8 +50,9 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     const sub = app.config.app_sub_url;
     if (url.origin !== location.origin || !url.pathname.startsWith(`${sub}/`)) return;
     // The app's page for it (nextPathOf refuses encoded dots, slashes and backslashes, which the router would
-    // decode into another path than the one checked).
-    const to = nextPathOf(url.pathname.slice(sub.length));
+    // decode into another path than the one checked); appLinks already pointed some links at the app.
+    const site = url.pathname.slice(sub.length);
+    const to = site.startsWith('/-/next/') && !site.startsWith('/-/next/assets/') && !/%(?:2e|2f|5c)/i.test(site) ? site : nextPathOf(site);
     if (!to) return;
     e.preventDefault();
     // As an href (already encoded: the router takes it as is), with the link's query and fragment.
@@ -60,6 +63,26 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     void router.navigate({href: `${sub}${path}${q ? `?${q}` : ''}${url.hash}`});
   };
   return <Prose ref={ref} onClick={onClick} onChange={tasks ? onChange : undefined}/>;
+}
+
+/**
+ * Points the rendered links to pages the app renders at the app's page (an @mention's /{user} becomes
+ * /-/next/{user}): a middle-click or a new tab stays in the app too. Other links are left as they are.
+ */
+export function appLinks(root: HTMLElement, sub: string): void {
+  for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+    if (a.target || !a.href) continue;
+    const url = new URL(a.href);
+    if (url.origin !== location.origin || !url.pathname.startsWith(`${sub}/`)) continue;
+    const site = url.pathname.slice(sub.length);
+    const to = nextPathOf(site);
+    if (!to || to === site) continue;
+    const [path = '/', query = ''] = to.split('?');
+    const search = new URLSearchParams(url.search);
+    for (const [k, v] of new URLSearchParams(query)) search.set(k, v);
+    const q = search.toString();
+    a.setAttribute('href', `${sub}${path}${q ? `?${q}` : ''}${url.hash}`);
+  }
 }
 
 /**

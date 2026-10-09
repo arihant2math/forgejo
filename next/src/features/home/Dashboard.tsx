@@ -1,0 +1,151 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Home's content (its own chunk: the boot route renders the header at once
+// and this right after): what is waiting for the viewer, from the pool —
+// reviews requested, unread notifications, open issues assigned to them,
+// their open pull requests, and issues created on this device that Forgejo
+// does not have yet. Each section is a short list of links with a way to
+// the full list; empty sections are left out. Only the review requests ask
+// the server (they are not synced), as My pull requests does.
+
+import {Command, GitPullRequest, Inbox, Eye, CircleDot, CloudUpload} from 'lucide-react';
+import {runInAction} from 'mobx';
+import {observer} from 'mobx-react-lite';
+import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {PageColumn} from '../../app/shell/Frame.tsx';
+import {shortcutHint} from '../../app/shortcuts/index.ts';
+import {useApp, useSession} from '../../app/store.ts';
+import type {Entity} from '../../data/entity.ts';
+import {editing} from '../../intents/session.ts';
+import {issueState, notificationStatus} from '../../intents/view.ts';
+import {Button, EmptyState, Icon, ListRow, type LucideIcon, Panel, Shortcut} from '../../ui/index.ts';
+import {activityOf} from '../inbox/inbox.ts';
+import {AgoCell, PendingCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {issuePath} from '../issues/edits.ts';
+import type {ListSource} from '../issues/list.ts';
+import {useListModel} from '../issues/ListPage.tsx';
+
+/** Rows per section at most (the full list is a click away). */
+const ROWS = 6;
+
+const REVIEWS: ListSource = {kind: 'my', pulls: true, type: 'review_requested'};
+
+interface Item {
+  issue: Entity<'Issue'>;
+  /** The time shown (activity). */
+  at: string;
+}
+
+export default observer(function Dashboard() {
+  const app = useApp();
+  const {userId: me, auth} = useSession();
+  const pool = usePool();
+  const overlay = useOverlay();
+  const open = (i: Entity<'Issue'> | undefined): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open';
+  const issues = pool.model('Issue');
+
+  const unread = [...pool.model('Notification').all()].filter((n) => notificationStatus(overlay, n) === 'unread')
+    .map((n) => ({issue: issues.get(n.get('issue_id')), at: activityOf(n.data, issues.get(n.get('issue_id'))?.get('updated_at'))}))
+    .filter((x): x is Item => x.issue !== undefined).sort(byTime);
+  const assigned = [...new Set([...pool.model('IssueAssignee').by('assignee_id', me)].map((a) => a.get('issue_id')))]
+    .map((id) => issues.get(id)).filter(open).map(updated).sort(byTime);
+  const mine = [...issues.by('poster_id', me)].filter((i) => i.get('is_pull') && open(i)).map(updated).sort(byTime);
+  const pending = (editing(app).overlay.created('Issue') as Entity<'Issue'>[]).map((issue) => ({issue, at: issue.get('created_at')})).sort(byTime);
+
+  const sections: SectionProps[] = [
+    {title: 'Unread', icon: Inbox, items: unread, all: '/notifications?filter=unread'},
+    {title: 'Assigned to you', icon: CircleDot, items: assigned, all: '/issues?type=assigned'},
+    {title: 'Your pull requests', icon: GitPullRequest, items: mine, all: '/pulls?type=created_by'},
+  ].filter((x) => x.items.length);
+  return (
+    <PageColumn>
+      {pending.length > 0 && <Section title="Not synced yet" icon={CloudUpload} items={pending}/>}
+      {/* Asked once the session holds a token (the server is asked as the signed-in user). */}
+      {auth.status.state === 'ok' && <ReviewRequests/>}
+      {sections.map((x) => <Section key={x.title} {...x}/>)}
+      {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
+    </PageColumn>
+  );
+});
+
+const byTime = (a: Item, b: Item) => b.at.localeCompare(a.at);
+const updated = (issue: Entity<'Issue'>): Item => ({issue, at: issue.get('updated_at')});
+
+/** Review requests are not synced: the same live list as My pull requests > Review requested (the server names them). */
+const ReviewRequests = observer(function ReviewRequests() {
+  const pool = usePool();
+  const overlay = useOverlay();
+  const list = useListModel(REVIEWS, {}, 'none');
+  const items = list.result.get().ids.map((id) => pool.model('Issue').get(id))
+    .filter((i): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open').map(updated).sort(byTime);
+  if (!items.length) return null;
+  return <Section title="Review requested" icon={Eye} items={items} all="/pulls?type=review_requested"/>;
+});
+
+interface SectionProps {
+  title: string;
+  icon: LucideIcon;
+  items: Item[];
+  /** The full list. */
+  all?: string | undefined;
+}
+
+function Section({title, icon, items, all}: SectionProps) {
+  const app = useApp();
+  const click = useLinkClick();
+  const href = all && hrefOf(app, all);
+  return (
+    <Panel label={title}
+      title={<><Icon icon={icon} size="sm"/><span className="text-fg">{title}</span><span className="tabular-nums">{items.length}</span></>}
+      actions={href && <Button size="sm" variant="ghost" asChild><a href={href} onClick={(e) => click(e, href)}>View all</a></Button>}>
+      {items.slice(0, ROWS).map((x) => <Row key={x.issue.id} issue={x.issue} at={x.at}/>)}
+    </Panel>
+  );
+}
+
+const Row = observer(function Row({issue, at}: {issue: Entity<'Issue'>; at: string}) {
+  const app = useApp();
+  const pool = usePool();
+  const click = useLinkClick();
+  const path = issuePath(app, issue);
+  const href = path && hrefOf(app, path);
+  const repo = pool.model('Repository').get(issue.get('repo_id'))?.get('full_name') ?? '';
+  return (
+    <ListRow role={undefined} href={href} onClick={(e) => {
+      if (href) click(e, href);
+    }} leading={<StateIcon issue={issue}/>} trailing={<>
+      <PendingCell issueId={issue.id}/>
+      <span className="truncate tabular-nums">{repo}{issue.id > 0 ? `#${String(issue.get('number'))}` : ''}</span>
+      <AgoCell at={at}/>
+    </>}>
+      <TitleCell issue={issue}/>
+    </ListRow>
+  );
+});
+
+/** The ways to get anywhere from the keyboard. */
+function Hints() {
+  return (
+    <>
+      Jump anywhere with <Shortcut keys={shortcutHint('palette.open')}/>. <Shortcut keys={shortcutHint('go.issues')}/> opens your
+      issues, <Shortcut keys={shortcutHint('go.pulls')}/> your pull requests, <Shortcut keys={shortcutHint('go.inbox')}/> the inbox,{' '}
+      <Shortcut keys={shortcutHint('go.board')}/> your board; <Shortcut keys={shortcutHint('create')}/> creates an issue.
+    </>
+  );
+}
+
+/** Nothing waiting: a calm starting point. */
+function Welcome() {
+  const {ui, config} = useApp();
+  return (
+    <EmptyState icon={Command} title={config.app_name} description={<Hints/>}
+      action={
+        <Button variant="primary" shortcut={shortcutHint('palette.open')} tooltip="Search repositories, issues and commands" onClick={() => {
+          runInAction(() => {
+            ui.paletteOpen = true;
+          });
+        }}>Open the command menu</Button>
+      }/>
+  );
+}

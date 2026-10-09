@@ -213,10 +213,12 @@ export class IssueListModel {
 
   /** Shows another view (recomputed on the next read: in the same frame). */
   setSearch(s: ListSearch): void {
-    if (JSON.stringify(s) === JSON.stringify(this.view.get())) return;
-    runInAction(() => {
-      this.view.set(s);
-    });
+    if (JSON.stringify(s) !== JSON.stringify(this.view.get())) {
+      runInAction(() => {
+        this.view.set(s);
+      });
+    }
+    // Also for the first view when it is the default one (asks once per state).
     this.askServer();
   }
 

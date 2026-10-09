@@ -124,6 +124,17 @@ describe('signed in', () => {
     expect(classConflicts(document.body)).toEqual([]);
   });
 
+  test('home lists what is waiting: unread notifications, as links, with the full list a click away', async () => {
+    const s = signedIn();
+    await renderApp('/', s);
+    const unread = await screen.findByRole('region', {name: 'Unread'});
+    const row = within(unread).getByRole('link', {name: /Footer links are broken/});
+    expect(row.getAttribute('href')).toBe('/acme/website/issues/7');
+    expect(row.textContent).toContain('acme/website#7');
+    expect(within(unread).getByRole('link', {name: 'View all'}).getAttribute('href')).toBe('/notifications?filter=unread');
+    expect(classConflicts(document.body)).toEqual([]);
+  });
+
   test('an unknown address keeps the shell and offers the classic page', async () => {
     const s = signedIn();
     await renderApp('/-/next/acme/website/settings', s);

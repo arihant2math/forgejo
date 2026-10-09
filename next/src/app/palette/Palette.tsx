@@ -7,7 +7,7 @@
 
 import {useNavigate} from '@tanstack/react-router';
 import {
-  AppWindow, BookMarked, BookPlus, Building2, CircleCheck, Code2, CircleDot, FileCode, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home,
+  AppWindow, BookMarked, BookPlus, Building2, CircleCheck, CloudUpload, Code2, CircleDot, FileCode, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home,
   Inbox, KanbanSquare, Layers, Keyboard, LogOut, Milestone, Monitor, Moon, Settings, SquarePen, Sun, SunMoon, User,
 } from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
@@ -24,7 +24,9 @@ import {activeHint, KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../s
 import {type App, useApp} from '../store.ts';
 import {setThemePreference} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
-import {issuesOf} from '../../features/issues/edits.ts';
+import {issuePath, issuesOf} from '../../features/issues/edits.ts';
+import type {Entity} from '../../data/entity.ts';
+import {editing} from '../../intents/session.ts';
 import {localSearch} from '../../features/search/local.ts';
 import {searchServer, type ServerHit} from '../../features/search/server.ts';
 import {viewStore} from '../../features/views/views.ts';
@@ -269,6 +271,14 @@ function PaletteBody({app}: {app: App}) {
       value: `file:${f.owner}/${f.repo}/${f.path}`, icon: FileCode, meta: `${f.owner}/${f.repo}`, label: f.path,
       run: () => void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: f.owner, repo: f.repo, _splat: `src/branch/${f.ref}/${f.path}/-`}}),
     })));
+    // Issues created on this device that Forgejo has not numbered yet (offline): found by title, marked pending.
+    const pending = untracked(() => (editing(app).overlay.created('Issue') as Entity<'Issue'>[])
+      .map((e) => ({e, s: score(e.data.title.toLowerCase(), words)})).filter((x) => x.s >= 0)
+      .map(({e, s}) => ({e, s, path: issuePath(app, e), repo: app.session?.data.pool.model('Repository').get(e.data.repo_id)?.data})));
+    add('Not synced yet', best(pending.map((x) => x.s)), pending.flatMap(({e, path, repo}) => (path ? [{
+      value: `new:${String(e.id)}`, icon: CloudUpload, meta: `${repo?.full_name ?? ''} · pending`, label: e.data.title,
+      run: () => void navigate({to: path}),
+    }] : [])));
     add('Issues and pull requests', results.top?.issues ?? -1, [...results.issues, ...more.local].filter((r) => r.repo).map(({issue, repo}) => ({
       value: `issue:${String(issue.id)}`, icon: issueIcon(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
       run: openIssue(issue, repo),

@@ -58,7 +58,7 @@ function signedIn() {
   s.data.put('Repository', 'repo:21', repo(21, acme, 'api'));
   s.data.put('Issue', 'repo:20', issue(100, 20, 7, 'Footer links are broken'));
   s.data.put('Issue', 'repo:10', issue(101, 10, 1, 'Crash when saving settings'));
-  s.data.put('Notification', 'user:1', {id: 1, user_id: 1, repo_id: 20, status: 'unread', subject: 'issue', issue_id: 100, comment_id: 0, created_at: '', updated_at: ''});
+  s.data.put('Notification', 'user:1', {id: 1, user_id: 1, repo_id: 20, status: 'unread', subject: 'issue', issue_id: 100, comment_id: 0, actor_id: 0, created_at: '', updated_at: ''});
   return s;
 }
 
@@ -145,7 +145,8 @@ describe('signed in', () => {
     const s = signedIn();
     await renderApp('/-/next/acme/website/settings', s);
     expect(screen.getByRole('complementary', {name: 'Sidebar'})).toBeTruthy();
-    expect(screen.getByRole('heading', {name: 'Not found'})).toBeTruthy();
+    // The classic UI has the page: "Not available here" (a page nobody has is "Not found").
+    expect(screen.getByRole('heading', {name: 'Not available here'})).toBeTruthy();
     expect((await screen.findByRole('link', {name: /Open this page/})).getAttribute('href')).toBe('/acme/website/settings');
     expect(screen.getByRole('link', {name: /Go to Home/})).toBeTruthy();
   });

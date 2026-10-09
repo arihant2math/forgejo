@@ -24,7 +24,7 @@
 #
 # Needs: Go, Node ≥ 22.18, the dev databases (tools/dev-db.sh, started here), a
 # Chromium for Playwright (PLAYWRIGHT_CHROMIUM, defaults to the sandbox's
-# /opt/pw-browsers/chromium when present). Takes ≈ 35–45 min here, most of it
+# /opt/pw-browsers/chromium when present). Takes ≈ 25 min here, most of it
 # the e2e suite's seeding and its two databases.
 set -uo pipefail
 

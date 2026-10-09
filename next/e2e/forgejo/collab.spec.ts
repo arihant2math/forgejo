@@ -130,7 +130,7 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   expect(await storedRecords(page, 'Issue', `repo:${String(repoId)}`)).toBe(0);
   // The page no longer shows the issue (it is not on this device any more).
   await expect(page.getByRole('main').getByText(target.title)).toHaveCount(0, {timeout: 15_000});
-  // Nothing was sent: the server's issue has no such label, and the change waits in "Unsynced changes".
+  // Not on the server's issue (unsent, or refused), and the change waits in "Unsynced changes".
   expect((await apiJson<ApiIssue>('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}`)).labels.map((l) => l.name)).not.toContain('security');
   await expect(indicator(page)).toContainText('1 pending', {timeout: 15_000});
   await indicator(page).click();

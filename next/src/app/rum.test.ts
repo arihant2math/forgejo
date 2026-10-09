@@ -167,6 +167,16 @@ describe('reporter', () => {
     expect(posted.length).toBeGreaterThan(TAB_BUDGET);
   });
 
+  test('network marks after the device went offline are not reported; local ones are (an offline warm boot)', async () => {
+    performance.mark('appStart');
+    performance.mark('firstPaintFromCache');
+    dispatchEvent(new Event('offline'));
+    performance.mark('wsOpen');
+    const r = new RumReporter({url: '/-/sync/rum', fetch: fetchFake, storage: memory()});
+    await r.flush(false);
+    expect(Object.keys(bodies()[0]?.marks ?? {})).toEqual(['firstPaintFromCache']);
+  });
+
   test('boot marks of a page hidden while booting are not reported', async () => {
     performance.mark('appStart');
     document.dispatchEvent(new Event('visibilitychange'));

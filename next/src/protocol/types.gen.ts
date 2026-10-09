@@ -107,6 +107,18 @@ export interface APICardMove {
   cards?: APICard[];
 }
 /**
+ * APIIssueProject puts an issue on a project's board (in ColumnID, or the
+ * project's default column when 0; at the column's end) or, with
+ * ProjectID 0, takes it off its project. An issue is on one project at a
+ * time (Forgejo's rule): another project takes it off the first. The
+ * classic issue sidebar's checks: the viewer writes the repository's issues
+ * (403), the project is the repository's or its owner's and readable (404).
+ */
+export interface APIIssueProject {
+  project_id: number /* int64 */;
+  column_id?: number /* int64 */;
+}
+/**
  * APICard is a card's position in APICardMove.Cards.
  */
 export interface APICard {
@@ -184,6 +196,25 @@ export const ViewedHasChanged = "has_changed";
 export interface APIViewedUpdate {
   commit_sha?: string;
   files: { [key: string]: boolean};
+}
+/**
+ * APIMarkupRequest renders a repository file's markup (markdown, by the
+ * path's extension) as the classic file view does: relative links and
+ * images resolve from the file's directory at Ref ("branch/main",
+ * "tag/v1.0", "commit/<sha>"), root-relative ones from the repository's
+ * root at Ref. Permission: the repository's code unit.
+ */
+export interface APIMarkupRequest {
+  repo_id: number /* int64 */;
+  ref: string;
+  path: string;
+  text: string;
+}
+/**
+ * APIMarkupResponse is the rendered (sanitized) HTML.
+ */
+export interface APIMarkupResponse {
+  html: string;
 }
 /**
  * APIMarkdownRequest renders markdown previews in one request (at most 64

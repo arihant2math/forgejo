@@ -43,7 +43,9 @@ package protocol
 //	GET    /-/sync/api/bodies/{model}/{id}                  → 200 APIBody (model IssueBody, Comment, Review or Release)
 //	GET    /-/sync/api/issues/{id}/viewed[?head={sha}]      → 200 APIViewedFiles (a pull request's issue)
 //	PUT    /-/sync/api/issues/{id}/viewed                   APIViewedUpdate → 200 APIViewedFiles (write:repository)
+//	PUT    /-/sync/api/issues/{id}/project                  APIIssueProject → 204              (write:issue)
 //	POST   /-/sync/api/markdown                             APIMarkdownRequest → 200 APIMarkdownResponse
+//	POST   /-/sync/api/markup                               APIMarkupRequest → 200 APIMarkupResponse (code unit)
 //	GET    /-/sync/api/repos/{id}/tree/{commit}[/{path}]    → 200 APITree               (immutable)
 //	GET    /-/sync/api/repos/{id}/raw/{commit}/{path}       → 200 the file's bytes      (immutable, ETag = blob SHA)
 //	GET    /-/sync/api/repos/{id}/blobs/{sha}               → 200 the blob's bytes      (immutable)
@@ -135,6 +137,17 @@ type APICardMove struct {
 	Cards    []APICard `json:"cards,omitempty"`
 }
 
+// APIIssueProject puts an issue on a project's board (in ColumnID, or the
+// project's default column when 0; at the column's end) or, with
+// ProjectID 0, takes it off its project. An issue is on one project at a
+// time (Forgejo's rule): another project takes it off the first. The
+// classic issue sidebar's checks: the viewer writes the repository's issues
+// (403), the project is the repository's or its owner's and readable (404).
+type APIIssueProject struct {
+	ProjectID int64 `json:"project_id"`
+	ColumnID  int64 `json:"column_id,omitempty"`
+}
+
 // APICard is a card's position in APICardMove.Cards.
 type APICard struct {
 	IssueID int64 `json:"issue_id"`
@@ -211,6 +224,23 @@ const (
 type APIViewedUpdate struct {
 	CommitSHA string          `json:"commit_sha,omitempty"`
 	Files     map[string]bool `json:"files"`
+}
+
+// APIMarkupRequest renders a repository file's markup (markdown, by the
+// path's extension) as the classic file view does: relative links and
+// images resolve from the file's directory at Ref ("branch/main",
+// "tag/v1.0", "commit/<sha>"), root-relative ones from the repository's
+// root at Ref. Permission: the repository's code unit.
+type APIMarkupRequest struct {
+	RepoID int64  `json:"repo_id"`
+	Ref    string `json:"ref"`
+	Path   string `json:"path"`
+	Text   string `json:"text"`
+}
+
+// APIMarkupResponse is the rendered (sanitized) HTML.
+type APIMarkupResponse struct {
+	HTML string `json:"html"`
 }
 
 // APIMarkdownRequest renders markdown previews in one request (at most 64

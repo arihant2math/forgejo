@@ -51,16 +51,16 @@ const classicJS = `// Forgejo Next on classic pages (routers/livesync/classic.go
   box.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:1000;display:flex;gap:6px";
   if (on) {
     // Opted in, on a page the UI does not render (or asked for with ?ui=classic): the way back to the UI's
-    // page for it (a code view mirrors the classic path below c.base), and the way out.
+    // page for it, and the way out. The UI maps the classic address itself (?to=, next/src/app/paths.ts
+    // nextPathOf: boards, owners, code views, a pull request's files, …), or opens Home when it has none.
     const url = new URL(location.href);
-    let back = c.base;
+    let back;
     if (url.searchParams.get("ui") === "classic") {
       url.searchParams.delete("ui");
       back = url.pathname + url.search + url.hash;
     } else {
       const sub = c.base.slice(0, -"/-/next/".length);
-      const p = location.pathname.slice(sub.length);
-      if (/^\/[^/]+\/[^/]+\/(src|blame|commits?|branches|tags|releases|actions|compare)(\/|$)/.test(p)) back = c.base + "code" + p.replace(/\/$/, "") + "/-";
+      back = c.base + "?to=" + encodeURIComponent(location.pathname.slice(sub.length) + location.search);
     }
     box.append(pill(back, "Back to Forgejo Next"));
     const off = pill(c.opt_out + "?redirect=" + encodeURIComponent(here), "Turn off");

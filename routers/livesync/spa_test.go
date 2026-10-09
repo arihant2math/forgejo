@@ -111,6 +111,10 @@ func TestSPARoute(t *testing.T) {
 		"/explore/repos/issues":     false,
 		"/org/org3/issues":          false,
 		"/user2/repo1/issues/1.png": false,
+		"/user2":                    true, // an owner's page
+		"/explore":                  false,
+		"/user2.keys":               false, // the user's files (reservedUserPatterns)
+		"/user2.rss":                false,
 	} {
 		assert.Equal(t, want, spaRoute(p), p)
 	}
@@ -223,7 +227,8 @@ func TestSPAServing(t *testing.T) {
 				assert.Equal(t, 299, get(t, h, sub+"/user2/repo1/issues/1", header...).Code, name)
 			}
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2/repo1", opted...).Code, "a repository's home")
-			for _, p := range []string{"/user2/repo1/issues/new", "/api/v1/issues", "/user2/repo1/settings", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic"} {
+			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2?tab=repositories", opted...).Code, "an owner's page")
+			for _, p := range []string{"/user2/repo1/issues/new", "/api/v1/issues", "/user2/repo1/settings", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic", "/user2?tab=activity", "/user2?ui=classic"} {
 				assert.Equal(t, 299, get(t, h, sub+p, opted...).Code, p)
 			}
 			req := httptest.NewRequest(http.MethodPost, sub+"/user2/repo1/issues/1", nil)

@@ -54,6 +54,7 @@ var spaRoutes = [][]string{
 	{"notifications"},     // the inbox
 	{"issues"},            // the viewer's issues
 	{"pulls"},             // the viewer's pull requests
+	{"{owner}"},           // an owner's repositories (the profile's other tabs stay classic: profileTab)
 	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
 	{"{owner}", "{repo}", "issues", "{index}"},
@@ -104,6 +105,17 @@ next:
 // routes, which would otherwise serve the UI again. The opt-in stays.
 func classicRequested(req *http.Request) bool {
 	return req.URL.Query().Get(protocol.NextUICookie) == "classic"
+}
+
+// profileTab reports whether req asks for a tab of an owner's classic
+// profile other than its repositories (/{owner}?tab=activity): the UI's
+// owner page shows the repositories only. Keep in step with next/src/sw/routes.ts.
+func profileTab(p string, req *http.Request) bool {
+	if strings.Contains(strings.Trim(p, "/"), "/") {
+		return false
+	}
+	tab := req.URL.Query().Get("tab")
+	return tab != "" && tab != "repositories"
 }
 
 // optedIn reports whether req is a document navigation (Sec-Fetch-Dest:
@@ -652,7 +664,7 @@ func (s *spa) document(req *http.Request) bool {
 			p = p[len(sub):]
 		}
 	}
-	return spaRoute(p)
+	return spaRoute(p) && !profileTab(p, req)
 }
 
 // serveAsset answers GET /-/next/assets/*: hashed, immutable files.

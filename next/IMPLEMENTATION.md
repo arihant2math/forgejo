@@ -4743,7 +4743,8 @@ does) **and** MySQL 8.0 (binlog on).
     3. `protocol`: `tools/gen-protocol.sh --check`.
     4. `browser`: Playwright projects `build` and `dev` (the boot shell, the gallery, the hydration benchmark).
     5. `conformance`: `tools/dev-forgejo.sh conformance all` (B10, PG then MySQL).
-    6. `e2e`: `tools/dev-forgejo.sh e2e all` (PG then MySQL).
+    6. `e2e`: `tools/dev-forgejo.sh e2e all` (PG then MySQL), without the crawler (`--grep-invert @crawl`).
+    7. `crawl` (QA pass, 4.3): the link crawler alone, `tools/dev-forgejo.sh e2e all --grep @crawl`.
 
     Other ways to run it:
     * `next/tools/ci.sh check e2e` runs only the steps named.
@@ -5073,8 +5074,8 @@ them.
   * Overrides are kept in memory (F5).
   * Mobile layout (beyond the QA pass's narrow-screen drawer and stacked side panes, 4.3) and i18n are PLAN Phase 5.
 * **UI debt** (F8 UI review; none is a blocker):
-  * The create dialog and the list filters use plain menus instead of the cmdk pickers: no type-to-filter, unbounded
-    for large repositories. This is the most user-visible item.
+  * ~~The create dialog and the list filters use plain menus instead of the cmdk pickers.~~ Done in the second QA pass
+    (4.3): `CommandPopover`.
   * One `CommentCard` primitive is needed for timeline, PR-thread and code comments, which today are three looks.
   * One `VirtualListbox` for the four virtualized listboxes (issues, inbox, code rows, board columns), with one focus
     treatment.
@@ -5085,7 +5086,7 @@ them.
   * Other open minors:
     * group headers are not sticky (F4);
     * the cursor edge looks the same with and without focus (F4);
-    * code list rows are not links (F7);
+    * ~~code list rows are not links (F7)~~ (they are, QA pass 4.3);
     * no go-to-file finder (F7);
     * the diff list's roles (F7).
 * **E2E and perf, still to do.**
@@ -5115,11 +5116,14 @@ them.
 
 ### 4.3 QA pass (2026-10-09)
 
-A hands-on QA round of the F1–F8 app against a dev Forgejo found navigation dead ends, missing permissions checks and
-layout problems. A fix round worked through them in order and was stopped part-way; this section records what landed
-and what is still open. It is not a milestone: no review round ran on it.
+A hands-on QA round of the F1–F8 app against a dev Forgejo (31 verified findings) found navigation dead ends, missing
+permissions checks and layout problems. A first fix round worked through them in order and stopped part-way; a second
+round finished the open items, built the permanent link crawler and raised the boot budget. This section records both.
+It is not a milestone: no review round ran on it. The QA environment (a seeded PostgreSQL instance on :3060, users dev,
+alice, bob and carol, `seed.sh` / `server.sh`) lived in the session scratchpad and is not part of the tree; the crawler
+below is the permanent part.
 
-* **Fixed (shipped).**
+* **Fixed in the first round.**
   * **Repository navigation.** `/{owner}/{repo}` is a canonical route (`spaRoutes` in `routers/livesync/spa.go`,
     `isSpaRoute` in `src/sw/routes.ts`, both tested): the repository's home (`features/repo/RepoHome.tsx`, README
     rendered, SVG and markdown through the Trusted Types gate). One `RepoHeader` (owner / repository breadcrumbs, tabs
@@ -5151,39 +5155,102 @@ and what is still open. It is not a milestone: no review round ran on it.
     panel layouts follow the panel's width (`@container`, `@xl:` = `--container-xl`): issue, run and repository home
     side panes stack below it. Only tokens and F1 primitives (`PageColumn`, `WhenSidebarAway` in `shell/Frame.tsx`;
     variants `sidebar-hidden` / `drawer-open` in `app.css`). Tab titles per page (`PageHeader docTitle`).
-  * **Partly done from the later items** (in the tree and tested, but the QA findings were not re-checked one by one):
-    inbox order by subject activity, not by `updated_at` (triage no longer moves a row to the top), "Mark all read"
-    with Undo, inbox rows are links, the cursor restored on Back; code rows (commits, branches, tags, runs) are links;
-    diff `+`/`−` in the gutter; a run opens on its failed (else running) job; commit avatars; avatars cached by the
-    service worker for offline (`AVATAR_CACHE`, network first, 500 kept); boards grouped by repository with links;
-    a board column's focus ring only without a card under the cursor; the create dialog's missing-title message and
-    ⌘↵ from anywhere in it.
-  * **Closing fixes in this pass.** The not-found body (`Missing`, and with it the classic link) is a lazy chunk and
-    `ClassicMenuItem` is its own module, so Radix menus stay off the boot route: boot JS went from 168.6 KB br (over
-    budget) back to **149.7 / 150 KB br** (CSS 7.2 KB). **Almost no boot headroom is left (0.3 KB):** the next boot-route
-    addition must first move something off it. One lint error
-    fixed; the keymap test accepts `escape` and `\` (both supported by the registry).
-* **Checks.** `npm run check` green (ESLint, Stylelint, typecheck, 455 Vitest tests in 50 files, build, budget).
-  `go vet` and `go test ./routers/livesync/ ./services/livesync/protocol/` green; `gen-protocol.sh --check` up to date.
-  Playwright against a fresh PG instance (`tools/dev-forgejo.sh e2e pg session lists flows`): **18 / 18 pass**. Three
-  e2e locators were brought up to date with intended UI changes (the palette's longer placeholder; the filter button
-  now names the filter in effect, "Label: bug"; the issue's Project property has a second line, "Change in the
-  classic UI").
-* **Still open** (not started, or not finished, in this pass):
-  * **Inbox and lists:** a confirmation (or undo) for every destructive action, not only "Mark all read"; the history
-    and title items beyond tab titles; the create dialog's remaining findings (cmdk pickers, see 4.2 UI debt).
-  * **Code views:** status dots, check durations, the ref filter, release assets, the failed-job view and grammar
-    loading findings (only the parts listed above landed).
-  * **Offline:** pending (queued) issues and their badges in lists and boards; the boards' repository prefix and focus
-    findings beyond the above; the home page's content.
-  * **Backend:** the spurious errors in the Forgejo log seen during QA (not investigated).
-  * **The permanent link-crawler e2e gate is not built.** It was to crawl every link of the app from the home page
-    against a seeded server (no 404s, no classic dead ends, no console errors) and run in `ci.sh`; nothing of it
-    exists yet. Until then navigation regressions are caught only by `App.test.tsx`, `paths.test.ts` and the e2e
-    suites.
-  * The other e2e specs (`code`, `collab`, `offline`, `perf`, `rum`, `work`), the build/dev projects and MySQL were
-    not re-run after this pass; neither were the Go livesync integration tests.
-  * Nothing was reverted.
+  * Also in the first round (re-checked one by one in the second): inbox order by subject activity, not by
+    `updated_at` (triage no longer moves a row to the top), "Mark all read" with Undo, inbox rows are links, the cursor
+    restored on Back; code rows (commits, branches, tags, runs) are links; diff `+`/`−` in the gutter; a run opens on
+    its failed (else running) job; commit avatars; avatars cached by the service worker for offline (`AVATAR_CACHE`,
+    network first, 500 kept); boards grouped by repository with links; a board column's focus ring only without a card
+    under the cursor; the create dialog's missing-title message and ⌘↵ from anywhere in it; status dots sized wherever
+    they are put (`StatusDot` is `inline-block`); the ref menu filters; release assets download; plural-aware offline
+    copy (`missingWords`). The not-found body (`Missing`) is a lazy chunk and `ClassicMenuItem` its own module, so Radix
+    menus stay off the boot route.
+* **Fixed in the second round** (each verified by clicking through the QA instance as dev, alice or offline).
+  * **Boot budget (user decision).** Boot-route JS may now be **500 KiB** br (was 150 KB), CSS 30 KiB, inline CSS 10
+    KiB; `tools/budget.ts` reports in KiB and `perf.spec` asserts its `BUDGET`. Not spent: boot JS is **146.8 KiB**
+    (was 146.2 at the raise; Home's lazy import), CSS 7.0 KiB. Home's content is a lazy chunk. Fast first loads
+    (server rendering of the first view, streaming the bundle) are a later foundation pass (§2.4).
+  * **Destructive actions** (finding 12). Closing or reopening from a list, a row menu, the palette or the S picker
+    goes through one `changeState()` (`features/issues/actions.ts`) with an Undo notice; comment delete confirms; a merge
+    style opens `MergeDialog` (message, delete branch, "cannot be undone"); "Mark all read" has Undo; column delete
+    confirms.
+  * **Pickers that filter** (findings 25, 26; 4.2 UI debt). `CommandPopover` (`ui/Command.tsx`): a cmdk list in a
+    popover under a button, type to narrow, Enter takes the first match, groups, checks, multi-value rows stay open.
+    The create dialog's repository, labels, assignee (with avatars) and milestone, a list's filters (one picker over
+    labels, assignee, author and milestone, the filters in effect first; choosing one drops it) and the code view's
+    ref switcher (which had its own copy) use it.
+  * **Lists and history** (findings 24, 25). Inbox rows grouped by repository give the number only. Back restores a
+    list's scroll (router scroll restoration on `PAGE_SCROLLER`) and the inbox cursor; tab titles per page; Back after
+    sign-in skips the consent pages; Esc on an issue returns to the list. Search → ArrowDown → Enter opens a result;
+    "Nothing matches" offers to clear.
+  * **Code views** (findings 13, 14, 22, 30). Checks rows, the run's job list and the Actions list show how long each
+    took (`took()`: never negative, nothing when a runner's clock contradicts the server's, `features/code/actions.test.ts`).
+    A failed job opens with its passing steps folded, so the failing step is on screen. Statuses that duplicate a run's
+    jobs are listed once; the merge box waits for pending checks; merged pull requests show the merge commit.
+  * **Offline** (finding 19). An issue created offline is in its repository's list, My issues (Created, Your
+    repositories), Home ("Not synced yet") and the ⌘K palette ("Not synced yet", by title), each with the pending
+    marker; avatars fall back to initials offline and come from the cache.
+  * **Home** (finding 21). `features/home/Dashboard.tsx`: review requests (the server's list, asked once the session
+    holds a token: review requests are not synced), unread notifications, open issues assigned to you, your open pull
+    requests, and issues not synced yet — a few link rows each with "View all", the keyboard hints below; the welcome
+    state when nothing is waiting. A list model whose first view is the default one now asks the server too
+    (`IssueListModel.setSearch`).
+  * **Boards** (findings 20, 28). Cards on a board of several repositories carry `repo#n`; a column's focus ring shows
+    only without a card under the cursor (re-checked: no tall outline on J).
+  * **Rendered links** (finding 27, found again by the crawler). Links in rendered markdown to pages the app renders
+    are rewritten to the app's page (`appLinks`, `features/issue/Markdown.tsx`): an @mention opens `/-/next/{user}`,
+    also on middle-click.
+  * **Owner page.** No `/api/v1/orgs/{login}` probe (a 404) when the pool knows the owner's type. Download ZIP is a
+    download.
+  * **Backend log errors** (finding 31), root-caused. `capture.WithQuietTx` began its transactions under the request's
+    context; a client that went away mid-bootstrap made database/sql roll the transaction back by itself (and pgx /
+    the MySQL driver close the connection under a statement in flight), so the ROLLBACK or COMMIT after it failed with
+    "transaction has already been committed or rolled back" / "conn closed" and the engine's error hook logged it. The
+    transaction and its statements now run under `context.WithoutCancel`; fn still gets the request's context (it stops
+    at its next check, then the transaction rolls back cleanly). `Prepare`'s "context canceled" is logged at Debug, like
+    `Stream`'s. `TestLivesyncBootstrapCancelled` cuts 24 bootstraps at different moments and fails on any error-level
+    log line; it failed before the fix and passes on PostgreSQL and MySQL. The other `[E]`/`[W]` lines of the QA log were
+    upstream's (the seed's classic project form, `notifier_helper` on empty refs, shutdown warnings).
+* **The link crawler** (`e2e/forgejo/crawl.spec.ts`, tag `@crawl`; `tools/ci.sh crawl`, its own fresh instance per
+  database, PostgreSQL and MySQL; the `e2e` step runs the rest with `--grep-invert @crawl`).
+  * Seeds a repository of dev (code, a branch, alice's pull request with a review comment and a review request, a
+    release with an asset, a workflow whose runs wait, labels, a milestone, open and closed issues, a board, mentions
+    and comments that notify dev) and an organization with a repository.
+  * Signed in as dev, it clicks breadth first from Home to depth 4: every visible link of the page (shell, sidebar,
+    headers, lists, detail and code views), the links in header and sidebar menus (a repository's More, the account
+    menu), a board's first card (cards are not anchors), and the ⌘K navigation commands. One visit per route pattern
+    (`routePattern`: owners, repositories, numbers, SHAs, refs and file paths become placeholders; `tab`, `type`,
+    `filter`, `state` and `group` stay).
+  * Fails on: a dead-end page reached by a click ("Not available here", "Not found", "Could not load", …); a page
+    without the app's shell (a document navigation away); a same-origin link that leaves the app unmarked (classic
+    exits carry `data-classic`: `ClassicLink`, `MenuItem classic`; new tabs and downloads are left alone); a console
+    error or uncaught exception; a same-origin HTTP answer ≥ 400 not in `EXPECTED_HTTP` (one entry: the org probe of an
+    owner the device does not know). Fewer than 30 patterns fails too (a broken crawler).
+  * Coverage (its report is printed and attached as `crawl-coverage.json`): on the fresh e2e instances (PostgreSQL and
+    MySQL alike) 51 pages visited by clicking, **43 route patterns**; 1014–1030 links seen, of which 795 led to a
+    pattern already visited, 169–185 were marked classic exits, 3 opened new tabs, 2 were downloads, 3 lay beyond depth
+    4. Patterns: Home, the inbox (and `?filter=unread`), My issues and My pull requests with each type, boards and a
+    board (and a card → its issue), an owner page; a repository's home, issue and pull request lists and pages, a pull
+    request's Files / Commits / Checks; code: tree and file and directory views on a branch and on a tag, blame,
+    history of a branch, a tag, a file and a directory, a commit, branches, tags, releases, Actions, a run and a job;
+    the ⌘K navigation commands. No dead end, no unmarked exit, no console error, no HTTP error but the documented one,
+    and 0 `[E]`/`[F]` lines in either server's log. About 1.5–2 minutes per database after the seed.
+  * It found three defects on its first runs (the @mention links, the org probe 404, Download ZIP), fixed above.
+* **Checks.** `npm run check` green: ESLint, Stylelint, typecheck, **459 Vitest tests in 51 files**, build, budget
+  (146.8 / 500 KiB JS, 7.0 / 30 KiB CSS). `tools/ci.sh crawl`: **pass on PostgreSQL and MySQL** (0 `[E]`/`[F]` server
+  log lines). `tools/ci.sh e2e` (all `e2e/forgejo` specs but the crawler): **44 / 44 on PostgreSQL and 44 / 44 on
+  MySQL**; the first run had 2 failures, both specs not re-run after the first round's intended changes (a markdown
+  file opens rendered; the merge button is "Merge…" and opens a dialog; the avatars' cache outlives builds), updated.
+  Their server logs have 2 (PG) and 4 (MySQL) `[E]` lines, all upstream's (Actions' job emitter on a deleted run,
+  notifications for an issue deleted by a test). `TestLivesync` (Go integration) green on PostgreSQL (6 m 51 s);
+  `TestLivesyncBootstrapCancelled` on both databases. `go vet`, gofumpt and golangci-lint clean on the touched
+  packages; `go test ./routers/livesync/` green.
+* **Still open.**
+  * PLAN-level items this pass did not take on: labels and milestones management views, comment edit markers, a
+    go-to-file finder, sticky group headers (4.2).
+  * The crawler covers what dev reaches; a read-only user's (carol's) walk, a narrow viewport and offline navigation
+    are not crawled. Pages it does not reach by a link of its own seed (compare, blame of a tag) are covered by the
+    code e2e spec.
+  * The Go livesync integration tests ran on PostgreSQL only in this pass (the new cancellation test on both).
 
 ---
 

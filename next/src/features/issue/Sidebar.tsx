@@ -8,10 +8,9 @@
 // shows.
 
 import {Link} from '@tanstack/react-router';
-import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
+import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, KanbanSquare, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
 import {type ReactNode, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
-import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
@@ -19,9 +18,10 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
-  Button, Code, Dialog, Hint, Icon, Input, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue, TextLink,
+  Badge, Button, Code, CommandPopover, Dialog, Hint, Icon, Input, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
+  PropertyValue, TextLink,
 } from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
@@ -166,33 +166,50 @@ const MilestoneValue = observer(function MilestoneValue({issue}: {issue: Entity<
   return <span className="truncate">{m?.get('title') ?? `Milestone ${String(id)}`}{due && <span className="text-fg-subtle"> · due {shortDate(due)}</span>}</span>;
 });
 
-/** The projects the issue is on (Project when held, else what the owner shares: ProjectRef, B6) and its column. */
+/**
+ * The project the issue is on (Project when held, else what the owner shares: ProjectRef, B6) and its column; writers
+ * put it on a board of its repository or owner, or take it off (issue.project: offline-capable).
+ */
 const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
   const app = useApp();
   const pool = usePool();
-  const cards = [...pool.model('ProjectIssue').by('issue_id', issue.id)];
-  const path = issuePath(app, issue);
+  const overlay = useOverlay();
+  const {project: pid, column: cid} = issueProject(pool, overlay, issue.id);
+  const project = pid ? pool.model('Project').get(pid) : undefined;
+  const title = pid ? project?.get('title') ?? pool.model('ProjectRef').get(pid)?.get('title') ?? `Project ${String(pid)}` : undefined;
+  const column = pool.model('ProjectColumn').get(cid)?.get('title');
+  // The board opens from here (the triage path: issue → its board) when it is on this device; the link truncates
+  // itself (no clipping parent: its focus outline stays whole).
+  const value = title === undefined ? <PropertyEmpty>No project</PropertyEmpty> : (
+    <span className="flex min-w-0 items-center gap-1">
+      {project ? <TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}}>{title}</Link></TextLink> : <span className="truncate">{title}</span>}
+      {column && <span className="shrink-0 text-fg-subtle">· {column}</span>}
+    </span>
+  );
+  if (!write || isTemp(issue.id)) return <Property label="Project"><PropertyValue>{value}</PropertyValue></Property>;
+  const repo = pool.model('Repository').get(issue.get('repo_id'))?.data;
+  // The boards it can go on: its repository's and its owner's (Forgejo's rule), open ones.
+  const boards = [...pool.model('Project').all()].map((e) => e.data)
+    .filter((p) => !p.closed && (p.repo_id === issue.get('repo_id') || (p.repo_id === 0 && p.owner_id === repo?.owner_id)))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const set = (projectId: number) => {
+    if (projectId === pid) return;
+    runInAction(() => {
+      editing(app).intents.submit({kind: 'issue.project', issueId: issue.id, repoId: issue.get('repo_id'), projectId, columnId: 0, base: pid});
+    });
+  };
   return (
     <Property label="Project">
-      <PropertyValue>
-        {!cards.length && <PropertyEmpty>No project</PropertyEmpty>}
-        {cards.map((c) => {
-          const pid = c.get('project_id');
-          const project = pool.model('Project').get(pid);
-          const title = project?.get('title') ?? pool.model('ProjectRef').get(pid)?.get('title') ?? `Project ${String(pid)}`;
-          const column = pool.model('ProjectColumn').get(c.get('column_id'))?.get('title');
-          // The board opens from here (the triage path: issue → its board) when it is on this device; the
-          // link truncates itself (no clipping parent: its focus outline stays whole).
-          return (
-            <span key={c.id} className="flex min-w-0 items-center gap-1">
-              {project ? <TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}}>{title}</Link></TextLink> : <span className="truncate">{title}</span>}
-              {column && <span className="shrink-0 text-fg-subtle">· {column}</span>}
-            </span>
-          );
-        })}
-        {/* No API adds an issue to a project or takes it off (B9): the classic page does. */}
-        {write && path && !isTemp(issue.id) && <span className="text-sm"><TextLink><a href={classicHref(app, path)} title={CLASSIC_HINT} data-classic="">Change in the classic UI</a></TextLink></span>}
-      </PropertyValue>
+      <CommandPopover label="Project" placeholder="Put it on a board…" empty="No open board of this repository or its owner is on this device."
+        options={[
+          ...(pid ? [{value: 'none', label: 'No project', checked: false, onSelect: () => {
+            set(0);
+          }}] : []),
+          ...boards.map((b) => ({value: String(b.id), label: b.title, icon: KanbanSquare, checked: b.id === pid, onSelect: () => {
+            set(b.id);
+          }})),
+        ]}
+        trigger={<PropertyButton label="Put it on a board">{value}</PropertyButton>}/>
     </Property>
   );
 });
@@ -300,14 +317,24 @@ function DueDialog({initial, onClose, onSave}: {initial: string; onClose: () => 
 }
 
 const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'Issue'>}) {
-  const pr = [...usePool().model('PullRequest').by('issue_id', issue.id)][0];
+  const pool = usePool();
+  const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0];
   if (!pr) return null;
+  // The head branch deleted (after a merge, or by hand): said, not shown as if it were there. Only when the
+  // head repository's branches are on this device (a fork's may not be).
+  const branches = [...pool.model('Branch').by('repo_id', pr.get('head_repo_id'))].map((b) => b.data);
+  const head = branches.find((b) => b.name === pr.get('head_branch'));
+  const deleted = branches.length > 0 && (head === undefined || head.is_deleted);
   return (
     <Property label="Branches">
       <PropertyValue tone="muted">
         {/* Head, then base, one per line: long names truncate inside the pane (the full name on hover). */}
         <span className="flex min-w-0 flex-col gap-1 text-sm">
-          <span className="flex min-w-0 items-center gap-1" title={pr.get('head_branch')}><Icon icon={GitBranch} size="sm"/><span className="min-w-0 truncate"><Code>{pr.get('head_branch')}</Code></span></span>
+          <span className="flex min-w-0 items-center gap-1" title={deleted ? `${pr.get('head_branch')} (deleted)` : pr.get('head_branch')}>
+            <Icon icon={GitBranch} size="sm"/>
+            <span className={deleted ? 'min-w-0 truncate line-through' : 'min-w-0 truncate'}><Code>{pr.get('head_branch')}</Code></span>
+            {deleted && <Badge>Deleted</Badge>}
+          </span>
           <span className="flex min-w-0 items-center gap-1" title={pr.get('base_branch')}><Icon icon={ArrowRight} size="sm"/><span className="min-w-0 truncate"><Code>{pr.get('base_branch')}</Code></span></span>
         </span>
       </PropertyValue>
@@ -336,6 +363,9 @@ const SubscribeValue = observer(function SubscribeValue({issue}: {issue: Entity<
   );
 });
 
+/** Forgejo's default lock reasons (setting.Repository.Issue.LockReasons; API v1 refuses any other). */
+const LOCK_REASONS = ['Too heated', 'Off-topic', 'Resolved', 'Spam'];
+
 /** Pinning (to the repository's issue list) and locking the conversation: writers only. */
 const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
@@ -355,9 +385,16 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
         }}><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton>
       </Property>
       <Property label="Conversation">
-        <PropertyButton label={locked ? 'Unlock the conversation' : 'Lock the conversation'} onClick={() => {
-          submit({kind: 'issue.lock', locked: !locked, reason: ''});
-        }}><Icon icon={locked ? Lock : LockOpen}/><span>{locked ? 'Locked' : 'Open to comments'}</span></PropertyButton>
+        {locked ?
+          <PropertyButton label="Unlock the conversation" onClick={() => {
+            submit({kind: 'issue.lock', locked: false, reason: ''});
+          }}><Icon icon={Lock}/><span>Locked</span></PropertyButton> :
+          // Forgejo asks why (its lock reasons, [repository.issue] LOCK_REASONS by default).
+          <CommandPopover label="Lock the conversation" placeholder="Why lock it?"
+            options={LOCK_REASONS.map((reason) => ({value: reason, label: reason, onSelect: () => {
+              submit({kind: 'issue.lock', locked: true, reason});
+            }}))}
+            trigger={<PropertyButton label="Lock the conversation (only collaborators can comment)"><Icon icon={LockOpen}/><span>Open to comments</span></PropertyButton>}/>}
       </Property>
     </>
   );

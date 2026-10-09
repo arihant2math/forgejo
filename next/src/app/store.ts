@@ -28,8 +28,8 @@ export interface UiState {
   pendingIntents: number;
   /** Unread notifications as the user sees them (pending read/unread intents included); undefined until the queue started. */
   unread: number | undefined;
-  /** The new-issue dialog (C): open, for which repository (0: the last one used). */
-  create: {repoId: number} | undefined;
+  /** The new-issue dialog (C): open, for which repository (0: the last one used), for which board column. */
+  create: {repoId: number; board?: {projectId: number; columnId: number}} | undefined;
   /** The "Unsynced changes" panel is open. */
   unsyncedOpen: boolean;
   /** Transient notices (notices.ts), oldest first. */
@@ -44,6 +44,8 @@ export interface UiState {
   issueTarget: readonly number[];
   /** An open issue picker (S/L/A/M/P): which field, for which issues. */
   picker: {kind: PickerKind; issueIds: readonly number[]} | undefined;
+  /** The page shown before this one in this tab (site path; an issue's Esc goes back to a list only). */
+  previousPath: string | undefined;
 }
 
 export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'milestone' | 'reviewers' | 'dependency';
@@ -57,7 +59,7 @@ export interface App {
 
 export function createApp(config: NextConfig, session: Session | undefined): App {
   const ui = observable<UiState>(
-    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, recentRepo: 0, notices: [], issueTarget: [], picker: undefined},
+    {paletteOpen: false, shortcutsOpen: false, signOut: undefined, pendingIntents: 0, unread: undefined, create: undefined, unsyncedOpen: false, issueOpen: undefined, repoOpen: 0, recentRepo: 0, notices: [], issueTarget: [], picker: undefined, previousPath: undefined},
     {notices: observableShallow, issueTarget: observableRef, picker: observableRef, create: observableRef},
   );
   return {config, session, ui};

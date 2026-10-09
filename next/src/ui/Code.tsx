@@ -149,7 +149,7 @@ export function LineNo({n}: {n: number}) {
 /** The blame column of a line: the commit's summary and age on the first line of a part, empty below it. */
 export function BlameCell({first, summary, meta, children}: {first: boolean; summary?: string | undefined; meta?: string | undefined; children?: ReactNode}) {
   return (
-    <span className={cx('flex w-blame shrink-0 items-center gap-2 overflow-hidden border-r border-border-subtle px-2 font-sans text-sm text-fg-muted', first && 'border-t')}>
+    <span className={cx('flex w-blame-narrow shrink-0 items-center gap-2 overflow-hidden border-r @xl:w-blame border-border-subtle px-2 font-sans text-sm text-fg-muted', first && 'border-t')}>
       {first && <>
         <span className="min-w-0 flex-1 truncate">{children ?? summary}</span>
         {meta && <span className="shrink-0 text-fg-subtle tabular-nums">{meta}</span>}

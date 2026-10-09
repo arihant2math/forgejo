@@ -9,29 +9,15 @@
 //   nextPathOf(classic)  a link Forgejo rendered (markdown, a mention) → the
 //                        app's page for it, or undefined (open it classic);
 //   classicPathOf(path)  the page on screen → its classic page ("Open in the
-//                        classic UI", switching UIs).
+//                        classic UI", switching UIs);
+//   classicOfLocation    the same with the query (a list's filters) kept.
 //
 // Paths here are site paths (without the instance's sub-path).
 
 import {END, parseCodePath} from '../code/refs.ts';
+import {isOwnerName, isSpaRoute, NAME} from '../sw/routes.ts';
 
-/** Forgejo's usable user/repository names, loosely ([\w.-], not starting with "." or "-"). */
-const NAME = /^(?![.-])[\w.-]+$/;
-
-/**
- * First segments that are Forgejo routes, never an owner (user_model's reservedUsernames). The server decides
- * for real; this keeps the app from claiming `/explore` or `/user/settings` as a profile or a repository.
- */
-const RESERVED = new Set([
-  '-', '.well-known', 'api', 'metrics', 'v2', 'assets', 'attachments', 'avatar', 'avatars', 'repo-avatars', 'captcha', 'login', 'org',
-  'repo', 'user', 'admin', 'explore', 'issues', 'pulls', 'milestones', 'notifications', 'report_abuse', 'favicon.ico', 'manifest.json',
-  'robots.txt', 'sitemap.xml', 'ssh_info', 'swagger.v1.json', 'ghost', 'gitea-actions', 'forgejo-actions', 'actor',
-]);
-
-/** Whether a segment can be an owner's name (a user or an organization). */
-export function isOwnerName(s: string): boolean {
-  return NAME.test(s) && !RESERVED.has(s.toLowerCase());
-}
+export {isOwnerName};
 
 function segments(path: string): string[] {
   return path.split('/').filter((s) => s !== '').map((s) => {
@@ -63,7 +49,7 @@ export function nextPathOf(path: string): string | undefined {
   const [a = '', b = '', c, ...rest] = segs;
   if (segs.length === 1) {
     if (a === 'notifications' || a === 'issues' || a === 'pulls') return `/${a}`;
-    return isOwnerName(a) ? `/-/next/${enc(a)}` : undefined;
+    return isOwnerName(a) ? `/${enc(a)}` : undefined;
   }
   // Boards: /{owner}/{repo}/projects/{id}, /{org}/-/projects/{id}, /{user}/-/projects/{id}.
   if (segs.length === 4 && c === 'projects' && /^[1-9]\d{0,15}$/.test(rest[0] ?? '') && isOwnerName(a)) return `/-/next/projects/${rest[0] ?? ''}`;
@@ -81,6 +67,34 @@ export function nextPathOf(path: string): string | undefined {
   }
   const code = [c, ...rest].join('/');
   return parseCodePath(code) ? codePath(a, b, code) : undefined;
+}
+
+/**
+ * The app's page for a classic address with its query (a site path: "/acme/atlas/issues?state=closed"), Home
+ * when the app has none. A list keeps its filters (another page's query is the classic page's own, such as a
+ * profile's tab); anything that is not a local path is Home.
+ */
+export function appPageOf(classic: string): string {
+  if (!classic.startsWith('/') || classic.startsWith('//')) return '/';
+  const at = classic.search(/[?#]/);
+  const path = at < 0 ? classic : classic.slice(0, at);
+  const query = at < 0 || classic[at] === '#' ? '' : classic.slice(at + 1).split('#')[0] ?? '';
+  const mapped = nextPathOf(path);
+  if (mapped === undefined) return '/';
+  return query && !mapped.includes('?') && isListPath(mapped) ? `${mapped}?${query}` : mapped;
+}
+
+/** A repository's sections only the classic UI has (its More menu links them). */
+const CLASSIC_SECTIONS = new Set(['wiki', 'activity', 'projects', 'settings', 'milestones', 'labels', 'packages', 'forks', 'stars', 'watchers', 'graph', 'find']);
+
+/**
+ * Whether a classic address is a page the classic UI is known to have and the app does not: a repository's
+ * classic-only section. An address below the base the app cannot map (`/-/next/acme/atlas/foo`) is no promise
+ * that the classic UI has it.
+ */
+export function classicHas(path: string): boolean {
+  const [a = '', b = '', c] = segments(path);
+  return isOwnerName(a) && NAME.test(b) && c !== undefined && CLASSIC_SECTIONS.has(c);
 }
 
 /** What classicPathOf needs to know about boards (the pool answers). */
@@ -113,19 +127,35 @@ export function classicPathOf(path: string, ctx: {board?: (id: number) => BoardP
     return ctx.login ? `/${enc(ctx.login)}/-/projects` : '/';
   }
   if (a === 'boards') return ctx.login ? `/${enc(ctx.login)}/-/projects` : '/';
-  // /-/next/{owner}[/{repo}] (the owner page; a repository redirects to its canonical page).
+  // /-/next/{owner}[/{repo}] (redirects to the canonical page).
   return `/${[a, ...rest].map(enc).join('/')}`;
 }
 
-/** Whether a site path is one of the app's canonical routes (the server serves the app for it: spaRoutes). */
-export function isCanonical(path: string): boolean {
+/**
+ * The classic page of the page on screen, with its query: a canonical route keeps every parameter (the
+ * classic UI reads the same `type`, `state`, `labels`, `filter`, …); a page below the base maps to another
+ * shape and drops it.
+ */
+export function classicOfLocation(path: string, search: string, ctx: Parameters<typeof classicPathOf>[1] = {}): string {
+  const mapped = classicPathOf(path, ctx);
+  const q = search.replace(/^\?/, '');
+  return mapped === (path || '/') && q ? `${mapped}?${q}` : mapped;
+}
+
+/** Whether a site path (and query) is one of the app's canonical routes (the server serves the app for it: spaRoutes). */
+export function isCanonical(path: string, search = ''): boolean {
+  return isSpaRoute(path, search);
+}
+
+/**
+ * Whether a site path is a list an issue can be opened from (an issue's Esc goes back there): the inbox, the
+ * viewer's issues and pull requests, a repository's lists, a board, the boards.
+ */
+export function isListPath(path: string): boolean {
   const segs = segments(path);
-  if (segs.length === 0) return true;
   if (segs.length === 1) return segs[0] === 'notifications' || segs[0] === 'issues' || segs[0] === 'pulls';
-  const [a = '', b = '', c, n] = segs;
-  if (!isOwnerName(a) || !NAME.test(b) || segs.length > 4) return false;
-  if (c === undefined) return true;
-  return (c === 'issues' || c === 'pulls') && (n === undefined || /^[1-9]\d{0,15}$/.test(n));
+  if (segs[0] === '-') return segs[1] === 'next' && (segs[2] === 'boards' || (segs[2] === 'projects' && segs.length === 4));
+  return segs.length === 3 && isOwnerName(segs[0] ?? '') && (segs[2] === 'issues' || segs[2] === 'pulls');
 }
 
 /** The repository ("owner/name", lower case) a route belongs to, if any (sidebar highlighting, the tabs). */

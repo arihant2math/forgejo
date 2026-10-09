@@ -5244,6 +5244,134 @@ below is the permanent part.
   notifications for an issue deleted by a test). `TestLivesync` (Go integration) green on PostgreSQL (6 m 51 s);
   `TestLivesyncBootstrapCancelled` on both databases. `go vet`, gofumpt and golangci-lint clean on the touched
   packages; `go test ./routers/livesync/` green.
+* **Third round: QA round 2 (2026-10-09, about 65 findings, blocker to minor).** A second hands-on QA of the
+  fixed app (desktop, phone width, offline, a 4× slowed CPU). Every finding was fixed at its cause and re-checked by
+  clicking through the QA instance (scripts in the scratchpad, not in the tree). The user asked again for fast loads
+  under the 500 KiB limit: boot JS is **150.6 KiB** br, CSS 7.2 KiB. Server rendering of the first view and streaming
+  the bundle stay with the later foundation pass (§2.4).
+  * **Search and addresses.** Search params are parsed as plain strings (`parsePlainSearch`, `app/search.ts`):
+    `?q=8` and `?q=true` crashed lists before (`q.trim is not a function`). `/{owner}` is canonical (spa.go
+    `{owner}`, `isSpaRoute` with the reserved names in `sw/routes.ts`); profile tabs other than repositories stay
+    classic (`profileTab`). The classic pill goes back through `{base}?to=<path+query>`, and the app maps it
+    (`appPageOf` in `app/paths.ts`): projects become boards, PR files the Files tab, `runs/N/jobs/M/attempt/K` a run
+    (`code/refs.ts`), settings and explore Home. A query is kept only for list pages. `?ui=classic` comes back without
+    `ui`. The not-found page offers a classic link only where classic has a page (`classicHas`).
+    `/pulls/N` of an issue, and the reverse, redirect to the canonical kind.
+  * **Shell.**
+    * Home is in the sidebar and has the G H shortcut. Owner rows link to the owner page; their chevron folds.
+    * Sidebar rows never shrink.
+    * The drawer closes when a dialog opens.
+    * The shortcut help lists every scope, this page's first, and has a Close button.
+    * `PageColumn` is one centred rule on every overview page. Code views have tab titles (`viewName`).
+    * A repository that does not exist shows no tabs.
+    * On a phone the breadcrumb is a row of its own, and the title stays beside the sync indicator.
+  * **⌘K palette.**
+    * Commands rank before entity noise. "Sign out" is chosen only when its name is typed.
+    * Repositories rank by exact name, then prefix. Server results add repositories and people.
+    * Hits are deduplicated and must contain every word (`relevantHits`).
+    * There is an Explore command. Ctrl+K reopens the palette.
+  * **Inbox and Home.**
+    * Notifications whose issue is not on this device show their subject, which is asked once and cached
+      (`inbox/subject.ts`). They are ordered by the subject's activity.
+    * Each row gives its reason and actor (`inbox/reason.ts`).
+    * E has an Undo notice. A selection count shows in the header.
+    * Mark all read is **one** `PUT /notifications` (`notification.readAll`, chain `n:inbox`), not one write per row.
+    * Home shows placeholders until the workspace has loaded, never "Welcome" first.
+  * **Connection and signed out.**
+    * After 3 failed connects the state is "Can't reach Forgejo" with Retry now (`/health` probed every 2 s), not
+      "Offline".
+    * The indicator never says "Live" before the bootstrap.
+    * A "Sign in" clicked in the first frame is carried out once the app loads (`splash.ts`, `data-early`).
+    * Signed out, the page offers "View this page without signing in" (classic) and "Turn off Forgejo Next". The boot
+      shell keeps their place, invisible, so the first frame and React's first commit stay identical (`App.test`).
+    * The service worker caches the avatars on screen. An issue never opened shows "Not available offline" offline,
+      not a skeleton.
+  * **Issue detail.**
+    * Lock asks why (Forgejo's reasons). Projects is a picker (`issue.project` →
+      `PUT /-/sync/api/issues/{id}/project`, new; `IssueAssignOrRemoveProject` with the classic checks).
+    * Edit focuses the comment editor.
+    * Blocked-by and cross-references arrive live (the conditional group is reloaded on those events).
+    * Status semantics: done or canceled closes, other statuses reopen, and reopening a terminal status moves it to
+      the todo status (`setWorkflowStatus`, `reopen`).
+    * Due dates, label and status chips, commit references (linked, with their message) and code comments (snippet, a
+      link to the Files tab, Reply, Resolve) show in the timeline.
+    * Pinned issues come first in repository lists.
+    * Esc goes back only to a list.
+    * The composer suggests @people and #issues (`@codemirror/autocomplete` 6.20.3, token-styled).
+  * **Lists.** Status and priority filters (kind labels) on every list, and the Labels filter no longer repeats them.
+    Pull request rows show draft, checks and review state, pinned and due markers. Mobile headers scroll their
+    controls.
+  * **Boards.**
+    * Cards are links, and the cursor is restored on Back.
+    * "New issue in this column…" creates an issue and puts it on the board (`create.board`).
+    * Moves left and right keep the card's rank (`rankIn`).
+    * Pending project changes show offline.
+    * A new column's field is a draft lane, focused without a scroll jump.
+  * **Pull requests.**
+    * With checks pending, "Merge when checks succeed" is the primary action, and the dialog warns how many checks
+      are unfinished.
+    * The diff expands context around hunks (from the head file, 40 lines at a time).
+    * The review bar is sticky. Draft comments render markdown.
+    * A deleted head branch is marked.
+    * Toasts say what happened ("Merged into main").
+  * **Code.**
+    * Markdown files render through the new `POST /-/sync/api/markup` endpoint, as the classic file view does, so
+      relative links and images resolve against the file's directory at its ref.
+    * The tree is in git order, directories first (`treeOrder`). Backspace or Alt+↑ goes up a directory.
+    * Commits and file history have the ref switcher and a path breadcrumb (each directory's history; the file opens
+      its source). Compare has base and head pickers.
+    * The commit page has avatars, linked `#refs` and "Browse files".
+    * The Overview and the Code tab share one files panel (`features/code/tree.tsx`: the ref's latest commit as the
+      header, sizes).
+    * The clone URL is readable; "Archive: main.zip".
+    * Blame on a phone narrows its column (`--spacing-blame-narrow`).
+    * Actions rows and runs name their trigger (PR, branch or tag link, event, commit, actor). Running times tick
+      (`useNow`). Runs filter by status and workflow.
+  * **Speed on a 4× slowed CPU** (`Emulation.setCPUThrottlingRate`, QA instance, the longest task):
+    | Action | Before | After |
+    |---|---|---|
+    | Open Display | 268 ms | 125 ms |
+    | Choose a grouping | 286 ms | 168 ms (the menu closes in the first frame) |
+    | Open #85 (30 comments) | 197 ms, 794 ms total | 139 ms, 571 ms total |
+    | Open a board | 197 ms | 141 ms |
+
+    * Menus are no longer modal. A modal menu set styles on `<body>`, which recomputed the whole page's styles on
+      open and close. A menu reopened while the last one still fades out used to close again at once. It now ignores
+      a press on its own trigger and focus moving out by itself (`ui/Menu.tsx`). The e2e list spec found this.
+    * Grouping and sorting apply after the menu's close is painted (`afterPaint`, `app/paint.ts`).
+    * The comment editor (CodeMirror) mounts when idle or on focus; a text area stands in until then.
+    * A timeline's first 8 items paint first and the rest follow.
+  * **Board cards are links** (`<a>`). The drag guard ignored a press inside any link, which now included the card
+    itself, so dragging stopped working (`board/dnd.ts`: only a control inside the card is skipped). The e2e board
+    spec found this. That spec now moves the card under the cursor, since a sideways move keeps the card's rank.
+  * **One more Trusted Types sink** (found in verification): the commit reference parsed its HTML with `DOMParser`,
+    which the page's CSP refuses. It now goes through `textOfMarkup` (`app/trusted.ts`). ESLint now fails on
+    `DOMParser`, `innerHTML`/`outerHTML` assignments and `insertAdjacentHTML` outside `app/trusted.ts`
+    (`no-restricted-syntax`).
+  * **Crawler extended** for the classes that slipped past it.
+    * It seeds a commit that references an issue.
+    * After the walk it types the addresses no link produces: list searches whose values read as numbers or booleans
+      (`?q=8`, `?q=true`, `?q=false`, `labels=1`).
+    * It takes the classic UI's "Back to Forgejo Next" pill on classic pages: projects, PR files, milestones,
+      settings, a profile tab, explore, and an issue with `?ui=classic`. Each must land on a page of the app, not a
+      dead end.
+    * It found one more case while being written: `/issues/N` of a pull request redirects to `/pulls/N` and drops
+      `?ui=classic` (upstream's redirect; the app links the canonical kind, so the seed uses an issue).
+    * PostgreSQL run: 67 pages, 58 route patterns plus the typed addresses, pass.
+  * **Checks (third round).**
+    * `npm run check` is green: ESLint (with the new Trusted Types rule), Stylelint, typecheck, **468 Vitest tests
+      in 52 files**, build and budget (150.6 / 500 KiB JS, 7.2 / 30 KiB CSS).
+    * `tools/ci.sh e2e crawl` on PostgreSQL:
+      * e2e: **44 / 44**. The first run had 3 failures; 2 were the menu and drag defects above and 1 was a spec
+        assumption, all fixed.
+      * crawler: **pass**, 67 pages and 58 patterns plus the typed addresses and classic pills.
+      * The server log has 2 `[E]` lines, both upstream API v1 on requests the client cancelled.
+    * `TestLivesyncAPI` and `TestLivesyncAPILogTail` (Go integration, with the new `markup` and `issue project`
+      subtests) pass on PostgreSQL. `go test ./routers/livesync/`, `go vet` and gofmt are clean on the touched
+      packages.
+    * Not run in this round:
+      * MySQL.
+      * golangci-lint, because the sandbox's binary is built with an older Go than the module targets.
 * **Still open.**
   * PLAN-level items this pass did not take on: labels and milestones management views, comment edit markers, a
     go-to-file finder, sticky group headers (4.2).

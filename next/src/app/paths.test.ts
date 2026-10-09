@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from 'vitest';
-import {classicPathOf, isCanonical, nextPathOf, repoOfPath} from './paths.ts';
+import {appPageOf, classicOfLocation, classicPathOf, isCanonical, nextPathOf, repoOfPath} from './paths.ts';
 
 test('classic links → the app\'s pages', () => {
   expect(nextPathOf('/')).toBe('/');
@@ -15,7 +15,8 @@ test('classic links → the app\'s pages', () => {
   expect(nextPathOf('/acme/atlas/actions/runs/3')).toBe('/-/next/code/acme/atlas/actions/runs/3/-');
   expect(nextPathOf('/acme/atlas/projects/1')).toBe('/-/next/projects/1');
   expect(nextPathOf('/acme/-/projects/3')).toBe('/-/next/projects/3');
-  expect(nextPathOf('/dev')).toBe('/-/next/dev');
+  expect(nextPathOf('/dev')).toBe('/dev');
+  expect(nextPathOf('/acme/atlas/actions/runs/3/jobs/0/attempt/1')).toBe('/-/next/code/acme/atlas/actions/runs/3/jobs/0/attempt/1/-');
   // Forgejo's own pages and what the app does not render stay classic.
   for (const p of ['/explore', '/user/settings', '/acme/atlas/settings', '/acme/atlas/wiki', '/acme/atlas/issues/new', '/api/v1/repos', '/acme/atlas/src/x%2f..', '/-/next/']) {
     expect(nextPathOf(p), p).toBeUndefined();
@@ -34,8 +35,10 @@ test('the app\'s pages → classic pages', () => {
 });
 
 test('canonical routes and the repository of a route', () => {
-  for (const p of ['/', '/issues', '/acme/atlas', '/acme/atlas/pulls/3']) expect(isCanonical(p), p).toBe(true);
-  for (const p of ['/explore', '/acme', '/user/login', '/acme/atlas/settings', '/acme/atlas/issues/new']) expect(isCanonical(p), p).toBe(false);
+  for (const p of ['/', '/issues', '/acme', '/acme/atlas', '/acme/atlas/pulls/3']) expect(isCanonical(p), p).toBe(true);
+  for (const p of ['/explore', '/dev.keys', '/user/login', '/acme/atlas/settings', '/acme/atlas/issues/new']) expect(isCanonical(p), p).toBe(false);
+  expect(isCanonical('/acme', '?tab=activity')).toBe(false);
+  expect(isCanonical('/acme/atlas', '?ui=classic')).toBe(false);
   expect(repoOfPath('/acme/Atlas/issues/3')).toBe('acme/atlas');
   expect(repoOfPath('/-/next/code/acme/atlas/src/-')).toBe('acme/atlas');
   expect(repoOfPath('/notifications')).toBeUndefined();
@@ -47,4 +50,22 @@ test('missing-content sentences agree with their subject', async () => {
   expect(missingWords('These commits').offline).toBe('These commits are not on this device. Connect to load them, or open one of these:');
   expect(missingWords('This file').offline).toBe('This file is not on this device. Connect to load it, or open one of these:');
   expect(missingWords('These changes').notFound).toBe('These changes do not exist, or you cannot see them.');
+});
+
+test('classic pages\' way back to the app: the app\'s page for the address, else Home', () => {
+  expect(appPageOf('/acme/atlas/projects/1')).toBe('/-/next/projects/1');
+  expect(appPageOf('/acme/-/projects/3')).toBe('/-/next/projects/3');
+  expect(appPageOf('/acme/atlas/pulls/91/files')).toBe('/acme/atlas/pulls/91?tab=files');
+  expect(appPageOf('/acme')).toBe('/acme');
+  expect(appPageOf('/acme?tab=activity')).toBe('/acme');
+  expect(appPageOf('/acme/atlas/issues?state=closed&labels=3')).toBe('/acme/atlas/issues?state=closed&labels=3');
+  expect(appPageOf('/acme/atlas/actions/runs/3/jobs/0/attempt/1')).toBe('/-/next/code/acme/atlas/actions/runs/3/jobs/0/attempt/1/-');
+  for (const p of ['/acme/atlas/settings', '/explore/repos', '/acme/atlas/milestones', '//evil.example/x', 'https://evil.example/']) expect(appPageOf(p), p).toBe('/');
+});
+
+test('"This page" in the classic UI keeps the list\'s query', () => {
+  expect(classicOfLocation('/issues', '?type=assigned')).toBe('/issues?type=assigned');
+  expect(classicOfLocation('/acme/atlas/issues', 'state=closed')).toBe('/acme/atlas/issues?state=closed');
+  expect(classicOfLocation('/notifications', '?filter=unread')).toBe('/notifications?filter=unread');
+  expect(classicOfLocation('/-/next/code/acme/atlas/src/-', '?x=1')).toBe('/acme/atlas/src');
 });

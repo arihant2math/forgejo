@@ -8,7 +8,7 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {Link, useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
+import {Link, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {CircleDot, Lock, SearchX} from 'lucide-react';
 import {canWrite} from '../../app/access.ts';
 import {issueLocked, issueTitle} from '../../intents/view.ts';
@@ -18,6 +18,7 @@ import {useEffect, useState} from 'react';
 import {lazyComponent, whenIdle} from '../../app/lazy.tsx';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {connectivity} from '../../app/online.ts';
+import {isListPath} from '../../app/paths.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -84,11 +85,18 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
   const issue = index < 0 ? created ?? overlay.createdEntity('Issue', index) as Entity<'Issue'> | undefined : findIssue(pool, repoId, index);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const tab = useSearch({strict: false, select: (s: {tab?: PullTabName}) => s.tab});
+  // /pulls/{n} of an issue and /issues/{n} of a pull request: the canonical address (classic redirects too).
+  const onPulls = useRouterState({select: (s) => /\/pulls\/[^/]+\/?$/.test(s.location.pathname)});
+  const isPull = issue?.get('is_pull');
+  useEffect(() => {
+    if (isPull === undefined || index <= 0 || isPull === onPulls) return;
+    void navigate({to: isPull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index', params: {owner, repo, index: String(index)}, replace: true});
+  }, [isPull, onPulls, index, navigate, owner, repo]);
   if (!issue) return <NotHere owner={owner} repo={repo} repoId={repoId} index={index}/>;
   const pull = issue.get('is_pull') && index > 0;
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} title={<IssueTitle issue={issue} index={index}/>}
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} title={<IssueTitle issue={issue} index={index}/>} detail={pull ? 'pulls' : 'issues'}
         docTitle={`${issueTitle(editing(app).overlay, issue)} · ${index > 0 ? `#${String(index)}` : 'New'}`}/>
       {pull && <PullTabs owner={owner} repo={repo} index={String(index)} tab={tab}/>}
       <PageBody ref={setScroller}>
@@ -148,17 +156,20 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
   useShortcut('issue.assignee', pick('assignees'));
   useShortcut('issue.milestone', pick('milestone'));
   useShortcut('issue.priority', pick('priority'));
-  // Esc: back to where the issue was opened from (a list, with its filters and scroll), else its repository's list.
+  // Esc: back to the list the issue was opened from (with its filters and scroll), else — opened from Home, the
+  // palette, a link — its repository's list.
   const router = useRouter();
   useShortcut('issue.back', () => {
-    if (router.history.canGoBack()) router.history.back();
+    const from = untracked(() => app.ui.previousPath);
+    if (from && isListPath(from) && router.history.canGoBack()) router.history.back();
     else {
       const r = untracked(() => app.session?.data.pool.model('Repository').get(issue.data.repo_id)?.data);
       if (r) void router.navigate({to: issue.data.is_pull ? '/$owner/$repo/pulls' : '/$owner/$repo/issues', params: {owner: r.owner_name, repo: r.name}});
     }
   });
   return (
-    // The properties beside the conversation when the page is wide, under it when it is not (a phone, a narrow window).
+    // The properties beside the conversation when the page is wide, after it when it is not (a phone, a narrow
+    // window: the title and the description come first).
     <div className="flex min-h-full flex-col @xl:flex-row">
       <article className="flex min-w-0 flex-1 flex-col gap-3 px-4 py-4 @xl:px-8 @xl:py-6">
         <TitleSection issue={issue}/>
@@ -172,7 +183,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
           <Composer issue={issue}/>
         </div>
       </article>
-      <aside aria-label="Properties" className="order-first shrink-0 border-b border-border @xl:order-none @xl:w-pane @xl:border-b-0 @xl:border-l">
+      <aside aria-label="Properties" className="shrink-0 border-t border-border @xl:w-pane @xl:border-t-0 @xl:border-l">
         <div className="p-4 @xl:sticky @xl:top-0">
           <IssueSidebar issue={issue}/>
         </div>
@@ -225,7 +236,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={`#${String(index)}`}/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={`#${String(index)}`} detail="issues"/>
       <PageBody>
         {searching ?
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :

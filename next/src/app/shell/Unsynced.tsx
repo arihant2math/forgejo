@@ -8,7 +8,7 @@
 // the sync indicator and from notices.
 
 import {useNavigate} from '@tanstack/react-router';
-import {CircleAlert, CircleDashed, Copy, GitMerge, RotateCw, Trash2, TriangleAlert} from 'lucide-react';
+import {CircleAlert, CircleDashed, CloudCheck, Copy, GitMerge, RotateCw, Trash2, TriangleAlert} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useId} from 'react';
@@ -37,11 +37,11 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const empty = !records.length && !drafts.length;
   const offline = app.session?.data.status.connection !== 'live';
   return (
-    <Dialog open size="lg" title="Unsynced changes" onOpenChange={(open) => {
+    <Dialog open size="lg" title="Unsynced changes" initialFocus="dialog" onOpenChange={(open) => {
       if (!open) close();
     }} description={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'}
     footer={<Button onClick={close}>Close</Button>}>
-      {empty ? <EmptyState icon={CircleDashed} title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
+      {empty ? <EmptyState icon={CloudCheck} tone="success" title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
         <div className="flex flex-col gap-4">
           {parked.length > 0 && (
             <Section title="Conflicts">

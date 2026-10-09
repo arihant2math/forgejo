@@ -6,7 +6,7 @@
 // leaf, so a delta re-renders the row it changed and nothing else.
 
 import {Link, useRouterState} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest, Inbox, KanbanSquare, PanelLeftClose, Search, SquarePen} from 'lucide-react';
+import {CircleDot, GitPullRequest, Home, Inbox, KanbanSquare, PanelLeftClose, Search, SquarePen} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useEffect, useState} from 'react';
@@ -141,7 +141,7 @@ const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Own
   return (
     <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} onOpenChange={(o) => {
       onToggle(owner.login, o);
-    }}>
+    }} link={<Link to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}}/>}>
       {shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
       {more > 0 && <NavItem inset label={`${String(more)} more`} onClick={() => {
         setAll(true);
@@ -239,6 +239,9 @@ export function Sidebar() {
         <SidebarSearch/>
       </SidebarTop>
       <SidebarBody>
+        <NavItem asChild icon={Home} label="Home" shortcut={shortcutHint('go.home')}>
+          <Link to="/" activeOptions={{exact: true, includeSearch: false}}/>
+        </NavItem>
         <InboxItem/>
         <NavItem asChild icon={CircleDot} label="My issues" shortcut={shortcutHint('go.issues')}>
           <Link to="/issues" activeOptions={{includeSearch: false}}/>

@@ -27,7 +27,7 @@
 //              answers 404), or a build made with NEXT_SW_KILL=1:
 //              the worker deletes its caches and unregisters itself.
 
-import {AVATAR_CACHE, buildOf, CACHE_PREFIX, cacheName, isSpaRoute, sitePathOf, strategy} from './routes.ts';
+import {AVATAR_CACHE, buildOf, CACHE_PREFIX, cacheName, isAvatarPath, isSpaRoute, sitePathOf, strategy} from './routes.ts';
 
 interface Build {
   version: string;
@@ -122,10 +122,31 @@ sw.addEventListener('activate', (e) => {
 });
 
 sw.addEventListener('message', (e) => {
-  const m = e.data as {t?: string} | null;
+  const m = e.data as {t?: string; urls?: unknown} | null;
   if (m?.t === 'skipWaiting') e.waitUntil(sw.skipWaiting());
   else if (m?.t === 'version') e.source?.postMessage({t: 'version', version: build.version});
+  else if (m?.t === 'avatars' && Array.isArray(m.urls)) e.waitUntil(keepAvatars(m.urls.filter((u): u is string => typeof u === 'string').slice(0, 200)));
 });
+
+/**
+ * The avatars a page showed before this worker controlled it (the first load after signing in): fetched into
+ * the avatars' cache, so they show offline too. Only this instance's avatar URLs; those cached already are kept.
+ */
+async function keepAvatars(urls: string[]): Promise<void> {
+  const cache = await caches.open(AVATAR_CACHE);
+  for (const u of urls) {
+    let url: URL;
+    try {
+      url = new URL(u, sw.location.origin);
+    } catch {
+      continue;
+    }
+    const site = sitePathOf(url.pathname, SUB);
+    if (url.origin !== sw.location.origin || site === undefined || !isAvatarPath(site) || await cache.match(url.href)) continue;
+    const res = await fetch(url.href, {credentials: 'same-origin'}).catch(() => undefined);
+    if (res?.ok && res.type === 'basic') await cache.put(url.href, res).catch(() => undefined);
+  }
+}
 
 /** The instance's sub-path ("" or "/git"). */
 const SUB = new URL(sw.registration.scope).pathname.replace(/\/$/, '');
@@ -135,10 +156,10 @@ const SUB = new URL(sw.registration.scope).pathname.replace(/\/$/, '');
  * spaRoutes) and its base. Other paths below the base (opt-in, opt-out, the
  * callback, files) go to the network as themselves.
  */
-function appPage(path: string): boolean {
+function appPage(path: string, search: string): boolean {
   if (path === build.base) return true;
   const site = sitePathOf(path, SUB);
-  return site !== undefined && isSpaRoute(site);
+  return site !== undefined && isSpaRoute(site, search);
 }
 
 sw.addEventListener('fetch', (e) => {
@@ -198,8 +219,11 @@ async function asset(req: Request): Promise<Response> {
  * never replaced by the shell while the network answers, however slowly.
  */
 async function navigate(e: FetchEvent): Promise<Response> {
-  const path = new URL(e.request.url).pathname;
-  const app = appPage(path);
+  const url = new URL(e.request.url);
+  const path = url.pathname;
+  // A canonical route asked for as the classic page (?ui=classic, a profile tab) is the classic page: never
+  // the shell, and its answer is no sign of an opt-out.
+  const app = appPage(path, url.search);
   if (!navigator.onLine) return offline();
   // Without preload an app page gets the app's document whatever the opt-in cookie says: marked like the
   // cached shell (no opt-in from it), and never read as the server's choice (no kill).

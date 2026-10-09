@@ -74,12 +74,15 @@ class Form {
   restored = false;
   /** Create was asked for without a title: the field says what is missing. */
   missing = false;
+  /** The board column it goes on (a column's "New issue"), if any. */
+  readonly board: {projectId: number; columnId: number} | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
   private readonly app: App;
 
-  constructor(app: App, initialRepo: number) {
+  constructor(app: App, initialRepo: number, board?: {projectId: number; columnId: number}) {
     this.app = app;
+    this.board = board;
     const repos = repoChoices(app);
     // The page's repository (or the one last used); its own draft, if any.
     this.repoId = repos.some((r) => r.id === initialRepo) ? initialRepo : repos[0]?.id ?? 0;
@@ -185,6 +188,10 @@ class Form {
       kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: [...this.labels],
       assigneeIds: this.assignee ? [this.assignee] : [], milestoneId: this.milestone,
     });
+    // On the board it was created from (sent once Forgejo has numbered the issue: it waits for the create).
+    if (this.board) {
+      intents.submit({kind: 'issue.project', issueId: tempNum(tempId), repoId: this.repoId, projectId: this.board.projectId, columnId: this.board.columnId, base: 0});
+    }
     rememberRepo(this.repoId);
     return tempIssuePath(repo.owner_name, repo.name, tempId);
   }
@@ -199,7 +206,7 @@ export const CreateIssue = observer(function CreateIssue() {
   const [wasOpen, setWasOpen] = useState(false);
   if (Boolean(req) !== wasOpen) {
     setWasOpen(Boolean(req));
-    if (req) setForm(new Form(app, req.repoId || lastRepo()));
+    if (req) setForm(new Form(app, req.repoId || lastRepo(), req.board));
   }
   const close = () => {
     form?.flush();
@@ -213,7 +220,8 @@ export const CreateIssue = observer(function CreateIssue() {
     runInAction(() => {
       app.ui.create = undefined;
     });
-    void navigate({to: path});
+    // Created from a board column: the card shows there at once (the board stays); otherwise its page opens.
+    if (!form?.board) void navigate({to: path});
   };
   return (
     <Dialog open={Boolean(req)} onOpenChange={(o) => {
@@ -346,6 +354,7 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
   return (
     <>
       <span className="mr-auto flex items-center gap-1 self-center text-sm text-fg-subtle">
+        {form.board && <BoardHint board={form.board}/>}
         {form.restored && <>Draft restored<Button size="sm" variant="ghost" onClick={() => {
           form.discard();
         }}>Discard</Button></>}
@@ -358,4 +367,12 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
       </Button>
     </>
   );
+});
+
+/** Where the new issue goes on a board ("On Atlas 1.0 · To do"). */
+const BoardHint = observer(function BoardHint({board}: {board: {projectId: number; columnId: number}}) {
+  const pool = usePool();
+  const project = pool.model('Project').get(board.projectId)?.get('title');
+  const column = pool.model('ProjectColumn').get(board.columnId)?.get('title');
+  return project ? <span>On {project}{column ? ` · ${column}` : ''}.</span> : null;
 });

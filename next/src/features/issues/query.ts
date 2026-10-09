@@ -29,6 +29,9 @@ export interface Filter {
   milestone?: number | undefined;
   /** Words that must all be in the title, or "#12" / "12" for a number. */
   q?: string | undefined;
+  /** A status and a priority by value (their labels' value, compared without case), in any repository. */
+  status?: string | undefined;
+  priority?: string | undefined;
 }
 
 export interface Query {
@@ -46,6 +49,11 @@ export interface QueryContext {
   milestoneOf(id: number): Milestone | undefined;
   userName(id: number): string | undefined;
   repo(id: number): Repository | undefined;
+  /**
+   * The issue's place among its repository's pinned issues (1, 2, …; 0: not pinned). Given for a repository's
+   * list: pinned issues come first in their group, in their pinned order (as the classic list shows them).
+   */
+  pin?: ((i: Issue) => number) | undefined;
 }
 
 export type Row =
@@ -60,6 +68,8 @@ export interface QueryResult {
 
 interface Item {
   issue: Issue;
+  /** Pinned order (0: not pinned). */
+  pin: number;
   sortKey: number;
   group: GroupKey | undefined;
   /** The group's place among the run's groups (set before sorting). */
@@ -134,7 +144,9 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
       if (filter.assignee === -1 ? as.length > 0 : !as.includes(filter.assignee)) continue;
     }
     if (search.words.length && !matches(issue, search)) continue;
-    items.push({issue, sortKey: sortKey(issue, sort, run), group: group === 'none' ? undefined : groupOf(issue, group, state, run), order: 0});
+    if (filter.status !== undefined && !hasValue(issue, 'status', filter.status, run)) continue;
+    if (filter.priority !== undefined && !hasValue(issue, 'priority', filter.priority, run)) continue;
+    items.push({issue, pin: ctx.pin?.(issue) ?? 0, sortKey: sortKey(issue, sort, run), group: group === 'none' ? undefined : groupOf(issue, group, state, run), order: 0});
   }
   // The groups are ordered once (a handful of them), then the sort compares numbers only.
   if (group !== 'none') {
@@ -148,6 +160,9 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   const desc = sort === 'newest' || sort === 'recentupdate' || sort === 'mostcomment' || sort === 'farduedate';
   items.sort((a, b) => {
     if (a.order !== b.order) return a.order - b.order;
+    // Pinned first (by their pinned order), then the sort.
+    if ((a.pin > 0) !== (b.pin > 0)) return a.pin > 0 ? -1 : 1;
+    if (a.pin !== b.pin) return a.pin - b.pin;
     const x = a.sortKey;
     const y = b.sortKey;
     // Missing values (no due date) go last either way.
@@ -170,6 +185,12 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
     ids.push(it.issue.id);
   }
   return {rows, ids};
+}
+
+/** Whether the issue's status (priority) label has this value. */
+function hasValue(issue: Issue, kind: ScopeKind, value: string, run: Run): boolean {
+  const k = runKindLabel(issue, kind, run);
+  return k !== undefined && scopedValue(k.label.name).toLowerCase() === value.toLowerCase();
 }
 
 function matches(issue: Issue, s: {words: string[]; number: number | undefined}): boolean {

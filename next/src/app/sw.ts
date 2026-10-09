@@ -64,6 +64,12 @@ export function startServiceWorker(app: App): void {
       });
     };
     offer(reg);
+    // The avatars on screen were fetched before a worker controlled this page (the first load after signing
+    // in): the active worker keeps them for offline.
+    void container.ready.then((r) => {
+      const urls = [...document.images].map((i) => i.currentSrc || i.src).filter((u) => u.startsWith(location.origin));
+      if (urls.length) r.active?.postMessage({t: 'avatars', urls});
+    });
     // An install the browser started before this code ran (its updatefound has fired already).
     watch(reg.installing);
     reg.addEventListener('updatefound', () => {

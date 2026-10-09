@@ -24,7 +24,7 @@ import type {InboxSearch} from '../../app/search.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {useApp, useSession} from '../../app/store.ts';
+import {type App, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
@@ -34,10 +34,12 @@ import {
   Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, EmptyState, Icon, ListGroupHeader, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuTrigger, StatusDot,
 } from '../../ui/index.ts';
-import {AgoCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {AgoCell, RefCell, SelectionCount, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {ListCursor} from '../issues/flags.ts';
-import {setStatus} from './actions.ts';
+import {readAll as markAllRead, setStatus} from './actions.ts';
+import {reasonOf} from './reason.ts';
+import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
 import {activityOf, type InboxResult, inboxRows, togglePin} from './inbox.ts';
 
 const ROW = 32; // ListRow's h-row
@@ -55,8 +57,10 @@ class InboxModel {
   private readonly pool: Pool;
   private readonly overlay: Overlay;
   private readonly view: () => InboxSearch;
+  private readonly app: App;
 
-  constructor(pool: Pool, overlay: Overlay, view: () => InboxSearch) {
+  constructor(app: App, pool: Pool, overlay: Overlay, view: () => InboxSearch) {
+    this.app = app;
     this.pool = pool;
     this.overlay = overlay;
     this.view = view;
@@ -87,6 +91,8 @@ class InboxModel {
     const v = this.view();
     const statuses = this.overlay.fieldOverrides('Notification', 'status');
     const all = this.sorted.get();
+    // A notification whose issue is not on this device is ordered by its subject's activity once known.
+    subjectsKnown();
     return untracked(() => {
       const t0 = performance.now();
       // Already in order: inboxRows' own sort of a sorted list is linear.
@@ -94,7 +100,7 @@ class InboxModel {
       const out = inboxRows(all, {unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
         status: (n) => (statuses.get(n.id) as string | undefined) ?? n.status,
         repoName: (id) => this.pool.model('Repository').get(id)?.data.full_name ?? '',
-        activity: (n) => activityOf(n, issues.get(n.issue_id)?.data.updated_at),
+        activity: (n) => activityOf(n, issues.get(n.issue_id)?.data.updated_at ?? knownSubject(this.app, n.id)?.updated),
       });
       try {
         performance.measure('inbox:query', {start: t0, end: performance.now(), detail: {rows: out.rows.length}});
@@ -123,7 +129,7 @@ export default function Inbox() {
       view.set(search);
     });
   }, [search, view]);
-  const [model] = useState(() => new InboxModel(data.pool, editing(app).overlay, () => view.get()));
+  const [model] = useState(() => new InboxModel(app, data.pool, editing(app).overlay, () => view.get()));
   useEffect(() => () => {
     model.dispose();
   }, [model]);
@@ -132,16 +138,11 @@ export default function Inbox() {
     void navigate({to: '.', replace: true, search: Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)) as InboxSearch});
   };
   const readAll = () => {
-    // Undo (Linear): the notifications this marked read become unread again.
-    const ids = untracked(() => model.result.get().ids);
-    const unread = untracked(() => ids.filter((id) => {
-      const n = data.pool.model('Notification').get(id);
-      return n && notificationStatus(editing(app).overlay, n) === 'unread';
-    }));
-    if (!unread.length) return;
-    setStatus(app, unread, (st) => (st === 'unread' ? 'read' : undefined));
-    notify(app, {tone: 'neutral', title: `Marked ${String(unread.length)} read`, action: {label: 'Undo', run: () => {
-      setStatus(app, unread, (st) => (st === 'read' ? 'unread' : undefined));
+    // One request for all of them; Undo (Linear): the notifications this marked read become unread again.
+    const marked = markAllRead(app, untracked(() => model.result.get().ids));
+    if (!marked.length) return;
+    notify(app, {tone: 'neutral', title: `Marked ${String(marked.length)} read`, action: {label: 'Undo', run: () => {
+      setStatus(app, marked, (st) => (st === 'read' ? 'unread' : undefined));
     }}});
   };
   useShortcutScope('inbox');
@@ -149,6 +150,7 @@ export default function Inbox() {
   return (
     <>
       <PageHeader icon={InboxIcon} title="Inbox">
+        <SelectionCount cursor={model.cursor}/>
         <Button size="sm" pressed={search.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
           set({filter: search.filter === 'unread' ? undefined : 'unread'});
         }}>Unread<UnreadCount/></Button>
@@ -251,7 +253,8 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     const n = s && untracked(() => s.data.pool.model('Notification').get(id));
     if (!n) return;
     const issue = untracked(() => s.data.pool.model('Issue').get(n.data.issue_id));
-    const path = issue && issuePath(app, issue);
+    const subject = issue ? undefined : untracked(() => knownSubject(app, id));
+    const path = issue ? issuePath(app, issue) : subject && subjectPath(subject);
     // Opening it is reading it (Linear); a pinned one stays pinned.
     setStatus(app, [id], (st) => (st === 'unread' ? 'read' : undefined));
     if (!path) return;
@@ -267,15 +270,27 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     virtualizer.scrollToIndex(rows.findIndex((r) => r.type === 'note' && r.id === next), {align: 'auto'});
     listRef.current?.focus({preventScroll: true});
   };
-  /** Triage keeps the cursor moving: after E/U/pin on the cursor's row, J goes on from there. */
-  const triage = (to: (st: string) => 'read' | 'unread' | 'pinned' | undefined) => () => {
+  /**
+   * Triage keeps the cursor moving: after E/U/pin on the cursor's row, J goes on from there. Read and unread say
+   * what they did, with Undo (a row that leaves the Unread view is easy to lose).
+   */
+  const triage = (to: (st: string) => 'read' | 'unread' | 'pinned' | undefined, said?: 'read' | 'unread') => () => {
     // Without a cursor (from the palette, before J): the first row, which then has the cursor.
     let targets = cursor.targets();
     if (!targets.length && ids[0] !== undefined) {
       cursor.setActive(ids[0]);
       targets = [ids[0]];
     }
+    const before = new Map(targets.map((id) => [id, status(id)]));
     setStatus(app, targets, to);
+    const changed = targets.filter((id) => status(id) !== before.get(id));
+    if (!said || !changed.length) return;
+    notify(app, {tone: 'neutral', title: `Marked ${changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`} ${said}`, action: {label: 'Undo', run: () => {
+      for (const id of changed) {
+        const was = before.get(id);
+        if (was === 'read' || was === 'unread' || was === 'pinned') setStatus(app, [id], () => was);
+      }
+    }}});
   };
   useShortcutScope('list');
   useShortcut('list.next', () => {
@@ -287,8 +302,8 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   useShortcut('list.select', () => {
     if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
   });
-  useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined)));
-  useShortcut('inbox.unread', triage(() => 'unread'));
+  useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined), 'read'));
+  useShortcut('inbox.unread', triage(() => 'unread', 'unread'));
   useShortcut('inbox.pin', triage(togglePin));
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -402,13 +417,18 @@ const NoteRow = observer(function NoteRow({id, cursor, onClick, byRepo}: {id: nu
 
 const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: {n: Entity<'Notification'>; cursor: ListCursor; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
+  const app = useApp();
+  const {userId} = useSession();
   const status = notificationStatus(useOverlay(), n);
   const issue = pool.model('Issue').get(n.get('issue_id'));
-  const repo = pool.model('Repository').get(n.get('repo_id'));
+  // Not on this device (a repository outside the workspace): what the server says it is about.
+  const subject = issue ? undefined : subjectOf(app, n.data);
+  const repo = pool.model('Repository').get(n.get('repo_id'))?.get('full_name') ?? (subject ? `${subject.owner}/${subject.repo}` : '');
   const unread = status === 'unread';
-  const at = activityOf(n.data, issue?.get('updated_at'));
-  const app = useApp();
-  const path = issue && issuePath(app, issue);
+  const at = activityOf(n.data, issue?.get('updated_at') ?? subject?.updated);
+  const path = issue ? issuePath(app, issue) : subject && subjectPath(subject);
+  const reason = reasonOf(pool, n.data, userId, pool.model('User').get(userId)?.get('login'));
+  const number = issue ? issue.get('number') : subject?.number;
   return (
     <ListRow
       role="option"
@@ -426,21 +446,32 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: 
       }}
       leading={<>
         <StatusDot tone="accent" off={!unread}/>
-        {issue ? <StateIcon issue={issue}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitHorizontal : InboxIcon}/>}
+        {issue ? <StateIcon issue={issue}/> : subject ? <SubjectIcon s={subject}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitHorizontal : InboxIcon}/>}
       </>}
       trailing={<>
         {status === 'pinned' && <Icon icon={Pin} size="sm"/>}
-        <span className="truncate tabular-nums">{byRepo ? '' : repo?.get('full_name') ?? ''}{issue ? `#${String(issue.get('number'))}` : ''}</span>
+        <RefCell repo={byRepo ? '' : repo} number={number}/>
         <AgoCell at={at}/>
       </>}
     >
       {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
       <span className={unread ? 'font-medium text-fg' : 'text-fg-muted'}>
-        {issue ? <TitleCell issue={issue}/> : subjectWords(n.get('subject'))}
+        {issue ? <TitleCell issue={issue}/> : subject ? subject.title : subjectWords(n.get('subject'))}
       </span>
+      {reason && <Why why={reason.why} actor={reason.actor}/>}
     </ListRow>
   );
 });
+
+/** Why the notification is here, and whose activity it is (muted, after the title). */
+function Why({why, actor}: {why: string; actor: number}) {
+  const user = useUser(actor);
+  return <span className="text-fg-subtle"> · {why}{actor && user.name ? ` · ${user.name}` : ''}</span>;
+}
+
+function SubjectIcon({s}: {s: Subject}) {
+  return <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/>;
+}
 
 function subjectWords(subject: string): string {
   switch (subject) {

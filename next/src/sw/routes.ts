@@ -27,25 +27,54 @@ export function sitePathOf(pathname: string, subUrl: string): string | undefined
 
 // Forgejo's usable names (user_model.IsUsableUsername / repo_model.IsUsableRepoName), loosely: the
 // worker only decides between the app and the offline page, the server decides for real online.
-const NAME = /^(?![.-])[\w.-]+$/;
-// Upstream's top-level routes (user_model.reservedUsernames) that look like /{owner}/{repo}.
-const RESERVED = new Set(['api', 'user', 'org', 'repo', 'admin', 'explore', 'login', 'assets', 'attachments', 'avatar', 'avatars', 'repo-avatars', 'captcha', 'metrics', 'v2', 'issues', 'pulls', 'milestones', 'notifications']);
+export const NAME = /^(?![.-])[\w.-]+$/;
 
 /**
- * Whether a site path is a canonical route the app renders (B8 spaRoutes):
- * `/`, `/notifications`, `/issues`, `/pulls`, `/{owner}/{repo}`, `/{owner}/{repo}/issues[/{n}]`,
- * `/{owner}/{repo}/pulls[/{n}]`. Keep in step with routers/livesync/spa.go.
+ * First segments that are Forgejo routes, never an owner (user_model's reservedUsernames). The server decides
+ * for real; this keeps the app from claiming `/explore` or `/user/settings` as a profile or a repository.
  */
-export function isSpaRoute(path: string): boolean {
+const RESERVED = new Set([
+  '-', '.well-known', 'api', 'metrics', 'v2', 'assets', 'attachments', 'avatar', 'avatars', 'repo-avatars', 'captcha', 'login', 'org',
+  'repo', 'user', 'admin', 'explore', 'issues', 'pulls', 'milestones', 'notifications', 'report_abuse', 'favicon.ico', 'manifest.json',
+  'robots.txt', 'sitemap.xml', 'ssh_info', 'swagger.v1.json', 'ghost', 'gitea-actions', 'forgejo-actions', 'actor',
+]);
+
+/** user_model's reservedUserPatterns: `/{user}.keys`, `.gpg`, `.rss`, `.atom`, `.png` are the user's files. */
+const RESERVED_SUFFIX = /\.(?:keys|gpg|rss|atom|png)$/i;
+
+/** Whether a segment can be an owner's name (a user or an organization). */
+export function isOwnerName(s: string): boolean {
+  return NAME.test(s) && !RESERVED.has(s.toLowerCase()) && !RESERVED_SUFFIX.test(s);
+}
+
+/**
+ * Whether a site path (and its query) is a canonical route the app renders (B8 spaRoutes):
+ * `/`, `/notifications`, `/issues`, `/pulls`, `/{owner}`, `/{owner}/{repo}`, `/{owner}/{repo}/issues[/{n}]`,
+ * `/{owner}/{repo}/pulls[/{n}]`. `?ui=classic` asks for the classic page, and so does an owner's profile tab
+ * (`/{owner}?tab=activity`; the app shows the repositories). Keep in step with routers/livesync/spa.go.
+ */
+export function isSpaRoute(path: string, search = ''): boolean {
+  const q = new URLSearchParams(search);
+  if (q.get('ui') === 'classic') return false;
   const segs = path.split('/').filter(Boolean);
   if (segs.length === 0) return true;
-  if (segs.length === 1) return ['notifications', 'issues', 'pulls'].includes(segs[0] ?? '');
+  if (segs.length === 1) {
+    const [a = ''] = segs;
+    if (['notifications', 'issues', 'pulls'].includes(a)) return true;
+    return isOwnerName(a) && !profileTab(q);
+  }
   if (segs.length > 4) return false;
   const [owner = '', repo = '', kind, n] = segs;
-  if (!NAME.test(owner) || !NAME.test(repo) || RESERVED.has(owner.toLowerCase())) return false;
+  if (!isOwnerName(owner) || !NAME.test(repo)) return false;
   if (kind === undefined) return true;
   if (kind !== 'issues' && kind !== 'pulls') return false;
   return n === undefined || /^[1-9]\d{0,17}$/.test(n);
+}
+
+/** A tab of the classic profile other than its repositories (spa.go `profileTab`). */
+function profileTab(q: URLSearchParams): boolean {
+  const tab = q.get('tab');
+  return tab !== null && tab !== '' && tab !== 'repositories';
 }
 
 /** How the worker answers a same-origin GET. */
@@ -53,6 +82,11 @@ export type Strategy = 'asset' | 'navigate' | 'avatar' | 'pass';
 
 /** Forgejo's avatar URLs (users, organizations, repositories), below the sub-path. */
 const AVATAR = /^\/(?:avatars?|repo-avatars)\//;
+
+/** Whether a site path is one of Forgejo's avatars. */
+export function isAvatarPath(site: string): boolean {
+  return AVATAR.test(site);
+}
 
 export function strategy(req: {method: string; mode: string; url: string; destination?: string}, origin: string, base: string, sub = ''): Strategy {
   if (req.method !== 'GET') return 'pass';

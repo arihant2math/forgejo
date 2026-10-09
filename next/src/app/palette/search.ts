@@ -107,6 +107,33 @@ export function score(text: string, words: readonly string[]): number {
   return total;
 }
 
+/**
+ * Scores a thing by its own name, with its context (a board's or a milestone's repository) for the other
+ * words: every word in one of them, at least one in the name. Something that matches only by its context
+ * (the milestone "Q4 migration" for "infra") is not a match: its repository is listed itself.
+ */
+export function scoreNamed(name: string, context: string, words: readonly string[]): number {
+  let total = 0;
+  let own = 0;
+  for (const w of words) {
+    let s = wordScore(name, w);
+    if (s >= 0) own++;
+    else s = wordScore(context, w);
+    if (s < 0) return -1;
+    total += s;
+  }
+  return own ? total : -1;
+}
+
+/** A repository named by the query outranks everything found by its name: exactly (6), or by the name's start (4). */
+export function repoScore(fullName: string, name: string, words: readonly string[]): number {
+  const s = score(fullName, words);
+  if (s < 0) return s;
+  const q = words.join(' ');
+  if (q === name || q === fullName) return 6 + s;
+  return name.startsWith(q) || fullName.startsWith(q) ? 4 + s : s;
+}
+
 interface Ranked<T> {
   item: T;
   score: number;
@@ -149,7 +176,7 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   const seenRepos = new Set<number>();
   const considerRepo = (r: Repository) => {
     seenRepos.add(r.id);
-    const s = score(repoText(r), ref ? [ref.owner ? `${ref.owner}/${ref.repo}` : ref.repo] : words);
+    const s = ref ? score(repoText(r), [ref.owner ? `${ref.owner}/${ref.repo}` : ref.repo]) : repoScore(repoText(r), r.name.toLowerCase(), words);
     if (s >= 0) pushTop(repos, {item: r, score: s, updated: r.updated_at}, repoLimit);
   };
   for (const e of repoStore.all()) considerRepo(e.data);

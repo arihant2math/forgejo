@@ -48,6 +48,8 @@ export function queryOf(s: ListSearch, defaults: {group?: Group; sort?: Sort} = 
       poster: s.poster,
       milestone: s.milestone,
       q: s.q,
+      status: s.status,
+      priority: s.priority,
     },
     sort: s.sort ?? defaults.sort ?? 'newest',
     group: s.group ?? defaults.group ?? 'none',
@@ -86,6 +88,15 @@ export function poolContext(pool: Pool, overlay: Overlay): QueryContext {
     },
     repo: (id) => pool.model('Repository').get(id)?.data,
   };
+}
+
+/** An issue's pinned order as the user sees it (a pending pin or unpin included); 0 when not pinned. */
+function pinOrder(overlay: Overlay, i: Issue): number {
+  if (!overlay.touches(i.id)) return i.pin_order > 0 ? i.pin_order : 0;
+  const o = overlay.field('Issue', i.id, 'pin_order');
+  const v = o ? o.value as number : i.pin_order;
+  // Pinned here and not synced yet: after the ones Forgejo has (their order is Forgejo's).
+  return v > 0 ? v : 0;
 }
 
 function sameRow(x: Row | undefined, y: Row | undefined): boolean {
@@ -241,7 +252,10 @@ export class IssueListModel {
     const created = this.overlay.created('Issue');
     return untracked(() => {
       const t0 = performance.now();
-      const out = runQuery([...this.candidates(server), ...this.localCandidates(created)], query, poolContext(this.pool, this.overlay));
+      const ctx = poolContext(this.pool, this.overlay);
+      // A repository's list shows its pinned issues first (the classic list does; the row has the pin).
+      if (this.source.kind === 'repo') ctx.pin = (i) => pinOrder(this.overlay, i);
+      const out = runQuery([...this.candidates(server), ...this.localCandidates(created)], query, ctx);
       this.lastMs = performance.now() - t0;
       this.listed = new Set(out.ids);
       try {

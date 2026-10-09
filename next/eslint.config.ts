@@ -61,6 +61,19 @@ export default defineConfig(
     },
   },
   {
+    // The page enforces Trusted Types (CSP require-trusted-types-for): an HTML sink outside app/trusted.ts throws
+    // at run time, only where that code runs (QA 2026-10-09: a commit reference in a timeline). Caught here instead.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/app/trusted.ts', 'src/**/*.test.{ts,tsx}', 'src/test/**'],
+    rules: {
+      'no-restricted-syntax': ['error',
+        {selector: "NewExpression[callee.name='DOMParser']", message: 'Parse server HTML with app/trusted.ts (setMarkup, textOfMarkup): the page enforces Trusted Types.'},
+        {selector: "AssignmentExpression > MemberExpression.left[property.name=/^(innerHTML|outerHTML)$/]", message: 'Set markup with app/trusted.ts setMarkup: the page enforces Trusted Types.'},
+        {selector: "CallExpression[callee.property.name=/^(insertAdjacentHTML|createContextualFragment)$/]", message: 'Use app/trusted.ts: the page enforces Trusted Types.'},
+      ],
+    },
+  },
+  {
     files: ['*.ts', 'tools/**/*.ts', 'lint/**/*.ts', 'e2e/**/*.ts', 'conformance/**/*.ts', 'integration/**/*.ts'],
     languageOptions: {globals: globals.node},
     rules: {'no-console': 'off'},

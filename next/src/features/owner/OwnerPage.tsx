@@ -1,11 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// An owner — a user or an organization — (/-/next/{owner}, mirroring the
-// classic /{owner}): who it is and its repositories, the ones on this device
-// at once (pool), the rest from API v1 when online; its boards; and the
-// classic pages for what the app does not do (the profile, teams, settings,
-// a new repository). Its own chunk.
+// An owner — a user or an organization — (/{owner}, a canonical route; the
+// classic profile's tabs stay classic): who it is and its repositories, the
+// ones on this device at once (pool), the rest from API v1 when online; its
+// boards; and the classic pages for what the app does not do (the profile,
+// teams, and — for those allowed — settings and a new repository). Its own
+// chunk.
 
 import {useParams} from '@tanstack/react-router';
 import {Building2, KanbanSquare, Lock, User as UserIcon} from 'lucide-react';
@@ -15,6 +16,8 @@ import {online} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {Missing} from '../../app/Missing.tsx';
+import {isOwnerName} from '../../app/paths.ts';
+import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
@@ -68,7 +71,16 @@ function useRemote<T>(path: string | undefined): Remote<T> {
 
 export function OwnerPage() {
   const {owner = ''} = useParams({strict: false});
+  // A name Forgejo reserves for its own pages (`/explore`, `/dev.keys`) is no owner.
+  if (!isOwnerName(owner)) return <ShellNotFound/>;
   return <OwnerView key={owner} owner={owner}/>;
+}
+
+/** What the viewer may do in an organization (API v1; nothing until it answers, nothing offline). */
+interface OrgPermissions {
+  is_owner: boolean;
+  is_admin: boolean;
+  can_create_repository: boolean;
 }
 
 const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
@@ -96,12 +108,23 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   }
   const isOrg = info.org || local?.get('type') === 'organization';
   const me = info.id === userId;
+  return <OwnerBody info={info} isOrg={isOrg} me={me} classic={classic}/>;
+});
+
+const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info: OwnerInfo; isOrg: boolean; me: boolean; classic: string}) {
+  const {data, userId} = useSession();
+  const viewer = data.pool.model('User').get(userId)?.get('login');
+  const perms = useRemote<OrgPermissions>(isOrg && viewer ? `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(info.login)}/permissions` : undefined);
+  const p = perms.state === 'ready' ? perms.value : undefined;
+  // Settings and a new repository only for those allowed (an organization's owners and admins; the user themself).
+  const settings = isOrg ? p !== undefined && (p.is_owner || p.is_admin) : me;
+  const create = isOrg ? p !== undefined && (p.can_create_repository || p.is_owner) : me;
   return (
     <>
       <PageHeader icon={isOrg ? Building2 : UserIcon} title={info.login}>
         <ClassicLink to={classic} size="sm">{isOrg ? 'Organization page' : 'Profile'}</ClassicLink>
         {isOrg && <ClassicLink to={`/org/${encodeURIComponent(info.login)}/teams`} size="sm">Teams</ClassicLink>}
-        {(me || isOrg) && <ClassicLink to={isOrg ? `/org/${encodeURIComponent(info.login)}/settings` : '/user/settings'} size="sm">Settings</ClassicLink>}
+        {settings && <ClassicLink to={isOrg ? `/org/${encodeURIComponent(info.login)}/settings` : '/user/settings'} size="sm">Settings</ClassicLink>}
       </PageHeader>
       <PageBody>
         <PageColumn>
@@ -113,7 +136,7 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
             </div>
           </div>
           {info.description && <p className="text-md text-fg-muted">{info.description}</p>}
-          <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} me={me}/>
+          <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/>
           <Boards ownerId={info.id}/>
         </PageColumn>
       </PageBody>
@@ -121,7 +144,7 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   );
 });
 
-const Repos = observer(function Repos({owner, ownerId, isOrg, me}: {owner: string; ownerId: number; isOrg: boolean; me: boolean}) {
+const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}: {owner: string; ownerId: number; isOrg: boolean; create: boolean}) {
   const {data} = useSession();
   const remote = useRemote<{id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}[]>(
     `/users/${encodeURIComponent(owner)}/repos?limit=50`);
@@ -139,7 +162,7 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, me}: {owner: strin
   const create = isOrg ? `/repo/create?org=${String(ownerId)}` : '/repo/create';
   return (
     <Panel label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
-      actions={(me || isOrg) && <ClassicLink to={create} size="sm">New repository</ClassicLink>}>
+      actions={canCreate && <ClassicLink to={create} size="sm">New repository</ClassicLink>}>
       {list.length ? list.map((r) => <RepoLine key={r.id} r={r}/>) :
         remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
           <EmptyState title="No repositories" description="None that you can see."/>}

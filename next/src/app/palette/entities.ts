@@ -7,7 +7,7 @@
 
 import type {Pool} from '../../data/pool.ts';
 import type {Milestone, Project, Repository, User} from '../../protocol/types.gen.ts';
-import {score} from './search.ts';
+import {score, scoreNamed} from './search.ts';
 
 export interface Hit<T> {
   item: T;
@@ -20,26 +20,26 @@ function top<T>(hits: Hit<T>[], limit: number): Hit<T>[] {
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
-/** Boards by title (open ones first on a tie). */
+/** Boards by title, the repository's name for further words (open ones first on a tie). */
 export function searchBoards(pool: Pool, words: readonly string[], limit = 4): Hit<Project>[] {
   const out: Hit<Project>[] = [];
   for (const e of pool.model('Project').all()) {
     const p = e.data;
     const repo = pool.model('Repository').get(p.repo_id)?.data;
-    const s = score(`${p.title} ${repo?.full_name ?? ''}`.toLowerCase(), words);
+    const s = scoreNamed(p.title.toLowerCase(), (repo?.full_name ?? '').toLowerCase(), words);
     if (s >= 0) out.push({item: p, score: s + (p.closed ? 0 : 0.5), repo});
   }
   return top(out, limit);
 }
 
-/** Milestones by title (open ones first on a tie), with their repository. */
+/** Milestones by title, the repository's name for further words (open ones first on a tie), with their repository. */
 export function searchMilestones(pool: Pool, words: readonly string[], limit = 4): Hit<Milestone>[] {
   const out: Hit<Milestone>[] = [];
   for (const e of pool.model('Milestone').all()) {
     const m = e.data;
     const repo = pool.model('Repository').get(m.repo_id)?.data;
     if (!repo) continue;
-    const s = score(`${m.title} ${repo.full_name}`.toLowerCase(), words);
+    const s = scoreNamed(m.title.toLowerCase(), repo.full_name.toLowerCase(), words);
     if (s >= 0) out.push({item: m, score: s + (m.state === 'open' ? 0.5 : 0), repo});
   }
   return top(out, limit);

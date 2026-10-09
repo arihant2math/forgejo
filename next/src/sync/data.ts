@@ -81,6 +81,8 @@ export interface Data {
   pin(group: string, on: boolean): void;
   /** See SyncClient.barrier. */
   barrier(): Promise<number>;
+  /** Connects now instead of waiting out the reconnect backoff (the leader's client; "Retry now"). */
+  retry(): void;
   /**
    * Resolves once this tab's pool holds every entry of `group` up to sync id
    * `v` (B7's X-Livesync-Sync-Id echo): in the leader when the group's
@@ -217,6 +219,9 @@ export async function openData(opts: DataOptions): Promise<Data> {
         return client.loadClosedPage(args[0] as string, args[1] as string | undefined, args[2] as number | undefined);
       case 'pin':
         client.pin(args[0] as string, args[1] as boolean);
+        return Promise.resolve();
+      case 'retry':
+        client.retryNow();
         return Promise.resolve();
       case 'log':
         // [job, holder, from | undefined | null (untail)]
@@ -494,6 +499,9 @@ export async function openData(opts: DataOptions): Promise<Data> {
       void ask('pin', group, on);
     },
     barrier: () => ask<number>('barrier'),
+    retry: () => {
+      void ask('retry').catch(() => undefined);
+    },
     whenSynced(group, v, signal) {
       if (role.leader && client) return client.whenAt(group, v, signal);
       return ask<undefined>('synced', group, v).then(() => undefined);

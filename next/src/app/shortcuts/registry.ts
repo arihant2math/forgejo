@@ -91,9 +91,19 @@ export class ShortcutRegistry {
     };
   }
 
-  /** The shortcuts something is bound to right now (the shortcuts help lists these). */
+  /** The shortcuts something is bound to right now. */
   bound(): Set<ShortcutId> {
     return new Set(this.bindings.map((b) => b.id));
+  }
+
+  /** The scopes active now, innermost first, global last (the shortcuts help lists them first). */
+  activeScopes(): Scope[] {
+    const out: Scope[] = [];
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      const s = this.scopes[i]?.scope;
+      if (s && !out.includes(s)) out.push(s);
+    }
+    return [...out, 'global'];
   }
 
   /**
@@ -217,7 +227,10 @@ export class ShortcutRegistry {
     };
     if (this.pending.length && attempt([...this.pending, chord])) return true;
     this.reset();
-    return attempt([chord]);
+    if (attempt([chord])) return true;
+    // Shift and a letter that is no shortcut of its own: the letter's (the help shows "R"; Caps Lock).
+    const letter = /^shift\+([a-z])$/.exec(chord)?.[1];
+    return letter !== undefined && !candidates.some((c) => c.keys === chord || c.keys.startsWith(`${chord} `)) && attempt([letter]);
   }
 
   /** Listens on a window (the app does this once); returns the function that stops. */

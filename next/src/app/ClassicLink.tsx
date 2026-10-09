@@ -17,12 +17,17 @@ import {useApp} from './store.ts';
 
 export {CLASSIC_HINT, classicHref};
 
-/** A button that opens a classic page (the anchor is marked data-classic: the e2e link crawler leaves it alone). */
+/**
+ * A button that opens a classic page, hinted "classic" like the menus' classic rows (the anchor is marked
+ * data-classic: the e2e link crawler leaves it alone).
+ */
 export function ClassicLink({to, children, variant = 'ghost', size = 'md'}: {to: string; children: ReactNode; variant?: ButtonVariant; size?: 'sm' | 'md'}) {
   const app = useApp();
   return (
     <Button asChild variant={variant} size={size} tooltip={CLASSIC_HINT}>
-      <a href={classicHref(app, to)} data-classic=""><Icon icon={AppWindow} size={size}/>{children}</a>
+      <a href={classicHref(app, to)} data-classic="">
+        <Icon icon={AppWindow} size={size}/>{children}<span className={variant === 'primary' ? 'text-sm font-normal' : 'text-sm font-normal text-fg-subtle'}>classic</span>
+      </a>
     </Button>
   );
 }

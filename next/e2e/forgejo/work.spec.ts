@@ -240,10 +240,12 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   // Offline, column changes say why; card moves still work (queued).
   await goOffline(devCtx, page);
   await expect(page.getByRole('button', {name: 'Add column'})).toBeDisabled();
-  const lastCard = column(page, target).getByRole('option').first();
+  // The card under the cursor moves (a sideways move keeps the card's rank, so it need not be the first).
+  await column(page, target).getByRole('listbox').focus();
+  const lastCard = column(page, target).locator('[data-active]');
+  await expect(lastCard).toHaveCount(1);
   const lastText = await lastCard.innerText();
   const lastTitle = lastText.split('\n').find((l) => l.includes(stamp)) ?? '';
-  await column(page, target).getByRole('listbox').focus();
   await page.keyboard.press('Shift+H');
   await expect(column(page, titles[0] ?? '').getByRole('option').filter({hasText: lastTitle})).toBeVisible();
   await goOnline(devCtx, page);

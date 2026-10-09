@@ -5,6 +5,7 @@
 // the pool — complete offline, updated live. Release notes are the server's
 // rendered markdown (body_html) through the Trusted Types gate.
 
+import {PageColumn} from '../../app/shell/Frame.tsx';
 import {GitBranch, Package, Paperclip, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {sitePath} from '../../app/config.ts';
@@ -17,7 +18,6 @@ import {Badge, Button, EmptyState, Icon, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate, shortDate} from '../issues/format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
-import {Column} from './bits.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {CodeLink, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
@@ -83,9 +83,9 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
     <CodeFrame view={props} title="Releases" controls={<RepoClassic {...props} path="releases">Drafts and new release</RepoClassic>}>
       {() => (releases.length ?
         // Not virtualized (each release's notes have their own height): off-screen ones are not rendered.
-        <Column>
+        <PageColumn>
           <div>{releases.map((r) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r}/>)}</div>
-        </Column> :
+        </PageColumn> :
         <EmptyState icon={Package} title="No releases" description="This repository has no published releases on this device."/>)}
     </CodeFrame>
   );

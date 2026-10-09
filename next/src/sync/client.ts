@@ -46,7 +46,12 @@ export interface SyncAuth {
   refresh(): Promise<string | null>;
 }
 
-export type Connection = 'idle' | 'connecting' | 'catching_up' | 'live' | 'offline' | 'unauthorized' | 'stopped';
+/**
+ * `unreachable`: the browser is online but Forgejo has not answered several connection attempts in a row (a
+ * server restart, a VPN drop, a captive portal): the app says so, probes the server every few seconds and
+ * reconnects as soon as it answers.
+ */
+export type Connection = 'idle' | 'connecting' | 'catching_up' | 'live' | 'offline' | 'unreachable' | 'unauthorized' | 'stopped';
 
 export interface SyncStatus {
   connection: Connection;
@@ -149,6 +154,14 @@ const RECENT = 'recent';
 const MAX_BARRIERS = 16;
 const WORKSPACE = 'workspace';
 
+/** Failed connection attempts in a row (the browser online) after which Forgejo counts as unreachable. */
+const UNREACHABLE_AFTER = 3;
+/** How often an unreachable server is probed (ms). */
+const HEALTH_PROBE_MS = 2000;
+
+/** Timeline events whose rows are not delivered as deltas (B6 conditionals): their issue is loaded again. */
+const CONDITIONAL_EVENTS: ReadonlySet<string> = new Set(['add_dependency', 'remove_dependency', 'issue_ref', 'comment_ref', 'pull_ref', 'change_issue_ref']);
+
 export class SyncClient {
   readonly status: SyncStatus = observable({
     connection: 'idle', transport: undefined, loading: 0, groups: 0, serverSyncId: 0, lastError: undefined,
@@ -161,6 +174,8 @@ export class SyncClient {
   private stopped = true;
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  /** While unreachable: the health probe's timer (a cheap GET that ends the backoff wait when it answers). */
+  private probeTimer: ReturnType<typeof setTimeout> | undefined;
   private transportKind: 'ws' | 'sse';
   private failedOpens = 0;
   /** Tab holds (not persisted): group → holders. */
@@ -312,6 +327,7 @@ export class SyncClient {
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.onOnline);
       window.removeEventListener('offline', this.onOffline);
+      clearTimeout(this.probeTimer);
     }
     if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
@@ -570,7 +586,7 @@ export class SyncClient {
     s.barriers.clear();
     s.transport.close();
     if (!this.stopped && this.status.connection !== 'unauthorized') {
-      this.setStatus({connection: offline() ? 'offline' : 'connecting'});
+      this.setStatus({connection: offline() ? 'offline' : this.attempts + 1 >= UNREACHABLE_AFTER ? 'unreachable' : 'connecting'});
     }
   }
 
@@ -583,6 +599,35 @@ export class SyncClient {
       this.reconnectTimer = undefined;
       this.connect();
     }, delay);
+    if (this.attempts >= UNREACHABLE_AFTER) this.probeHealth();
+  }
+
+  /**
+   * While Forgejo cannot be reached, a cheap health check every few seconds: when it answers, the backoff's
+   * wait ends and the client reconnects at once (a server back after a restart is live again within seconds).
+   */
+  private probeHealth(): void {
+    if (this.probeTimer !== undefined || this.stopped) return;
+    this.probeTimer = setTimeout(() => {
+      this.probeTimer = undefined;
+      if (this.stopped || this.session || this.reconnectTimer === undefined || offline()) return;
+      const f = this.o.env?.fetch ?? fetch;
+      void f(`${this.o.endpoint}/health`, {cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(HEALTH_PROBE_MS)}).then((res) => {
+        if (res.ok) this.retryNow();
+        else this.probeHealth();
+      }, () => {
+        this.probeHealth();
+      });
+    }, HEALTH_PROBE_MS);
+  }
+
+  /** Connects now instead of waiting out the backoff ("Retry now", or the server answered a probe). */
+  retryNow(): void {
+    if (this.stopped || this.session || this.status.connection === 'unauthorized') return;
+    this.attempts = 0;
+    clearTimeout(this.probeTimer);
+    this.probeTimer = undefined;
+    this.connect();
   }
 
   private send(msg: ClientMessage): void {
@@ -766,6 +811,7 @@ export class SyncClient {
   private delta(session: Session, msg: DeltaMessage): void {
     const top = new Map<string, number>();
     const viewer = this.o.userId;
+    const reload = new Set<string>();
     this.pool.batch(() => {
       for (const c of list(msg.changes)) {
         const own = c.m === 'User' && c.id === viewer;
@@ -775,10 +821,19 @@ export class SyncClient {
         else if (c.op === 'D') this.pool.del(c.m, c.id, c.g, c.v);
         // The viewer's own profile may come outside its group's subscription (B5): it raises no position.
         if (!own && (top.get(c.g) ?? 0) < c.v) top.set(c.g, c.v);
+        if (c.op === 'U' && c.m === 'Comment' && CONDITIONAL_EVENTS.has((c.d as {type?: string} | undefined)?.type ?? '')) reload.add(c.g);
       }
     });
     for (const [g, v] of top) this.groups.raise(g, v);
     this.raiseCaughtUp(session, msg.to);
+    // A dependency or a cross-reference changed: the issue's view-dependent rows (B6 conditionals: its
+    // dependencies, the references from other repositories) come with a load of the issue only, never as a
+    // delta. Its timeline event says so: load the issue again (it replaces the group, those rows included).
+    for (const g of reload) {
+      if (groupKind(g) !== 'issue' || !this.live.has(g)) continue;
+      this.groups.need(g, undefined, 'conditionals');
+      this.enqueue(g);
+    }
   }
 
   private raiseCaughtUp(session: Session, pos: number): void {

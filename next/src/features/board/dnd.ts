@@ -83,7 +83,9 @@ export class BoardDnd {
   down(e: PointerEvent, issueId: number): void {
     if (e.button !== 0 || e.pointerType === 'touch' || e.ctrlKey || e.metaKey || e.shiftKey || this.drag) return;
     const card = e.currentTarget as HTMLElement;
-    if ((e.target as Element).closest('a,button,input')) return;
+    // A control inside the card is its own; the card itself is a link (an <a>) and drags.
+    const control = (e.target as Element).closest('a,button,input');
+    if (control && control !== card) return;
     const r = card.getBoundingClientRect();
     this.drag = {
       issueId, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY,

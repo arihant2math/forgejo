@@ -19,9 +19,10 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
-import {Button, EmptyState, Icon, ListRow, type LucideIcon, Panel, Shortcut} from '../../ui/index.ts';
+import {Button, EmptyState, Icon, ListRow, type LucideIcon, Panel, Shortcut, Skeleton} from '../../ui/index.ts';
 import {activityOf} from '../inbox/inbox.ts';
-import {AgoCell, PendingCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {AgoCell, PendingCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
 import {issuePath} from '../issues/edits.ts';
 import type {ListSource} from '../issues/list.ts';
 import {useListModel} from '../issues/ListPage.tsx';
@@ -32,22 +33,27 @@ const ROWS = 6;
 const REVIEWS: ListSource = {kind: 'my', pulls: true, type: 'review_requested'};
 
 interface Item {
-  issue: Entity<'Issue'>;
+  /** The issue; undefined for a notification whose issue is not on this device (`note`). */
+  issue?: Entity<'Issue'> | undefined;
+  note?: Entity<'Notification'> | undefined;
   /** The time shown (activity). */
   at: string;
 }
 
 export default observer(function Dashboard() {
   const app = useApp();
-  const {userId: me, auth} = useSession();
+  const {userId: me, auth, data} = useSession();
   const pool = usePool();
   const overlay = useOverlay();
   const open = (i: Entity<'Issue'> | undefined): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open';
   const issues = pool.model('Issue');
 
+  // Every unread notification (the sidebar's count), those about an issue not on this device too.
   const unread = [...pool.model('Notification').all()].filter((n) => notificationStatus(overlay, n) === 'unread')
-    .map((n) => ({issue: issues.get(n.get('issue_id')), at: activityOf(n.data, issues.get(n.get('issue_id'))?.get('updated_at'))}))
-    .filter((x): x is Item => x.issue !== undefined).sort(byTime);
+    .map((n): Item => {
+      const issue = issues.get(n.get('issue_id'));
+      return {issue, note: n, at: activityOf(n.data, issue?.get('updated_at') ?? knownSubject(app, n.id)?.updated)};
+    }).sort(byTime);
   const assigned = [...new Set([...pool.model('IssueAssignee').by('assignee_id', me)].map((a) => a.get('issue_id')))]
     .map((id) => issues.get(id)).filter(open).map(updated).sort(byTime);
   const mine = [...issues.by('poster_id', me)].filter((i) => i.get('is_pull') && open(i)).map(updated).sort(byTime);
@@ -64,7 +70,9 @@ export default observer(function Dashboard() {
       {/* Asked once the session holds a token (the server is asked as the signed-in user). */}
       {auth.status.state === 'ok' && <ReviewRequests/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
-      {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
+      {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> :
+        // A device still loading (its first sign-in, catching up): placeholders, never an all-clear it cannot know yet.
+        data.workspace.current === undefined || data.status.loading > 0 ? <Loading/> : <Welcome/>}
     </PageColumn>
   );
 });
@@ -99,7 +107,9 @@ function Section({title, icon, items, all}: SectionProps) {
     <Panel label={title}
       title={<><Icon icon={icon} size="sm"/><span className="text-fg">{title}</span><span className="tabular-nums">{items.length}</span></>}
       actions={href && <Button size="sm" variant="ghost" asChild><a href={href} onClick={(e) => click(e, href)}>View all</a></Button>}>
-      {items.slice(0, ROWS).map((x) => <Row key={x.issue.id} issue={x.issue} at={x.at}/>)}
+      {items.slice(0, ROWS).map((x) => (x.issue ?
+        <Row key={x.issue.id} issue={x.issue} at={x.at}/> :
+        x.note && <NoteRow key={`n${String(x.note.id)}`} note={x.note} at={x.at}/>))}
     </Panel>
   );
 }
@@ -116,10 +126,28 @@ const Row = observer(function Row({issue, at}: {issue: Entity<'Issue'>; at: stri
       if (href) click(e, href);
     }} leading={<StateIcon issue={issue}/>} trailing={<>
       <PendingCell issueId={issue.id}/>
-      <span className="truncate tabular-nums">{repo}{issue.id > 0 ? `#${String(issue.get('number'))}` : ''}</span>
+      <RefCell repo={repo} number={issue.id > 0 ? issue.get('number') : undefined}/>
       <AgoCell at={at}/>
     </>}>
       <TitleCell issue={issue}/>
+    </ListRow>
+  );
+});
+
+/** An unread notification whose issue is not on this device: what the server says it is (inbox/subject.ts). */
+const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notification'>; at: string}) {
+  const app = useApp();
+  const click = useLinkClick();
+  const s = subjectOf(app, note.data);
+  const href = s && hrefOf(app, subjectPath(s));
+  return (
+    <ListRow role={undefined} href={href} onClick={(e) => {
+      if (href) click(e, href);
+    }} leading={s ? <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/> : <Icon icon={Inbox}/>} trailing={<>
+      {s && <RefCell repo={`${s.owner}/${s.repo}`} number={s.number}/>}
+      <AgoCell at={at}/>
+    </>}>
+      {s ? s.title : 'Not on this device yet'}
     </ListRow>
   );
 });
@@ -132,6 +160,23 @@ function Hints() {
       issues, <Shortcut keys={shortcutHint('go.pulls')}/> your pull requests, <Shortcut keys={shortcutHint('go.inbox')}/> the inbox,{' '}
       <Shortcut keys={shortcutHint('go.board')}/> your board; <Shortcut keys={shortcutHint('create')}/> creates an issue.
     </>
+  );
+}
+
+/** Home while this device loads what is waiting (static placeholders, no spinner). */
+function Loading() {
+  return (
+    <div aria-busy aria-label="Loading" className="flex flex-col gap-4">
+      {['w-64', 'w-48'].map((w) => (
+        <Panel key={w} label="Loading" title={<Skeleton className="h-3 w-24"/>}>
+          {['w-72', 'w-56', 'w-64'].map((r) => (
+            <ListRow key={r} role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}>
+              <Skeleton className={`h-3 ${r}`}/>
+            </ListRow>
+          ))}
+        </Panel>
+      ))}
+    </div>
   );
 }
 

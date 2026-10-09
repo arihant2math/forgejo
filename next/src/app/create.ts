@@ -8,8 +8,9 @@
 import {runInAction} from 'mobx';
 import type {App} from './store.ts';
 
-export function openCreate(app: App, repoId = 0): void {
+/** `board`: the new issue goes on that board, in that column (a board column's "New issue"). */
+export function openCreate(app: App, repoId = 0, board?: {projectId: number; columnId: number}): void {
   runInAction(() => {
-    app.ui.create = {repoId: repoId || app.ui.repoOpen || 0};
+    app.ui.create = {repoId: repoId || app.ui.repoOpen || 0, ...(board ? {board} : {})};
   });
 }

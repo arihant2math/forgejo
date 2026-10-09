@@ -7,7 +7,8 @@
 // and, once the job finished, is kept by (job, task) in the code cache, so
 // a finished log opens offline and never streams again.
 
-import {Workflow} from 'lucide-react';
+import {Link} from '@tanstack/react-router';
+import {ChevronDown, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -16,7 +17,10 @@ import {parseAnsi} from '../../code/ansi.ts';
 import {finished} from '../../code/logs.ts';
 import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
-import {AnsiText, CodeLine, EmptyState, LineNo, ListRow, Status, StatusDot, type StatusTone, StepHeader} from '../../ui/index.ts';
+import {codeSplat, shortSha} from '../../code/refs.ts';
+import {
+  AnsiText, Avatar, Button, CodeLine, CommandPopover, EmptyState, Icon, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
+} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -46,10 +50,66 @@ export function took(started: string | undefined, stopped: string | undefined, n
   return duration((to - from) / 1000);
 }
 
-/** A status in words with its time: "Succeeded · 45 s". */
-export function statusTime(text: string, started: string | undefined, stopped: string | undefined): ReactNode {
-  const t = took(started, stopped);
+/** A status in words with its time: "Succeeded · 45 s" (`now`: a running one's clock, see useNow). */
+export function statusTime(text: string, started: string | undefined, stopped: string | undefined, now = Date.now()): ReactNode {
+  const t = took(started, stopped, now);
   return t ? <>{text}<span className="tabular-nums"> · {t}</span></> : text;
+}
+
+/** The time, every second while `ticking` (a run or job is going: its time counts up), else fixed. */
+export function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticking) return;
+    const t = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(t);
+    };
+  }, [ticking]);
+  return now;
+}
+
+/** What started a run: a pull request ("refs/pull/91/head"), a branch or a tag. */
+export type Trigger = {kind: 'pull'; number: number} | {kind: 'branch' | 'tag'; name: string} | {kind: 'other'; name: string};
+
+export function triggerOf(ref: string): Trigger {
+  const pull = /^refs\/pull\/(\d+)\/(?:head|merge)$/.exec(ref);
+  if (pull) return {kind: 'pull', number: Number(pull[1])};
+  if (ref.startsWith('refs/heads/')) return {kind: 'branch', name: ref.slice('refs/heads/'.length)};
+  if (ref.startsWith('refs/tags/')) return {kind: 'tag', name: ref.slice('refs/tags/'.length)};
+  return {kind: 'other', name: ref};
+}
+
+/** An event in words: "pull_request_sync" → "pull request sync". */
+export function eventText(event: string): string {
+  return event.replace(/_/g, ' ');
+}
+
+/** Where a run came from, as a link: its pull request, branch or tag. */
+function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef: string}) {
+  const t = triggerOf(gitRef);
+  switch (t.kind) {
+    case 'pull':
+      return <TextLink><Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(t.number)}}>#{t.number}</Link></TextLink>;
+    case 'branch':
+    case 'tag':
+      return <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', {kind: t.kind, ref: t.name})}><span className="font-mono">{t.name}</span></CodeLink></TextLink>;
+    default:
+      return <span className="font-mono">{t.name}</span>;
+  }
+}
+
+type RunFilter = 'all' | 'failure' | 'running' | 'success';
+const RUN_FILTERS: readonly {value: RunFilter; label: string}[] = [
+  {value: 'all', label: 'All'}, {value: 'failure', label: 'Failed'}, {value: 'running', label: 'In progress'}, {value: 'success', label: 'Succeeded'},
+];
+
+function matches(filter: RunFilter, status: string): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'running') return !finished(status);
+  return status === filter;
 }
 
 /** A run, job or step status as a dot tone and words. */
@@ -77,25 +137,58 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
 export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   const rows = useCodeRows<ActionRun>(props.owner, props.repo, (r) => `actions/runs/${String(r.run_number)}`);
   const pool = usePool();
-  const runs = [...pool.model('ActionRun').by('repo_id', props.repoId)].map((r) => r.data).sort((a, b) => b.run_number - a.run_number);
+  const [filter, setFilter] = useState<RunFilter>('all');
+  const [workflow, setWorkflow] = useState<string | undefined>(undefined);
+  const all = [...pool.model('ActionRun').by('repo_id', props.repoId)].map((r) => r.data).sort((a, b) => b.run_number - a.run_number);
+  const workflows = [...new Set(all.map((r) => r.workflow_id))].sort();
+  const runs = all.filter((r) => matches(filter, r.status) && (workflow === undefined || r.workflow_id === workflow));
+  const now = useNow(runs.some((r) => !finished(r.status)));
+  const controls = all.length > 0 && <>
+    <SegmentedControl label="Show runs" value={filter} onChange={setFilter} options={RUN_FILTERS}/>
+    {workflows.length > 1 && (
+      <CommandPopover width="md" label="Workflow" placeholder="Find a workflow…" empty="No workflow matches."
+        options={[undefined, ...workflows].map((w): PickOption => ({
+          value: w ?? '', label: w ?? 'All workflows', checked: w === workflow, onSelect: () => {
+            setWorkflow(w);
+          },
+        }))}
+        trigger={<Button size="sm" variant="ghost" icon={Workflow}>{workflow ?? 'All workflows'}<Icon icon={ChevronDown} size="sm"/></Button>}/>
+    )}
+  </>;
   return (
-    <CodeFrame view={props} title="Actions">
+    <CodeFrame view={props} title="Actions" controls={controls}>
       {(scroller) => (runs.length ?
         <RowList items={runs} scroller={scroller} label="Workflow runs" keyOf={(r) => String(r.id)}
           row={(r) => {
             const look = statusLook(r.status);
-            const t = finished(r.status) ? took(r.started, r.stopped) : undefined;
+            const t = took(r.started, finished(r.status) ? r.stopped : undefined, now);
             return {
               leading: <span title={look.text}><StatusDot tone={look.tone}/></span>,
               main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span><span className="sr-only">, {look.text}</span></>,
-              trailing: <><span className="font-mono">{r.ref.replace(/^refs\/(heads|tags)\//, '')}</span><span>{r.event}</span>{t && <span className="tabular-nums" title="Duration">{t}</span>}<time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time></>,
+              trailing: <>
+                <TriggerText gitRef={r.ref}/>
+                <span className="max-md:hidden">{eventText(r.event)}</span>
+                {t && <span className="tabular-nums" title={finished(r.status) ? 'Duration' : 'Running for'}>{t}</span>}
+                <time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time>
+              </>,
             };
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-        <EmptyState icon={Workflow} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
+        all.length ?
+          <EmptyState icon={Workflow} title="No runs match" description="No run of this repository matches the filter." action={<Button size="sm" onClick={() => {
+            setFilter('all');
+            setWorkflow(undefined);
+          }}>Show all runs</Button>}/> :
+          <EmptyState icon={Workflow} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
     </CodeFrame>
   );
 });
+
+/** A run's trigger in a row (the row is the link: plain text, "#91" or the branch). */
+function TriggerText({gitRef}: {gitRef: string}) {
+  const t = triggerOf(gitRef);
+  return <span className="font-mono">{t.kind === 'pull' ? `#${String(t.number)}` : t.name}</span>;
+}
 
 /** A run of the repository by its number (observes the repository's runs). */
 function findRun(pool: ReturnType<typeof usePool>, repoId: number, n: number): ActionRun | undefined {
@@ -116,17 +209,32 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
   })();
   const job = jobs[first];
   const look = statusLook(run?.status ?? '');
+  const now = useNow(jobs.some((j) => !finished(j.status)));
+  const actor = run ? pool.model('User').get(run.trigger_user_id)?.data : undefined;
   return (
-    <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <><Status tone={look.tone}>{look.text}</Status><RepoClassic {...props} path={`actions/runs/${String(run.run_number)}`}>Re-run or cancel</RepoClassic></>}>
+    <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <>
+      <Status tone={look.tone}>{statusTime(look.text, run.started, finished(run.status) ? run.stopped : undefined, now)}</Status>
+      <RepoClassic {...props} path={`actions/runs/${String(run.run_number)}`}>Re-run or cancel</RepoClassic>
+    </>}>
       {(scroller) => (!run ?
         <EmptyState icon={Workflow} title="Run not found" description="This run does not exist, or is not on this device."/> :
-        <div className="flex min-h-full flex-col @xl:flex-row">
+        <div className="flex min-h-full flex-col">
+          {/* What started it: the workflow, the event, its pull request or branch, the commit, who. */}
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-sm text-fg-muted">
+            <span className="font-mono text-fg">{run.workflow_id}</span>
+            <span>{eventText(run.event)}</span>
+            <TriggerLink owner={props.owner} repo={props.repo} gitRef={run.ref}/>
+            {run.commit_sha && <TextLink><CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`}><span className="font-mono tabular-nums">{shortSha(run.commit_sha)}</span></CodeLink></TextLink>}
+            {actor && <span className="flex items-center gap-1.5"><Avatar name={actor.full_name || actor.login} src={actor.avatar_url === '' ? undefined : actor.avatar_url} size="sm"/>{actor.login}</span>}
+            <time dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
+          </p>
+          <div className="flex min-h-full flex-col @xl:flex-row">
           <nav aria-label="Jobs" className="shrink-0 border-b border-border py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
             {jobs.map((j, i) => {
               const jl = statusLook(j.status);
               return (
                 <CodeLink key={j.id} owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
-                  <ListRow role="presentation" active={i === first} leading={<StatusDot tone={jl.tone}/>} trailing={statusTime(jl.text, j.started, j.stopped)}>{j.name}</ListRow>
+                  <ListRow role="presentation" active={i === first} leading={<StatusDot tone={jl.tone}/>} trailing={statusTime(jl.text, j.started, finished(j.status) ? j.stopped : undefined, now)}>{j.name}</ListRow>
                 </CodeLink>
               );
             })}
@@ -135,6 +243,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller}/> :
               <EmptyState icon={Workflow} title="No such job"/>}
           </section>
+          </div>
         </div>)}
     </CodeFrame>
   );

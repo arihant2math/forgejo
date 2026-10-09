@@ -80,7 +80,7 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
     });
   }, [nearEnd]);
   const filtered = q.filter.state !== 'open' || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
-    q.filter.poster !== undefined || q.filter.milestone !== undefined;
+    q.filter.poster !== undefined || q.filter.milestone !== undefined || q.filter.status !== undefined || q.filter.priority !== undefined;
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
   const none = loading ? <ListSkeleton/> : filtered ?
     <EmptyState icon={SearchX} title="Nothing matches" description="No item on this device matches these filters."

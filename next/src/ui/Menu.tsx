@@ -7,7 +7,7 @@
 
 import {Check, ChevronRight, Dot} from 'lucide-react';
 import {ContextMenu as C, DropdownMenu as D} from 'radix-ui';
-import type {ComponentProps, ReactNode} from 'react';
+import {type ComponentProps, type ReactNode, useRef} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {ItemBody} from './ItemBody.tsx';
@@ -84,19 +84,50 @@ function makeItems(P: Parts) {
 
 // ── Dropdown menu ────────────────────────────────────────────────────────────
 
+/**
+ * A menu (not modal, see Menu) closes on a click outside, Esc or a choice, not when focus moves out by itself: a
+ * menu reopened while the last one still fades out would close again when that one hands the focus back to its
+ * trigger. Tab does not leave a menu (Radix keeps it in).
+ */
+function keepOnFocusOutside(e: Event): void {
+  e.preventDefault();
+}
+
+/**
+ * A press on the menu's own trigger is the trigger's (it toggles the menu), not a press outside: a menu reopened
+ * while it still fades out keeps its outside-press listener, which would close it again at once.
+ */
+function onOwnTrigger(e: CustomEvent<{originalEvent: PointerEvent}>, content: HTMLElement | null): boolean {
+  const id = content?.id;
+  for (let el = e.detail.originalEvent.target instanceof Element ? e.detail.originalEvent.target : null; id && el; el = el.parentElement) {
+    if (el.getAttribute('aria-controls') === id) return true;
+  }
+  return false;
+}
+
 const dropdown = /* @__PURE__ */ makeItems(D);
 
-export const Menu = D.Root;
+/**
+ * Not modal: a modal menu locks the page's scroll and pointer events with styles on <body>, and the whole
+ * document's styles are computed again on open and close (≈ 200 ms on a long list with a slow CPU). Outside
+ * clicks still close it; focus still moves into it and back.
+ */
+export function Menu(props: ComponentProps<typeof D.Root>) {
+  return <D.Root modal={false} {...props}/>;
+}
 export const MenuTrigger = D.Trigger;
 export const {
   Item: MenuItem, CheckboxItem: MenuCheckboxItem, RadioGroup: MenuRadioGroup, RadioItem: MenuRadioItem,
   Label: MenuLabel, Separator: MenuSeparator, Sub: MenuSub,
 } = dropdown;
 
-export function MenuContent({sideOffset = 4, align = 'start', ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style'>) {
+export function MenuContent({sideOffset = 4, align = 'start', ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style' | 'ref'>) {
+  const ref = useRef<HTMLDivElement>(null);
   return (
     <D.Portal>
-      <D.Content sideOffset={sideOffset} align={align} className={content} {...rest}/>
+      <D.Content ref={ref} sideOffset={sideOffset} align={align} className={content} onFocusOutside={keepOnFocusOutside} onPointerDownOutside={(e) => {
+        if (onOwnTrigger(e, ref.current)) e.preventDefault();
+      }} {...rest}/>
     </D.Portal>
   );
 }
@@ -105,7 +136,10 @@ export function MenuContent({sideOffset = 4, align = 'start', ...rest}: Omit<Com
 
 const context = /* @__PURE__ */ makeItems(C);
 
-export const ContextMenu = C.Root;
+/** Not modal, as Menu. */
+export function ContextMenu(props: ComponentProps<typeof C.Root>) {
+  return <C.Root modal={false} {...props}/>;
+}
 export const ContextMenuTrigger = C.Trigger;
 export const {
   Item: ContextMenuItem, CheckboxItem: ContextMenuCheckboxItem, RadioGroup: ContextMenuRadioGroup,
@@ -115,7 +149,7 @@ export const {
 export function ContextMenuContent(props: Omit<ComponentProps<typeof C.Content>, 'className' | 'style'>) {
   return (
     <C.Portal>
-      <C.Content className={content} {...props}/>
+      <C.Content className={content} onFocusOutside={keepOnFocusOutside} {...props}/>
     </C.Portal>
   );
 }

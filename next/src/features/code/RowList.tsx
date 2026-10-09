@@ -40,6 +40,8 @@ interface RowListProps<T> {
    */
   cursor?: number | undefined;
   onCursor?: ((index: number) => void) | undefined;
+  /** Backspace or Alt+ArrowUp: back out of the list (a directory's parent). */
+  onBack?: (() => void) | undefined;
 }
 
 function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void}) {
@@ -57,7 +59,7 @@ function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; s
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, linkOf, cursor: owned, onCursor, onBack}: RowListProps<T>) {
   const id = useId();
   const [own, setOwn] = useState(0);
   const cursor = owned ?? own;
@@ -86,7 +88,8 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, l
     move(-1);
   });
   const onKeyDown = (ev: KeyboardEvent) => {
-    if (ev.key === 'ArrowDown') move(1);
+    if (onBack && (ev.key === 'Backspace' || (ev.key === 'ArrowUp' && ev.altKey))) onBack();
+    else if (ev.key === 'ArrowDown') move(1);
     else if (ev.key === 'ArrowUp') move(-1);
     else if (ev.key === 'Enter') {
       const it = items[cursor];

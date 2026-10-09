@@ -21,7 +21,7 @@ import {setThemePreference, themeState} from '../theme.ts';
 export const AccountMenuReal = observer(function AccountMenuReal({trigger, defaultOpen}: {trigger: ReactElement; defaultOpen: boolean}) {
   const app = useApp();
   const navigate = useNavigate();
-  const path = useRouterState({select: (st) => st.location.pathname});
+  const {path, search} = useRouterState({select: (st) => ({path: st.location.pathname, search: st.location.searchStr}), structuralSharing: true});
   const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
   const theme = themeState.preference;
   const open = (key: 'paletteOpen' | 'shortcutsOpen') => {
@@ -33,7 +33,7 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
     <Menu defaultOpen={defaultOpen}>
       <MenuTrigger asChild>{trigger}</MenuTrigger>
       <MenuContent>
-        {login && <MenuItem icon={User} onSelect={() => void navigate({to: '/-/next/$owner', params: {owner: login}})}>Your profile and repositories</MenuItem>}
+        {login && <MenuItem icon={User} onSelect={() => void navigate({to: '/$owner', params: {owner: login}})}>Your profile and repositories</MenuItem>}
         <ClassicMenuItem to="/user/settings" icon={Settings}>Settings</ClassicMenuItem>
         <ClassicMenuItem to="/repo/create" icon={BookPlus}>New repository</ClassicMenuItem>
         <ClassicMenuItem to="/org/create" icon={Building2}>New organization</ClassicMenuItem>
@@ -54,7 +54,7 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
           </MenuRadioGroup>
         </MenuSub>
         <MenuSeparator/>
-        <ClassicMenuItem to={classicOfHere(app, path)} icon={AppWindow}>This page</ClassicMenuItem>
+        <ClassicMenuItem to={classicOfHere(app, path, search)} icon={AppWindow}>This page</ClassicMenuItem>
         <MenuItem icon={Monitor} disabled={!connectivity.online} onSelect={() => {
           switchToClassic(app);
         }}>{connectivity.online ? 'Turn off Forgejo Next' : onlineOnly('The classic UI')}</MenuItem>

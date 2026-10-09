@@ -8,14 +8,14 @@
 // not available here.
 
 import {Link, useLoaderData, useNavigate, useParams, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookOpen, ChevronDown, KanbanSquare, MoreHorizontal, Settings, Slash, Activity} from 'lucide-react';
+import {AppWindow, BookOpen, ChevronDown, ChevronRight, KanbanSquare, MoreHorizontal, Settings, Slash, Activity} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
-import {classicPathOf} from '../../app/paths.ts';
+import {classicOfLocation} from '../../app/paths.ts';
 import {type RepoMatch, useHold} from '../../app/repo.ts';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
@@ -52,13 +52,19 @@ export function useCanWrite(repoId: number): boolean {
   return canWrite(useSession(), repoId);
 }
 
-/** The breadcrumb: owner (their page) / repository (its home). */
-export function RepoContext({owner, repo}: {owner: string; repo: string}) {
+/** The breadcrumb: owner (their page) / repository (its home) [› its issues or pull requests, on a detail page]. */
+export function RepoContext({owner, repo, section}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined}) {
   return (
     <>
-      <TextLink><Link to="/-/next/$owner" params={{owner}}>{owner}</Link></TextLink>
+      <TextLink><Link to="/$owner" params={{owner}}>{owner}</Link></TextLink>
       <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
       <TextLink><Link to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>{repo}</Link></TextLink>
+      {section && <>
+        <Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/>
+        <TextLink>
+          <Link to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}}>{section === 'pulls' ? 'Pull requests' : 'Issues'}</Link>
+        </TextLink>
+      </>}
     </>
   );
 }
@@ -74,15 +80,24 @@ export interface RepoHeaderProps {
   children?: ReactNode;
   /** The tab's title before the repository's name (default: the title when it is text). */
   docTitle?: string | undefined;
+  /**
+   * An issue's or a pull request's page: its list in the breadcrumb instead of the repository's tabs (a pull
+   * request has tabs of its own: one row of tabs per page).
+   */
+  detail?: 'issues' | 'pulls' | undefined;
 }
 
-/** Every repository page's header: breadcrumb, title and controls, then the repository's tabs. */
-export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle}: RepoHeaderProps) {
+/**
+ * Every repository page's header: breadcrumb, title and controls, then the repository's tabs — none for a
+ * repository that is not known here (no such repository, no access): they would all lead to the same dead end.
+ */
+export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle, detail}: RepoHeaderProps) {
   const page = docTitle ?? (typeof title === 'string' ? title : undefined);
   return (
     <>
-      <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo}/>} title={title} docTitle={page && page !== 'Overview' ? `${page} · ${owner}/${repo}` : `${owner}/${repo}`}>{children}</PageHeader>
-      <RepoTabs owner={owner} repo={repo} repoId={repoId}/>
+      <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title}
+        docTitle={page && page !== 'Overview' ? `${page} · ${owner}/${repo}` : `${owner}/${repo}`}>{children}</PageHeader>
+      {repoId !== undefined && !detail && <RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
     </>
   );
 }
@@ -133,7 +148,7 @@ export function RepoTabs({owner, repo, repoId}: {owner: string; repo: string; re
 /** "More": the repository's boards (here) and what only the classic UI has (wiki, activity, settings). */
 const RepoMore = observer(function RepoMore({owner, repo, repoId}: {owner: string; repo: string; repoId: number | undefined}) {
   const s = useSession();
-  const path = useRouterState({select: (st) => st.location.pathname});
+  const here = useRouterState({select: (st) => classicOfLocation(st.location.pathname, st.location.searchStr)});
   const navigate = useNavigate();
   const boards = repoId === undefined ? [] : [...s.data.pool.model('Project').by('repo_id', repoId)].filter((p) => !p.get('closed'));
   const admin = repoId !== undefined && repoAccess(s, repoId) === 'admin';
@@ -155,7 +170,7 @@ const RepoMore = observer(function RepoMore({owner, repo, repoId}: {owner: strin
         <ClassicMenuItem to={`${base}/projects`} icon={KanbanSquare}>Projects</ClassicMenuItem>
         {admin && <ClassicMenuItem to={`${base}/settings`} icon={Settings}>Settings</ClassicMenuItem>}
         <MenuSeparator/>
-        <ClassicMenuItem to={classicPathOf(path)} icon={AppWindow}>This page</ClassicMenuItem>
+        <ClassicMenuItem to={here} icon={AppWindow}>This page</ClassicMenuItem>
       </MenuContent>
     </Menu>
   );

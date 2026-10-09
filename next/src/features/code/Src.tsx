@@ -9,7 +9,7 @@
 // switching between files never waits.
 
 import {useNavigate} from '@tanstack/react-router';
-import {ChevronDown, File, FileSymlink, Folder, FolderGit2, GitBranch, GitCommitHorizontal, History, ScrollText, Tag} from 'lucide-react';
+import {ChevronDown, File, Folder, FolderGit2, GitBranch, GitCommitHorizontal, History, ScrollText, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
@@ -29,6 +29,7 @@ import {Lines} from './Lines.tsx';
 import {RowList} from './RowList.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
+import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 
 interface SrcProps extends CodeViewProps {
@@ -80,7 +81,7 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   const parentKey = at.path ? CodeSource.treeKey(repoId, at.sha, parent) : undefined;
   const tree = useLoad(parentKey, () => (parentKey ? src.peek<APITree>(parentKey) : undefined), () => src.tree(repoId, at.sha, parent));
   const entry = tree.state === 'ready' ? tree.value.entries.find((e) => e.name === name) : undefined;
-  const title = <Breadcrumbs {...props}/>;
+  const title = <Breadcrumbs owner={props.owner} repo={props.repo} at={at}/>;
   const controls = <SrcControls {...props} entry={entry}/>;
   let body: (scroller: HTMLDivElement | null) => ReactNode;
   if (!at.path || entry?.type === 'tree') {
@@ -97,18 +98,22 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   return <CodeFrame view={props} title={title} controls={controls}>{body}</CodeFrame>;
 });
 
-/** owner/repo is in the context; the title is the path, each directory a link. */
-function Breadcrumbs({owner, repo, at}: SrcProps & {at: Resolved}) {
+/**
+ * owner/repo is in the context; the title is the path, each directory a link to the same view of it (`view`:
+ * the source, or a history); `linkLast` makes the last segment a link too (a history's path opens its source).
+ */
+export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
   const parts = at.path ? at.path.split('/') : [];
   return (
     <span className="flex min-w-0 items-center gap-1 font-mono text-code">
       {/* The repository is in the breadcrumb already: its root is "/" here, "Files" on the root page. */}
-      {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', at)}><span aria-label={`${repo} root`}>/</span></CodeLink></TextLink> : <span className="font-sans">Files</span>}
+      {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}><span aria-label={`${repo} root`}>/</span></CodeLink></TextLink> :
+        <span className="font-sans">{view === 'src' ? 'Files' : 'History'}</span>}
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
           {i > 0 && <span className="text-fg-subtle">/</span>}
-          {i === parts.length - 1 ? <span className="truncate">{p}</span> :
-            <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
+          {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
+            <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
         </span>
       ))}
     </span>
@@ -149,7 +154,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
  * The branch or tag on screen, and every other one to switch to (same path): a picker that filters as you
  * type (Enter takes the first match), branches first.
  */
-const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {owner: string; repo: string; repoId: number; at: Resolved; view: 'src' | 'blame' | 'commits'}) {
+export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {owner: string; repo: string; repoId: number; at: Resolved; view: 'src' | 'blame' | 'commits'}) {
   const pool = usePool();
   const navigate = useNavigate();
   const refs = refTable(pool, repoId);
@@ -177,26 +182,20 @@ const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {owne
 
 // ---- directory ----
 
-const ENTRY_ICON = {tree: Folder, blob: File, symlink: FileSymlink, commit: FolderGit2} as const;
-
-function formatSize(n: number | undefined): string {
-  if (n === undefined) return '';
-  if (n < 1024) return `${String(n)} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
 const DirView = observer(function DirView({owner, repo, repoId, at, scroller}: SrcProps & {at: Resolved; scroller: HTMLDivElement | null}) {
   const src = useSource();
   const key = CodeSource.treeKey(repoId, at.sha, at.path);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, at.sha, at.path));
   if (tree.state !== 'ready') return <Unloaded loaded={tree} what="This directory" skeleton={<ListSkeleton/>}/>;
   const readme = readmeOf(tree.value.entries);
+  // The Overview's look: a panel headed by the ref's latest commit, the README under it.
   return (
-    <>
-      <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
-      {readme && <div className="px-4 py-4"><ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/></div>}
-    </>
+    <PageColumn wide>
+      <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
+        <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
+      </FilesPanel>
+      {readme && <ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/>}
+    </PageColumn>
   );
 });
 
@@ -204,16 +203,17 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
   const pathOf = (e: APITreeEntry) => (at.path ? `${at.path}/${e.name}` : e.name);
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
-  const entries = useMemo(() => [...tree.entries].sort((a, b) => Number(b.type === 'tree') - Number(a.type === 'tree') || a.name.localeCompare(b.name)), [tree]);
+  const navigate = useNavigate();
+  const entries = useMemo(() => treeOrder(tree.entries), [tree]);
   if (!entries.length) return <EmptyState icon={Folder} title="Empty directory"/>;
   return (
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
-      row={(e) => ({
-        leading: <Icon icon={ENTRY_ICON[e.type as keyof typeof ENTRY_ICON]} size="sm"/>,
-        main: e.name,
-        trailing: e.type === 'blob' ? <span className="tabular-nums">{formatSize(e.size)}</span> : undefined,
-      })}
+      row={entryParts}
       onOpen={rows.onOpen} linkOf={rows.linkOf}
+      // Backspace or Alt+↑: up a directory.
+      onBack={at.path ? () => {
+        void navigate(codeTo(owner, repo, codeSplat('src', at, parentPath(at.path))));
+      } : undefined}
       // Hover or the cursor: fetch the entry and highlight it, so opening it paints at once.
       onIntent={(e) => {
         const p = pathOf(e);
@@ -375,7 +375,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
             <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-2">
-              <span className="shrink-0 text-fg">{commit.author_name}</span>
+              <span className="shrink-0 text-fg @max-xl:hidden">{commit.author_name}</span>
               <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink></TextLink>
             </span>
           )}

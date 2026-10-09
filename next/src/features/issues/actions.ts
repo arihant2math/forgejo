@@ -16,9 +16,12 @@ import type {ShortcutId} from '../../app/shortcuts/index.ts';
 import type {App, PickerKind} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
-import {issueAssigneeIds, issueState} from '../../intents/view.ts';
+import {issueAssigneeIds, issueLabelIds, issueState} from '../../intents/view.ts';
+import type {Label} from '../../protocol/types.gen.ts';
 import type {LucideIcon} from '../../ui/index.ts';
-import {issuePath, setAssignee, setState} from './edits.ts';
+import {repoLabels} from './candidates.ts';
+import {issuePath, setAssignee, setLabel, setState} from './edits.ts';
+import {exclusiveScope, kindRank, labelKind, scopedValue, statusStage} from './labels.ts';
 
 export interface IssueAction {
   id: string;
@@ -64,6 +67,43 @@ export function changeState(app: App, issues: readonly Entity<'Issue'>[], state:
   notify(app, {tone: 'neutral', title: `${state === 'closed' ? 'Closed' : 'Reopened'} ${what}`, action: {label: 'Undo', run: () => {
     setState(app, changed, state === 'closed' ? 'open' : 'closed');
   }}});
+}
+
+/**
+ * Sets a workflow status (an exclusive `status/…` label) the way Linear's status works: a done or canceled
+ * status closes the issue, any other status reopens it (the Undo notice of changeState says so).
+ */
+export function setWorkflowStatus(app: App, issues: readonly Entity<'Issue'>[], label: Label): void {
+  setLabel(app, issues, label, true);
+  const stage = statusStage(scopedValue(label.name));
+  changeState(app, issues, stage === 'done' || stage === 'canceled' ? 'closed' : 'open');
+}
+
+/**
+ * Reopens issues (the status picker's "Open"): one left at a done or canceled status goes back to the
+ * repository's first "to do" status (else the terminal status is removed), so it reads open everywhere.
+ */
+export function reopen(app: App, issues: readonly Entity<'Issue'>[]): void {
+  const pool = app.session?.data.pool;
+  if (!pool) return;
+  const {overlay} = editing(app);
+  untracked(() => {
+    for (const i of issues) {
+      const ids = issueLabelIds(pool, overlay, i.id);
+      const terminal = ids.map((id) => pool.model('Label').get(id)?.data).find((l) => l && labelKind(l) === 'status' && isTerminal(l.name));
+      if (!terminal) continue;
+      const todo = repoLabels(pool, i.data.repo_id).filter((l) => labelKind(l) === 'status' && exclusiveScope(l) === exclusiveScope(terminal))
+        .sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name)).find((l) => statusStage(scopedValue(l.name)) === 'todo');
+      if (todo) setLabel(app, [i], todo, true);
+      else setLabel(app, [i], terminal, false);
+    }
+  });
+  changeState(app, issues, 'open');
+}
+
+function isTerminal(name: string): boolean {
+  const stage = statusStage(scopedValue(name));
+  return stage === 'done' || stage === 'canceled';
 }
 
 /** The actions available on these issues (untracked: call when a menu opens). */

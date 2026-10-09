@@ -73,7 +73,19 @@ export function applySplash(win: Window): void {
   if (typeof s.initial === 'string' && /^[\p{L}\p{N}]{1,2}$/u.test(s.initial)) {
     html.style.setProperty('--splash-initial', JSON.stringify(s.initial));
   }
+  // The first frame's "Sign in" works before the app's code is here (a slow network): an early click is
+  // remembered (the button says so) and the app signs in as soon as it starts (LoggedOut, EARLY_SIGN_IN).
+  win.addEventListener('click', (e) => {
+    const t = e.target instanceof Element ? e.target.closest('[data-early="signin"]') : null;
+    if (!t || html.dataset.ready === '1') return;
+    html.dataset.early = 'signin';
+    t.setAttribute('aria-busy', 'true');
+    t.textContent = 'Signing in…';
+  }, true);
 }
+
+/** The attribute the splash script sets on <html> for a "Sign in" clicked before the app started. */
+export const EARLY_SIGN_IN = 'signin';
 
 /** Whether the splash carries the local DB marker (the same test applySplash makes). */
 export function hasUser(s: Splash): boolean {

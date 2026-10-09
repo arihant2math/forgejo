@@ -160,8 +160,12 @@ export interface IntentEnv {
 /** Requests in flight at once, across entities. */
 const MAX_SENDS = 6;
 
-/** Intents on hot rows (B7: their echo may not cover a deferred change), and how long their confirmation waits for the effect. */
-const HOT_KINDS: ReadonlySet<string> = new Set(['notification.status']);
+/**
+ * Intents whose echo may not show their effect, and how long their confirmation waits for it: hot rows (B7: a
+ * deferred change), and dependencies (B6 conditionals: they arrive with the issue's next load, which their
+ * timeline event starts: sync/client.ts CONDITIONAL_EVENTS).
+ */
+const HOT_KINDS: ReadonlySet<string> = new Set(['notification.status', 'notification.readAll', 'issue.dependency']);
 const HOT_WAIT_MS = 5000;
 
 /** RUM: an intent first attempted within this long of its local apply was sent at once (online). */

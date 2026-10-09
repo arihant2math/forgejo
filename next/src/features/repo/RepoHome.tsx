@@ -7,7 +7,7 @@
 // once seen). The tabs lead to everything else. Its own chunk.
 
 import {Link} from '@tanstack/react-router';
-import {BookMarked, CircleDot, Copy, File, FileSymlink, Folder, FolderGit2, GitBranch, GitPullRequest, Globe, Package, SquarePen, Star, GitFork} from 'lucide-react';
+import {BookMarked, CircleDot, Copy, Folder, FolderGit2, GitBranch, GitPullRequest, Globe, Package, SquarePen, Star, GitFork} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useMemo} from 'react';
 import {sitePath} from '../../app/config.ts';
@@ -21,12 +21,12 @@ import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Code, EmptyState, Icon, IconButton, ListRow, Panel, Property, PropertyList, PropertyValue, SkeletonText, TextLink,
+  Badge, Button, EmptyState, Icon, IconButton, ListRow, Property, PropertyList, PropertyValue, SkeletonText, TextLink,
 } from '../../ui/index.ts';
-import {summary} from '../code/bits.tsx';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {ReadmePanel, readmeOf} from '../code/Rendered.tsx';
 import {Unloaded} from '../code/states.tsx';
+import {entryParts, FilesPanel, RefCommit, treeOrder} from '../code/tree.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate, shortDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
@@ -85,8 +85,6 @@ const Summary = observer(function Summary({repoId}: {repoId: number}) {
   );
 });
 
-const ENTRY_ICON = {tree: Folder, blob: File, symlink: FileSymlink, commit: FolderGit2} as const;
-
 /** At most this many top-level entries are listed (the Code tab has them all). */
 const MAX_ENTRIES = 60;
 
@@ -96,26 +94,16 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   const refs = refTable(pool, repoId);
   const branch = refs.defaultBranch;
   const sha = refs.branches.get(branch);
-  const b = [...pool.model('Branch').by('repo_id', repoId)].find((x) => x.get('name') === branch && !x.get('is_deleted'))?.data;
   const r = pool.model('Repository').get(repoId)?.data;
   if (!sha) {
     return (
-      <Panel title={<><Icon icon={GitBranch} size="sm"/>Code</>}>
+      <FilesPanel title={<><Icon icon={GitBranch} size="sm"/>Code</>}>
         <EmptyState icon={FolderGit2} title={r?.empty ? 'This repository is empty' : 'No code on this device yet'}
           description={r?.empty ? 'Push a first commit to it.' : 'Its branches have not arrived yet.'}/>
-      </Panel>
+      </FilesPanel>
     );
   }
-  const title = (
-    <>
-      <Icon icon={GitBranch} size="sm"/>
-      <span className="font-mono text-fg">{branch}</span>
-      {b && <>
-        <span className="min-w-0 truncate"><TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${b.commit_id}/-`}}>{summary(b.commit_message)}</Link></TextLink></span>
-        <time className="shrink-0 tabular-nums" dateTime={b.commit_time} title={fullDate(b.commit_time)}>{ago(b.commit_time)}</time>
-      </>}
-    </>
-  );
+  const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha}/>;
   return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title}/>;
 });
 
@@ -126,13 +114,13 @@ function Tree({owner, repo, repoId, sha, branch, title}: {owner: string; repo: s
   const key = CodeSource.treeKey(repoId, sha, '');
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, sha, ''));
   const entries = useMemo(() => (tree.state === 'ready' ?
-    [...tree.value.entries].sort((a, b) => Number(b.type === 'tree') - Number(a.type === 'tree') || a.name.localeCompare(b.name)) :
+    treeOrder(tree.value.entries) :
     []), [tree]);
   const readme = readmeOf(entries);
   const all = hrefOf(app, codePath(owner, repo, `src/branch/${branch}`));
   return (
     <>
-      <Panel label="Files" title={title} actions={<Button size="sm" variant="ghost" asChild><a href={all} onClick={(e) => click(e, all)}>Browse code</a></Button>}>
+      <FilesPanel title={title} actions={<Button size="sm" variant="ghost" asChild><a href={all} onClick={(e) => click(e, all)}>Browse code</a></Button>}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
           <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-3 py-3"><SkeletonText lines={5}/></div>}/>}
@@ -141,7 +129,7 @@ function Tree({owner, repo, repoId, sha, branch, title}: {owner: string; repo: s
             {entries.length - MAX_ENTRIES} more
           </ListRow>
         )}
-      </Panel>
+      </FilesPanel>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch}}/>}
     </>
   );
@@ -151,9 +139,10 @@ function EntryRow({owner, repo, branch, entry}: {owner: string; repo: string; br
   const app = useApp();
   const click = useLinkClick();
   const href = hrefOf(app, codePath(owner, repo, `src/branch/${branch}/${entry.name}`));
+  const parts = entryParts(entry);
   return (
-    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={<Icon icon={ENTRY_ICON[entry.type as keyof typeof ENTRY_ICON]} size="sm"/>}>
-      {entry.name}
+    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={parts.leading} trailing={parts.trailing}>
+      {parts.main}
     </ListRow>
   );
 }
@@ -184,7 +173,7 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
       <Property label="Clone">
         <PropertyValue>
           <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate" title={clone}><Code>{clone}</Code></span>
+            <span className="min-w-0 font-mono text-code break-all text-fg select-all">{clone}</span>
             <IconButton size="sm" icon={Copy} label="Copy the clone URL" onClick={copy}/>
           </span>
         </PropertyValue>
@@ -221,8 +210,8 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
         <PropertyValue tone="muted"><time dateTime={r.updated_at} title={fullDate(r.updated_at)}>{ago(r.updated_at)}</time></PropertyValue>
       </Property>
       {r.fork && r.parent_id > 0 && <ForkOf parentId={r.parent_id}/>}
-      <Property label="Raw">
-        <PropertyValue tone="muted"><TextLink><a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.default_branch)}.zip`)} download>Download ZIP</a></TextLink></PropertyValue>
+      <Property label="Archive">
+        <PropertyValue tone="muted"><TextLink><a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.default_branch)}.zip`)} download>{r.default_branch}.zip</a></TextLink></PropertyValue>
       </Property>
     </PropertyList>
   );

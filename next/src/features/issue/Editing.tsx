@@ -10,10 +10,10 @@
 // so a reload or a crash never loses it. The field is the CodeMirror
 // composer with Forgejo's preview (editor/Composer.tsx).
 
-import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
+import {CloudOff, MoreHorizontal, Pencil, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type Ref, useEffect, useId, useRef, useState} from 'react';
+import {type RefObject, useEffect, useId, useRef, useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -22,7 +22,11 @@ import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing} from '../../intents/session.ts';
 import {commentBody, issueBody, issueTitle} from '../../intents/view.ts';
-import {Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput} from '../../ui/index.ts';
+import {
+  Button, Callout, Dialog, EditableHeading, EmptyState, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
+} from '../../ui/index.ts';
+import {missingWords} from '../../app/Missing.tsx';
+import {connectivity} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {useUser} from '../issues/cells.tsx';
@@ -217,6 +221,11 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     );
   }
   if (!body) {
+    // Offline, an issue never opened on this device has no description here (and nothing more can arrive):
+    // say so, as the code views do, instead of a placeholder that never resolves.
+    if (data.status.connection === 'offline' || !connectivity.online) {
+      return <EmptyState icon={CloudOff} title="Not available offline" description={missingWords('Its description and comments').offline}/>;
+    }
     return (
       <div className="flex flex-col gap-2 py-1" aria-busy>
         <SkeletonText/>
@@ -256,7 +265,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
 });
 
 /** The viewer's own comment's actions (in its card's header): edit, delete. */
-export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: Ref<HTMLButtonElement>}) {
+export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
   const app = useApp();
   const {userId} = useSession();
   const {intents} = editing(app);
@@ -283,9 +292,16 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
     )}
     <Menu>
       <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
-      {/* After Edit the editor takes the focus (Radix would return it to the trigger); otherwise the trigger has it. */}
+      {/* After Edit the editor takes the focus once the menu is gone (while the menu is open its focus trap keeps the
+          focus, and Radix would return it to the trigger); otherwise the trigger has it. */}
       <MenuContent align="end" onCloseAutoFocus={(e) => {
-        if (chose.current) e.preventDefault();
+        if (chose.current) {
+          e.preventDefault();
+          const card = triggerRef.current?.closest('article');
+          requestAnimationFrame(() => {
+            card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus();
+          });
+        }
         chose.current = false;
       }}>
         <MenuItem icon={Pencil} onSelect={() => {

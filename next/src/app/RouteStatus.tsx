@@ -7,7 +7,7 @@ import {useEffect} from 'react';
 import {Button, EmptyState} from '../ui/index.ts';
 import {CenteredScreen} from './LoggedOut.tsx';
 import {lazyComponent} from './lazy.tsx';
-import {classicPathOf} from './paths.ts';
+import {classicHas, classicPathOf} from './paths.ts';
 import {isChunkError, reloadOnce} from './reload.ts';
 import {PageBody} from './shell/Frame.tsx';
 import {PageHeader} from './shell/PageHeader.tsx';
@@ -34,13 +34,16 @@ export function RouteError({error}: ErrorComponentProps) {
   );
 }
 
-/** What an address the app has no page for is in the classic UI (the viewer's boards, a board's place). */
+/**
+ * The classic page of an address the app has no page for, when the classic UI is known to have it (a
+ * repository's wiki or settings); undefined for an address nobody has (no promise of a page that is a 404).
+ */
 function useClassicOfHere(): string | undefined {
   const app = useApp();
   const path = useRouterState({select: (s) => s.location.pathname});
   const classic = classicPathOf(path, {login: app.session?.data.pool.model('User').get(app.session.userId)?.get('login')});
   // A canonical route has a page here (it is not missing); the base and the callback are not classic pages.
-  return classic === '/' || classic === path ? undefined : classic;
+  return classic === '/' || classic === path || !classicHas(classic) ? undefined : classic;
 }
 
 /**
@@ -56,7 +59,7 @@ export function ShellNotFound() {
     <>
       <PageHeader icon={FileQuestion} title="Not found"/>
       <PageBody>
-        <Missing what="This page" description={classic ? 'Forgejo Next has no page for this address yet. The classic UI has it.' : 'Forgejo Next has no page at this address.'} classic={classic}/>
+        <Missing what="This page" description={classic ? 'Forgejo Next has no page for this address yet. The classic UI has it.' : 'There is no page at this address.'} classic={classic}/>
       </PageBody>
     </>
   );
@@ -67,7 +70,7 @@ export function RouteNotFound() {
   const classic = useClassicOfHere();
   return (
     <CenteredScreen>
-      <Missing what="This page" description="Forgejo Next has no page at this address." classic={classic}/>
+      <Missing what="This page" description="There is no page at this address." classic={classic}/>
     </CenteredScreen>
   );
 }

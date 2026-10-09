@@ -19,7 +19,7 @@ import {RequestFailed} from '../app/api.ts';
 import {sitePath} from '../app/config.ts';
 import {appWorkerURL} from '../app/trusted.ts';
 import type {App, Session} from '../app/store.ts';
-import {APIPrefix, type APIBlame, type APITree, type APITreeEntry} from '../protocol/types.gen.ts';
+import {APIPrefix, type APIBlame, type APIMarkupRequest, type APIMarkupResponse, type APITree, type APITreeEntry} from '../protocol/types.gen.ts';
 import type {CodeWorkerApi, Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
@@ -505,19 +505,16 @@ export class CodeSource {
   }
 
   /**
-   * A markup file (README.md, docs/…) rendered as Forgejo renders it on its file page (API v1 /markup, mode
-   * "file": relative links and images resolve in the repository at `ref`). Cached by blob SHA and ref (the
-   * same text renders its links per ref); the HTML goes through the Trusted Types gate like every body.
+   * A markup file (README.md, docs/…) rendered as Forgejo renders it on its file page (B9 /markup: relative links
+   * and images resolve from the file's directory at `ref`, root-relative ones from the repository's root). Cached
+   * by blob SHA and ref (the same text renders its links per ref); the HTML goes through the Trusted Types gate
+   * like every body.
    */
   rendered(repoId: number, blobSha: string, path: string, text: string, ref: {kind: RefKind; name: string}): Promise<string> {
-    return this.cached(`md:${String(repoId)}:${blobSha}:${ref.kind}:${ref.name}:${path}`, async () => {
-      const r = this.s.data.pool.model('Repository').get(repoId)?.data;
-      if (!r) throw new NotCached('the repository is not on this device');
-      const res = await this.request('v1', '/markup', undefined, {
-        Text: text, Mode: 'file', FilePath: path, Context: `/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}`,
-        BranchPath: `${ref.kind}/${ref.name.split('/').map(encodeURIComponent).join('/')}`,
-      });
-      return readCapped(res, MAX_FILE * 2);
+    return this.cached(`md2:${String(repoId)}:${blobSha}:${ref.kind}:${ref.name}:${path}`, async () => {
+      const body: APIMarkupRequest = {repo_id: repoId, ref: `${ref.kind}/${ref.name}`, path, text};
+      const res = await this.request('sync', '/markup', undefined, body);
+      return ((await readJson(res)) as APIMarkupResponse).html;
     });
   }
 

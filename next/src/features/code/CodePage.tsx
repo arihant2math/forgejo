@@ -12,7 +12,7 @@ import {useParams} from '@tanstack/react-router';
 import {Code2} from 'lucide-react';
 import {type ReactNode, useState} from 'react';
 import {PageBody} from '../../app/shell/Frame.tsx';
-import {parseCodePath} from '../../code/refs.ts';
+import {parseCodePath, shortSha} from '../../code/refs.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {ActionsView, RunView} from './Actions.tsx';
@@ -29,6 +29,19 @@ export interface CodeViewProps {
   splat: string;
 }
 
+/** The browser tab's name of a code view whose title is not plain text (a path breadcrumb, a ref switcher). */
+function viewName(splat: string): string {
+  const r = parseCodePath(splat);
+  switch (r?.view) {
+    case 'blame': return 'Blame';
+    case 'commits': return 'Commits';
+    case 'commit': return `Commit ${shortSha(r.sha)}`;
+    case 'compare': return 'Compare';
+    case 'run': return `Run #${String(r.run)}`;
+    default: return 'Code';
+  }
+}
+
 /**
  * A code view's frame: the header (title, controls), the repository's tabs
  * and the scroll container, which the body gets (lists virtualize against it).
@@ -37,7 +50,8 @@ export function CodeFrame({view, title, controls, children}: {view: CodeViewProp
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   return (
     <>
-      <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={Code2} title={title}>{controls}</RepoHeader>
+      <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={Code2} title={title}
+        docTitle={typeof title === 'string' ? title : viewName(view.splat)}>{controls}</RepoHeader>
       <PageBody ref={setScroller}>{children(scroller)}</PageBody>
     </>
   );

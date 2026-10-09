@@ -33,7 +33,7 @@ export function pullOf(pool: Pool, issueId: number): PullRequest | undefined {
 export function poolHead(pool: Pool, pr: PullRequest): string | undefined {
   if (pr.flow !== 0) return undefined; // AGit: no branch row
   for (const b of pool.model('Branch').by('repo_id', pr.head_repo_id)) {
-    if (b.data.name === pr.head_branch && isSha(b.data.commit_id)) return b.data.commit_id;
+    if (b.data.name === pr.head_branch && !b.data.is_deleted && isSha(b.data.commit_id)) return b.data.commit_id;
   }
   return undefined;
 }

@@ -50,8 +50,10 @@ export function ListRow({role, selected, active, leading, trailing, href, childr
       aria-selected={role === 'presentation' || role === undefined ? undefined : Boolean(selected)}
       className={cx(
         rowBase,
-        // The cursor (J/K) is an accent edge, the selection (X) an accent tint: both distinct from the pointer's hover.
-        'interactive row-cursor text-base text-fg hover:bg-hover data-selected:bg-accent-subtle',
+        // The cursor (J/K) is an accent edge on a filled row (Linear's), the selection (X) an accent tint: both
+        // distinct from the pointer's hover, in both themes. No fade: the cursor moves instantly (a key held down
+        // leaves no trail).
+        'row-cursor text-base text-fg hover:bg-hover data-active:not-data-selected:bg-selected data-selected:bg-accent-subtle',
       )}
       {...rest}
     >

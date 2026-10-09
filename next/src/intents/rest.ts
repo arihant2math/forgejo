@@ -42,6 +42,10 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
     if (i.kind === 'notification.status') {
       return {method: 'PATCH', api: 'v1', path: `/notifications/threads/${String(i.notificationId)}?to-status=${i.status}`};
     }
+    if (i.kind === 'notification.readAll') {
+      // Unread ones only (the default status-types): pinned notifications stay pinned.
+      return {method: 'PUT', api: 'v1', path: `/notifications?${new URLSearchParams({last_read_at: i.lastReadAt, 'to-status': 'read'}).toString()}`};
+    }
     const repo = pool.model('Repository').get(i.repoId)?.data;
     if (!repo) throw new NotReady('the repository is not on this device yet');
     // "." and ".." would be resolved away by the URL parser (Forgejo refuses such names; never send one).
@@ -68,6 +72,8 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
         return {method: 'POST', api: 'sync', path: `/projects/${String(i.projectId)}/columns/${String(i.columnId)}/cards`, body: {issue_id: i.issueId, position: i.position}};
       case 'pr.viewed':
         return {method: 'PUT', api: 'sync', path: `/issues/${String(i.issueId)}/viewed`, body: {commit_sha: i.commitSha, files: i.files}};
+      case 'issue.project':
+        return {method: 'PUT', api: 'sync', path: `/issues/${String(i.issueId)}/project`, body: {project_id: i.projectId, ...(i.columnId ? {column_id: i.columnId} : {})}};
       default:
         break;
     }

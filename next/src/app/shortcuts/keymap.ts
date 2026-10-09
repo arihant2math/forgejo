@@ -26,12 +26,15 @@ export interface KeyDef {
    * (otherwise those keep their keys).
    */
   anywhere?: boolean;
+  /** Handled by the focused view itself, not through the registry (listed in the help only). */
+  local?: boolean;
 }
 
 export const KEYMAP = {
   'palette.open': {keys: 'mod+k', label: 'Open the command menu', scope: 'global', anywhere: true},
   'help.shortcuts': {keys: '?', label: 'Keyboard shortcuts', scope: 'global'},
   'create': {keys: 'c', label: 'Create an issue', scope: 'global'},
+  'go.home': {keys: 'g h', label: 'Go to Home', scope: 'global'},
   'go.issues': {keys: 'g i', label: 'Go to my issues', scope: 'global'},
   'go.pulls': {keys: 'g p', label: 'Go to my pull requests', scope: 'global'},
   'go.inbox': {keys: 'g n', label: 'Go to the inbox', scope: 'global'},
@@ -67,6 +70,10 @@ export const KEYMAP = {
   'diff.nextFile': {keys: ']', label: 'Next file', scope: 'diff'},
   'review.start': {keys: 'r', label: 'Start a review', scope: 'diff'},
   'diff.viewed': {keys: 'v', label: 'Mark the file viewed', scope: 'diff'},
+  'diff.lineDown': {keys: 'arrowdown', label: 'Next line', scope: 'diff', local: true},
+  'diff.lineUp': {keys: 'arrowup', label: 'Previous line', scope: 'diff', local: true},
+  'diff.lineComment': {keys: 'enter', label: 'Comment on the line', scope: 'diff', local: true},
+  'editor.submit': {keys: 'mod+enter', label: 'Save or send', scope: 'editor', local: true},
 } as const satisfies Record<string, KeyDef>;
 
 export type ShortcutId = keyof typeof KEYMAP;

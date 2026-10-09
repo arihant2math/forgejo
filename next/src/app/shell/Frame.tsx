@@ -38,9 +38,16 @@ export function SidebarBody({children}: {children: ReactNode}) {
   return <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pb-2">{children}</nav>;
 }
 
-/** The main panel's header bar. */
+/**
+ * The main panel's header bar. On a phone (below md) it may take a second row: the page's controls go under the
+ * title (PageHeader), where they scroll sideways instead of being cut off.
+ */
 export function HeaderBar({children}: {children: ReactNode}) {
-  return <header className="flex h-header shrink-0 items-center gap-2 border-b border-border px-4 max-md:px-2">{children}</header>;
+  return (
+    <header className="flex h-header shrink-0 items-center gap-2 border-b border-border px-4 max-md:h-auto max-md:min-h-header max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0 max-md:px-2">
+      {children}
+    </header>
+  );
 }
 
 /** What shows only while the sidebar is not beside the page (collapsed, or a drawer on a narrow screen): its toggle. */
@@ -69,7 +76,11 @@ export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelW
   );
 }
 
-/** A page's reading column inside PageBody (a repository's home, an owner): the page gutter, tighter on a narrow page. */
+/**
+ * A page's reading column inside PageBody (Home, an owner, the boards, releases, checks, a repository's home):
+ * centred in the panel, the page gutter, tighter on a narrow page. Every overview page uses it, so moving
+ * between them never shifts the content. `wide`: the whole panel's width (a home with a side pane).
+ */
 export function PageColumn({children, wide = false}: {children: ReactNode; wide?: boolean}) {
-  return <div className={cx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'max-w-lg')}>{children}</div>;
+  return <div className={cx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'mx-auto w-full max-w-lg')}>{children}</div>;
 }

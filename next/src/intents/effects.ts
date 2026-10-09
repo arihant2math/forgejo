@@ -15,6 +15,7 @@ import {serverMembers} from './view.ts';
 export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
   return untracked(() => {
     if (i.kind === 'notification.status') return pool.model('Notification').get(i.notificationId)?.data.status === i.status;
+    if (i.kind === 'notification.readAll') return i.notificationIds.every((id) => pool.model('Notification').get(id)?.data.status !== 'unread');
     const issue = pool.model('Issue').get(i.issueId)?.data;
     switch (i.kind) {
       case 'issue.create':
@@ -58,6 +59,10 @@ export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
       case 'board.move':
         // The column alone does not show the position asked for: always sent (a repeat changes nothing).
         return false;
+      case 'issue.project': {
+        const on = [...pool.model('ProjectIssue').by('issue_id', i.issueId)].map((p) => p.data);
+        return i.projectId ? on.length === 1 && on[0]?.project_id === i.projectId && (!i.columnId || on[0].column_id === i.columnId) : on.length === 0;
+      }
       case 'pr.viewed': {
         // The viewer's state saved for the intent's head only: a file viewed at an older head may have
         // changed since (and must be sent again), F7.

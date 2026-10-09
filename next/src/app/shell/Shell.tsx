@@ -6,11 +6,13 @@
 // the page, and the overlays: ⌘K palette, shortcuts help, sign-out warning).
 
 import {Outlet, useNavigate, useRouterState} from '@tanstack/react-router';
-import {runInAction} from 'mobx';
+import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {markOnce} from '../../sync/rum.ts';
-import {sitePath} from '../config.ts';
+import {classicHref} from '../classic.ts';
+import {sitePath, uiPath} from '../config.ts';
+import {classicOfLocation} from '../paths.ts';
 import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
@@ -82,6 +84,7 @@ function GlobalShortcuts({app}: {app: App}) {
       app.ui.shortcutsOpen = true;
     });
   });
+  useShortcut('go.home', () => void navigate({to: '/'}));
   useShortcut('go.inbox', () => void navigate({to: '/notifications'}));
   useShortcut('go.issues', () => void navigate({to: '/issues'}));
   useShortcut('go.pulls', () => void navigate({to: '/pulls'}));
@@ -93,11 +96,23 @@ function GlobalShortcuts({app}: {app: App}) {
     void navigate(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
   });
   useShortcut('sidebar.toggle', toggleSidebar);
-  // The drawer (narrow screens) closes when a page opens from it, and with Esc.
+  // The drawer (narrow screens) closes when a page opens from it, when it opens a dialog (new issue, the
+  // palette, the help, the unsynced changes: never under the drawer), and with Esc.
   const path = useRouterState({select: (st) => st.location.pathname});
+  const last = useRef(path);
   useEffect(() => {
     closeDrawer();
-  }, [path]);
+    if (last.current !== path) {
+      const from = last.current;
+      runInAction(() => {
+        app.ui.previousPath = from;
+      });
+      last.current = path;
+    }
+  }, [app, path]);
+  useEffect(() => reaction(() => app.ui.paletteOpen || Boolean(app.ui.create) || app.ui.shortcutsOpen || app.ui.unsyncedOpen || Boolean(app.ui.picker), (open) => {
+    if (open) closeDrawer();
+  }), [app]);
   useEffect(() => {
     // Capture, before the shortcut registry: Esc that closes the drawer does nothing else (an issue's "back").
     const onKey = (e: KeyboardEvent) => {
@@ -158,8 +173,16 @@ function AppShell({app}: {app: App}) {
 
 export function Shell() {
   const app = useApp();
-  if (!app.session) return <LoggedOut onSignIn={app.config.oauth ? () => {
-    signInHere(app);
-  } : undefined}/>;
+  const {pathname, searchStr} = useRouterState({select: (st) => ({pathname: st.location.pathname, searchStr: st.location.searchStr}), structuralSharing: true});
+  if (!app.session) {
+    // The classic page of this address (a public repository, an issue: readable without an account), and opting out.
+    const classic = classicOfLocation(pathname, searchStr);
+    return <LoggedOut appName={app.config.app_name} onSignIn={app.config.oauth ? () => {
+      signInHere(app);
+    } : undefined} classic={{
+      page: classicHref(app, classic),
+      optOut: `${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(sitePath(app.config, classic))}`,
+    }}/>;
+  }
   return <AppShell app={app}/>;
 }

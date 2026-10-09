@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {createContext, type ReactNode, type Ref, useContext, useId} from 'react';
+import {type ButtonHTMLAttributes, createContext, type ReactNode, type Ref, useContext, useId} from 'react';
 import {cx} from './cx.ts';
 import {Tooltip} from './Tooltip.tsx';
 
@@ -24,8 +24,9 @@ export function Property({label, children}: {label: string; children: ReactNode}
   );
 }
 
-export interface PropertyButtonProps {
-  onClick: () => void;
+export interface PropertyButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'style' | 'children' | 'onClick'> {
+  /** Opens the editor (optional when the button is a popover's trigger: the popover opens it). */
+  onClick?: (() => void) | undefined;
   /** What clicking does ("Change labels"): the tooltip, with the shortcut. The accessible name is the property's name and the value. */
   label: string;
   shortcut?: string | undefined;
@@ -34,8 +35,11 @@ export interface PropertyButtonProps {
   ref?: Ref<HTMLButtonElement>;
 }
 
-/** A property's value that opens its editor (a picker): full width, wraps its content (label chips). */
-export function PropertyButton({onClick, label, shortcut, disabled, children, ref}: PropertyButtonProps) {
+/**
+ * A property's value that opens its editor (a picker): full width, wraps its content (label chips). It can be
+ * the trigger of a popover or a menu (asChild): their props pass through.
+ */
+export function PropertyButton({onClick, label, shortcut, disabled, children, ref, ...rest}: PropertyButtonProps) {
   const name = useContext(NameContext);
   const id = useId();
   return (
@@ -47,6 +51,7 @@ export function PropertyButton({onClick, label, shortcut, disabled, children, re
         type="button"
         aria-haspopup="dialog"
         aria-labelledby={name ? `${name} ${id}` : undefined}
+        {...rest}
         disabled={disabled}
         onClick={onClick}
         className="interactive flex min-h-control w-full flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left text-base text-fg hover:bg-hover disabled:pointer-events-none disabled:opacity-disabled"

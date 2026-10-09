@@ -33,7 +33,10 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Icon, LabelIcon, ListGroupHeader, ListRow,
 } from '../../ui/index.ts';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
-import {AssigneesCell, LabelsCell, PendingCell, priorityIcon, PriorityCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar, usePool} from './cells.tsx';
+import {
+  AssigneesCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar,
+  usePool,
+} from './cells.tsx';
 import {issuePath, issuesOf} from './edits.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
@@ -304,7 +307,12 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
       }}
       leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
       // Labels give way first on a narrow list (the title keeps its room).
-      trailing={<><span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/></>}
+      trailing={<>
+        <PinCell issue={issue}/>
+        <PullStateCell issue={issue}/>
+        <span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span>
+        <DueCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/>
+      </>}
     >
       <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}

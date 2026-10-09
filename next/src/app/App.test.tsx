@@ -83,8 +83,12 @@ describe('boot', () => {
     shell.innerHTML = renderToStaticMarkup(<BootShell/>);
     const {container} = await renderApp(path, undefined, config(true));
     const panel = shell.querySelector('.logged-out\\:flex');
-    // The boot copy is hidden unless the splash says logged-out; otherwise identical.
-    expect(panel?.outerHTML.replace('hidden logged-out:flex', 'flex')).toBe(container.firstElementChild?.outerHTML);
+    // The boot copy is hidden unless the splash says logged-out; otherwise identical, but for the classic links'
+    // addresses (the app knows them): the first frame keeps their place, invisible.
+    const links = / invisible" aria-hidden="true"/;
+    expect(panel?.outerHTML).toMatch(links);
+    expect(panel?.outerHTML.replace('hidden logged-out:flex', 'flex').replace(links, '"'))
+      .toBe(container.firstElementChild?.outerHTML.replace(/<a href="[^"]*"/g, '<a'));
   });
 
   test('without OAuth2 on the server, signing in is unavailable (and says so)', async () => {
@@ -117,7 +121,9 @@ describe('signed in', () => {
     // The viewer first, then the organizations; repositories by name.
     expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['alice', 'acme']);
     const acme = within(sidebar).getByRole('group', {name: 'acme'});
-    expect(within(acme).getAllByRole('link').map((a) => a.textContent)).toEqual(['api', 'website']);
+    // The owner's name opens its page; its repositories follow.
+    expect(within(acme).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/acme', '/acme/api', '/acme/website']);
+    expect(within(sidebar).getByRole('link', {name: 'Home'}).getAttribute('aria-current')).toBe('page');
     expect(within(acme).getByRole('link', {name: 'website'}).getAttribute('href')).toBe('/acme/website');
     expect(screen.getByRole('heading', {name: 'Home'})).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('Live');
@@ -152,7 +158,7 @@ describe('signed in', () => {
     expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
     // The repository header: the owner and the repository are links, the tabs lead everywhere.
     const crumbs = screen.getByRole('navigation', {name: 'Breadcrumb'});
-    expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/-/next/acme');
+    expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/acme');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
     expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Overview', 'Issues', 'Pull requests', 'Code', 'Commits', 'Branches', 'Tags', 'Releases', 'Actions']);
     expect(within(tabs).getByRole('link', {name: 'Overview'}).getAttribute('aria-current')).toBe('page');
@@ -166,11 +172,11 @@ describe('signed in', () => {
   test('a collapsed owner stays collapsed (persisted)', async () => {
     const s = signedIn();
     const first = await renderApp('/', s);
-    fireEvent.click(screen.getByRole('button', {name: 'acme'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Fold acme'}));
     expect(screen.queryByRole('link', {name: 'website'})).toBeNull();
     first.unmount();
     await renderApp('/', s);
-    expect(screen.getByRole('button', {name: 'acme'}).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByRole('button', {name: 'Unfold acme'}).getAttribute('aria-expanded')).toBe('false');
   });
 
   test('G then I/P/N navigate; typing in a field does not', async () => {
@@ -220,11 +226,16 @@ describe('signed in', () => {
     key('k', {ctrlKey: true});
     const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
     const selected = () => document.querySelector('[cmdk-item][data-selected="true"]')?.textContent ?? '';
-    fireEvent.change(input, {target: {value: 'sign out'}});
+    // Never by default; typed out by name, Enter runs it (signing out still asks when changes are unsynced).
+    fireEvent.change(input, {target: {value: 'sign'}});
     await waitFor(() => {
       expect(screen.getByRole('option', {name: /Sign out/})).toBeTruthy();
     });
     expect(selected()).not.toContain('Sign out');
+    fireEvent.change(input, {target: {value: 'sign out'}});
+    await waitFor(() => {
+      expect(selected()).toContain('Sign out');
+    });
     fireEvent.change(input, {target: {value: 'dark theme'}});
     await waitFor(() => {
       expect(selected()).toContain('Switch to the dark theme');
@@ -339,11 +350,17 @@ describe('signed in', () => {
     expect(app.ui.signOut).toBeUndefined();
   });
 
-  test('? lists the shortcuts that work here', async () => {
+  test('? lists every shortcut, those of this page first, and closes with its button', async () => {
     await renderApp('/', signedIn());
     key('?', {shiftKey: true});
     const dialog = await screen.findByRole('dialog', {name: 'Keyboard shortcuts'});
     expect(within(dialog).getByText('Go to my issues')).toBeTruthy();
-    expect(within(dialog).queryByText('Next item')).toBeNull(); // no list on this page
+    expect(within(dialog).getByText('Go to Home')).toBeTruthy();
+    expect(within(dialog).getByText('Next item')).toBeTruthy(); // lists too, though no list is on this page
+    expect(within(dialog).getAllByRole('heading', {level: 3}).map((h) => h.textContent)[0]).toBe('General');
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Close'}));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', {name: 'Keyboard shortcuts'})).toBeNull();
+    });
   });
 });

@@ -157,12 +157,22 @@ export function scrub(root: DocumentFragment | Element): void {
   }
 }
 
-/** Parses server HTML inertly, scrubs it, and makes it the element's content. */
-export function setMarkup(el: Element, html: string): void {
+/** Server HTML parsed inertly into a template (the policy's one use: see the header). */
+function inert(html: string): HTMLTemplateElement {
   const tpl = document.createElement('template');
   const p = getPolicy();
-  // The policy's one use: an inert template (see the header).
   (tpl as {innerHTML: unknown}).innerHTML = p ? p.createHTML(html) : html;
+  return tpl;
+}
+
+/** Parses server HTML inertly, scrubs it, and makes it the element's content. */
+export function setMarkup(el: Element, html: string): void {
+  const tpl = inert(html);
   scrub(tpl.content);
   el.replaceChildren(tpl.content);
+}
+
+/** The text of server HTML (a rendered commit message's words, never its markup), parsed inertly. */
+export function textOfMarkup(html: string): string {
+  return inert(html).content.textContent;
 }

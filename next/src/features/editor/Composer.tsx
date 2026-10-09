@@ -17,9 +17,12 @@ import {connectivity} from '../../app/online.ts';
 import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
 import type {APIMarkdownRequest, APIMarkdownResponse} from '../../protocol/types.gen.ts';
+import {whenIdle} from '../../app/lazy.tsx';
 import {Button, ProseSource, SkeletonText, TextArea} from '../../ui/index.ts';
 import {Markdown} from '../issue/Markdown.tsx';
-import type {MarkdownEditorHandle, MarkdownEditorProps} from './MarkdownEditor.tsx';
+import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
+import {untracked} from 'mobx';
+import {loadPeople, repoPeople} from '../issues/people.ts';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
 let Loaded: Editor | undefined;
@@ -97,6 +100,33 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   focusShortcut?: ShortcutId | undefined;
 }
 
+/** Suggestions per trigger at most. */
+const SUGGESTIONS = 8;
+
+/**
+ * What "@" and "#" suggest in a repository's text: its people (the pool's, then API v1's assignees) by login or
+ * name, and its issues and pull requests by number or title, most recently updated first.
+ */
+function useSuggestions(repoId: number): (trigger: '@' | '#', query: string) => Suggestion[] {
+  const app = useApp();
+  useEffect(() => {
+    if (repoId > 0) loadPeople(app, repoId);
+  }, [app, repoId]);
+  return (trigger, query) => untracked(() => {
+    const s = app.session;
+    if (!s || repoId <= 0) return [];
+    const q = query.toLowerCase();
+    if (trigger === '@') {
+      return repoPeople(s.data.pool, repoId, s.userId).filter((p) => p.login.toLowerCase().startsWith(q) || p.name.toLowerCase().includes(q))
+        .slice(0, SUGGESTIONS).map((p) => ({label: p.login, detail: p.name === p.login ? undefined : p.name}));
+    }
+    return [...s.data.pool.model('Issue').by('repo_id', repoId)].map((e) => e.data)
+      .filter((i) => !q || String(i.number).startsWith(q) || i.title.toLowerCase().includes(q))
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, SUGGESTIONS)
+      .map((i) => ({label: String(i.number), detail: i.title}));
+  });
+}
+
 /** Binds a shortcut to focusing a field while mounted. */
 function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
   useShortcut(id, focus);
@@ -105,15 +135,23 @@ function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
 
 export const MarkdownField = observer(function MarkdownField({repoId, focusShortcut, ...props}: MarkdownFieldProps) {
   const [preview, setPreview] = useState(false);
-  const [ready, setReady] = useState(Boolean(Loaded));
+  // The text area stands in until the editor's code is here and the page is idle (creating an editor costs a
+  // frame or more on a slow device: not while the page opens), or at once when the field is wanted.
+  const [ready, setReady] = useState(() => Boolean(Loaded) && props.autoFocus === true);
   const editor = useRef<MarkdownEditorHandle>(null);
   const area = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (ready) return;
+    if (ready) return undefined;
+    let live = true;
     void preloadEditor().then(() => {
-      setReady(true);
+      whenIdle(() => {
+        if (live) setReady(true);
+      });
     }, () => undefined);
+    return () => {
+      live = false;
+    };
   }, [ready]);
   // The text area stood in and had the focus: the editor takes it over.
   const hadFocus = useRef(false);
@@ -135,7 +173,8 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
     }
   };
   const hint = shortcutHint('editor.preview');
-  const Editor = Loaded;
+  const complete = useSuggestions(repoId);
+  const Editor = ready ? Loaded : undefined;
   return (
     <div className="flex flex-col gap-1.5" onKeyDown={onKeyDown}>
       {focusShortcut && <FocusOn id={focusShortcut} focus={() => {
@@ -145,23 +184,15 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
           else area.current?.focus();
         });
       }}/>}
-      <div className="flex items-center gap-1" role="group" aria-label="Editor mode">
-        <Button size="sm" pressed={!preview} shortcut={hint} tooltip="Write" onClick={() => {
-          setPreview(false);
-          requestAnimationFrame(() => editor.current?.focus());
-        }}>Write</Button>
-        <Button size="sm" pressed={preview} shortcut={hint} tooltip="Preview as Forgejo renders it" onClick={() => {
-          setPreview(true);
-        }}>Preview</Button>
-      </div>
       {preview ?
-        <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region"><Preview repoId={repoId} text={props.value}/></div> :
+        <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region"><MarkdownPreview repoId={repoId} text={props.value}/></div> :
         Editor ?
-          <Editor {...props} ref={editor} autoFocus={props.autoFocus === true || hadFocus.current}/> :
+          <Editor {...props} ref={editor} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
           <TextArea ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
             value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} invalid={props.invalid}
             onFocus={() => {
               hadFocus.current = true;
+              if (Loaded) setReady(true);
             }}
             onChange={(e) => {
               props.onChange(e.target.value);
@@ -175,11 +206,25 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
                 props.onCancel();
               }
             }}/>}
+      {/* Under the text (Tab from a title goes into the text, never to these first). */}
+      <div className="flex items-center gap-1" role="group" aria-label="Editor mode">
+        <Button size="sm" pressed={!preview} shortcut={hint} tooltip="Write" onClick={() => {
+          setPreview(false);
+          requestAnimationFrame(() => editor.current?.focus());
+        }}>Write</Button>
+        <Button size="sm" pressed={preview} shortcut={hint} tooltip="Preview as Forgejo renders it" onClick={() => {
+          setPreview(true);
+        }}>Preview</Button>
+      </div>
     </div>
   );
 });
 
-const Preview = observer(function Preview({repoId, text}: {repoId: number; text: string}) {
+/**
+ * Markdown as Forgejo renders it (in a repository's context): the server's rendering online (batched, cached), the
+ * text as written offline. The editor's Preview, and drafts shown before they are posted.
+ */
+export const MarkdownPreview = observer(function MarkdownPreview({repoId, text}: {repoId: number; text: string}) {
   const app = useApp();
   const [state, setState] = useState<{text: string; html?: string; error?: string}>({text: ''});
   const offline = !connectivity.online;

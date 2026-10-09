@@ -11,7 +11,7 @@ import {resumeWipes, signOut} from '../auth/signout.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {openData} from '../sync/data.ts';
 import {sitePath, uiPath} from './config.ts';
-import {classicPathOf} from './paths.ts';
+import {classicOfLocation} from './paths.ts';
 import {hasUser, readSplash} from './splash.ts';
 import type {App, Session} from './store.ts';
 
@@ -86,14 +86,15 @@ export async function requestSignOut(app: App): Promise<void> {
 }
 
 /**
- * The classic page of a route (site path): a canonical route is its own, a page below the base maps back to
- * the classic shape (a code view to the same path, a board to its repository's or owner's projects).
+ * The classic page of a route (site path and query): a canonical route is its own (filters kept), a page below
+ * the base maps back to the classic shape (a code view to the same path, a board to its repository's or owner's
+ * projects).
  */
-export function classicOfHere(app: App, path: string): string {
+export function classicOfHere(app: App, path: string, search = ''): string {
   const s = app.session;
-  if (!s) return classicPathOf(path);
+  if (!s) return classicOfLocation(path, search);
   const pool = s.data.pool;
-  return classicPathOf(path, {
+  return classicOfLocation(path, search, {
     login: pool.model('User').get(s.userId)?.get('login'),
     board: (id) => {
       const p = pool.model('Project').get(id);
@@ -111,8 +112,7 @@ export function classicOfHere(app: App, path: string): string {
 export function switchToClassic(app: App): void {
   const sub = app.config.app_sub_url;
   const site = location.pathname.startsWith(`${sub}/`) || location.pathname === sub ? location.pathname.slice(sub.length) || '/' : '/';
-  const mapped = classicOfHere(app, site);
-  const back = sitePath(app.config, mapped === site ? `${site}${location.search}` : mapped);
+  const back = sitePath(app.config, classicOfHere(app, site, location.search));
   const go = () => {
     location.assign(`${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(back)}`);
   };

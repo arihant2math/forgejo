@@ -19,14 +19,16 @@
 // URL — the same pattern in spaRoutes (backend) so a reload serves the UI.
 
 import {
-  createRootRouteWithContext, createRoute, createRouter, Outlet, parseSearchWith, redirect, type RouterHistory, stringifySearchWith,
+  createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type RouterHistory, stringifySearchWith,
 } from '@tanstack/react-router';
 import {isLocalPath, sitePath} from './config.ts';
-import {nextPathOf} from './paths.ts';
+import {appPageOf, nextPathOf} from './paths.ts';
 import {lazyView} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
 import {loadRepo, type RepoMatch} from './repo.ts';
-import {type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch, type PullSearch, pullSearch} from './search.ts';
+import {
+  type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch, parsePlainSearch, type PullSearch, pullSearch,
+} from './search.ts';
 import {PAGE_SCROLLER} from './shell/Frame.tsx';
 import {Shell} from './shell/Shell.tsx';
 import {readSplash, type SkeletonShape} from './splash.ts';
@@ -66,18 +68,20 @@ const shellRoute = createRoute({
 });
 
 /**
- * The base URL resumes the last route (splash), or the dashboard. Written
- * without the trailing slash (it matches "/-/next/" too): B8 rewrites every
- * string literal that is exactly the base under a sub-path, which would turn
- * a router path into a site path.
+ * The base URL resumes the last route (splash), or the dashboard. `?to=` names a classic address (the classic
+ * pages' "Back to Forgejo Next"): the app's page for it (nextPathOf), else Home — never an unrelated page resumed.
+ * Written without the trailing slash (it matches "/-/next/" too): B8 rewrites every string literal that is
+ * exactly the base under a sub-path, which would turn a router path into a site path.
  */
 const baseRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next',
-  beforeLoad: ({context: {app}}) => {
+  beforeLoad: ({context: {app}, search}) => {
     if (!app.session) return;
+    const to = (search as Record<string, unknown>).to;
     const last = readSplash().route;
-    const href = last && isLocalPath(app.config, last) && last !== app.config.base ? last : sitePath(app.config, '/');
+    const href = typeof to === 'string' ? sitePath(app.config, appPageOf(to)) :
+      last && isLocalPath(app.config, last) && last !== app.config.base ? last : sitePath(app.config, '/');
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
     throw redirect({href, replace: true});
   },
@@ -186,13 +190,25 @@ const codeRoute = createRoute({
   component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
 });
 
-// An owner (user or organization): its repositories here, its profile in the classic UI. Below the base like
-// the code views (`/-/next/{owner}` mirrors `/{owner}`, which stays the classic profile).
+// An owner (user or organization): its repositories here, its profile in the classic UI (`/{owner}?tab=…` and
+// `?ui=classic` are served the classic page: spa.go). A name Forgejo reserves (`/explore`) is no owner (the
+// page says not found).
 const ownerRoute = createRoute({
   getParentRoute: () => shellRoute,
-  path: '/-/next/$owner',
+  path: '/$owner',
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/owner/OwnerPage.tsx'), 'OwnerPage'),
+});
+
+/** The owner page's former address below the base. */
+const nextOwnerRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/$owner',
+  beforeLoad: ({context: {app}, params, search}) => {
+    const q = new URLSearchParams(search).toString();
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
+    throw redirect({href: sitePath(app.config, `/${encodeURIComponent(params.owner)}${q ? `?${q}` : ''}`), replace: true});
+  },
 });
 
 /** A repository's address below the base (`/-/next/{owner}/{repo}[/…]`) is its canonical page. */
@@ -230,7 +246,7 @@ const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute,
     repoHomeRoute, repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, boardsRoute, boardRoute, codeRoute,
-    ownerRoute, nextRepoRoute, notFoundRoute,
+    ownerRoute, nextOwnerRoute, nextRepoRoute, notFoundRoute,
   ]),
   ...devRoutes,
 ]);
@@ -249,13 +265,13 @@ export function createAppRouter(app: App, history?: RouterHistory) {
     defaultPendingMs: 1000,
     defaultErrorComponent: RouteError,
     defaultNotFoundComponent: RouteNotFound,
-    // Plain query strings, as the classic UI writes them (`?labels=11,-3&milestone=4`): values stay strings (the
-    // routes' validators parse them), never JSON-quoted (`labels=%2211%22`).
     // Back to a list comes back to where it was scrolled (the page's scroll container: PageBody); a new page
     // starts at the top.
     scrollRestoration: true,
     scrollToTopSelectors: [PAGE_SCROLLER],
-    parseSearch: parseSearchWith((v) => v),
+    // Plain query strings, as the classic UI writes them (`?labels=11,-3&milestone=4`): values stay strings (the
+    // routes' validators parse them; `?q=8` is the text "8"), never JSON-quoted (`labels=%2211%22`).
+    parseSearch: parsePlainSearch,
     stringifySearch: stringifySearchWith(JSON.stringify),
     ...(history ? {history} : {}),
   });

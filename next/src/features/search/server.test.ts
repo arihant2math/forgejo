@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from 'vitest';
-import {parseServerHits} from './server.ts';
+import {parseServerHits, relevantHits} from './server.ts';
 
 test('parseServerHits keeps well-formed issues only', () => {
   expect(parseServerHits([
@@ -15,4 +15,16 @@ test('parseServerHits keeps well-formed issues only', () => {
     {id: 6, number: 3, title: 'B', state: 'open', pull: true, owner: 'acme', repo: 'web', fullName: 'acme/web'},
   ]);
   expect(parseServerHits({message: 'nope'})).toEqual([]);
+});
+
+test('server hits are kept only when the query is in their title or description', () => {
+  const repository = {owner: 'acme', name: 'web', full_name: 'acme/web'};
+  const list = [
+    {id: 1, number: 1, title: 'Atlas 1.0 release', body: '', repository},
+    {id: 2, number: 2, title: 'Health check path', body: 'Needed before 1.0 of atlas.', repository},
+    {id: 3, number: 3, title: 'CrashLoopBackOff', body: 'nothing related', repository},
+    {id: 4, number: 4, title: '東京 tiles', body: null, repository},
+  ];
+  expect(relevantHits(list, 'atlas 1.0').map((h) => h.id)).toEqual([1, 2]);
+  expect(relevantHits(list, '東京').map((h) => h.id)).toEqual([4]);
 });

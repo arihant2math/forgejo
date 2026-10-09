@@ -9,7 +9,8 @@
 // highlighting arriving re-renders that file's rows only, a scroll frame
 // mounts the rows coming into view. A floating header names the file in
 // view; `[` and `]` jump between files; ↑/↓ move a line cursor (Enter
-// comments on it). Rows share the longest line's width (they scroll
+// comments on it). A hunk's header expands the unchanged lines above it
+// (from the new file at the head, asked once). Rows share the longest line's width (they scroll
 // sideways together); headers and threads stay pinned to the view's left.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
@@ -20,7 +21,7 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {CodeFileHeader, CodeLine, CodeTokens, DiffStat, EmptyState, IconButton, LineAction, LineNo} from '../../ui/index.ts';
+import {Button, CodeFileHeader, CodeLine, CodeTokens, DiffStat, EmptyState, IconButton, LineAction, LineNo} from '../../ui/index.ts';
 import {useSource} from './hooks.ts';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
 
@@ -88,8 +89,41 @@ function useHighlights(repoId: number, base: string, head: string, count: number
   return {hl, want};
 }
 
+/** Unchanged lines one "expand" reveals above a hunk. */
+const EXPAND_STEP = 40;
+
+/** Hidden lines between hunks, expanded from the new file's content (asked once per file, cached by commit). */
+function useExpansion(repoId: number, head: string, files: readonly DiffFile[]) {
+  const src = useSource();
+  const [content, setContent] = useState<ReadonlyMap<number, readonly string[]>>(() => new Map());
+  const [revealed, setRevealed] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [failed, setFailed] = useState<ReadonlySet<number>>(() => new Set());
+  const expand = useCallback((f: number, h: number, all: boolean) => {
+    const key = `${String(f)}:${String(h)}`;
+    const more = () => {
+      setRevealed((m) => new Map(m).set(key, all ? Number.MAX_SAFE_INTEGER : (m.get(key) ?? 0) + EXPAND_STEP));
+    };
+    const file = files[f];
+    if (content.has(f) || !file) {
+      more();
+      return;
+    }
+    src.raw(repoId, head, file.newPath).then((c) => {
+      if (c.kind !== 'text') throw new Error('not text');
+      setContent((m) => new Map(m).set(f, c.text.split('\n')));
+      more();
+    }, () => {
+      setFailed((x) => new Set(x).add(f));
+    });
+  }, [src, repoId, head, files, content]);
+  return {content, revealed, failed, expand};
+}
+
 export const DiffView = observer(function DiffView({repoId, base, head, files, scroller, extras, onFile, ref}: DiffViewProps) {
-  const {rows, fileRow} = useMemo(() => diffRows(files, extras ? {threads: extras.threads, notes: extras.notes, collapsed: extras.collapsed} : {}), [files, extras]);
+  const {content, revealed, failed, expand} = useExpansion(repoId, head, files);
+  const {rows, fileRow} = useMemo(() => diffRows(files, {
+    ...(extras ? {threads: extras.threads, notes: extras.notes, collapsed: extras.collapsed} : {}), content, revealed,
+  }), [files, extras, content, revealed]);
   const [place, margin] = useScrollMargin(scroller);
   useViewSize(scroller);
   // Stable per row list: the virtualizer recomputes every row's position (O(rows)) whenever these change.
@@ -199,7 +233,8 @@ export const DiffView = observer(function DiffView({repoId, base, head, files, s
           return (
             <div key={it.key} role="listitem" data-index={it.index} ref={measured ? v.measureElement : undefined}
               className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
-              <RowView row={row} id={`${listId}-${String(it.index)}`} active={it.index === cursor} file={files[row.f]} hl={hl[row.f]} extras={extras}/>
+              <RowView row={row} id={`${listId}-${String(it.index)}`} active={it.index === cursor} file={files[row.f]} hl={hl[row.f]} extras={extras}
+                onExpand={failed.has(row.f) ? undefined : expand}/>
             </div>
           );
         })}
@@ -217,12 +252,17 @@ function rowKey(r: Row | undefined): string {
       return `${r.t}${String(r.f)}`;
     case 'hunk':
       return `h${String(r.f)}:${String(r.h)}`;
+    case 'extra':
+      return `x${String(r.f)}:${String(r.n)}`;
     case 'line': case 'thread':
       return `${r.t}${String(r.f)}:${String(r.l)}`;
   }
 }
 
-const RowView = memo(function RowView({row, id, active, file, hl, extras}: {row: Row; id: string; active: boolean; file: DiffFile | undefined; hl: Highlight | null | undefined; extras: DiffExtras | undefined}) {
+const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpand}: {
+  row: Row; id: string; active: boolean; file: DiffFile | undefined; hl: Highlight | null | undefined; extras: DiffExtras | undefined;
+  onExpand: ((f: number, h: number, all: boolean) => void) | undefined;
+}) {
   if (!file) return null;
   switch (row.t) {
     case 'file':
@@ -234,12 +274,28 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras}: {row:
     case 'hunk': {
       const h = file.hunks[row.h];
       if (!h) return null;
+      // Hidden unchanged lines above it (not for a deleted file: there is no new file to read them from).
+      const expandable = row.hidden > 0 && onExpand && file.status !== 'deleted' && !file.binary;
       return (
-        <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}>
+        <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}
+          trailing={expandable && (
+            <span className="sticky right-0 flex items-center gap-1 pr-2 font-sans">
+              <ExpandButton label={`Show ${String(Math.min(row.hidden, EXPAND_STEP))} more unchanged lines`} onClick={() => {
+                onExpand(row.f, row.h, false);
+              }}>{row.hidden > EXPAND_STEP ? `Expand ${String(EXPAND_STEP)}` : 'Expand'}</ExpandButton>
+              {row.hidden > EXPAND_STEP && <ExpandButton label={`Show all ${String(row.hidden)} unchanged lines`} onClick={() => {
+                onExpand(row.f, row.h, true);
+              }}>{`All ${String(row.hidden)}`}</ExpandButton>}
+            </span>
+          )}>
           {`@@ -${String(h.oldStart)},${String(h.oldLines)} +${String(h.newStart)},${String(h.newLines)} @@${h.section ? ` ${h.section}` : ''}`}
         </CodeLine>
       );
     }
+    case 'extra':
+      return (
+        <CodeLine gutter={<><LineNo n={row.o}/><LineNo n={row.n}/><span className="inline-block w-3"/></>}>{row.text}</CodeLine>
+      );
     case 'line': {
       const l = file.lines[row.l];
       if (!l) return null;
@@ -260,6 +316,11 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras}: {row:
       return <div className="sticky left-0 w-view font-sans">{extras?.thread(row.f, row.l)}</div>;
   }
 });
+
+/** A hunk header's expand action (mouse and keyboard: a real button, in the header's own row). */
+function ExpandButton({label, onClick, children}: {label: string; onClick: () => void; children: string}) {
+  return <Button size="sm" variant="ghost" tooltip={label} aria-label={label} onClick={onClick}>{children}</Button>;
+}
 
 function emptyReason(f: DiffFile): string {
   if (f.binary) return 'Binary file not shown.';

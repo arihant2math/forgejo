@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Files shown rendered (a README under a directory, a markdown file's
-// "Preview", an SVG as an image): markup is rendered by Forgejo (API v1
-// /markup, cached by blob SHA, so it is there offline once seen) and put in
+// "Preview", an SVG as an image): markup is rendered by Forgejo (B9
+// /-/sync/api/markup, as its file page does: links resolve from the file's directory;
+// cached by blob SHA, so it is there offline once seen) and put in
 // through the Trusted Types gate; an SVG is shown as an image (an <img> from
 // a blob: URL runs no script).
 
@@ -33,7 +34,7 @@ export function readmeOf<T extends {name: string; type: string}>(entries: readon
 
 export function RenderedMarkup({repoId, sha, path, text, at}: {repoId: number; sha: string; path: string; text: string; at: {kind: RefKind; ref: string}}) {
   const src = useSource();
-  const key = `md:${String(repoId)}:${sha}:${at.kind}:${at.ref}:${path}`;
+  const key = `md2:${String(repoId)}:${sha}:${at.kind}:${at.ref}:${path}`;
   const html = useLoad(key, () => src.peek<string>(key), () => src.rendered(repoId, sha, path, text, {kind: at.kind, name: at.ref}));
   if (html.state !== 'ready') return <Unloaded loaded={html} what="This file's preview" skeleton={<SkeletonText lines={4}/>}/>;
   return <Markdown html={html.value}/>;

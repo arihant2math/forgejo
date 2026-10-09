@@ -10,20 +10,23 @@
 
 import {
   Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
-  createLucideIcon, GitPullRequestClosed, OctagonAlert, SignalMedium, SignalZero,
+  CalendarClock, createLucideIcon, GitPullRequestClosed, OctagonAlert, Pin, SignalMedium, SignalZero,
 } from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
+import type {ListCursor} from './flags.ts';
 import {useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
-import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState, issueTitle} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, PendingIcon, TextLink} from '../../ui/index.ts';
+import {Avatar, AvatarGroup, Badge, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, PendingIcon, TextLink} from '../../ui/index.ts';
 import {Link} from '@tanstack/react-router';
-import {ago, fullDate} from './format.ts';
+import {ago, fullDate, shortDate} from './format.ts';
+import {poolHead} from '../../code/pull.ts';
+import {checksOf} from '../pull/checks.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
 
 export function usePool(): Pool {
@@ -154,7 +157,8 @@ export const StateIcon = observer(function StateIcon({issue}: {issue: Entity<'Is
 export const StatusCell = observer(function StatusCell({issue}: {issue: Entity<'Issue'>}) {
   const {status} = useLabelView(issue);
   const open = issueState(useOverlay(), issue) === 'open';
-  if (!status || (!open && !terminal(status.name))) return <StateIcon issue={issue}/>;
+  // A pull request always reads as one (open, draft, merged, closed): its review and checks say where it is.
+  if (!status || issue.get('is_pull') || (!open && !terminal(status.name))) return <StateIcon issue={issue}/>;
   return (
     <Hint label={scopedValue(status.name)}><LabelIcon icon={statusIcon(status.name)} color={status.color}/></Hint>
   );
@@ -198,7 +202,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
   if (!id || !u.login) return <span className="font-medium text-fg">{id ? u.name : fallback}</span>;
-  return <span className="font-medium"><TextLink wrap><Link to="/-/next/$owner" params={{owner: u.login}}>{u.name}</Link></TextLink></span>;
+  return <span className="font-medium"><TextLink wrap><Link to="/$owner" params={{owner: u.login}}>{u.name}</Link></TextLink></span>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm'}: {id: number; size?: 'sm' | 'md' | 'lg'}) {
@@ -224,10 +228,81 @@ export const MilestoneName = observer(function MilestoneName({issue}: {issue: En
   return title ? <span className="truncate">{title}</span> : null;
 });
 
+/** The due date in a row ("Oct 1"), in the danger tone when it has passed and the issue is open; nothing without one. */
+export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'>}) {
+  const overlay = useOverlay();
+  const due = issueDeadline(overlay, issue);
+  if (!due) return null;
+  const late = issueState(overlay, issue) === 'open' && Date.parse(due) < Date.now();
+  return (
+    <span title={`Due ${fullDate(due)}${late ? ' (overdue)' : ''}`} className={late ? 'flex items-center gap-1 whitespace-nowrap text-danger' : 'flex items-center gap-1 whitespace-nowrap'}>
+      <Icon icon={CalendarClock} size="sm"/>{shortDate(due)}
+    </span>
+  );
+});
+
+/** Forgejo's default work-in-progress title prefixes (setting.Repository.PullRequest.WorkInProgressPrefixes). */
+const WIP = /^\s*(?:WIP:|\[WIP\])/i;
+
+/** Whether a pull request is a draft (its title starts with a work-in-progress prefix, as Forgejo decides). */
+export function isDraft(title: string): boolean {
+  return WIP.test(title);
+}
+
+const CHECK_ICON = {success: CircleCheck, failure: CircleX, pending: CircleDotDashed} as const;
+const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-warning'} as const;
+const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending: 'Checks running'} as const;
+
+/**
+ * A pull request's state in a row: draft, its checks at the head (as the merge box sums them), and the reviews'
+ * verdict (changes requested wins over approved; each reviewer's latest review counts). Nothing for an issue.
+ */
+export const PullStateCell = observer(function PullStateCell({issue}: {issue: Entity<'Issue'>}) {
+  const pool = usePool();
+  const overlay = useOverlay();
+  if (!issue.get('is_pull')) return null;
+  const draft = isDraft(issueTitle(overlay, issue));
+  const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0]?.data;
+  const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
+  const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';
+  const latest = new Map<number, string>();
+  for (const r of [...pool.model('Review').by('issue_id', issue.id)].map((e) => e.data).sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    if (!r.reviewer_id || r.dismissed || (r.state !== 'APPROVED' && r.state !== 'REQUEST_CHANGES')) continue;
+    latest.set(r.reviewer_id, r.state);
+  }
+  const verdicts = [...latest.values()];
+  const review = verdicts.includes('REQUEST_CHANGES') ? 'changes' : verdicts.includes('APPROVED') ? 'approved' : undefined;
+  return (
+    <>
+      {draft && <Badge>Draft</Badge>}
+      {review === 'changes' && <Badge tone="danger">Changes requested</Badge>}
+      {review === 'approved' && <Badge tone="success">Approved</Badge>}
+      {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}><Icon icon={CHECK_ICON[checks]} size="sm" className={CHECK_TONE[checks]}/></Hint>}
+    </>
+  );
+});
+
+/** A pinned issue's mark in a row (pinned to its repository's list). */
+export const PinCell = observer(function PinCell({issue}: {issue: Entity<'Issue'>}) {
+  return issuePinned(useOverlay(), issue) ? <Hint label="Pinned"><Icon icon={Pin} size="sm"/></Hint> : null;
+});
+
 /** When the issue was last updated, compact ("3d"), with the full date on hover. */
 export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity<'Issue'>}) {
   return <AgoCell at={issue.get('updated_at')} label="Updated"/>;
 });
+
+/**
+ * An issue's reference in a row's trailing slot ("acme/atlas#12"); on a phone the number only, so the title
+ * keeps its room.
+ */
+export function RefCell({repo, number}: {repo: string; number: number | undefined}) {
+  return (
+    <span className="truncate tabular-nums">
+      {repo && <span className="max-md:hidden">{repo}</span>}{number === undefined ? '' : `#${String(number)}`}
+    </span>
+  );
+}
 
 /** A compact time in a row's trailing slot ("3d"), the full date on hover. */
 export function AgoCell({at, label}: {at: string; label?: string}) {
@@ -246,6 +321,12 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   const n = editing(useApp()).intents.pendingOn(issueId);
   if (!n) return null;
   return <PendingIcon label={`${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`}/>;
+});
+
+/** How many rows of a list are selected (X), with the way out; nothing without a selection (lists, the inbox). */
+export const SelectionCount = observer(function SelectionCount({cursor}: {cursor: ListCursor}) {
+  const n = cursor.selected.size;
+  return n > 0 ? <Badge tone="accent">{n} selected · Esc clears</Badge> : null;
 });
 
 /** The first non-empty string. */

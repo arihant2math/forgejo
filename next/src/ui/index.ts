@@ -39,5 +39,5 @@ export {SectionHeading} from './SectionHeading.tsx';
 export {Status, StatusDot, type StatusTone} from './StatusDot.tsx';
 export {Code, TextLink} from './Text.tsx';
 export {Tooltip, TooltipProvider} from './Tooltip.tsx';
-export {BoardCard, BoardColumn, DropIndicator} from './Board.tsx';
+export {BoardCard, BoardColumn, BoardColumnDraft, DropIndicator} from './Board.tsx';
 export {PromptDialog} from './PromptDialog.tsx';

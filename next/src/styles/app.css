@@ -147,6 +147,11 @@
   }
 }
 
+/* A row that scrolls sideways by touch or trackpad without a scrollbar (a phone's header controls). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+}
+
 /* Focus ring inside the element, for full-width rows where an outside ring is clipped. */
 @utility focus-inset {
   outline-offset: var(--focus-ring-inset);

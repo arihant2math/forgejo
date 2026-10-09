@@ -6,10 +6,11 @@
 // API v1 by full SHA (cached: a page seen once is there offline); the diff
 // from B9 (cached, parsed and highlighted in the worker).
 
-import {GitCommitHorizontal, History} from 'lucide-react';
+import {Link} from '@tanstack/react-router';
+import {FileCode, GitCommitHorizontal, History} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
-import {type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
+import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
 import {Avatar, Button, Code, EmptyState, Icon, TextLink} from '../../ui/index.ts';
@@ -21,13 +22,19 @@ import {Ago, commitRow, Sha, summary} from './bits.tsx';
 import {CodeLink, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
+import {Breadcrumbs, RefMenu} from './Src.tsx';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
   const r = resolveRef(refTable(pool, props.repoId), props.kind, props.rest);
-  const title = r ? <>History of <span className="font-mono">{r.path || (r.kind === 'commit' ? shortSha(r.sha) : r.ref)}</span></> : 'History';
+  // The path's breadcrumb (each directory's history; the path itself opens its source), the ref switcher.
+  const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'History';
+  const controls = r && <>
+    <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
+    <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><Icon icon={FileCode} size="sm"/>Browse</CodeLink></Button>
+  </>;
   return (
-    <CodeFrame view={props} title={title}>
+    <CodeFrame view={props} title={title} controls={controls}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
         <EmptyState icon={History} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
@@ -108,7 +115,9 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   const diff = useDiff(repoId, '', sha);
   const c = info.state === 'ready' ? info.value : undefined;
   return (
-    <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)}>
+    <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={
+      <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`src/commit/${sha}`}><Icon icon={FileCode} size="sm"/>Browse files</CodeLink></Button>
+    }>
       {(scroller) => (
         <>
           <header className="flex flex-col gap-2 border-b border-border px-6 py-4">
@@ -123,13 +132,25 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   );
 });
 
+/** A commit message's text with its issue references ("#12", "Fixes #3") as links to the repository's issues. */
+function MessageText({owner, repo, text}: {owner: string; repo: string; text: string}) {
+  const parts = text.split(/(?<![\w/])(#\d{1,9})\b/);
+  return (
+    <>
+      {parts.map((p, i) => (i % 2 === 1 ?
+        <TextLink key={i}><Link to="/$owner/$repo/issues/$index" params={{owner, repo, index: p.slice(1)}}>{p}</Link></TextLink> :
+        p))}
+    </>
+  );
+}
+
 function CommitMeta({owner, repo, c}: {owner: string; repo: string; c: CommitInfo}): ReactNode {
   const body = c.message.slice(summary(c.message).length).trim();
   return (
     <>
-      {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted">{body}</pre>}
+      {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted"><MessageText owner={owner} repo={repo} text={body}/></pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
-        <span className="flex items-center gap-1.5"><Avatar name={c.authorName} size="sm"/><span className="text-fg">{c.authorName}</span></span>
+        <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-fg">{c.authorName}</span></span>
         <Ago at={c.date}/>
         <span className="flex items-center gap-1"><Icon icon={GitCommitHorizontal} size="sm"/><Code>{c.sha}</Code></span>
         {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}

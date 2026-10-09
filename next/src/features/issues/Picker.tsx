@@ -22,7 +22,7 @@ import {
 import {priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
 import {loadPeople, repoPeople} from './people.ts';
-import {changeState} from './actions.ts';
+import {changeState, reopen, setWorkflowStatus} from './actions.ts';
 import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
 
@@ -123,7 +123,7 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     options.push(
       {key: 'open', label: 'Open', checked: state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, run: done(() => {
-        changeState(app, issues, 'open');
+        reopen(app, issues);
       })},
       {key: 'closed', label: 'Closed', checked: closed, leading: <StateGlyph look={stateLook('closed', pull, false)}/>, run: done(() => {
         changeState(app, issues, 'closed');
@@ -131,7 +131,10 @@ const PickerBody = observer(function PickerBody({app, kind, issueIds}: {app: App
     );
     if (repoId !== undefined) {
       const statuses = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status').sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
-      for (const l of statuses) options.push(labelOption(l, statusIcon(l.name), false));
+      // A status is Linear's: done and canceled close the issue, the others reopen it.
+      for (const l of statuses) options.push({...labelOption(l, statusIcon(l.name), false), run: done(() => {
+        setWorkflowStatus(app, issues, l);
+      })});
     }
   } else if (kind === 'priority' && repoId !== undefined) {
     const priorities = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'priority').sort((a, b) => kindRank('priority', a.name) - kindRank('priority', b.name));

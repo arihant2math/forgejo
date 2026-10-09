@@ -22,13 +22,14 @@ test('a code block keeps its language (for highlighting), not its classes', () =
   expect(code?.hasAttribute('class')).toBe(false);
 });
 
-test('rendered links to pages the app renders point at the app (an @mention opens the person here)', () => {
+test('rendered links to pages the app renders point at the app', () => {
   const root = document.createElement('div');
   const o = location.origin;
   root.innerHTML = `<a class="mention" href="${o}/alice">@alice</a> <a href="/acme/site/issues/3">#3</a> <a href="/acme/site/pulls/4/files">files</a>` +
     ' <a href="/acme/site/wiki/Home">wiki</a> <a href="https://example.com/x">out</a> <a href="/alice" target="_blank">tab</a>';
   appLinks(root, '');
   expect([...root.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-    '/-/next/alice', '/acme/site/issues/3', '/acme/site/pulls/4?tab=files', '/acme/site/wiki/Home', 'https://example.com/x', '/alice',
+    // A profile is a canonical route (the app's owner page): the link stays as Forgejo wrote it.
+    `${o}/alice`, '/acme/site/issues/3', '/acme/site/pulls/4?tab=files', '/acme/site/wiki/Home', 'https://example.com/x', '/alice',
   ]);
 });

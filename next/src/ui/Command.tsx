@@ -38,7 +38,7 @@ export function CommandDialog({open, onOpenChange, label, bare = false, children
         <D.Overlay className={overlay}>
           <D.Content {...focus} aria-describedby={undefined} className={cx(dialogPanel, 'max-w-md overflow-hidden')}>
             <D.Title className="sr-only">{label}</D.Title>
-            {bare ? children : <K label={label} shouldFilter={false} loop>{children}</K>}
+            {bare ? children : <K label={label} shouldFilter={false} loop vimBindings={false}>{children}</K>}
           </D.Content>
         </D.Overlay>
       </D.Portal>
@@ -51,7 +51,8 @@ export function CommandDialog({open, onOpenChange, label, bare = false, children
  * selected item's value (the caller picks the first one whenever the results change).
  */
 export function CommandRoot({label, value, onValueChange, children}: {label: string; value: string; onValueChange: (v: string) => void; children: ReactNode}) {
-  return <K label={label} shouldFilter={false} loop value={value} onValueChange={onValueChange}>{children}</K>;
+  // No vim bindings: Ctrl+K is the palette's own key (it must close and reopen it, never move the selection).
+  return <K label={label} shouldFilter={false} loop vimBindings={false} value={value} onValueChange={onValueChange}>{children}</K>;
 }
 
 export interface CommandInputProps {

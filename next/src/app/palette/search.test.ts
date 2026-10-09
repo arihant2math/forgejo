@@ -6,7 +6,7 @@ import type {EntityRecord} from '../../data/entity.ts';
 import type {Issue} from '../../protocol/types.gen.ts';
 import {Pool} from '../../data/pool.ts';
 import {issue, repo, user} from '../../test/fakeSession.ts';
-import {score, searchPool, terms} from './search.ts';
+import {repoScore, score, scoreNamed, searchPool, terms} from './search.ts';
 
 function pool(issues: number) {
   const p = new Pool();
@@ -113,4 +113,13 @@ test('references name one issue exactly, first', () => {
   const repoId = searchPool(p, 'website#42').exact?.[0]?.issue.repo_id;
   expect(searchPool(p, '#42', {contextRepo: repoId}).exact?.map((x) => x.issue.number)).toEqual([42]);
   expect(terms('acme/atlas#1').ref).toEqual({owner: 'acme', repo: 'atlas', number: 1});
+});
+
+test('a repository named by the query outranks things found by its name; boards and milestones need their own title', () => {
+  // "atlas": the repository acme/atlas (exact name) beats the board "Atlas 1.0" (title start, 3 + bonuses).
+  expect(repoScore('acme/atlas', 'atlas', ['atlas'])).toBeGreaterThan(scoreNamed('atlas 1.0', 'acme/atlas', ['atlas']) + 1);
+  expect(repoScore('openlab/field-notes', 'field-notes', ['field'])).toBeGreaterThanOrEqual(4);
+  // The milestone "Q4 migration" of acme/infra is no match for "infra"; "infra q4" is.
+  expect(scoreNamed('q4 migration', 'acme/infra', ['infra'])).toBe(-1);
+  expect(scoreNamed('q4 migration', 'acme/infra', ['infra', 'q4'])).toBeGreaterThan(0);
 });

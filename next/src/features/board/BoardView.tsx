@@ -14,11 +14,12 @@
 
 import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, SquareMinus, Star, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, SquareMinus, SquarePen, Star, Trash2} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {type KeyboardEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canEditBoard, confirmAccess} from '../../app/access.ts';
+import {sitePath} from '../../app/config.ts';
 import {classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -31,7 +32,7 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
-  Badge, BoardCard, BoardColumn, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
+  Badge, BoardCard, BoardColumn, BoardColumnDraft, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
   ContextMenuSeparator, EmptyState, Icon, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
   TextLink,
 } from '../../ui/index.ts';
@@ -44,7 +45,11 @@ import {findCard} from './board.ts';
 import {createColumn, deleteColumn, editColumn, orderColumns} from './columns.ts';
 import {BoardDnd, SLOT} from './dnd.ts';
 import {rememberBoard} from '../../app/lastBoard.ts';
+import {openCreate} from '../../app/create.ts';
 import {BoardModel} from './model.ts';
+
+/** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
+const lastCard = new Map<number, number>();
 
 /** Closed-tier pages a board loads at most (B6: ≤ 500 issues each by default). */
 const CLOSED_PAGES = 4;
@@ -103,14 +108,14 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
       {repo ? (
         <>
           <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-          <TextLink><Link to="/-/next/$owner" params={{owner: repo.get('owner_name')}}>{repo.get('owner_name')}</Link></TextLink>
+          <TextLink><Link to="/$owner" params={{owner: repo.get('owner_name')}}>{repo.get('owner_name')}</Link></TextLink>
           <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
           <TextLink><Link to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}}>{repo.get('name')}</Link></TextLink>
         </>
       ) : login && (
         <>
           <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-          <TextLink><Link to="/-/next/$owner" params={{owner: login}}>{login}</Link></TextLink>
+          <TextLink><Link to="/$owner" params={{owner: login}}>{login}</Link></TextLink>
         </>
       )}
     </>
@@ -161,13 +166,21 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const columns = model.columns;
   const closed = project.get('closed');
 
-  // The palette's issue actions and the pickers (S/L/A/M/P) act on the cursor's card.
+  // The palette's issue actions and the pickers (S/L/A/M/P) act on the cursor's card; the board remembers it.
   useEffect(() => autorun(() => {
     const target = model.cursor.active.values();
+    if (target[0] !== undefined) lastCard.set(projectId, target[0]);
     runInAction(() => {
       app.ui.issueTarget = target;
     });
-  }), [app, model]);
+  }), [app, model, projectId]);
+  // Back on the board (from a card's page): the cursor is where it was, its column focused (J/K go on from there).
+  useEffect(() => {
+    const id = lastCard.get(projectId);
+    if (id === undefined || model.cursor.activeId !== undefined) return;
+    if (findCard(untracked(() => model.layout.get()), id)) show(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the board mounts
+  }, []);
   useEffect(() => () => {
     runInAction(() => {
       app.ui.issueTarget = [];
@@ -232,8 +245,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       const ci = layout.columns.findIndex((c) => c.id === at.column);
       const col = layout.columns[ci + dCol];
       if (!col) return;
-      const n = layout.cards.get(col.id)?.length ?? 0;
-      model.move(cur.id, col.id, Math.min(at.index, n));
+      model.move(cur.id, col.id, model.rankIn(cur.id, col.id));
     } else {
       // Gaps: one below the card is index + 2, one above is index - 1.
       model.move(cur.id, at.column, dRow > 0 ? at.index + 2 : at.index - 1);
@@ -282,10 +294,13 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const actions = useRef({open, dnd, editable});
   actions.current = {open, dnd, editable};
   const [cardHandlers] = useState(() => ({
-    click: (id: number, e: {metaKey: boolean; ctrlKey: boolean}) => {
+    click: (id: number, e: MouseEvent<HTMLElement>) => {
+      // A card is a link: ⌘/Ctrl-click and middle-click are the browser's (a new tab); a plain click opens it here.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && actions.current.dnd.click()) return;
+      e.preventDefault();
       if (!actions.current.dnd.click()) return;
       model.cursor.setActive(id);
-      actions.current.open(id, e.metaKey || e.ctrlKey);
+      actions.current.open(id);
     },
     down: (id: number, e: PointerEvent) => {
       if (actions.current.editable) actions.current.dnd.down(e, id);
@@ -415,7 +430,7 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
 }
 
 interface CardHandlers {
-  click(id: number, e: {metaKey: boolean; ctrlKey: boolean}): void;
+  click(id: number, e: MouseEvent<HTMLElement>): void;
   down(id: number, e: PointerEvent): void;
 }
 
@@ -484,12 +499,14 @@ const Column = observer(function Column({model, column, index, count, dragging, 
 });
 
 const CardItem = observer(function CardItem({issueId, model, dragging, handlers}: {issueId: number; model: BoardModel; dragging: KeyedFlags; handlers: CardHandlers}) {
+  const app = useApp();
   const pool = usePool();
   const issue = pool.model('Issue').get(issueId);
+  const path = issue && issuePath(app, issue);
   // On a board of several repositories (an organization's or a user's), each card says whose it is.
   const project = pool.model('Project').get(model.projectId);
   const repoName = issue && project && project.get('repo_id') !== issue.get('repo_id') ? pool.model('Repository').get(issue.get('repo_id'))?.get('name') : undefined;
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLElement>(null);
   // A native listener: React's synthetic pointer events are delegated (one more hop) and passive-agnostic.
   useEffect(() => {
     const el = ref.current;
@@ -505,6 +522,7 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
   if (!issue) return null;
   return (
     <BoardCard ref={ref} id={cardDomId(issueId)} data-card={issueId} active={model.cursor.active.has(issueId)} dragging={dragging.has(issueId)}
+      href={path ? sitePath(app.config, path) : undefined} tabIndex={-1}
       onClick={(e) => {
         handlers.click(issueId, e);
       }}
@@ -552,6 +570,10 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {
             reorder(1);
           }}>Move right</MenuItem>
           <MenuSeparator/>
+          <MenuItem icon={SquarePen} onSelect={() => {
+            newIssueIn(app, model.projectId, column.id);
+          }}>New issue in this column…</MenuItem>
+          <MenuSeparator/>
           <MenuItem icon={Trash2} danger disabled={offline || column.default} onSelect={() => {
             setDialog('delete');
           }}>Delete…</MenuItem>
@@ -579,11 +601,18 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {
   );
 });
 
-/** The lane after the last column: "Add column", then a name field (online only). */
+/** A new issue that goes on this board, in this column (the create dialog; its repository is the board's, if any). */
+function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId: number): void {
+  const repoId = untracked(() => app.session?.data.pool.model('Project').get(projectId)?.get('repo_id')) ?? 0;
+  openCreate(app, repoId, {projectId, columnId});
+}
+
+/** The lane after the last column: "Add column", then the new column's lane with its name field (online only). */
 const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) {
   const app = useApp();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
+  const field = useRef<HTMLInputElement>(null);
   const offline = !connectivity.online;
   const submit = () => {
     const t = title.trim();
@@ -595,11 +624,18 @@ const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) 
       }
     });
   };
+  // The field takes the focus without the board jumping: it scrolls only as far as needed to show the lane.
+  useEffect(() => {
+    const el = field.current;
+    if (!editing || !el) return;
+    el.focus({preventScroll: true});
+    el.closest('section')?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+  }, [editing]);
   const tip = useMemo(() => (offline ? onlineOnly('Adding a column') : 'Add a column at the end'), [offline]);
-  return (
-    <div className="flex w-column shrink-0 flex-col">
-      {editing ?
-        <Input aria-label="New column name" placeholder="Column name" value={title} autoFocus className="w-full" maxLength={100}
+  if (editing) {
+    return (
+      <BoardColumnDraft>
+        <Input ref={field} aria-label="New column name" placeholder="Column name" value={title} className="w-full" maxLength={100}
           onChange={(e) => {
             setTitle(e.target.value);
           }}
@@ -614,10 +650,16 @@ const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) 
               e.preventDefault();
               setEditing(false);
             }
-          }}/> :
-        <Button variant="ghost" icon={Plus} tooltip={tip} disabled={offline} onClick={() => {
-          setEditing(true);
-        }}>Add column</Button>}
+          }}/>
+        <p className="px-1 text-sm text-fg-subtle">Enter adds it, Esc cancels.</p>
+      </BoardColumnDraft>
+    );
+  }
+  return (
+    <div className="flex w-column shrink-0 flex-col">
+      <Button variant="ghost" icon={Plus} tooltip={tip} disabled={offline} onClick={() => {
+        setEditing(true);
+      }}>Add column</Button>
     </div>
   );
 });

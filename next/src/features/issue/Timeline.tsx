@@ -9,24 +9,34 @@
 // own entity.
 
 import {
-  ArrowRightLeft, Bookmark, CircleCheck, CircleDot, Clock, Eye, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, Link2,
-  Lock, LockOpen, MessageSquare, Milestone, Pencil, Pin, PinOff, SquareKanban, Tag, UserCheck, UserMinus, UserPlus, XCircle,
+  ArrowRightLeft, Bookmark, CalendarClock, CircleCheck, CircleDot, Clock, Eye, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, Link2,
+  Lock, LockOpen, MessageSquare, Milestone, Pencil, Pin, PinOff, Reply, SquareKanban, Tag, UserCheck, UserMinus, UserPlus, XCircle,
 } from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {lazy, type ReactNode, Suspense, useEffect, useRef, useState} from 'react';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Badge, type BadgeTone, Code, Icon, LabelChip, LabelIcon, type LucideIcon} from '../../ui/index.ts';
+import {Badge, type BadgeTone, Button, Code, CodeLine, Icon, LabelChip, type LucideIcon, TextLink} from '../../ui/index.ts';
+import {Link} from '@tanstack/react-router';
+import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {commentAnchor} from '../../code/anchor.ts';
+import {submitReview} from '../../code/review.ts';
+import {uuid} from '../../intents/intents.ts';
+import {MarkdownField} from '../editor/Composer.tsx';
+import {shortSha} from '../../code/refs.ts';
+import {CodeLink} from '../code/nav.tsx';
 import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {issueComments} from '../../intents/view.ts';
-import {firstOf, priorityIcon, statusIcon, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
+import {firstOf, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue} from '../issues/labels.ts';
-import {agoWords, fullDate} from '../issues/format.ts';
+import {agoWords, fullDate, shortDate} from '../issues/format.ts';
 import {CommentActions, CommentBody} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
+import {afterPaint} from '../../app/paint.ts';
+import {textOfMarkup} from '../../app/trusted.ts';
 import {Reactions} from './Reactions.tsx';
 import {IssueLink} from './Sidebar.tsx';
 
@@ -62,14 +72,28 @@ function useItems(issueId: number): Item[] {
 // Loaded only for a long timeline (most are short: plain rows).
 const Virtuoso = lazy(() => import('react-virtuoso').then((m) => ({default: m.Virtuoso as typeof m.Virtuoso<Item>})));
 
+/**
+ * The first items an issue opens with; the rest of a short timeline follows after that first frame is painted
+ * (rendering 30 comments' text holds the page back by a frame or more on a slow device).
+ */
+const FIRST_PAINT = 8;
+
 export const Timeline = observer(function Timeline({issueId, scroller}: {issueId: number; scroller: HTMLDivElement | null}) {
   const items = useItems(issueId);
+  const [all, setAll] = useState(false);
+  const partial = !all && items.length > FIRST_PAINT;
+  useEffect(() => {
+    if (!partial) return;
+    afterPaint(() => {
+      setAll(true);
+    });
+  }, [partial]);
   if (!items.length) return null;
   const render = (it: Item) => (it.kind === 'comment' ? <CommentItem id={it.id}/> : <ReviewItem id={it.id}/>);
   return (
     <section aria-label="Activity" className="flex flex-col">
       {items.length < VIRTUALIZE_FROM || !scroller ?
-        items.map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>) :
+        (partial ? items.slice(0, FIRST_PAINT) : items).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>) :
         <Suspense fallback={items.slice(0, 20).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>)}>
           <Virtuoso customScrollParent={scroller} data={items} increaseViewportBy={600}
             computeItemKey={(_, it) => `${it.kind}${String(it.id)}`} itemContent={(_, it) => render(it)}/>
@@ -177,11 +201,69 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   );
 });
 
+/** The last lines of a code comment's hunk (Forgejo keeps them with the comment): what it is about, in place. */
+const SNIPPET_LINES = 4;
+
+/**
+ * A review's comment on code, in the conversation: the lines it is about, its file and line linking to the pull
+ * request's Files, the comment, and — on a thread still open — Reply (a one-comment review on the same line,
+ * offline-capable) and Resolve (classic: no API resolves a conversation).
+ */
 const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
+  const app = useApp();
+  const pool = usePool();
+  const [replying, setReplying] = useState(false);
+  const [text, setText] = useState('');
+  const issue = pool.model('Issue').get(c.get('issue_id'))?.data;
+  const repo = issue ? pool.model('Repository').get(issue.repo_id)?.data : undefined;
+  const files = issue && repo ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.number)}` : undefined;
+  const lines = c.get('diff_hunk').split('\n').filter((l) => l !== '' && !l.startsWith('@@')).slice(-SNIPPET_LINES);
+  const reply = () => {
+    if (!issue || !text.trim()) return;
+    submitReview(editing(app).intents, {
+      issueId: issue.id, repoId: issue.repo_id, head: c.get('commit_id'), event: 'COMMENT', body: '',
+      drafts: [{key: `reply:${uuid()}`, anchor: commentAnchor(c.data), text, at: Date.now()}],
+    });
+    setText('');
+    setReplying(false);
+  };
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border p-3">
-      <span className="text-sm text-fg-muted"><Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on <Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</span>
+      <span className="text-sm text-fg-muted">
+        <Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on{' '}
+        {files ? <TextLink><Link to={files} search={{tab: 'files'}}><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</Link></TextLink> :
+          <><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</>}
+        {c.get('invalidated') && <> · <Badge>Outdated</Badge></>}
+      </span>
+      {lines.length > 0 && (
+        <div className="overflow-x-auto rounded-sm border border-border-subtle" role="presentation">
+          {lines.map((l, i) => (
+            <CodeLine key={i} tone={l.startsWith('+') ? 'add' : l.startsWith('-') ? 'del' : 'none'}
+              gutter={<span className="w-6 shrink-0 text-center text-fg-subtle select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>}>
+              {l.slice(1)}
+            </CodeLine>
+          ))}
+        </div>
+      )}
       <Markdown html={c.get('body_html')}/>
+      {issue && !c.get('invalidated') && (replying ?
+        <div className="flex flex-col gap-2">
+          <MarkdownField repoId={issue.repo_id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {
+            setReplying(false);
+          }}/>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => {
+              setReplying(false);
+            }}>Cancel</Button>
+            <Button size="sm" variant="primary" disabled={!text.trim()} onClick={reply}>Reply</Button>
+          </div>
+        </div> :
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" icon={Reply} onClick={() => {
+            setReplying(true);
+          }}>Reply</Button>
+          {files && <ClassicLink size="sm" to={`${files}/files`}>Resolve</ClassicLink>}
+        </div>)}
     </div>
   );
 });
@@ -200,20 +282,52 @@ const EventLine = observer(function EventLine({comment: c}: {comment: Entity<'Co
   );
 });
 
+/**
+ * A label an event names, as the chip every label is (one treatment): a status or priority label is named by
+ * its value ("Done"), the sentence says which field it is (labelEvent).
+ */
 const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const l = usePool().model('Label').get(id);
   if (!l) return <span>a label</span>;
   const kind = labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
-  // A status or priority label reads as such ("In progress" with its icon), as in the list and the sidebar.
-  if (kind) {
-    return (
-      <span className="inline-flex items-center gap-1 align-middle text-fg">
-        <LabelIcon icon={kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')} size="sm"/>
-        {scopedValue(l.get('name'))}
-      </span>
-    );
+  return <LabelChip name={kind ? scopedValue(l.get('name')) : l.get('name')} color={l.get('color')}/>;
+});
+
+/** "added [bug]", "set the status to [Done]", "removed the priority [High]". */
+const LabelEvent = observer(function LabelEvent({id, added}: {id: number; added: boolean}) {
+  const l = usePool().model('Label').get(id);
+  const kind = l && labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
+  if (!kind) return <>{added ? 'added' : 'removed'} <LabelRef id={id}/></>;
+  return <>{added ? `set the ${kind} to` : `removed the ${kind}`} <LabelRef id={id}/></>;
+});
+
+/** A due date an event names (Forgejo stores it as "YYYY-MM-DD", a change as "new|old"). */
+function deadlineText(d: Comment): ReactNode {
+  const [next = '', old = ''] = d.body.split('|');
+  const date = (v: string) => (/^\d{4}-\d{2}-\d{2}/.test(v) ? <span className="text-fg">{shortDate(v)}</span> : null);
+  switch (d.type) {
+    case 'added_deadline':
+      return <>set the due date to {date(next)}</>;
+    case 'modified_deadline':
+      return date(old) ? <>changed the due date from {date(old)} to {date(next)}</> : <>changed the due date to {date(next)}</>;
+    default:
+      return date(next) ? <>removed the due date {date(next)}</> : 'removed the due date';
   }
-  return <LabelChip name={l.get('name')} color={l.get('color')}/>;
+}
+
+/** A commit an event names: its short SHA and its message's first line, linking to the commit. */
+const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
+  const pool = usePool();
+  const r = pool.model('Repository').get(pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0)?.data;
+  const sha = d.commit_id;
+  // Forgejo renders the reference as a link with the commit's message: its text, never its markup.
+  const message = d.body_html ? textOfMarkup(d.body_html).trim().split('\n')[0] ?? '' : '';
+  if (!sha || !r) return <>referenced this in a commit</>;
+  return (
+    <>referenced this in <TextLink wrap><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}>
+      <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
+    </CodeLink></TextLink></>
+  );
 });
 
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
@@ -236,7 +350,7 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'merge_pull':
       return {icon: GitMerge, text: 'merged this'};
     case 'label':
-      return {icon: Tag, text: <>{d.body === '1' ? 'added' : 'removed'} <LabelRef id={d.label_id}/></>};
+      return {icon: Tag, text: <LabelEvent id={d.label_id} added={d.body === '1'}/>};
     case 'milestone':
       if (!d.milestone_id) return {icon: Milestone, text: <>removed this from <MilestoneRef id={d.old_milestone_id}/></>};
       return {icon: Milestone, text: <>{d.old_milestone_id ? 'moved this to' : 'added this to'} <MilestoneRef id={d.milestone_id}/></>};
@@ -253,11 +367,11 @@ function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
     case 'change_issue_ref':
       return {icon: Link2, text: <>referenced this from <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>};
     case 'commit_ref':
-      return {icon: GitCommitHorizontal, text: 'referenced this in a commit'};
+      return {icon: GitCommitHorizontal, text: <CommitRef d={d}/>};
     case 'added_deadline':
     case 'modified_deadline':
     case 'removed_deadline':
-      return {icon: Clock, text: d.type === 'removed_deadline' ? 'removed the due date' : 'changed the due date'};
+      return {icon: CalendarClock, text: deadlineText(d)};
     case 'add_dependency':
       return {icon: Link2, text: <>added a dependency on <IssueRef id={d.dependent_issue_id} from={d.issue_id}/></>};
     case 'remove_dependency':

@@ -74,7 +74,8 @@ test('a line\'s natural anchor round-trips through Forgejo\'s signed line', () =
 test('diff rows: headers, hunks, lines, threads, notes, collapsed files; fileAt', async () => {
   const {diffRows, fileAt} = await import('./rows.ts');
   const r = diffRows(files, {threads: new Set([lineKey(0, 1)]), notes: new Set([1]), collapsed: new Set()});
-  expect(r.rows.slice(0, 4)).toEqual([{t: 'file', f: 0}, {t: 'hunk', f: 0, h: 0}, {t: 'line', f: 0, l: 0}, {t: 'line', f: 0, l: 1}]);
+  const h0 = files[0]?.hunks[0];
+  expect(r.rows.slice(0, 4)).toEqual([{t: 'file', f: 0}, {t: 'hunk', f: 0, h: 0, hidden: (h0?.newStart ?? 1) - 1}, {t: 'line', f: 0, l: 0}, {t: 'line', f: 0, l: 1}]);
   expect(r.rows[4]).toEqual({t: 'thread', f: 0, l: 1});
   const second = r.fileRow[1] ?? -1;
   expect(r.rows[second]).toEqual({t: 'file', f: 1});
@@ -84,6 +85,16 @@ test('diff rows: headers, hunks, lines, threads, notes, collapsed files; fileAt'
   expect(fileAt(r.fileRow, second - 1)).toBe(0);
   expect(fileAt(r.fileRow, second)).toBe(1);
   expect(fileAt(r.fileRow, 10_000)).toBe(1);
+  // Unchanged lines above a hunk, expanded from the new file: numbered on both sides; all of them merge it with
+  // the previous hunk (no header between).
+  const big = parseDiff('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n-a\n+A\n@@ -10,1 +10,1 @@\n-j\n+J\n');
+  const content = new Map([[0, ['A', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'J']]]);
+  const some = diffRows(big, {content, revealed: new Map([['0:1', 3]])}).rows;
+  expect(some.flatMap((x) => (x.t === 'hunk' ? [x.hidden] : []))).toEqual([0, 5]);
+  expect(some.filter((x) => x.t === 'extra')).toEqual([7, 8, 9].map((n) => ({t: 'extra', f: 0, h: 1, o: n, n, text: content.get(0)?.[n - 1]})));
+  const all = diffRows(big, {content, revealed: new Map([['0:1', 99]])}).rows;
+  expect(all.filter((x) => x.t === 'hunk')).toHaveLength(1);
+  expect(all.filter((x) => x.t === 'extra')).toHaveLength(8);
   const c = diffRows(files, {collapsed: new Set([0])});
   expect(c.rows[0]).toEqual({t: 'file', f: 0});
   expect(c.rows[1]).toEqual({t: 'file', f: 1});

@@ -13,6 +13,7 @@
 // the override keeps showing (no flicker) until its intent is confirmed or
 // fails, and sets show the other members' changes at once (they commute).
 
+import {PROJECT_FIELD} from './intents.ts';
 import {untracked} from 'mobx';
 import type {Entity} from '../data/entity.ts';
 import type {Pool} from '../data/pool.ts';
@@ -74,6 +75,14 @@ export function commentBody(overlay: Overlay, c: Entity<'Comment'>): {text: stri
 export function notificationStatus(overlay: Overlay, n: Entity<'Notification'>): string {
   const o = overlay.field('Notification', n.id, 'status');
   return o ? o.value as string : n.get('status');
+}
+
+/** The project an issue is on as the user sees it (a pending `issue.project` first): its id (0: none) and column (0: unknown, the default). */
+export function issueProject(pool: Pool, overlay: Overlay, issueId: number): {project: number; column: number} {
+  const o = overlay.field('Issue', issueId, PROJECT_FIELD);
+  if (o) return o.value as {project: number; column: number};
+  const [pi] = pool.model('ProjectIssue').by('issue_id', issueId);
+  return pi ? {project: pi.get('project_id'), column: pi.get('column_id')} : {project: 0, column: 0};
 }
 
 /** The column of an issue's card on a project board (and its pending position), or undefined when not on it. */

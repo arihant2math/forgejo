@@ -7,7 +7,7 @@
 
 import {useNavigate} from '@tanstack/react-router';
 import {
-  AppWindow, BookMarked, BookPlus, Building2, CircleCheck, CloudUpload, Code2, CircleDot, FileCode, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home,
+  AppWindow, BookMarked, BookPlus, Building2, CircleCheck, CloudUpload, Code2, CircleDot, Compass, FileCode, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home,
   Inbox, KanbanSquare, Layers, Keyboard, LogOut, Milestone, Monitor, Moon, Settings, SquarePen, Sun, SunMoon, User,
 } from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
@@ -28,7 +28,7 @@ import {issuePath, issuesOf} from '../../features/issues/edits.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {localSearch} from '../../features/search/local.ts';
-import {searchServer, type ServerHit} from '../../features/search/server.ts';
+import {searchServer, searchServerRepos, searchServerUsers, type ServerHit, type ServerRepo, type ServerUser} from '../../features/search/server.ts';
 import {viewStore} from '../../features/views/views.ts';
 import type {Issue, Repository} from '../../protocol/types.gen.ts';
 import {searchBoards, searchMilestones, searchPeople} from './entities.ts';
@@ -46,8 +46,9 @@ interface PaletteCommand {
   keywords?: string;
   /** Only offered on a repository's pages. */
   inRepo?: boolean;
-  /** Never the default (Enter right after typing never runs it). */
+  /** Never the default (Enter right after typing never runs it) — unless the query is one of these names. */
   destructive?: boolean;
+  names?: readonly string[];
   /** A classic page: the command opens it (same tab), labelled as such. */
   classic?: string;
   run: (app: App, navigate: Navigate) => void;
@@ -77,11 +78,12 @@ const COMMANDS: PaletteCommand[] = [
   {id: 'home', label: 'Go home', icon: Home, keywords: 'dashboard', run: (_, nav) => void nav({to: '/'})},
   {id: 'profile', label: 'Your profile and repositories', icon: User, keywords: 'me account', run: (app, nav) => {
     const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
-    if (login) void nav({to: '/-/next/$owner', params: {owner: login}});
+    if (login) void nav({to: '/$owner', params: {owner: login}});
   }},
   {id: 'settings', label: 'Settings', icon: Settings, keywords: 'preferences account ssh keys password classic', classic: '/user/settings', run: () => undefined},
   {id: 'new-repo', label: 'New repository', icon: BookPlus, keywords: 'create repo classic', classic: '/repo/create', run: () => undefined},
   {id: 'new-org', label: 'New organization', icon: Building2, keywords: 'create org team classic', classic: '/org/create', run: () => undefined},
+  {id: 'explore', label: 'Explore repositories, people and organizations', icon: Compass, keywords: 'explore discover browse find public classic', classic: '/explore/repos', run: () => undefined},
   {id: 'shortcuts', label: 'Keyboard shortcuts', icon: Keyboard, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {
     runInAction(() => {
       app.ui.shortcutsOpen = true;
@@ -104,7 +106,7 @@ const COMMANDS: PaletteCommand[] = [
     if (!connectivity.online) notify(app, {tone: 'neutral', title: onlineOnly('The classic UI')});
     else switchToClassic(app);
   }},
-  {id: 'sign-out', label: 'Sign out', icon: LogOut, keywords: 'log out logout', destructive: true, run: (app) => {
+  {id: 'sign-out', label: 'Sign out', icon: LogOut, keywords: 'log out logout', destructive: true, names: ['sign out', 'signout', 'log out', 'logout'], run: (app) => {
     void requestSignOut(app);
   }},
 ];
@@ -243,11 +245,13 @@ function PaletteBody({app}: {app: App}) {
   })));
 
   if (words.length) {
-    add('Repositories', (results.top?.repos ?? -1) + 1, results.repos.map((r) => ({
+    // A repository named by the query (repoScore) outranks boards and milestones that share its name.
+    add('Repositories', (results.top?.repos ?? -1) + NAMED_BONUS, results.repos.map((r) => ({
       value: `repo:${String(r.id)}`, icon: BookMarked, meta: r.description, label: r.full_name,
       run: () => void navigate({to: '/$owner/$repo', params: {owner: r.owner_name, repo: r.name}}),
     })));
     const pool = app.session?.data.pool;
+    const shownPeople = new Set<number>();
     if (pool) {
       const boards = untracked(() => searchBoards(pool, words));
       add('Boards', best(boards.map((b) => b.score)) + NAMED_BONUS, boards.map(({item: b, repo}) => ({
@@ -262,9 +266,10 @@ function PaletteBody({app}: {app: App}) {
         },
       })));
       const people = untracked(() => searchPeople(pool, words));
+      for (const p of people) shownPeople.add(p.item.id);
       add('People', best(people.map((p) => p.score)) + 1, people.map(({item: u}) => ({
         value: `user:${String(u.id)}`, icon: u.type === 'organization' ? Building2 : User, meta: u.full_name, label: u.login,
-        run: () => void navigate({to: '/-/next/$owner', params: {owner: u.login}}),
+        run: () => void navigate({to: '/$owner', params: {owner: u.login}}),
       })));
     }
     add('Files', best(files.map((f) => f.score / 2)) + 1, files.map((f) => ({
@@ -283,20 +288,36 @@ function PaletteBody({app}: {app: App}) {
       value: `issue:${String(issue.id)}`, icon: issueIcon(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
       run: openIssue(issue, repo),
     })));
-    add('On Forgejo', 0, more.server.map((h) => ({
-      value: `server:${String(h.id)}`, icon: Globe, meta: `${h.fullName}#${String(h.number)}`, label: h.title,
-      run: () => void navigate({
-        to: h.pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
-        params: {owner: h.owner, repo: h.repo, index: String(h.number)},
-      }),
-    })));
+    // What only the server knows: repositories and people outside the workspace, then issues by their text.
+    const shownRepos = new Set(results.repos.map((r) => r.id));
+    add('On Forgejo', 0, [
+      ...more.repos.filter((r) => !shownRepos.has(r.id)).map((r) => ({
+        value: `server-repo:${String(r.id)}`, icon: BookMarked, meta: r.description, label: r.fullName,
+        run: () => void navigate({to: '/$owner/$repo', params: {owner: r.owner, repo: r.name}}),
+      })),
+      ...more.users.filter((u) => !shownPeople.has(u.id)).map((u) => ({
+        value: `server-user:${String(u.id)}`, icon: User, meta: u.fullName, label: u.login,
+        run: () => void navigate({to: '/$owner', params: {owner: u.login}}),
+      })),
+      ...more.server.map((h) => ({
+        value: `server:${String(h.id)}`, icon: Globe, meta: `${h.fullName}#${String(h.number)}`, label: h.title,
+        run: () => void navigate({
+          to: h.pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
+          params: {owner: h.owner, repo: h.repo, index: String(h.number)},
+        }),
+      })),
+    ]);
   }
 
   const inRepo = untracked(() => app.ui.repoOpen > 0);
   const commands = COMMANDS.filter((c) => !c.inRepo || inRepo).map((c) => ({c, s: match(c.label), k: match(`${c.label} ${c.keywords ?? ''}`)}))
     .filter((x) => x.k >= 0).sort((a, b) => b.s - a.s);
-  add('Commands', words.length ? best(commands.map((x) => (x.s >= 0 ? x.s + NAMED_BONUS : x.k))) : 60, commands.map(({c}) => ({
-    value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && shortcutHint(c.shortcut), label: c.label, destructive: c.destructive,
+  // A command the query names outright ("sign out", "logout") is the default, destructive or not: Enter runs it
+  // (signing out still asks first when changes are not synced).
+  const typed = words.join(' ');
+  const named = (c: PaletteCommand) => Boolean(c.names?.includes(typed));
+  add('Commands', words.length ? best(commands.map((x) => (named(x.c) ? 100 : x.s >= 0 ? x.s + NAMED_BONUS : x.k))) : 60, commands.map(({c}) => ({
+    value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && shortcutHint(c.shortcut), label: c.label, destructive: c.destructive && !named(c),
     meta: c.classic ? 'classic UI' : undefined,
     run: c.classic ? () => {
       location.assign(classicHref(app, c.classic ?? '/'));
@@ -354,9 +375,11 @@ function issueIcon(issue: Issue): LucideIcon {
 interface More {
   local: {issue: Issue; repo: Repository | undefined}[];
   server: ServerHit[];
+  repos: ServerRepo[];
+  users: ServerUser[];
 }
 
-const NONE: More = {local: [], server: []};
+const NONE: More = {local: [], server: [], repos: [], users: []};
 /** Typing pauses this long before the server is asked. */
 const SERVER_DELAY = 300;
 
@@ -367,25 +390,35 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     const s = app.session;
     if (!q || !s) return undefined;
     const ctl = new AbortController();
-    const shown = new Set(scan.issues.map((r) => r.issue.id));
+    const shown = shownIssues(scan);
     const pool = s.data.pool;
     const repoOf = (id: number) => pool.model('Repository').get(id)?.data ?? s.data.peek('Repository').get(id);
-    const same = (a: {query: string}) => a.query === query;
     const ix = localSearch(app);
+    const merge = (part: Partial<More>) => {
+      setAnswer((m) => {
+        const base = m.query === query ? m.value : NONE;
+        const next = {...base, ...part};
+        // Nothing to show either way (the scan filled the slots, as it usually does): no render.
+        const empty = (v: More) => !v.local.length && !v.server.length && !v.repos.length && !v.users.length;
+        return empty(next) && empty(m.value) ? m : {query, value: next};
+      });
+    };
     void ix?.search(q, 20).then((a) => {
       if (ctl.signal.aborted) return;
       const local = untracked(() => a.hits.filter((h) => !shown.has(h.id)).map((h) => pool.model('Issue').get(h.id)?.data)
         .filter((i) => i !== undefined).map((issue) => ({issue, repo: repoOf(issue.repo_id)})).filter((r) => r.repo !== undefined)
         .slice(0, Math.max(0, 12 - shown.size)));
-      // Nothing new (the scan filled the slots, as it usually does): no render.
-      // Nothing to show either way (the scan filled the slots, as it usually does): no render.
-      setAnswer((m) => (!local.length && !m.value.local.length && !m.value.server.length ? m : {query, value: {local, server: same(m) ? m.value.server : []}}));
+      merge({local});
     }).catch(() => undefined);
     const timer = q.length >= 2 && connectivity.online ? setTimeout(() => {
-      void searchServer(app, q, ctl.signal).then((server) => {
-        if (ctl.signal.aborted) return;
-        setAnswer((m) => (!server.length && !m.value.server.length && !m.value.local.length ? m : {query, value: {local: same(m) ? m.value.local : [], server}}));
-      }).catch(() => undefined);
+      const ask = <K extends keyof More>(key: K, p: Promise<More[K]>) => {
+        void p.then((v) => {
+          if (!ctl.signal.aborted) merge({[key]: v});
+        }).catch(() => undefined);
+      };
+      ask('server', searchServer(app, q, ctl.signal));
+      ask('repos', searchServerRepos(app, q, ctl.signal));
+      ask('users', searchServerUsers(app, q, ctl.signal));
     }, SERVER_DELAY) : undefined;
     return () => {
       ctl.abort();
@@ -398,10 +431,16 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     const q = query.trim().toLowerCase();
     const a = answer.query.trim().toLowerCase();
     if (!q || !a || !(q.startsWith(a) || a.startsWith(q))) return NONE;
-    const shown = new Set(scan.issues.map((r) => r.issue.id));
+    const shown = shownIssues(scan);
     const local = answer.value.local.filter((r) => !shown.has(r.issue.id));
     for (const r of local) shown.add(r.issue.id);
     const server = answer.value.server.filter((h) => !shown.has(h.id));
-    return local.length || server.length ? {local, server} : NONE;
+    const {repos, users} = answer.value;
+    return local.length || server.length || repos.length || users.length ? {local, server, repos, users} : NONE;
   }, [answer, query, scan]);
+}
+
+/** The issues the scan lists already, the one the query names exactly included (each issue is listed once). */
+function shownIssues(scan: SearchResults): Set<number> {
+  return new Set([...scan.issues, ...scan.exact ?? []].map((r) => r.issue.id));
 }

@@ -7,20 +7,20 @@
 // branch that forked from base) to head, as Forgejo's three-dot compare
 // shows. Branch and tag names resolve from the pool.
 
-import {Link} from '@tanstack/react-router';
-import {GitCompare, GitPullRequest} from 'lucide-react';
+import {Link, useNavigate} from '@tanstack/react-router';
+import {ChevronDown, GitBranch, GitCompare, GitPullRequest, Tag} from 'lucide-react';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {observer} from 'mobx-react-lite';
 import {resolveName, shortSha} from '../../code/refs.ts';
 import type {CodeSource, CompareInfo} from '../../code/source.ts';
-import {Button, EmptyState, Icon, SectionHeading} from '../../ui/index.ts';
+import {Button, CommandPopover, EmptyState, Icon, type PickOption, SectionHeading} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {DiffView} from './DiffView.tsx';
 import {useDiff} from './History.tsx';
 import {commitRow} from './bits.tsx';
 import {refTable, useLoad, useSource} from './hooks.ts';
-import {useCodeRows} from './nav.tsx';
+import {codeTo, useCodeRows} from './nav.tsx';
 import type {CommitInfo} from '../../code/source.ts';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
@@ -65,13 +65,44 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   const refs = refTable(pool, props.repoId);
   const base = resolveName(refs, props.base);
   const head = resolveName(refs, props.head);
-  const title = <><span className="font-mono">{props.base}</span> … <span className="font-mono">{props.head}</span></>;
+  // Either side switches to another branch or tag (the other side stays).
+  const title = (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <ComparePick {...props} side="base" value={props.base}/>
+      <span className="text-fg-subtle" aria-hidden>…</span>
+      <ComparePick {...props} side="head" value={props.head}/>
+    </span>
+  );
   return (
     <CodeFrame view={props} title={title} controls={<ComparePull {...props}/>}>
       {(scroller) => (base && head ?
         <Compared {...props} baseSha={base} headSha={head} scroller={scroller}/> :
         <EmptyState icon={GitCompare} title="Branch or tag not found" description={`${base ? props.head : props.base} does not exist, or is not on this device.`}/>)}
     </CodeFrame>
+  );
+});
+
+const ComparePick = observer(function ComparePick({owner, repo, repoId, base, head, side, value}: CodeViewProps & {base: string; head: string; side: 'base' | 'head'; value: string}) {
+  const pool = usePool();
+  const navigate = useNavigate();
+  const refs = refTable(pool, repoId);
+  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
+  const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
+  const option = (ref: string, tag: boolean): PickOption => ({
+    value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : 'Branches', icon: tag ? Tag : GitBranch,
+    meta: !tag && ref === refs.defaultBranch ? 'default' : undefined, checked: ref === value,
+    onSelect: () => {
+      void navigate(codeTo(owner, repo, `compare/${side === 'base' ? ref : base}...${side === 'head' ? ref : head}`));
+    },
+  });
+  return (
+    <CommandPopover width="md" label={side === 'base' ? 'Compare from' : 'Compare to'} placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
+      options={[...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))]}
+      trigger={
+        <Button size="sm" icon={GitBranch} aria-label={`${side === 'base' ? 'Base' : 'Head'}: ${value}`}>
+          <span className="max-w-xs truncate font-mono">{value}</span><Icon icon={ChevronDown} size="sm"/>
+        </Button>
+      }/>
   );
 });
 

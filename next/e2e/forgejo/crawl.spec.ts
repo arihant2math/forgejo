@@ -19,6 +19,10 @@
 //   * an uncaught exception or a console error on any page;
 //   * a same-origin HTTP answer ≥ 400 (EXPECTED_HTTP lists the documented ones).
 //
+// Then it types the addresses no link produces: list searches whose values read
+// as numbers or booleans, and the classic UI's "Back to Forgejo Next" pill on
+// classic pages (each must land on a page of the app, not a dead end).
+//
 // The coverage (links seen, clicked, skipped; the route patterns visited and
 // how) is printed and attached (crawl-coverage.json).
 
@@ -210,6 +214,10 @@ test.beforeAll(async ({browser}) => {
   const closed = await issue('An old question', 'Answered.');
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(closed.number)}`, {state: 'closed'}), 'close');
   await ok(await api('POST', `/repos/${USER}/${REPO}/issues/1/comments`, {body: `I can reproduce it, @${USER}.`}, alice), 'comment');
+  // A commit that names issue 2 (#1 is the pull request): its timeline shows the reference (from the server's HTML).
+  await changeFiles(REPO, {branch: 'main', message: 'Shrink the tile cache, refs #2', files: [
+    {operation: 'create', path: 'NOTES.md', content: b64('Notes.\n')},
+  ]});
   await ok(await api('POST', '/orgs', {username: ORG, visibility: 'public'}), 'org');
   await ok(await api('POST', `/orgs/${ORG}/repos`, {name: 'site', auto_init: true, default_branch: 'main'}), 'org repo');
   await ok(await api('POST', `/repos/${ORG}/site/issues`, {title: 'The site needs a footer', body: ''}), 'org issue');
@@ -346,6 +354,48 @@ test('the link crawler: every in-app link leads to a page of the app, without er
       continue;
     }
     await look(v);
+  }
+
+  // Addresses a user types or comes back to, which no in-app link produces (QA 2026-10-09: both slipped past the
+  // link walk). Search values that read as numbers or booleans (?q=8 once crashed the list), and the classic UI's
+  // "Back to Forgejo Next" pill on pages the app has no view of (or a view under another address).
+  const typed = [
+    `/${USER}/${REPO}/issues?q=8`, `/${USER}/${REPO}/issues?q=true`, `/${USER}/${REPO}/pulls?q=1&labels=1`, '/issues?q=false', '/notifications?q=1',
+  ];
+  for (const path of typed) {
+    await page.goto(new URL(path, BASE).href);
+    await settle(page);
+    const via = `typed ${path}`;
+    visited.push({pattern: `typed:${path}`, url: path, via, depth: 0});
+    const dead = await deadEnd(page);
+    if (dead) failures.push(`"${dead}": ${via}`);
+    if (!await page.locator('aside[aria-label="Sidebar"]').count()) failures.push(`left the app: ${via} → ${page.url()}`);
+  }
+  const classicPages = [
+    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,
+    `/${USER}?tab=activity`, '/explore/repos', `/${USER}/${REPO}/issues/2?ui=classic`,
+  ];
+  for (const path of classicPages) {
+    await page.goto(new URL(path, BASE).href);
+    await page.waitForLoadState('domcontentloaded');
+    const pill = page.locator('#forgejo-next-toggle a').first();
+    const via = `the classic pill on ${path}`;
+    visited.push({pattern: `classic:${path}`, url: path, via, depth: 0});
+    // The pill is added by a deferred script on the classic page.
+    await pill.waitFor({timeout: 10_000}).catch(() => undefined);
+    if (!await pill.count()) {
+      failures.push(`no "Back to Forgejo Next" pill on the classic page ${path} (at ${page.url()}, "${await page.title()}", app: ${String(await page.locator('aside[aria-label="Sidebar"]').count())})`);
+      continue;
+    }
+    await pill.click();
+    await page.waitForURL((u) => u.pathname + u.search !== path, {timeout: 15_000}).catch(() => undefined);
+    await settle(page);
+    if (!await page.locator('aside[aria-label="Sidebar"]').count()) {
+      failures.push(`left the app: ${via} → ${page.url()}`);
+      continue;
+    }
+    const dead = await deadEnd(page);
+    if (dead) failures.push(`"${dead}": ${via} → ${new URL(page.url()).pathname}`);
   }
 
   const report = {

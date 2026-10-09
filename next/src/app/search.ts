@@ -7,6 +7,20 @@
 // `poster` an id with 0 = any and -1 = none, `sort`); `group` is new. Unknown
 // or malformed values are dropped (the route then shows its default).
 
+/**
+ * The router's search parser: every value stays the string the URL holds (the first one of a repeated key).
+ * TanStack's default decoding turns `?q=8` into a number and `?q=true` into a boolean, and a route's match keeps
+ * the raw value of a key its validator drops (`{...raw, ...validated}`), so a typed search "8" reached the lists
+ * as a number. The routes' validators parse what they need.
+ */
+export function parsePlainSearch(str: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of new URLSearchParams(str.startsWith('?') ? str.slice(1) : str)) {
+    if (!Object.hasOwn(out, k)) out[k] = v;
+  }
+  return out;
+}
+
 const MY_TYPES = ['your_repositories', 'assigned', 'created_by', 'mentioned', 'review_requested'] as const;
 const STATES = ['open', 'closed', 'all'] as const;
 const SORTS = ['newest', 'oldest', 'recentupdate', 'leastupdate', 'mostcomment', 'leastcomment', 'nearduedate', 'farduedate', 'priority'] as const;
@@ -28,6 +42,12 @@ export interface ListSearch {
   poster?: number;
   sort?: ListSort;
   group?: ListGroup;
+  /**
+   * A workflow status or a priority by its value ("In progress", "High"; the value of an exclusive `status/…` or
+   * `priority/…` label), so that it means the same in every repository (the viewer's lists). New in the app.
+   */
+  status?: string;
+  priority?: string;
 }
 
 /** /issues, /pulls (the viewer's work across repositories). */
@@ -76,6 +96,10 @@ export function listSearch(s: Record<string, unknown>): ListSearch {
   if (sort) out.sort = sort;
   const group = oneOf(GROUPS, s.group);
   if (group) out.group = group;
+  for (const k of ['status', 'priority'] as const) {
+    const v = s[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim().slice(0, 64);
+  }
   return out;
 }
 

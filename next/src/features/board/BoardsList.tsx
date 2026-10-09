@@ -8,7 +8,7 @@
 import {Link} from '@tanstack/react-router';
 import {KanbanSquare} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {PageBody} from '../../app/shell/Frame.tsx';
+import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {Project} from '../../protocol/types.gen.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
@@ -45,12 +45,12 @@ export const BoardsList = observer(function BoardsList() {
       <PageBody>
         {sorted.length === 0 ?
           <EmptyState icon={KanbanSquare} title="No boards on this device" description="Projects of your repositories and organizations show here."/> :
-          <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-6">
+          <PageColumn>
             {sorted.map(({place: pl, list}) => (
               <Panel key={pl.key} label={pl.key || 'Other'} padded
                 title={pl.repo ?
                   <TextLink><Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}}>{pl.key}</Link></TextLink> :
-                  pl.owner ? <TextLink><Link to="/-/next/$owner" params={{owner: pl.owner}}>{pl.owner}</Link></TextLink> : 'Other'}
+                  pl.owner ? <TextLink><Link to="/$owner" params={{owner: pl.owner}}>{pl.owner}</Link></TextLink> : 'Other'}
                 actions={pl.owner && (
                   <ClassicLink size="sm" to={pl.repo ? `/${encodeURIComponent(pl.owner)}/${encodeURIComponent(pl.repo)}/projects/new` : `/${encodeURIComponent(pl.owner)}/-/projects/new`}>New board</ClassicLink>
                 )}>
@@ -59,7 +59,7 @@ export const BoardsList = observer(function BoardsList() {
                 </EntryList>
               </Panel>
             ))}
-          </div>}
+          </PageColumn>}
       </PageBody>
     </>
   );

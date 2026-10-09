@@ -5,6 +5,7 @@
 
 import {runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
+import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 
@@ -26,3 +27,22 @@ export function setStatus(app: App, ids: readonly number[], to: (current: string
   });
 }
 
+
+/**
+ * Marks notifications read in one request ("Mark all read"): those unread now, up to the newest of them (one
+ * intent; Forgejo's bulk endpoint). Returns the ids it marked (for Undo).
+ */
+export function readAll(app: App, ids: readonly number[]): number[] {
+  const s = app.session;
+  if (!s) return [];
+  const {overlay, intents} = editing(app);
+  const unread = untracked(() => ids.map((id) => s.data.pool.model('Notification').get(id))
+    .filter((n): n is Entity<'Notification'> => n !== undefined && notificationStatus(overlay, n) === 'unread'));
+  if (!unread.length) return [];
+  const lastReadAt = untracked(() => unread.reduce((max, n) => (n.data.updated_at > max ? n.data.updated_at : max), ''));
+  const notificationIds = unread.map((n) => n.id);
+  runInAction(() => {
+    intents.submit({kind: 'notification.readAll', issueId: 0, repoId: 0, notificationIds, lastReadAt});
+  });
+  return notificationIds;
+}

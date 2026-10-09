@@ -75,10 +75,13 @@ export function parseCodePath(splat: string): CodeRoute | undefined {
 }
 
 function parseRun(rest: string[]): CodeRoute | undefined {
-  // runs/<number>[/jobs/<index>] (Forgejo's: the run's number in the repository, the job's index in the run).
+  // runs/<number>[/jobs/<index>[/attempt/<n>]] (Forgejo's: the run's number in the repository, the job's index
+  // in the run; classic redirects a run to its first job's latest attempt). The app shows the latest attempt.
   if (rest[0] !== 'runs' || !rest[1] || !/^[1-9]\d{0,15}$/.test(rest[1])) return undefined;
   if (rest.length === 2) return {view: 'run', run: Number(rest[1]), job: -1};
-  if (rest.length === 4 && rest[2] === 'jobs' && rest[3] && /^\d{1,6}$/.test(rest[3])) return {view: 'run', run: Number(rest[1]), job: Number(rest[3])};
+  const job = rest[2] === 'jobs' && rest[3] && /^\d{1,6}$/.test(rest[3]) ? Number(rest[3]) : undefined;
+  if (job === undefined) return undefined;
+  if (rest.length === 4 || (rest.length === 6 && rest[4] === 'attempt' && /^[1-9]\d{0,5}$/.test(rest[5] ?? ''))) return {view: 'run', run: Number(rest[1]), job};
   return undefined;
 }
 

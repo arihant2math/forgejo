@@ -9,7 +9,7 @@
 
 import {Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
 import {parseAnsi} from '../../code/ansi.ts';
@@ -32,6 +32,24 @@ export function duration(seconds: number): string {
   if (s < 60) return `${String(s)} s`;
   if (s < 3600) return `${String(Math.floor(s / 60))} m ${String(s % 60)} s`;
   return `${String(Math.floor(s / 3600))} h ${String(Math.floor((s % 3600) / 60))} m`;
+}
+
+/**
+ * How long a run or job took, or has been going ("2 m 5 s"), from its start and stop times. Undefined when
+ * it has not started, or when the times contradict each other (a runner's clock skew: never a negative time).
+ */
+export function took(started: string | undefined, stopped: string | undefined, now = Date.now()): string | undefined {
+  const from = started ? Date.parse(started) : NaN;
+  const to = stopped ? Date.parse(stopped) : now;
+  // Unset times may come as Go's zero time (year 1).
+  if (!(from > 0) || Number.isNaN(to) || to < from) return undefined;
+  return duration((to - from) / 1000);
+}
+
+/** A status in words with its time: "Succeeded · 45 s". */
+export function statusTime(text: string, started: string | undefined, stopped: string | undefined): ReactNode {
+  const t = took(started, stopped);
+  return t ? <>{text}<span className="tabular-nums"> · {t}</span></> : text;
 }
 
 /** A run, job or step status as a dot tone and words. */
@@ -66,10 +84,11 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
         <RowList items={runs} scroller={scroller} label="Workflow runs" keyOf={(r) => String(r.id)}
           row={(r) => {
             const look = statusLook(r.status);
+            const t = finished(r.status) ? took(r.started, r.stopped) : undefined;
             return {
               leading: <span title={look.text}><StatusDot tone={look.tone}/></span>,
               main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span><span className="sr-only">, {look.text}</span></>,
-              trailing: <><span className="font-mono">{r.ref.replace(/^refs\/(heads|tags)\//, '')}</span><span>{r.event}</span><time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time></>,
+              trailing: <><span className="font-mono">{r.ref.replace(/^refs\/(heads|tags)\//, '')}</span><span>{r.event}</span>{t && <span className="tabular-nums" title="Duration">{t}</span>}<time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time></>,
             };
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
@@ -107,7 +126,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
               const jl = statusLook(j.status);
               return (
                 <CodeLink key={j.id} owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
-                  <ListRow role="presentation" active={i === first} leading={<StatusDot tone={jl.tone}/>} trailing={jl.text}>{j.name}</ListRow>
+                  <ListRow role="presentation" active={i === first} leading={<StatusDot tone={jl.tone}/>} trailing={statusTime(jl.text, j.started, j.stopped)}>{j.name}</ListRow>
                 </CodeLink>
               );
             })}
@@ -144,6 +163,13 @@ const JobLog = observer(function JobLog({repoId, job, scroller}: {repoId: number
   const [closed, setClosed] = useState<ReadonlySet<number>>(() => new Set());
   const count = log.lines.length;
   const steps = log.steps;
+  // A failed job opens on what failed: the steps that passed start folded (once, when the steps are known).
+  const folded = useRef(false);
+  useEffect(() => {
+    if (folded.current || !steps.length || job.status !== 'failure') return;
+    folded.current = true;
+    if (steps.some((st) => st.status === 'failure')) setClosed(new Set(steps.flatMap((st, i) => (st.status === 'success' || st.status === 'skipped' ? [i] : []))));
+  }, [steps, job.status]);
   const rows = useMemo(() => {
     const out: LogRow[] = [];
     if (!steps.length) {

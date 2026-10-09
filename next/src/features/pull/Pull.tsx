@@ -44,7 +44,7 @@ import {MarkdownField} from '../editor/Composer.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
-import {statusLook} from '../code/Actions.tsx';
+import {statusLook, statusTime} from '../code/Actions.tsx';
 import {checksOf, cleanDescription} from './checks.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {useDiff} from '../code/History.tsx';
@@ -592,7 +592,7 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
         const look = statusLook(j.get('status'));
         return (
           <CodeLink key={j.id} owner={owner} repo={repo} to={`actions/runs/${String(runNumber)}/jobs/${String(i)}`}>
-            <ListRow role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={look.text}>
+            <ListRow role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={statusTime(look.text, j.get('started'), j.get('stopped'))}>
               {run.get('workflow_id')} / {j.get('name')}
             </ListRow>
           </CodeLink>

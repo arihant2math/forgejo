@@ -44,7 +44,7 @@ func TestClassicScript(t *testing.T) {
 			var cfg classicConfig
 			require.NoError(t, json.Unmarshal(m[1], &cfg))
 			assert.Equal(t, classicConfig{
-				Cookie: "ui=next", OptIn: sub + "/-/next/opt-in", OptOut: sub + "/-/next/opt-out",
+				Cookie: "ui=next", Base: sub + "/-/next/", OptIn: sub + "/-/next/opt-in", OptOut: sub + "/-/next/opt-out",
 				Prefetch: []string{sub + "/-/next/assets/index-abc.js", sub + "/-/next/assets/vendor-def.js"},
 			}, cfg)
 			assert.Equal(t, http.StatusNotModified, get(t, h, sub+"/-/next/classic.js", "If-None-Match", rec.Header().Get("ETag")).Code)

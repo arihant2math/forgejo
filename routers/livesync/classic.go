@@ -38,12 +38,38 @@ const classicJS = `// Forgejo Next on classic pages (routers/livesync/classic.go
 (() => {
   const c = %s;
   const on = document.cookie.split(/;\s*/).includes(c.cookie);
-  const a = document.createElement("a");
-  a.id = "forgejo-next-toggle";
-  a.href = (on ? c.opt_out : c.opt_in) + "?redirect=" + encodeURIComponent(location.pathname + location.search + location.hash);
-  a.textContent = on ? "Turn off Forgejo Next" : "Try Forgejo Next";
-  a.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:1000;padding:2px 10px;border-radius:999px;font-size:12px;line-height:20px;text-decoration:none;background:var(--color-primary,#4183c4);color:var(--color-primary-contrast,#fff)";
-  document.body.append(a);
+  const here = location.pathname + location.search + location.hash;
+  const pill = (href, text) => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.textContent = text;
+    a.style.cssText = "padding:2px 10px;border-radius:999px;font-size:12px;line-height:20px;text-decoration:none;background:var(--color-primary,#4183c4);color:var(--color-primary-contrast,#fff)";
+    return a;
+  };
+  const box = document.createElement("div");
+  box.id = "forgejo-next-toggle";
+  box.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:1000;display:flex;gap:6px";
+  if (on) {
+    // Opted in, on a page the UI does not render (or asked for with ?ui=classic): the way back to the UI's
+    // page for it (a code view mirrors the classic path below c.base), and the way out.
+    const url = new URL(location.href);
+    let back = c.base;
+    if (url.searchParams.get("ui") === "classic") {
+      url.searchParams.delete("ui");
+      back = url.pathname + url.search + url.hash;
+    } else {
+      const sub = c.base.slice(0, -"/-/next/".length);
+      const p = location.pathname.slice(sub.length);
+      if (/^\/[^/]+\/[^/]+\/(src|blame|commits?|branches|tags|releases|actions|compare)(\/|$)/.test(p)) back = c.base + "code" + p.replace(/\/$/, "") + "/-";
+    }
+    box.append(pill(back, "Back to Forgejo Next"));
+    const off = pill(c.opt_out + "?redirect=" + encodeURIComponent(here), "Turn off");
+    off.style.opacity = "0.75";
+    box.append(off);
+  } else {
+    box.append(pill(c.opt_in + "?redirect=" + encodeURIComponent(here), "Try Forgejo Next"));
+  }
+  document.body.append(box);
   if (navigator.connection && navigator.connection.saveData) return;
   const idle = (f) => (window.requestIdleCallback ? window.requestIdleCallback(f) : setTimeout(f, 1000));
   idle(() => {
@@ -61,6 +87,7 @@ const classicJS = `// Forgejo Next on classic pages (routers/livesync/classic.go
 // classicConfig is what the script needs.
 type classicConfig struct {
 	Cookie   string   `json:"cookie"`
+	Base     string   `json:"base"`
 	OptIn    string   `json:"opt_in"`
 	OptOut   string   `json:"opt_out"`
 	Prefetch []string `json:"prefetch"`
@@ -113,6 +140,7 @@ func (s *spa) classicScript() (*spaBody, error) {
 	}
 	cfg, err := json.Marshal(classicConfig{
 		Cookie:   protocol.NextUICookie + "=" + protocol.NextUICookieValue,
+		Base:     setting.AppSubURL + nextBase,
 		OptIn:    setting.AppSubURL + nextPrefix + "/opt-in",
 		OptOut:   setting.AppSubURL + nextPrefix + "/opt-out",
 		Prefetch: bootFiles(index.raw),

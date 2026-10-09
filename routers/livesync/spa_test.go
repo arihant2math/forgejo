@@ -101,7 +101,8 @@ func TestSPARoute(t *testing.T) {
 		"/user2/repo1/issues/new":   false,
 		"/user2/repo1/issues/0":     false,
 		"/user2/repo1/issues/1/x":   false,
-		"/user2/repo1":              false,
+		"/user2/repo1":              true,
+		"/user2/repo1.wiki":         false,
 		"/api/v1/issues":            false, // reserved owner names are upstream's routes
 		"/user/settings/issues":     false,
 		"/admin/repo1/pulls":        false,
@@ -221,7 +222,8 @@ func TestSPAServing(t *testing.T) {
 			} {
 				assert.Equal(t, 299, get(t, h, sub+"/user2/repo1/issues/1", header...).Code, name)
 			}
-			for _, p := range []string{"/user2/repo1/issues/new", "/api/v1/issues", "/user2/repo1"} {
+			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2/repo1", opted...).Code, "a repository's home")
+			for _, p := range []string{"/user2/repo1/issues/new", "/api/v1/issues", "/user2/repo1/settings", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic"} {
 				assert.Equal(t, 299, get(t, h, sub+p, opted...).Code, p)
 			}
 			req := httptest.NewRequest(http.MethodPost, sub+"/user2/repo1/issues/1", nil)

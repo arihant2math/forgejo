@@ -161,6 +161,10 @@ ENABLED = false
 
 ${NEXT_FORGEJO_EXTRA_INI:-}
 EOF
+  # The Forgejo Next toggle on classic pages (routers/livesync/classic.go): "Try Forgejo Next", and once opted
+  # in "Back to Forgejo Next" / "Turn off". Operators install the same file (the admin page shows it).
+  mkdir -p "$WORK/custom/templates/custom"
+  cp "$REPO/routers/livesync/classic_header.tmpl" "$WORK/custom/templates/custom/header.tmpl"
 }
 
 start() {

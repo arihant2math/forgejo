@@ -12,7 +12,9 @@ package protocol
 // that opted in (cookie NextUICookie=NextUICookieValue, set by
 // GET|POST /-/next/opt-in and cleared by /-/next/opt-out, both taking
 // ?redirect=<same-site path>), on the canonical Forgejo URLs the UI
-// supports (the table in routers/livesync/spa.go). Under an AppSubURL every
+// supports (the table in routers/livesync/spa.go), unless the URL has
+// ?ui=classic (the UI's links to the classic page of one of its own
+// routes; the opt-in stays). Under an AppSubURL every
 // "/-/next/" string literal of the build (Vite's base, also
 // import.meta.env.BASE_URL) and every attribute of index.html that starts
 // with it is rewritten to {app_sub_url}/-/next/ when served; never build a

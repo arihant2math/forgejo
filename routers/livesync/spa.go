@@ -50,10 +50,11 @@ import (
 // "{repo}" (a usable repository name) or "{index}" (a number). Extend this
 // table when the UI supports a route (F3–F7).
 var spaRoutes = [][]string{
-	{},                // the dashboard
-	{"notifications"}, // the inbox
-	{"issues"},        // the viewer's issues
-	{"pulls"},         // the viewer's pull requests
+	{},                    // the dashboard
+	{"notifications"},     // the inbox
+	{"issues"},            // the viewer's issues
+	{"pulls"},             // the viewer's pull requests
+	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
 	{"{owner}", "{repo}", "issues", "{index}"},
 	{"{owner}", "{repo}", "pulls"},
@@ -96,6 +97,13 @@ next:
 		return true
 	}
 	return false
+}
+
+// classicRequested reports whether the URL asks for the classic page
+// (?ui=classic): the UI's "Open in the classic UI" links on its canonical
+// routes, which would otherwise serve the UI again. The opt-in stays.
+func classicRequested(req *http.Request) bool {
+	return req.URL.Query().Get(protocol.NextUICookie) == "classic"
 }
 
 // optedIn reports whether req is a document navigation (Sec-Fetch-Dest:
@@ -633,7 +641,7 @@ func (s *spa) serveIndex(w http.ResponseWriter, req *http.Request, canonical boo
 // canonical route the UI supports (and there is a build): it gets the UI's
 // document instead of the classic page.
 func (s *spa) document(req *http.Request) bool {
-	if !optedIn(req) || !s.available() {
+	if !optedIn(req) || !s.available() || classicRequested(req) {
 		return false
 	}
 	p := normalizeSlashes(req.URL.Path)

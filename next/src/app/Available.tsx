@@ -31,7 +31,7 @@ export const AvailableOffline = observer(function AvailableOffline() {
       <ul className="flex flex-col items-center gap-1 text-base">
         {VIEWS.map((v) => <li key={v.to}><TextLink><Link to={v.to}>{v.label}</Link></TextLink></li>)}
         {repos.map((r) => (
-          <li key={r.id}><TextLink><Link to="/$owner/$repo" params={{owner: r.owner_name, repo: r.name}}>{r.full_name}</Link></TextLink></li>
+          <li key={r.id}><TextLink><Link to="/$owner/$repo" params={{owner: r.owner_name, repo: r.name}} activeOptions={{exact: true}}>{r.full_name}</Link></TextLink></li>
         ))}
       </ul>
     </nav>

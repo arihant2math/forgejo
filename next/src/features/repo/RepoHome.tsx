@@ -236,7 +236,7 @@ const ForkOf = observer(function ForkOf({parentId}: {parentId: number}) {
   if (!p) return null;
   return (
     <Property label="Forked from">
-      <PropertyValue><TextLink><Link to="/$owner/$repo" params={{owner: p.owner_name, repo: p.name}}>{p.full_name}</Link></TextLink></PropertyValue>
+      <PropertyValue><TextLink><Link to="/$owner/$repo" params={{owner: p.owner_name, repo: p.name}} activeOptions={{exact: true}}>{p.full_name}</Link></TextLink></PropertyValue>
     </Property>
   );
 });

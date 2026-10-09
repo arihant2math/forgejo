@@ -97,8 +97,8 @@ export const BoardsList = observer(function BoardsList() {
             {sorted.map(({place: pl, list}) => (
               <Panel key={pl.key} label={pl.key || 'Other'} padded
                 title={pl.repo ?
-                  <TextLink><Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}}>{pl.key}</Link></TextLink> :
-                  pl.owner ? <TextLink><Link to="/$owner" params={{owner: pl.owner}}>{pl.owner}</Link></TextLink> : 'Other'}
+                  <TextLink><Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}}>{pl.key}</Link></TextLink> :
+                  pl.owner ? <TextLink><Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}}>{pl.owner}</Link></TextLink> : 'Other'}
                 actions={pl.owner && (
                   <ClassicLink size="sm" to={pl.repo ? `/${encodeURIComponent(pl.owner)}/${encodeURIComponent(pl.repo)}/projects/new` : `/${encodeURIComponent(pl.owner)}/-/projects/new`}>New board</ClassicLink>
                 )}>

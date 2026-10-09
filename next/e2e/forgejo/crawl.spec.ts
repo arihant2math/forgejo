@@ -64,10 +64,14 @@ const EXPECTED_HTTP: {status: number; path: RegExp; why: string}[] = [
     status: 404, path: /^\/api\/v1\/orgs\/[^/]+$/,
     why: 'the page of an owner this device does not know asks the org endpoint whether it is an organization (API v1 users have no type): 404 is a user',
   },
+  {
+    status: 404, path: /^\/api\/v1\/repos\/[^/]+\/nothing-/,
+    why: 'the crawler types the address of a repository that does not exist: the app asks Forgejo, which answers 404',
+  },
 ];
 
 /** The ⌘K commands that navigate (others change the theme, sign out, or open classic pages). */
-const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go home', 'Your profile and repositories'];
+const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile and repositories'];
 const PALETTE_IN_REPO = ['Go to the code of this repository'];
 
 type Step =
@@ -173,6 +177,29 @@ async function linksOf(page: Page): Promise<Seen[]> {
 async function deadEnd(page: Page): Promise<string | undefined> {
   const text = await page.getByRole('main').innerText().catch(() => '');
   return text.split('\n').map((l) => l.trim()).find((l) => NOT_HERE.test(l));
+}
+
+/**
+ * What must hold on every page of the app (QA verify3: each slipped past the link walk). One `aria-current="page"`
+ * per navigation group (two type tabs of /pulls?type=… were current); no horizontal overflow of the page (a long
+ * log or file line widened it, taking the headers along); the sidebar marks where you are on its own pages and on
+ * the crawl repository's (folded or beyond its first rows, no row was current).
+ */
+async function invariants(page: Page, sidebarCurrent: boolean): Promise<string[]> {
+  return page.evaluate((wantCurrent) => {
+    const out: string[] = [];
+    const groups = new Map<Element, string[]>();
+    for (const el of document.querySelectorAll('main [aria-current="page"], header [aria-current="page"]')) {
+      const g = el.closest('nav, [role="tablist"], [role="group"], [role="radiogroup"], header') ?? document.body;
+      groups.set(g, [...groups.get(g) ?? [], (el as HTMLElement).innerText.trim()]);
+    }
+    for (const names of groups.values()) if (names.length > 1) out.push(`${String(names.length)} items are aria-current="page" in one group: ${names.join(' | ')}`);
+    const scroller = document.querySelector('[data-scroll-restoration-id="page"]');
+    if (scroller && scroller.scrollWidth > scroller.clientWidth + 1) out.push(`the page scrolls sideways (${String(scroller.scrollWidth)} > ${String(scroller.clientWidth)} px)`);
+    if (document.documentElement.scrollWidth > innerWidth + 1) out.push(`the document is wider than the window (${String(document.documentElement.scrollWidth)} px)`);
+    if (wantCurrent && !document.querySelector('aside[aria-label="Sidebar"] [aria-current="page"], aside[aria-label="Sidebar"] [aria-current="true"]')) out.push('no sidebar item is current');
+    return out;
+  }, sidebarCurrent);
 }
 
 test.beforeAll(async ({browser}) => {
@@ -312,6 +339,9 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     }
     const dead = await deadEnd(page);
     if (dead) failures.push(`"${dead}": ${via} → ${new URL(url).pathname}`);
+    const here = new URL(url).pathname;
+    const sidebarPage = ['/', '/notifications', '/issues', '/pulls', '/-/next/boards'].includes(here) || here === `/${USER}/${REPO}` || here.startsWith(`/${USER}/${REPO}/`);
+    for (const f of await invariants(page, sidebarPage)) failures.push(`${f}: ${via} → ${here}${new URL(url).search}`);
     const depth = v?.depth ?? 0;
     // An issue or a pull request page lets the user go (sidebar Home) and come back (Back).
     if (/^\/:owner\/:repo\/(?:issues|pulls)\/:n/.test(pattern) && !patterns.has(`leave:${pattern}`)) {
@@ -406,6 +436,30 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     const dead = await deadEnd(page);
     if (dead) failures.push(`"${dead}": ${via}`);
     if (!await page.locator('aside[aria-label="Sidebar"]').count()) failures.push(`left the app: ${via} → ${page.url()}`);
+  }
+  // Addresses that must land on the canonical page or say "Not found" the one way (QA verify3): a name in another
+  // case, a name below the base the app has no page for (it asked Forgejo for a user twice and said "missing
+  // user"), the temporary address of an issue created offline on another device (the classic 404), an issue
+  // nobody has (the tab said "#99999 · …").
+  const canonical: [string, string][] = [[`/${USER.toUpperCase()}/${REPO.toUpperCase()}/issues`, `/${USER}/${REPO}/issues`]];
+  for (const [path, want] of canonical) {
+    await page.goto(new URL(path, BASE).href);
+    await settle(page);
+    visited.push({pattern: `typed:${path}`, url: path, via: `typed ${path}`, depth: 0});
+    const at = new URL(page.url()).pathname;
+    if (at !== want) failures.push(`typed ${path} stays at ${at}, not the canonical ${want}`);
+  }
+  const missing = [`/-/next/nothing-${RUN}`, `/${USER}/${REPO}/issues/99999`, `/${USER}/${REPO}/issues/new-0f8fad5b-d9cb-469f-a165-70867728950e`, `/${USER}/nothing-${RUN}`];
+  for (const path of missing) {
+    await page.goto(new URL(path, BASE).href);
+    await settle(page);
+    visited.push({pattern: `missing:${path}`, url: path, via: `typed ${path}`, depth: 0});
+    if (!await page.locator('aside[aria-label="Sidebar"]').count()) {
+      failures.push(`left the app: typed ${path} → ${page.url()} ("${await page.title()}")`);
+      continue;
+    }
+    if (await deadEnd(page) !== 'Not found') failures.push(`typed ${path} does not say "Not found": "${await deadEnd(page) ?? ''}"`);
+    if (!(await page.title()).startsWith('Not found')) failures.push(`typed ${path}: the tab says "${await page.title()}", not "Not found"`);
   }
   const classicPages = [
     `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,

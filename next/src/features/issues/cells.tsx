@@ -207,7 +207,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
   if (!id || !u.login) return <span className="font-medium text-fg">{id ? u.name : fallback}</span>;
-  return <span className="font-medium"><TextLink wrap><Link to="/$owner" params={{owner: u.login}}>{u.name}</Link></TextLink></span>;
+  return <span className="font-medium"><TextLink wrap><Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}}>{u.name}</Link></TextLink></span>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm'}: {id: number; size?: 'sm' | 'md' | 'lg'}) {

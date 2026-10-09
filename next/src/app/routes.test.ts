@@ -20,8 +20,9 @@ function serverRoutes(): string[] {
   const start = spa.indexOf('var spaRoutes = [][]string{');
   const end = spa.indexOf('\n}', start);
   expect(start).toBeGreaterThan(0);
-  return [...spa.slice(start, end).matchAll(/^\s*\{(.*)\},/gm)].map((m) =>
-    `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => `$${p}`)).join('/')}`);
+  // `{temp}` (an issue created offline, "new-<uuid>") is the issue route's `$index` too (IssueView reads both).
+  return [...new Set([...spa.slice(start, end).matchAll(/^\s*\{(.*)\},/gm)].map((m) =>
+    `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => `$${p === 'temp' ? 'index' : p}`)).join('/')}`))];
 }
 
 function router() {

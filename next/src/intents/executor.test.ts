@@ -13,7 +13,7 @@ import {Pool} from '../data/pool.ts';
 import {ALICE, DEV, FakeForgejo, REPO} from '../test/fakeForgejo.ts';
 import {comment, issue, repo, T, user} from '../test/fakeSession.ts';
 import {World} from '../test/fakeTabs.ts';
-import {type IntentInput, intentOps, newIntent, remapIntent, tempNum, tempRefs} from './intents.ts';
+import {type IntentInput, intentOps, newIntent, remapIntent, tempNum, tempRefs, uuid, withIssue} from './intents.ts';
 import {Overlay} from './overlay.ts';
 import {requestFor} from './rest.ts';
 import {IntentDb} from './store.ts';
@@ -307,6 +307,39 @@ describe('the queue', () => {
     const [draft] = await new IntentDb(world.db).drafts();
     expect(draft?.refused).toBe(true);
     expect(draft?.reason).toMatch(/unpin one first/);
+    world.close();
+  });
+
+  test('adding a label Forgejo deleted meanwhile fails, named, instead of being acked silently (QA verify3)', async () => {
+    const server = new FakeForgejo();
+    server.deletedLabels.add(2);
+    const failed = vi.fn();
+    const world = new World(server, 1, {onFailed: failed, names: () => ({label: (id) => (id === 2 ? 'tmp' : ''), issue: (id) => (id === 1 ? 7 : undefined)})});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle();
+    expect(failed).toHaveBeenCalledTimes(1);
+    const [draft] = await new IntentDb(world.db).drafts();
+    expect(draft?.reason).toBe('The label no longer exists on Forgejo.');
+    expect(draft?.refused).toBe(true);
+    expect(draft?.issueNumber).toBe(7);
+    expect(withIssue(draft?.title ?? '', draft?.issueNumber)).toBe('Adding the label “tmp” to #7');
+    expect(untracked(() => issueLabelIds(tab.pool, tab.overlay, 1))).toEqual([]);
+    world.close();
+  });
+
+  test('a Go error name is no message: the 404 says what is gone (QA verify3: "IsErrIssueNotExist.")', async () => {
+    const server = new FakeForgejo();
+    const s = scripted(server, [answer(404, {message: 'IsErrIssueNotExist'})]);
+    const world = new World(server, 1, {fetch: s.fetch});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'comment.create', tempId: uuid(), body: 'hi'});
+    await world.settle();
+    const [draft] = await new IntentDb(world.db).drafts();
+    expect(draft?.reason).toBe('The issue is not there any more, or you cannot see it.');
+    expect(draft?.text).toBe('hi');
     world.close();
   });
 

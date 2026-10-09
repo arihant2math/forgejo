@@ -100,14 +100,15 @@ const NOT_DISCARDED = {
   unknown: 'Could not tell whether it was sent: check the issue.',
 } as const;
 
-/** "#12 · dev/big" for an intent's issue, from the pool. */
-function where(app: App, i: Pick<Intent, 'issueId' | 'repoId'> | undefined): {meta: string; path: string | undefined} {
+/** "#12 · dev/big" for an intent's issue, from the pool (else the number it had when the change was made). */
+function where(app: App, i: Pick<Intent, 'issueId' | 'repoId'> | undefined, known?: number): {meta: string; path: string | undefined} {
   const pool = app.session?.data.pool;
   if (!pool || !i) return {meta: '', path: undefined};
   return untracked(() => {
     const repo = pool.model('Repository').get(i.repoId)?.data;
     const issue = pool.model('Issue').get(i.issueId)?.data;
-    const number = issue ? `#${String(issue.number)}` : i.issueId < 0 ? 'new issue' : '';
+    const n = issue?.number ?? known;
+    const number = n !== undefined ? `#${String(n)}` : i.issueId < 0 ? 'new issue' : '';
     const path = repo && issue ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/${issue.is_pull ? 'pulls' : 'issues'}/${String(issue.number)}` : undefined;
     return {meta: [number, repo?.full_name].filter(Boolean).join(' · '), path};
   });
@@ -132,7 +133,7 @@ function copy(app: App, text: string): void {
 
 function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: () => void}) {
   const navigate = useNavigate();
-  const w = where(app, rec.intent);
+  const w = where(app, rec.intent, rec.issueNumber);
   return (
     <Entry
       leading={<Icon icon={GitMerge} className="text-warning"/>}
@@ -157,7 +158,7 @@ function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: (
 
 const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft: DraftRecord}) {
   const {intents} = editing(app);
-  const w = where(app, draft.issueId === undefined || draft.repoId === undefined ? undefined : {issueId: draft.issueId, repoId: draft.repoId});
+  const w = where(app, draft.issueId === undefined || draft.repoId === undefined ? undefined : {issueId: draft.issueId, repoId: draft.repoId}, draft.issueNumber);
   return (
     <Entry
       leading={draft.kind === 'failed' ? <Icon icon={CircleAlert} className="text-danger"/> : <Icon icon={CircleDashed}/>}
@@ -191,7 +192,7 @@ function excerpt(text: string | undefined): string | undefined {
 }
 
 function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline: boolean}) {
-  const w = where(app, rec.intent);
+  const w = where(app, rec.intent, rec.issueNumber);
   const reachable = app.session?.data.status.connection !== 'unreachable';
   const state = rec.state === 'acked' ? 'Saved; waiting for it to sync back.' :
     rec.note ?? (!offline ? 'Sending…' : reachable ? 'Sent when you are back online.' : 'Sent when Forgejo can be reached again.');

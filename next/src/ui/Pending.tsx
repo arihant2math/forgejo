@@ -9,11 +9,13 @@ import {Hint, Icon} from './Icon.tsx';
 /**
  * Marks something Forgejo does not have yet (PLAN §5.4 "pending badge"). It
  * fades in only after --delay-pending: an online change confirmed sooner never
- * shows it (no flicker); offline it stays.
+ * shows it (no flicker); offline it stays. `now`: shown at once (offline, where
+ * no change is confirmed soon: a row scrolled into view or a list come back to
+ * does not wait a second to say so).
  */
-export function PendingIcon({label}: {label: string}) {
+export function PendingIcon({label, now = false}: {label: string; now?: boolean}) {
   return (
-    <span className="inline-flex animate-pending align-middle">
+    <span className={now ? 'inline-flex align-middle' : 'inline-flex animate-pending align-middle'}>
       <Hint label={label}><Icon icon={CloudUpload} size="sm" className="text-fg-subtle"/></Hint>
     </span>
   );

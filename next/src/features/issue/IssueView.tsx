@@ -52,6 +52,11 @@ export function findIssue(pool: Pool, repoId: number, index: number): Entity<'Is
   return undefined;
 }
 
+/** "#12", or "New" for an issue created offline that Forgejo has not numbered (its temporary index is negative). */
+function indexLabel(index: number): string {
+  return index < 0 ? 'New' : `#${String(index)}`;
+}
+
 export function IssueView() {
   const {owner, repo, repoId} = useRepoPage();
   const {index: raw = ''} = useParams({strict: false});
@@ -61,7 +66,7 @@ export function IssueView() {
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} title={`#${String(index)}`}/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} title={indexLabel(index)}/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
@@ -104,7 +109,7 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
   return (
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} title={<IssueTitle issue={issue} index={index}/>} detail={pull ? 'pulls' : 'issues'}
-        docTitle={`${issueTitle(editing(app).overlay, issue)} · ${index > 0 ? `#${String(index)}` : 'New'}`}/>
+        docTitle={`${issueTitle(editing(app).overlay, issue)} · ${indexLabel(index)}`}/>
       {pull && <PullTabs owner={owner} repo={repo} index={String(index)} tab={tab}/>}
       <PageBody ref={setScroller}>
         {pull && tab ? <PullTab issue={issue} owner={owner} repo={repo} tab={tab}/> : <IssueContent issue={issue} scroller={scroller}/>}
@@ -219,7 +224,7 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
   return (
     <>
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
-      <span className="text-fg-subtle tabular-nums">{index > 0 ? `#${String(index)}` : 'New'}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
+      <span className="text-fg-subtle tabular-nums">{indexLabel(index)}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </>
   );
 });
@@ -267,13 +272,17 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={`#${String(index)}`} detail="issues"/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={indexLabel(index)} detail="issues"/>
       <PageBody>
         {searching ?
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
           // Every page of the repository's issues has been asked: Forgejo has no such issue the viewer can see, and
           // its classic page would say the same (no classic link to a 404).
-          <Missing what="This issue" icon={SearchX}/>}
+          // A temporary address (an issue created offline) on a device that did not create it: its number is not
+          // known here.
+          <Missing what="This issue" icon={SearchX} description={index < 0 ?
+            'This address belongs to an issue created offline on another device. Find it in the repository’s issues.' :
+            undefined}/>}
       </PageBody>
     </>
   );

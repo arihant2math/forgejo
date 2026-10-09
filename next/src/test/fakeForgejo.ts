@@ -72,6 +72,8 @@ export class FakeForgejo {
   online = true;
   /** While set, requests wait for it (a request in flight). */
   gate: Promise<void> | undefined;
+  /** Labels deleted on the server: adding one does nothing (and the answer's list lacks it), as in Forgejo. */
+  readonly deletedLabels = new Set<number>();
 
   constructor(issueCount = 3, labelCount = 4) {
     for (let n = 1; n <= issueCount; n++) {
@@ -281,9 +283,10 @@ export class FakeForgejo {
       return [201, {id: s.id, number: s.number}];
     }
     if (rest === '/labels' && method === 'POST') {
-      for (const l of b.labels as number[]) s.labels.add(l);
+      for (const l of b.labels as number[]) if (!this.deletedLabels.has(l)) s.labels.add(l);
       this.emitIssue(s, false, prev);
-      return [200, []];
+      // API v1 answers with the issue's labels.
+      return [200, [...s.labels].map((id) => ({id}))];
     }
     const lm = /^\/labels\/(\d+)$/.exec(rest);
     if (lm && method === 'DELETE') {

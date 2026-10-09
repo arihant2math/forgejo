@@ -14,13 +14,13 @@ import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useId, useRef, useState} from 'react';
-import {notify} from '../../app/notices.ts';
+import {dismissSeries, notify} from '../../app/notices.ts';
 import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
-import {editing} from '../../intents/session.ts';
+import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
 import {commentBody, issueBody, issueTitle} from '../../intents/view.ts';
 import {
   Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
@@ -416,23 +416,27 @@ export function CommentComposer({issueId, repoId}: {issueId: number; repoId: num
 /** Changes of yours that overrode someone's newer value (last writer wins), with one-click undo. */
 export const Overrides = observer(function Overrides({issueId}: {issueId: number}) {
   const app = useApp();
-  const {data} = useSession();
   const {intents} = editing(app);
   const mine = intents.overrides.filter((o) => o.issueId === issueId);
+  // Said here: the notice of the same override goes (one message, one wording).
+  const ids = mine.map((o) => o.id).join(' ');
+  useEffect(() => {
+    for (const id of ids.split(' ')) if (id) dismissSeries(app, overrideSeries(id));
+  }, [app, ids]);
   if (!mine.length) return null;
   return (
     <div className="flex flex-col gap-2">
       {mine.map((o) => {
-        const who = o.who ? untracked(() => data.pool.model('User').get(o.who)?.data.login) : undefined;
+        const words = overrideWords(app, o);
         return (
-          <Callout key={o.id} title={`You overrode ${who ? `@${who}’s` : 'a newer'} change to the ${o.field}`} actions={<>
+          <Callout key={o.id} title={words.title} actions={<>
             <Button size="sm" onClick={() => {
               intents.undoOverride(o.id);
             }}>Undo</Button>
             <Button size="sm" variant="ghost" onClick={() => {
               intents.dismissOverride(o.id);
             }}>Dismiss</Button>
-          </>}>It changed on Forgejo while you were offline; your change was applied last.</Callout>
+          </>}>{words.description}</Callout>
         );
       })}
     </div>

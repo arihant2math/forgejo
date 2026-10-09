@@ -17,6 +17,7 @@ import {observer} from 'mobx-react-lite';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import {useApp} from '../../app/store.ts';
+import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {editing} from '../../intents/session.ts';
@@ -329,9 +330,10 @@ export const TitleCell = observer(function TitleCell({issue}: {issue: Entity<'Is
  * have yet. Observes the issue's pending count only.
  */
 export const PendingCell = observer(function PendingCell({issueId}: {issueId: number}) {
-  const n = editing(useApp()).intents.pendingOn(issueId);
+  const app = useApp();
+  const n = editing(app).intents.pendingOn(issueId);
   if (!n) return null;
-  return <PendingIcon label={`${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`}/>;
+  return <PendingIcon label={`${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`} now={reach(app.session?.data.status.connection) !== 'online'}/>;
 });
 
 /** How many rows of a list are selected (X), with the way out; nothing without a selection (lists, the inbox). */

@@ -336,6 +336,20 @@ export interface Names {
   label?: (id: number) => string;
   user?: (id: number) => string;
   milestone?: (id: number) => string;
+  /** An issue's number (undefined: not on the device, or not created yet). */
+  issue?: (id: number) => number | undefined;
+}
+
+/**
+ * A change's words naming its issue ("Closing #12", "Posting a comment on #12") for a notice outside the issue's
+ * page; the words alone without a number.
+ */
+export function withIssue(title: string, issueNumber: number | undefined): string {
+  if (issueNumber === undefined) return title;
+  const ref = `#${String(issueNumber)}`;
+  if (title.includes('the issue')) return title.replace('the issue', ref);
+  const prep = /^(Adding|Assigning)\b/.test(title) ? 'to' : /^(Removing|Unassigning)\b/.test(title) ? 'from' : 'on';
+  return `${title} ${prep} ${ref}`;
 }
 
 /** Short words for notices and the "Unsynced changes" panel ("Adding the label “bug”", …). */

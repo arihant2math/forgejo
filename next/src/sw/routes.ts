@@ -49,6 +49,9 @@ export function isOwnerName(s: string): boolean {
   return NAME.test(s) && !RESERVED.has(s.toLowerCase()) && !RESERVED_SUFFIX.test(s);
 }
 
+/** The address segment of an issue created offline (spa.go reTempIssue). */
+const TEMP_ISSUE = /^new-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/;
+
 /**
  * Whether a site path (and its query) is a canonical route the app renders (B8 spaRoutes):
  * `/`, `/notifications`, `/issues`, `/pulls`, `/{owner}`, `/{owner}/{repo}`, `/{owner}/{repo}/issues[/{n}]`,
@@ -72,7 +75,8 @@ export function isSpaRoute(path: string, search = ''): boolean {
   if (codeAddress(segs.slice(2))) return true;
   if (segs.length > 4) return false;
   if (kind !== 'issues' && kind !== 'pulls') return false;
-  return n === undefined || /^[1-9]\d{0,17}$/.test(n);
+  // An issue created offline is at "new-<uuid>" until Forgejo numbers it (features/issue/paths.ts TEMP_PATH).
+  return n === undefined || /^[1-9]\d{0,17}$/.test(n) || (kind === 'issues' && TEMP_ISSUE.test(n));
 }
 
 /** spa.go `codeAddress`: what follows a repository in a code page's address (the app's code views mirror it). */

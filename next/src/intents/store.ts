@@ -60,6 +60,8 @@ export interface IntentRecord {
    * pool (a revoked repository's labels) still says which label.
    */
   title?: string;
+  /** The issue's number when it was made: a draft whose issue was deleted meanwhile still says which one. */
+  issueNumber?: number;
 }
 
 export interface DraftRecord {
@@ -82,6 +84,8 @@ export interface DraftRecord {
   title: string;
   issueId?: number;
   repoId?: number;
+  /** failed: the issue's number (from when the change was made). */
+  issueNumber?: number;
   /** ms since epoch. */
   at: number;
 }

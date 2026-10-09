@@ -203,18 +203,27 @@ export interface APIViewedUpdate {
  * images resolve from the file's directory at Ref ("branch/main",
  * "tag/v1.0", "commit/<sha>"), root-relative ones from the repository's
  * root at Ref. Permission: the repository's code unit.
+ * With Commit (a full SHA) the server reads the file at Commit/Path itself
+ * and Text is ignored: a repository's README renders in one round trip,
+ * without the client fetching its tree and its blob first (the client asks
+ * for README.md with the tree, before it knows the name: no such file is
+ * an answer, Missing, not an error; 404 for no such commit, 413 for a file
+ * too large to display).
  */
 export interface APIMarkupRequest {
   repo_id: number /* int64 */;
   ref: string;
   path: string;
   text: string;
+  commit?: string;
 }
 /**
- * APIMarkupResponse is the rendered (sanitized) HTML.
+ * APIMarkupResponse is the rendered (sanitized) HTML; Missing: the request
+ * named a Commit and there is no file at Path.
  */
 export interface APIMarkupResponse {
   html: string;
+  missing?: boolean;
 }
 /**
  * APIMarkdownRequest renders markdown previews in one request (at most 64

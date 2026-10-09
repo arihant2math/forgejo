@@ -231,16 +231,26 @@ type APIViewedUpdate struct {
 // images resolve from the file's directory at Ref ("branch/main",
 // "tag/v1.0", "commit/<sha>"), root-relative ones from the repository's
 // root at Ref. Permission: the repository's code unit.
+//
+// With Commit (a full SHA) the server reads the file at Commit/Path itself
+// and Text is ignored: a repository's README renders in one round trip,
+// without the client fetching its tree and its blob first (the client asks
+// for README.md with the tree, before it knows the name: no such file is
+// an answer, Missing, not an error; 404 for no such commit, 413 for a file
+// too large to display).
 type APIMarkupRequest struct {
 	RepoID int64  `json:"repo_id"`
 	Ref    string `json:"ref"`
 	Path   string `json:"path"`
 	Text   string `json:"text"`
+	Commit string `json:"commit,omitempty"`
 }
 
-// APIMarkupResponse is the rendered (sanitized) HTML.
+// APIMarkupResponse is the rendered (sanitized) HTML; Missing: the request
+// named a Commit and there is no file at Path.
 type APIMarkupResponse struct {
-	HTML string `json:"html"`
+	HTML    string `json:"html"`
+	Missing bool   `json:"missing,omitempty"`
 }
 
 // APIMarkdownRequest renders markdown previews in one request (at most 64

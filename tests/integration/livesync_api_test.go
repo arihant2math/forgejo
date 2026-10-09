@@ -31,6 +31,7 @@ import (
 	user_model "forgejo.org/models/user"
 	webhook_model "forgejo.org/models/webhook"
 	actions_module "forgejo.org/modules/actions"
+	"forgejo.org/modules/gitrepo"
 	"forgejo.org/modules/json"
 	api "forgejo.org/modules/structs"
 	webhook_module "forgejo.org/modules/webhook"
@@ -666,6 +667,23 @@ func livesyncAPIMarkup(t *testing.T, user2, user5 string) {
 	assert.Contains(t, out.HTML, `href="/user2/repo1/src/branch/master/x.go"`)
 	assert.Contains(t, out.HTML, `href="/user2/repo1/src/branch/master/README.md"`)
 	assert.Contains(t, out.HTML, `src="/user2/repo1/media/branch/master/logo.svg"`)
+	// The file read by the server at a commit (a README in one round trip); no such file (an answer); no such commit.
+	repo1 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	gitRepo, err := gitrepo.OpenRepository(t.Context(), repo1)
+	require.NoError(t, err)
+	head, err := gitRepo.GetBranchCommitID("master")
+	require.NoError(t, err)
+	commit, err := gitRepo.GetCommit(head)
+	require.NoError(t, err)
+	readme, err := commit.GetFileContent("README.md", 1024)
+	gitRepo.Close()
+	require.NoError(t, err)
+	DecodeJSON(t, MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Ref: "branch/master", Path: "README.md", Commit: head}), http.StatusOK), &out)
+	assert.False(t, out.Missing)
+	assert.Contains(t, out.HTML, strings.TrimSpace(strings.SplitN(strings.TrimLeft(readme, "# "), "\n", 2)[0]))
+	DecodeJSON(t, MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Ref: "branch/master", Path: "NOPE.md", Commit: head}), http.StatusOK), &out)
+	assert.True(t, out.Missing)
+	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Ref: "branch/master", Path: "README.md", Commit: "abc"}), http.StatusNotFound)
 	// A private repository the viewer may not read; a malformed ref or path.
 	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user5, protocol.APIMarkupRequest{RepoID: 2, Ref: "branch/master", Path: "a.md", Text: "x"}), http.StatusNotFound)
 	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Ref: "master", Path: "a.md", Text: "x"}), http.StatusBadRequest)

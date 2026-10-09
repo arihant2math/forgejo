@@ -5,12 +5,16 @@ package livesync
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"path"
 	"strings"
 
 	repo_model "forgejo.org/models/repo"
+	"forgejo.org/modules/git"
+	"forgejo.org/modules/gitrepo"
 	"forgejo.org/modules/markup"
+	"forgejo.org/modules/setting"
 	"forgejo.org/modules/util"
 	"forgejo.org/services/livesync/protocol"
 )
@@ -48,6 +52,17 @@ func apiMarkup(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	}
+	text := body.Text
+	if body.Commit != "" {
+		var ok, missing bool
+		if text, missing, ok = a.fileText(repo, body.Commit, body.Path); !ok {
+			return
+		}
+		if missing {
+			a.json(http.StatusOK, protocol.APIMarkupResponse{Missing: true})
+			return
+		}
+	}
 	branchPath := kind + "/" + util.PathEscapeSegments(name)
 	metas := repo.ComposeDocumentMetas(a.ctx)
 	metas["BranchNameSubURL"] = branchPath
@@ -61,7 +76,7 @@ func apiMarkup(w http.ResponseWriter, req *http.Request) {
 			TreePath:   path.Dir(body.Path),
 		},
 		Metas: metas,
-	}, strings.NewReader(body.Text), &out); err != nil {
+	}, strings.NewReader(text), &out); err != nil {
 		if markup.IsErrUnsupportedRenderExtension(err) || markup.IsErrMissingExtension(err) {
 			a.error(http.StatusUnprocessableEntity, err.Error())
 		} else {
@@ -70,4 +85,57 @@ func apiMarkup(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	a.json(http.StatusOK, protocol.APIMarkupResponse{HTML: out.String()})
+}
+
+// fileText reads a repository file's text at a commit (the markup request's
+// Commit): missing when there is no such file (or it is a directory), 404
+// for no such commit, 413 for a file larger than the classic view
+// displays. It answers the request itself when it fails (ok false).
+func (a *apiRequest) fileText(repo *repo_model.Repository, sha, treePath string) (text string, missing, ok bool) {
+	if !validSHA(repo, sha) || repo.IsEmpty {
+		a.notFound()
+		return "", false, false
+	}
+	gitRepo, err := gitrepo.OpenRepository(a.ctx, repo)
+	if err != nil {
+		a.internal("open the repository", err)
+		return "", false, false
+	}
+	defer gitRepo.Close()
+	commit, err := gitRepo.GetCommit(sha)
+	if err != nil {
+		if git.IsErrNotExist(err) {
+			a.notFound()
+		} else {
+			a.internal("load the commit", err)
+		}
+		return "", false, false
+	}
+	entry, err := commit.GetTreeEntryByPath(treePath)
+	switch {
+	case git.IsErrNotExist(err):
+		return "", true, true
+	case err != nil:
+		a.internal("load the file", err)
+		return "", false, false
+	case entry.IsDir() || entry.IsSubmodule():
+		return "", true, true
+	}
+	blob := entry.Blob()
+	if blob.Size() > setting.UI.MaxDisplayFileSize {
+		a.error(http.StatusRequestEntityTooLarge, "the file is too large to render")
+		return "", false, false
+	}
+	rd, err := blob.DataAsync()
+	if err != nil {
+		a.internal("read the file", err)
+		return "", false, false
+	}
+	defer rd.Close()
+	data, err := io.ReadAll(io.LimitReader(rd, setting.UI.MaxDisplayFileSize))
+	if err != nil {
+		a.internal("read the file", err)
+		return "", false, false
+	}
+	return string(data), false, true
 }

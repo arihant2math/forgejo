@@ -60,7 +60,67 @@ var spaRoutes = [][]string{
 	{"{owner}", "{repo}", "issues", "{index}"},
 	{"{owner}", "{repo}", "pulls"},
 	{"{owner}", "{repo}", "pulls", "{index}"},
+	{"{owner}", "{repo}", "{code}"}, // a code address (codeAddress); the app opens its code view for it
 }
+
+// codeAddress reports whether the segments after a repository name a code
+// page the UI renders (its code views below the base mirror these paths:
+// next/src/code/refs.ts parseCodePath) or a pull request's Files or
+// Commits tab: a pasted /{owner}/{repo}/src/branch/main/README.md opens
+// the UI's page, as the issue and pull request addresses do. Keep in step
+// with isSpaRoute in next/src/sw/routes.ts.
+func codeAddress(rest []string) bool {
+	if len(rest) == 0 {
+		return false
+	}
+	for _, s := range rest {
+		if s == "" || s == "." || s == ".." {
+			return false
+		}
+	}
+	number := func(s string) bool {
+		n, err := strconv.ParseInt(s, 10, 64)
+		return err == nil && n > 0
+	}
+	switch rest[0] {
+	case "src", "blame", "commits":
+		if len(rest) == 1 {
+			return true
+		}
+		switch rest[1] {
+		case "branch", "tag", "commit":
+			return len(rest) >= 3
+		}
+		return false
+	case "commit":
+		return len(rest) == 2 && shaPattern.MatchString(rest[1])
+	case "branches", "tags", "releases":
+		return len(rest) == 1
+	case "actions":
+		switch {
+		case len(rest) == 1:
+			return true
+		case rest[1] != "runs" || len(rest) < 3 || !number(rest[2]):
+			return false
+		case len(rest) == 3:
+			return true
+		case len(rest) == 5 || len(rest) == 7:
+			_, err := strconv.ParseUint(rest[4], 10, 32)
+			return rest[3] == "jobs" && err == nil && (len(rest) == 5 || rest[5] == "attempt" && number(rest[6]))
+		}
+		return false
+	case "compare":
+		spec := strings.Join(rest[1:], "/")
+		at := strings.Index(spec, "...")
+		return at > 0 && at+3 < len(spec)
+	case "pulls":
+		return len(rest) == 3 && number(rest[1]) && (rest[2] == "files" || rest[2] == "commits")
+	}
+	return false
+}
+
+// shaPattern is a full commit SHA (SHA-1 or SHA-256).
+var shaPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 // spaRoute reports whether p (normalised, without the sub-path) is a
 // route of spaRoutes.
@@ -71,12 +131,18 @@ func spaRoute(p string) bool {
 	}
 next:
 	for _, route := range spaRoutes {
-		if len(route) != len(segs) {
+		code := len(route) > 0 && route[len(route)-1] == "{code}"
+		switch {
+		case code && (len(segs) < len(route) || !codeAddress(segs[len(route)-1:])):
+			continue
+		case !code && len(route) != len(segs):
 			continue
 		}
 		for i, want := range route {
 			seg := segs[i]
 			switch want {
+			case "{code}":
+				// The rest of the path, checked above.
 			case "{owner}":
 				if user_model.IsUsableUsername(seg) != nil {
 					continue next
@@ -143,6 +209,8 @@ type spa struct {
 	build   string              // index.html's version the cache was last warmed for
 
 	warms sync.WaitGroup // running warm goroutines (tests wait for them)
+
+	preload preloader // the route views' build files (spa_preload.go)
 }
 
 // spaBody is a response body with its compressed variants.
@@ -634,6 +702,12 @@ func (s *spa) serveIndex(w http.ResponseWriter, req *http.Request, canonical boo
 	h := w.Header()
 	h.Set("Content-Security-Policy", b.csp)
 	h.Set("Referrer-Policy", "same-origin")
+	// The route's own view, fetched alongside the document (spa_preload.go).
+	site := normalizeSlashes(req.URL.Path)
+	if sub := setting.AppSubURL; sub != "" {
+		site = strings.TrimPrefix(site, sub)
+	}
+	s.preloadHeaders(h, site)
 	if canonical {
 		// The same URL is the classic page for other browsers: never
 		// stored in a shared cache, and the cache key includes the
@@ -691,8 +765,8 @@ func (s *spa) serveServiceWorker(w http.ResponseWriter, req *http.Request) {
 }
 
 // serveRoot answers every other path below /-/next: a file at the build's
-// root (no-cache), else — for a path without an extension — the document
-// (the UI's own routes, /-/next/callback included).
+// root (no-cache), else — for a path without an extension, or a code view's —
+// the document (the UI's own routes, /-/next/callback included).
 func (s *spa) serveRoot(w http.ResponseWriter, req *http.Request) {
 	if !s.available() {
 		notFound(w, req)
@@ -706,7 +780,9 @@ func (s *spa) serveRoot(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-	if path.Ext(p) != "" {
+	// A missing root file is not found; a code view's address keeps its file's or ref's dots
+	// (/-/next/code/{owner}/{repo}/src/branch/main/README.md, compare/release/0.2...main).
+	if path.Ext(p) != "" && !strings.HasPrefix(p, "code/") {
 		notFound(w, req)
 		return
 	}

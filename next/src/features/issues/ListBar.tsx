@@ -9,7 +9,7 @@
 // view is a link; the list recomputes locally on every change.
 
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
-import {Layers, ListFilter, Rows3, Search, Tag, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
+import {Layers, ListFilter, Rows3, Search, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLabels} from '../../app/search.ts';
@@ -19,8 +19,8 @@ import {useApp, useSession} from '../../app/store.ts';
 import {SaveViewDialog} from '../views/SaveView.tsx';
 import {viewStore} from '../views/views.ts';
 import {
-  Badge, Button, Icon, Input, LabelDot, Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
-  MenuSub, MenuTrigger,
+  Avatar, Badge, Button, CommandPopover, Icon, Input, LabelDot, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  MenuTrigger, type PickOption,
 } from '../../ui/index.ts';
 import {usePool} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
@@ -223,6 +223,10 @@ function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set
   return out;
 }
 
+/**
+ * The filters: one picker over every value (labels, assignee, author, milestone) that filters as you type
+ * ("alice", "bug"), the filters in effect first (choosing one drops it). Labels stay open for more.
+ */
 const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: ListSearch; repoId: number | undefined; set: Setter}) {
   const pool = usePool();
   const app = useApp();
@@ -230,89 +234,55 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: 
   const active = activeFilters(pool, search, set);
   // Across repositories there is nothing to offer but the filters a link brought along.
   if (repoId === undefined && !active.length) return null;
+  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: X, onSelect: f.clear}));
+  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: X, onSelect: () => {
+    set({labels: undefined, assignee: undefined, poster: undefined, milestone: undefined});
+  }});
+  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set));
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        {/* The filter in effect by name ("Label: bug"), the others counted. */}
+    <CommandPopover label="Filter" placeholder="Filter by label, person or milestone…" width="md" options={options}
+      empty="Filters by label, assignee and milestone work in a repository’s list."
+      onOpenChange={(open) => {
+        if (open && repoId !== undefined) loadPeople(app, repoId);
+      }}
+      trigger={
+        // The filter in effect by name ("Label: bug"), the others counted.
         <Button size="sm" variant={active.length ? 'secondary' : 'ghost'} icon={ListFilter}>
           <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
         </Button>
-      </MenuTrigger>
-      <MenuContent>
-        {active.length > 0 && (
-          <>
-            <MenuLabel>In effect</MenuLabel>
-            {active.map((f) => <MenuItem key={f.key} icon={X} onSelect={f.clear}>{f.label}</MenuItem>)}
-            {active.length > 1 && <MenuItem onSelect={() => {
-              set({labels: undefined, assignee: undefined, poster: undefined, milestone: undefined});
-            }}>Clear all filters</MenuItem>}
-            <MenuSeparator/>
-          </>
-        )}
-        {repoId === undefined ?
-          active.length === 0 && <MenuItem disabled>Filters by label, assignee and milestone work in a repository’s list</MenuItem> :
-          <RepoFilters search={search} repoId={repoId} me={me} set={set}/>}
-      </MenuContent>
-    </Menu>
+      }/>
   );
 });
 
-const RepoFilters = observer(function RepoFilters({search, repoId, me, set}: {search: ListSearch; repoId: number; me: number; set: Setter}) {
-  const pool = usePool();
-  const labels = repoLabels(pool, repoId);
+/** The values a repository's list filters by, grouped (observes the repository's labels, people and milestones). */
+function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoId: number, me: number, set: Setter): PickOption[] {
   const chosen = new Set(parseLabels(search.labels));
-  const app = useApp();
-  useEffect(() => {
-    loadPeople(app, repoId);
-  }, [app, repoId]);
   const users = repoPeople(pool, repoId, me).sort((a, b) => a.login.localeCompare(b.login));
   const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).sort((a, b) => a.title.localeCompare(b.title));
-  const toggleLabel = (id: number, on: boolean) => {
-    const next = new Set(chosen);
-    if (on) next.add(id);
-    else next.delete(id);
-    set({labels: [...next].join(',') || undefined});
-  };
-  return (
-    <>
-      <MenuSub label="Labels" icon={Tag}>
-        {labels.length === 0 && <MenuItem disabled>No labels</MenuItem>}
-        {labels.map((l) => (
-          <MenuCheckboxItem key={l.id} checked={chosen.has(l.id)} onSelect={(e) => {
-            e.preventDefault();
-          }} onCheckedChange={(on) => {
-            toggleLabel(l.id, on);
-          }}>
-            <span className="flex min-w-0 items-center gap-2"><LabelDot color={l.color}/><span className="truncate">{l.name}</span></span>
-          </MenuCheckboxItem>
-        ))}
-      </MenuSub>
-      <MenuSub label="Assignee" icon={User}>
-        <MenuRadioGroup value={String(search.assignee ?? 0)} onValueChange={(v) => {
-          set({assignee: v === '0' ? undefined : Number(v)});
-        }}>
-          <MenuRadioItem value="0">Anyone</MenuRadioItem>
-          <MenuRadioItem value="-1">Nobody</MenuRadioItem>
-          {users.map((u) => <MenuRadioItem key={u.id} value={String(u.id)}>{u.id === me ? `${u.login} (you)` : u.login}</MenuRadioItem>)}
-        </MenuRadioGroup>
-      </MenuSub>
-      <MenuSub label="Author" icon={UserPen}>
-        <MenuRadioGroup value={String(search.poster ?? 0)} onValueChange={(v) => {
-          set({poster: v === '0' ? undefined : Number(v)});
-        }}>
-          <MenuRadioItem value="0">Anyone</MenuRadioItem>
-          {users.map((u) => <MenuRadioItem key={u.id} value={String(u.id)}>{u.id === me ? `${u.login} (you)` : u.login}</MenuRadioItem>)}
-        </MenuRadioGroup>
-      </MenuSub>
-      <MenuSub label="Milestone" icon={MilestoneIcon}>
-        <MenuRadioGroup value={String(search.milestone ?? 0)} onValueChange={(v) => {
-          set({milestone: v === '0' ? undefined : Number(v)});
-        }}>
-          <MenuRadioItem value="0">Any</MenuRadioItem>
-          <MenuRadioItem value="-1">No milestone</MenuRadioItem>
-          {milestones.map((m) => <MenuRadioItem key={m.id} value={String(m.id)}>{m.title}</MenuRadioItem>)}
-        </MenuRadioGroup>
-      </MenuSub>
-    </>
-  );
-});
+  const out: PickOption[] = repoLabels(pool, repoId).map((l) => ({
+    value: `l:${String(l.id)}`, label: l.name, words: 'label', group: 'Labels', leading: <LabelDot color={l.color}/>, checked: chosen.has(l.id), keepOpen: true,
+    onSelect: () => {
+      const next = new Set(chosen);
+      if (next.has(l.id)) next.delete(l.id);
+      else next.add(l.id);
+      set({labels: [...next].join(',') || undefined});
+    },
+  }));
+  const person = (u: (typeof users)[number]) => (u.id === me ? `${u.login} (you)` : u.login);
+  out.push({value: 'a:-1', label: 'Nobody', words: 'assignee unassigned', group: 'Assignee', icon: User, checked: search.assignee === -1, onSelect: () => {
+    set({assignee: search.assignee === -1 ? undefined : -1});
+  }});
+  for (const u of users) out.push({value: `a:${String(u.id)}`, label: person(u), words: `assignee ${u.name}`, group: 'Assignee', leading: <Avatar name={u.name} src={u.avatar} size="sm"/>, checked: search.assignee === u.id, onSelect: () => {
+    set({assignee: search.assignee === u.id ? undefined : u.id});
+  }});
+  for (const u of users) out.push({value: `p:${String(u.id)}`, label: person(u), words: `author ${u.name}`, group: 'Author', icon: UserPen, checked: search.poster === u.id, onSelect: () => {
+    set({poster: search.poster === u.id ? undefined : u.id});
+  }});
+  out.push({value: 'm:-1', label: 'No milestone', words: 'milestone', group: 'Milestone', icon: MilestoneIcon, checked: search.milestone === -1, onSelect: () => {
+    set({milestone: search.milestone === -1 ? undefined : -1});
+  }});
+  for (const m of milestones) out.push({value: `m:${String(m.id)}`, label: m.title, words: `milestone ${m.state === 'closed' ? 'closed' : ''}`, group: 'Milestone', icon: MilestoneIcon, checked: search.milestone === m.id, onSelect: () => {
+    set({milestone: search.milestone === m.id ? undefined : m.id});
+  }});
+  return out;
+}

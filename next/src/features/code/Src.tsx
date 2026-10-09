@@ -19,8 +19,7 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  BlameCell, Button, CodeLine, CodeTokens, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandRoot, EmptyState, Icon, LineNo,
-  ListRow, Popover, PopoverContent, PopoverTrigger, SegmentedControl, Skeleton, TextLink,
+  BlameCell, Button, CodeLine, CodeTokens, CommandPopover, EmptyState, Icon, LineNo, ListRow, type PickOption, SegmentedControl, Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
@@ -153,68 +152,26 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
 const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {owner: string; repo: string; repoId: number; at: Resolved; view: 'src' | 'blame' | 'commits'}) {
   const pool = usePool();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState('');
   const refs = refTable(pool, repoId);
   const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
   const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
-  const q = query.trim().toLowerCase();
-  const shownBranches = q ? branches.filter((b) => b.toLowerCase().includes(q)) : branches;
-  const shownTags = q ? tags.filter((t) => t.toLowerCase().includes(q)) : tags;
-  const first = shownBranches[0] !== undefined ? `branch:${shownBranches[0]}` : shownTags[0] !== undefined ? `tag:${shownTags[0]}` : '';
-  // The first match is selected whenever the matches change (Enter takes it).
-  const [seen, setSeen] = useState(query);
-  if (seen !== query) {
-    setSeen(query);
-    setSelected(first);
-  }
-  const go = (value: string) => {
-    const [kind, ...name] = value.split(':');
-    setOpen(false);
-    setQuery('');
-    void navigate(codeTo(owner, repo, codeSplat(view, {kind: kind as RefKind, ref: name.join(':')}, at.path)));
-  };
-  const label = at.kind === 'commit' ? shortSha(at.sha) : at.ref;
   const current = `${at.kind}:${at.ref}`;
+  const option = (kind: RefKind, ref: string): PickOption => ({
+    value: `${kind}:${ref}`, label: ref, group: kind === 'branch' ? 'Branches' : 'Tags', icon: kind === 'branch' ? GitBranch : Tag,
+    meta: kind === 'branch' && ref === refs.defaultBranch ? 'default' : undefined, checked: current === `${kind}:${ref}`,
+    onSelect: () => {
+      void navigate(codeTo(owner, repo, codeSplat(view, {kind, ref}, at.path)));
+    },
+  });
+  const label = at.kind === 'commit' ? shortSha(at.sha) : at.ref;
   return (
-    <Popover open={open} onOpenChange={(o) => {
-      setOpen(o);
-      if (o) setSelected(current);
-    }}>
-      <PopoverTrigger asChild>
+    <CommandPopover width="md" label="Switch branch or tag" placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
+      options={[...branches.map((b) => option('branch', b)), ...tags.map((t) => option('tag', t))]}
+      trigger={
         <Button size="sm" icon={at.kind === 'tag' ? Tag : at.kind === 'commit' ? GitCommitHorizontal : GitBranch} aria-label={`Ref: ${label}`}>
           <span className="max-w-xs truncate font-mono">{label}</span><Icon icon={ChevronDown} size="sm"/>
         </Button>
-      </PopoverTrigger>
-      <PopoverContent width="md">
-        <CommandRoot label="Switch branch or tag" value={selected} onValueChange={setSelected}>
-          <CommandInput value={query} onValueChange={setQuery} placeholder="Find a branch or tag…"/>
-          <CommandList>
-            {!shownBranches.length && !shownTags.length && <CommandEmpty>No branch or tag matches.</CommandEmpty>}
-            {shownBranches.length > 0 && (
-              <CommandGroup heading="Branches">
-                {shownBranches.map((b) => (
-                  <CommandItem key={b} value={`branch:${b}`} icon={GitBranch} checked={current === `branch:${b}`} meta={b === refs.defaultBranch ? 'default' : undefined}
-                    onSelect={() => {
-                      go(`branch:${b}`);
-                    }}>{b}</CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-            {shownTags.length > 0 && (
-              <CommandGroup heading="Tags">
-                {shownTags.map((t) => (
-                  <CommandItem key={t} value={`tag:${t}`} icon={Tag} checked={current === `tag:${t}`} onSelect={() => {
-                    go(`tag:${t}`);
-                  }}>{t}</CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </CommandRoot>
-      </PopoverContent>
-    </Popover>
+      }/>
   );
 });
 

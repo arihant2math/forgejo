@@ -6,7 +6,8 @@
 // /{owner}/{repo}/issues/new-<tempId>) and gets Forgejo's number when the
 // queue sends it — the page's URL is then replaced (IssueView). Title,
 // description (the markdown composer), labels (status and priority are
-// exclusive scoped labels), assignee and milestone; ⌘↵ creates. What is
+// exclusive scoped labels), assignee and milestone, each a picker that
+// filters as you type; ⌘↵ creates. What is
 // typed is kept as a draft of that repository until it is created or
 // discarded (also when the dialog closes before the debounce); the dialog
 // opens on the page's repository and says when it brought a draft back.
@@ -25,9 +26,7 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {
-  Button, Dialog, Input, LabelDot, Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuTrigger,
-} from '../../ui/index.ts';
+import {Avatar, Button, CommandPopover, Dialog, Input, LabelDot} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
@@ -294,60 +293,50 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const chosenLabels = allLabels.filter((l) => form.labels.includes(l.id));
   const who = people.find((u) => u.id === form.assignee);
   const ms = milestones.find((m) => m.id === form.milestone);
+  // Every property filters as you type (a repository with many labels or people stays usable).
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <Menu>
-        <MenuTrigger asChild><Button size="sm" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button></MenuTrigger>
-        <MenuContent>
-          <MenuRadioGroup value={String(repoId)} onValueChange={(v) => {
-            form.setRepo(Number(v));
-          }}>
-            {repos.map((r) => <MenuRadioItem key={r.id} value={String(r.id)}>{r.name}</MenuRadioItem>)}
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
-      {/* A menu trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
-      <Menu>
-        <MenuTrigger asChild>
+      <CommandPopover label="Repository" placeholder="Create in the repository…" empty="No repository is on this device."
+        options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => {
+          form.setRepo(r.id);
+        }}))}
+        trigger={<Button size="sm" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button>}/>
+      {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
+      <CommandPopover label="Labels" placeholder="Add labels…" empty="This repository has no labels."
+        options={allLabels.map((l) => ({
+          value: String(l.id), label: l.name, words: l.description, leading: <LabelDot color={l.color}/>, checked: form.labels.includes(l.id), keepOpen: true,
+          onSelect: () => {
+            form.toggleLabel(l, !form.labels.includes(l.id), allLabels);
+          },
+        }))}
+        trigger={
           <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag} tooltip="Labels, status and priority">
             {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
           </Button>
-        </MenuTrigger>
-        <MenuContent>
-          {allLabels.length === 0 && <MenuItem disabled>No labels</MenuItem>}
-          {allLabels.map((l) => (
-            <MenuCheckboxItem key={l.id} checked={form.labels.includes(l.id)} onSelect={(e) => {
-              e.preventDefault();
-            }} onCheckedChange={(on) => {
-              form.toggleLabel(l, on, allLabels);
-            }}>
-              <span className="flex min-w-0 items-center gap-2"><LabelDot color={l.color}/><span className="truncate">{l.name}</span></span>
-            </MenuCheckboxItem>
-          ))}
-        </MenuContent>
-      </Menu>
-      <Menu>
-        <MenuTrigger asChild><Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button></MenuTrigger>
-        <MenuContent>
-          <MenuRadioGroup value={String(form.assignee)} onValueChange={(v) => {
-            form.setAssignee(Number(v));
-          }}>
-            <MenuRadioItem value="0">Nobody</MenuRadioItem>
-            {people.map((u) => <MenuRadioItem key={u.id} value={String(u.id)}>{u.id === userId ? `${u.login} (you)` : u.login}</MenuRadioItem>)}
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
-      <Menu>
-        <MenuTrigger asChild><Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button></MenuTrigger>
-        <MenuContent>
-          <MenuRadioGroup value={String(form.milestone)} onValueChange={(v) => {
-            form.setMilestone(Number(v));
-          }}>
-            <MenuRadioItem value="0">No milestone</MenuRadioItem>
-            {milestones.map((m) => <MenuRadioItem key={m.id} value={String(m.id)}>{m.title}</MenuRadioItem>)}
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
+        }/>
+      <CommandPopover label="Assignee" placeholder="Assign to…"
+        options={[
+          {value: '0', label: 'Nobody', checked: form.assignee === 0, onSelect: () => {
+            form.setAssignee(0);
+          }},
+          ...people.map((u) => ({
+            value: String(u.id), label: u.id === userId ? `${u.login} (you)` : u.login, words: u.name, leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
+            checked: u.id === form.assignee, onSelect: () => {
+              form.setAssignee(u.id);
+            },
+          })),
+        ]}
+        trigger={<Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button>}/>
+      <CommandPopover label="Milestone" placeholder="Add to the milestone…"
+        options={[
+          {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
+            form.setMilestone(0);
+          }},
+          ...milestones.map((m) => ({value: String(m.id), label: m.title, checked: m.id === form.milestone, onSelect: () => {
+            form.setMilestone(m.id);
+          }})),
+        ]}
+        trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
     </div>
   );
 });

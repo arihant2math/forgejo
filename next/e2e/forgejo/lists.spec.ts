@@ -141,16 +141,15 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
       await display('Ordering', 'Newest');
     });
     await step('label filter', async () => {
+      // One picker over every filter value, filtered as you type; labels stay open for more.
       await page.getByRole('button', {name: 'Filter'}).click();
-      await page.getByRole('menuitem', {name: 'Labels'}).click();
-      await page.getByRole('menuitemcheckbox', {name: 'bug'}).click();
-      await page.keyboard.press('Escape');
+      await page.getByRole('option', {name: 'bug', exact: true}).click();
       await page.keyboard.press('Escape');
     });
     await step('label filter cleared', async () => {
-      // The filter button names the filter in effect ("Label: bug").
+      // The filter button names the filter in effect ("Label: bug"); choosing it in the picker drops it.
       await page.getByRole('button', {name: /^Label: bug/}).click();
-      await page.getByRole('menuitem', {name: /^Label: bug/}).click();
+      await page.getByRole('option', {name: /^Label: bug/}).click();
     }, openCount);
     return timings;
   };

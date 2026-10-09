@@ -1,19 +1,20 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// F3 against a real Forgejo with livesync enabled and this checkout's build
-// served by B8 (ASSETS_DIR = next/dist). Skipped unless NEXT_FORGEJO_URL is
-// set; see IMPLEMENTATION.md (F3) for the server setup:
-//
-//   NEXT_FORGEJO_EXTRA_INI=$'[livesync]\nENABLED = true\nASSETS_DIR = <repo>/next/dist' next/tools/dev-forgejo.sh restart pg
-//   NEXT_FORGEJO_URL=http://127.0.0.1:3000 npx playwright test --project forgejo
+// The session (F3) against a real Forgejo with livesync enabled and this
+// checkout's build served by B8 (ASSETS_DIR = next/dist): sign-in, tokens,
+// warm boot from IndexedDB, the palette, shortcuts, sign-out across tabs.
+// Skipped unless NEXT_FORGEJO_URL is set; `next/tools/dev-forgejo.sh e2e pg`
+// starts a server and runs the whole `forgejo` project (IMPLEMENTATION.md F8).
 //
 // The admin `dev` (dev-forgejo.sh) signs in through the classic login and
 // consent pages; fixtures (a repository with issues, an organization) are
 // created through API v1 with basic auth.
 
 import {type Browser, type BrowserContext, expect, type Page, test} from '@playwright/test';
-import {api, BASE, signIn, USER, watch} from './helpers.ts';
+import {api} from '../lib/api.ts';
+import {sidebar, signIn, watch} from '../lib/app.ts';
+import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
@@ -38,7 +39,6 @@ function splash(page: Page): Promise<Record<string, unknown>> {
 }
 
 const status = (page: Page) => page.getByRole('status');
-const sidebar = (page: Page) => page.getByRole('complementary', {name: 'Sidebar'});
 
 /** What IndexedDB holds for the user, read in the page. */
 function idb(page: Page) {
@@ -161,6 +161,27 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
   await signIn(page);
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
   await expect.poll(async () => (await idb(page)).repos).toBeGreaterThan(0);
+  // The next boot renders what IndexedDB holds: wait until the repository the assertion below looks for is
+  // stored (bootstraps are persisted group by group; with many repositories that takes a moment).
+  await expect.poll(() => page.evaluate(async (uid) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const r = indexedDB.open(`forgejo-next:${String(uid)}`);
+      r.onsuccess = () => {
+        resolve(r.result);
+      };
+      r.onerror = () => {
+        reject(new Error('open'));
+      };
+    });
+    const v = await new Promise<unknown>((resolve) => {
+      const r = db.transaction('m:Repository').objectStore('m:Repository').getAll();
+      r.onsuccess = () => {
+        resolve(r.result);
+      };
+    });
+    db.close();
+    return JSON.stringify(v).includes('"next-e2e"');
+  }, userId), {timeout: 30_000}).toBe(true);
   // Spoil the stored refresh token.
   await page.evaluate(async (uid) => {
     await new Promise<void>((resolve) => {

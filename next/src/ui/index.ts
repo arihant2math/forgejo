@@ -34,7 +34,7 @@ export {Popover, PopoverClose, PopoverContent, PopoverTrigger} from './Popover.t
 export {Property, PropertyButton, PropertyEmpty, PropertyList, PropertyValue} from './Property.tsx';
 export {Prose, ProseSource} from './Prose.tsx';
 export {ResizeHandle} from './ResizeHandle.tsx';
-export {Skeleton} from './Skeleton.tsx';
+export {Skeleton, SkeletonText} from './Skeleton.tsx';
 export {SectionHeading} from './SectionHeading.tsx';
 export {Status, StatusDot, type StatusTone} from './StatusDot.tsx';
 export {Code, TextLink} from './Text.tsx';

@@ -13,7 +13,7 @@
 
 import {Avatar} from '../ui/Avatar.tsx';
 import {ListRow} from '../ui/ListRow.tsx';
-import {Skeleton} from '../ui/Skeleton.tsx';
+import {Skeleton, SkeletonText} from '../ui/Skeleton.tsx';
 import {LoggedOut} from './LoggedOut.tsx';
 import {HeaderBar, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './shell/Frame.tsx';
 import {SKELETON_MAX_ROWS} from './splash.ts';
@@ -63,9 +63,7 @@ function Frame() {
         <div className="flex flex-1 flex-col gap-3 px-8 py-6">
           <Skeleton className="h-5 w-96"/>
           <div className="h-2"/>
-          <Skeleton className="h-3 w-full"/>
-          <Skeleton className="h-3 w-full"/>
-          <Skeleton className="h-3 w-2/3"/>
+          <SkeletonText/>
         </div>
         <div className="flex w-pane shrink-0 flex-col gap-3 border-l border-border p-4">
           <Skeleton className="h-3 w-20"/>

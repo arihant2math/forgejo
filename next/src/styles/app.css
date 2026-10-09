@@ -108,6 +108,14 @@
   will-change: transform;
 }
 
+/* A block of a long, unvirtualized page (releases) whose rendering the browser skips while it is off
+ * screen; its height until then is --lazy-block-height, then the height it last had. It paints nothing
+ * outside its box (paint containment): give it room for its content's focus outlines (px-1 -mx-1). */
+@utility render-lazy {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto var(--lazy-block-height);
+}
+
 /* A board card's title: wraps, cut after --card-title-lines lines. */
 @utility clamp-title {
   display: -webkit-box;

@@ -55,6 +55,11 @@ export interface IntentRecord {
   override?: {theirs: unknown; who: number};
   /** ms since epoch of the last change. */
   updated: number;
+  /**
+   * What it does in words, named when it was made (describeIntent): a draft made after the names left the
+   * pool (a revoked repository's labels) still says which label.
+   */
+  title?: string;
 }
 
 export interface DraftRecord {

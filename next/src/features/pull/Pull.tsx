@@ -41,7 +41,7 @@ import {
 import {MarkdownField} from '../editor/Composer.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {usePool, UserAvatar, useUser} from '../issues/cells.tsx';
-import {ago} from '../issues/format.ts';
+import {agoWords, fullDate} from '../issues/format.ts';
 import {statusLook} from '../code/Actions.tsx';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {useDiff} from '../code/History.tsx';
@@ -615,7 +615,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const headSeen = poolHead(pool, pr);
   const seen = headSeen ? {head_commit_id: headSeen} : {};
   let state: ReactNode;
-  if (pr.merged) state = <><Icon icon={GitMerge} className="text-done"/> Merged{pr.merged_at ? ` ${ago(pr.merged_at)}` : ''}</>;
+  if (pr.merged) state = <><Icon icon={GitMerge} className="text-done"/> Merged{pr.merged_at ? <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}</>;
   else if (closed) state = 'Closed without merging';
   else if (pr.status === 'conflict') state = <><StatusDot tone="danger"/> Conflicts: {pr.conflicted_files.join(', ') || 'resolve them first'}</>;
   else if (pr.status === 'checking') state = <><StatusDot tone="warning"/> Checking whether it can be merged…</>;

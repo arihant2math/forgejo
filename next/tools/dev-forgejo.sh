@@ -7,6 +7,7 @@
 #
 # Usage: next/tools/dev-forgejo.sh {start|stop|kill|restart|status|build|logs} [pg|mysql]
 #        next/tools/dev-forgejo.sh conformance [pg|mysql|all] [vitest args…]
+#        next/tools/dev-forgejo.sh e2e [pg|mysql|all] [playwright args…]
 #
 #   pg    -> http://127.0.0.1:3000/  database `forgejo` on 127.0.0.1:5432
 #   mysql -> http://127.0.0.1:3010/  database `forgejo` on 127.0.0.1:3306
@@ -34,6 +35,16 @@
 # data; a failing run keeps the data). NEXT_CONFORMANCE_NO_BUILD=1 reuses the
 # binary. Arguments after the database are passed to Vitest (e.g. a file
 # name filter).
+#
+# `e2e` (F8) runs the Playwright suite's `forgejo` project (next/e2e/forgejo)
+# the same way: its own binary and work dirs under /var/tmp/forgejo-next-e2e
+# (NEXT_E2E_ROOT), ports 3040 (pg) and 3050 (mysql) (NEXT_E2E_PG_PORT /
+# NEXT_E2E_MYSQL_PORT), database `forgejo_e2e` (dropped and created again per
+# run), livesync and Actions enabled and this checkout's build (next/dist,
+# built first unless NEXT_E2E_NO_BUILD=1) served by B8 (ASSETS_DIR), and
+# /metrics on (rum.spec.ts reads the RUM counters). A passing
+# run drops the database; NEXT_E2E_KEEP=1 keeps the instance running.
+# Arguments after the database go to Playwright (e.g. a file filter, --repeat-each).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -43,10 +54,12 @@ BIN="$ROOT_DIR/forgejo"
 DB_NAME="${NEXT_FORGEJO_DB_NAME:-forgejo}"
 CONF_ROOT="${NEXT_CONFORMANCE_ROOT:-/var/tmp/forgejo-next-conformance}"
 CONF_DB_NAME=forgejo_conformance
+E2E_ROOT="${NEXT_E2E_ROOT:-/var/tmp/forgejo-next-e2e}"
+E2E_DB_NAME=forgejo_e2e
 cmd="${1:-status}"
 db="${2:-pg}"
 conf_dbs="$db"
-if [ "$cmd" = conformance ] && [ "$db" = all ]; then conf_dbs="pg mysql"; db=pg; fi
+if { [ "$cmd" = conformance ] || [ "$cmd" = e2e ]; } && [ "$db" = all ]; then conf_dbs="pg mysql"; db=pg; fi
 if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
 case "$db" in
@@ -273,6 +286,72 @@ conformance() {
   log "conformance passed on: $conf_dbs"
 }
 
+# e2e_instance prints the environment that selects the e2e instance of
+# database $1 (like conformance_instance).
+e2e_instance() {
+  local port
+  if [ "$1" = pg ]; then port="${NEXT_E2E_PG_PORT:-3040}"; else port="${NEXT_E2E_MYSQL_PORT:-3050}"; fi
+  printf 'NEXT_DEV_ROOT=%s NEXT_FORGEJO_PORT=%s NEXT_FORGEJO_DB_NAME=%s' "$E2E_ROOT" "$port" "$E2E_DB_NAME"
+}
+
+# e2e_one runs the forgejo Playwright project against this invocation's
+# instance, which `e2e` selected; it refuses the dev servers.
+e2e_one() {
+  if [ "$ROOT_DIR" = "$DEV_ROOT" ] || [ "$DB_NAME" = forgejo ]; then
+    log "e2e-one runs only on an e2e instance (use: $0 e2e $db)"; return 1
+  fi
+  local rc=0
+  NEXT_FORGEJO_EXTRA_INI="$(printf '%s\n' '[livesync]' 'ENABLED = true' "ASSETS_DIR = $REPO/next/dist" '' '[actions]' 'ENABLED = true' '' '[metrics]' 'ENABLED = true')
+${NEXT_FORGEJO_EXTRA_INI:-}"
+  export NEXT_FORGEJO_EXTRA_INI
+  stop
+  "$REPO/next/tools/dev-db.sh" start "$db" >/dev/null
+  drop_db
+  rm -rf "$WORK"
+  start
+  log "e2e suite against $URL ($db, database $DB_NAME, work dir $WORK)"
+  (
+    cd "$REPO/next"
+    NEXT_E2E_NO_SERVERS=1 NEXT_FORGEJO_URL="${URL%/}" NEXT_E2E_DB="$db" \
+      npx playwright test --project forgejo --no-deps "$@"
+  ) || rc=$?
+  if [ "${NEXT_E2E_KEEP:-}" = 1 ]; then
+    log "kept running: $URL (data: $WORK, database $DB_NAME)"
+  else
+    stop
+    if [ "$rc" = 0 ]; then
+      drop_db
+      find "$WORK" -mindepth 1 -maxdepth 1 ! -name log ! -name web.out -exec rm -rf {} +
+      log "server log: $WORK/log ($(cat "$WORK"/log/*.log 2>/dev/null | grep -c ' \[[EF]\] ' || true) [E]/[F] lines)"
+    else
+      log "failed: logs in $WORK/log and $WORK/web.out (database $DB_NAME kept)"
+    fi
+  fi
+  return "$rc"
+}
+
+e2e() {
+  local d failed=""
+  [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -x "$E2E_ROOT/forgejo" ] || NEXT_DEV_ROOT="$E2E_ROOT" "$REPO/next/tools/dev-forgejo.sh" build
+  [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && npm ci --no-audit --no-fund)
+  [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$REPO/next/dist/index.html" ] || (cd "$REPO/next" && npx vite build >/dev/null)
+  # The sandbox has no Playwright-managed Chromium of this version; use the preinstalled one when present.
+  if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
+  for d in $conf_dbs; do
+    # The update path and kill switch tests rewrite dist/ in place and restore it; a run killed in between
+    # leaves it changed: put it back before each database.
+    if [ -f "$REPO/next/dist/sw.js.off" ]; then mv -f "$REPO/next/dist/sw.js.off" "$REPO/next/dist/sw.js"; fi
+    if grep -q 'e2e001' "$REPO/next/dist/index.html" "$REPO/next/dist/sw.js" 2>/dev/null; then (cd "$REPO/next" && npx vite build >/dev/null); fi
+    # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended
+    env $(e2e_instance "$d") "$REPO/next/tools/dev-forgejo.sh" e2e-one "$d" "$@" || failed="$failed $d"
+  done
+  if [ -n "$failed" ]; then
+    log "e2e FAILED on:$failed"
+    return 1
+  fi
+  log "e2e passed on: $conf_dbs"
+}
+
 stop() {
   if running; then
     log "stopping pid $(cat "$PIDFILE")"
@@ -304,5 +383,7 @@ status) status ;;
 logs) tail -n 50 "$WORK"/log/*.log ;;
 conformance) conformance "$@" ;;
 conformance-one) conformance_one "$@" ;;
-*) echo "usage: $0 {start|stop|kill|restart|status|build|logs} [pg|mysql] | conformance [pg|mysql|all] [vitest args…]" >&2; exit 1 ;;
+e2e) e2e "$@" ;;
+e2e-one) e2e_one "$@" ;;
+*) echo "usage: $0 {start|stop|kill|restart|status|build|logs} [pg|mysql] | conformance|e2e [pg|mysql|all] [args…]" >&2; exit 1 ;;
 esac

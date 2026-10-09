@@ -289,10 +289,11 @@ const Properties = observer(function Properties({form}: {form: Form}) {
           </MenuRadioGroup>
         </MenuContent>
       </Menu>
+      {/* A menu trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" pressed={chosenLabels.length > 0} icon={Tag} tooltip="Labels, status and priority">
-            {chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
+          <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag} tooltip="Labels, status and priority">
+            {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
           </Button>
         </MenuTrigger>
         <MenuContent>
@@ -309,7 +310,7 @@ const Properties = observer(function Properties({form}: {form: Form}) {
         </MenuContent>
       </Menu>
       <Menu>
-        <MenuTrigger asChild><Button size="sm" pressed={Boolean(who)} icon={User}>{who?.login ?? 'Assignee'}</Button></MenuTrigger>
+        <MenuTrigger asChild><Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button></MenuTrigger>
         <MenuContent>
           <MenuRadioGroup value={String(form.assignee)} onValueChange={(v) => {
             form.setAssignee(Number(v));
@@ -320,7 +321,7 @@ const Properties = observer(function Properties({form}: {form: Form}) {
         </MenuContent>
       </Menu>
       <Menu>
-        <MenuTrigger asChild><Button size="sm" pressed={Boolean(ms)} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button></MenuTrigger>
+        <MenuTrigger asChild><Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button></MenuTrigger>
         <MenuContent>
           <MenuRadioGroup value={String(form.milestone)} onValueChange={(v) => {
             form.setMilestone(Number(v));

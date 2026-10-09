@@ -49,7 +49,11 @@
 
 import {observable, reaction, runInAction, untracked} from 'mobx';
 import type {Pool} from '../data/pool.ts';
-import {HeaderIdempotencyKey, HeaderSyncID} from '../protocol/types.gen.ts';
+import {
+  HeaderIdempotencyKey, HeaderSyncID, RUMConflictDiscarded, RUMConflictMerged, RUMConflictOverride, RUMIntentFailed, RUMIntentFlushed,
+  RUMIntentRetried, RUMMutationAcked, RUMMutationConfirmed, RUMMutationLocal,
+} from '../protocol/types.gen.ts';
+import {count, queueDepth, sample} from '../sync/rum.ts';
 import {effectHeld, lastChangedBy, scalarField, serverScalar} from './effects.ts';
 import {chainOf, CREATES, describeIntent, groupOf, type Intent, type IntentInput, intentOps, intentText, isTemp, type Names, newIntent, POLICY, remapIntent, tempNum, tempRefs, uuid} from './intents.ts';
 import {merge3} from './merge3.ts';
@@ -156,6 +160,13 @@ export interface IntentEnv {
 /** Requests in flight at once, across entities. */
 const MAX_SENDS = 6;
 
+/** Intents on hot rows (B7: their echo may not cover a deferred change), and how long their confirmation waits for the effect. */
+const HOT_KINDS: ReadonlySet<string> = new Set(['notification.status']);
+const HOT_WAIT_MS = 5000;
+
+/** RUM: an intent first attempted within this long of its local apply was sent at once (online). */
+const IMMEDIATE_MS = 1000;
+
 /** An intent the user may still take back (never attempted, or parked). */
 export function discardable(rec: IntentRecord): boolean {
   return rec.state === 'parked' || (rec.state === 'queued' && rec.req === undefined);
@@ -175,6 +186,12 @@ export class Intents {
   private readonly perIssue = observable.map<number, number>({}, {deep: false});
   /** Parked conflicts by text target (`body:<issue>`, `comment:<id>`) → record id (the editors observe one key). */
   private readonly parked = observable.map<string, string>({}, {deep: false});
+  /**
+   * RUM: intents this tab sent at once (their first attempt within IMMEDIATE_MS of the local apply, i.e.
+   * online): only those give acked/confirmed samples, so the timings are the server's and the sync's, not
+   * time spent queued offline, held, backing off or parked. Removed once confirmed (one sample each).
+   */
+  private readonly immediate = new Set<string>();
   /** Discards asked of the leader by this follower, waiting for its `done`. */
   private readonly discards = new Map<string, (ok: boolean) => void>();
   /** Being discarded by this (leader) tab: not sent meanwhile. */
@@ -234,8 +251,9 @@ export class Intents {
   /** Applies an intent to the overlay at once, stores it (a fresh Idempotency-Key) and queues it; returns it. */
   submit(input: IntentInput, replaces: {draft?: string; intent?: string} = {}): Intent {
     // An entity created offline and already created on the server: its server id (it may still show under its temporary one).
+    const t0 = performance.now();
     const i = this.remapKnown(newIntent(input, this.now()));
-    const rec: IntentRecord = {id: i.id, intent: i, state: 'queued', attempts: 0, updated: this.now()};
+    const rec: IntentRecord = {id: i.id, intent: i, state: 'queued', attempts: 0, updated: this.now(), title: describeIntent(i, this.env.names?.() ?? {})};
     this.unstored.add(i.id);
     this.apply(() => {
       if (replaces.intent) {
@@ -246,6 +264,11 @@ export class Intents {
       }
       if (replaces.draft) this.drafts.delete(replaces.draft);
       this.track(rec);
+    });
+    // RUM (PLAN §5.8): localApplied = the action to the next frame, which paints the layer.
+    queueDepth(this.records.size);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
+      sample(RUMMutationLocal, performance.now() - t0);
     });
     void this.env.db.add(rec, replaces).then((stored) => {
       this.unstored.delete(i.id);
@@ -375,6 +398,7 @@ export class Intents {
     // Not sent while it is removed (a kick in between would start it).
     this.discarding.add(id);
     return this.env.db.remove(id).then(() => {
+      if (rec.state === 'parked') count(RUMConflictDiscarded);
       this.finishLocal(id);
       this.env.channel.post({t: 'done', id});
       return 'discarded' as const;
@@ -748,7 +772,10 @@ export class Intents {
   }
 
   private later(rec: IntentRecord, ms: number, note: string | undefined, attempt: boolean): Promise<unknown> {
+    // Waiting (backoff, Retry-After, the token): not sent at once any more, for RUM.
+    this.immediate.delete(rec.id);
     const attempts = attempt ? rec.attempts + 1 : rec.attempts;
+    if (attempt) count(RUMIntentRetried);
     const wait = ms >= 0 ? ms : Math.min(this.env.maxBackoff ?? 300_000, (this.env.backoff ?? 1000) * 2 ** Math.max(0, attempts - 1));
     this.nextAt.set(rec.id, this.now() + wait);
     if (attempts === rec.attempts && note === rec.note) return Promise.resolve();
@@ -838,6 +865,7 @@ export class Intents {
       return undefined;
     }
     const merged: Intent = {...i, baseText: theirs, baseVersion: version, text: m.text, key: uuid()};
+    count(RUMConflictMerged);
     if (merged.text === theirs && !this.stale.has(chainOf(i))) {
       // The server already has it.
       await this.done({...rec, intent: merged}, undefined);
@@ -850,6 +878,7 @@ export class Intents {
   }
 
   private async park(rec: IntentRecord, conflict: Conflict): Promise<void> {
+    this.immediate.delete(rec.id);
     const next: IntentRecord = {...rec, state: 'parked', conflict, updated: this.now()};
     delete next.req;
     const [ok] = await this.save([next]);
@@ -859,19 +888,28 @@ export class Intents {
   /** Sends the frozen request once; the answer decides what happens next. */
   private async attempt(rec: IntentRecord, req: ApiRequest): Promise<void> {
     const {env} = this;
+    if (rec.attempts === 0 && this.now() - rec.intent.created < IMMEDIATE_MS) {
+      if (this.immediate.size > 1000) this.immediate.clear();
+      this.immediate.add(rec.id);
+    }
     let token: string;
     try {
       token = await env.token();
     } catch (err) {
       // Signed out: held, not dropped (PLAN §4.9), until the session is live again. Anything else (the
       // token endpoint unreachable): try again later.
+      this.immediate.delete(rec.id);
       if (err instanceof Error && err.name === 'SignedOut') this.held = true;
       else await this.later(rec, -1, 'Could not get a session token; retrying.', false);
       return;
     }
     const res = await this.fetch(rec, req, token);
-    if (!res) return;
+    if (!res) {
+      this.immediate.delete(rec.id); // offline mid-flight, or retrying
+      return;
+    }
     if (res.status === 401) {
+      this.immediate.delete(rec.id); // a refresh, maybe a hold
       // null: signed out (held); a throw: the token endpoint unreachable (try again later).
       const t = await env.refresh().then((x) => x, () => undefined);
       if (t === undefined) {
@@ -1000,6 +1038,9 @@ export class Intents {
     // reload) is remapped from it (`remapKnown`).
     const ok = await this.save(changes, from !== undefined && created ? [from, created.id] : undefined);
     if (!ok[0]) return;
+    // RUM: acked = the local apply (the intent's creation, in any tab) to the server's answer.
+    count(RUMIntentFlushed);
+    if (this.immediate.has(rec.id)) sample(RUMMutationAcked, this.now() - i.created);
     if (from !== undefined && created && 'tempId' in i) {
       const m = {t: 'remap' as const, model: CREATES[i.kind], from, to: created.id, ...(created.number ? {number: created.number} : {})};
       this.apply(() => this.remapped.set(m.from, m.to));
@@ -1023,6 +1064,7 @@ export class Intents {
     else if (i.kind === 'issue.deadline') undo = {...ref, kind: 'issue.deadline', due: theirs as string | null, base: i.due};
     if (!undo) return;
     const o: Override = {id: rec.id, issueId: i.issueId, repoId: i.repoId, field, who, theirs, mine, undo};
+    count(RUMConflictOverride);
     this.apply(() => this.overrides.push(o));
     this.env.channel.post({t: 'override', override: o});
     if (this.visible()) this.env.onOverride?.(o);
@@ -1052,10 +1094,30 @@ export class Intents {
     const createdModel = i.kind in CREATES ? CREATES[i.kind as keyof typeof CREATES] : undefined;
     const held = () => (createdModel && created ? env.pool.model(createdModel).get(created.id) !== undefined : effectHeld(env.pool, i, env.userId));
     let arrived: Promise<unknown>;
-    // A group this tab does not hold never reaches v: nothing shows the write here then.
-    if (env.pool.groupEntities(group).size === 0) arrived = Promise.resolve();
+    // A group this tab does not hold never reaches v: nothing shows the write here then (and RUM has no
+    // confirmation to time).
+    const shown = env.pool.groupEntities(group).size > 0;
+    if (!shown) arrived = Promise.resolve();
     else if (v !== undefined) {
       arrived = env.whenSynced(group, v, ctrl.signal);
+      // A hot row (notifications, B7): a change the materializer deferred is not covered by the echo; its entry
+      // follows within HOT_COALESCE. Until the pool shows the effect, the layer stays (no flicker back to the old
+      // status, and no next toggle computed from it), at most HOT_WAIT_MS more.
+      if (HOT_KINDS.has(i.kind)) arrived = arrived.then(() => new Promise<void>((resolve) => {
+        if (held()) {
+          resolve();
+          return;
+        }
+        const done = () => {
+          clearTimeout(t);
+          off?.();
+          resolve();
+        };
+        const t = setTimeout(done, HOT_WAIT_MS);
+        off = env.pool.onApplied(() => {
+          if (held()) done();
+        });
+      }));
       if (env.barrier) timers.push(setTimeout(() => {
         this.barrier();
       }, env.barrierAfter ?? 3000));
@@ -1070,8 +1132,9 @@ export class Intents {
         });
       });
     }
+    let reached: boolean;
     try {
-      const reached = await Promise.race([arrived.then(() => true, () => true), timeout.then(() => false)]);
+      reached = await Promise.race([arrived.then(() => true, () => true), timeout.then(() => false)]);
       // Given up without the echo: the pool may not show this write yet, so what it says of the entity is
       // not trusted for the next intents (`stale`).
       if (!reached) this.stale.add(chainOf(i));
@@ -1081,6 +1144,9 @@ export class Intents {
       off?.();
       this.confirming.delete(rec.id);
     }
+    // RUM: confirmed = the local apply to the pool holding the write (the layer goes). A take-over or a kick
+    // can confirm a record twice before it is removed: `immediate` gives one sample per intent.
+    if (reached && shown && this.immediate.delete(rec.id)) sample(RUMMutationConfirmed, this.now() - i.created);
     await this.done(rec, v === undefined ? undefined : {group, v});
   }
 
@@ -1096,14 +1162,20 @@ export class Intents {
 
   /** It cannot be carried out: the layer goes, the intent and its text become a draft (one transaction). */
   private async fail(rec: IntentRecord, reason: string): Promise<void> {
+    this.immediate.delete(rec.id);
     const i = rec.intent;
     const text = intentText(i);
+    // The names may have left the pool since it was made (a revoked repository's labels): then the words
+    // from when it was made say more.
+    const now = describeIntent(i, this.env.names?.() ?? {});
+    const title = rec.title !== undefined && rec.title.length > now.length ? rec.title : now;
     const draft: DraftRecord = {
-      key: failedKey(rec.id), kind: 'failed', intent: i, reason, title: describeIntent(i, this.env.names?.() ?? {}),
+      key: failedKey(rec.id), kind: 'failed', intent: i, reason, title,
       issueId: i.issueId, repoId: i.repoId, at: this.now(), ...(text === undefined ? {} : {text}),
     };
     const ok = await this.env.db.fail(rec.id, draft);
     if (this.closed || !ok) return;
+    count(RUMIntentFailed);
     this.apply(() => {
       this.forget(rec.id);
       this.drafts.set(draft.key, draft);

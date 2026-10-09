@@ -17,6 +17,7 @@ import {type IntentInput, intentOps, newIntent, remapIntent, tempNum, tempRefs} 
 import {Overlay} from './overlay.ts';
 import {requestFor} from './rest.ts';
 import {IntentDb} from './store.ts';
+import {takeCollected} from '../sync/rum.ts';
 import {issueAssigneeIds, issueBody, issueComments, issueLabelIds, issueState, issueTitle} from './view.ts';
 
 let v = 100;
@@ -528,6 +529,30 @@ describe('conflict policies', () => {
     expect([...tab.intents.drafts.values()].map((d) => [d.text, d.reason])).toEqual([['words', 'You no longer have access to this.']]);
     world.close();
   });
+
+  test('a draft made after the names left the pool (a revoked repository) still names what it was', async () => {
+    const server = new FakeForgejo();
+    server.online = false;
+    let revoke: ((g: string) => void) | undefined;
+    let known = true;
+    const world = new World(server, 1, {
+      onRevoked: (fn) => {
+        revoke = fn;
+        return () => undefined;
+      },
+      names: () => ({label: (id) => (known && id === 2 ? 'security' : '')}),
+    });
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle(10);
+    known = false; // the purge took the labels with it
+    revoke?.(`repo:${String(REPO)}`);
+    await world.settle(10);
+    expect([...tab.intents.drafts.values()].map((d) => d.title)).toEqual(['Adding the label “security”']);
+    world.close();
+  });
 });
 
 describe('tabs', () => {
@@ -626,5 +651,88 @@ describe('views', () => {
     if (!e) throw new Error('no issue');
     expect(issueTitle(w.overlay, e)).toBe('Local');
     expect(issueAssigneeIds(w.pool, w.overlay, 7)).toEqual([DEV]);
+  });
+});
+
+describe('RUM (PLAN §5.8)', () => {
+  test('a mutation reports localApplied → acked → confirmed and the queue\'s outcomes', async () => {
+    takeCollected();
+    const server = new FakeForgejo();
+    const world = new World(server, 1);
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle();
+    tab.deliver();
+    await vi.waitFor(() => {
+      expect(tab.overlay.size).toBe(0);
+    });
+    await new Promise((r) => requestAnimationFrame(r));
+    const got = takeCollected();
+    expect(got.samples.get('mutationLocal')).toHaveLength(1);
+    expect(got.samples.get('mutationAcked')).toHaveLength(1);
+    expect(got.samples.get('mutationConfirmed')).toHaveLength(1);
+    const [acked] = got.samples.get('mutationAcked') ?? [];
+    const [confirmed] = got.samples.get('mutationConfirmed') ?? [];
+    expect(confirmed).toBeGreaterThanOrEqual(acked ?? Infinity);
+    expect(Object.fromEntries(got.counts)).toEqual({intentFlushed: 1});
+    expect(got.queueMax).toBe(1);
+    world.close();
+  });
+
+  test('a retried intent counts as retried and gives no timings (backoff is not the server\'s time)', async () => {
+    takeCollected();
+    const server = new FakeForgejo();
+    const s = scripted(server, [answer(503, {}, {'Retry-After': '0'})]);
+    const world = new World(server, 1, {fetch: s.fetch});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle();
+    tab.deliver();
+    await vi.waitFor(() => {
+      expect(tab.overlay.size).toBe(0);
+    });
+    const got = takeCollected();
+    expect(Object.fromEntries(got.counts)).toEqual({intentRetried: 1, intentFlushed: 1});
+    expect(got.samples.has('mutationAcked')).toBe(false);
+    expect(got.samples.has('mutationConfirmed')).toBe(false);
+    world.close();
+  });
+
+  test('an intent queued offline gives no acked/confirmed timing (queue time is not the server\'s)', async () => {
+    takeCollected();
+    const server = new FakeForgejo();
+    const world = new World(server, 1);
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
+    await world.settle(10);
+    await new Promise((r) => setTimeout(r, 1100));
+    tab.setConnection('live');
+    await world.settle();
+    tab.deliver();
+    await vi.waitFor(() => {
+      expect(tab.overlay.size).toBe(0);
+    });
+    const got = takeCollected();
+    expect(got.counts.get('intentFlushed')).toBe(1);
+    expect(got.samples.has('mutationAcked')).toBe(false);
+    expect(got.samples.has('mutationConfirmed')).toBe(false);
+    world.close();
+  });
+
+  test('a refused intent counts as failed', async () => {
+    takeCollected();
+    const server = new FakeForgejo();
+    const s = scripted(server, [answer(403, {message: 'no'})]);
+    const world = new World(server, 1, {fetch: s.fetch});
+    const tab = world.tabs[0];
+    if (!tab) throw new Error('no tab');
+    tab.intents.submit({...ref, kind: 'issue.state', state: 'closed', base: 'open'});
+    await world.settle();
+    expect(takeCollected().counts.get('intentFailed')).toBe(1);
+    world.close();
   });
 });

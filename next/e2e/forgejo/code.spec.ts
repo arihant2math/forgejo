@@ -1,13 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// F7 (code surfaces) against a real Forgejo with livesync and Actions on,
-// serving this build (see forgejo.spec.ts for the server setup):
+// Code surfaces (F7) against a real Forgejo with livesync and Actions on,
+// serving this build:
 //
 //   * the repository browser: directories, a highlighted file (worker), blame,
 //     branches, history, a commit's diff; hostile file names and contents stay text;
-//   * switching back to a cached file paints in < 100 ms (measured in the page);
-//   * a 5 000-line pull request diff scrolls at 60 fps (frame intervals measured in the page);
 //   * a pull request awaiting review is prefetched (diff, files), then read and
 //     reviewed offline — a draft comment on a line, the review submitted offline —
 //     and the review arrives once, pinned to the commit seen, on reconnect;
@@ -15,51 +13,22 @@
 //   * a job's live log streams over the socket (a runner speaking Forgejo's runner
 //     protocol uploads lines), and the finished log opens from the cache offline.
 //
+// Switching to a cached file and the 5 000-line diff's scrolling are timed in perf.spec.ts.
 // Results (timings) are attached to the test results and printed.
 
-import {expect, type Page, test} from '@playwright/test';
-import {api, BASE, basic, signIn, USER, watch} from './helpers.ts';
+import {expect, test} from '@playwright/test';
+import {api, b64, ensureUser, ok} from '../lib/api.ts';
+import {signIn, watch} from '../lib/app.ts';
+import {blobSha as blobShaIn, changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
+import {cachedBlob as cached} from '../lib/device.ts';
+import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
 
-const ALICE = {user: 'alice', password: 'alicealice1'};
-const alice = basic(ALICE.user, ALICE.password);
 const RUN = Date.now().toString(36);
 const REPO = `f7-${RUN}`;
-const BIG = 5000;
 
-const b64 = (s: string) => Buffer.from(s).toString('base64');
-
-function goFile(n: number): string {
-  const out = ['package main', '', 'import "fmt"', ''];
-  for (let i = 0; i < n; i++) out.push(`// f${String(i)} prints its number.\nfunc f${String(i)}() {\n\tfmt.Println("value", ${String(i)})\n}\n`);
-  return out.join('\n');
-}
-
-function tsFile(n: number): string {
-  const out: string[] = [];
-  for (let i = 0; i < n; i++) out.push(`export const value${String(i)}: number = ${String(i)} * 2; // line ${String(i)}`);
-  return `${out.join('\n')}\n`;
-}
-
-async function ok(res: Response, what: string): Promise<Response> {
-  if (!res.ok) throw new Error(`${what}: ${String(res.status)} ${await res.text()}`);
-  return res;
-}
-
-async function changeFiles(repo: string, body: object, as?: string): Promise<void> {
-  await ok(await api('POST', `/repos/${USER}/${repo}/contents`, body, as), 'contents');
-}
-
-interface Pull {
-  number: number;
-  id: number;
-  head: {sha: string};
-  merge_base: string;
-}
-
-let bigPull: Pull;
 let reviewPull: Pull;
 let repoId = 0;
 /** A personal access token of dev (livesync's endpoints take tokens only). */
@@ -67,8 +36,7 @@ let token = '';
 
 test.beforeAll(async () => {
   test.setTimeout(5 * 60_000);
-  // alice exists (forgejo.spec / seed-issues create her); make sure.
-  await api('POST', '/admin/users', {username: ALICE.user, password: ALICE.password, email: 'alice@example.com', must_change_password: false});
+  await ensureUser(ALICE.user);
   const repo = await (await ok(await api('POST', '/user/repos', {name: REPO, auto_init: true, default_branch: 'main'}), 'create repo')).json() as {id: number};
   repoId = repo.id;
   token = (await (await ok(await api('POST', `/users/${USER}/tokens`, {name: `f7-${RUN}`, scopes: ['read:repository', 'read:issue', 'read:organization', 'read:user', 'read:notification']}), 'token')).json() as {sha1: string}).sha1;
@@ -84,12 +52,7 @@ test.beforeAll(async () => {
       {operation: 'create', path: 'docs/a b.txt', content: b64('spaces in the name\n')},
     ],
   });
-  // A 5 000-line pull request (by dev; ten files, so scrolling crosses files: the file list follows) and a
-  // small one by alice that requests dev's review.
-  await changeFiles(REPO, {branch: 'main', new_branch: 'big', message: 'Big change', files: Array.from({length: 10}, (_, i) => ({
-    operation: 'create', path: `src/big/part${String(i)}.ts`, content: b64(tsFile(BIG / 10)),
-  }))});
-  bigPull = await (await ok(await api('POST', `/repos/${USER}/${REPO}/pulls`, {head: 'big', base: 'main', title: 'A big change'}), 'big pull')).json() as Pull;
+  // A small pull request by alice that requests dev's review.
   await changeFiles(REPO, {branch: 'main', new_branch: 'small', message: 'Small change', files: [
     {operation: 'update', path: 'src/other.go', content: b64(goFile(40).replace('"value", 3)', '"value is", 3)')), sha: await blobSha('src/other.go')},
     {operation: 'create', path: 'src/new.ts', content: b64(tsFile(30))},
@@ -102,14 +65,11 @@ test.beforeAll(async () => {
 // leftovers would push other suites' repositories out of it).
 test.afterAll(async () => {
   await api('DELETE', `/repos/${USER}/${REPO}`);
+  await api('DELETE', `/users/${USER}/tokens/f7-${RUN}`);
 });
 
-async function blobSha(path: string, ref?: string): Promise<string> {
-  const r = await (await ok(await api('GET', `/repos/${USER}/${REPO}/contents/${path}${ref ? `?ref=${ref}` : ''}`), 'contents get')).json() as {sha: string};
-  return r.sha;
-}
-
-const code = (rest: string) => `${BASE}/-/next/code/${USER}/${REPO}/${rest}/-`;
+const blobSha = (path: string, ref?: string) => blobShaIn(REPO, path, ref);
+const code = (rest: string) => codeUrl(REPO, rest);
 
 test('repository browser: tree, highlighted file, blame, branches, history, commit; hostile names stay text', async ({page}) => {
   const problems = watch(page);
@@ -144,7 +104,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await expect(page.getByText('spaces in the name')).toBeVisible({timeout: 15_000});
   // Branches (from the pool), history and a commit with its diff.
   await page.getByRole('link', {name: 'Branches'}).click();
-  await expect(page.getByRole('option', {name: /^big/})).toBeVisible();
+  await expect(page.getByRole('option', {name: /^small/})).toBeVisible();
   await expect(page.getByRole('option', {name: /^main.*default/})).toBeVisible();
   await page.getByRole('link', {name: 'Commits'}).click();
   await page.getByRole('option', {name: /Add sources/}).click();
@@ -153,128 +113,6 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   expect(dialogs).toEqual([]);
   expect(problems).toEqual([]);
 });
-
-test('switching to a cached file paints in < 100 ms', async ({page}, info) => {
-  await signIn(page);
-  await page.goto(code('src/branch/main/src/main.go'));
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
-  // Warm the cache: every file of the loop seen once (fetched, highlighted).
-  for (const f of ['other.go', 'third.ts']) {
-    await page.goto(code(`src/branch/main/src/${f}`));
-    await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
-  }
-  const samples: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    for (const to of ['third.ts', 'main.go', 'other.go'] as const) {
-      // From the directory, click the file; measure in the page: click → the file's lines painted (next frame).
-      await page.getByRole('link', {name: 'src', exact: true}).first().click();
-      await expect(page.getByRole('listbox', {name: 'Files'})).toBeVisible();
-      const ms = await page.evaluate(async (name) => {
-        const row = [...document.querySelectorAll('[role=option]')].find((el) => el.textContent.startsWith(name)) as HTMLElement | undefined;
-        if (!row) throw new Error(`no row ${name}`);
-        const t0 = performance.now();
-        row.click();
-        const want = new RegExp(`src/${name.replace('.', '\\.')}, \\d+ lines`);
-        for (;;) {
-          await new Promise((r) => requestAnimationFrame(r));
-          const list = [...document.querySelectorAll('[role=list]')].find((el) => want.test(el.getAttribute('aria-label') ?? ''));
-          if (list?.querySelector('.text-syn-keyword')) return performance.now() - t0;
-          if (performance.now() - t0 > 5000) return Number.POSITIVE_INFINITY;
-        }
-      }, to);
-      samples.push(ms);
-    }
-  }
-  samples.sort((a, b) => a - b);
-  const p50 = samples[Math.floor(samples.length / 2)] ?? 0;
-  const max = samples.at(-1) ?? 0;
-  const p90 = samples[Math.floor(samples.length * 0.9)] ?? 0;
-  console.log(`cached file switch (click → highlighted lines painted): p50 ${p50.toFixed(1)} ms, max ${max.toFixed(1)} ms over ${String(samples.length)}: ${samples.map((x) => x.toFixed(0)).join(' ')}`);
-  await info.attach('file-switch.json', {body: JSON.stringify({samples, p50, p90, max}), contentType: 'application/json'});
-  // < 100 ms (PLAN Phase 4 exit); the single slowest sample is recorded, not asserted (shared vCPUs: GC, other load).
-  expect(p50).toBeLessThan(100);
-  expect(p90).toBeLessThan(100);
-});
-
-test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({page}, info) => {
-  await signIn(page);
-  await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(bigPull.number)}?tab=files`);
-  const list = page.getByRole('list', {name: 'Changes'});
-  await expect(list).toBeVisible({timeout: 30_000});
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 30_000});
-  const r = await page.evaluate(async () => {
-    const list = document.querySelector('[role=list][aria-label=Changes]');
-    let scroller = list?.parentElement ?? null;
-    while (scroller && !(scroller.scrollHeight > scroller.clientHeight && getComputedStyle(scroller).overflowY !== 'visible')) scroller = scroller.parentElement;
-    if (!scroller) throw new Error('no scroller');
-    const longTasks: number[] = [];
-    const po = new PerformanceObserver((l) => {
-      for (const e of l.getEntries()) longTasks.push(e.duration);
-    });
-    po.observe({type: 'longtask', buffered: false});
-    const frames: number[] = [];
-    // Frames in which the file in view changed (the file list's cursor follows it): the costliest.
-    const boundary: number[] = [];
-    const inView = () => document.querySelector('[role=listbox][aria-label="Changed files"] [aria-selected=true]')?.textContent ?? '';
-    let file = inView();
-    let last = performance.now();
-    const step = 120; // px per frame (≈ 7 200 px/s)
-    const total = Math.min(scroller.scrollHeight - scroller.clientHeight, 600 * step);
-    while (scroller.scrollTop < total - 1) {
-      scroller.scrollTop += step;
-      await new Promise((res) => requestAnimationFrame(res));
-      const now = performance.now();
-      frames.push(now - last);
-      const f = inView();
-      if (f !== file) boundary.push(now - last);
-      file = f;
-      last = now;
-    }
-    po.disconnect();
-    const sorted = [...frames].sort((a, b) => a - b);
-    const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
-    return {frames: frames.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: sorted.at(-1) ?? 0, over32: frames.filter((f) => f > 32).length, longTasks, boundary, rows: document.querySelectorAll('[role=list][aria-label=Changes] > [role=listitem]').length, height: scroller.scrollHeight};
-  });
-  console.log(`diff scroll (${String(BIG)} lines): ${JSON.stringify(r)}`);
-  await info.attach('diff-scroll.json', {body: JSON.stringify(r), contentType: 'application/json'});
-  expect(r.frames).toBeGreaterThan(200);
-  expect(r.rows).toBeLessThan(200); // virtualized
-  expect(r.p50).toBeLessThan(18);
-  expect(r.p95).toBeLessThan(34);
-  // This sandbox drops frames by itself (software raster on shared vCPUs: an empty scroller has 1–4 of
-  // 600 frames over 32 ms; 5–13 with the diff, run after the rest of the suite): at most 3 % here; on real
-  // hardware none (F8).
-  expect(r.over32).toBeLessThanOrEqual(18);
-  expect(Math.max(0, ...r.longTasks)).toBeLessThan(50);
-  // Crossing into the next file re-renders the file list, not the diff.
-  expect(r.boundary.length).toBeGreaterThanOrEqual(5);
-  expect(Math.max(...r.boundary)).toBeLessThan(50);
-});
-
-/** Whether the code cache holds a key (IndexedDB `blobs`, d:<key>). */
-async function cached(page: Page, prefix: string): Promise<boolean> {
-  return page.evaluate(async (p) => {
-    const name = (await indexedDB.databases()).map((d) => d.name).find((n) => n?.startsWith('forgejo-next:'));
-    if (!name) return false;
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const r = indexedDB.open(name);
-      r.onsuccess = () => {
-        resolve(r.result);
-      };
-      r.onerror = () => {
-        reject(r.error ?? new Error('open'));
-      };
-    });
-    const keys = await new Promise<IDBValidKey[]>((resolve) => {
-      const r = db.transaction('blobs').objectStore('blobs').getAllKeys(IDBKeyRange.bound(`d:${p}`, `d:${p}￿`));
-      r.onsuccess = () => {
-        resolve(r.result);
-      };
-    });
-    db.close();
-    return keys.length > 0;
-  }, prefix);
-}
 
 test('a pull request awaiting review is prefetched, reviewed offline, and the review submits on reconnect', async ({page, context}, info) => {
   test.setTimeout(240_000);

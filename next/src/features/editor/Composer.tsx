@@ -17,7 +17,7 @@ import {connectivity} from '../../app/online.ts';
 import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
 import type {APIMarkdownRequest, APIMarkdownResponse} from '../../protocol/types.gen.ts';
-import {Button, ProseSource, Skeleton, TextArea} from '../../ui/index.ts';
+import {Button, ProseSource, SkeletonText, TextArea} from '../../ui/index.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps} from './MarkdownEditor.tsx';
 
@@ -205,7 +205,7 @@ const Preview = observer(function Preview({repoId, text}: {repoId: number; text:
     );
   }
   if (state.text !== text) {
-    return <div className="flex flex-col gap-2 px-2 py-1.5" aria-busy><Skeleton className="h-3 w-full"/><Skeleton className="h-3 w-2/3"/></div>;
+    return <div className="flex flex-col gap-2 px-2 py-1.5" aria-busy><SkeletonText lines={2}/></div>;
   }
   if (state.error !== undefined) return <p role="alert" className="px-2 py-1.5 text-sm text-danger">{state.error}</p>;
   return <div className="min-h-16 px-2 py-1.5"><Markdown html={state.html ?? ''}/></div>;

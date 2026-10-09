@@ -8,7 +8,11 @@
 // comments. Idempotent per repository: an existing repository with at least
 // N issues is left alone.
 //
-//   node tools/seed-issues.ts [--url http://127.0.0.1:3000] [--repo big] [--issues 5000]
+//   node tools/seed-issues.ts [--url http://127.0.0.1:3000] [--repo big] [--issues 5000] [--plain]
+//
+// --plain: titles and bodies only (no labels, milestones, assignees or
+// comments): what search needs, several times faster to create (Forgejo
+// recounts a label's and a milestone's issues on every issue added to them).
 
 import {parseArgs} from 'node:util';
 
@@ -19,6 +23,7 @@ const {values} = parseArgs({options: {
   repo: {type: 'string', default: 'big'},
   issues: {type: 'string', default: '5000'},
   concurrency: {type: 'string', default: '8'},
+  plain: {type: 'boolean', default: false},
 }});
 
 const BASE = values.url.replace(/\/$/, '');
@@ -27,8 +32,11 @@ const REPO = values.repo;
 const N = Number(values.issues);
 const auth = (user: string, password: string) => `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
 const admin = auth(OWNER, values.password);
+// Basic auth hashes the password on every request (most of the server's time when seeding thousands of
+// issues): main() swaps it for a personal access token.
+let bearer = admin;
 
-async function api(method: string, path: string, body?: unknown, as = admin): Promise<{status: number; json: unknown}> {
+async function api(method: string, path: string, body?: unknown, as = bearer): Promise<{status: number; json: unknown}> {
   const res = await fetch(`${BASE}/api/v1${path}`, {
     method, headers: {'Authorization': as, 'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   });
@@ -72,6 +80,17 @@ async function pool<T>(items: T[], n: number, fn: (x: T, i: number) => Promise<v
 }
 
 async function main(): Promise<void> {
+  const tokenName = `seed-${REPO}-${Date.now().toString(36)}`;
+  const tok = await api('POST', `/users/${OWNER}/tokens`, {name: tokenName, scopes: ['all']}, admin);
+  if (tok.status === 201) bearer = `token ${(tok.json as {sha1: string}).sha1}`;
+  try {
+    await seed();
+  } finally {
+    if (bearer !== admin) await api('DELETE', `/users/${OWNER}/tokens/${tokenName}`, undefined, admin);
+  }
+}
+
+async function seed(): Promise<void> {
   await ensureUser('alice');
   const repo = await apiAs<{id: number; open_issues_count: number}>('GET', `/repos/${OWNER}/${REPO}`);
   if (repo.status === 404) {
@@ -102,7 +121,7 @@ async function main(): Promise<void> {
     msId.set(t, r.json.id);
   }
 
-  const have = Number((await fetch(`${BASE}/api/v1/repos/${OWNER}/${REPO}/issues?state=all&limit=1&type=issues`, {headers: {Authorization: admin}})).headers.get('X-Total-Count') ?? 0);
+  const have = Number((await fetch(`${BASE}/api/v1/repos/${OWNER}/${REPO}/issues?state=all&limit=1&type=issues`, {headers: {Authorization: bearer}})).headers.get('X-Total-Count') ?? 0);
   const todo = Array.from({length: Math.max(0, N - have)}, (_, k) => have + k + 1);
   const t0 = Date.now();
   let done = 0;
@@ -113,17 +132,18 @@ async function main(): Promise<void> {
       labelId.get(PLAIN[i % PLAIN.length] ?? 'bug'),
       i % 5 === 0 ? labelId.get(PLAIN[(i + 3) % PLAIN.length] ?? 'docs') : undefined,
     ].filter((x): x is number => x !== undefined);
+    const plain = values.plain;
     const body = {
       title: title(i),
       body: `Steps to reproduce **${String(i)}**:\n\n1. Open the ${WORDS[i % WORDS.length] ?? ''} page\n2. Press \`${String(i % 9)}\`\n\n> Expected: it works.\n\n- [x] checked\n- [ ] not yet`,
-      labels,
-      assignees: i % 4 === 0 ? [OWNER] : i % 4 === 1 ? ['alice'] : i % 4 === 2 ? [OWNER, 'alice'] : [],
-      milestone: [...msId.values()][i % (msId.size + 1)] ?? 0,
+      labels: plain ? [] : labels,
+      assignees: plain ? [] : i % 4 === 0 ? [OWNER] : i % 4 === 1 ? ['alice'] : i % 4 === 2 ? [OWNER, 'alice'] : [],
+      milestone: plain ? 0 : [...msId.values()][i % (msId.size + 1)] ?? 0,
       closed: i % 7 === 0,
     };
     const r = await apiAs<{number: number}>('POST', `/repos/${OWNER}/${REPO}/issues`, body);
     if (r.status !== 201) throw new Error(`issue ${String(i)}: ${String(r.status)} ${JSON.stringify(r.json)}`);
-    if (i % 50 === 0) {
+    if (!plain && i % 50 === 0) {
       for (let c = 0; c < 3; c++) await api('POST', `/repos/${OWNER}/${REPO}/issues/${String(r.json.number)}/comments`, {body: `Comment ${String(c)} on ${String(i)}: looks like the \`${WORDS[c] ?? ''}\` code path.`});
     }
     if (++done % 500 === 0) console.log(`${String(done)} issues (${String(Math.round(done / ((Date.now() - t0) / 1000)))}/s)`);

@@ -11,6 +11,7 @@ const DAY = 86_400_000;
 const short = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'});
 const withYear = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
 const full = new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: 'short'});
+const month = new Intl.DateTimeFormat(undefined, {month: 'short'});
 
 const cache = new Map<string, string>();
 
@@ -49,6 +50,8 @@ export function ago(iso: string | undefined, now = Date.now()): string {
   if (d < 3_600_000) return `${String(Math.floor(d / 60_000))}m`;
   if (d < DAY) return `${String(Math.floor(d / 3_600_000))}h`;
   if (d < 30 * DAY) return `${String(Math.floor(d / DAY))}d`;
+  // As narrow as "Oct 3" for earlier years too ("Oct ’24"): rows give it a fixed slot.
+  if (new Date(t).getFullYear() !== new Date(now).getFullYear()) return cached(`m${String(t)}`, () => `${month.format(t)} ’${String(new Date(t).getFullYear() % 100).padStart(2, '0')}`);
   return shortDate(iso, now);
 }
 

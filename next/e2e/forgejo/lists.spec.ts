@@ -1,69 +1,39 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// F4 against a real Forgejo with livesync (see forgejo.spec.ts for the
-// server setup): issue lists over a large repository (rendering, local
+// Lists and the issue page (F4) against a real Forgejo with livesync: issue lists over a large repository (rendering, local
 // filtering, scrolling, keyboard), opening an issue from the pool, optimistic
 // edits confirmed by the sync-id echo or rolled back, and live changes by a
 // second user. The repository is seeded with tools/seed-issues.ts (idempotent):
 //
-//   NEXT_E2E_REPO=big NEXT_E2E_ISSUES=5000 NEXT_FORGEJO_URL=http://127.0.0.1:3000 npx playwright test --project forgejo issues
+//   NEXT_E2E_REPO=big NEXT_E2E_ISSUES=5000 next/tools/dev-forgejo.sh e2e pg lists
 //
 // (defaults: repository "f4" with 400 issues). Measurements are printed and
 // attached to the test results.
 
-import {execFileSync} from 'node:child_process';
-import {type BrowserContext, expect, type Page, test} from '@playwright/test';
-import {api, BASE, basic, signIn, USER, watch} from './helpers.ts';
+import {expect, type Page, test} from '@playwright/test';
+import {api, labelId as repoLabelId, seed} from '../lib/api.ts';
+import {issueList as listbox, issueTitle, sidebarProp, signedIn, signIn, watch} from '../lib/app.ts';
+import {storedRecords} from '../lib/device.ts';
+import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
 
 const REPO = process.env.NEXT_E2E_REPO ?? 'f4';
 const ISSUES = Number(process.env.NEXT_E2E_ISSUES ?? 400);
-const ALICE = {user: 'alice', password: 'alicealice1'};
-const alice = basic(ALICE.user, ALICE.password);
 
 let openCount = 0;
 let repoId = 0;
 
 test.beforeAll(async () => {
   test.setTimeout(30 * 60_000);
-  execFileSync('node', ['tools/seed-issues.ts', '--url', BASE, '--repo', REPO, '--issues', String(ISSUES)], {stdio: 'inherit'});
+  seed(REPO, ISSUES);
   const res = await api('GET', `/repos/${USER}/${REPO}/issues?state=open&type=issues&limit=1`);
   openCount = Number(res.headers.get('X-Total-Count'));
   repoId = (await (await api('GET', `/repos/${USER}/${REPO}`)).json() as {id: number}).id;
 });
 
-/** The Issue records IndexedDB holds for the repository's group. */
-function persistedIssues(page: Page, repo: number): Promise<number> {
-  return page.evaluate(async (g) => {
-    const name = (await indexedDB.databases()).map((d) => d.name ?? '').find((n) => /^forgejo-next:\d+$/.test(n));
-    if (!name) return 0;
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const r = indexedDB.open(name);
-      r.onsuccess = () => {
-        resolve(r.result);
-      };
-      r.onerror = () => {
-        reject(new Error('open'));
-      };
-    });
-    const values = await new Promise<{g: string; r: unknown[]}[]>((resolve) => {
-      const r = db.transaction('m:Issue').objectStore('m:Issue').getAll(IDBKeyRange.bound([g], [g, []]));
-      r.onsuccess = () => {
-        resolve(r.result as {g: string; r: unknown[]}[]);
-      };
-    });
-    db.close();
-    return values.reduce((n, v) => n + v.r.length, 0);
-  }, `repo:${String(repo)}`);
-}
-
-const issueTitle = (page: Page) => page.getByRole('main').getByRole('heading', {level: 2});
-const listbox = (page: Page) => page.getByRole('listbox', {name: 'Issues'});
-const sidebarProp = (page: Page, name: string) =>
-  page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: new RegExp(`^${name}$`)}).locator('xpath=following-sibling::dd[1]');
 
 /** The last list:query measure (rows, ms). */
 function lastQuery(page: Page) {
@@ -97,7 +67,7 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   await openList(page);
   await fullyLoaded(page);
   // A reload renders the list from IndexedDB (once the leader persisted the group): time to the first rows.
-  await expect.poll(() => persistedIssues(page, repoId), {timeout: 60_000}).toBeGreaterThanOrEqual(openCount);
+  await expect.poll(() => storedRecords(page, 'Issue', `repo:${String(repoId)}`), {timeout: 60_000}).toBeGreaterThanOrEqual(openCount);
   await page.reload();
   await expect(listbox(page).getByRole('option').first()).toBeVisible();
   const boot = await page.evaluate(() => {
@@ -258,12 +228,7 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   await ctx.close();
 });
 
-async function labelId(name: string): Promise<number> {
-  const labels = await (await api('GET', `/repos/${USER}/${REPO}/labels?limit=100`)).json() as {id: number; name: string}[];
-  const l = labels.find((x) => x.name === name);
-  if (!l) throw new Error(`no label ${name}`);
-  return l.id;
-}
+const labelId = (name: string) => repoLabelId(USER, REPO, name);
 
 /** An open issue of the repository without the label, by API v1. */
 async function issueWithout(label: string): Promise<{number: number; title: string}> {
@@ -324,12 +289,6 @@ async function recordText(page: Page, selector: string): Promise<void> {
 }
 
 const recorded = (page: Page) => page.evaluate(() => (window as unknown as {seen: string[]}).seen);
-
-async function signedIn(ctx: BrowserContext, user?: {user: string; password: string}): Promise<Page> {
-  const page = await ctx.newPage();
-  await signIn(page, user?.user, user?.password);
-  return page;
-}
 
 test('an optimistic label change: in the same frame, confirmed by the sync-id echo without flicker, and live in another browser', async ({browser}) => {
   const target = await issueWithout('docs');

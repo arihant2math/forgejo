@@ -1,0 +1,90 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The code views of a repository (PLAN §5.7, §7.1 Code), one route
+// (`/-/next/code/{owner}/{repo}/*`, its own chunk): source (directories,
+// files, blame), history (commits, one commit), branches, tags, releases,
+// compare, and Actions (runs, jobs, live logs). Every git read is addressed
+// by SHA and cached (code/source.ts); refs resolve from the synced branches
+// and tags, so what was seen once is there offline.
+
+import {useParams} from '@tanstack/react-router';
+import {Code2, FileQuestion} from 'lucide-react';
+import {type ReactNode, useState} from 'react';
+import {PageBody} from '../../app/shell/Frame.tsx';
+import {PageHeader} from '../../app/shell/PageHeader.tsx';
+import {parseCodePath} from '../../code/refs.ts';
+import {EmptyState} from '../../ui/index.ts';
+import {RepoContext, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
+import {ActionsView, RunView} from './Actions.tsx';
+import {CompareView} from './Compare.tsx';
+import {CommitView, CommitsView} from './History.tsx';
+import {RepoTabs} from './nav.tsx';
+import {BranchesView, ReleasesView, TagsView} from './Refs.tsx';
+import {SrcView} from './Src.tsx';
+
+export interface CodeViewProps {
+  owner: string;
+  repo: string;
+  repoId: number;
+  /** The code path (for the tabs). */
+  splat: string;
+}
+
+/**
+ * A code view's frame: the header (title, controls), the repository's tabs
+ * and the scroll container, which the body gets (lists virtualize against it).
+ */
+export function CodeFrame({view, title, controls, children}: {view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode}) {
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  return (
+    <>
+      <PageHeader icon={Code2} context={<RepoContext owner={view.owner} repo={view.repo}/>} title={title}>{controls}</PageHeader>
+      <RepoTabs owner={view.owner} repo={view.repo} current={view.splat}/>
+      <PageBody ref={setScroller}>{children(scroller)}</PageBody>
+    </>
+  );
+}
+
+export function CodePage() {
+  const {owner, repo, repoId} = useRepoPage();
+  const {_splat: splat = ''} = useParams({strict: false});
+  if (repoId === undefined) {
+    return (
+      <>
+        <PageHeader icon={Code2} context={<RepoContext owner={owner} repo={repo}/>} title="Code"/>
+        <PageBody><Unavailable/></PageBody>
+      </>
+    );
+  }
+  const props: CodeViewProps = {owner, repo, repoId, splat};
+  const route = parseCodePath(splat);
+  if (!route) {
+    return (
+      <CodeFrame view={props} title="Code">
+        {() => <EmptyState icon={FileQuestion} title="Not a page here" description="This address does not name a code view."/>}
+      </CodeFrame>
+    );
+  }
+  switch (route.view) {
+    case 'src':
+    case 'blame':
+      return <SrcView {...props} key={`${String(repoId)}:${route.view}`} blame={route.view === 'blame'} kind={route.kind} rest={route.rest}/>;
+    case 'commits':
+      return <CommitsView {...props} key={`${String(repoId)}:${splat}`} kind={route.kind} rest={route.rest}/>;
+    case 'commit':
+      return <CommitView {...props} key={`${String(repoId)}:${route.sha}`} sha={route.sha}/>;
+    case 'branches':
+      return <BranchesView {...props} key={repoId}/>;
+    case 'tags':
+      return <TagsView {...props} key={repoId}/>;
+    case 'releases':
+      return <ReleasesView {...props} key={repoId}/>;
+    case 'compare':
+      return <CompareView {...props} key={`${String(repoId)}:${splat}`} base={route.base} head={route.head}/>;
+    case 'actions':
+      return <ActionsView {...props} key={repoId}/>;
+    case 'run':
+      return <RunView {...props} key={`${String(repoId)}:${String(route.run)}`} run={route.run} job={route.job}/>;
+  }
+}

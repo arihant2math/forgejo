@@ -1,0 +1,500 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package perm
+
+import (
+	"container/list"
+	"context"
+	"fmt"
+	"slices"
+	"sync"
+	"time"
+
+	livesync_model "forgejo.org/models/livesync"
+	user_model "forgejo.org/models/user"
+	"forgejo.org/modules/json"
+	"forgejo.org/services/livesync/capture"
+	"forgejo.org/services/livesync/protocol"
+)
+
+// Cache defaults.
+const (
+	// DefaultCacheTTL bounds how long cached grants are used without a
+	// permission epoch invalidating them: a safety net for changes that
+	// reach permissions without passing through a tracked table.
+	DefaultCacheTTL = 10 * time.Minute
+	// DefaultCacheSize bounds the number of viewers whose grants are cached
+	// (least recently used ones are dropped first).
+	DefaultCacheSize = 10000
+)
+
+// computeTimeout bounds one grants computation. It runs detached from the
+// context of the caller that started it (other callers may be waiting for
+// it, and a cancelled request must not fail them).
+const computeTimeout = time.Minute
+
+// maxCallChanges bounds the repository and owner epochs remembered per
+// running computation; a computation that overlaps more is not cached.
+const maxCallChanges = 64
+
+// Cache holds the grants of recently active viewers, shared by all of a
+// viewer's connections on this instance (PLAN §4.5). Every instance's
+// tailer passes the permission epochs of the sync log to Invalidate, so a
+// change committed on any instance drops the affected entries everywhere.
+// Its methods are safe for concurrent use; callers asking for the same
+// viewer at the same time share one computation, unless an epoch that may
+// concern it arrived in between (callers after it start a fresh one). A
+// touch does not split callers (touches come with almost every write
+// batch, and most concern nobody): callers after it join, and compute
+// again only if the result turns out to be stale against it.
+//
+// Grants and checks read the master database in one transaction
+// (readMaster): a read replica may not have replayed the change behind an
+// epoch yet, and a result computed from it would be cached until the next
+// epoch or the TTL. Do not call them inside a transaction of your own.
+type Cache struct {
+	ttl time.Duration
+	max int
+	now func() time.Time
+
+	mu      sync.Mutex
+	entries map[int64]*list.Element // of *cacheEntry, by viewer id
+	lru     *list.List              // front = most recently used
+	// byGroup indexes the cached viewers by granted group, so that an
+	// epoch naming a repository or owner finds the entries to drop
+	// without scanning the cache.
+	byGroup map[string]map[int64]struct{}
+	// byRow indexes the cached viewers by the repository and user rows
+	// their grants were computed from (Grants.basis), so that a touch
+	// (PermissionChange.Touched) finds the entries to compare.
+	byRow map[basisKey]map[int64]struct{}
+	// inflight are the computations new callers may join, by viewer;
+	// running are all running computations (also those detached from
+	// inflight by an invalidation).
+	inflight map[int64]*call
+	running  map[*call]struct{}
+	// touches remembers the touches since the oldest computation in
+	// tracking started, the running computations that still compare
+	// their result with them (by call.since, ascending: all but those
+	// that lost touches to the journal bound).
+	touches  touchJournal
+	tracking *list.List // of *call
+	// load computes a viewer's entry (Cache.compute; tests replace it).
+	load func(ctx context.Context, viewerID int64) (*cacheEntry, error)
+}
+
+type cacheEntry struct {
+	grants  *Grants
+	viewer  *user_model.User // nil when the viewer may not sign in
+	expires time.Time
+}
+
+type call struct {
+	done   chan struct{}
+	entry  *cacheEntry
+	err    error
+	viewer int64
+	// stale: an invalidation since the computation started concerns its
+	// result for sure (or too many may), so it is not cached. changes are
+	// the repository and owner epochs that may concern it (without their
+	// touches), decided when it finishes.
+	stale   bool
+	changes []protocol.PermissionChange
+	// since is the cache's touch seq when the computation started: the
+	// touches after it (in Cache.touches) are compared with the result's
+	// basis when it finishes. A caller that joins after a touch computes
+	// again when touchStale (the result's basis has another state of a row
+	// touched since) instead of taking the result. tracked is its element
+	// in Cache.tracking; nil once it lost touches (touchLost: the journal
+	// overflowed while it ran, so it counts as touchStale).
+	since      uint64
+	tracked    *list.Element
+	touchLost  bool
+	touchStale bool
+}
+
+// NewCache returns an empty cache; ttl and size <= 0 mean the defaults.
+func NewCache(ttl time.Duration, size int) *Cache {
+	if ttl <= 0 {
+		ttl = DefaultCacheTTL
+	}
+	if size <= 0 {
+		size = DefaultCacheSize
+	}
+	c := &Cache{
+		ttl: ttl, max: size, now: time.Now,
+		entries: map[int64]*list.Element{}, lru: list.New(),
+		byGroup: map[string]map[int64]struct{}{}, byRow: map[basisKey]map[int64]struct{}{},
+		inflight: map[int64]*call{}, running: map[*call]struct{}{},
+		touches: newTouchJournal(), tracking: list.New(),
+	}
+	c.load = c.compute
+	return c
+}
+
+// Grants returns the viewer's grants (empty when the viewer may not sign
+// in or does not exist).
+func (c *Cache) Grants(ctx context.Context, viewerID int64) (*Grants, error) {
+	e, err := c.get(ctx, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	return e.grants, nil
+}
+
+// Check decides whether the viewer may read group, and which units: from
+// the cached grants when the group is one of them, else on demand (public
+// repositories and organizations, other users' profiles, issues). ok is
+// false for groups that are not readable, do not exist or are not client
+// groups — callers must not tell these cases apart in answers. Without
+// cached grants it does not compute them: it loads the viewer and decides
+// the group alone (every implicit grant is also granted on demand).
+func (c *Cache) Check(ctx context.Context, viewerID int64, group string) (d Decision, ok bool, err error) {
+	if e := c.cached(viewerID); e != nil {
+		if e.viewer == nil {
+			return Decision{}, false, nil
+		}
+		if d, ok := e.grants.decision(group); ok {
+			return d, true, nil
+		}
+		err = readMaster(ctx, func(ctx context.Context) (err error) {
+			d, ok, err = check(ctx, e.viewer, group)
+			return err
+		})
+		return d, ok, err
+	}
+	err = readMaster(ctx, func(ctx context.Context) error {
+		u, found, err := lookupUser(ctx, viewerID)
+		if err != nil || !found {
+			return err
+		}
+		d, ok, err = check(ctx, &u, group)
+		return err
+	})
+	return d, ok, err
+}
+
+// readMaster runs fn in a read transaction on the master database (quiet:
+// its COMMIT does not ring the outbox reader's doorbell on MySQL).
+func readMaster(ctx context.Context, fn func(ctx context.Context) error) error {
+	return capture.WithQuietTx(ctx, fn)
+}
+
+// cached returns the viewer's unexpired cache entry, or nil.
+func (c *Cache) cached(viewerID int64) *cacheEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el := c.entries[viewerID]
+	if el == nil {
+		return nil
+	}
+	e := el.Value.(*cacheEntry)
+	if !c.now().Before(e.expires) {
+		c.removeLocked(viewerID)
+		return nil
+	}
+	c.lru.MoveToFront(el)
+	return e
+}
+
+func (c *Cache) get(ctx context.Context, viewerID int64) (*cacheEntry, error) {
+	for {
+		if e := c.cached(viewerID); e != nil {
+			return e, nil
+		}
+		c.mu.Lock()
+		cl := c.inflight[viewerID]
+		if cl == nil {
+			cl = &call{done: make(chan struct{}), viewer: viewerID, since: c.touches.seq}
+			c.inflight[viewerID] = cl
+			c.running[cl] = struct{}{}
+			cl.tracked = c.tracking.PushBack(cl)
+			go c.run(context.WithoutCancel(ctx), cl)
+		}
+		// Joined after a touch: the result must not predate it.
+		afterTouch := c.touches.seq > cl.since
+		c.mu.Unlock()
+		select {
+		case <-cl.done:
+			if afterTouch && cl.err == nil && cl.touchStale {
+				continue // computed from a state the touch undid
+			}
+			return cl.entry, cl.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// run computes cl's grants and caches them unless an invalidation since it
+// started concerns them (callers that joined after a touch the result is
+// stale against compute again, see get).
+func (c *Cache) run(ctx context.Context, cl *call) {
+	ctx, cancel := context.WithTimeout(ctx, computeTimeout)
+	defer cancel()
+	entry, err := c.load(ctx, cl.viewer)
+
+	c.mu.Lock()
+	cl.entry, cl.err = entry, err
+	delete(c.running, cl)
+	if c.inflight[cl.viewer] == cl {
+		delete(c.inflight, cl.viewer)
+	}
+	if err == nil {
+		cl.touchStale = cl.touchLost || c.touches.stale(entry.grants.basis, cl.since)
+		if !cl.stale && !cl.touchStale && c.entries[cl.viewer] == nil && !anyAffects(cl.changes, cl.viewer, entry.grants) {
+			c.storeLocked(cl.viewer, entry)
+		}
+	}
+	c.untrackLocked(cl)
+	c.mu.Unlock()
+	close(cl.done)
+}
+
+func (c *Cache) compute(ctx context.Context, viewerID int64) (e *cacheEntry, err error) {
+	err = readMaster(ctx, func(ctx context.Context) error {
+		u, found, err := lookupUser(ctx, viewerID)
+		if err != nil {
+			return err
+		}
+		var viewer *user_model.User // nil when missing: no grants
+		if found {
+			viewer = &u
+		}
+		g, err := compute(ctx, viewer, viewerID)
+		if err != nil {
+			return err
+		}
+		e = &cacheEntry{grants: g, expires: c.now().Add(c.ttl)}
+		if usable(viewer) {
+			e.viewer = viewer
+		}
+		return nil
+	})
+	return e, err
+}
+
+// anyAffects reports whether one of changes may change the grants g of
+// viewer (their touches are not looked at: see call.since).
+func anyAffects(changes []protocol.PermissionChange, viewer int64, g *Grants) bool {
+	for _, ch := range changes {
+		if affects(ch, viewer, g) {
+			return true
+		}
+	}
+	return false
+}
+
+// affects reports whether ch, apart from its touches, may change the grants
+// g of viewer.
+func affects(ch protocol.PermissionChange, viewer int64, g *Grants) bool {
+	if ch.All {
+		return true
+	}
+	if slices.Contains(ch.Users, viewer) {
+		return true
+	}
+	for _, group := range changedGroups(ch) {
+		if _, ok := g.groups[group]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// changedGroups are the groups whose readers ch names (besides its users).
+func changedGroups(ch protocol.PermissionChange) []string {
+	groups := make([]string, 0, len(ch.Repos)+3*len(ch.Owners))
+	for _, id := range ch.Repos {
+		groups = append(groups, protocol.RepoGroup(id))
+	}
+	for _, id := range ch.Owners {
+		groups = append(groups, protocol.OrgGroup(id), protocol.ProfileGroup(id), protocol.OwnerGroup(id))
+	}
+	return groups
+}
+
+func (c *Cache) storeLocked(viewerID int64, e *cacheEntry) {
+	c.removeLocked(viewerID)
+	c.entries[viewerID] = c.lru.PushFront(e)
+	for group := range e.grants.groups {
+		set := c.byGroup[group]
+		if set == nil {
+			set = map[int64]struct{}{}
+			c.byGroup[group] = set
+		}
+		set[viewerID] = struct{}{}
+	}
+	for k := range e.grants.basis {
+		set := c.byRow[k]
+		if set == nil {
+			set = map[int64]struct{}{}
+			c.byRow[k] = set
+		}
+		set[viewerID] = struct{}{}
+	}
+	for c.lru.Len() > c.max {
+		oldest := c.lru.Back().Value.(*cacheEntry)
+		c.removeLocked(oldest.grants.ViewerID)
+	}
+}
+
+func (c *Cache) removeLocked(viewerID int64) {
+	el := c.entries[viewerID]
+	if el == nil {
+		return
+	}
+	e := el.Value.(*cacheEntry)
+	c.lru.Remove(el)
+	delete(c.entries, viewerID)
+	for group := range e.grants.groups {
+		if set := c.byGroup[group]; set != nil {
+			delete(set, viewerID)
+			if len(set) == 0 {
+				delete(c.byGroup, group)
+			}
+		}
+	}
+	for k := range e.grants.basis {
+		if set := c.byRow[k]; set != nil {
+			delete(set, viewerID)
+			if len(set) == 0 {
+				delete(c.byRow, k)
+			}
+		}
+	}
+}
+
+// Invalidate drops the cached grants a permission epoch may have changed:
+// those of its users, of every viewer granted one of its repositories' or
+// owners' groups (all of them for ch.All), and of every viewer whose
+// grants were computed from another state of a touched row (ch.Touched;
+// entries that saw the touched rows' current state, e.g. after a counter
+// update, are kept). Running computations an epoch may concern (its
+// users' ones; all of them for repositories and owners) are detached, so
+// later callers do not get a result read before the change, and are not
+// cached if it does concern them. Touches are only recorded in the cache's
+// touch journal, without detaching running computations: they come with
+// almost every write batch, and detaching would defeat sharing
+// computations. A computation compares what it read with the touches since
+// it started when it finishes: when it read another state, it is not
+// cached and the callers that joined after a touch compute again.
+// Cost: O(affected entries + entries that read a touched row + touched
+// rows), plus O(running computations) for an epoch naming users,
+// repositories or owners (and when touches overflow the journal bound,
+// maxTouchedRows: then every running computation is not cached).
+func (c *Cache) Invalidate(ch protocol.PermissionChange) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ch.All || len(ch.Users) > 0 || len(ch.Repos) > 0 || len(ch.Owners) > 0 {
+		c.invalidateRunningLocked(ch)
+	}
+	if len(ch.Touched) > 0 {
+		c.touchLocked(ch.Touched)
+	}
+	if ch.All {
+		c.entries = map[int64]*list.Element{}
+		c.lru.Init()
+		c.byGroup = map[string]map[int64]struct{}{}
+		c.byRow = map[basisKey]map[int64]struct{}{}
+		return
+	}
+	for _, id := range ch.Users {
+		c.removeLocked(id)
+	}
+	for _, group := range changedGroups(ch) {
+		for id := range c.byGroup[group] {
+			c.removeLocked(id)
+		}
+	}
+	for _, t := range ch.Touched {
+		k := basisKey{t.Kind, t.ID}
+		for id := range c.byRow[k] {
+			if c.entries[id].Value.(*cacheEntry).grants.basis[k] != t.State {
+				c.removeLocked(id)
+			}
+		}
+	}
+}
+
+// invalidateRunningLocked applies the epoch part of ch (not its touches)
+// to the running computations (see Invalidate).
+func (c *Cache) invalidateRunningLocked(ch protocol.PermissionChange) {
+	for cl := range c.running {
+		switch {
+		case ch.All || slices.Contains(ch.Users, cl.viewer):
+			cl.stale = true
+		case len(ch.Repos) > 0 || len(ch.Owners) > 0:
+			// Whether it grants one of the groups is known only when it
+			// finishes.
+			if len(cl.changes) == maxCallChanges {
+				cl.stale = true
+			} else {
+				epoch := ch
+				epoch.Touched = nil // in the touch journal
+				cl.changes = append(cl.changes, epoch)
+			}
+		default:
+			continue
+		}
+		c.detachLocked(cl)
+	}
+}
+
+// touchLocked records touched in the touch journal for the running
+// computations (see call.since). When that makes the journal exceed
+// maxTouchedRows, the computations it is kept for lose their touches: they
+// are not cached, are detached (like after an epoch that may concern
+// them), and their callers that joined after a touch compute again.
+func (c *Cache) touchLocked(touched []protocol.PermissionTouch) {
+	seq := c.touches.next()
+	if c.tracking.Len() == 0 {
+		return // nobody started before it
+	}
+	c.touches.record(seq, touched)
+	if len(c.touches.rows) <= maxTouchedRows {
+		return
+	}
+	for el := c.tracking.Front(); el != nil; el = c.tracking.Front() {
+		cl := el.Value.(*call)
+		cl.stale, cl.touchLost = true, true
+		c.detachLocked(cl)
+		c.untrackLocked(cl)
+	}
+}
+
+// detachLocked keeps later callers from joining cl.
+func (c *Cache) detachLocked(cl *call) {
+	if c.inflight[cl.viewer] == cl {
+		delete(c.inflight, cl.viewer)
+	}
+}
+
+// untrackLocked stops keeping touches for cl and forgets those that no
+// tracked computation needs any more.
+func (c *Cache) untrackLocked(cl *call) {
+	if cl.tracked == nil {
+		return
+	}
+	c.tracking.Remove(cl.tracked)
+	cl.tracked = nil
+	if front := c.tracking.Front(); front != nil {
+		c.touches.trim(front.Value.(*call).since)
+	} else {
+		c.touches.clear()
+	}
+}
+
+// DecodeChange returns the PermissionChange of a sync log entry; ok is false
+// for entries that are not permission epochs.
+func DecodeChange(e *livesync_model.LogEntry) (protocol.PermissionChange, bool, error) {
+	var ch protocol.PermissionChange
+	if protocol.Op(e.Op) != protocol.OpPermission {
+		return ch, false, nil
+	}
+	if err := json.Unmarshal([]byte(e.Payload), &ch); err != nil {
+		return ch, true, fmt.Errorf("livesync: permission epoch %d: %w", e.SyncID, err)
+	}
+	return ch, true, nil
+}

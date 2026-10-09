@@ -1,0 +1,306 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package capture
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"forgejo.org/models/db"
+	livesync_model "forgejo.org/models/livesync"
+	"forgejo.org/modules/log"
+	"forgejo.org/modules/setting"
+
+	"code.forgejo.org/xorm/xorm"
+	xormlog "code.forgejo.org/xorm/xorm/log"
+	"github.com/jackc/pgx/v5"
+)
+
+// The doorbell wakes the outbox reader as soon as a change may have been
+// committed, so it does not have to wait for its next poll (PLAN §4.3):
+//
+//   - a passive observer of the master engine's statements rings after
+//     every COMMIT and every successful INSERT/UPDATE/DELETE/REPLACE (which
+//     may be autocommitted: it cannot tell), except livesync's own (see
+//     withQuietTx). It sees this process's writes only;
+//   - polling (PollInterval) is the safety net and the cross-instance
+//     mechanism: writes made through another Forgejo instance reach the
+//     writer instance's reader within PollInterval. (Until the backend
+//     audit the PostgreSQL trigger function sent a NOTIFY, which serialised
+//     all commits of the cluster; see ddl.go.)
+//
+// A ring is only a hint: the reader re-reads the outbox, which is cheap when
+// nothing is new, and it runs at most one cycle per minCycleGap however
+// often the bell rings.
+
+// doorbell is a coalescing wake-up signal: any number of rings between two
+// reads wake the reader once.
+type doorbell struct {
+	c chan struct{}
+}
+
+func newDoorbell() *doorbell {
+	return &doorbell{c: make(chan struct{}, 1)}
+}
+
+func (d *doorbell) ring() {
+	select {
+	case d.c <- struct{}{}:
+	default:
+	}
+}
+
+// bells is the copy-on-write set of doorbells the commit hook rings. The hook
+// runs for every SQL statement Forgejo executes, so its fast path is one
+// atomic load.
+var (
+	bells   atomic.Pointer[[]*doorbell]
+	bellsMu sync.Mutex
+)
+
+func subscribe(d *doorbell) {
+	bellsMu.Lock()
+	defer bellsMu.Unlock()
+	var next []*doorbell
+	if cur := bells.Load(); cur != nil {
+		next = append(next, *cur...)
+	}
+	next = append(next, d)
+	bells.Store(&next)
+}
+
+func unsubscribe(d *doorbell) {
+	bellsMu.Lock()
+	defer bellsMu.Unlock()
+	cur := bells.Load()
+	if cur == nil {
+		return
+	}
+	var next []*doorbell
+	for _, b := range *cur {
+		if b != d {
+			next = append(next, b)
+		}
+	}
+	if len(next) == 0 {
+		bells.Store(nil)
+		return
+	}
+	bells.Store(&next)
+}
+
+func ringAll() {
+	if cur := bells.Load(); cur != nil {
+		for _, d := range *cur {
+			d.ring()
+		}
+	}
+}
+
+// commitObserver is the in-process doorbell. It wraps the master
+// engine's xorm logger rather than being a contexts.Hook: xorm does not chain
+// hook contexts (the context returned by the LAST hook's BeforeProcess is
+// used for the query and handed to every AfterProcess), and Forgejo's
+// db.TracingHook, registered last, keeps its runtime/trace task in that
+// context. Any hook appended after it therefore either breaks TracingHook
+// (nil task) or has to start a second trace task, leaving TracingHook's own
+// one unended in every runtime trace. The logger sees the same statements,
+// with their error and context, and leaves the hook chain alone.
+//
+// xorm calls the logger's BeforeSQL/AfterSQL only when IsShowSQL is true
+// (core.DB.NeedLogSQL), so the observer reports true and forwards
+// BeforeSQL/AfterSQL to the wrapped logger only when that one logs SQL; all
+// other methods are the wrapped logger's. A session forced quiet with
+// MustLogSQL(false) is not observed (Forgejo does not use it).
+type commitObserver struct {
+	xormlog.ContextLogger
+}
+
+var _ xormlog.ContextLogger = commitObserver{}
+
+func (o commitObserver) logs(c xormlog.LogContext) bool {
+	if show, ok := c.Ctx.Value(xormlog.SessionShowSQLKey{}).(bool); ok {
+		return show
+	}
+	return o.ContextLogger.IsShowSQL()
+}
+
+func (o commitObserver) IsShowSQL() bool { return true }
+
+func (o commitObserver) BeforeSQL(c xormlog.LogContext) {
+	if o.logs(c) {
+		o.ContextLogger.BeforeSQL(c)
+	}
+}
+
+func (o commitObserver) AfterSQL(c xormlog.LogContext) {
+	if o.logs(c) {
+		o.ContextLogger.AfterSQL(c)
+	}
+	if c.Err == nil && pokes(c.SQL) && (c.Ctx == nil || c.Ctx.Value(quietKey{}) == nil) {
+		ringAll()
+	}
+}
+
+// quietKey marks the context of livesync's own transactions (withQuietTx):
+// their statements and COMMIT do not ring the in-process doorbell, otherwise
+// every delivered batch would wake the reader once more for nothing.
+type quietKey struct{}
+
+// sessionContext only seeds db.TxContext in WithQuietTx: as a db.Engined
+// whose engine is a session in a transaction, it makes db.TxContext reuse
+// that transaction. It is not handed to fn: its engine is found only by a
+// type assertion on the context itself, not through Value like *db.Context's,
+// so any context derived from it would run outside the transaction.
+type sessionContext struct {
+	context.Context
+	sess *xorm.Session
+}
+
+func (c sessionContext) Engine() db.Engine { return c.sess }
+
+// WithQuietTx runs fn in a transaction on the master database, like
+// db.WithTx, but its statements and COMMIT do not ring the in-process
+// doorbell (db.WithTx sessions run under the engine's default context, so
+// they cannot be told apart). The reader commits batches with it; a consumer
+// that commits a Batch in its own transaction (B3) can use it for the same
+// reason. fn gets a real db transaction context (*db.Context), as with
+// db.WithTx: contexts derived from it (cache.WithCacheContext, timeouts,
+// values) stay in the transaction, and db.AfterTx hooks registered on it run
+// after the commit and are dropped on rollback. Nested calls inside an
+// existing transaction run fn in that one (db.WithTx), which is quiet only if
+// the outer one is.
+func WithQuietTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	if db.InTransaction(ctx) {
+		return db.WithTx(ctx, fn)
+	}
+	master, err := livesync_model.MasterXORMEngine()
+	if err != nil {
+		return err
+	}
+	// The marker must be on the session's context before BEGIN: the COMMIT
+	// runs under the context the transaction began with. It is on fn's
+	// context too, so a session fn derives from that is quiet as well.
+	quiet := context.WithValue(ctx, quietKey{}, true)
+	sess := master.NewSession()
+	defer sess.Close()
+	sess.Context(quiet)
+	if err := sess.Begin(); err != nil {
+		return err
+	}
+	// db.WithTx and db.TxContext only begin transactions on the default
+	// engine's own sessions (and models/db is upstream code, PLAN §4.2), but
+	// db.TxContext reuses a transaction it finds in its parent context: it
+	// returns a *db.Context over sess and a committer whose Commit does not
+	// commit but hands the AfterTx hooks registered on txCtx to the parent,
+	// which is no db transaction context, so they run at once; its Close
+	// without Commit rolls sess back.
+	txCtx, hooks, err := db.TxContext(sessionContext{Context: quiet, sess: sess})
+	if err != nil {
+		return err
+	}
+	defer hooks.Close()
+	if err := fn(txCtx); err != nil {
+		return err
+	}
+	if err := sess.Commit(); err != nil {
+		return err
+	}
+	return hooks.Commit() // runs the AfterTx hooks, now that sess committed
+}
+
+// pokes reports whether a successful statement may have committed a
+// captured change: COMMIT, or a DML statement (autocommitted or not) that is
+// not livesync's own bookkeeping.
+func pokes(query string) bool {
+	query = strings.TrimLeft(query, " \t\r\n(")
+	if len(query) < 6 {
+		return false
+	}
+	switch query[0] {
+	case 'C', 'c':
+		return strings.EqualFold(query, "COMMIT")
+	case 'I', 'i', 'U', 'u', 'D', 'd', 'R', 'r':
+	default:
+		return false
+	}
+	word, _, _ := strings.Cut(query, " ")
+	switch strings.ToUpper(word) {
+	case "INSERT", "UPDATE", "DELETE", "REPLACE":
+		return !strings.Contains(query, "livesync_")
+	}
+	return false
+}
+
+// observedEngines remembers the engines whose logger was wrapped: it is
+// done once per engine and stays (the observer is inert while no reader is
+// subscribed). Wrapping is not synchronised with concurrent queries on that
+// engine; it runs once, at startup.
+var observedEngines sync.Map // *xorm.Engine -> struct{}
+
+func observeCommits(engine *xorm.Engine) {
+	if _, loaded := observedEngines.LoadOrStore(engine, struct{}{}); !loaded {
+		engine.SetLogger(commitObserver{ContextLogger: engine.Logger()})
+	}
+}
+
+// Listen calls ring whenever a NOTIFY with payload schema arrives on the
+// PostgreSQL channel, until ctx is done. It uses its own connection (not one
+// of the pool's), reconnects with backoff, and rings once after every
+// (re)connect to catch up with what it may have missed. Failures only cost
+// latency (the callers also poll), so they are logged as warnings. The outbox
+// reader listens on the capture triggers' channel; the sync log tailer
+// (services/livesync/synclog) on the log's.
+func Listen(ctx context.Context, channel, schema string, ring func()) {
+	const maxBackoff = 30 * time.Second
+	backoff := time.Second
+	for {
+		connected, err := listenOnce(ctx, channel, schema, ring)
+		if ctx.Err() != nil {
+			return
+		}
+		if connected {
+			backoff = time.Second
+		}
+		log.Warn("livesync: LISTEN %s: %v; polling only, retrying in %s", channel, err, backoff)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, maxBackoff)
+	}
+}
+
+func listenOnce(ctx context.Context, channel, schema string, ring func()) (connected bool, err error) {
+	connStr, err := setting.DBMasterConnStr()
+	if err != nil {
+		return false, err
+	}
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = conn.Close(closeCtx)
+	}()
+	if _, err := conn.Exec(ctx, "LISTEN "+pgQuote(channel)); err != nil {
+		return false, err
+	}
+	ring()
+	for {
+		n, err := conn.WaitForNotification(ctx)
+		if err != nil {
+			return true, err
+		}
+		if n.Payload == schema {
+			ring()
+		}
+	}
+}

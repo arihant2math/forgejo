@@ -199,6 +199,13 @@ tests wrap it themselves.
 * The body only runs
   `INSERT INTO livesync_change(tbl, row_id, op) VALUES ('<tbl>', NEW.id|OLD.id, 'I'|'U'|'D')`.
   It references only `id`, so upstream ALTER/DROP column migrations never conflict with it.
+  This is a hard invariant, not an optimisation: a trigger that names any other column
+  turns an upstream rename/drop of that column into a failure of **every** UPDATE of the
+  table (MySQL `ERROR 1054`), including during the upgrade's own later migrations, in
+  `INSTALL_MODE=verify` (triggers are not replaced) and with livesync disabled but
+  triggers left installed. Livesync must never be able to break an upstream write, so
+  "which columns changed" is never decided in a trigger (see §4.5 for how permission
+  changes that are undone before the materializer reads the row are still caught).
 * **Postgres:** a single `plpgsql` function using `TG_TABLE_NAME` that also calls
   `pg_notify('livesync','')`. That doorbell fires at commit, across instances.
   All DDL is **schema-qualified** to respect Forgejo's `[database] SCHEMA`
@@ -292,6 +299,19 @@ tests wrap it themselves.
   users/repos. The hub then recomputes their grants. A lost grant sends
   `group_revoked`, and the client **purges** that group from memory and IDB. It also
   fails any queued offline intents for that group, keeping the user's text as a draft.
+* **Undone changes (B4):** because triggers carry no column information (§4.3), the
+  materializer only sees a row's stored and current state, which are equal when a
+  permission change was undone before it read the row (repo made public and private
+  again). Any update of a row of the rarely-updated permission tables therefore names
+  that row's subjects; for the busy ones (`repository`, `user`: counters, sign-ins) an
+  update that leaves the state as stored is a **touch** carrying the row's current
+  permission fingerprint. Every cached grant and every decision records the
+  fingerprints of the repository/user rows it was computed from; a touch drops or
+  re-checks only those that recorded another fingerprint (i.e. were computed in the
+  undone state), so a counter update costs no recomputation (a running grant
+  computation is not split or discarded by a touch either: it is compared with the
+  touched states when it finishes). Touches travel in the
+  same `P` log entries as epochs, so every instance applies them.
 * Public repos you're not a member of are subscribed only on demand. Nothing is
   broadcast instance-wide. Admins get no implicit "see everything" subscription.
 

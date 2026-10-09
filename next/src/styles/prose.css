@@ -1,0 +1,140 @@
+/* Copyright 2026 The Forgejo Authors. All rights reserved.
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Typography of rendered markdown (ui/Prose.tsx): issue bodies and comments,
+ * as Forgejo's markup renderer produces them. Preflight resets every element;
+ * this gives back a calm, compact document style. Tokens only. A Tailwind
+ * utility (`prose`), so the class is checked like any other; `:where()` keeps
+ * every rule's specificity at the utility's.
+ */
+
+@utility prose {
+  overflow-wrap: anywhere;
+
+  & > :where(* + *),
+  & :where(li > * + *, blockquote > * + *, details > * + *) {
+    margin-top: var(--prose-gap);
+  }
+
+  & :where(h1, h2, h3, h4, h5, h6) {
+    color: var(--color-fg);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  & :where(h1) {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+  }
+
+  & :where(h2) {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+  }
+
+  & :where(h3, h4, h5, h6) {
+    font-size: var(--text-md);
+    line-height: var(--text-md--line-height);
+  }
+
+  & :where(ul, ol) {
+    padding-left: var(--prose-indent);
+  }
+
+  & :where(ul) {
+    list-style-type: disc;
+  }
+
+  & :where(ol) {
+    list-style-type: decimal;
+  }
+
+  & :where(li + li) {
+    margin-top: var(--prose-gap-sm);
+  }
+
+  & :where(li:has(> input[type="checkbox"])) {
+    list-style-type: none;
+  }
+
+  & :where(input[type="checkbox"]) {
+    margin-right: var(--prose-gap-sm);
+    vertical-align: middle;
+  }
+
+  & :where(a) {
+    color: var(--color-accent-fg);
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-border-strong);
+    text-underline-offset: var(--prose-underline-offset);
+  }
+
+  & :where(a:hover) {
+    text-decoration-color: var(--color-accent-fg);
+  }
+
+  & :where(strong, b) {
+    font-weight: var(--font-weight-semibold);
+  }
+
+  & :where(code) {
+    border-radius: var(--radius-sm);
+    background-color: var(--color-hover);
+    padding: var(--prose-inset-y) var(--prose-inset-x);
+    font-size: var(--text-sm);
+  }
+
+  & :where(pre) {
+    overflow-x: auto;
+    border-style: solid;
+    border-width: var(--hairline);
+    border-color: var(--color-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-canvas);
+    padding: var(--prose-gap);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+
+  & :where(pre code) {
+    border-radius: 0;
+    background-color: transparent;
+    padding: 0;
+  }
+
+  & :where(blockquote) {
+    border-left: var(--prose-quote-width) solid var(--color-border-strong);
+    padding-left: var(--prose-gap);
+    color: var(--color-fg-muted);
+  }
+
+  & :where(table) {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+
+  & :where(th, td) {
+    border-style: solid;
+    border-width: var(--hairline);
+    border-color: var(--color-border);
+    padding: var(--prose-inset-y) var(--prose-inset-x);
+  }
+
+  & :where(th) {
+    background-color: var(--color-canvas);
+    font-weight: var(--font-weight-medium);
+  }
+
+  & :where(img, video) {
+    max-width: 100%;
+    border-radius: var(--radius-sm);
+  }
+
+  & :where(hr) {
+    border-top: var(--hairline) solid var(--color-border);
+  }
+
+  & :where(summary) {
+    cursor: pointer;
+  }
+}

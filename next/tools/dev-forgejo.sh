@@ -140,6 +140,10 @@ APP_DATA_PATH = $WORK/data
 STATIC_ROOT_PATH = $REPO
 OFFLINE_MODE = true
 DISABLE_SSH = true
+; Each instance its own internal socket (git hooks call back through it). The default,
+; /run/forgejo/internal.sock, is shared by every local instance: stopping one removed it
+; and broke pushes, merges and contents API writes on the others.
+INTERNAL_LISTENER_PATH = $WORK/internal.sock
 
 [security]
 INSTALL_LOCK = true

@@ -47,8 +47,10 @@ import (
 // spaRoute is a canonical Forgejo URL the Next UI renders: a document
 // navigation to it from a browser that opted in gets the UI's index.html.
 // Segments: a literal, "{owner}" (a usable user or organization name),
-// "{repo}" (a usable repository name) or "{index}" (a number). Extend this
-// table when the UI supports a route (F3–F7).
+// "{repo}" (a usable repository name), "{index}" (a number) or "{temp}" (the
+// address "new-<uuid>" the UI gives an issue created offline until Forgejo
+// numbers it: opened later, the UI goes on to the issue it became). Extend
+// this table when the UI supports a route (F3–F7).
 var spaRoutes = [][]string{
 	{},                    // the dashboard
 	{"notifications"},     // the inbox
@@ -58,10 +60,14 @@ var spaRoutes = [][]string{
 	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
 	{"{owner}", "{repo}", "issues", "{index}"},
+	{"{owner}", "{repo}", "issues", "{temp}"},
 	{"{owner}", "{repo}", "pulls"},
 	{"{owner}", "{repo}", "pulls", "{index}"},
 	{"{owner}", "{repo}", "{code}"}, // a code address (codeAddress); the app opens its code view for it
 }
+
+// reTempIssue is the address of an issue created offline (next/src/features/issue/paths.ts TEMP_PATH).
+var reTempIssue = regexp.MustCompile(`^new-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$`)
 
 // codeAddress reports whether the segments after a repository name a code
 // page the UI renders (its code views below the base mirror these paths:
@@ -153,6 +159,10 @@ next:
 				}
 			case "{index}":
 				if n, err := strconv.ParseInt(seg, 10, 64); err != nil || n <= 0 {
+					continue next
+				}
+			case "{temp}":
+				if !reTempIssue.MatchString(seg) {
 					continue next
 				}
 			default:

@@ -90,31 +90,34 @@ func get(t *testing.T, h http.Handler, path string, header ...string) *httptest.
 
 func TestSPARoute(t *testing.T) {
 	for p, want := range map[string]bool{
-		"/":                         true,
-		"/notifications":            true,
-		"/issues":                   true,
-		"/pulls":                    true,
-		"/user2/repo1/issues":       true,
-		"/user2/repo1/issues/1":     true,
-		"/user2/repo1/pulls/12":     true,
-		"/user2/repo1.wiki/issues":  false, // not a usable repository name
-		"/user2/repo1/issues/new":   false,
-		"/user2/repo1/issues/0":     false,
-		"/user2/repo1/issues/1/x":   false,
-		"/user2/repo1":              true,
-		"/user2/repo1.wiki":         false,
-		"/api/v1/issues":            false, // reserved owner names are upstream's routes
-		"/user/settings/issues":     false,
-		"/admin/repo1/pulls":        false,
-		"/-/next/issues":            false,
-		"/user2/repo1/milestones":   false,
-		"/explore/repos/issues":     false,
-		"/org/org3/issues":          false,
-		"/user2/repo1/issues/1.png": false,
-		"/user2":                    true, // an owner's page
-		"/explore":                  false,
-		"/user2.keys":               false, // the user's files (reservedUserPatterns)
-		"/user2.rss":                false,
+		"/":                        true,
+		"/notifications":           true,
+		"/issues":                  true,
+		"/pulls":                   true,
+		"/user2/repo1/issues":      true,
+		"/user2/repo1/issues/1":    true,
+		"/user2/repo1/pulls/12":    true,
+		"/user2/repo1.wiki/issues": false, // not a usable repository name
+		"/user2/repo1/issues/new":  false,
+		"/user2/repo1/issues/new-0f8fad5b-d9cb-469f-a165-70867728950e": true, // an issue created offline
+		"/user2/repo1/pulls/new-0f8fad5b-d9cb-469f-a165-70867728950e":  false,
+		"/user2/repo1/issues/new-x":                                    false,
+		"/user2/repo1/issues/0":                                        false,
+		"/user2/repo1/issues/1/x":                                      false,
+		"/user2/repo1":                                                 true,
+		"/user2/repo1.wiki":                                            false,
+		"/api/v1/issues":                                               false, // reserved owner names are upstream's routes
+		"/user/settings/issues":                                        false,
+		"/admin/repo1/pulls":                                           false,
+		"/-/next/issues":                                               false,
+		"/user2/repo1/milestones":                                      false,
+		"/explore/repos/issues":                                        false,
+		"/org/org3/issues":                                             false,
+		"/user2/repo1/issues/1.png":                                    false,
+		"/user2":                                                       true, // an owner's page
+		"/explore":                                                     false,
+		"/user2.keys":                                                  false, // the user's files (reservedUserPatterns)
+		"/user2.rss":                                                   false,
 		// Code addresses open the app's code views (codeAddress).
 		"/user2/repo1/src/branch/master/README.md":                     true,
 		"/user2/repo1/src":                                             true,

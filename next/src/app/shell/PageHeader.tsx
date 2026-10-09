@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {ChevronRight, PanelLeft} from 'lucide-react';
+import {observable, runInAction} from 'mobx';
+import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
+import {forgetRoute} from '../splash.ts';
 import {useApp} from '../store.ts';
 import {cx, Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
@@ -21,14 +24,36 @@ export interface PageHeaderProps {
   docTitle?: string | undefined;
 }
 
-/** The tab's title: the page's, then the instance's name ("Issues · acme/atlas · Forgejo"). */
-function DocumentTitle({text}: {text: string | undefined}) {
-  const {config} = useApp();
-  useEffect(() => {
-    document.title = text ? `${text} · ${config.app_name}` : config.app_name;
-  }, [text, config.app_name]);
-  return null;
+/** How many not-found states are on screen: while one is, the tab says "Not found", whatever the page's header. */
+const notFound = observable.box(0);
+
+/** Whether the page on screen is a not-found state (the next boot does not resume it). */
+export function showingNotFound(): boolean {
+  return notFound.get() > 0;
 }
+
+/**
+ * Marks the page as not found while `on`: the tab's title is "Not found" (an issue's page that names an issue
+ * nobody has is not "#99999 · acme/atlas"), and the base URL does not resume it on the next boot.
+ */
+export function useNotFound(on: boolean): void {
+  useEffect(() => {
+    if (!on) return;
+    runInAction(() => { notFound.set(notFound.get() + 1); });
+    forgetRoute();
+    return () => { runInAction(() => { notFound.set(notFound.get() - 1); }); };
+  }, [on]);
+}
+
+/** The tab's title: the page's, then the instance's name ("Issues · acme/atlas · Forgejo"). */
+const DocumentTitle = observer(function DocumentTitle({text}: {text: string | undefined}) {
+  const {config} = useApp();
+  const shown = showingNotFound() ? 'Not found' : text;
+  useEffect(() => {
+    document.title = shown ? `${shown} · ${config.app_name}` : config.app_name;
+  }, [shown, config.app_name]);
+  return null;
+});
 
 /**
  * Every page's header bar: where you are, the page's controls, and the sync

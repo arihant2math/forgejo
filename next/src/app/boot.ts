@@ -12,6 +12,7 @@ import {isSpaRoute, sitePathOf} from '../sw/routes.ts';
 import {loadConfig, uiPath} from './config.ts';
 import {isChunkError} from './reload.ts';
 import {createAppRouter, type AppRouter} from './router.tsx';
+import {showingNotFound} from './shell/PageHeader.tsx';
 import {followOtherTabs, openSession} from './session.ts';
 import {readSplash, writeSplash} from './splash.ts';
 import {type App, createApp} from './store.ts';
@@ -93,7 +94,7 @@ function started(app: App, router: AppRouter): void {
   const remember = () => {
     const leaf = router.state.matches.at(-1);
     const shape = leaf?.staticData.skeleton;
-    if (!shape) return;
+    if (!shape || showingNotFound()) return;
     writeSplash({route: `${location.pathname}${location.search}`, skeleton: {shape, rows: shape === 'list' ? listRows : 0}});
   };
   remember();
@@ -104,8 +105,14 @@ function started(app: App, router: AppRouter): void {
   router.subscribe('onResolved', () => {
     if (location.pathname === lastPath) return;
     lastPath = location.pathname;
-    const a = document.activeElement;
-    if (a instanceof HTMLElement && a.closest('aside[aria-label="Sidebar"]')) a.blur();
+    // After the new page's first paint: a blur now forced a synchronous layout of the whole new page inside the
+    // navigation's task.
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (a instanceof HTMLElement && a.closest('aside[aria-label="Sidebar"]')) a.blur();
+      });
+    });
   });
 }
 

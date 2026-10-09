@@ -31,18 +31,29 @@ export interface CommandDialogProps {
   children: ReactNode;
 }
 
-/** A modal command menu near the top of the viewport. Esc and the overlay close it. */
+/**
+ * A modal command menu near the top of the viewport. Esc and the overlay close it.
+ *
+ * Modal to the user (aria-modal, the overlay takes the pointer, Tab stays in it: its only tab stop is the input) but
+ * not to Radix: a Radix modal sets `pointer-events: none` on the body (inherited: every element's style is
+ * recomputed) and hides the page's other elements from assistive technology one by one, which made opening ⌘K a
+ * 60–70 ms task at 4× CPU (QA verify3); the palette is opened by a key and must open within a frame or two.
+ */
 export function CommandDialog({open, onOpenChange, label, bare = false, restoreFocus, children}: CommandDialogProps) {
   const focus = useReturnFocus(restoreFocus);
   return (
-    <D.Root open={open} onOpenChange={onOpenChange}>
+    <D.Root open={open} onOpenChange={onOpenChange} modal={false}>
       <D.Portal>
-        <D.Overlay className={overlay}>
-          <D.Content {...focus} aria-describedby={undefined} className={cx(dialogPanel, 'max-w-md overflow-hidden')}>
+        <div className={overlay} data-state={open ? 'open' : 'closed'}>
+          <D.Content {...focus} aria-describedby={undefined} aria-modal className={cx(dialogPanel, 'max-w-md overflow-hidden')}
+            onKeyDown={(e) => {
+              // Tab never leaves the menu (nothing behind it is reachable while it is open).
+              if (e.key === 'Tab') e.preventDefault();
+            }}>
             <D.Title className="sr-only">{label}</D.Title>
             {bare ? children : <K label={label} shouldFilter={false} loop vimBindings={false}>{children}</K>}
           </D.Content>
-        </D.Overlay>
+        </div>
       </D.Portal>
     </D.Root>
   );

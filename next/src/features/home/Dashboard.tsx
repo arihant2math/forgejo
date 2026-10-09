@@ -9,11 +9,13 @@
 // the full list; empty sections are left out. Only the review requests ask
 // the server (they are not synced), as My pull requests does.
 
-import {Command, GitPullRequest, Inbox, Eye, CircleDot, CloudUpload} from 'lucide-react';
+import {Command, GitPullRequest, Inbox, Eye, CircleDot, CloudOff, CloudUpload} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
+import {useEffect} from 'react';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
-import {connectivity} from '../../app/online.ts';
+import {reach} from '../../app/online.ts';
+import {LOCAL_PREFS} from '../../app/splash.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -79,8 +81,9 @@ export default observer(function Dashboard() {
   return (
     <PageColumn>
       {pending.length > 0 && <Section title="Not synced yet" icon={CloudUpload} items={pending}/>}
-      {/* Asked once the session holds a token (the server is asked as the signed-in user). */}
-      {auth.status.state === 'ok' && <ReviewRequests/>}
+      {/* Asked once the session holds a token (the server is asked as the signed-in user); its place is kept
+          from the first frame, as tall as it was last time (nothing below moves when it arrives). */}
+      {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
       {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
     </PageColumn>
@@ -90,6 +93,52 @@ export default observer(function Dashboard() {
 const byTime = (a: Item, b: Item) => b.at.localeCompare(a.at);
 const updated = (issue: Entity<'Issue'>): Item => ({issue, at: issue.get('updated_at')});
 
+const HOME_PREFS = LOCAL_PREFS[3];
+
+/** How many review requests Home showed last time on this device (the placeholder's rows); 0 when unknown. */
+function lastReviews(): number {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(HOME_PREFS) ?? '{}');
+    const n = v && typeof v === 'object' ? (v as {reviews?: unknown}).reviews : undefined;
+    return typeof n === 'number' && n > 0 ? Math.min(Math.round(n), ROWS) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function rememberReviews(n: number): void {
+  try {
+    localStorage.setItem(HOME_PREFS, JSON.stringify({reviews: Math.min(n, ROWS)}));
+  } catch {
+    // Storage blocked: the next placeholder is one row.
+  }
+}
+
+/**
+ * Review requested while Forgejo is asked: its title and as many placeholder rows as it had last time (at least
+ * `min`). Offline (or Forgejo not answering) the list cannot be asked: it says so where it was, rather than being
+ * left out silently or waiting on placeholders.
+ */
+const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {rows: number; min?: number}) {
+  const {data} = useSession();
+  if (reach(data.status.connection) !== 'online') {
+    return rows ? (
+      <Panel label="Review requested" title={<><Icon icon={Eye} size="sm"/><span className="text-fg">Review requested</span></>}>
+        <ListRow role="presentation" leading={<Icon icon={CloudOff} size="sm"/>}><span className="text-fg-muted">Review requests load when you are online.</span></ListRow>
+      </Panel>
+    ) : null;
+  }
+  rows = Math.max(rows, min);
+  if (!rows) return null;
+  return (
+    <Panel label="Review requested" title={<><Icon icon={Eye} size="sm"/><span className="text-fg">Review requested</span></>}>
+      {Array.from({length: rows}, (_, i) => (
+        <ListRow key={i} role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}><Skeleton className="h-3 w-64"/></ListRow>
+      ))}
+    </Panel>
+  );
+});
+
 /** Review requests are not synced: the same live list as My pull requests > Review requested (the server names them). */
 const ReviewRequests = observer(function ReviewRequests() {
   const pool = usePool();
@@ -97,14 +146,12 @@ const ReviewRequests = observer(function ReviewRequests() {
   const list = useListModel(REVIEWS, {}, 'none');
   const items = list.result.get().ids.map((id) => pool.model('Issue').get(id))
     .filter((i): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open').map(updated).sort(byTime);
-  // Its place is kept while the server is asked (online): the sections below do not move when it arrives.
-  if (!items.length && !list.serverAnswered && connectivity.online) {
-    return (
-      <Panel label="Review requested" title={<><Icon icon={Eye} size="sm"/><span className="text-fg">Review requested</span></>}>
-        <ListRow role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}><Skeleton className="h-3 w-64"/></ListRow>
-      </Panel>
-    );
-  }
+  const answered = list.serverAnswered;
+  useEffect(() => {
+    if (answered) rememberReviews(items.length);
+  }, [answered, items.length]);
+  // Its place is kept while the server is asked: the sections below do not move when it arrives.
+  if (!answered && !items.length) return <ReviewPlaceholder rows={lastReviews()} min={1}/>;
   if (!items.length) return null;
   return <Section title="Review requested" icon={Eye} items={items} all="/pulls?type=review_requested"/>;
 });

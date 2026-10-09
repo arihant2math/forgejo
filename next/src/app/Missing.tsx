@@ -14,12 +14,13 @@ import {Button, EmptyState, Icon, type LucideIcon} from '../ui/index.ts';
 import {AvailableOffline} from './Available.tsx';
 import {ClassicLink} from './ClassicLink.tsx';
 import {reach} from './online.ts';
+import {useNotFound} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
 
 export interface MissingProps {
   /** What is missing, as the subject of a sentence ("This repository"). */
   what: string;
-  /** The online title (default "Not available here"). */
+  /** The online title (default "Not found", or "Not available here" when the classic UI has the page). */
   title?: string | undefined;
   /** The online explanation (default: "<what> does not exist, or you cannot see it."). */
   description?: ReactNode;
@@ -47,6 +48,7 @@ export function missingWords(what: string): {offline: string; unreachable: strin
 export const Missing = observer(function Missing({what, title, description, icon, classic}: MissingProps) {
   const app = useApp();
   const r = reach(app.session?.data.status.connection);
+  useNotFound(r === 'online' && !classic);
   if (r !== 'online') {
     return (
       <div className="flex flex-col items-center">
@@ -58,7 +60,7 @@ export const Missing = observer(function Missing({what, title, description, icon
   return (
     <EmptyState
       icon={icon ?? FileQuestion}
-      title={title ?? 'Not available here'}
+      title={title ?? (classic ? 'Not available here' : 'Not found')}
       description={description ?? missingWords(what).notFound}
       action={
         <span className="flex flex-wrap justify-center gap-2">

@@ -9,7 +9,7 @@
 import {Link} from '@tanstack/react-router';
 import {BookMarked, CircleDot, Copy, Folder, FolderGit2, GitBranch, GitPullRequest, Globe, Package, SquarePen, Star, GitFork} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useMemo} from 'react';
+import {Fragment, type ReactNode, useEffect, useMemo} from 'react';
 import {whenIdle} from '../../app/lazy.tsx';
 import {sitePath} from '../../app/config.ts';
 import {openCreate} from '../../app/create.ts';
@@ -56,7 +56,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
         }}>New issue</Button>
       </RepoHeader>
       <PageBody>
-        <div className="flex min-h-full flex-col @xl:flex-row">
+        <div className="flex flex-col @xl:min-h-full @xl:flex-row">
           <PageColumn wide>
             <Summary repoId={repoId}/>
             <Files owner={owner} repo={repo} repoId={repoId}/>
@@ -181,11 +181,13 @@ const About = observer(function About({owner, repo, repoId}: {owner: string; rep
   };
   return (
     <PropertyList>
-      <Property label="Clone">
+      <Property label="Clone" stacked>
         <PropertyValue>
-          <span className="flex min-w-0 items-center gap-1">
-            {/* One line (the copy button copies it whole), never broken mid-word. */}
-            <span className="min-w-0 truncate font-mono text-code text-fg select-all" title={clone}>{clone}</span>
+          <span className="flex min-w-0 items-start gap-1">
+            {/* Whole, on the pane's full width: wrapped after a slash when it is longer, never mid-word. */}
+            <span className="min-w-0 flex-1 py-0.5 font-mono text-code break-normal text-fg select-all">
+              {clone.split(/(?<=\/)/).map((part, i) => <Fragment key={i}>{part}<wbr/></Fragment>)}
+            </span>
             <IconButton size="sm" icon={Copy} label="Copy the clone URL" onClick={copy}/>
           </span>
         </PropertyValue>

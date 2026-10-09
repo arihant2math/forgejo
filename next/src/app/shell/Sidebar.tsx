@@ -136,10 +136,18 @@ const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boo
 /** Re-renders only when its owner, repositories or open state change (owners() builds new objects each time). */
 const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
   const [all, setAll] = useState(false);
-  const shown = all ? owner.repos : owner.repos.slice(0, SHOWN);
+  // The repository on screen: its row stays listed (after the first ten, it joins them) and, folded, the owner's
+  // row is current in its place: the sidebar always says where you are.
+  const prefix = `${owner.login.toLowerCase()}/`;
+  const here = useRouterState({select: (s) => {
+    const key = repoOfPath(s.location.pathname);
+    return key?.startsWith(prefix) ? owner.repos.find((r) => r.toLowerCase() === key.slice(prefix.length)) : undefined;
+  }});
+  const first = owner.repos.slice(0, SHOWN);
+  const shown = all ? owner.repos : here !== undefined && !first.includes(here) ? [...first, here] : first;
   const more = owner.repos.length - shown.length;
   return (
-    <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} onOpenChange={(o) => {
+    <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} holdsCurrent={here !== undefined} onOpenChange={(o) => {
       onToggle(owner.login, o);
     }} link={<Link to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}}/>}>
       {shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}

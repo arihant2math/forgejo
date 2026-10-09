@@ -7,16 +7,16 @@
 // controls, the repository's tabs), and the page for a repository that is
 // not available here.
 
-import {Link, useLoaderData, useNavigate, useParams, useRouterState} from '@tanstack/react-router';
+import {Link, useLoaderData, useNavigate, useParams, useRouter, useRouterState} from '@tanstack/react-router';
 import {AppWindow, BookOpen, ChevronRight, KanbanSquare, Settings, Slash, Activity} from 'lucide-react';
-import {runInAction} from 'mobx';
+import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
 import {classicOfHere} from '../../app/session.ts';
-import {type RepoMatch, useHold} from '../../app/repo.ts';
+import {forgetRepo, type RepoMatch, useHold} from '../../app/repo.ts';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {withEnd} from '../../code/refs.ts';
@@ -29,6 +29,17 @@ export function useRepoPage(): {owner: string; repo: string; repoId: number | un
   const {data} = useSession();
   const group = repoId === undefined ? undefined : `repo:${String(repoId)}`;
   useHold(data, group);
+  // A repository deleted (or made invisible) while its page is open: the route asks again, and the page becomes
+  // the not-found state (not an empty repository with its tabs and New issue).
+  const router = useRouter();
+  useEffect(() => {
+    if (repoId === undefined) return undefined;
+    return reaction(() => data.pool.model('Repository').get(repoId) !== undefined, (has, had) => {
+      if (!had || has) return;
+      forgetRepo(owner, repo);
+      void router.invalidate();
+    });
+  }, [data, router, owner, repo, repoId]);
   // The new-issue dialog (C) creates in the repository on screen.
   const app = useApp();
   useConfirmAccess(app, owner, repo, repoId);
@@ -192,6 +203,6 @@ function useRepoNotFound(): boolean {
  */
 export function Unavailable({owner, repo}: {owner: string; repo: string}) {
   const notFound = useRepoNotFound();
-  return <Missing what="This repository" title={notFound ? 'Not found' : undefined} classic={notFound ? undefined : `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}/>;
+  return <Missing what="This repository" classic={notFound ? undefined : `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}/>;
 }
 

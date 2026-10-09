@@ -23,7 +23,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {CircleDashed, FolderGit2, User as UserIcon} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {pageListRect} from '../../app/shell/Frame.tsx';
@@ -119,7 +119,12 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     else el.setAttribute('aria-activedescendant', rowId(id));
   }), [cursor, hasRows]);
 
-  const items = virtualizer.getVirtualItems();
+  const all = virtualizer.getVirtualItems();
+  // A list's first render is its most expensive one (every row in view mounts: 70 ms at 1× for My issues, QA
+  // verify3): the first commit shows the top rows, and the rest of the screen follows in a deferred render
+  // React does in slices, so that no navigation holds the main thread for a long task.
+  const complete = useDeferredValue(true, false);
+  const items = complete ? all : all.slice(0, FIRST_ROWS);
   const last = items.at(-1)?.index ?? 0;
   useEffect(() => {
     onNearEnd?.(rows.length > 0 && last >= rows.length - 15);
@@ -303,6 +308,9 @@ interface RowHandlers {
   aux(id: number, e: MouseEvent): void;
 }
 
+/** Rows in a list's first commit (about half a screen; the rest renders right after). */
+const FIRST_ROWS = 12;
+
 const rowId = (id: number) => `issue-row-${String(id)}`;
 
 const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {id: number; cursor: ListCursor; handlers: RowHandlers; showRepo: boolean}) {
@@ -333,12 +341,14 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
         if (!path) handlers.aux(id, e);
       }}
       leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      // Labels give way first on a narrow list (the title keeps its room).
+      // Labels give way first on a narrow list, then (a phone) the pin, due date and assignees: the title keeps its
+      // room, and the row its state and age.
       trailing={<>
-        <PinCell issue={issue}/>
+        <span className="contents @max-md:hidden"><PinCell issue={issue}/></span>
         <PullStateCell issue={issue}/>
         <span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span>
-        <DueCell issue={issue}/><AssigneesCell issue={issue}/><UpdatedCell issue={issue}/>
+        <span className="contents @max-md:hidden"><DueCell issue={issue}/><AssigneesCell issue={issue}/></span>
+        <UpdatedCell issue={issue}/>
       </>}
     >
       <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>

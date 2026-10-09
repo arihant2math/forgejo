@@ -111,8 +111,18 @@ export function writeSplash(patch: Partial<Splash>): void {
   }
 }
 
+/** Forgets the route to resume (the page on screen is not one to come back to: it was not found). */
+export function forgetRoute(): void {
+  try {
+    const {route: _route, ...rest} = readSplash();
+    localStorage.setItem(SPLASH_KEY, JSON.stringify(rest));
+  } catch {
+    // Storage blocked.
+  }
+}
+
 /** Other localStorage keys that remember something about a user (cleared at sign-out). */
-export const LOCAL_PREFS = ['forgejo-next:sidebar', 'forgejo-next:board', 'forgejo-next:views'] as const;
+export const LOCAL_PREFS = ['forgejo-next:sidebar', 'forgejo-next:board', 'forgejo-next:views', 'forgejo-next:home'] as const;
 
 /** Removes the local DB marker and what it says about the user (sign-out): the next boot shows the logged-out shell. */
 export function forgetUser(): void {

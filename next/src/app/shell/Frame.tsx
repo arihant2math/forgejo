@@ -6,6 +6,7 @@
 // live shell (Shell.tsx) are both built from these parts, so the first frame
 // and the app line up (PLAN §1: cache the shape of the page).
 
+import {elementScroll, type Virtualizer} from '@tanstack/react-virtual';
 import type {ReactNode, Ref} from 'react';
 import {cx, Skeleton} from '../../ui/index.ts';
 
@@ -78,6 +79,7 @@ export function viewChange(): {resetScroll: false} {
 export function pageListRect() {
   return {
     initialRect: {width: innerWidth, height: innerHeight},
+    scrollToFn: pageScrollTo,
     observeElementRect: (instance: {scrollElement: Element | Window | null}, cb: (rect: {width: number; height: number}) => void) => {
       const el = instance.scrollElement;
       if (!(el instanceof Element) || typeof ResizeObserver !== 'function') return undefined;
@@ -91,6 +93,23 @@ export function pageListRect() {
       };
     },
   };
+}
+
+/** Virtualizers that scrolled their page once (their mount). */
+const mounted = new WeakSet<object>();
+
+/**
+ * Scrolls a list's page — except the virtualizer's call on mount, which scrolls its new scroll element to where it
+ * already is (the top of a new page; the router restores a page come back to after the render). That call forced a
+ * synchronous layout of the whole new page inside the navigation's task (65 ms of a 230 ms task at 4× CPU, QA
+ * verify3); the browser lays the page out once anyway, before painting it.
+ */
+function pageScrollTo<T extends Element>(offset: number, options: Parameters<typeof elementScroll>[1], instance: Virtualizer<T, Element>): void {
+  if (!mounted.has(instance)) {
+    mounted.add(instance);
+    if (offset === 0 && !options.adjustments) return;
+  }
+  elementScroll(offset, options, instance);
 }
 
 /** The main panel's content below the header (the page's scroll container; lists virtualize against it). */

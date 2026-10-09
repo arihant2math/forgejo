@@ -18,6 +18,7 @@
 // for the splash), its view in src/features/<area>/, and — for a canonical
 // URL — the same pattern in spaRoutes (backend) so a reload serves the UI.
 
+import {untracked} from 'mobx';
 import {
   createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type RouterHistory, stringifySearchWith,
 } from '@tanstack/react-router';
@@ -25,7 +26,7 @@ import {isLocalPath, sitePath} from './config.ts';
 import {appPageOf, nextPathOf} from './paths.ts';
 import {lazyView, whenIdle} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
-import {loadRepo, type RepoMatch} from './repo.ts';
+import {loadRepo, repoFullName, type RepoMatch} from './repo.ts';
 import {
   type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type MyListSearch, myListSearch, parsePlainSearch, type PullSearch, pullSearch,
 } from './search.ts';
@@ -121,10 +122,37 @@ const inboxRoute = createRoute({
 
 // Repository routes resolve the repository (pool, else API v1) and hydrate
 // its group. `$index` stays a string in the URL; views parse it.
+
+/**
+ * The loader of a repository route. Names are case-insensitive, so `/ACME/Atlas` finds acme/atlas: the address is
+ * then rewritten to the repository's own spelling (the URL, breadcrumb and tab title are the canonical ones).
+ */
+async function repoLoader(app: App, params: {owner: string; repo: string}, location: {pathname: string; searchStr: string; hash: string}): Promise<RepoMatch> {
+  const match = await loadRepo(app, params.owner, params.repo);
+  const full = match.repoId === undefined ? undefined : repoFullName(app, match.repoId);
+  if (full && full !== `${params.owner}/${params.repo}`) {
+    const segs = location.pathname.split('/');
+    const at = segs.findIndex((seg, i) => safeDecode(seg) === params.owner && safeDecode(segs[i + 1] ?? '') === params.repo);
+    if (at > 0) {
+      segs.splice(at, 2, ...full.split('/').map(encodeURIComponent));
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
+      throw redirect({href: sitePath(app.config, `${segs.join('/')}${location.searchStr}${location.hash ? `#${location.hash}` : ''}`), replace: true});
+    }
+  }
+  return match;
+}
+
+function safeDecode(seg: string): string {
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
 const repoHomeRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo',
-  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/repo/RepoHome.tsx'), 'RepoHome'),
 });
@@ -132,7 +160,7 @@ const repoHomeRoute = createRoute({
 const repoIssuesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/issues',
-  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
   validateSearch: (s): IssueListSearch => issueListSearch(s),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'RepoIssues'),
@@ -141,7 +169,7 @@ const repoIssuesRoute = createRoute({
 const repoPullsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/pulls',
-  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
   validateSearch: (s): IssueListSearch => issueListSearch(s),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'RepoPulls'),
@@ -150,7 +178,7 @@ const repoPullsRoute = createRoute({
 const repoIssueRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/issues/$index',
-  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
@@ -158,7 +186,7 @@ const repoIssueRoute = createRoute({
 const repoPullRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/pulls/$index',
-  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
   validateSearch: (s): PullSearch => pullSearch(s),
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
@@ -187,7 +215,7 @@ const boardRoute = createRoute({
 const codeRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/code/$owner/$repo/$',
-  loader: ({context: {app}, params}): Promise<RepoMatch> => loadRepo(app, params.owner, params.repo),
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
 });
@@ -202,15 +230,23 @@ const ownerRoute = createRoute({
   component: lazyView(() => import('../features/owner/OwnerPage.tsx'), 'OwnerPage'),
 });
 
-/** The owner page's former address below the base. */
+/**
+ * The owner page's former address below the base — for an owner this device knows. Any other name below the base
+ * (`/-/next/nonsense`) is no page: the not-found page at once, not an owner page that asks Forgejo twice for a user
+ * that does not exist (QA verify3).
+ */
 const nextOwnerRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/$owner',
   beforeLoad: ({context: {app}, params, search}) => {
+    const login = params.owner.toLowerCase();
+    const known = untracked(() => [...app.session?.data.pool.model('User').all() ?? []].some((u) => u.data.login.toLowerCase() === login));
+    if (!known) return;
     const q = new URLSearchParams(search).toString();
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
     throw redirect({href: sitePath(app.config, `/${encodeURIComponent(params.owner)}${q ? `?${q}` : ''}`), replace: true});
   },
+  component: ShellNotFound,
 });
 
 /** A repository's address below the base (`/-/next/{owner}/{repo}[/…]`) is its canonical page. */
@@ -284,7 +320,10 @@ export function warmViews(): void {
 }
 
 export function createAppRouter(app: App, history?: RouterHistory) {
-  return createRouter({
+  // Whether the navigation under way goes back or forward in the history, or is the first load (a reload): its
+  // page's scroll is restored.
+  let traversal = true;
+  const router = createRouter({
     routeTree,
     context: {app},
     basepath: app.config.app_sub_url || '/',
@@ -297,9 +336,11 @@ export function createAppRouter(app: App, history?: RouterHistory) {
     defaultPendingMs: 1000,
     defaultErrorComponent: RouteError,
     defaultNotFoundComponent: RouteNotFound,
-    // Back to a list comes back to where it was scrolled (the page's scroll container: PageBody); a new page
-    // starts at the top.
-    scrollRestoration: true,
+    // Back to a list comes back to where it was scrolled (the page's scroll container: PageBody), after the render.
+    // A new page starts at the top: that reset happens before the new page mounts (below), while the old one's
+    // layout is clean — after the render it forced a synchronous layout of the whole new page inside the
+    // navigation's task (55–65 ms at 4× CPU, QA verify3). A link to an anchor (#…) is scrolled to by the router.
+    scrollRestoration: ({location}) => traversal || location.hash !== '',
     scrollToTopSelectors: [PAGE_SCROLLER],
     // Plain query strings, as the classic UI writes them (`?labels=11,-3&milestone=4`): values stay strings (the
     // routes' validators parse them; `?q=8` is the text "8"), never JSON-quoted (`labels=%2211%22`).
@@ -307,6 +348,28 @@ export function createAppRouter(app: App, history?: RouterHistory) {
     stringifySearch: stringifySearchWith(JSON.stringify),
     ...(history ? {history} : {}),
   });
+  // Back, forward and history.go return to a history entry this tab has shown (its key, which every push and
+  // replace makes new); the first load (a reload) restores its page too. Not router.history.subscribe: a
+  // subscriber added before the router's own left the first boot after signing in on the splash; nor popstate,
+  // which arrives after the router started the navigation.
+  // A navigation may start loading twice (the history's subscriber, then the router's own): the same key keeps
+  // its answer.
+  const shown = new Set<string>();
+  let first = true;
+  let current: string | undefined;
+  router.subscribe('onBeforeNavigate', ({toLocation}) => {
+    const key = (toLocation.state as {__TSR_key?: string}).__TSR_key;
+    if (key !== undefined && key === current) return;
+    current = key;
+    traversal = first || (key !== undefined && shown.has(key));
+    first = false;
+    if (key !== undefined) shown.add(key);
+  });
+  router.subscribe('onBeforeRouteMount', (e) => {
+    const el = document.querySelector(PAGE_SCROLLER);
+    if (el && !traversal && e.hrefChanged && !e.toLocation.hash) el.scrollTop = 0;
+  });
+  return router;
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;

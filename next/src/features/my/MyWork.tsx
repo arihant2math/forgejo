@@ -31,10 +31,11 @@ function Types({to, current, extra}: {to: '/issues' | '/pulls'; current: MyListT
     <>
       {[...TYPES, ...extra ? [extra] : []].map((t) => (
         <Button key={t.label} asChild size="sm" variant={current === t.type ? 'secondary' : 'ghost'}>
+          {/* Exact search: "Your repositories" (no type) is not also current on a typed list (a subset match). */}
           <Link to={to} search={(prev) => {
             const {type: _type, ...rest} = prev;
             return t.type ? {...rest, type: t.type} : rest;
-          }} aria-current={current === t.type ? 'page' : undefined}>{t.label}</Link>
+          }} activeOptions={{exact: true}}>{t.label}</Link>
         </Button>
       ))}
     </>

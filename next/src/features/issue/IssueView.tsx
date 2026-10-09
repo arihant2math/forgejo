@@ -273,7 +273,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
           // Every page of the repository's issues has been asked: Forgejo has no such issue the viewer can see, and
           // its classic page would say the same (no classic link to a 404).
-          <Missing what="This issue" icon={SearchX} title="Not found"/>}
+          <Missing what="This issue" icon={SearchX}/>}
       </PageBody>
     </>
   );

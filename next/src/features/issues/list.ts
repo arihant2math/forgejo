@@ -20,6 +20,7 @@
 
 import {computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
 import {sitePath} from '../../app/config.ts';
+import {netSignal} from '../../sync/net.ts';
 import {type ListSearch, type MyListType, parseLabels} from '../../app/search.ts';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
@@ -354,22 +355,31 @@ export class IssueListModel {
     params.set(this.source.type === 'mentioned' ? 'mentioned' : 'review_requested', 'true');
     void (async () => {
       const ids = new Set<number>();
+      let answered = false;
       try {
         const token = await s.auth.token();
         for (let page = 1; page <= 10; page++) {
           params.set('page', String(page));
           const res = await fetch(sitePath(this.app.config, `/api/v1/repos/issues/search?${params.toString()}`), {
-            headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15_000),
+            headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'error', signal: netSignal(15_000),
           });
           if (!res.ok) break;
+          answered = true;
           const list = await res.json() as {id?: unknown}[];
           for (const i of list) if (typeof i.id === 'number') ids.add(i.id);
           if (list.length < 50) break;
         }
       } catch {
-        // Offline: the local part only (review requests of loaded timelines).
+        // Offline, or Forgejo not answering: see below.
       }
       if (this.disposed || this.serverAsked !== key) return;
+      if (!answered) {
+        // No answer is not an empty list ("nobody waits for your review"): the list stays unanswered (its page and
+        // Home say it needs a connection) and asks again once the browser is back online.
+        this.serverAsked = '';
+        if (typeof window !== 'undefined') window.addEventListener('online', () => { this.askServer(); }, {once: true});
+        return;
+      }
       runInAction(() => {
         this.serverIds.set(ids);
       });

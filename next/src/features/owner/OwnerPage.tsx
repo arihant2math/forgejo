@@ -9,7 +9,7 @@
 // chunk.
 
 import {useParams} from '@tanstack/react-router';
-import {Building2, KanbanSquare, Lock, Settings, User as UserIcon, Users} from 'lucide-react';
+import {BookMarked, Building2, CloudOff, KanbanSquare, Lock, Settings, User as UserIcon, Users} from 'lucide-react';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -17,12 +17,13 @@ import {online} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {Missing} from '../../app/Missing.tsx';
+import {reach} from '../../app/online.ts';
 import {isOwnerName} from '../../app/paths.ts';
 import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, EmptyState, Icon, ListRow, MenuLabel, MoreMenu, Panel, SkeletonText} from '../../ui/index.ts';
+import {Avatar, Badge, EmptyState, Hint, Icon, ListRow, MenuLabel, MoreMenu, Panel, SkeletonText} from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 
 interface OwnerInfo {
@@ -151,6 +152,8 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
 
 const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}: {owner: string; ownerId: number; isOrg: boolean; create: boolean}) {
   const {data} = useSession();
+  // Offline (or Forgejo not answering) only the repositories this device has are listed: say so, never "none".
+  const away = reach(data.status.connection) !== 'online';
   const remote = useRemote<{id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}[]>(
     `/users/${encodeURIComponent(owner)}/repos?limit=50`);
   const rows = new Map<number, RepoRow>();
@@ -168,9 +171,13 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
   return (
     <Panel label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
       actions={canCreate && <ClassicLink to={create} size="sm">New repository</ClassicLink>}>
-      {list.length ? list.map((r) => <RepoLine key={r.id} r={r}/>) :
-        remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
-          <EmptyState title="No repositories" description="None that you can see."/>}
+      {list.map((r) => <RepoLine key={r.id} r={r}/>)}
+      {remote.state !== 'ready' && away ?
+        list.length ? <p className="px-3 py-2 text-sm text-fg-subtle">Repositories that are not on this device load when you are online.</p> :
+          <EmptyState icon={CloudOff} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
+        list.length ? null :
+          remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
+            <EmptyState title="No repositories" description="None that you can see."/>}
     </Panel>
   );
 });
@@ -180,13 +187,14 @@ function RepoLine({r}: {r: RepoRow}) {
   const click = useLinkClick();
   const href = hrefOf(app, `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
   return (
-    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={r.private ? <Icon icon={Lock} size="sm"/> : undefined}
+    // Every row leads with an icon (a lock for a private one), so that the names line up.
+    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={r.private ? <Hint label="Private"><Icon icon={Lock} size="sm"/></Hint> : <Icon icon={BookMarked} size="sm"/>}
       trailing={<>
         {r.fork && <Badge>Fork</Badge>}
         {r.archived && <Badge tone="warning">Archived</Badge>}
         <time dateTime={r.updated} title={fullDate(r.updated)}>{ago(r.updated)}</time>
       </>}>
-      <span className="font-medium">{r.name}</span>{r.description && <span className="text-fg-subtle"> {r.description}</span>}
+      <span className="font-medium">{r.name}</span>{r.description && <span className="ml-3 text-fg-subtle">{r.description}</span>}
     </ListRow>
   );
 }

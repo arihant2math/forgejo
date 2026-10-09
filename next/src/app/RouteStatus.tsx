@@ -57,7 +57,7 @@ export function ShellNotFound() {
   const classic = useClassicOfHere();
   return (
     <>
-      <PageHeader icon={FileQuestion} title="Not found"/>
+      <PageHeader icon={FileQuestion} title={classic ? 'Not available here' : 'Not found'}/>
       <PageBody>
         <Missing what="This page" description={classic ? 'Forgejo Next has no page for this address yet. The classic UI has it.' : 'There is no page at this address.'} classic={classic}/>
       </PageBody>

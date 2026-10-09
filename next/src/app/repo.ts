@@ -32,9 +32,20 @@ export function findRepo(data: Data, owner: string, name: string): number | unde
   return undefined;
 }
 
+/** A repository's `owner/name` as Forgejo spells it (pool, else the peeked records). */
+export function repoFullName(app: App, repoId: number): string | undefined {
+  const data = app.session?.data;
+  return data?.pool.model('Repository').get(repoId)?.data.full_name ?? data?.peek('Repository').get(repoId)?.full_name;
+}
+
 const looked = new Map<string, number | undefined>();
 /** Repositories Forgejo answered 404 for (asked again on the next visit: it may be created or shared later). */
 const absent = new Set<string>();
+
+/** Forgets what was looked up for owner/name (the repository was deleted or hidden: ask again). */
+export function forgetRepo(owner: string, name: string): void {
+  looked.delete(`${owner}/${name}`.toLowerCase());
+}
 
 /** A loader waits at most this long for the network: the page then renders (render first). */
 const LOOKUP_TIMEOUT = 3000;

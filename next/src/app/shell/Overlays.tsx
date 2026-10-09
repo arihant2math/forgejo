@@ -23,7 +23,8 @@ export function ShortcutsDialog() {
   const byScope = new Map<Scope, ShortcutId[]>();
   for (const id of Object.keys(KEYMAP) as ShortcutId[]) {
     const scope = KEYMAP[id].scope;
-    if (active.includes(scope) && !works(id)) continue;
+    // Commands without keys are the palette's, not the help's.
+    if (!KEYMAP[id].keys || (active.includes(scope) && !works(id))) continue;
     byScope.set(scope, [...byScope.get(scope) ?? [], id]);
   }
   const order = [...byScope.keys()].sort((a, b) => rank(active, a) - rank(active, b));
@@ -33,7 +34,7 @@ export function ShortcutsDialog() {
     });
   };
   return (
-    <Dialog open title="Keyboard shortcuts" size="sm" initialFocus="dialog" scroll onOpenChange={(open) => {
+    <Dialog open title="Keyboard shortcuts" initialFocus="dialog" scroll onOpenChange={(open) => {
       if (!open) close();
     }} footer={<DialogClose asChild><Button>Close</Button></DialogClose>}>
       <div className="flex flex-col gap-3">
@@ -42,7 +43,7 @@ export function ShortcutsDialog() {
             <SectionHeading>{`${SCOPE_LABELS[scope]}${active.includes(scope) && scope !== 'global' ? ' · on this page' : ''}`}</SectionHeading>
             <dl className="flex flex-col">
               {(byScope.get(scope) ?? []).map((id) => (
-                <div key={id} className="flex h-control items-center justify-between gap-4 text-base">
+                <div key={id} className="flex min-h-control items-center justify-between gap-4 py-1 text-base">
                   <dt className="text-fg">{KEYMAP[id].label}</dt>
                   <dd><Shortcut keys={shortcutHint(id)}/></dd>
                 </div>

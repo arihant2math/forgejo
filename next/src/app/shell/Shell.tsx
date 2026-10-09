@@ -18,6 +18,7 @@ import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
 import {goToCode} from '../goto.ts';
 import {lastBoard} from '../lastBoard.ts';
+import {undoLatest} from '../notices.ts';
 import {LoggedOut} from '../LoggedOut.tsx';
 import {pendingWebLogout} from '../../auth/weblogout.ts';
 import {signInHere} from '../session.ts';
@@ -104,6 +105,9 @@ function GlobalShortcuts({app}: {app: App}) {
     void navigate(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
   });
   useShortcut('sidebar.toggle', toggleSidebar);
+  useShortcut('undo', () => {
+    undoLatest(app);
+  });
   // The drawer (narrow screens) closes when a page opens from it, when it opens a dialog (new issue, the
   // palette, the help, the unsynced changes: never under the drawer), and with Esc.
   const path = useRouterState({select: (st) => st.location.pathname});

@@ -36,8 +36,9 @@ export function createIndex() {
     searchOptions: {
       boost: {title: 3, num: 2},
       prefix: true,
-      // A typo per five letters; none in short words (numbers, "ui").
-      fuzzy: (term) => (term.length > 3 ? 0.2 : false),
+      // A typo per five letters; none in short words (numbers, "ui"), and none in a one-word query: "move" must not
+      // find "more" (the palette lists commands by their words; a single word is a name, not a phrase to guess at).
+      fuzzy: (term, _i, terms) => (terms.length > 1 && term.length > 3 ? 0.2 : false),
       combineWith: 'AND',
     },
   });

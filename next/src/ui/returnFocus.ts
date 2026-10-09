@@ -3,6 +3,15 @@
 
 import {useRef} from 'react';
 
+/** Whether an element is inside an open dialog (a closing one is data-state="closed" while it fades out). */
+function inOpenDialog(el: Element): boolean {
+  for (let p: Element | null = el; p; p = p.parentElement) {
+    const role = p.getAttribute('role');
+    if ((role === 'dialog' || role === 'alertdialog') && p.getAttribute('data-state') === 'open') return true;
+  }
+  return false;
+}
+
 /**
  * Radix returns focus to a dialog's trigger, but a dialog opened from the
  * keyboard (⌘K, ?) has none: focus would fall to <body>. These handlers
@@ -22,8 +31,10 @@ export function useReturnFocus(restore: () => boolean = () => true): {onOpenAuto
       // control that opened the dialog (whose tooltip would then cover the new page).
       if (!restore()) {
         e.preventDefault();
+        // Unless the command opened another dialog (⌘K → Create an issue): its field keeps the focus, and what the
+        // user typed there meanwhile (QA verify3: blurred at about 300 ms, the title was lost).
         const a = document.activeElement;
-        if (a instanceof HTMLElement && a !== document.body) a.blur();
+        if (a instanceof HTMLElement && a !== document.body && !inOpenDialog(a)) a.blur();
         return;
       }
       if (el?.isConnected) {

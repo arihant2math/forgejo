@@ -332,10 +332,10 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   });
   useShortcut('list.open', () => {
     if (cursor.activeId !== undefined) open(cursor.activeId);
-  });
+  }, true, () => cursor.activeId !== undefined);
   useShortcut('list.clear', () => {
     cursor.selected.clear();
-  });
+  }, true, () => untracked(() => cursor.selected.size) > 0);
   useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined), 'read'));
   useShortcut('inbox.unread', triage(() => 'unread', 'unread'));
   useShortcut('inbox.pin', triage(togglePin));

@@ -61,7 +61,7 @@ export const BoardsList = observer(function BoardsList() {
   });
   useShortcut('list.open', () => {
     if (cursor !== undefined) void navigate({to: '/-/next/projects/$id', params: {id: String(cursor)}});
-  });
+  }, true, () => cursor !== undefined);
   return (
     <>
       <PageHeader icon={KanbanSquare} title="Boards"/>

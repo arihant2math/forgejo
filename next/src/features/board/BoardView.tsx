@@ -289,23 +289,58 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   useShortcut('board.right', () => {
     step(1, 0);
   });
+  // Moves apply to the card under the cursor, where it can go (the palette lists them only then).
+  const canShift = (dCol: number, dRow: number) => () => {
+    const cur = editable ? untracked(here) : undefined;
+    if (!cur?.at) return false;
+    const {layout, at} = cur;
+    if (dCol) {
+      const ci = layout.columns.findIndex((c) => c.id === at.column);
+      return layout.columns[ci + dCol] !== undefined;
+    }
+    const n = layout.cards.get(at.column)?.length ?? 0;
+    return dRow > 0 ? at.index < n - 1 : at.index > 0;
+  };
   useShortcut('board.moveDown', () => {
     shift(0, 1);
-  });
+  }, true, canShift(0, 1));
   useShortcut('board.moveUp', () => {
     shift(0, -1);
-  });
+  }, true, canShift(0, -1));
   useShortcut('board.moveLeft', () => {
     shift(-1, 0);
-  });
+  }, true, canShift(-1, 0));
   useShortcut('board.moveRight', () => {
     shift(1, 0);
-  });
+  }, true, canShift(1, 0));
   useShortcut('issue.state', pick('status'));
   useShortcut('issue.labels', pick('labels'));
   useShortcut('issue.assignee', pick('assignees'));
   useShortcut('issue.milestone', pick('milestone'));
   useShortcut('issue.priority', pick('priority'));
+  // Column commands (the palette): the cursor's column. Online only, as the column menu's.
+  const [columnDialog, setColumnDialog] = useState<ColumnDialogState | undefined>();
+  const [adding, setAdding] = useState(false);
+  const cursorColumn = () => untracked(here)?.at?.column;
+  const columnOf = (id: number | undefined) => (id === undefined ? undefined : untracked(() => model.columns.find((c) => c.id === id)));
+  useShortcut('board.addColumn', () => {
+    setAdding(true);
+  }, editable, () => connectivity.online);
+  useShortcut('board.renameColumn', () => {
+    const c = cursorColumn();
+    if (c !== undefined) setColumnDialog({kind: 'rename', columnId: c});
+  }, editable, () => connectivity.online && cursorColumn() !== undefined);
+  useShortcut('board.deleteColumn', () => {
+    const c = cursorColumn();
+    if (c !== undefined) setColumnDialog({kind: 'delete', columnId: c});
+  }, editable, () => connectivity.online && columnOf(cursorColumn())?.default === false);
+  /** After a column dialog: the focus back on the board (a column's cards), never on <body>. */
+  const focusColumn = (id: number | undefined) => {
+    requestAnimationFrame(() => {
+      const target = id ?? untracked(() => model.columns.find((c) => c.default)?.id ?? model.columns[0]?.id);
+      if (target !== undefined) handles.current.get(target)?.focus();
+    });
+  };
   // C on a board (Linear): the new issue goes on this board, in the cursor's column (else the default one).
   useShortcut('create', () => {
     const layout = untracked(() => model.layout.get());
@@ -374,10 +409,13 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
               model.cursor.setActive(id);
             }}>
             {columns.map((c, i) => (
-              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}/>
+              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}
+                onDialog={(kind) => {
+                  setColumnDialog({kind, columnId: c.id});
+                }}/>
             ))}
             {columns.length === 0 && <EmptyState icon={Columns3} title="No columns yet" description="Add a column to start the board."/>}
-            {editable && <AddColumn projectId={projectId}/>}
+            {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
           </BoardLanes>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -385,6 +423,10 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         </ContextMenuContent>
       </ContextMenu>
       <DropIndicator ref={indicatorRef}/>
+      {columnDialog && <ColumnDialog model={model} state={columnDialog} onClose={(deleted) => {
+        setColumnDialog(undefined);
+        focusColumn(deleted ? undefined : columnDialog.columnId);
+      }}/>}
     </>
   );
 });
@@ -465,9 +507,9 @@ interface CardHandlers {
 
 const cardDomId = (id: number) => `card-${String(id)}`;
 
-const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable}: {
+const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable, onDialog}: {
   model: BoardModel; column: ProjectColumn; index: number; count: number; dragging: KeyedFlags; handlers: CardHandlers;
-  register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean;
+  register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean; onDialog: (kind: ColumnDialogState['kind']) => void;
 }) {
   const cards = model.cards(column.id);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -504,7 +546,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       leading={column.color ? <LabelDot color={column.color}/> : null}
       // The default column (where new cards and the cards of a deleted column go) says so.
       badge={column.default ? <Badge>Default</Badge> : undefined}
-      actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count}/> : undefined}>
+      actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative w-full outline-none"
         style={{height: virtualizer.getTotalSize()}}
         onFocus={(e) => {
@@ -569,11 +611,47 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
   );
 });
 
-const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {model: BoardModel; column: ProjectColumn; index: number; count: number}) {
+interface ColumnDialogState {
+  kind: 'rename' | 'delete';
+  columnId: number;
+}
+
+/** Renaming or deleting a column (from its menu or the palette); `onClose` puts the focus back on the board. */
+function ColumnDialog({model, state, onClose}: {model: BoardModel; state: ColumnDialogState; onClose: (deleted: boolean) => void}) {
+  const app = useApp();
+  const projectId = model.projectId;
+  const column = untracked(() => model.columns.find((c) => c.id === state.columnId));
+  if (!column) return null;
+  if (state.kind === 'rename') {
+    return (
+      <PromptDialog title="Rename the column" label="Column name" initial={column.title} onClose={() => {
+        onClose(false);
+      }} onSave={(title) => {
+        void editColumn(app, projectId, column.id, {title});
+      }}/>
+    );
+  }
+  return (
+    <Dialog open title={`Delete “${column.title}”?`} description="Its cards move to the default column." onOpenChange={(o) => {
+      if (!o) onClose(false);
+    }} footer={<>
+      <Button variant="ghost" onClick={() => {
+        onClose(false);
+      }}>Cancel</Button>
+      <Button variant="danger" onClick={() => {
+        onClose(true);
+        void deleteColumn(app, projectId, column.id);
+      }}>Delete</Button>
+    </>}/>
+  );
+}
+
+const ColumnMenu = observer(function ColumnMenu({model, column, index, count, onDialog}: {
+  model: BoardModel; column: ProjectColumn; index: number; count: number; onDialog: (kind: ColumnDialogState['kind']) => void;
+}) {
   const app = useApp();
   const projectId = model.projectId;
   const order = () => untracked(() => model.columns.map((c) => c.id));
-  const [dialog, setDialog] = useState<'rename' | 'delete' | undefined>();
   const offline = !connectivity.online;
   const reorder = (by: number) => {
     const ids = order();
@@ -589,7 +667,7 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {
         <MenuContent align="end">
           {offline && <MenuItem disabled>{onlineOnly('Changing columns')}</MenuItem>}
           <MenuItem icon={Pencil} disabled={offline} onSelect={() => {
-            setDialog('rename');
+            onDialog('rename');
           }}>Rename…</MenuItem>
           <MenuItem icon={Star} disabled={offline || column.default} onSelect={() => {
             const before = untracked(() => model.columns.find((c) => c.default));
@@ -614,28 +692,10 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count}: {
           }}>New issue in this column…</MenuItem>
           <MenuSeparator/>
           <MenuItem icon={Trash2} danger disabled={offline || column.default} onSelect={() => {
-            setDialog('delete');
+            onDialog('delete');
           }}>Delete…</MenuItem>
         </MenuContent>
       </Menu>
-      {dialog === 'rename' && <PromptDialog title="Rename the column" label="Column name" initial={column.title} onClose={() => {
-        setDialog(undefined);
-      }} onSave={(title) => {
-        void editColumn(app, projectId, column.id, {title});
-      }}/>}
-      {dialog === 'delete' && (
-        <Dialog open title={`Delete “${column.title}”?`} description="Its cards move to the default column." onOpenChange={(o) => {
-          if (!o) setDialog(undefined);
-        }} footer={<>
-          <Button variant="ghost" onClick={() => {
-            setDialog(undefined);
-          }}>Cancel</Button>
-          <Button variant="danger" onClick={() => {
-            setDialog(undefined);
-            void deleteColumn(app, projectId, column.id);
-          }}>Delete</Button>
-        </>}/>
-      )}
     </>
   );
 });
@@ -647,11 +707,22 @@ function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId:
 }
 
 /** The lane after the last column: "Add column", then the new column's lane with its name field (online only). */
-const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) {
+const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: {projectId: number; editing: boolean; setEditing: (on: boolean) => void}) {
   const app = useApp();
-  const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const field = useRef<HTMLInputElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  // Added or canceled from the keyboard: the focus back on "Add column" (another one is one Enter away), not <body>.
+  const refocus = useRef(false);
+  const close = () => {
+    refocus.current = true;
+    setEditing(false);
+  };
+  useEffect(() => {
+    if (editing || !refocus.current) return;
+    refocus.current = false;
+    button.current?.focus({preventScroll: true});
+  }, [editing]);
   const offline = !connectivity.online;
   const submit = () => {
     const t = title.trim();
@@ -659,7 +730,7 @@ const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) 
     void createColumn(app, projectId, t).then((ok) => {
       if (ok) {
         setTitle('');
-        setEditing(false);
+        close();
       }
     });
   };
@@ -687,7 +758,7 @@ const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) 
               submit();
             } else if (e.key === 'Escape') {
               e.preventDefault();
-              setEditing(false);
+              close();
             }
           }}/>
         <p className="px-1 text-sm text-fg-subtle">Enter adds it, Esc cancels.</p>
@@ -696,7 +767,7 @@ const AddColumn = observer(function AddColumn({projectId}: {projectId: number}) 
   }
   return (
     <div className="flex w-column shrink-0 flex-col">
-      <Button variant="ghost" icon={Plus} tooltip={tip} disabled={offline} onClick={() => {
+      <Button ref={button} variant="ghost" icon={Plus} tooltip={tip} disabled={offline} onClick={() => {
         setEditing(true);
       }}>Add column</Button>
     </div>

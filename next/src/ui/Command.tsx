@@ -107,15 +107,17 @@ export interface CommandItemProps {
   shortcut?: string | undefined;
   /** A choice that is on (true), on for some (mixed) or off (false): a check slot and aria-checked. */
   checked?: boolean | 'mixed' | undefined;
+  /** Listed but cannot run now (its meta says why): shown as disabled, still selectable so that Enter can say why. */
+  muted?: boolean | undefined;
   children: ReactNode;
 }
 
 // cmdk writes data-selected / data-disabled as "true" or "false".
-const item = cx(menuRow, 'text-fg data-[selected=true]:bg-raised-hover data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-subtle');
+const item = cx(menuRow, 'text-fg data-muted:text-fg-subtle data-[selected=true]:bg-raised-hover data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-subtle');
 
-export function CommandItem({value, onSelect, icon, leading, meta, shortcut, checked, children}: CommandItemProps) {
+export function CommandItem({value, onSelect, icon, leading, meta, shortcut, checked, muted, children}: CommandItemProps) {
   return (
-    <K.Item value={value} onSelect={onSelect} className={item} aria-checked={checked}>
+    <K.Item value={value} onSelect={onSelect} className={item} aria-checked={checked} data-muted={muted ? true : undefined}>
       {checked !== undefined && (
         <span className={iconSlot}>{checked && <Icon icon={checked === 'mixed' ? Minus : Check}/>}</span>
       )}

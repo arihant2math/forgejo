@@ -6,12 +6,26 @@
 
 import type {useNavigate} from '@tanstack/react-router';
 import {untracked} from 'mobx';
-import {notify} from './notices.ts';
+import {dismissSeries, notify} from './notices.ts';
 import type {App} from './store.ts';
 
 export function goToCode(app: App, navigate: ReturnType<typeof useNavigate>): void {
   const id = untracked(() => app.ui.repoOpen || app.ui.recentRepo);
   const r = id ? app.session?.data.pool.model('Repository').get(id)?.data : undefined;
-  if (r) void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
-  else notify(app, {tone: 'neutral', title: 'Open a repository first', description: 'G C opens the code of the repository on screen, or of the last one you opened.'});
+  if (r) {
+    dismissSeries(app, SERIES);
+    void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
+  } else {
+    notify(app, {tone: 'neutral', title: GO_CODE_WHY, description: 'G C opens the code of the repository on screen, or of the last one you opened.', series: SERIES});
+  }
+}
+
+const SERIES = 'go.code';
+/** Why there is no code to go to (the palette's disabled command says it too). */
+export const GO_CODE_WHY = 'Open a repository first';
+
+/** Whether "Go to the code" has a repository to go to. */
+export function canGoToCode(app: App): boolean {
+  const id = untracked(() => app.ui.repoOpen || app.ui.recentRepo);
+  return Boolean(id && app.session?.data.pool.model('Repository').get(id));
 }

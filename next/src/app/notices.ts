@@ -41,16 +41,19 @@ const timers = new Map<number, {left: number; started: number; timer: ReturnType
  */
 export function notify(app: App, spec: Omit<NoticeSpec, 'id' | 'closing'>): number {
   const id = ++seq;
+  if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.action.run)};
   runInAction(() => {
-    if (spec.series) {
-      for (let i = app.ui.notices.length - 1; i >= 0; i--) {
-        const old = app.ui.notices[i];
-        if (old?.series !== spec.series) continue;
-        const t = timers.get(old.id);
-        if (t?.timer) clearTimeout(t.timer);
-        timers.delete(old.id);
-        app.ui.notices.splice(i, 1);
-      }
+    // The same series, or the same words: the new notice replaces the old one (one notice per message: a refusal
+    // repeated by a second attempt does not stack).
+    const same = (old: NoticeSpec) => (spec.series ? old.series === spec.series :
+      old.tone === spec.tone && old.title === spec.title && old.description === spec.description);
+    for (let i = app.ui.notices.length - 1; i >= 0; i--) {
+      const old = app.ui.notices[i];
+      if (!old || !same(old)) continue;
+      const t = timers.get(old.id);
+      if (t?.timer) clearTimeout(t.timer);
+      timers.delete(old.id);
+      app.ui.notices.splice(i, 1);
     }
     app.ui.notices.push({...spec, id});
     while (app.ui.notices.length > MAX) {
@@ -105,4 +108,38 @@ export function removeNotice(app: App, id: number): void {
     const i = app.ui.notices.findIndex((n) => n.id === id);
     if (i >= 0) app.ui.notices.splice(i, 1);
   });
+}
+
+/** Dismisses the notices of a series (what they said no longer holds: "Open a repository first" once one is open). */
+export function dismissSeries(app: App, series: string): void {
+  for (const n of app.ui.notices) if (n.series === series) dismiss(app, n.id);
+}
+
+/** Changes that can be undone, latest last (each notice with Undo): ⌘Z / Ctrl+Z undoes the latest. */
+const undos: {id: number; run: () => void}[] = [];
+const MAX_UNDOS = 20;
+
+/** The notice's Undo, also kept for ⌘Z (an Undo run either way is run once). */
+function undoable(app: App, id: number, run: () => void): {label: string; run: () => void} {
+  const entry = {id, run};
+  undos.push(entry);
+  if (undos.length > MAX_UNDOS) undos.shift();
+  return {label: 'Undo', run: () => {
+    const i = undos.indexOf(entry);
+    if (i < 0) return;
+    undos.splice(i, 1);
+    dismiss(app, id);
+    run();
+  }};
+}
+
+/** Undoes the latest change that can be undone (⌘Z / Ctrl+Z outside text fields); says so when there is none. */
+export function undoLatest(app: App): void {
+  const last = undos.pop();
+  if (!last) {
+    notify(app, {tone: 'neutral', title: 'Nothing to undo', series: 'undo'});
+    return;
+  }
+  dismiss(app, last.id);
+  last.run();
 }

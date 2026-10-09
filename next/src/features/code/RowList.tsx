@@ -99,7 +99,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen, onIntent, l
   useShortcut('list.open', () => {
     const it = items[cursor];
     if (shown && it !== undefined) onOpen(it);
-  });
+  }, true, () => shown && items[cursor] !== undefined);
   const onKeyDown = (ev: KeyboardEvent) => {
     if (ev.altKey) return;
     if (ev.key === 'ArrowDown') move(1);

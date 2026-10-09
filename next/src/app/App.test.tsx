@@ -254,10 +254,16 @@ describe('signed in', () => {
     await waitFor(() => {
       expect(selected()).toContain('Footer links are broken');
     });
-    // Repository-only commands are not offered outside a repository.
-    fireEvent.change(input, {target: {value: 'code of this repository'}});
+    // A command that cannot run here is listed with the reason (Enter says it, and never opens something else).
+    fireEvent.change(input, {target: {value: 'go to the code'}});
     await waitFor(() => {
-      expect(screen.queryByRole('option', {name: /Go to the code/})).toBeNull();
+      expect(selected()).toContain('Go to the code');
+    });
+    expect(selected()).toContain('Open a repository first');
+    // A command named by an alias comes before titles that merely contain its words.
+    fireEvent.change(input, {target: {value: 'new issue'}});
+    await waitFor(() => {
+      expect(selected()).toContain('Create an issue');
     });
   });
 

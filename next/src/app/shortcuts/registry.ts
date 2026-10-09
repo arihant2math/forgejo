@@ -63,6 +63,8 @@ function inOverlay(el: Element | null): boolean {
 interface Binding {
   id: ShortcutId;
   run: () => void;
+  /** Whether it applies now (Open with a row under the cursor, a card move with a card): not, it is neither run nor offered. */
+  when: (() => boolean) | undefined;
   seq: number;
 }
 
@@ -86,9 +88,9 @@ export class ShortcutRegistry {
     this.keymap = opts.keymap ?? KEYMAP;
   }
 
-  /** Binds a handler to a shortcut; returns the unbind function. */
-  bind(id: ShortcutId, run: () => void): () => void {
-    const b: Binding = {id, run, seq: ++this.bindSeq};
+  /** Binds a handler to a shortcut (applying while `when` says so); returns the unbind function. */
+  bind(id: ShortcutId, run: () => void, when?: () => boolean): () => void {
+    const b: Binding = {id, run, when, seq: ++this.bindSeq};
     this.bindings.push(b);
     return () => {
       const i = this.bindings.indexOf(b);
@@ -119,7 +121,7 @@ export class ShortcutRegistry {
     const seen = new Set<ShortcutId>();
     for (const b of this.bindings) {
       const def = this.keymap[b.id];
-      if (def && def.scope !== 'global' && this.depth(def.scope) >= 0) seen.add(b.id);
+      if (def && def.scope !== 'global' && this.depth(def.scope) >= 0 && (b.when?.() ?? true)) seen.add(b.id);
     }
     return [...seen];
   }
@@ -131,7 +133,7 @@ export class ShortcutRegistry {
    */
   shadowed(id: ShortcutId): boolean {
     const def = this.keymap[id];
-    if (!def) return false;
+    if (!def?.keys) return false;
     const mine = this.depth(def.scope);
     return this.bindings.some((b) => {
       const other = this.keymap[b.id];
@@ -144,7 +146,7 @@ export class ShortcutRegistry {
     let best: Binding | undefined;
     let depth = -1;
     for (const b of this.bindings) {
-      if (b.id !== id) continue;
+      if (b.id !== id || !(b.when?.() ?? true)) continue;
       const def = this.keymap[b.id];
       const d = def ? this.depth(def.scope) : -1;
       if (d > depth || (d === depth && best && b.seq > best.seq)) {
@@ -178,7 +180,7 @@ export class ShortcutRegistry {
     const out: {binding: Binding; keys: string; depth: number}[] = [];
     for (const b of this.bindings) {
       const def = this.keymap[b.id];
-      if (!def || (restricted && !def.anywhere) || (def.page && !onPage)) continue;
+      if (!def || (restricted && !def.anywhere) || (def.page && !onPage) || !(b.when?.() ?? true)) continue;
       const depth = this.depth(def.scope);
       if (depth >= 0) out.push({binding: b, keys: def.keys, depth});
     }

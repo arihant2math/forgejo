@@ -38,7 +38,8 @@ test('hints: one cap per Apple chord, words for other platforms', () => {
 test('every keymap entry is well-formed and keys are unique per scope', () => {
   const seen = new Set<string>();
   for (const [id, def] of Object.entries(KEYMAP)) {
-    expect(def.keys, id).toMatch(/^((mod|shift|alt)\+)*([a-z0-9]|enter|escape|backspace|arrowup|arrowdown|[?/[\]\\])( ((mod|shift|alt)\+)*([a-z0-9]|enter|escape|[?/[\]\\]))*$/);
+    if (def.keys === '') continue; // a command without keys (the palette's)
+    expect(def.keys, id).toMatch(/^((mod|shift|alt)\+)*([a-z0-9]|enter|escape|backspace|arrow(up|down|left|right)|[?/[\]\\])( ((mod|shift|alt)\+)*([a-z0-9]|enter|escape|arrow(up|down|left|right)|[?/[\]\\]))*$/);
     const k = `${def.scope}|${def.keys}`;
     expect(seen.has(k), id).toBe(false);
     seen.add(k);
@@ -183,12 +184,15 @@ test('scopes a view pushes together: the innermost decides a key they share (a b
 test('views that push several scopes: every key two of them share is meant, and the innermost one wins', () => {
   // [scopes from outer to inner, keys the inner one takes over on purpose]
   // Esc: a list clears its selection; an issue page (which pushes no list scope) goes back. A list pushes the issue
-  // scope for the pickers only and never binds issue.back. Enter in a diff's lines is theirs (handled locally first).
-  const views: [string[], string[]][] = [[['list', 'issue'], ['escape']], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['escape', 'l']], [['list', 'diff'], ['enter']]];
+  // scope for the pickers only and never binds issue.back. (Enter in a diff's lines and on a board's column is theirs:
+  // local keys, handled by the focused element first.)
+  const views: [string[], string[]][] = [[['list', 'issue'], ['escape']], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['escape', 'l']], [['list', 'diff'], []]];
   for (const [scopes, intended] of views) {
     const byKey = new Map<string, string[]>();
     for (const [id, def] of Object.entries(KEYMAP)) {
-      if (!scopes.includes(def.scope)) continue;
+      // Keys the focused element handles itself (a board column's Enter and arrows) and commands without keys do not
+      // go through the registry.
+      if (!scopes.includes(def.scope) || !def.keys || 'local' in def) continue;
       byKey.set(def.keys, [...byKey.get(def.keys) ?? [], id]);
     }
     const shared = [...byKey].filter(([, ids]) => ids.length > 1).map(([k]) => k);

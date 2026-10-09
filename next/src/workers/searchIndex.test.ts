@@ -14,7 +14,8 @@ test('prefixes, typos, repository and number', () => {
   const ix = createIndex();
   expect(ix.upsert(DOCS)).toBe(3);
   expect(ix.search('sav', 10).hits.map((h) => h.id).sort()).toEqual([1, 3]);
-  expect(ix.search('contarst', 10).hits.map((h) => h.id)).toEqual([2]);
+  expect(ix.search('dark contarst', 10).hits.map((h) => h.id)).toEqual([2]);
+  expect(ix.search('contarst', 10).hits).toEqual([]); // one word: no typos
   expect(ix.search('api saving', 10).hits.map((h) => h.id)).toEqual([3]);
   expect(ix.search('#12', 10).hits.map((h) => h.id)).toEqual([1]);
   expect(ix.search('  ', 10).hits).toEqual([]);

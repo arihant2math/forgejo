@@ -177,10 +177,10 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   useShortcut('list.open', () => {
     if (cursor.activeId === undefined) return;
     open(cursor.activeId);
-  });
+  }, true, () => cursor.activeId !== undefined);
   useShortcut('list.clear', () => {
     cursor.selected.clear();
-  });
+  }, true, () => untracked(() => cursor.selected.size) > 0);
   useShortcut('issue.state', picker('status'));
   useShortcut('issue.labels', picker('labels'));
   useShortcut('issue.assignee', picker('assignees'));

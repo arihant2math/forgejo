@@ -98,6 +98,15 @@ function started(app: App, router: AppRouter): void {
   };
   remember();
   router.subscribe('onResolved', remember);
+  // A page reached from the sidebar (a click, then G H, Back…): the keys are the new page's (J/K, Enter on its
+  // cursor), not the sidebar link's, which kept the focus and its ring, and whose Enter reloaded the page it led to.
+  let lastPath = location.pathname;
+  router.subscribe('onResolved', () => {
+    if (location.pathname === lastPath) return;
+    lastPath = location.pathname;
+    const a = document.activeElement;
+    if (a instanceof HTMLElement && a.closest('aside[aria-label="Sidebar"]')) a.blur();
+  });
 }
 
 let listRows = 0;

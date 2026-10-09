@@ -107,6 +107,17 @@ export function score(text: string, words: readonly string[]): number {
   return total;
 }
 
+/** Like score, but every word must start a word of the text ("board" finds "Go to the board", not "Keyboard"). */
+export function startScore(text: string, words: readonly string[]): number {
+  let total = 0;
+  for (const w of words) {
+    const s = wordScore(text, w);
+    if (s < 2) return -1;
+    total += s;
+  }
+  return total;
+}
+
 /**
  * Scores a thing by its own name, with its context (a board's or a milestone's repository) for the other
  * words: every word in one of them, at least one in the name. Something that matches only by its context

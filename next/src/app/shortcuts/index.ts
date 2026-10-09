@@ -23,19 +23,23 @@ export function activeHint(id: ShortcutId): string | undefined {
 
 /**
  * Binds `run` to a shortcut while the component is mounted (and `enabled`).
- * The latest `run` is called, without re-binding on every render.
+ * The latest `run` is called, without re-binding on every render. `when` says whether it applies at the moment
+ * (read when a key is typed and when the palette lists the page's commands: Open only with a row under the cursor).
  */
-export function useShortcut(id: ShortcutId, run: () => void, enabled = true): void {
+export function useShortcut(id: ShortcutId, run: () => void, enabled = true, when?: () => boolean): void {
   const ref = useRef(run);
+  const whenRef = useRef(when);
   useLayoutEffect(() => {
     ref.current = run;
+    whenRef.current = when;
   });
+  const conditional = when !== undefined;
   useEffect(() => {
     if (!enabled) return undefined;
     return shortcuts.bind(id, () => {
       ref.current();
-    });
-  }, [id, enabled]);
+    }, conditional ? () => whenRef.current?.() ?? true : undefined);
+  }, [id, enabled, conditional]);
 }
 
 /** Activates a scope's shortcuts while the component is mounted. */

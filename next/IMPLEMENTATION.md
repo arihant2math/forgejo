@@ -5067,7 +5067,7 @@ them.
   * Organization and user boards show cards of the repositories on this device only (F6).
   * Merge styles are not filtered by the repository's settings (F7).
   * Overrides are kept in memory (F5).
-  * Mobile layout and i18n are PLAN Phase 5.
+  * Mobile layout (beyond the QA pass's narrow-screen drawer and stacked side panes, 4.3) and i18n are PLAN Phase 5.
 * **UI debt** (F8 UI review; none is a blocker):
   * The create dialog and the list filters use plain menus instead of the cmdk pickers: no type-to-filter, unbounded
     for large repositories. This is the most user-visible item.
@@ -5108,6 +5108,78 @@ them.
   * `conformance/sse.ts` duplicates F2's test helper (B10).
 * **Phase 3 process criterion.** "The team dogfoods Next for daily triage" cannot be verified here (see the F8 exit
   table).
+
+### 4.3 QA pass (2026-10-09)
+
+A hands-on QA round of the F1–F8 app against a dev Forgejo found navigation dead ends, missing permissions checks and
+layout problems. A fix round worked through them in order and was stopped part-way; this section records what landed
+and what is still open. It is not a milestone: no review round ran on it.
+
+* **Fixed (shipped).**
+  * **Repository navigation.** `/{owner}/{repo}` is a canonical route (`spaRoutes` in `routers/livesync/spa.go`,
+    `isSpaRoute` in `src/sw/routes.ts`, both tested): the repository's home (`features/repo/RepoHome.tsx`, README
+    rendered, SVG and markdown through the Trusted Types gate). One `RepoHeader` (owner / repository breadcrumbs, tabs
+    to every repository page) on all of them; the sidebar's repository row opens the home and stays current on every
+    page of it (`repoOfPath`, `app/paths.ts`). Owner pages (`features/owner/`). Classic addresses below the base (`/-/next/{owner}/{repo}/…`) redirect to the
+    app's page (`app/paths.ts`); list rows are real links (`app/links.ts`). Signing in leaves the consent pages out of
+    the history (`app/history.ts`).
+  * **Not found and the classic UI.** An unknown address renders inside the shell (the sidebar stays) and offers the
+    classic page; signed out it is the centered screen. `?ui=classic` on a canonical route serves the classic page
+    and keeps the opt-in (`classicRequested`, spa.go; protocol comment in `protocol/next.go`). Classic exits are one
+    primitive pair, `ClassicLink` / `ClassicMenuItem` ("classic" hint), in the account menu and for what the app does
+    not do (branch and release management, re-run, new board, settings). On classic pages the opted-in pill is now
+    "Back to Forgejo Next" (to the app's page for that address) plus "Turn off" (`classic.go`, `Base` in its config);
+    `dev-forgejo.sh` installs `classic_header.tmpl`.
+  * **Issues and pull requests.** Properties sidebar (`features/issue/Sidebar.tsx`): reviewers, dependencies,
+    assignees from the repository's people (`issues/people.ts`), all hidden or read-only without write access
+    (`app/access.ts`). Merge box with checks summed from statuses and runs without double counting
+    (`pull/checks.ts`), review threads, drafts saved when the editor goes (leaving the page loses nothing), the title renamed in place
+    (poster or writers), task-list ticks outside fenced code, code-block
+    languages kept (`markdown.test.ts`). Tooltips no longer flash when a picker dialog closes. Esc goes back to the
+    list (`issue.back`).
+  * **⌘K palette.** The first row is selected (never "Sign out"); an exact `#123` / `owner/repo#123` reference ranks
+    first; boards, milestones and people are found too (`palette/entities.ts`), and the files of the repository on screen or
+    the last one opened (`palette/files.ts`, `recentRepo`).
+  * **Responsive layout and sidebar collapse** (finished in this pass, not reverted). Wide screens: the sidebar
+    collapses (`mod+\`, a button in the sidebar and in the page header while it is away), remembered in the splash
+    and applied before first paint (`data-sidebar="hidden"`). Below `--breakpoint-md` (768 px): the sidebar is a drawer
+    (`data-drawer="open"`, backdrop, Esc, closes on navigation; Esc that closes it does nothing else). Inside the main
+    panel layouts follow the panel's width (`@container`, `@xl:` = `--container-xl`): issue, run and repository home
+    side panes stack below it. Only tokens and F1 primitives (`PageColumn`, `WhenSidebarAway` in `shell/Frame.tsx`;
+    variants `sidebar-hidden` / `drawer-open` in `app.css`). Tab titles per page (`PageHeader docTitle`).
+  * **Partly done from the later items** (in the tree and tested, but the QA findings were not re-checked one by one):
+    inbox order by subject activity, not by `updated_at` (triage no longer moves a row to the top), "Mark all read"
+    with Undo, inbox rows are links, the cursor restored on Back; code rows (commits, branches, tags, runs) are links;
+    diff `+`/`−` in the gutter; a run opens on its failed (else running) job; commit avatars; avatars cached by the
+    service worker for offline (`AVATAR_CACHE`, network first, 500 kept); boards grouped by repository with links;
+    a board column's focus ring only without a card under the cursor; the create dialog's missing-title message and
+    ⌘↵ from anywhere in it.
+  * **Closing fixes in this pass.** The not-found body (`Missing`, and with it the classic link) is a lazy chunk and
+    `ClassicMenuItem` is its own module, so Radix menus stay off the boot route: boot JS went from 168.6 KB br (over
+    budget) back to **149.7 / 150 KB br** (CSS 7.2 KB). **Almost no boot headroom is left (0.3 KB):** the next boot-route
+    addition must first move something off it. One lint error
+    fixed; the keymap test accepts `escape` and `\` (both supported by the registry).
+* **Checks.** `npm run check` green (ESLint, Stylelint, typecheck, 455 Vitest tests in 50 files, build, budget).
+  `go vet` and `go test ./routers/livesync/ ./services/livesync/protocol/` green; `gen-protocol.sh --check` up to date.
+  Playwright against a fresh PG instance (`tools/dev-forgejo.sh e2e pg session lists flows`): **18 / 18 pass**. Three
+  e2e locators were brought up to date with intended UI changes (the palette's longer placeholder; the filter button
+  now names the filter in effect, "Label: bug"; the issue's Project property has a second line, "Change in the
+  classic UI").
+* **Still open** (not started, or not finished, in this pass):
+  * **Inbox and lists:** a confirmation (or undo) for every destructive action, not only "Mark all read"; the history
+    and title items beyond tab titles; the create dialog's remaining findings (cmdk pickers, see 4.2 UI debt).
+  * **Code views:** status dots, check durations, the ref filter, release assets, the failed-job view and grammar
+    loading findings (only the parts listed above landed).
+  * **Offline:** pending (queued) issues and their badges in lists and boards; the boards' repository prefix and focus
+    findings beyond the above; the home page's content.
+  * **Backend:** the spurious errors in the Forgejo log seen during QA (not investigated).
+  * **The permanent link-crawler e2e gate is not built.** It was to crawl every link of the app from the home page
+    against a seeded server (no 404s, no classic dead ends, no console errors) and run in `ci.sh`; nothing of it
+    exists yet. Until then navigation regressions are caught only by `App.test.tsx`, `paths.test.ts` and the e2e
+    suites.
+  * The other e2e specs (`code`, `collab`, `offline`, `perf`, `rum`, `work`), the build/dev projects and MySQL were
+    not re-run after this pass; neither were the Go livesync integration tests.
+  * Nothing was reverted.
 
 ---
 

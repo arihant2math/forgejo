@@ -5482,9 +5482,9 @@ below is the permanent part.
       dots), go vet and gofumpt clean. `TestLivesyncAPI` passes on PostgreSQL; its README assertion reads the file
       from git instead of assuming the fixture's text.
     * Not run in this round: MySQL; golangci-lint (the sandbox's binary is older than the module's Go).
-* **Fifth round: the verification pass (`verify3`, 2026-10-09), still open: 66 findings, 14 major, 52 minor.** A
-  third QA pass re-ran the fourth round's fixes and found the items below. None of them is fixed in the tree; each
-  names its reproduction script (`verify3/*.ts`, `verify3/res/*.ts`, in the session scratchpad, not in the tree).
+* **Fifth round: the verification pass (`verify3`, 2026-10-09): 66 findings, 14 major, 52 minor; all but the
+  first load fixed in the sixth round (below).** A third QA pass re-ran the fourth round's fixes and found the items
+  below. Each names its reproduction script (`verify3/*.ts`, `verify3/res/*.ts`, in the session scratchpad, not in the tree).
   Checks when this was recorded (code as of `88ffe75`): `npm run check` **pass** (54 files / 478 unit tests; boot
   153.1 / 500 KiB JS, 7.4 / 30 KiB CSS); `tools/ci.sh crawl` **pass on PostgreSQL** (117 pages, 109 route patterns,
   1279 links) **and MySQL** (118 pages, 110 patterns, 1287 links), 0 `[E]`/`[F]` server log lines on either.
@@ -5617,12 +5617,91 @@ below is the permanent part.
     * While a stalled connection recovers, the indicator flaps between "Connecting" and "Can't reach Forgejo" every
       5–8 s.
     * During a stall a PR's description stays a skeleton and its merge actions stay enabled (`res/hangpr.ts`).
+* **Sixth round: the verify3 findings fixed (2026-10-09), all but the first load.** Each group is one commit (see
+  `git log c2be067..`); each was checked by clicking through the QA instance and by its `verify3` script.
+  * **Stalled network** (`c7142f4`). Every request to Forgejo has a deadline and the network epoch's signal
+    (`sync/net.ts`): a dead session aborts the epoch, so a stall no longer holds the browser's six connections, and
+    the app is Live again within seconds of the network coming back. The indicator stays "Can't reach Forgejo"
+    while unreachable (no flapping); pages that cannot load say so; the merge box is disabled with the reason.
+  * **Environment** (`55aca26`, and the path-length guard). Every local instance (dev, conformance, e2e, ci, qa) has
+    its own `INTERNAL_LISTENER_PATH` under its work dir (`/tmp/forgejo-next-<hash>.sock` when that path would pass
+    the Unix limit): stopping one no longer breaks the others' git hooks.
+  * **Palette and keyboard** (`ad46b2d`). Commands carry their keymap label, hint and aliases; a command the query
+    names ranks above titles that merely contain the words; commands match by word starts only, one-word queries
+    never by typo. What cannot run is listed with its reason. Bindings take a `when` (Open, Clear selection, card
+    moves); boards have Add / Rename / Delete column commands. "Nothing found" says whether Forgejo answered.
+    Repositories Forgejo knows join their group. The palette's close no longer blurs a dialog its command opened;
+    a page reached from the sidebar takes the keys. ⌘Z undoes the latest change that offered Undo.
+  * **Create dialog and pickers** (`1ea9463`). One `CommandPick` for every property: a key opens it as a command
+    menu naming its issues, a click opens it under the property (due dates included, with presets and typed dates);
+    a one-value picker opens on the current value. The create dialog opens in the repository on screen, else the
+    last opened, else the last created in (a column's New issue: its board's main repository). Tab from the title
+    goes to the description.
+  * **Pull requests and code** (`d02da5e`, `4735780`). Review verdicts come with the repository group (rows show
+    them without the PR being opened); `PullRequest.Status` uses the protocol's names (a conflicting PR read as
+    mergeable). The merge box names conflicting files and disables Merge / Update branch with the reason; a 4xx is
+    said once, without Retry. Resolve / Unresolve in place (`PUT /-/sync/api/comments/{id}/resolved`), folded.
+    "Review queued" goes once sent. The diff's "+" sits in the gutter; long lines scroll inside the code. Commit and
+    compare pages list their files. Images show size and dimensions; empty files say so; inline markdown images
+    are inline. One naming (Code, Commits, Browse files, a Source / Blame switch). Code lists restore their cursor.
+  * **Boards, lists, inbox, issue page** (`c4c549f`, `b7ad66c`). Card moves and inbox pin / unpin say so with Undo;
+    context menus give focus back to their list; a user board shared through a repository is listed and opens; the
+    Boards list restores its cursor. Saved views are managed from the list header (Update, Save as new, Rename,
+    Remove). Milestone grouping: open by due date first. Inbox rows name the commenter (`actor_id`, SchemaNotification
+    2). A comment deleted while being edited keeps the text with "Post it as a new comment". Dependency events read
+    the same on both sides. Filter placeholder, result count and "No priority" fixed.
+  * **Shell and pages** (`d38d64d`). "Not found" for what nobody has, "Not available here" only when the classic UI
+    has the page; the tab says "Not found" and the base URL never resumes such a page; an unknown name below the base
+    is not-found at once (no user probes). `/ACME/Atlas` is rewritten to Forgejo's spelling. The sidebar always marks
+    where you are (a folded owner's row; a repository after the first ten joins the list); owner rows have a
+    repository row's geometry. A repository deleted while open becomes not-found. The clone URL is whole (stacked,
+    wrapped after a slash). One type tab is current on My issues / pull requests. Owner pages align their names and
+    say offline what is not on the device. Phone rows keep the title; a small repository home has no blank band.
+    Home's "Review requested" keeps its slot from the first frame (CLS about 0.03 on slow 3G, was 0.10) and says
+    offline that it loads when online. Navigation: the scroll reset happens before the new page mounts (Back still
+    restores a list: a history entry the tab has shown, by its key, is a traversal; `router.history.subscribe`
+    left the first boot after signing in on the splash), no forced layout from the virtualizer or the sidebar blur,
+    the palette is not a Radix modal, and a list's first commit renders its top rows with the rest deferred: no
+    navigation task over 50 ms at 1× (My issues was 75 ms), the palette none after the first open.
+  * **Offline changes** (`a87730c`, `fd02ef7`). A refusal is said in words (a Go error name is no message; a 404
+    says what is gone) and names its issue ("Posting a comment on #58 failed", "#58 · dev/r3res" in the panel, from
+    the number recorded when the change was made). Adding a label Forgejo deleted meanwhile fails ("The label no
+    longer exists on Forgejo.") instead of being taken as done. `…/issues/new-<uuid>` is an app route (spaRoutes
+    `{temp}`, the service worker's table): it goes on to the issue it became, and on another device says it is a
+    temporary address. An override is said once, in one wording (the page's callout takes the notice back), never
+    credits yourself as "@dev", and mentions a close made meanwhile. Offline, "not synced yet" marks show at once.
+  * **Crawler extended** (the classes that slipped past it): on every page at most one `aria-current="page"` per
+    navigation group, no sideways scrolling of the page or the document, and a current sidebar item on the
+    sidebar's own pages and the crawl repository's; typed addresses in another case land on the canonical one; an
+    unknown name below the base, an issue nobody has, an offline issue's address from another device and an unknown
+    repository say "Not found" in the page and the tab, inside the app. It found one more defect at once: author
+    links in timelines were `aria-current="page"` on every page below the author's profile (TanStack's prefix
+    match); content links to owners and repositories now match exactly. The palette step uses "Go to Home".
+  * **Found by the e2e suite** (`1d2db56`). Keys typed while a picker fades out were lost (L, Esc, P: the focus
+    was still in the closing picker's field); a menu or dialog with `data-state="closed"` has let go of the keys,
+    its field included. A repository that leaves the pool (a group outside the workspace dropped and loaded again)
+    is "Not found" only once Forgejo answers 404 (`repoGone`), not because it left. A markdown file showed two
+    "Source" switches; the rendered / raw one is Preview / Markup. Specs updated for the Blame switch (a radio) and
+    for "dark mode" naming the theme command.
+  * **Checks (sixth round).** `npm run check` **pass** (ESLint, Stylelint, typecheck, **486 Vitest tests in 55
+    files**, build, budget: boot JS 158.4 / 500 KiB br, CSS 7.5 / 30 KiB); `gen-protocol.sh --check` pass;
+    `go test ./routers/livesync/ -run 'TestSPARoute|TestRoute'`, go vet and gofumpt clean. On PostgreSQL:
+    `tools/ci.sh crawl` **pass** (126 pages, 118 route patterns, 1283 links, the new invariants included); the e2e
+    suite **44 / 44** after the fixes above: the last full run passed 42, failed one spec whose expected notice
+    wording had changed (it now names the issue) and skipped the one after it in that file; `lists.spec.ts` then
+    passed 5 / 5. The QA instance was rebuilt for every group and each `verify3` script re-run (`s1`, `s2`, `m390`,
+    `perf2`, `res/cls`, `res/owner`, `res/refuse`, `res/refuse2`, `res/newurl`, `res/tabs2`, `res/home-off`,
+    `res/pend`, `p1`, `i1`, `w1`, `c1`, `c4`); where a script's own selector or address had gone stale (a sidebar
+    repository past the first ten, a code address without `branch/`, the notices' landmark name) the step was
+    re-checked by hand. Not run in this round: MySQL; `TestLivesyncAPI`; golangci-lint.
 * **Still open.**
-  * The fifth round's 66 findings above.
+  * **First load** (the fifth round's first major finding): a cold load still fetches 150+ small modules and
+    renders on the client only. Left to the foundation session (chunk grouping, server-rendered or streamed first
+    view), as directed.
   * PLAN-level items this pass did not take on: labels and milestones management views, comment edit markers, a
     go-to-file finder, sticky group headers (4.2).
-  * The crawler covers what dev reaches; a read-only user's (carol's) walk, a narrow viewport and offline navigation
-    are not crawled. Pages it does not reach by a link of its own seed (compare, blame of a tag) are covered by the
+  * The crawler covers what dev reaches; a read-only user's (carol's) walk, a narrow viewport and offline
+    navigation are not crawled. Pages it does not reach by a link of its own seed (compare, blame of a tag) are covered by the
     code e2e spec.
   * The Go livesync integration tests ran on PostgreSQL only in this pass (the new cancellation test on both).
 

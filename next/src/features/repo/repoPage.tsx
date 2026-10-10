@@ -16,7 +16,7 @@ import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
 import {classicOfHere} from '../../app/session.ts';
-import {forgetRepo, type RepoMatch, useHold} from '../../app/repo.ts';
+import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {withEnd} from '../../code/refs.ts';
@@ -29,19 +29,27 @@ export function useRepoPage(): {owner: string; repo: string; repoId: number | un
   const {data} = useSession();
   const group = repoId === undefined ? undefined : `repo:${String(repoId)}`;
   useHold(data, group);
-  // A repository deleted (or made invisible) while its page is open: the route asks again, and the page becomes
-  // the not-found state (not an empty repository with its tabs and New issue).
+  // A repository deleted (or made invisible) while its page is open: once it leaves the pool and Forgejo confirms
+  // it is gone (404), the route asks again and the page becomes the not-found state (not an empty repository with
+  // its tabs and New issue). Leaving the pool alone proves nothing: a group outside the workspace is dropped and
+  // loaded again (the e2e triage flow went "Not found" on its first label change).
   const router = useRouter();
+  const app = useApp();
   useEffect(() => {
     if (repoId === undefined) return undefined;
-    return reaction(() => data.pool.model('Repository').get(repoId) !== undefined, (has, had) => {
+    let live = true;
+    const off = reaction(() => data.pool.model('Repository').get(repoId) !== undefined, (has, had) => {
       if (!had || has) return;
-      forgetRepo(owner, repo);
-      void router.invalidate();
+      void repoGone(app, owner, repo).then((gone) => {
+        if (gone && live) void router.invalidate();
+      });
     });
-  }, [data, router, owner, repo, repoId]);
+    return () => {
+      live = false;
+      off();
+    };
+  }, [app, data, router, owner, repo, repoId]);
   // The new-issue dialog (C) creates in the repository on screen.
-  const app = useApp();
   useConfirmAccess(app, owner, repo, repoId);
   useEffect(() => {
     if (repoId === undefined) return undefined;

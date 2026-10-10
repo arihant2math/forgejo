@@ -42,9 +42,17 @@ const looked = new Map<string, number | undefined>();
 /** Repositories Forgejo answered 404 for (asked again on the next visit: it may be created or shared later). */
 const absent = new Set<string>();
 
-/** Forgets what was looked up for owner/name (the repository was deleted or hidden: ask again). */
-export function forgetRepo(owner: string, name: string): void {
-  looked.delete(`${owner}/${name}`.toLowerCase());
+/**
+ * Whether Forgejo says the repository is gone (404), asked afresh: a repository that left the pool (its group
+ * dropped, re-placed or not in the workspace) is not thereby deleted.
+ */
+export async function repoGone(app: App, owner: string, name: string): Promise<boolean> {
+  const key = `${owner}/${name}`.toLowerCase();
+  const before = looked.get(key);
+  looked.delete(key);
+  const id = await lookup(app, owner, name);
+  if (id === undefined && !absent.has(key) && before !== undefined) looked.set(key, before);
+  return id === undefined && absent.has(key);
 }
 
 /** A loader waits at most this long for the network: the page then renders (render first). */

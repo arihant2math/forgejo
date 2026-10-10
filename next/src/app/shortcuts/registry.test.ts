@@ -104,6 +104,22 @@ test('text fields and open menus keep their keys, except `anywhere` bindings', (
   expect(ran).toEqual(['create', 'palette']);
 });
 
+test('a dialog or menu that is closing has let go of the keys, its field included (L, Esc, P typed quickly)', () => {
+  const r = new ShortcutRegistry({apple: true});
+  const ran: string[] = [];
+  r.bind('create', () => ran.push('create'));
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('data-state', 'open');
+  const field = document.createElement('input');
+  dialog.append(field);
+  document.body.append(dialog);
+  expect(press(r, 'c', {}, field)).toBe(false);
+  dialog.setAttribute('data-state', 'closed');
+  expect(press(r, 'c', {}, field)).toBe(true);
+  expect(ran).toEqual(['create']);
+});
+
 test('scoped bindings apply only while their scope is pushed; the innermost and latest win', () => {
   const r = new ShortcutRegistry({apple: false});
   const ran: string[] = [];

@@ -91,7 +91,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
   await expect(page.locator('.text-syn-keyword').first()).toHaveText(/package|import|func/);
   // Blame.
-  await page.getByRole('link', {name: 'Blame'}).click();
+  await page.getByRole('radio', {name: 'Blame'}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();
   // Hostile file name and content: text.
@@ -100,7 +100,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   // A markdown file opens rendered (scrubbed: no script, no event handler); its source is text.
   await expect(page.getByRole('radio', {name: 'Preview'})).toBeVisible({timeout: 15_000});
   expect(await page.locator('main script, main [onerror]').count()).toBe(0);
-  await page.getByRole('radio', {name: 'Source'}).click();
+  await page.getByRole('radio', {name: 'Markup'}).click();
   await expect(page.getByText('<img src=x onerror=alert(2)>')).toBeVisible({timeout: 15_000});
   expect(await page.locator('main img').count()).toBe(0);
   // A name with a space.

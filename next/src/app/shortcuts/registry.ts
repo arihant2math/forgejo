@@ -60,6 +60,11 @@ function inOverlay(el: Element | null): boolean {
   return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts') && overlay?.getAttribute('data-state') !== 'closed';
 }
 
+/** Whether the element is inside a menu or dialog that is closing (Radix: data-state="closed" while it fades). */
+function leaving(el: Element): boolean {
+  return el.closest('[role="menu"],[role="dialog"],[role="alertdialog"]')?.getAttribute('data-state') === 'closed';
+}
+
 interface Binding {
   id: ShortcutId;
   run: () => void;
@@ -200,7 +205,10 @@ export class ShortcutRegistry {
     if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return false;
     const chord = chordOf(e, this.apple);
     if (!chord) return false;
-    const target = e.target instanceof Element ? e.target : null;
+    const focused = e.target instanceof Element ? e.target : null;
+    // The focus still inside a menu or dialog that is fading out (its field, its item): the keys are the page's
+    // again. L, Esc, P typed quickly lost the P to the closing labels picker's field (found by the e2e triage flow).
+    const target = focused && leaving(focused) ? null : focused;
     const restricted = isTextField(target) || inOverlay(target) || this.overlayOpen();
     const onPage = !target || target === target.ownerDocument.body || target.closest('[data-shortcuts]') !== null;
     const candidates = this.eligible(restricted, onPage);

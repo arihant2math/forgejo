@@ -273,14 +273,15 @@ export function CodeSkeleton() {
   );
 }
 
-/** A markdown or SVG file: rendered (Preview, the default) or its source with line numbers (Source). */
+/** A markdown or SVG file: rendered (Preview, the default) or its markup with line numbers (Markup). */
 function PreviewableFile(props: FileProps & {text: string}) {
   const {repoId, entry, at, text} = props;
   const [mode, setMode] = useState<'preview' | 'source'>(() => (hashRange(location.hash) ? 'source' : 'preview'));
   const kind = renderable(at.path);
   const toggle = (
     <span className="ml-auto">
-      <SegmentedControl label="Show the file" value={mode} onChange={setMode} options={[{value: 'preview', label: 'Preview'}, {value: 'source', label: 'Source'}]}/>
+      {/* "Markup", not a second "Source": the header's Source / Blame switch is beside it. */}
+      <SegmentedControl label="Show the file" value={mode} onChange={setMode} options={[{value: 'preview', label: 'Preview'}, {value: 'source', label: 'Markup'}]}/>
     </span>
   );
   if (mode === 'source') return <TextFile {...props} text={text} toolbar={toggle}/>;

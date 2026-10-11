@@ -30,7 +30,7 @@ import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from '.
 import {repoLabels} from './candidates.ts';
 import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, StopIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType, IconProps as OcticonProps} from '@primer/octicons-react';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 import {Label as PrimerLabel} from '@primer/react';
 
 export function usePool(): Pool {

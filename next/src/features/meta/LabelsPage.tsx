@@ -31,7 +31,7 @@ import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, IconButton} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 

@@ -20,7 +20,7 @@ import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {GitBranchIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 
 /** A piece of a message: text, or a reference to issue `index` of `repo` (owner/name; undefined: this repository). */
 export type MessagePart = {text: string} | {ref: string; repo: string | undefined; index: string};

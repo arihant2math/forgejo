@@ -39,7 +39,7 @@ import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDE
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList, Dialog, Link as PrimerLink, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
 
 /** Pages listed in the side pane at most (the page list has them all). */

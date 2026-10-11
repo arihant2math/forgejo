@@ -35,7 +35,7 @@ import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx
 import {ChevronDownIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button, Label} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */

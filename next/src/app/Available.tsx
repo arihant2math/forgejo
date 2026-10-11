@@ -8,7 +8,7 @@
 import {observer} from 'mobx-react-lite';
 import {SectionHeading} from '../ui/index.ts';
 import {useApp} from './store.ts';
-import {RouterLink} from '../app/RouterLinkButton.tsx';
+import {RouterLink} from '../app/routerLinks.tsx';
 
 const VIEWS = [
   {to: '/', label: 'Home'},

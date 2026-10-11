@@ -28,7 +28,7 @@ import {ForkButton} from './ForkButton.tsx';
 import {BrowserIcon, BookIcon, GraphIcon, ChevronRightIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {ActionMenu, ActionList, CounterLabel} from '@primer/react';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});

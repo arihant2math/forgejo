@@ -26,7 +26,7 @@ import {GeneralSettings} from './General.tsx';
 import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
 import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';

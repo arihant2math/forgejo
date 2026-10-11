@@ -20,7 +20,7 @@ import {compareSplat, forkHead} from '../code/proposal.ts';
 import {GitPullRequestIcon, SyncIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 
 /** API v1's GET /repos/{owner}/{repo}/sync_fork (the fork's default branch and the upstream's branch of that name). */
 interface SyncInfo {

@@ -15,7 +15,7 @@ import {useNotFound, usePageStatus} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
 import {CloudOfflineIcon, QuestionIcon, HomeIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {RouterLinkButton} from '../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 export interface MissingProps {

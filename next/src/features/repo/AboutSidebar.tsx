@@ -30,7 +30,7 @@ import {languageShares, licenseOf, plural, releaseSummary, tagCount} from './abo
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label} from '@primer/react';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 
 interface RepoProps {
   owner: string;

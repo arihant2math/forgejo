@@ -45,7 +45,7 @@ import {Unloaded} from './states.tsx';
 import {ChevronDownIcon, GitBranchIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton, RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 /**

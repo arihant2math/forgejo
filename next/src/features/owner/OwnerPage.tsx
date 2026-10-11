@@ -27,7 +27,7 @@ import {useResource} from '../settings/resource.ts';
 import {Follow, Overview, People} from './Profile.tsx';
 import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
-import {RouterLinkButton, RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {SkeletonText, Blankslate} from '@primer/react/experimental';
 
 interface OwnerInfo {

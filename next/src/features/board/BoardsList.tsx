@@ -23,7 +23,7 @@ import {Entry, EntryList, Panel, SegmentedControl} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
 import {Blankslate} from '@primer/react/experimental';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 import {Label} from '@primer/react';
 
 interface Place {

@@ -46,7 +46,7 @@ import {GraphIcon, ChevronDownIcon, CheckCircleIcon, IssueOpenedIcon, CloudOffli
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
-import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLink} from '../../app/routerLinks.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 

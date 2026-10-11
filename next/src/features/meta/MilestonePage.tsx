@@ -25,7 +25,7 @@ import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
 import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, ProgressBar} from '@primer/react';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {SkeletonText, Blankslate} from '@primer/react/experimental';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');

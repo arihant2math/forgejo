@@ -23,7 +23,7 @@ import {type Resource, settingsKey, useResource} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');

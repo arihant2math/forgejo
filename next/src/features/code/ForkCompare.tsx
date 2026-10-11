@@ -14,7 +14,7 @@ import {NewPull} from './NewPull.tsx';
 import type {CodeViewProps} from './CodePage.tsx';
 import {forkHead} from './proposal.ts';
 import {Button} from '@primer/react';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & {base: string; head: string; open: boolean; scroller: HTMLDivElement | null}) {

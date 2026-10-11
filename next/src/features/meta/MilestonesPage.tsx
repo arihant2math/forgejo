@@ -28,7 +28,7 @@ import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.t
 import {CheckCircleIcon, IssueOpenedIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, Label, ProgressBar} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton, RouterLink} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');

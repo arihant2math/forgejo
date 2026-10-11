@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from 'vitest';
-import {appPageOf, classicOfLocation, classicPathOf, isCanonical, isListPath, nextPathOf, repoOfPath} from './paths.ts';
+import {appPageOf, classicHas, classicOfLocation, classicPathOf, isCanonical, isListPath, nextPathOf, repoOfPath} from './paths.ts';
 
 test('classic links → the app\'s pages', () => {
   expect(nextPathOf('/')).toBe('/');
@@ -42,6 +42,11 @@ test('classic links → the app\'s pages', () => {
   expect(nextPathOf('/acme/atlas/milestones/new')).toBe('/acme/atlas/milestones/new');
   expect(nextPathOf('/acme/atlas/milestone/7')).toBe('/acme/atlas/milestone/7');
   expect(nextPathOf('/acme/atlas/milestone/7/edit')).toBe('/acme/atlas/milestone/7/edit');
+  // A repository's watchers (#255).
+  expect(nextPathOf('/acme/atlas/watchers')).toBe('/acme/atlas/watchers');
+  expect(nextPathOf('/acme/atlas/watchers/x')).toBeUndefined();
+  expect(classicHas('/acme/atlas/watchers')).toBe(false);
+  expect(classicHas('/acme/atlas/stars')).toBe(true);
   for (const p of ['/acme/atlas/labels/x', '/acme/atlas/milestone/0', '/acme/atlas/milestone/7/close', '/acme/atlas/milestones/7']) expect(nextPathOf(p), p).toBeUndefined();
   // Forgejo's own pages and what the app does not render stay classic.
   // Settings: the sections the app has.
@@ -92,6 +97,8 @@ test('canonical routes and the repository of a route', () => {
   expect(repoOfPath('/acme/atlas/activity/monthly')).toBe('acme/atlas');
   expect(repoOfPath('/acme/atlas/milestone/2')).toBe('acme/atlas');
   expect(repoOfPath('/acme/atlas/labels')).toBe('acme/atlas');
+  expect(repoOfPath('/acme/atlas/watchers')).toBe('acme/atlas');
+  expect(isCanonical('/acme/atlas/watchers', '?page=2')).toBe(true);
   expect(isListPath('/acme/atlas/milestone/2')).toBe(true);
   expect(isListPath('/acme/atlas/milestones')).toBe(false);
   expect(repoOfPath('/notifications')).toBeUndefined();
@@ -143,6 +150,9 @@ test('classic pages\' way back to the app: the app\'s page for the address, else
   expect(appPageOf('/acme/atlas/milestones/new')).toBe('/acme/atlas/milestones/new');
   expect(appPageOf('/acme/atlas/milestone/4/close')).toBe('/acme/atlas/milestones');
   expect(appPageOf('/acme/atlas/labels/edit')).toBe('/acme/atlas/labels');
+  // The watchers are the app's page, at the classic page of the list (#255).
+  expect(appPageOf('/acme/atlas/watchers?page=3')).toBe('/acme/atlas/watchers?page=3');
+  expect(classicOfLocation('/acme/atlas/watchers', '?page=3')).toBe('/acme/atlas/watchers?page=3');
   expect(appPageOf('/acme/atlas/releases/tag/v0.2.0')).toBe('/acme/atlas/releases');
   expect(appPageOf('/acme/atlas/projects')).toBe('/-/next/boards');
   // A settings section only the classic UI has: the app's settings.

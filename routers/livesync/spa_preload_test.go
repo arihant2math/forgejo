@@ -39,6 +39,7 @@ func TestRouteModules(t *testing.T) {
 		"/acme/atlas/src/branch/main/a.go":   "src/features/code/CodePage.tsx",
 		"/acme/atlas/pulls/3/files":          "src/features/issue/IssueView.tsx",
 		"/acme/atlas/labels":                 "src/features/meta/LabelsPage.tsx",
+		"/acme/atlas/watchers":               "src/features/repo/Watchers.tsx",
 		"/acme/atlas/milestones":             "src/features/meta/MilestonesPage.tsx",
 		"/acme/atlas/milestones/new":         "src/features/meta/MilestoneForm.tsx",
 		"/acme/atlas/milestone/3":            "src/features/meta/MilestonePage.tsx",
@@ -55,6 +56,7 @@ func TestRouteModules(t *testing.T) {
 	assert.Nil(t, routeModules("/user/login"))
 	assert.Nil(t, routeModules("/acme/atlas/milestone/3/x"))
 	assert.Nil(t, routeModules("/acme/atlas/labels/x"))
+	assert.Nil(t, routeModules("/acme/atlas/watchers/x"))
 }
 
 func TestPreloadHeaders(t *testing.T) {

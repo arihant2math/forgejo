@@ -192,3 +192,13 @@ export function milestonesSearch(s: Record<string, unknown>): MilestonesSearch {
     ...(sort && sort !== 'closestduedate' ? {sort} : {}),
   };
 }
+
+/** A paged list's page (`?page=3`, as the classic UI's pagination writes it): page 1 is the bare address. */
+export interface PageSearch {
+  page?: number;
+}
+
+export function pageSearch(s: Record<string, unknown>): PageSearch {
+  const raw = typeof s.page === 'number' ? String(s.page) : s.page;
+  return typeof raw === 'string' && /^[1-9]\d{0,5}$/.test(raw) && raw !== '1' ? {page: Number(raw)} : {};
+}

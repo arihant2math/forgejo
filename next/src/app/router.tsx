@@ -31,7 +31,7 @@ import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
 import {loadRepo, repoFullName, type RepoMatch} from './repo.ts';
 import {
   type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type LabelsSearch, labelsSearch, type MilestonesSearch, milestonesSearch, type MyListSearch,
-  myListSearch, parsePlainSearch, type PullSearch, pullSearch,
+  myListSearch, type PageSearch, pageSearch, parsePlainSearch, type PullSearch, pullSearch,
 } from './search.ts';
 import {PAGE_SCROLLER} from './shell/Frame.tsx';
 import {Shell} from './shell/Shell.tsx';
@@ -471,6 +471,16 @@ const repoMilestoneEditRoute = createRoute({
   component: lazyView(() => import('../features/meta/MilestoneForm.tsx'), 'EditMilestone'),
 });
 
+// A repository's watchers (the classic /watchers page): the people who watch it, a page at a time (`?page=`).
+const repoWatchersRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/$owner/$repo/watchers',
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  validateSearch: (s): PageSearch => pageSearch(s),
+  staticData: {skeleton: 'list', header: 'toolbar'},
+  component: lazyView(() => import('../features/repo/Watchers.tsx'), 'RepoWatchers'),
+});
+
 // The UI's own pages inside the shell (no canonical Forgejo URL serves them yet: B8's spaRoutes would need
 // `/{owner}/{repo}/projects/{id}` etc., a backend change; below the base they reload into the app anyway).
 const boardsRoute = createRoute({
@@ -622,7 +632,7 @@ const routeTree = rootRoute.addChildren([
     repoActivityRoute, repoActivityPeriodRoute, repoContributorsRoute, repoCodeFrequencyRoute, repoRecentCommitsRoute,
     wikiHomeRoute, wikiPageRoute, wikiPagesRoute, wikiNewRoute, wikiEditRoute,
     settingsProfileRoute, settingsAccountRoute, settingsAppearanceRoute, settingsKeysRoute,
-    repoLabelsRoute, repoMilestonesRoute, repoMilestoneNewRoute, repoMilestoneRoute, repoMilestoneEditRoute,
+    repoLabelsRoute, repoMilestonesRoute, repoMilestoneNewRoute, repoMilestoneRoute, repoMilestoneEditRoute, repoWatchersRoute,
     discoveryRoute, exploreRoute, exploreReposRoute, exploreUsersRoute, exploreOrgsRoute,
     ownerRoute, nextOwnerRoute, nextRepoRoute, notFoundRoute,
   ]),

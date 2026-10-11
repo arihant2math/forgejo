@@ -113,6 +113,9 @@ func TestSPARoute(t *testing.T) {
 		"/-/next/issues":                                               false,
 		"/user2/repo1/labels":                                          true,
 		"/user2/repo1/labels/x":                                        false,
+		"/user2/repo1/watchers":                                        true, // its watchers (#255)
+		"/user2/repo1/watchers/x":                                      false,
+		"/user2/repo1/stars":                                           false, // its stargazers stay classic
 		"/user2/repo1/milestones":                                      true,
 		"/user2/repo1/milestones/new":                                  true,
 		"/user2/repo1/milestones/x":                                    false,

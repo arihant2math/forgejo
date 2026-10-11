@@ -249,7 +249,6 @@ export class CodeSource {
   }
 
   /** A value already in memory (the first frame of a view: no flash of a placeholder). */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what it stored under the key
   peek<T>(key: string): T | undefined {
     return this.cache.peek<T>(key);
   }

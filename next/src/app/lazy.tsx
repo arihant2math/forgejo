@@ -69,7 +69,6 @@ export function lazyView<K extends string = 'default'>(
   };
   function View() {
     // Not preloaded (should not happen): suspend until it is.
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- React's Suspense protocol
     if (!Loaded) throw preload();
     return <Loaded/>;
   }

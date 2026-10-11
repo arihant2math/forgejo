@@ -60,10 +60,13 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   const page = await signedIn(ctx);
   const problems = watch(page);
   const other = await ctx.newPage();
-  await other.goto(`${BASE}/notifications`);
+  // All: a row marked read stays (the default view is unread and pinned only).
+  await other.goto(`${BASE}/notifications?filter=all`);
   await page.keyboard.press('g');
   await page.keyboard.press('n');
   await expect(page).toHaveURL(`${BASE}/notifications`);
+  await page.getByRole('button', {name: 'All', exact: true}).click();
+  await expect(page).toHaveURL(`${BASE}/notifications?filter=all`);
   const list = page.getByRole('listbox', {name: 'Notifications'});
   const row = (p: Page, title: string) => p.getByRole('listbox', {name: 'Notifications'}).getByRole('option').filter({hasText: title});
   await expect(row(page, b.title)).toBeVisible({timeout: 20_000});

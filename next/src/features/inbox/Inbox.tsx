@@ -7,7 +7,10 @@
 // synced across tabs and devices by the server's echo.
 //
 // Keyboard: J/K move, X selects, Enter opens (and marks read), E marks read,
-// U unread, Shift+P pins or unpins, Shift+E marks everything read. Like the
+// U unread, Shift+P pins or unpins, Shift+E marks everything read. By default
+// the inbox is the working view (classic Forgejo's Unread tab): unread and
+// pinned notifications, so what is read (handled) leaves it; "Unread" and
+// "All" (?filter=unread|all) are a click away. Like the
 // issue lists: one virtualized listbox with aria-activedescendant, rows that
 // observe their own fields, and a row set recomputed at most once a frame.
 // Without keys (#206): the hovered row offers read/unread, pin and a menu;
@@ -105,6 +108,11 @@ class InboxModel {
     return untracked(() => all.map((e) => e.data).sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : b.id - a.id)));
   });
 
+  /** How many notifications there are, in any view (observes them). */
+  total(): number {
+    return this.sorted.get().length;
+  }
+
   private compute(): InboxResult {
     const v = this.view();
     const statuses = this.overlay.fieldOverrides('Notification', 'status');
@@ -116,7 +124,7 @@ class InboxModel {
       const t0 = performance.now();
       // Already in order: inboxRows' own sort of a sorted list is linear.
       const issues = this.pool.model('Issue');
-      const out = inboxRows(all, {...v, unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
+      const out = inboxRows(all, {...v, unread: v.filter === 'unread', working: v.filter === undefined, byRepo: v.group === 'repo'}, {
         reason: (n) => {
           const me = this.app.session?.userId ?? 0;
           const why = reasonOf(this.pool, n, me, this.pool.model('User').get(me)?.data.login, server)?.why;
@@ -223,9 +231,12 @@ export default observer(function Inbox() {
         <SelectionBar model={model}/>
         <InboxFilters search={shown} set={set}/>
         <SelectToggle model={model}/>
-        <Button size="sm" pressed={shown.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
+        <Button size="sm" pressed={shown.filter === 'unread'} tooltip="Show unread notifications only (not the pinned ones)" onClick={() => {
           set({filter: shown.filter === 'unread' ? undefined : 'unread'});
         }}>Unread<UnreadCount/></Button>
+        <Button size="sm" pressed={shown.filter === 'all'} tooltip={shown.filter === 'all' ? 'Back to unread and pinned notifications' : 'Show read notifications too'} onClick={() => {
+          set({filter: shown.filter === 'all' ? undefined : 'all'});
+        }}>All</Button>
         <Menu>
           <MenuTrigger asChild><Button size="sm" variant="ghost" icon={Rows3}>Display</Button></MenuTrigger>
           <MenuContent>
@@ -236,7 +247,7 @@ export default observer(function Inbox() {
         </Menu>
         <Button size="sm" variant="ghost" icon={CheckCheck} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
       </PageHeader>
-      <InboxBody model={model} unreadOnly={shown.filter === 'unread'} byRepo={shown.group === 'repo'} filtered={[shown.reason, shown.repo, shown.type, shown.state].some((value) => value !== undefined)}/>
+      <InboxBody model={model} filter={shown.filter} byRepo={shown.group === 'repo'} filtered={[shown.reason, shown.repo, shown.type, shown.state].some((value) => value !== undefined)}/>
     </>
   );
 });
@@ -303,15 +314,19 @@ const UnreadCount = observer(function UnreadCount() {
   return n ? <span className="text-fg-subtle tabular-nums">{n}</span> : null;
 });
 
-const InboxBody = observer(function InboxBody({model, unreadOnly, byRepo, filtered}: {model: InboxModel; unreadOnly: boolean; byRepo: boolean; filtered: boolean}) {
+const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}: {model: InboxModel; filter: InboxSearch['filter']; byRepo: boolean; filtered: boolean}) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const {rows} = model.result.get();
+  // Some notifications, none in this view: they are handled (read).
+  const caughtUp = filter === 'all' || !model.total() ? undefined : filter === 'unread' ?
+    'Nothing unread. Pinned notifications are in the inbox’s default view, read ones under “All”.' :
+    'Nothing unread or pinned. Read notifications are under “All”.';
   return (
     <PageBody ref={setScroller}>
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
-        <EmptyState icon={BellOff} title={filtered ? 'No matching notifications' : unreadOnly ? 'All caught up' : 'No notifications'}
-          description={filtered ? 'Try changing the filters to see more notifications.' : unreadOnly ? 'Nothing unread. Pinned and read notifications are under “Unread” off.' : 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}/>}
+        <EmptyState icon={BellOff} title={filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}
+          description={filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}/>}
     </PageBody>
   );
 });

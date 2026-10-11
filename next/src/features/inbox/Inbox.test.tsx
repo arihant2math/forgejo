@@ -29,6 +29,8 @@ const fetcher = vi.fn((url: string) => {
 
 beforeEach(() => {
   search = {mentioned: [], review_requested: []};
+  // jsdom has no element scrolling (a view change keeps the list's place).
+  if (typeof Element.prototype.scrollTo !== 'function') Element.prototype.scrollTo = () => undefined;
   vi.stubGlobal('fetch', fetcher);
   // Each test's session leads alone: no queue messages from an earlier test's tab.
   vi.stubGlobal('BroadcastChannel', undefined);
@@ -46,7 +48,7 @@ function note(id: number, issueId: number, at: string, extra: Partial<Notificati
 }
 
 /** alice's inbox: four notifications (newest first: #1, #2, #3, #4), from bob's activity. */
-function session() {
+function session(statuses: Record<number, string> = {}) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [
     {group: 'user:1', units: [], reason: 'self'}, {group: 'repo:20', units: [], reason: 'member'},
   ]}});
@@ -60,13 +62,13 @@ function session() {
   titles.forEach((title, i) => {
     const at = `2026-10-0${String(9 - i)}T00:00:00Z`;
     s.data.put('Issue', 'repo:20', issue(100 + i, 20, i + 1, title, {poster_id: 3, is_pull: i === 1, updated_at: at}));
-    s.data.put('Notification', 'user:1', note(i + 1, 100 + i, at, i === 0 ? {comment_id: 1779} : {}));
+    s.data.put('Notification', 'user:1', note(i + 1, 100 + i, at, {...(i === 0 ? {comment_id: 1779} : {}), status: statuses[i + 1] ?? 'unread'}));
   });
   return s;
 }
 
-async function renderInbox(path = '/notifications') {
-  const s = session();
+async function renderInbox(path = '/notifications', statuses: Record<number, string> = {}) {
+  const s = session(statuses);
   const app = createApp(CONFIG, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
@@ -132,14 +134,23 @@ test('the selection has visible actions; X works before J (#206)', async () => {
   expect(bar.textContent).toContain('1 selected');
   for (const name of ['Mark read', 'Mark unread', 'Pin', 'Unsubscribe', 'Clear']) expect(within(bar).getByRole('button', {name})).toBeTruthy();
   expect(rowOf('Customer asks').textContent).toContain('Unread: ');
+  // Read is handled: it leaves the working view (and the selection); Undo brings it back.
   fireEvent.click(within(bar).getByRole('button', {name: 'Mark read'}));
   await waitFor(() => {
-    expect(rowOf('Customer asks').textContent).not.toContain('Unread: ');
+    expect(screen.queryByRole('option', {name: /Customer asks/})).toBeNull();
   });
-  fireEvent.click(within(bar).getByRole('button', {name: 'Pin'}));
+  expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
+  fireEvent.click(screen.getAllByRole('button', {name: 'Undo'}).at(-1) ?? document.body);
+  await waitFor(() => {
+    expect(rowOf('Customer asks').textContent).toContain('Unread: ');
+  });
+  // Pinned (kept for later): it stays, in its own group.
+  fireEvent.click(rowOf('Follow-up 2'), {shiftKey: true});
+  fireEvent.click(within(screen.getByRole('toolbar', {name: 'Selected notifications'})).getByRole('button', {name: 'Pin'}));
   await waitFor(() => {
     expect(screen.getByText('Pinned')).toBeTruthy();
   });
+  expect(rowOf('Follow-up 2').textContent).toContain('Pinned: ');
   fireEvent.click(within(screen.getByRole('toolbar', {name: 'Selected notifications'})).getByRole('button', {name: 'Clear'}));
   expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
 });
@@ -152,11 +163,10 @@ test('select mode: a tap selects rows instead of opening them (#206, a phone)', 
   expect(router.state.location.pathname).toBe('/notifications');
   expect(screen.getByRole('toolbar', {name: 'Selected notifications'}).textContent).toContain('2 selected');
   fireEvent.click(within(screen.getByRole('toolbar', {name: 'Selected notifications'})).getByRole('button', {name: 'Mark read'}));
+  // Both handled: they leave the working view; the others stay.
   await waitFor(() => {
-    expect(rowOf('Follow-up 2').textContent).not.toContain('Unread: ');
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Customer asks'), expect.stringContaining('cache: evict')]);
   });
-  expect(rowOf('Beta feedback').textContent).not.toContain('Unread: ');
-  expect(rowOf('Customer asks').textContent).toContain('Unread: ');
   // Select again: back to opening rows, the selection gone.
   fireEvent.click(screen.getByRole('button', {name: 'Select'}));
   expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
@@ -169,15 +179,12 @@ test('the hovered row offers read, pin and its menu (#206)', async () => {
   if (!item) throw new Error('no row');
   expect(within(item).queryByRole('button', {name: 'Mark read', hidden: true})).toBeNull();
   fireEvent.pointerEnter(item, {pointerType: 'mouse'});
-  fireEvent.click(within(item).getByRole('button', {name: 'Mark read', hidden: true}));
-  await waitFor(() => {
-    expect(rowOf('Follow-up 2').textContent).not.toContain('Unread: ');
-  });
-  expect(within(item).getByRole('button', {name: 'Mark unread', hidden: true})).toBeTruthy();
+  expect(within(item).getByRole('button', {name: 'Mark read', hidden: true})).toBeTruthy();
   fireEvent.click(within(item).getByRole('button', {name: 'Pin, to keep it for later', hidden: true}));
   await waitFor(() => {
     expect(screen.getByText('Pinned')).toBeTruthy();
   });
+  expect(within(item).getByRole('button', {name: 'Unpin', hidden: true})).toBeTruthy();
   // The row's menu: the same actions as its context menu.
   fireEvent.pointerDown(within(item).getByRole('button', {name: 'More actions', hidden: true}), {button: 0, ctrlKey: false});
   const menu = await screen.findByRole('menu');
@@ -188,6 +195,14 @@ test('the hovered row offers read, pin and its menu (#206)', async () => {
   fireEvent.keyDown(menu, {key: 'Escape'});
   await waitFor(() => {
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+  // Mark read on a hovered row: handled, it leaves the working view.
+  const done = rowOf('cache: evict').parentElement;
+  if (!done) throw new Error('no row');
+  fireEvent.pointerEnter(done, {pointerType: 'mouse'});
+  fireEvent.click(within(done).getByRole('button', {name: 'Mark read', hidden: true}));
+  await waitFor(() => {
+    expect(screen.queryByRole('option', {name: /cache: evict/})).toBeNull();
   });
   // A tap (touch) shows no buttons: it opens the row.
   const other = rowOf('Beta feedback').parentElement;
@@ -234,4 +249,39 @@ test('the server\'s answer is remembered on this device: the next visit shows it
   fetcher.mockImplementation(() => Promise.reject(new TypeError('offline')));
   await renderInbox();
   expect(within(rowOf('Follow-up 2')).getByText('· Mentioned')).toBeTruthy();
+});
+
+test('by default the inbox is the working view: unread and pinned; "All" and "Unread" are a click away and in the URL (#206)', async () => {
+  const {router} = await renderInbox('/notifications', {2: 'read', 4: 'pinned'});
+  const titles = () => screen.getAllByRole('option').map((o) => /^(?:Unread: |Pinned: )?(.+?)·/.exec(o.textContent)?.[1]);
+  // Pinned first, then unread; the read one (handled) is not here.
+  expect(titles()).toEqual(['Beta feedback batch 2', 'Customer asks: can Atlas serve tiles from S3?', 'Follow-up 2']);
+  fireEvent.click(screen.getByRole('button', {name: 'All'}));
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({filter: 'all'});
+  });
+  expect(titles()).toEqual(['Beta feedback batch 2', 'Customer asks: can Atlas serve tiles from S3?', 'cache: evict in a loop', 'Follow-up 2']);
+  fireEvent.click(screen.getByRole('button', {name: /^Unread/}));
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({filter: 'unread'});
+  });
+  expect(titles()).toEqual(['Customer asks: can Atlas serve tiles from S3?', 'Follow-up 2']);
+  // Unread again: back to the default.
+  fireEvent.click(screen.getByRole('button', {name: /^Unread/}));
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({});
+  });
+  expect(titles()).toHaveLength(3);
+});
+
+test('deep links keep working: filters with ?filter=all, and an empty working view says where the rest is', async () => {
+  await renderInbox('/notifications?filter=all&state=open', {1: 'read', 2: 'read', 3: 'read', 4: 'read'});
+  expect(screen.getAllByRole('option')).toHaveLength(4);
+  cleanup();
+  const app = createApp(CONFIG, session({1: 'read', 2: 'read', 3: 'read', 4: 'read'}));
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/notifications']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  expect(await screen.findByText('All caught up')).toBeTruthy();
+  expect(screen.getByText('Nothing unread or pinned. Read notifications are under “All”.')).toBeTruthy();
 });

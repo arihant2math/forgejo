@@ -118,9 +118,12 @@ export function issueListSearch(s: Record<string, unknown>): IssueListSearch {
   return listSearch(s);
 }
 
-/** /notifications: unread only, grouped by repository (both off by default). */
+/**
+ * /notifications: which notifications (by default the working view: unread and pinned, as classic Forgejo's
+ * Unread tab; `unread`: unread only; `all`: read ones too), grouped by repository (off by default).
+ */
 export interface InboxSearch {
-  filter?: 'unread';
+  filter?: 'unread' | 'all';
   group?: 'repo';
   reason?: 'review-requested' | 'mentioned' | 'assigned' | 'participating';
   repo?: number;
@@ -129,7 +132,8 @@ export interface InboxSearch {
 }
 
 export function inboxSearch(s: Record<string, unknown>): InboxSearch {
-  const out: InboxSearch = {...(s.filter === 'unread' ? {filter: 'unread' as const} : {}), ...(s.group === 'repo' ? {group: 'repo' as const} : {})};
+  const filter = oneOf(['unread', 'all'] as const, s.filter);
+  const out: InboxSearch = {...(filter ? {filter} : {}), ...(s.group === 'repo' ? {group: 'repo' as const} : {})};
   const reason = oneOf(['review-requested', 'mentioned', 'assigned', 'participating'] as const, s.reason);
   const type = oneOf(['issue', 'pr'] as const, s.type);
   const state = oneOf(['open', 'closed', 'merged'] as const, s.state);

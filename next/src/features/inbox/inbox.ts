@@ -16,6 +16,8 @@ export type InboxRow =
 export interface InboxView extends Pick<InboxSearch, 'reason' | 'repo' | 'type' | 'state'> {
   /** Unread only (pinned notifications are not unread: they leave this view). */
   unread: boolean;
+  /** The working view: unread and pinned (read notifications, the handled ones, leave it). */
+  working?: boolean | undefined;
   /** Group by repository (else: pinned, then the rest). */
   byRepo: boolean;
 }
@@ -59,6 +61,7 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
   for (const n of notes) {
     const st = ctx.status(n);
     if (view.unread && st !== 'unread') continue;
+    if (view.working && st !== 'unread' && st !== 'pinned') continue;
     if (view.repo !== undefined && n.repo_id !== view.repo) continue;
     if (view.reason && ctx.reason?.(n) !== view.reason) continue;
     if (view.type || view.state) {

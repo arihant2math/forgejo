@@ -12,6 +12,8 @@ test('inbox filters parse and survive saved view validation', () => {
   expect(search).toEqual({filter: 'unread', group: 'repo', reason: 'review-requested', repo: 42, type: 'pr', state: 'merged'});
   expect(inboxSearch({reason: 'bogus', repo: '-1', type: 'commit', state: 'all'})).toEqual({});
   expect(parseView({id: 'v', name: 'Reviews', path: '/notifications', search})?.search).toEqual(search);
+  expect(inboxSearch({filter: 'all', reason: 'mentioned'})).toEqual({filter: 'all', reason: 'mentioned'});
+  expect(parseView({id: 'v', name: 'Everything', path: '/notifications', search: {filter: 'all'}})?.search).toEqual({filter: 'all'});
 });
 
 test('inbox filters intersect, including unread overrides and unknown subjects', () => {

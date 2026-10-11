@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {autorun, runInAction} from 'mobx';
-import {describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
@@ -66,6 +66,83 @@ describe('IssueListModel', () => {
     });
     expect(computations).toBe(2);
     off();
+    model.dispose();
+  });
+});
+
+describe('IssueListModel, a list the server names (QA #261)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function reviewList(answer: () => Promise<Response>) {
+    const session = fakeSession({userId: 1});
+    vi.spyOn(session.auth, 'token').mockResolvedValue('t');
+    const fetchMock = vi.fn((_url: string) => answer());
+    vi.stubGlobal('fetch', fetchMock);
+    const app = createApp(fallbackConfig(), session);
+    const model = new IssueListModel(app, editing(app).overlay, {kind: 'my', pulls: true, type: 'review_requested'});
+    model.setSearch({});
+    return {model, fetchMock};
+  }
+
+  test('an empty answer is answered (not a missing connection); open items only are asked for', async () => {
+    const {model, fetchMock} = reviewList(() => Promise.resolve(new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}})));
+    expect(model.serverStatus).toBe('asking');
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    expect(model.result.get().ids).toEqual([]);
+    const url = new URL(fetchMock.mock.calls[0]?.[0] ?? '', 'http://x');
+    expect(url.searchParams.get('state')).toBe('open');
+    expect(url.searchParams.get('review_requested')).toBe('true');
+    model.dispose();
+  });
+
+  test('no answer (offline, an error status) is unanswered; asking again starts over', async () => {
+    let fail = true;
+    const {model} = reviewList(() => (fail ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new Response('[]', {status: 200}))));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('unanswered');
+    });
+    fail = false;
+    window.dispatchEvent(new Event('online'));
+    expect(model.serverStatus).toBe('asking');
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    model.dispose();
+  });
+
+  test('another state: an answer for the previous state is not this one\'s (asking until its own arrives)', async () => {
+    const answers: ((r: Response) => void)[] = [];
+    const {model} = reviewList(() => new Promise<Response>((resolve) => {
+      answers.push(resolve);
+    }));
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(1);
+    });
+    answers[0]?.(new Response('[]', {status: 200}));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    model.setSearch({state: 'all'});
+    expect(model.serverStatus).toBe('asking');
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(2);
+    });
+    answers[1]?.(new Response('[]', {status: 200}));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    model.dispose();
+  });
+
+  test('a server error is unanswered too', async () => {
+    const {model} = reviewList(() => Promise.resolve(new Response('', {status: 500})));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('unanswered');
+    });
     model.dispose();
   });
 });

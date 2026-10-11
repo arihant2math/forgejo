@@ -90,11 +90,14 @@ test('a fork\'s own comparison says the pull request stays in the fork, and offe
   stubForgejo(forkCompare);
   const app = createApp(config, s);
   const router = await open(app, '/alice/atlas/compare/main...fix/typo?expand=1');
-  const note = await screen.findByRole('note');
+  const note = await screen.findByRole('region', {name: 'A pull request opened here stays in alice/atlas'});
   expect(note.textContent).toMatch(/A pull request opened here stays in alice\/atlas/);
   expect(note.textContent).toMatch(/fork of acme\/atlas/);
-  const up = within(note).getByRole('link', {name: /Compare with acme\/atlas:main/});
-  expect(up.getAttribute('href')).toBe('/acme/atlas/compare/main...alice%3Afix/typo?expand=1');
+  // Banner renders responsive copies of its actions; jsdom does not apply the CSS that hides one.
+  const upstreamLinks = within(note).getAllByRole('link', {name: 'Compare with acme/atlas:main'});
+  for (const link of upstreamLinks) {
+    expect(link.getAttribute('href')).toBe('/acme/atlas/compare/main...alice%3Afix/typo?expand=1');
+  }
   // The form names where it opens.
   const form = await screen.findByRole('region', {name: 'Open a pull request'});
   expect(form.textContent).toMatch(/Opens in alice\/atlas: merges fix\/typo into main\./);
@@ -120,8 +123,11 @@ test('the upstream is found through API v1 when it is not on the device', async 
   });
   const app = createApp(config, s);
   await open(app, '/alice/atlas/compare/main...fix/typo');
-  const link = await screen.findByRole('link', {name: /Compare with acme\/atlas:trunk/});
-  expect(link.getAttribute('href')).toBe('/acme/atlas/compare/trunk...alice%3Afix/typo');
+  const note = await screen.findByRole('region', {name: 'A pull request opened here stays in alice/atlas'});
+  const links = within(note).getAllByRole('link', {name: 'Compare with acme/atlas:trunk'});
+  for (const link of links) {
+    expect(link.getAttribute('href')).toBe('/acme/atlas/compare/trunk...alice%3Afix/typo');
+  }
 });
 
 test('a fork\'s branches propose to the upstream', async () => {
@@ -184,12 +190,13 @@ test('the fork\'s overview: ahead of and behind the upstream, and Sync fork', as
   });
   const app = createApp(config, s);
   await open(app, '/alice/atlas');
-  const note = await screen.findByText('This branch is 2 commits behind acme/atlas:main.');
-  const callout = note.closest('[role="note"]');
-  if (!(callout instanceof HTMLElement)) throw new Error('no callout');
+  const callout = await screen.findByRole('region', {name: 'This branch is 2 commits behind acme/atlas:main.'});
+  expect(within(callout).getByRole('heading', {name: 'This branch is 2 commits behind acme/atlas:main.'})).toBeTruthy();
   expect(within(callout).queryByRole('link', {name: /Compare & open pull request/})).toBeNull();
+  const [sync] = within(callout).getAllByRole('button', {name: 'Sync fork'});
+  if (!sync) throw new Error('no Sync fork control');
   act(() => {
-    fireEvent.click(within(callout).getByRole('button', {name: 'Sync fork'}));
+    fireEvent.click(sync);
   });
   await waitFor(() => {
     expect(screen.queryByText(/commits behind/)).toBeNull();

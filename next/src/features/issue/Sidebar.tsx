@@ -24,7 +24,7 @@ import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
-import {LabelGlyph, isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
+import {labelColor, LabelGlyph, isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
@@ -148,9 +148,9 @@ const LabelsValue = observer(function LabelsValue({issue, link}: {issue: Entity<
   const labels = useLabelView(issue).other;
   const {owner, repo} = useParams({strict: false});
   if (!labels.length) return <Text color="fg.muted">No labels</Text>;
-  if (!link || !owner || !repo) return <>{labels.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={`#${l.color}`}/>)}</>;
+  if (!link || !owner || !repo) return <>{labels.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelColor(l.color)}/>)}</>;
   return <>{labels.map((l) => (
-    <RouterLink key={l.id} to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}} muted><IssueLabelToken text={l.name} fillColor={`#${l.color}`}/></RouterLink>
+    <RouterLink key={l.id} to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}} muted><IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/></RouterLink>
   ))}</>;
 });
 

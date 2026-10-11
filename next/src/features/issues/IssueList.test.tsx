@@ -147,10 +147,9 @@ describe('selection for the pointer (#205)', () => {
     fireEvent.click(await screen.findByRole('menuitem', {name: /Set milestone/}));
     expect(app.ui.picker?.kind).toBe('milestone');
     expect([...(app.ui.picker?.issueIds ?? [])].sort()).toEqual([100, 102, 103]);
-    act(() => {
-      app.ui.picker = undefined;
-    });
-    fireEvent.click(screen.getByRole('button', {name: 'Clear the selection'}));
+    // Dismiss the modal through its control so focus returns to the list.
+    fireEvent.click(await screen.findByRole('button', {name: 'Cancel'}));
+    fireEvent.click(await screen.findByRole('button', {name: /^Clear the selection\b/}));
     await waitFor(() => {
       expect(screen.getAllByRole('option').some((o) => o.getAttribute('aria-selected') === 'true')).toBe(false);
     });
@@ -194,17 +193,23 @@ describe('a filter on a deleted label (#158)', () => {
 describe('the issue\'s status (#192)', () => {
   test('an open issue without a status label reads "Open · No status" where the repository has statuses', async () => {
     await renderApp('/acme/website/issues/8', session());
-    const status = await screen.findByRole('button', {name: /^Status/});
-    expect(status.textContent).toContain('Open');
-    expect(status.textContent).toContain('· No status');
+    const heading = await screen.findByRole('heading', {name: 'Status'});
+    const status = heading.closest('section');
+    if (!status) throw new Error('Missing status field');
+    expect(within(status).getByText('Open')).toBeTruthy();
+    expect(within(status).getByText('· No status')).toBeTruthy();
+    expect(within(status).getByRole('button', {name: /^Change status\b/})).toBeTruthy();
     await act(() => Promise.resolve());
   });
 
   test('with a status label the status reads it', async () => {
     await renderApp('/acme/website/issues/9', session());
-    const status = await screen.findByRole('button', {name: /^Status/});
-    expect(status.textContent).toContain('Todo');
-    expect(status.textContent).not.toContain('No status');
+    const heading = await screen.findByRole('heading', {name: 'Status'});
+    const status = heading.closest('section');
+    if (!status) throw new Error('Missing status field');
+    expect(within(status).getByText('Todo')).toBeTruthy();
+    expect(within(status).queryByText(/No status/)).toBeNull();
+    expect(within(status).getByRole('button', {name: /^Change status\b/})).toBeTruthy();
   });
 });
 
@@ -214,20 +219,26 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
     s.data.put('Label', 'repo:20', label(2, 'docs'));
     s.data.put('IssueLabel', 'repo:20', {id: 2, issue_id: 103, label_id: 2});
     await renderApp('/acme/website/issues/9', s);
-    fireEvent.click(await screen.findByRole('button', {name: /^Labels/}));
+    expect(await screen.findByRole('heading', {name: 'Labels'})).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', {name: /^Change labels\b/}));
     const list = await screen.findByRole('listbox', {name: 'Change labels'});
     expect(list.getAttribute('aria-multiselectable')).toBe('true');
     const bug = within(list).getByRole('option', {name: 'bug'});
-    // Primer separates keyboard focus from applied values; focusing an option never applies it.
+    // Primer keeps DOM focus on the combobox and highlights its active descendant independently
+    // of the applied values. Moving to "bug" must not apply it.
     bug.focus();
-    expect(document.activeElement).toBe(bug);
-    expect(screen.getByRole('combobox', {name: 'Change labels'})).toBeTruthy();
-    expect(bug.getAttribute('aria-selected')).toBe('false');
-    expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['docs']);
-    // Applying "bug" makes it selected.
+    const input = screen.getByRole('combobox', {name: 'Change labels'});
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute('aria-activedescendant')).toBe(bug.id);
+    expect(within(list).getByRole('option', {name: 'bug', selected: false})).toBe(bug);
+    expect(within(list).getByRole('option', {name: 'docs', selected: true})).toBeTruthy();
+    expect(within(list).getAllByRole('option', {selected: true})).toHaveLength(1);
+    // Applying "bug" makes it selected, without dropping "docs".
     fireEvent.click(bug);
     await waitFor(() => {
-      expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['bug', 'docs']);
+      expect(within(list).getByRole('option', {name: 'bug', selected: true})).toBeTruthy();
+      expect(within(list).getByRole('option', {name: 'docs', selected: true})).toBeTruthy();
+      expect(within(list).getAllByRole('option', {selected: true})).toHaveLength(2);
     });
   });
 });

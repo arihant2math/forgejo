@@ -25,25 +25,32 @@ function fixture(count = 3) {
   session.data.put('Repository', 'repo:20', repo(20, owner, 'demo'));
   session.data.put('Access', 'user:1', {id: 1, user_id: 1, repo_id: 20, permission: 'write'});
   for (let n = 1; n <= count; n++) session.data.put('Issue', 'repo:20', issue(n, 20, n, `Task ${String(n)}`));
-  const app = createApp(fallbackConfig(), session);
+  const app = createApp({...fallbackConfig(), app_sub_url: ''}, session);
   const model = new IssueListModel(app, editing(app).overlay, {kind: 'repo', repoId: 20, pulls: false}, 'none');
   function List() {
     const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
-    return <main><div ref={setScroller}><IssueList model={model} scroller={scroller} empty="All clear" label="Issues"/></div></main>;
+    return <main><div ref={setScroller} data-testid="issue-scroller"><IssueList model={model} scroller={scroller} empty="All clear" label="Issues"/></div></main>;
   }
   const mounted = render(<ThemeProvider><BaseStyles><AppContext value={app}><List/></AppContext></BaseStyles></ThemeProvider>);
-  return {app, model, dispose: () => {mounted.unmount(); model.dispose();}};
+  return {app, model, scroller: mounted.getByTestId('issue-scroller'), dispose: () => {mounted.unmount(); model.dispose();}};
 }
 
 test('fixed-height feature rows stay virtualized and keep real issue links', async () => {
-  const {dispose} = fixture(200);
+  const {scroller, dispose} = fixture(200);
   try {
     const list = await screen.findByRole('listbox', {name: 'Issues'});
     const rows = within(list).getAllByRole('option');
     expect(rows.length).toBeLessThan(50);
-    expect(rows[0]?.className).toContain('h-10');
-    expect(rows[0]?.getAttribute('href')).toMatch(/\/alice\/demo\/issues\//);
-    expect(rows[0]?.className).toContain('[contain:content]');
+    expect(within(list).getByRole('option', {name: /Task 200/}).getAttribute('href')).toBe('/alice/demo/issues/200');
+    expect(within(list).queryByRole('option', {name: /Task 100/})).toBeNull();
+    // A fixed-height list reserves 40px per issue, not just per mounted row. Scrolling brings
+    // previously unmounted issues into view without depending on a containment utility's spelling.
+    expect(list.style.height).toBe('8000px');
+    fireEvent.scroll(scroller, {target: {scrollTop: 4000}});
+    const later = await within(list).findByRole('option', {name: /Task 100/});
+    expect(later.getAttribute('href')).toBe('/alice/demo/issues/100');
+    expect(within(list).queryByRole('option', {name: /Task 200/})).toBeNull();
+    expect(within(list).getAllByRole('option').length).toBeLessThan(50);
   } finally {dispose();}
 });
 

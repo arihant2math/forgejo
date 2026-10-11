@@ -58,7 +58,7 @@ test('Escape and the Close footer dismiss help and restore the opener', async ()
   // The header's icon button is also named Close; target the footer action explicitly.
   const footer = screen.getByRole('dialog').querySelector('[data-component="Dialog.Footer"]');
   if (!(footer instanceof HTMLElement)) throw new Error('Missing Dialog footer');
-  fireEvent.click(within(footer).getByRole('button', {name: 'Close', exact: true}));
+  fireEvent.click(within(footer).getByRole('button', {name: 'Close'}));
   await waitFor(() => { expect(document.activeElement).toBe(opener); });
   expect(app.ui.shortcutsOpen).toBe(false);
 });

@@ -29,9 +29,18 @@ vi.mock('./PierreProvider.tsx', () => ({
 // The actual parser is used by the fake worker; highlighting and virtualization belong to Pierre.
 vi.mock('@pierre/diffs/react', () => ({CodeView: (props: ViewerProps) => {
   lastProps = props;
-  useImperativeHandle(props.ref, () => ({
-    scrollTo: () => undefined, getSelectedLines: () => selected, setSelectedLines: (selection: CodeViewLineSelection | null) => {selected = selection;},
-  }) as CodeViewHandle<Annotation, undefined>);
+  useImperativeHandle(props.ref, (): CodeViewHandle<Annotation, undefined> => ({
+    scrollTo: () => undefined, getSelectedLines: () => selected, setSelectedLines: (selection) => {selected = selection;},
+    clearSelectedLines: () => {selected = null;},
+    getItem: (id) => props.items.find((item) => item.id === id),
+    // These tests use the controlled viewer; mutations and editor access are unexpected.
+    addItems: () => {throw new Error('Unexpected addItems');},
+    removeItem: () => {throw new Error('Unexpected removeItem');},
+    updateItem: () => {throw new Error('Unexpected updateItem');},
+    updateItemId: () => {throw new Error('Unexpected updateItemId');},
+    getEditor: () => {throw new Error('Unexpected getEditor');},
+    getInstance: () => {throw new Error('Unexpected getInstance');},
+  }));
   return <div>{props.items.map((item) => <div key={item.id}>
     {props.renderCustomHeader?.(item)}
     {item.annotations?.map((annotation, index) => <div key={index}>{props.renderAnnotation?.(annotation, item)}</div>)}

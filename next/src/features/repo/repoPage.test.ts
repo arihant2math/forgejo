@@ -52,8 +52,10 @@ describe('tabOfPath', () => {
 
 describe('Primer repository navigation (overflow is handled by Primer)', () => {
   const open = (current?: number) => {
-    return renderToStaticMarkup(createElement(UnderlineNav, {'aria-label': 'Sections'},
-      ...['Code', 'Issues', 'Wiki'].map((name, i) => createElement(UnderlineNav.Item, {key: name, href: '/' + name, 'aria-current': i === current ? 'page' : false}, name))));
+    return renderToStaticMarkup(createElement(UnderlineNav, {
+      'aria-label': 'Sections',
+      children: ['Code', 'Issues', 'Wiki'].map((name, i) => createElement(UnderlineNav.Item, {key: name, href: '/' + name, 'aria-current': i === current ? 'page' : false}, name)),
+    }));
   };
   test('all fit: every tab is a link', () => {
     expect(open().match(/<a /g)).toHaveLength(3);

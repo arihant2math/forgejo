@@ -199,7 +199,8 @@ describe('signed in', () => {
     expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/acme');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
     // GitHub's order; the home is the Code tab. Pages only the classic UI has are marked (data-classic).
-    expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Code', 'Issues1', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity']);
+    const tabNames = ['Code', /^Issues\s*\(1\)$/, /^Pull requests\s*\(0\)$/, 'Actions', 'Projects', 'Wiki', 'Activity'];
+    expect(within(tabs).getAllByRole('link')).toEqual(tabNames.map((name) => within(tabs).getByRole('link', {name})));
     expect(within(tabs).getByRole('link', {name: 'Code'}).getAttribute('aria-current')).toBe('page');
     // The home has no title row (GitHub's): its heading is the repository's crumb; the browser tab names the
     // repository alone. The header's rows are breadcrumb, then tabs; the repository's actions (New issue, Star, …)
@@ -210,7 +211,8 @@ describe('signed in', () => {
     expect(header?.contains(tabs)).toBe(true);
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(header ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
-    expect(screen.getByRole('main').querySelector('h2')?.parentElement?.textContent).toContain('New issue');
+    const homeTitle = within(screen.getByRole('main')).getByRole('heading', {level: 2, name: /^website/});
+    expect(within(homeTitle.parentElement ?? document.body).getByRole('button', {name: 'New issue'})).toBeTruthy();
     await waitFor(() => {
       expect(document.title).toBe('acme/website · Forgejo');
     });
@@ -220,7 +222,7 @@ describe('signed in', () => {
     expect(within(tabs).getByRole('link', {name: 'Activity'}).hasAttribute('data-classic')).toBe(false);
     expect(within(tabs).getByRole('link', {name: 'Projects'}).hasAttribute('data-classic')).toBe(false);
     expect(within(tabs).getByRole('link', {name: 'Projects'}).getAttribute('href')).toContain('/-/next/boards?repoId=');
-    expect(within(tabs).getByRole('button', {name: 'More of this repository'})).toBeTruthy();
+    expect(within(header ?? document.body).getByRole('button', {name: 'More of this repository'})).toBeTruthy();
     await router.navigate({to: '/$owner/$repo/issues', params: {owner: 'acme', repo: 'website'}});
     await waitFor(() => {
       expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: /^Issues/}).getAttribute('aria-current')).toBe('page');
@@ -510,9 +512,7 @@ describe('signed in', () => {
     const router = createAppRouter(app0, createMemoryHistory({initialEntries: [`/acme/website/issues/new-${t}`]}));
     await router.load();
     render(<App app={app0} router={router}/>);
-    await waitFor(() => {
-      expect(screen.getByRole('main').querySelector('article h2')?.textContent).toContain('Made offline');
-    });
+    expect(await within(screen.getByRole('main')).findByRole('heading', {level: 2, name: 'Made offline'})).toBeTruthy();
     expect(screen.getByText('Body typed offline')).toBeTruthy();
     expect(screen.getByText('New')).toBeTruthy();
     // Created: the server's issue arrives and the temporary id is remapped; the URL follows (replace).

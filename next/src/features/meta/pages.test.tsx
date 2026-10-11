@@ -62,10 +62,9 @@ function session() {
 describe('labels and milestones', () => {
   test('the issue list links its labels and milestones, with their counts', async () => {
     await renderApp('/acme/website/issues', session());
-    const labels = screen.getByRole('link', {name: /^Labels/});
+    const labels = screen.getByRole('link', {name: /^Labels\s*\(3\)$/});
     expect(labels.getAttribute('href')).toBe('/acme/website/labels');
-    expect(labels.textContent).toBe('Labels3');
-    expect(screen.getByRole('link', {name: /^Milestones/}).textContent).toBe('Milestones1');
+    expect(screen.getByRole('link', {name: /^Milestones\s*\(1\)$/}).getAttribute('href')).toBe('/acme/website/milestones');
   });
 
   test('labels: pills, descriptions, open counts linking to the filtered list, the organization\'s apart; search', async () => {
@@ -217,8 +216,7 @@ describe('labels and milestones', () => {
 
   test('an issue\'s page links a reader to its labels and its milestone', async () => {
     await renderApp('/acme/website/issues/8', session());
-    const m = await screen.findByText('v1.0');
-    expect(m.closest('a')?.getAttribute('href')).toBe('/acme/website/milestone/5');
-    expect(screen.getAllByText('bug').some((el) => el.closest('a')?.getAttribute('href') === '/acme/website/issues?labels=1')).toBe(true);
+    expect((await screen.findByRole('link', {name: 'v1.0'})).getAttribute('href')).toBe('/acme/website/milestone/5');
+    expect(screen.getByRole('link', {name: 'bug'}).getAttribute('href')).toBe('/acme/website/issues?labels=1');
   });
 });

@@ -9,6 +9,7 @@ import {AppContext, createApp} from '../../app/store.ts';
 import {shortcuts} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/session.ts';
 import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
+import type {Connection} from '../../sync/client.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
 import {APPROVAL_TITLE, ApprovalPanel} from './Approval.tsx';
 import {DraftControl} from './DraftControl.tsx';
@@ -19,7 +20,7 @@ vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), .
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
-function setup(opts: {connection?: string; title?: string; author?: number; sameRepo?: boolean; merged?: boolean} = {}) {
+function setup(opts: {connection?: Connection; title?: string; author?: number; sameRepo?: boolean; merged?: boolean} = {}) {
   const session = fakeSession();
   session.data.put('Repository', 'repo:20', repo(20, user(2, 'acme'), 'website'));
   session.data.put('Issue', 'repo:20', issue(100, 20, 7, opts.title ?? 'Add the footer', {is_pull: true, poster_id: opts.author ?? 1}));
@@ -52,7 +53,7 @@ test.each([['Approve once', 'once'], ['Approve always', 'always'], ['Deny', 'den
   expect(mocks.online.mock.calls[0]?.[1]).toEqual({method: 'POST', api: 'sync', path: '/issues/100/action-trust', body: {trust}});
 });
 
-test.each(['offline', 'unreachable'])('approval: %s actions remain focusable but never send a request', (connection) => {
+test.each(['offline', 'unreachable'] as const)('approval: %s actions remain focusable but never send a request', (connection) => {
   const {wrap} = setup({connection});
   wrap(<ApprovalPanel issueId={100} actions={{need_approval: true, can_decide: true, poster_trust: 'no'}} waiting/>);
   expect(screen.getByText('Approving workflows needs a connection: it is not queued offline.', {selector: 'p'})).toBeTruthy();
@@ -94,7 +95,7 @@ test('maintainer edits: a fork author can change permissions, with failure feedb
   expect(screen.getByText('Could not change maintainer permissions. Try again.')).toBeTruthy();
 });
 
-test.each(['offline', 'unreachable'])('maintainer edits: %s disables the checkbox and explains why', (connection) => {
+test.each(['offline', 'unreachable'] as const)('maintainer edits: %s disables the checkbox and explains why', (connection) => {
   const {wrap, entity} = setup({connection});
   wrap(<MaintainerEdits issue={entity}/>);
   const checkbox = screen.getByRole('checkbox', {name: 'Allow edits by maintainers'}) as HTMLInputElement;

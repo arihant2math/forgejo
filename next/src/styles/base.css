@@ -50,3 +50,20 @@ pre,
 samp {
   font-family: var(--font-mono);
 }
+
+/* Primer's markdown styles (markdown-body, @primer/css) keep the browser's list markers, which preflight resets. */
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body :is(ul, ol) ul {
+  list-style-type: circle;
+}
+
+.markdown-body :is(ul, ol) :is(ul, ol) ul {
+  list-style-type: square;
+}

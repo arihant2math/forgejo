@@ -135,6 +135,9 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   }, [quote, issueId]);
   const dirty = text !== initial;
   const blocked = markers === true && hasConflictMarkers(text);
+  const saveUnavailable = blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers);
+  const saveHint = blocked ? 'Remove the conflict markers to save.' : hasPendingUploads(text) ? 'Wait for attachments to finish uploading.' :
+    !text.trim() ? 'Enter text to save.' : !dirty && !markers ? 'Make a change to save.' : `${saveLabel} (works offline)`;
   useEffect(() => {
     openEditors.add(draftKey);
     return () => {
@@ -171,7 +174,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     void intents.discardDraft(draftKey);
   };
   const save = () => {
-    if (blocked || hasPendingUploads(text) || (!dirty && !markers) || !text.trim()) return;
+    if (saveUnavailable) return;
     forget();
     onSave(text, base);
     if (!onCancel) setText('');
@@ -231,7 +234,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
           }}>{stateAction.label(Boolean(text.trim()))}</Button>
           {stateAction.more?.(act)}
         </span>}
-        <Tooltip text={`${saveLabel} (works offline)`} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button></Tooltip>
+        <Tooltip text={saveHint} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" inactive={saveUnavailable} aria-disabled={saveUnavailable} onClick={save}>{saveLabel}</Button></Tooltip>
       </div>
     </div>
   );
@@ -550,9 +553,9 @@ const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity
   }
   items.push(...others.filter((i) => !q || `#${String(i.number)} ${i.title}`.toLowerCase().includes(q)).slice(0, DUPLICATE_CHOICES)
     .map((i) => ({id: `issue-${String(i.id)}`, text: `#${String(i.number)} ${i.title}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: i.number})));
-  return <SelectPanel title="Close with a reason" open={open} onOpenChange={setOpen} selected={undefined}
+  return <SelectPanel title="Close with a reason" open={open} onOpenChange={setOpen} selected={undefined} loading={false}
     placeholderText="Not planned, or duplicate of… (number or title)" filterValue={query} onFilterChange={setQuery} items={items}
-    message={{variant: 'empty', title: 'No issue matches', body: 'Type its number.'}}
+    {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No issue matches', body: 'Type its number.'}} : {})}
     anchorRef={anchorRef} renderAnchor={({id, onClick, onKeyDown, "aria-expanded": expanded, "aria-haspopup": hasPopup}) => <IconButton ref={anchorRef} id={id} onClick={onClick} onKeyDown={onKeyDown} aria-expanded={expanded} aria-haspopup={hasPopup} icon={ChevronDownIcon} size="small" aria-label="Close with a reason"
       description="Close as not planned or as a duplicate"/>}
     onSelectedChange={(item: SelectPanelItemInput | undefined) => {

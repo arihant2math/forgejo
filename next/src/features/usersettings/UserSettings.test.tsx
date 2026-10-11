@@ -56,7 +56,7 @@ test('local theme remains available offline and Settings uses navigable current 
 
 test('privacy uses a named Primer toggle and restores its state after a refused write', async () => {
   const patches: unknown[] = [];
-  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
     const patch = init?.method === 'PATCH';
     if (patch && typeof init.body === 'string') patches.push(JSON.parse(init.body) as unknown);
     return Promise.resolve(new Response(JSON.stringify(patch ? {message: 'No changes allowed'} : settings), {status: patch ? 422 : 200, headers: {'Content-Type': 'application/json'}}));

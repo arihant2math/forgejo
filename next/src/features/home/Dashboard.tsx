@@ -31,6 +31,7 @@ import {issuePath} from '../issues/edits.ts';
 import type {ListSource} from '../issues/list.ts';
 import {useListModel} from '../issues/ListPage.tsx';
 import {HomeSkeleton} from './Home.tsx';
+import Feed from './Feed.tsx';
 
 /** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
@@ -87,6 +88,7 @@ export default observer(function Dashboard() {
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
       {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
+      <Feed/>
     </PageColumn></LinkRows>
   );
 });

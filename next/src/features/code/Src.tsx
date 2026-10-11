@@ -15,8 +15,8 @@ import {observer} from 'mobx-react-lite';
 import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {editableText} from './fileWrite.ts';
-
-const FileEditor = lazy(() => import('./FileEditor.tsx'));
+import {notify} from '../../app/notices.ts';
+import {permalink} from '../../code/permalink.ts';
 import {sitePath} from '../../app/config.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
@@ -25,7 +25,7 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  BlameCell, Button, CodeLine, CodeTokens, EmptyState, Icon, LineNo, ListRow, SegmentedControl, Skeleton, TextLink,
+  BlameCell, Button, CodeLine, CodeTokens, EmptyState, Icon, LineAction, LineNo, ListRow, Menu, MenuTrigger, MenuContent, MenuItem, SegmentedControl, Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
@@ -39,6 +39,8 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
+
+const FileEditor = lazy(() => import('./FileEditor.tsx'));
 
 interface SrcProps extends CodeViewProps {
   blame: boolean;
@@ -97,6 +99,9 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   useShortcutScope('code');
   useShortcut('code.up', up);
   useShortcut('code.upAlt', up);
+  useShortcut('code.permalink', () => {
+    void navigate({...codeTo(props.owner, props.repo, codeSplat(props.blame ? 'blame' : 'src', {...at, kind: 'commit', ref: at.sha}, at.path)), hash: true, replace: true});
+  });
   const controls = <SrcControls {...props} entry={entry}/>;
   let body: (scroller: HTMLDivElement | null) => ReactNode;
   if (!at.path || entry?.type === 'tree') {
@@ -161,6 +166,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
           void navigate({...codeTo(owner, repo, codeSplat(v, at, at.path)), hash: true});
         }} options={[{value: 'src', label: 'Source'}, {value: 'blame', label: 'Blame'}]}/>
       )}
+      {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
       {file && (
         <Button size="sm" variant="ghost" asChild>
           <a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/commit/${at.sha}/${encodePath(at.path)}`)} target="_blank" rel="noopener noreferrer">Raw</a>
@@ -169,6 +175,32 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
     </>
   );
 });
+
+function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: string; at: Resolved; line?: boolean}) {
+  const app = useApp();
+  const hash = useRouterState({select: (s) => s.location.hash});
+  const copy = (value: string, title: string) => {
+    void navigator.clipboard.writeText(value).then(() => {
+      notify(app, {tone: 'success', title});
+    }, () => {
+      notify(app, {tone: 'danger', title: 'Could not copy', description: value});
+    });
+  };
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        {line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button size="sm" variant="ghost" aria-label="File actions">…</Button>}
+      </MenuTrigger>
+      <MenuContent align="end">
+        <MenuItem onSelect={() => {
+          copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
+        }}>Copy permalink</MenuItem>
+        {line ? <MenuItem onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</MenuItem> :
+          <MenuItem onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</MenuItem>}
+      </MenuContent>
+    </Menu>
+  );
+}
 
 // ---- directory ----
 
@@ -309,18 +341,18 @@ export function hashRange(hash: string): [number, number] | undefined {
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
-const TextFile = observer(function TextFile({repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
+const TextFile = observer(function TextFile({owner, repo, repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
   const {range, view, initial, pick} = useLineLinks();
   const line = useCallback((i: number) => {
     const named = range !== undefined && i >= range[0] && i <= range[1];
     return (
-      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={named} gutter={<LineNo n={i + 1} onPick={pick}/>}>
+      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={named} gutter={<LineNo n={i + 1} onPick={pick}/>} action={range?.[0] === i ? <FileLinkMenu owner={owner} repo={repo} at={at} line/> : undefined}>
         <CodeTokens text={lines[i] ?? ''} hl={hl} line={i}/>
       </CodeLine>
     );
-  }, [lines, hl, range, pick]);
+  }, [lines, hl, range, pick, owner, repo, at]);
   useMarkPainted(at.path);
   return (
     <>
@@ -413,7 +445,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
     const commit = b && part ? b.commits[part.sha] : undefined;
     const first = part !== undefined && part.start_line - 1 === i;
     return (
-      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={range !== undefined && i >= range[0] && i <= range[1]} gutter={<>
+      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={range !== undefined && i >= range[0] && i <= range[1]} action={range?.[0] === i ? <FileLinkMenu owner={owner} repo={repo} at={at} line/> : undefined} gutter={<>
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
             <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-2">
@@ -427,7 +459,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
         <CodeTokens text={lines[i] ?? ''} hl={hl} line={i}/>
       </CodeLine>
     );
-  }, [parts, blame, lines, hl, owner, repo, range, pick]);
+  }, [parts, blame, lines, hl, owner, repo, range, pick, at]);
   if (blame.state !== 'ready') return <Unloaded loaded={blame} what="This blame" skeleton={<CodeSkeleton/>}/>;
   return (
     <>

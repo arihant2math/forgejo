@@ -26,8 +26,9 @@ import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
+import {Artifacts} from './Artifacts.tsx';
 import {CodeLink, useCodeRows} from './nav.tsx';
-import {RepoClassic} from './Refs.tsx';
+import {RunControls} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
@@ -234,7 +235,8 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
   return (
     <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <>
       <Status tone={look.tone}>{statusTime(look.text, run.started, finished(run.status) ? run.stopped : undefined, now)}</Status>
-      <RepoClassic {...props} path={`actions/runs/${String(run.run_number)}`}>Re-run or cancel</RepoClassic>
+      <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} palette/>
+      {job && <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={job} palette/>}
     </>}>
       {(scroller) => (!run ?
         <EmptyState icon={Workflow} title="Run not found" description="This run does not exist, or is not on this device."/> :
@@ -253,9 +255,12 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             {jobs.map((j, i) => {
               const jl = statusLook(j.status);
               return (
-                <CodeLink key={j.id} owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
+                <div key={j.id} className="flex items-center gap-1 pr-2">
+                <CodeLink className="min-w-0 flex-1" owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
                   <ListRow role="presentation" active={i === first} leading={<StatusDot tone={jl.tone}/>} trailing={statusTime(jl.text, j.started, finished(j.status) ? j.stopped : undefined, now)}>{j.name}</ListRow>
                 </CodeLink>
+                <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j}/>
+                </div>
               );
             })}
           </nav>
@@ -264,6 +269,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
               <EmptyState icon={Workflow} title="No such job"/>}
           </section>
           </div>
+          <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
         </div>)}
     </CodeFrame>
   );

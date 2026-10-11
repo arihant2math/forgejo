@@ -28,8 +28,8 @@ export async function blobSha(repo: string, path: string, ref?: string): Promise
   return (await apiJson<{sha: string}>('GET', `/repos/${USER}/${repo}/contents/${path}${ref ? `?ref=${ref}` : ''}`)).sha;
 }
 
-/** A code view of dev's repository (F7 routes end with a `/-` segment). */
-export const codeUrl = (repo: string, rest: string) => `${BASE}/-/next/code/${USER}/${repo}/${rest}/-`;
+/** A code page of dev's repository (Forgejo's address: `/{owner}/{repo}/src/branch/main/…`). */
+export const codeUrl = (repo: string, rest: string) => `${BASE}/${USER}/${repo}/${rest}`;
 
 export interface Pull {
   number: number;

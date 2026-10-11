@@ -18,7 +18,7 @@ test('repository code search opens a matching line', async ({browser}) => {
       await page.getByRole('button', {name: 'Search code', exact: true}).click();
       await page.getByRole('textbox', {name: 'Search code', exact: true}).fill('uniqueSearchSymbol95');
       await page.getByRole('option').filter({hasText: 'search.txt:1'}).click();
-      await expect(page).toHaveURL(/\/src\/commit\/[0-9a-f]+\/search\.txt\/-#L1$/);
+      await expect(page).toHaveURL(/\/src\/commit\/[0-9a-f]+\/search\.txt#L1$/);
       await expect(page.getByText('uniqueSearchSymbol95', {exact: true}).first()).toBeVisible();
     } finally { await ctx.close(); }
   } finally { await api('DELETE', `/repos/${ALICE.user}/${repo}`, undefined, auth); }

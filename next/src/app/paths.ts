@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Classic URLs ⇄ the app's routes (pure). The app renders Forgejo's
-// canonical URLs where it can (spaRoutes) and mirrors the classic shape below
-// its base everywhere else (`/-/next/code/{owner}/{repo}/src/branch/main/…/-`,
-// `/-/next/{owner}`), so most mappings drop or add a prefix:
+// canonical URLs where it can (spaRoutes: repositories, issues, code pages, …)
+// and mirrors the classic shape below its base elsewhere (`/-/next/projects/7`;
+// former `/-/next/code/{owner}/{repo}/…/-` addresses go on to the code page),
+// so most mappings drop or add a prefix:
 //
 //   nextPathOf(classic)  a link Forgejo rendered (markdown, a mention) → the
 //                        app's page for it, or undefined (open it classic);
@@ -14,7 +15,7 @@
 //
 // Paths here are site paths (without the instance's sub-path).
 
-import {END, parseCodePath} from '../code/refs.ts';
+import {legacyCodeSplat, parseCodePath} from '../code/refs.ts';
 import {classicWikiPath, parseWikiRest, wikiActionView, wikiPath} from '../features/wiki/paths.ts';
 import {isOwnerName, isSpaRoute, NAME, SETTINGS_SECTIONS, USER_SETTINGS_PAGES} from '../sw/routes.ts';
 
@@ -32,10 +33,10 @@ function segments(path: string): string[] {
 
 const enc = (s: string) => encodeURIComponent(s);
 
-/** A repository's code view path (below the base, ending in END). `rest` is the classic path after the repository. */
+/** A repository's code page (Forgejo's address: `/{owner}/{repo}/{rest}`). `rest` is the classic path after the repository. */
 export function codePath(owner: string, repo: string, rest: string): string {
   const tail = rest.replace(/^\/+|\/+$/g, '');
-  return `/-/next/code/${enc(owner)}/${enc(repo)}/${tail ? `${tail.split('/').map(enc).join('/')}/` : ''}${END}`;
+  return `/${enc(owner)}/${enc(repo)}${tail ? `/${tail.split('/').map(enc).join('/')}` : ''}`;
 }
 
 /**
@@ -193,21 +194,18 @@ export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
     const v = parseWikiRest(segs.slice(3));
     if (v && v.view !== 'page') return classicWikiPath(segs[0] ?? '', segs[1] ?? '', v);
   }
-  if (segs[0] !== '-' || segs[1] !== 'next') return path || '/';
+  if (segs[0] !== '-' || segs[1] !== 'next') {
+    // A code page is its own classic page, except the app's `src`, `commits` and `blame` without a ref.
+    const [owner = '', repo = '', ...tail] = segs;
+    const code = isOwnerName(owner) && NAME.test(repo) && tail.length > 0 ? parseCodePath(tail.join('/')) : undefined;
+    return code && 'rest' in code && code.kind === undefined ? classicCodePath(owner, repo, tail, ctx) : path || '/';
+  }
   const [, , a, ...rest] = segs;
   if (a === undefined || a === 'callback') return '/';
+  // A former code address (`/-/next/code/{owner}/{repo}/…/-`).
   if (a === 'code') {
     const [owner = '', repo = '', ...tail] = rest;
-    if (tail.at(-1) === END) tail.pop();
-    // The app's `src`, `commits` and `blame` without a ref mean the default branch; classic has no such page
-    // (`/{owner}/{repo}/src` is a 404): name the branch, or the repository's home when it is not known.
-    const [view, kind] = tail;
-    if ((view === 'src' || view === 'commits' || view === 'blame') && kind !== 'branch' && kind !== 'tag' && kind !== 'commit') {
-      const branch = ctx.defaultBranch?.(owner, repo);
-      if (!branch) return `/${enc(owner)}/${enc(repo)}`;
-      tail.splice(1, 0, 'branch', ...branch.split('/'));
-    }
-    return `/${[owner, repo, ...tail].map(enc).join('/')}`;
+    return classicCodePath(owner, repo, legacyCodeSplat(tail.join('/')).split('/').filter(Boolean), ctx);
   }
   if (a === 'projects') {
     const id = Number(rest[0]);
@@ -219,6 +217,21 @@ export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
   if (a === 'boards') return ctx.login ? `/${enc(ctx.login)}/-/projects` : '/';
   // /-/next/{owner}[/{repo}] (redirects to the canonical page).
   return `/${[a, ...rest].map(enc).join('/')}`;
+}
+
+/**
+ * The classic page of a code page (`tail`: the segments after the repository). The app's `src`, `commits` and `blame`
+ * without a ref mean the default branch; classic has no such page (`/{owner}/{repo}/src` is a 404): name the branch,
+ * or the repository's home when it is not known.
+ */
+function classicCodePath(owner: string, repo: string, tail: string[], ctx: ClassicContext): string {
+  const [view, kind] = tail;
+  if ((view === 'src' || view === 'commits' || view === 'blame') && kind !== 'branch' && kind !== 'tag' && kind !== 'commit') {
+    const branch = ctx.defaultBranch?.(owner, repo);
+    if (!branch) return `/${enc(owner)}/${enc(repo)}`;
+    tail = [view, 'branch', ...branch.split('/'), ...tail.slice(1)];
+  }
+  return `/${[owner, repo, ...tail].map(enc).join('/')}`;
 }
 
 /**
@@ -285,6 +298,7 @@ export function repoOfPath(path: string): string | undefined {
   }
   const [a = '', b = '', c] = segs;
   if (segs.length < 2 || !isOwnerName(a) || !NAME.test(b)) return undefined;
-  if (c !== undefined && c !== 'issues' && c !== 'pulls' && c !== 'activity' && c !== 'wiki' && c !== 'settings' && !ISSUE_SECTIONS.has(c)) return undefined;
+  if (c !== undefined && c !== 'issues' && c !== 'pulls' && c !== 'activity' && c !== 'wiki' && c !== 'settings' && !ISSUE_SECTIONS.has(c) &&
+    !parseCodePath(segs.slice(2).join('/'))) return undefined;
   return `${a}/${b}`.toLowerCase();
 }

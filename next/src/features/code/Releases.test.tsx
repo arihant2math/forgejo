@@ -98,9 +98,9 @@ test('the releases list marks the latest release (not the newer pre-release) and
   expect(within(nine).queryByText('Latest')).toBeNull();
   // "N commits to main since this release": the tag compared with its branch.
   const since = await within(one).findByRole('link', {name: /11 commits to main since this release/});
-  expect(since.getAttribute('href')).toBe('/-/next/code/alice/website/compare/v1.0...main/-');
+  expect(since.getAttribute('href')).toBe('/alice/website/compare/v1.0...main');
   const rcSince = await within(rc).findByRole('link', {name: /1 commit to main since this release/});
-  expect(rcSince.getAttribute('href')).toBe('/-/next/code/alice/website/compare/v1.1-rc.1...main/-');
+  expect(rcSince.getAttribute('href')).toBe('/alice/website/compare/v1.1-rc.1...main');
 });
 
 test('every tag row compares the tag with the default branch', async () => {
@@ -112,7 +112,7 @@ test('every tag row compares the tag with the default branch', async () => {
   const app = createApp(config, s);
   await open(app, '/alice/website/tags');
   const link = await screen.findByRole('link', {name: 'Compare v1.1-rc.1 with main'});
-  expect(link.getAttribute('href')).toBe('/-/next/code/alice/website/compare/v1.1-rc.1...main/-');
+  expect(link.getAttribute('href')).toBe('/alice/website/compare/v1.1-rc.1...main');
   expect(screen.getByRole('link', {name: 'Compare v0.9 with main'})).toBeTruthy();
 });
 
@@ -186,7 +186,7 @@ test('a tag\'s code view compares the tag with the default branch', async () => 
   const s = session(false);
   stubForgejo(() => undefined);
   const app = createApp(config, s);
-  await open(app, '/-/next/code/alice/website/src/tag/v1.0/-');
+  await open(app, '/alice/website/src/tag/v1.0');
   const link = await screen.findByRole('link', {name: 'Compare'});
-  expect(link.getAttribute('href')).toBe('/-/next/code/alice/website/compare/v1.0...main/-');
+  expect(link.getAttribute('href')).toBe('/alice/website/compare/v1.0...main');
 });

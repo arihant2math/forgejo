@@ -20,9 +20,10 @@ function serverRoutes(): string[] {
   const start = spa.indexOf('var spaRoutes = [][]string{');
   const end = spa.indexOf('\n}', start);
   expect(start).toBeGreaterThan(0);
-  // `{temp}` (an issue created offline, "new-<uuid>") is the issue route's `$index` too (IssueView reads both).
+  // `{temp}` (an issue created offline, "new-<uuid>") is the issue route's `$index` too (IssueView reads both);
+  // `{code}` (a code address: the rest of the path) is the code route's `$view/$`.
   return [...new Set([...spa.slice(start, end).matchAll(/^\s*\{(.*)\},/gm)].map((m) =>
-    `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => `$${p === 'temp' || p === 'issue' ? 'index' : p}`)).join('/')}`))];
+    `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => (p === 'code' ? '$view/$' : `$${p === 'temp' || p === 'issue' ? 'index' : p}`))).join('/')}`))];
 }
 
 function router() {
@@ -36,8 +37,8 @@ function canonicalRoutes(): string[] {
 }
 
 test('every server spaRoute is a route of the app', () => {
-  // `{code}` (a repository's code address) is the shell's catch-all, which redirects to the code view (below).
-  const routes = serverRoutes().filter((r) => !r.endsWith('/$code'));
+  const routes = serverRoutes();
+  expect(routes).toContain('/$owner/$repo/$view/$');
   expect(routes).toContain('/');
   expect(routes).toContain('/$owner/$repo/issues/$index');
   const mine = new Set(canonicalRoutes());
@@ -109,7 +110,7 @@ test('the server preloads the views the router loads (spa_preload.go routeModule
 
 test('a repository page\'s skeleton has its header\'s rows (RepoHeader): breadcrumb, tabs, title row', () => {
   const routes = Object.values(router().routesById).filter((r) => r.options.staticData?.skeleton !== undefined);
-  const repoPages = routes.filter((r) => r.fullPath.startsWith('/$owner/$repo') || r.fullPath.startsWith('/-/next/code/'));
+  const repoPages = routes.filter((r) => r.fullPath.startsWith('/$owner/$repo'));
   expect(repoPages.length).toBeGreaterThan(6);
   for (const r of repoPages) {
     const header = r.options.staticData?.header;
@@ -130,7 +131,21 @@ test('the settings pages are their own routes, never an owner\'s repository (`us
   expect(leaf('/user/settings/account')).toBe('/shell/user/settings/account');
   expect(leaf('/user/settings/appearance')).toBe('/shell/user/settings/appearance');
   expect(leaf('/user/settings/keys')).toBe('/shell/user/settings/keys');
-  // A classic settings page is no repository page of an owner "user" (the shell's not-found, with the classic page).
-  expect(leaf('/user/settings/applications')).toBe('/shell/$');
+  // A classic settings page is no repository page of an owner "user": the code route (Forgejo's deeper repository
+  // addresses) answers it with the shell's not-found and the classic page, without asking for a repository.
+  expect(leaf('/user/settings/applications')).toBe('/shell/$owner/$repo/$view/$');
   expect(leaf('/acme/settings')).toBe('/shell/$owner/$repo');
+});
+
+test('code pages are at Forgejo\'s addresses; the former ones below the base have a route that goes on to them', () => {
+  const r = router();
+  const leaf = (path: string) => r.matchRoutes(path, {}).at(-1)?.routeId;
+  for (const path of ['/acme/atlas/src/branch/main/README.md', '/acme/atlas/src', '/acme/atlas/commits/branch/main', '/acme/atlas/branches',
+    '/acme/atlas/compare/main...fix', '/acme/atlas/actions/runs/3/jobs/0', '/acme/atlas/src/branch/main/issues/-']) {
+    expect(leaf(path), path).toBe('/shell/$owner/$repo/$view/$');
+  }
+  // The repository's own pages keep their routes (a file named like one is below src/…).
+  expect(leaf('/acme/atlas/issues')).toBe('/shell/$owner/$repo/issues');
+  expect(leaf('/acme/atlas/wiki/Home')).toBe('/shell/$owner/$repo/wiki/$page');
+  expect(leaf('/-/next/code/acme/atlas/src/branch/main/README.md/-')).toBe('/shell/-/next/code/$owner/$repo/$');
 });

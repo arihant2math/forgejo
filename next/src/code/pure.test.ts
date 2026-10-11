@@ -7,7 +7,7 @@ import {parseAnsi} from './ansi.ts';
 import {keyRepo, MemoryLru, toEvict} from './cache.ts';
 import {langOf} from './lang.ts';
 import {applyLog, emptyLog, stepOf} from './logs.ts';
-import {codeSplat, isSha, parseCodePath, resolveName, resolveRef, type RefTable, withEnd} from './refs.ts';
+import {codeParams, codeRestOf, codeSplat, isSha, legacyCodeSplat, parseCodePath, resolveName, resolveRef, type RefTable} from './refs.ts';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -124,7 +124,7 @@ describe('refs', () => {
     expect(parseCodePath('compare/main...feature/x')).toEqual({view: 'compare', base: 'main', head: 'feature/x'});
     // Forgejo's compare addresses: no spec (both sides the default branch), a head alone, a fork's branch.
     expect(parseCodePath('compare')).toEqual({view: 'compare', base: '', head: ''});
-    expect(parseCodePath('compare/-')).toEqual({view: 'compare', base: '', head: ''});
+    expect(parseCodePath(legacyCodeSplat('compare/-'))).toEqual({view: 'compare', base: '', head: ''});
     expect(parseCodePath('compare/feature/x')).toEqual({view: 'compare', base: '', head: 'feature/x'});
     expect(parseCodePath('compare/main...alice:feature')).toEqual({view: 'compare', base: 'main', head: 'alice:feature'});
     // Two dots (a direct comparison), a download, an empty side: classic pages.
@@ -136,14 +136,19 @@ describe('refs', () => {
     expect(parseCodePath('branches/x')).toBeUndefined();
     // A writer's release form: a new release, a tag's (slashes and all), never a release's own page.
     expect(parseCodePath('releases/new')).toEqual({view: 'release-form', tag: undefined});
-    expect(parseCodePath(withEnd('releases/edit/v1.2'))).toEqual({view: 'release-form', tag: 'v1.2'});
+    expect(parseCodePath('releases/edit/v1.2')).toEqual({view: 'release-form', tag: 'v1.2'});
     expect(parseCodePath('releases/edit/release/1.0')).toEqual({view: 'release-form', tag: 'release/1.0'});
     for (const p of ['releases/edit', 'releases/new/x', 'releases/tag/v1', 'releases/latest']) expect(parseCodePath(p), p).toBeUndefined();
     expect(parseCodePath('nope')).toBeUndefined();
-    // The END segment: dropped once (a path whose last name is "-" keeps it).
-    expect(parseCodePath(withEnd('src/branch/main/a.txt'))).toEqual({view: 'src', kind: 'branch', rest: ['main', 'a.txt']});
-    expect(parseCodePath(withEnd('src/branch/main/-'))).toEqual({view: 'src', kind: 'branch', rest: ['main', '-']});
-    expect(withEnd('src/')).toBe('src/-');
+    // A path is read as it is (a file named "-" too); a former address's END segment is dropped once.
+    expect(parseCodePath('src/branch/main/-')).toEqual({view: 'src', kind: 'branch', rest: ['main', '-']});
+    expect(legacyCodeSplat('src/branch/main/a.txt/-')).toBe('src/branch/main/a.txt');
+    expect(legacyCodeSplat('src/branch/main/-/-')).toBe('src/branch/main/-');
+    expect(legacyCodeSplat('src/-')).toBe('src');
+    // The code route's params: the first segment, then the rest.
+    expect(codeParams('src/branch/main/a.txt')).toEqual({view: 'src', _splat: 'branch/main/a.txt'});
+    expect(codeParams('branches')).toEqual({view: 'branches', _splat: ''});
+    expect(codeRestOf(codeParams('/compare/main...feature/x/'))).toBe('compare/main...feature/x');
   });
 
   test('the longest branch name wins; the default branch; full SHAs only', () => {

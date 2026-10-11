@@ -14,7 +14,7 @@ export function goToCode(app: App, navigate: ReturnType<typeof useNavigate>): vo
   const r = id ? app.session?.data.pool.model('Repository').get(id)?.data : undefined;
   if (r) {
     dismissSeries(app, SERIES);
-    void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: r.owner_name, repo: r.name, _splat: 'src/-'}});
+    void navigate({to: '/$owner/$repo/$view/$', params: {owner: r.owner_name, repo: r.name, view: 'src', _splat: ''}});
   } else {
     notify(app, {tone: 'neutral', title: GO_CODE_WHY, description: 'G C opens the code of the repository on screen, or of the last one you opened.', series: SERIES});
   }

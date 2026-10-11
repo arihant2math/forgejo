@@ -91,7 +91,7 @@ test('the commit page: references are links, and the tags and branches that cont
     return undefined;
   });
   const app = createApp(config, s);
-  await open(app, `/-/next/code/acme/atlas/commit/${FIX}/-`);
+  await open(app, `/acme/atlas/commit/${FIX}`);
   const ref = await screen.findByRole('link', {name: '#107'});
   expect(ref.closest('h1')).not.toBeNull();
   expect(ref.getAttribute('href')).toBe('/acme/atlas/issues/107');
@@ -100,8 +100,8 @@ test('the commit page: references are links, and the tags and branches that cont
   expect(screen.getByRole('link', {name: '#25'}).getAttribute('href')).toBe('/acme/atlas/issues/25');
   const contained = await screen.findByLabelText('Contained in');
   expect(contained.textContent).toMatch(/In 1 tag:\s*v1\.0\.0/);
-  expect(within(contained).getByRole('link', {name: 'v1.0.0'}).getAttribute('href')).toBe('/-/next/code/acme/atlas/src/tag/v1.0.0/-');
-  expect(within(contained).getByRole('link', {name: 'main'}).getAttribute('href')).toBe('/-/next/code/acme/atlas/src/branch/main/-');
+  expect(within(contained).getByRole('link', {name: 'v1.0.0'}).getAttribute('href')).toBe('/acme/atlas/src/tag/v1.0.0');
+  expect(within(contained).getByRole('link', {name: 'main'}).getAttribute('href')).toBe('/acme/atlas/src/branch/main');
 });
 
 test('a comparison\'s commit rows link their references', async () => {
@@ -114,7 +114,7 @@ test('a comparison\'s commit rows link their references', async () => {
     return undefined;
   });
   const app = createApp(config, s);
-  await open(app, '/-/next/code/acme/atlas/compare/v1.0.0-rc.1...v1.0.0/-');
+  await open(app, '/acme/atlas/compare/v1.0.0-rc.1...v1.0.0');
   const rows = await screen.findByRole('listbox', {name: 'Commits'});
   const ref = await within(rows).findByRole('link', {name: '#107'});
   expect(ref.getAttribute('href')).toBe('/acme/atlas/issues/107');

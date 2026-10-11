@@ -202,7 +202,7 @@ test('a new release from its canonical address: a new tag from main, published',
   });
   const app = createApp(config, s);
   const router = await open(app, '/alice/website/releases/new');
-  expect(router.state.location.pathname).toBe('/-/next/code/alice/website/releases/new/-');
+  expect(router.state.location.pathname).toBe('/alice/website/releases/new');
   const tagField = await screen.findByRole('textbox', {name: 'Tag name'});
   fireEvent.change(tagField, {target: {value: 'v1.0'}});
   expect(screen.getByText(/The existing tag/)).toBeTruthy();
@@ -213,7 +213,7 @@ test('a new release from its canonical address: a new tag from main, published',
     fireEvent.click(screen.getByRole('button', {name: 'Publish release'}));
   });
   await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/-/next/code/alice/website/releases/-');
+    expect(router.state.location.pathname).toBe('/alice/website/releases');
   });
   expect(sent).toEqual([{method: 'POST', url: '/api/v1/repos/alice/website/releases', body: {
     tag_name: 'v3.0', target_commitish: 'main', name: 'v3.0', body: '', draft: false, prerelease: true,

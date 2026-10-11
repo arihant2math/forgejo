@@ -16,6 +16,7 @@ import type {APITreeEntry} from '../../protocol/types.gen.ts';
 import {Icon, Panel, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {Ago, Sha, summary} from './bits.tsx';
+import {codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 
 const ENTRY_ICON = {tree: Folder, blob: File, symlink: FileSymlink, commit: FolderGit2} as const;
@@ -63,9 +64,9 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
       </>}
       {message !== undefined ? <>
-        <span className="min-w-0 truncate"><TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${commit}/-`}}>{summary(message)}</Link></TextLink></span>
+        <span className="min-w-0 truncate"><TextLink><Link {...codeTo(owner, repo, `commit/${commit}`)}>{summary(message)}</Link></TextLink></span>
         {date !== undefined && <span className="shrink-0 tabular-nums"><Ago at={date}/></span>}
-      </> : kind !== 'commit' && <TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${commit}/-`}}><Sha sha={commit}/></Link></TextLink>}
+      </> : kind !== 'commit' && <TextLink><Link {...codeTo(owner, repo, `commit/${commit}`)}><Sha sha={commit}/></Link></TextLink>}
     </>
   );
 });

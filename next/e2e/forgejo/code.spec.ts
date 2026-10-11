@@ -86,7 +86,7 @@ test('copy a selected range permalink and pin source and blame with Y', async ({
   expect(copied).toMatch(/\/src\/commit\/[a-f0-9]{40}\/src\/main\.go#L12-L20$/);
   const sha = /\/commit\/([a-f0-9]{40})\//.exec(copied ?? '')?.[1];
   await page.keyboard.press('y');
-  await expect(page).toHaveURL(new RegExp(`/src/commit/${sha}/src/main.go/-#L12-L20$`));
+  await expect(page).toHaveURL(new RegExp(`/src/commit/${sha}/src/main.go#L12-L20$`));
   await page.goto(copied ?? '');
   await expect(page).toHaveURL(copied ?? '');
   // Read the canonical link's commit in Next too (canonical URLs may serve classic).
@@ -96,7 +96,7 @@ test('copy a selected range permalink and pin source and blame with Y', async ({
   await page.goto(`${code('blame/branch/main/src/main.go')}#L12-L20`);
   await expect(page.getByRole('button', {name: 'Line actions'})).toBeVisible();
   await page.keyboard.press('y');
-  await expect(page).toHaveURL(new RegExp(`/blame/commit/${sha}/src/main.go/-#L12-L20$`));
+  await expect(page).toHaveURL(new RegExp(`/blame/commit/${sha}/src/main.go#L12-L20$`));
 });
 
 const blobSha = (path: string, ref?: string) => blobShaIn(REPO, path, ref);
@@ -152,7 +152,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await expect(tabs.getByRole('link', {name: 'Code'})).toHaveAttribute('aria-current', 'page');
   await page.getByRole('button', {name: 'Ref: main'}).click();
   await page.getByRole('option', {name: /^small/}).click();
-  await expect(page).toHaveURL(/\/src\/branch\/small\/-$/);
+  await expect(page).toHaveURL(/\/src\/branch\/small$/);
   await expect(tabs.getByRole('link', {name: 'Code'})).toHaveAttribute('aria-current', 'page');
   await page.goBack();
   await page.getByRole('link', {name: /^\d+ branches$/}).click();

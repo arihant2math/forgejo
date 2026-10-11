@@ -23,7 +23,8 @@ import {
   createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type RouterHistory, stringifySearchWith,
 } from '@tanstack/react-router';
 import {isLocalPath, sitePath} from './config.ts';
-import {appPageOf, nextPathOf, wikiAddress} from './paths.ts';
+import {abbreviatedCommit, codeRestOf, legacyCodeSplat, parseCodePath} from '../code/refs.ts';
+import {appPageOf, codePath, nextPathOf, wikiAddress} from './paths.ts';
 import {discoverySearch} from '../features/search/params.ts';
 import {lazyView, whenIdle} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
@@ -492,14 +493,43 @@ const boardRoute = createRoute({
   component: lazyView(() => import('../features/board/BoardView.tsx'), 'BoardPage'),
 });
 
-// Code (F7): one route for every code view of a repository; the path after it mirrors Forgejo's
-// (`src/branch/main/…`, `commit/<sha>`, `compare/a...b`, …), parsed by the view (code/refs.ts).
+// Code (F7): one route for every code view of a repository, at Forgejo's own addresses (spa.go codeAddress: a
+// reload is served the app); the path after the repository (`src/branch/main/…`, `commit/<sha>`, `compare/a...b`,
+// …) is parsed by the view (code/refs.ts). It also catches the repository's other deeper addresses (static routes
+// above outrank it): the app's page for one (a pull request's tab, a board) is gone on to, the rest is not found.
 const codeRoute = createRoute({
   getParentRoute: () => shellRoute,
-  path: '/-/next/code/$owner/$repo/$',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  // `$view`: the address's first segment after the repository (`src`, `commit`, …), so that the route never
+  // matches the repository's home (a splat may be empty, and a splat route would outrank `/$owner/$repo`).
+  path: '/$owner/$repo/$view/$',
+  beforeLoad: ({context: {app}, params, location}) => {
+    const rest = codeRestOf(params);
+    if (isCodeRest(rest)) return;
+    toAppPage(app, `/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}/${rest}`, location);
+  },
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> | RepoMatch =>
+    (isCodeRest(codeRestOf(params)) ? repoLoader(app, params, location) : {repoId: undefined}),
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
+});
+
+/** Whether what follows a repository in an address is a code page (or a commit by an abbreviated SHA: the view resolves it). */
+function isCodeRest(rest: string): boolean {
+  return rest !== '' && (parseCodePath(rest) !== undefined || abbreviatedCommit(rest) !== undefined);
+}
+
+/**
+ * A code view's former address below the base (`/-/next/code/{owner}/{repo}/src/branch/main/README.md/-`, links
+ * and bookmarks from before code pages had Forgejo's addresses): the code page, with the query and the fragment.
+ */
+const legacyCodeRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/-/next/code/$owner/$repo/$',
+  beforeLoad: ({context: {app}, params, location}) => {
+    const to = codePath(params.owner, params.repo, legacyCodeSplat(params._splat ?? ''));
+    throw redirect({href: sitePath(app.config, `${to}${location.searchStr}${hashOf(location)}`), replace: true});
+  },
+  component: ShellNotFound,
 });
 
 // An owner (user or organization): its repositories here, its profile in the classic UI (`/{owner}?tab=…` and
@@ -545,28 +575,30 @@ const nextRepoRoute = createRoute({
 });
 
 /**
- * Any other address inside the shell: the not-found page, with the shell around it (and the classic page) — except
- * a repository's code address (`/{owner}/{repo}/src/branch/main/README.md`, `commits/…`, `compare/a...b`,
- * `pulls/9/files`; spaRoutes `{code}`), which is the app's page for it: a code view below the base, a pull
- * request's tab. A pasted link stays in the app. (A catch-all, not a `/$owner/$repo/$` route: that one would also
- * match a repository's home with an empty rest.)
+ * Any other address inside the shell: the not-found page, with the shell around it (and the classic page) — or the
+ * app's page for an address it has elsewhere (toAppPage).
  */
 const notFoundRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '$',
   beforeLoad: ({context: {app}, params, location}) => {
-    const path = `/${(params._splat ?? '').replace(/^\/+|\/+$/g, '')}`;
-    const segs = path.split('/').filter(Boolean);
-    const to = segs.length > 2 ? nextPathOf(path) : undefined;
-    // The query goes along (a comparison's `?expand=1` opens its pull request form), unless the page's address has
-    // its own (a pull request's tab).
-    const w = new URLSearchParams(location.searchStr).get('w');
-    const query = to?.includes('?') ? (w === '1' || w === '0' ? `&w=${w}` : '') : location.searchStr;
-    // The fragment goes along too: a search hit's or a pasted permalink's `#L14` names the line to show.
-    if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}${hashOf(location)}`), replace: true});
+    toAppPage(app, `/${params._splat ?? ''}`, location);
   },
   component: ShellNotFound,
 });
+
+/** An address of a repository's page the app has at another address (`pulls/9/files` → the tab): gone on to. */
+function toAppPage(app: App, raw: string, location: {searchStr: string; hash: string}): void {
+  const path = `/${raw.replace(/^\/+|\/+$/g, '')}`;
+  const segs = path.split('/').filter(Boolean);
+  const to = segs.length > 2 ? nextPathOf(path) : undefined;
+  // The query goes along (a comparison's `?expand=1` opens its pull request form), unless the page's address has
+  // its own (a pull request's tab).
+  const w = new URLSearchParams(location.searchStr).get('w');
+  const query = to?.includes('?') ? (w === '1' || w === '0' ? `&w=${w}` : '') : location.searchStr;
+  // The fragment goes along too: a search hit's or a pasted permalink's `#L14` names the line to show.
+  if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}${hashOf(location)}`), replace: true});
+}
 
 /** A location's fragment as written in an address ("#L12"; "" for none). */
 function hashOf(location: {hash: string}): string {
@@ -586,7 +618,7 @@ const routeTree = rootRoute.addChildren([
   callbackRoute,
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute, newRepoRoute, newOrgRoute,
-    repoHomeRoute, repoIssuesRoute, newIssueRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, ...settingsRoutes, boardsRoute, boardRoute, codeRoute,
+    repoHomeRoute, repoIssuesRoute, newIssueRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, ...settingsRoutes, boardsRoute, boardRoute, codeRoute, legacyCodeRoute,
     repoActivityRoute, repoActivityPeriodRoute, repoContributorsRoute, repoCodeFrequencyRoute, repoRecentCommitsRoute,
     wikiHomeRoute, wikiPageRoute, wikiPagesRoute, wikiNewRoute, wikiEditRoute,
     settingsProfileRoute, settingsAccountRoute, settingsAppearanceRoute, settingsKeysRoute,

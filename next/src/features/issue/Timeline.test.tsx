@@ -11,7 +11,7 @@ import {StatusEvent} from './Timeline.tsx';
 const state = vi.hoisted(() => ({pool: undefined as Pool | undefined}));
 vi.mock('../issues/cells.tsx', async (original) => ({...await original<object>(), usePool: () => state.pool}));
 vi.mock('../code/nav.tsx', () => ({CodeLink: ({owner, repo, to, children}: {owner: string; repo: string; to: string; children: ReactNode}) =>
-  <a href={`/-/next/code/${owner}/${repo}/${to}/-`}>{children}</a>}));
+  <a href={`/${owner}/${repo}/${to}`}>{children}</a>}));
 vi.mock('./Sidebar.tsx', async (original) => ({...await original<object>(), IssueLink: ({id}: {id: number}) => <a href={`pulls/${String(id)}`}>#{id}</a>}));
 
 const date = '2026-01-01T00:00:00Z';
@@ -33,11 +33,11 @@ test('commit status changes link the SHA and subject as text', () => {
   state.pool?.put('Comment', 19, 'issue:1', 1, event({id: 19, type: 'commit_ref', commit_id: sha, body_html: '<a>Fix &lt;bug&gt;</a>'}));
   const html = renderToStaticMarkup(<StatusEvent d={event({commit_id: sha})}/>);
   expect(html).toContain('closed this in ');
-  expect(html).toContain(`/commit/${sha}/-`);
+  expect(html).toContain(`/commit/${sha}"`);
   expect(html).toContain('abcdef1');
   expect(html).toContain('Fix &lt;bug&gt;');
   expect(renderToStaticMarkup(<StatusEvent d={event({type: 'reopen', commit_id: sha})}/>)).toContain('reopened this in ');
-  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toContain(`/commit/${sha}/-`);
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toContain(`/commit/${sha}"`);
 });
 
 test('known closing pulls link alongside their merge commit, in the source repository', () => {
@@ -45,7 +45,7 @@ test('known closing pulls link alongside their merge commit, in the source repos
   state.pool?.put('Repository', 2, 'repo:2', 1, {id: 2, owner_name: 'dev', name: 'source'} as Repository);
   state.pool?.put('PullRequest', 3, 'repo:2', 1, {id: 3, issue_id: 42, base_repo_id: 2, merge_commit_sha: sha} as PullRequest);
   const html = renderToStaticMarkup(<StatusEvent d={event({commit_id: sha, ref_repo_id: 2})}/>);
-  expect(html).toContain(`/dev/source/commit/${sha}/-`);
+  expect(html).toContain(`/dev/source/commit/${sha}"`);
   expect(html).toContain('href="pulls/42"');
   expect(html).toContain('#42');
 });

@@ -90,12 +90,12 @@ test('a fork\'s own comparison says the pull request stays in the fork, and offe
   const s = session();
   stubForgejo(forkCompare);
   const app = createApp(config, s);
-  const router = await open(app, '/-/next/code/alice/atlas/compare/main...fix/typo/-?expand=1');
+  const router = await open(app, '/alice/atlas/compare/main...fix/typo?expand=1');
   const note = await screen.findByRole('note');
   expect(note.textContent).toMatch(/A pull request opened here stays in alice\/atlas/);
   expect(note.textContent).toMatch(/fork of acme\/atlas/);
   const up = within(note).getByRole('link', {name: /Compare with acme\/atlas:main/});
-  expect(up.getAttribute('href')).toBe('/-/next/code/acme/atlas/compare/main...alice%3Afix/typo/-?expand=1');
+  expect(up.getAttribute('href')).toBe('/acme/atlas/compare/main...alice%3Afix/typo?expand=1');
   // The form names where it opens.
   const form = await screen.findByRole('region', {name: 'Open a pull request'});
   expect(form.textContent).toMatch(/Opens in alice\/atlas: merges fix\/typo into main\./);
@@ -109,7 +109,7 @@ test('a fork\'s own comparison says the pull request stays in the fork, and offe
     if (upstream) fireEvent.click(upstream);
   });
   await waitFor(() => {
-    expect(decodeURIComponent(router.state.location.pathname)).toBe('/-/next/code/acme/atlas/compare/main...alice:fix/typo/-');
+    expect(decodeURIComponent(router.state.location.pathname)).toBe('/acme/atlas/compare/main...alice:fix/typo');
   });
 });
 
@@ -120,9 +120,9 @@ test('the upstream is found through API v1 when it is not on the device', async 
     return forkCompare(method, url);
   });
   const app = createApp(config, s);
-  await open(app, '/-/next/code/alice/atlas/compare/main...fix/typo/-');
+  await open(app, '/alice/atlas/compare/main...fix/typo');
   const link = await screen.findByRole('link', {name: /Compare with acme\/atlas:trunk/});
-  expect(link.getAttribute('href')).toBe('/-/next/code/acme/atlas/compare/trunk...alice%3Afix/typo/-');
+  expect(link.getAttribute('href')).toBe('/acme/atlas/compare/trunk...alice%3Afix/typo');
 });
 
 test('a fork\'s branches propose to the upstream', async () => {
@@ -134,11 +134,11 @@ test('a fork\'s branches propose to the upstream', async () => {
   await open(app, '/alice/atlas/branches');
   const links = await screen.findAllByRole('link', {name: /New pull request/});
   expect(links.map((l) => l.getAttribute('href')).sort()).toEqual([
-    '/-/next/code/acme/atlas/compare/main...alice%3Afix/typo/-?expand=1',
-    '/-/next/code/acme/atlas/compare/main...alice%3Amain/-?expand=1',
+    '/acme/atlas/compare/main...alice%3Afix/typo?expand=1',
+    '/acme/atlas/compare/main...alice%3Amain?expand=1',
   ]);
   // The fork's own comparison is still there.
-  expect(screen.getByRole('link', {name: 'Compare'}).getAttribute('href')).toBe('/-/next/code/alice/atlas/compare/main...fix/typo/-');
+  expect(screen.getByRole('link', {name: 'Compare'}).getAttribute('href')).toBe('/alice/atlas/compare/main...fix/typo');
 });
 
 test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and the head picker takes owner:branch', async () => {
@@ -151,10 +151,10 @@ test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and
     return undefined;
   });
   const app = createApp(config, s);
-  const router = await open(app, '/-/next/code/acme/atlas/compare/-');
+  const router = await open(app, '/acme/atlas/compare');
   const mine = await screen.findByRole('region', {name: 'Your forks'});
   const link = within(mine).getByRole('link', {name: 'alice:fix/typo'});
-  expect(link.getAttribute('href')).toBe('/-/next/code/acme/atlas/compare/main...alice%3Afix/typo/-?expand=1');
+  expect(link.getAttribute('href')).toBe('/acme/atlas/compare/main...alice%3Afix/typo?expand=1');
   expect(within(mine).queryByText(/bobs-change/)).toBeNull();
   // The head picker: every fork's branches, found by owner:branch; a typed one that is not listed, too.
   fireEvent.click(screen.getByRole('button', {name: 'Choose the head branch'}));
@@ -166,7 +166,7 @@ test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and
     fireEvent.click(screen.getByRole('option', {name: /carol:feature\/x/}));
   });
   await waitFor(() => {
-    expect(decodeURIComponent(router.state.location.pathname)).toBe('/-/next/code/acme/atlas/compare/main...carol:feature/x/-');
+    expect(decodeURIComponent(router.state.location.pathname)).toBe('/acme/atlas/compare/main...carol:feature/x');
   });
 });
 

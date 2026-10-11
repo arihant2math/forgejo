@@ -95,7 +95,7 @@ describe('the repository home\'s side pane', () => {
     const links = within(about).getByRole('list', {name: 'Repository'});
     expect(within(links).getAllByRole('link').map((a) => a.textContent)).toEqual(['Readme', 'View license', 'Activity', '12stars', '3watching', '1fork']);
     expect(within(links).getByRole('link', {name: 'Readme'}).getAttribute('href')).toBe('#readme');
-    expect(within(links).getByRole('link', {name: 'View license'}).getAttribute('href')).toBe('/-/next/code/acme/website/src/branch/main/LICENSE/-');
+    expect(within(links).getByRole('link', {name: 'View license'}).getAttribute('href')).toBe('/acme/website/src/branch/main/LICENSE');
     // Activity is the app's page; the people counts are classic.
     const activity = within(links).getByRole('link', {name: 'Activity'});
     expect(activity.getAttribute('href')).toBe('/acme/website/activity');
@@ -118,13 +118,13 @@ describe('the repository home\'s side pane', () => {
     const {pane} = await renderHome(session());
     const rel = within(pane).getByRole('region', {name: 'Releases'});
     expect(within(rel).getByRole('heading').textContent).toBe('Releases3');
-    expect(within(rel).getByRole('link', {name: 'Releases'}).getAttribute('href')).toBe('/-/next/code/acme/website/releases/-');
+    expect(within(rel).getByRole('link', {name: 'Releases'}).getAttribute('href')).toBe('/acme/website/releases');
     const latest = within(rel).getByRole('link', {name: /Second/});
     expect(latest.textContent).toContain('Latest');
-    expect(latest.getAttribute('href')).toBe('/-/next/code/acme/website/releases/-');
-    expect(within(rel).getByRole('link', {name: '+ 2 releases'}).getAttribute('href')).toBe('/-/next/code/acme/website/releases/-');
+    expect(latest.getAttribute('href')).toBe('/acme/website/releases');
+    expect(within(rel).getByRole('link', {name: '+ 2 releases'}).getAttribute('href')).toBe('/acme/website/releases');
     // Tags: the three releases and the bare tag.
-    expect(within(rel).getByRole('link', {name: '4tags'}).getAttribute('href')).toBe('/-/next/code/acme/website/tags/-');
+    expect(within(rel).getByRole('link', {name: '4tags'}).getAttribute('href')).toBe('/acme/website/tags');
   });
 
   test('Languages: the bar and its legend from the code cache, largest first', async () => {

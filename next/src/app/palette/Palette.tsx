@@ -22,6 +22,7 @@ import {notify, undoLatest} from '../notices.ts';
 import {httpsCloneUrl} from '../../code/clone.ts';
 import {parseCodePath, resolveRef} from '../../code/refs.ts';
 import {refTable} from '../../features/code/hooks.ts';
+import {codeTo} from '../../features/code/nav.tsx';
 import {repoAccess} from '../access.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
@@ -284,7 +285,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     const keys = KEYMAP[id].keys.replaceAll('+', ' ');
     return words.length && keys === words.join(' ') ? 3 * COMMAND_RANK : matchName(keys);
   };
-  const splat = /\/-\/next\/code\/[^/]+\/[^/]+\/(.*)$/.exec(pathname)?.[1];
+  const splat = /^\/[^/]+\/[^/]+\/(.+)$/.exec(pathname)?.[1];
   const codeRoute = splat === undefined ? undefined : parseCodePath(splat.split('/').map(decodeURIComponent).join('/'));
   const atCodeRoot = untracked(() => {
     const pool = app.session?.data.pool;
@@ -316,7 +317,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
         const section = label === 'Pull requests' ? 'pulls' : label.toLowerCase();
         if (['commits', 'branches', 'releases', 'actions'].includes(section)) {
           const path = section === 'commits' ? `commits/branch/${repo.default_branch}` : section;
-          void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: repo.owner_name, repo: repo.name, _splat: `${path}/-`}});
+          void navigate(codeTo(repo.owner_name, repo.name, path));
         } else if (section === 'projects') location.assign(classicHref(app, `${base}/projects`));
         else void navigate({to: `${base}/${section}`});
       },
@@ -380,7 +381,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     }
     add('Files', best(files.map((f) => f.score / 2)) + 1, files.map((f) => ({
       value: `file:${f.owner}/${f.repo}/${f.path}`, icon: FileCode, meta: `${f.owner}/${f.repo}`, label: f.path,
-      run: () => void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: f.owner, repo: f.repo, _splat: `src/branch/${f.ref}/${f.path}/-`}}),
+      run: () => void navigate(codeTo(f.owner, f.repo, `src/branch/${f.ref}/${f.path}`)),
     })));
     // Issues created on this device that Forgejo has not numbered yet (offline): found by title, marked pending.
     const pending = untracked(() => (editing(app).overlay.created('Issue') as Entity<'Issue'>[])

@@ -65,12 +65,16 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
       batches.delete(comment.issue_id); setOpen(false);
     } catch (e) { setError(failureText(e)); } finally { setBusy(false); }
   };
-  return <div className="flex flex-col gap-2">
-    {originalLines(comment, suggestion.start, suggestion.end).map((line, i) => <CodeLine key={`old${i}`} tone="del" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
-    {suggestion.text.split('\n').map((line, i) => <CodeLine key={i} tone="add" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
+  // Named as what it is (classic's and GitHub's "Suggested change"): the lines it replaces and their replacement.
+  return <section aria-label="Suggested change" className="flex flex-col gap-2">
+    <span className="text-sm font-medium text-fg-muted">Suggested change</span>
+    <div>
+      {original.map((line, i) => <CodeLine key={`old${i}`} tone="del" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
+      {suggestion.text.split('\n').map((line, i) => <CodeLine key={i} tone="add" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
+    </div>
     <div className="flex gap-2"><Button size="sm" disabled={!!why} tooltip={why} onClick={() => {setOpen(true);}}>{batch.length ? `Commit ${batch.length} suggestions` : 'Commit suggestion'}</Button>
       <Button size="sm" disabled={!!why} tooltip={why} onClick={() => batches.set(comment.issue_id, batch.some((c) => c.id === comment.id) ? batch.filter((c) => c.id !== comment.id) : [...batch, comment])}>{batch.some((c) => c.id === comment.id) ? 'Remove from batch' : 'Add to batch'}</Button></div>
     {why && <span className="text-sm text-fg-subtle">{why}</span>}
     <Dialog open={open} onOpenChange={setOpen} title="Commit suggestions" footer={<Button disabled={busy || !message.trim() || !!why} onClick={() => {void commit();}}>Commit</Button>}><Input aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>{error && <Callout tone="danger" title={error}/>}</Dialog>
-  </div>;
+  </section>;
 });

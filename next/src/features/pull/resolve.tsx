@@ -29,6 +29,53 @@ export function conversationRoot(pool: Pool, c: Comment): Entity<'Comment'> | un
   return root;
 }
 
+/** A comment of a review that is still the viewer's draft on Forgejo (not shown in the conversation). */
+function inPendingReview(pool: Pool, c: Entity<'Comment'>): boolean {
+  const review = c.get('review_id');
+  return review > 0 && pool.model('Review').get(review)?.get('state') === 'PENDING';
+}
+
+/**
+ * The conversation a posted code comment is a reply in: its root, when that is another comment shown in the timeline
+ * (a reply posted from Reply is a one-comment review of its own in Forgejo's data; the timeline shows it in the root's
+ * thread, as the Files tab and classic do). undefined: the comment starts its conversation.
+ */
+export function replyRoot(pool: Pool, c: Entity<'Comment'>): Entity<'Comment'> | undefined {
+  if (c.get('type') !== 'code') return undefined;
+  const root = conversationRoot(pool, c.data);
+  return root && root.id !== c.id && !inPendingReview(pool, root) ? root : undefined;
+}
+
+/** The replies in the conversation `root` starts (posted, not pending), oldest first. */
+export function conversationReplies(pool: Pool, root: Entity<'Comment'>): Entity<'Comment'>[] {
+  const out: Entity<'Comment'>[] = [];
+  for (const o of pool.model('Comment').by('issue_id', root.get('issue_id'))) {
+    if (o.id === root.id || o.id <= 0 || o.get('type') !== root.get('type') || o.get('path') !== root.get('path') || o.get('line') !== root.get('line')) continue;
+    if (inPendingReview(pool, o) || replyRoot(pool, o)?.id !== root.id) continue;
+    out.push(o);
+  }
+  return out.sort((a, b) => a.get('created_at').localeCompare(b.get('created_at')) || a.id - b.id);
+}
+
+/**
+ * A review that only answers conversations started elsewhere (Reply: a one-comment COMMENT review without a body):
+ * not an entry of its own in the timeline — its comments show in their threads.
+ */
+export function replyOnlyReview(pool: Pool, reviewId: number): boolean {
+  const r = pool.model('Review').get(reviewId);
+  if (r?.get('state') !== 'COMMENT' || r.get('body').trim()) return false;
+  let codes = 0;
+  for (const c of pool.model('Comment').by('review_id', reviewId)) {
+    if (c.get('type') === 'review') {
+      if (c.get('body').trim()) return false;
+      continue;
+    }
+    if (c.get('type') !== 'code' || !replyRoot(pool, c)) return false;
+    codes++;
+  }
+  return codes > 0;
+}
+
 /** Who resolved the conversation (0: open), as the user sees it. */
 export function useResolver(root: Entity<'Comment'> | undefined): number {
   const overlay = useOverlay();

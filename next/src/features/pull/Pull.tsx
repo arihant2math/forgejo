@@ -29,7 +29,7 @@ import {useHold} from '../../app/repo.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {anchor, type Anchor, commentAnchor, lineAnchor, lineKey} from '../../code/anchor.ts';
-import {type DiffFile, filePath} from '../../code/diff.ts';
+import {DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {fetchCommits, poolCommits, poolHead, pullOf, type PullCommits} from '../../code/pull.ts';
 import {shortSha} from '../../code/refs.ts';
 import {partition, type ReviewDraft, reviewDrafts, reviewVerdicts, type ReviewEvent, saveDraft, submitReview} from '../../code/review.ts';
@@ -40,9 +40,11 @@ import {editing, notifyQueued} from '../../intents/session.ts';
 import {issueTitle} from '../../intents/view.ts';
 import {DraftControl} from './DraftControl.tsx';
 import {draftPrefix, wipPrefixes} from './draft.ts';
+import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger,
+  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuLabel,
+  MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger,
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
@@ -123,18 +125,39 @@ interface Composing {
   start?: number;
 }
 
+const ALL: DiffRange = {kind: 'all'};
+
 const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
   const {whitespace} = useDiffSettings();
-  const diff = useDiff(pr.base_repo_id, commits.base, commits.head);
+  const pool = usePool();
+  const {userId: me} = useSession();
+  const [range, setRange] = useState<DiffRange>(ALL);
+  const lastReview = lastReviewCommit([...pool.model('Review').by('issue_id', issue.id)].map((r) => r.data), me, commits.head);
+  // A newer review of the viewer's: "since your last review" follows it (and shows everything once it is at the head).
+  useEffect(() => {
+    if (range.kind === 'review' && range.base !== lastReview) setRange(lastReview ? {kind: 'review', base: lastReview} : ALL);
+  }, [range, lastReview]);
+  const {base, to} = rangeCommits(range, commits);
+  const diff = useDiff(pr.base_repo_id, base, to);
   // A new head (a push) keeps the diff on screen until the new one is here (or for good offline): the
-  // review in progress — an open composer, the submit dialog — is not unmounted under the user.
-  const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]; whitespace: string}>();
-  if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value, whitespace});
-  const view = diff.state === 'ready' ? {commits, files: diff.value} : shown;
-  const unavailable = diff.state !== 'ready' && shown?.whitespace !== whitespace;
+  // review in progress — an open composer, the submit dialog — is not unmounted under the user. Another range
+  // or whitespace setting is another diff: its loading (or failure) shows.
+  const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]; whitespace: string; range: DiffRange; base: string; to: string}>();
+  if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value, whitespace, range, base, to});
+  const view = diff.state === 'ready' ? {commits, files: diff.value, range, base, to} : shown;
+  const unavailable = diff.state !== 'ready' && (shown?.whitespace !== whitespace || shown.range !== range);
   return <>
-    {(!view || unavailable) && <><DiffSettings/><Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/></>}
-    {view && <div className={unavailable ? 'hidden' : 'contents'}><ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files}/></div>}
+    {(!view || unavailable) && <>
+      <DiffSettings/>
+      <Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/>
+      {range.kind !== 'all' && <div className="flex justify-center"><Button size="sm" onClick={() => {
+        setRange(ALL);
+      }}>Show all changes</Button></div>}
+    </>}
+    {view && <div className={unavailable ? 'hidden' : 'contents'}>
+      <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files} range={view.range} base={view.base} to={view.to}
+        lastReview={lastReview} onRange={setRange}/>
+    </div>}
   </>;
 });
 
@@ -157,7 +180,13 @@ function useViewed(issueId: number, pr: PullRequest, head: string, me: number) {
   return {...viewedAt(state, head, changedSet, overlay.members('ViewedFile', issueId)), changed: changedSet};
 }
 
-const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: TabProps & {pr: PullRequest; commits: PullCommits; files: DiffFile[]}) {
+const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, range, base, to, lastReview, onRange}: TabProps & {
+  pr: PullRequest; commits: PullCommits; files: DiffFile[];
+  /** The changes shown (DiffRange), and the diff's two commits for it. */
+  range: DiffRange; base: string; to: string;
+  /** The commit of the viewer's last review, when the head moved since. */
+  lastReview: string | undefined; onRange: (range: DiffRange) => void;
+}) {
   const app = useApp();
   const pool = usePool();
   const {data, userId: me} = useSession();
@@ -214,9 +243,18 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   }
   const drafts = reviewDrafts(intents, issue.id);
   const items = [...comments, ...drafts.map((d): Item => ({kind: 'draft', d}))];
+  // A review in progress (drafts here, or a pending review started elsewhere): a new line comment joins it.
+  const inReview = drafts.length > 0 || comments.some((it) => it.kind === 'comment' && it.pending && it.c.poster_id === me);
   // Drafts written on another head cannot be placed by line number (lines may have moved): with the file's
   // notes, like outdated comments (submitting quotes them in the review's body: code/review.ts).
-  const anchored = anchor(files, items, itemAnchor, head, (it) => it.kind === 'draft' || it.c.invalidated);
+  const outdated = (it: Item) => it.kind === 'draft' || it.c.invalidated;
+  // A narrower range (since a review, one commit): its old side is not the merge base's, so comments on the old side
+  // — and every comment on a commit's own changes, whose new side is not the head's — are listed with their files.
+  const atHead = to === head;
+  const anchored = range.kind === 'all' ? anchor(files, items, itemAnchor, head, outdated) : anchor(files, items, itemAnchor, '', (it) => {
+    const a = itemAnchor(it);
+    return !atHead || a.side === 'old' || (a.commit !== head && outdated(it));
+  });
   const viewedNow = useViewed(issue.id, pr, head, me);
   // Stable while the sets' contents are (a new Set each render would rebuild every diff row).
   const viewedSig = `${viewedNow.commit}|${[...viewedNow.paths].sort().join('\0')}|${[...viewedNow.older].sort().join('\0')}|${[...viewedNow.changed ?? []].join('\0')}`;
@@ -286,9 +324,11 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     collapsed,
     thread: (f, l) => <Thread issue={issue} pr={pr} f={f} l={l} file={files[f]} head={head} items={anchoredRef.current.lines.get(lineKey(f, l)) ?? []}
       composing={composing?.f === f && composing.l === l ? composing : undefined} setComposing={setComposing} onDone={closeComposer}
-      keepText={keepText} keptText={keptText}/>,
+      keepText={keepText} keptText={keptText} reviewing={inReview}/>,
     notesOf: (f) => <FileNotes items={anchoredRef.current.files.get(f) ?? []} repoId={pr.base_repo_id}/>,
-    onComment: startComment,
+    // On the head's lines only; in a narrower range, not on removed lines (their old side is not the merge base's).
+    onComment: atHead ? startComment : undefined,
+    commentable: range.kind === 'all' ? undefined : (f, l) => files[f]?.lines[l]?.k !== DEL,
     fileActions: (f) => {
       const path = files[f] ? filePath(files[f]) : '';
       const on = viewed.paths.has(path);
@@ -305,7 +345,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     },
   // The items are read through the ref; what changes rows is in the signatures.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, closeComposer, itemsSig, keepText, keptText]);
+  }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, closeComposer, itemsSig, keepText, keptText, inReview, atHead, range.kind]);
 
   useShortcut('review.start', () => {
     setReviewing(true);
@@ -356,26 +396,30 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
         </aside>
       )}
       <div ref={setScroller} className="min-w-0 flex-1 overflow-auto">
-        <ReviewBar pr={pr} head={head} drafts={drafts} listOpen={listOpen} open={!pr.merged && issue.get('state') === 'open'} onList={() => {
+        <ReviewBar pr={pr} head={head} drafts={drafts} listOpen={listOpen} open={!pr.merged && issue.get('state') === 'open'}
+          range={range} base={base} to={to} lastReview={lastReview} onRange={onRange} onList={() => {
           setListOpen((o) => !o);
         }} onReview={() => {
           setReviewing(true);
         }}/>
         {anchored.elsewhere.length > 0 && <div className="sticky left-0 w-view"><FileNotes items={anchored.elsewhere} title="Comments on files not in this diff" repoId={pr.base_repo_id}/></div>}
-        <DiffView key={`${commits.base}:${head}`} ref={diffRef} repoId={pr.base_repo_id} base={commits.base} head={head} files={files} scroller={scroller} extras={extras} onFile={setCurrent} underBar/>
+        <DiffView key={`${base}:${to}`} ref={diffRef} repoId={pr.base_repo_id} base={base} head={to} files={files} scroller={scroller} extras={extras} onFile={setCurrent} underBar/>
       </div>
       <ReviewDialog returnFocus={() => scroller?.querySelector<HTMLButtonElement>('[data-review-button]') ?? null} open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
     </div>
   );
 });
 
-/** Above the diff: the head on screen, the drafts, and the review button. */
-const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview, open}: {pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean}) {
+/** Above the diff: the changes shown (a range menu), the drafts, and the review button. */
+const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview, open, range, base, to, lastReview, onRange}: {
+  pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean;
+  range: DiffRange; base: string; to: string; lastReview: string | undefined; onRange: (range: DiffRange) => void;
+}) {
   return (
     // Sticky: the pending count and Review stay in reach anywhere in a long diff.
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
       <IconButton size="sm" icon={listOpen ? PanelLeftClose : PanelLeftOpen} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
-      <span className="min-w-0 truncate">Changes from <Sha sha={pr.merge_base}/> to <Sha sha={head}/></span>
+      <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
       {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
       <DiffSettings/>
       {/* A merged or closed pull request takes no review. */}
@@ -384,11 +428,62 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
   );
 });
 
+const rangeValue = (r: DiffRange) => (r.kind === 'commit' ? `commit:${r.sha}` : r.kind);
+
+/** The changes shown, and the menu to choose others: all, since the viewer's last review, one commit. */
+function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
+  pr: PullRequest; head: string; range: DiffRange; base: string; to: string; lastReview: string | undefined; onRange: (range: DiffRange) => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const label = range.kind === 'all' ? 'All changes' : range.kind === 'review' ? 'Changes since your last review' : 'Changes in one commit';
+  return (
+    <Menu open={menu} onOpenChange={setMenu}>
+      <MenuTrigger asChild>
+        <Button size="sm" variant="ghost" className="min-w-0" aria-label={`${label}: choose the changes shown`} tooltip="Choose the changes shown">
+          <span className="min-w-0 truncate">{label} <span className="text-fg-subtle">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
+          <Icon icon={ChevronDown} size="sm"/>
+        </Button>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuRadioGroup value={rangeValue(range)} onValueChange={(v) => {
+          if (v === 'all') onRange({kind: 'all'});
+          else if (v === 'review' && lastReview) onRange({kind: 'review', base: lastReview});
+          else if (v.startsWith('commit:')) onRange({kind: 'commit', sha: v.slice('commit:'.length)});
+        }}>
+          <MenuRadioItem value="all">All changes <span className="text-fg-subtle"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></MenuRadioItem>
+          {/* Only once the head moved past the viewer's last review (else there is nothing new to show). */}
+          {(lastReview ?? range.kind === 'review') && <MenuRadioItem value="review" disabled={!lastReview}>Changes since your last review</MenuRadioItem>}
+          {menu && <RangeCommits pr={pr} base={pr.merge_base} head={head} lastReview={lastReview}/>}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/** The pull request's commits in the range menu (loaded when it opens; the Commits tab shares the cache). */
+function RangeCommits({pr, base, head, lastReview}: {pr: PullRequest; base: string; head: string; lastReview: string | undefined}) {
+  const src = useSource();
+  const key = `compare:${String(pr.base_repo_id)}:${base}:${head}`;
+  const info = useLoad(key, () => src.peek<CompareInfo>(key), () => src.compare(pr.base_repo_id, base, head));
+  if (info.state !== 'ready') return <MenuLabel>{info.state === 'loading' ? 'Loading the commits…' : 'The commits are not available'}</MenuLabel>;
+  const since = lastReview ? commitsSince(info.value.commits, head, lastReview) : undefined;
+  return <>
+    {since !== undefined && <MenuLabel>{since} {since === 1 ? 'commit' : 'commits'} since your last review</MenuLabel>}
+    <MenuSeparator/>
+    <MenuLabel>One commit</MenuLabel>
+    {info.value.commits.map((c) => (
+      <MenuRadioItem key={c.sha} value={`commit:${c.sha}`}><span className="text-fg-subtle"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</MenuRadioItem>
+    ))}
+  </>;
+}
+
 /** A line's thread: comments (posted, pending in Forgejo, drafted here) and the composer. */
-const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing, onDone, keepText, keptText}: {
+const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing, onDone, keepText, keptText, reviewing}: {
   issue: Entity<'Issue'>; pr: PullRequest; f: number; l: number; file: DiffFile | undefined; head: string; items: Item[];
   composing: Composing | undefined; setComposing: (c: Composing | undefined) => void; onDone: () => void;
   keepText: (k: string, t: string | undefined) => void; keptText: (k: string) => string | undefined;
+  /** The viewer has a review in progress (drafts, or a pending review): a new comment is added to it. */
+  reviewing: boolean;
 }) {
   const app = useApp();
   const {intents} = editing(app);
@@ -468,7 +563,10 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
             {!reply && !composing.key && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Post it now, on its own (works offline: sent when you are back)" onClick={replyNow}>Add single comment</Button>}
             {reply ?
               <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</Button> :
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)} onClick={save}>{composing.key ? 'Update comment' : 'Start a review'}</Button>}
+              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)}
+                tooltip={composing.key ? undefined : reviewing ? 'Add it to your pending review (sent with Review)' : 'Keep it for a review (sent with Review)'} onClick={save}>
+                {composing.key ? 'Update comment' : reviewing ? 'Add review comment' : 'Start a review'}
+              </Button>}
           </div>
         </Card>
       )}

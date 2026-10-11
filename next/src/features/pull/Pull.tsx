@@ -48,6 +48,7 @@ import {usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {statusLook, statusTime} from '../code/Actions.tsx';
 import {checksOf, cleanDescription, unfinishedChecks} from './checks.ts';
+import {mergeOptions} from './mergeStyles.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {useDiff} from '../code/History.tsx';
 import {Ago, commitRow, Sha} from '../code/bits.tsx';
@@ -656,6 +657,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const pool = usePool();
   const pr = pullOf(pool, issue.id);
   const [busy, setBusy] = useState(false);
+  const [rebaseConfirm, setRebaseConfirm] = useState(false);
   const [style, setStyle] = useState<MergeStyle | undefined>(undefined);
   const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
   const apiPath = repository ? `/repos/${encodeURIComponent(repository.owner_name)}/${encodeURIComponent(repository.name)}` : undefined;
@@ -671,6 +673,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   });
   if (!pr) return null;
   const repo = repository;
+  const config = [...pool.model('RepoUnit').by('repo_id', pr.base_repo_id)].find((u) => u.get('type') === 'pulls')?.data.config;
+  const options = mergeOptions(config ?? {});
+  const primary = config ? options.primary : undefined;
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
   // A stalled network counts as offline: the request would only hang until its deadline.
   const isOnline = reach(session.data.status.connection) === 'online';
@@ -740,41 +745,64 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && write && (
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1">
+          <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy || !primary}
+            tooltip={offlineWhy('Merging') ?? mergeWhy} onClick={() => {
+              if (primary) setStyle(primary.style as MergeStyle);
+            }}>{primary?.label ?? 'Merge'}…</Button>
           <Menu>
             <MenuTrigger asChild>
-              {/* With checks running or failing, merging now is not the default (Merge when checks succeed is). */}
-              <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy}
-                tooltip={offlineWhy('Merging') ?? mergeWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
-                {checks === 'pending' ? 'Merge now…' : 'Merge…'}<Icon icon={ChevronDown} size="sm"/>
+              <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
+                aria-label="Choose merge method" tooltip={offlineWhy('Merging') ?? mergeWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
+                <Icon icon={ChevronDown} size="sm"/>
               </Button>
             </MenuTrigger>
             <MenuContent>
-              {STYLES.map(([s, label]) => (
+              {options.styles.map(({style: s, label}) => (
                 <MenuItem key={s} onSelect={() => {
-                  setStyle(s);
+                  setStyle(s as MergeStyle);
                 }}>{label}…</MenuItem>
               ))}
             </MenuContent>
           </Menu>
+          </div>
           {auto ?
             <Button disabled={!isOnline || busy} tooltip={offlineWhy('Canceling the auto-merge')} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</Button> :
-            checks === 'pending' && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
+            checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed'},
-                {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: 'merge', merge_when_checks_succeed: true, ...seen}});
+                {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, ...seen}});
             }}>Merge when checks succeed</Button>}
-          {pr.commits_behind > 0 && (
+          {pr.commits_behind > 0 && <div className="flex items-center gap-1">
             <Button disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
             }}>Update branch</Button>
-          )}
+          {config && <Menu>
+            <MenuTrigger asChild><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><Icon icon={ChevronDown} size="sm"/></Button></MenuTrigger>
+            <MenuContent>
+              <MenuItem onSelect={() => {
+                run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
+              }}>Update with merge commit</MenuItem>
+              {options.rebaseUpdate && <MenuItem onSelect={() => {
+                setRebaseConfirm(true);
+              }}>Update with rebase</MenuItem>}
+            </MenuContent>
+          </Menu>}
+          </div>}
           {!isOnline && <span className="text-sm text-fg-subtle">{onlineOnly('Merging')}</span>}
           {isOnline && conflictWhy && <span className="text-sm text-fg-subtle">{conflictWhy}</span>}
         </div>
       )}
+      {rebaseConfirm && <Dialog open title="Update with rebase" description={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} onOpenChange={setRebaseConfirm} footer={<>
+        <Button variant="ghost" onClick={() => { setRebaseConfirm(false); }}>Cancel</Button>
+        <Button variant="primary" disabled={!isOnline || busy || conflict || !config || !options.rebaseUpdate} tooltip={offlineWhy('Updating the branch') ?? conflictWhy} onClick={() => {
+          setRebaseConfirm(false);
+          run({done: `Rebased onto ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=rebase`});
+        }}>Rebase and force-push</Button>
+      </>}/>}
       {style && (
-        <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} onClose={() => {
+        <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} onClose={() => {
           setStyle(undefined);
         }} onMerge={(body) => {
           setStyle(undefined);

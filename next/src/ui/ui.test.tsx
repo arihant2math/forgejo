@@ -6,7 +6,7 @@ import {Plus, Tag} from 'lucide-react';
 import {describe, expect, test, vi} from 'vitest';
 import {
   Avatar, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, Dialog, DialogTrigger, IconButton,
-  Input, LabelChip, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, Shortcut, TooltipProvider,
+  Input, LabelChip, LabelDot, LabelPill, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, Shortcut, TooltipProvider,
 } from './index.ts';
 import {classConflicts} from '../test/conflicts.ts';
 
@@ -63,6 +63,13 @@ describe('primitives', () => {
   test('LabelChip: label colour via a CSS variable', () => {
     const {container} = render(<LabelChip name="bug" color="var(--color-danger)"/>);
     expect((container.firstElementChild as HTMLElement).style.getPropertyValue('--label-color')).toBe('var(--color-danger)');
+  });
+
+  test('LabelPill and LabelDot: a fill always has an edge (a white label still shows as a pill)', () => {
+    const {container} = render(<><LabelPill name="wontfix" color="#ffffff"/><LabelPill name="bug" color="#e11d21"/><LabelDot color="#fff"/></>);
+    const fills = [...container.children] as HTMLElement[];
+    expect(fills.map((el) => el.style.getPropertyValue('--label-color'))).toEqual(['#ffffff', '#e11d21', '#fff']);
+    for (const el of fills) expect(el.className).toMatch(/\bbg-label edge-label\b/);
   });
 
   test('ListRow: selection is exposed as data-selected and aria-selected', () => {

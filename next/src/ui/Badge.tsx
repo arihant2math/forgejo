@@ -39,14 +39,15 @@ const inks = {dark: 'text-on-label-dark', light: 'text-on-label-light'} as const
 /**
  * A label filled with its own colour (the labels page, a label's form): the text in the ink that contrasts more
  * with that colour (ink.ts). An exclusive scoped label (`scope/value`) shows its scope lighter, before the value.
- * A colour that is not a hex value is the plain chip.
+ * A colour that is not a hex value is the plain chip. The fill has an edge of its own colour, darkened or lightened
+ * (edge-label), so a white label still shows as a pill on the light canvas.
  */
 export function LabelPill({name, color, scope}: {name: string; color: string; scope?: string | undefined}) {
   const ink = labelInk(color);
   if (!ink) return <LabelChip name={name} color={color}/>;
   const value = scope ? name.slice(scope.length + 1) : name;
   return (
-    <span className={cx(chip, 'max-w-full rounded-full bg-label', inks[ink])} style={labelColor(color)}>
+    <span className={cx(chip, 'max-w-full rounded-full bg-label edge-label', inks[ink])} style={labelColor(color)}>
       {scope && <span className="font-normal">{scope} /</span>}
       <span className="truncate">{value}</span>
     </span>
@@ -56,9 +57,9 @@ export function LabelPill({name, color, scope}: {name: string; color: string; sc
 // Only hex colours (Forgejo stores labels' colours as #rgb / #rrggbb) or a colour token reach the style; anything else is neutral.
 const labelColor = (color: string) => ({'--label-color': /^(?:#[\da-f]{3,8}|var\(--color-[a-z-]+\))$/i.test(color) ? color : 'var(--color-fg-subtle)'} as CSSProperties);
 
-/** A label's colour as a small dot (pickers, filters). */
+/** A label's colour as a small dot (pickers, filters), edged like a pill (a white one stays visible). */
 export function LabelDot({color}: {color: string}) {
-  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-label" style={labelColor(color)}/>;
+  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-label edge-label" style={labelColor(color)}/>;
 }
 
 /** An icon in a label's colour (a status or priority shown by its scoped label). */

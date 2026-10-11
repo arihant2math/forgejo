@@ -453,7 +453,12 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         </ContextMenuContent>
       </ContextMenu>
       <DropIndicator ref={indicatorRef}/>
-      {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }}/>}
+      {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }} onCreate={() => {
+        setAddTo(undefined);
+        focusColumn(addTo);
+        // After the column has the focus again (focusColumn's frame): the create dialog gives it back there when it closes.
+        requestAnimationFrame(() => { newIssueIn(app, projectId, addTo); });
+      }}/>}
       {columnDialog && <ColumnDialog model={model} state={columnDialog} onClose={(deleted) => {
         setColumnDialog(undefined);
         focusColumn(deleted ? undefined : columnDialog.columnId);
@@ -541,6 +546,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
   onAdd: () => void;
   register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean; onFocus: () => void; onDialog: (kind: ColumnDialogState['kind']) => void;
 }) {
+  const app = useApp();
   const cards = model.cards(column.id);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -598,7 +604,14 @@ const Column = observer(function Column({model, column, index, count, dragging, 
           );
         })}
       </div>
-      {editable && <Button variant="ghost" icon={Plus} onClick={onAdd}>Add existing issue…</Button>}
+      {editable && (
+        <div className="flex flex-wrap gap-1">
+          <Button variant="ghost" icon={Plus} onClick={onAdd}>Add existing issue…</Button>
+          {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
+          <Button variant="ghost" icon={SquarePen} aria-label={`New issue in “${column.title}”`}
+            tooltip="Cards are issues: a board holds no notes. The new issue goes in this column." onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button>
+        </div>
+      )}
     </BoardColumn>
   );
 });

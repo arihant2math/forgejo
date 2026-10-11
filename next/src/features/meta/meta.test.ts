@@ -9,7 +9,7 @@ import {
   draftOf, filterLabels, LABEL_PRESETS, labelEdit, labelProblems, labelValid, normalizeColor, sortLabels,
 } from './labels.ts';
 import {
-  dateField, dueOnOf, excerpt, listMilestones, milestoneProblem, milestoneRows, overdue, sortMilestones,
+  dateField, dueOnOf, excerpt, listMilestones, milestoneProblems, milestoneRows, overdue, sortMilestones, validDate,
 } from './milestones.ts';
 import {mergePending} from './writes.ts';
 
@@ -156,9 +156,14 @@ describe('milestones', () => {
     expect(dueOnOf('2026-10-31')).toBe('2026-10-31T23:59:59Z');
     // Clearing it: Forgejo's "no deadline" (its year is 9999 in every time zone).
     expect(dueOnOf('')).toBe('9999-12-31T12:00:00Z');
-    expect(milestoneProblem({title: ' ', description: '', due: ''})).toBeTruthy();
-    expect(milestoneProblem({title: 'v3', description: '', due: '2026-1-1'})).toBeTruthy();
-    expect(milestoneProblem({title: 'v3', description: '', due: '2026-10-31'})).toBeUndefined();
+    expect(milestoneProblems({title: ' ', description: '', due: ''})).toEqual({title: 'A milestone needs a title.'});
+    expect(milestoneProblems({title: 'v3', description: '', due: '2026-10-31'})).toEqual({});
+    // A date's problem is the date field's, never the title's (a date field lets a year of 5 digits through).
+    for (const due of ['2026-1-1', '2026-02-30']) expect(milestoneProblems({title: 'v3', description: '', due}), due).toEqual({due: 'Not a valid date.'});
+    expect(milestoneProblems({title: 'v3', description: '', due: '61102-02-02'})).toEqual({due: 'The year needs four digits.'});
+    expect(milestoneProblems({title: '', description: '', due: '61102-02-02'})).toEqual({title: 'A milestone needs a title.', due: 'The year needs four digits.'});
+    expect(validDate('2028-02-29')).toBe(true);
+    expect(validDate('2026-02-29')).toBe(false);
   });
 });
 

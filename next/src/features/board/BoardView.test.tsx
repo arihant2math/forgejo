@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {test, expect} from 'vitest';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {test, expect, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
+import {editing} from '../../intents/session.ts';
+import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
 test('opening a board focuses its card; arrows can enter and leave an empty column', async () => {
@@ -48,4 +50,57 @@ test('opening a board focuses its card; arrows can enter and leave an empty colu
   await waitFor(() => {
     expect(document.activeElement).toBe(empty);
   });
+});
+
+test('adding existing issues: no "Add 0" row, what is picked is added, typed text that matches nothing offers a new issue in the column', async () => {
+  // The server search finds nothing more.
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}}))));
+  const s = fakeSession();
+  const owner = user(1, 'alice');
+  s.data.put('User', 'profile:1', owner);
+  s.data.put('Repository', 'repo:20', repo(20, owner, 'sandbox'));
+  s.data.put('Issue', 'repo:20', issue(30, 20, 1, 'First card'));
+  s.data.put('Issue', 'repo:20', issue(31, 20, 2, 'Tile docs refresh'));
+  s.data.put('Project', 'profile:1', {id: 10, title: 'Board', description: '', owner_id: 1, repo_id: 0, creator_id: 1,
+    closed: false, template_type: 0, card_type: 0, type: 1, created_at: T, updated_at: T});
+  s.data.put('ProjectColumn', 'profile:1', {id: 11, title: 'Backlog', project_id: 10, default: true, sorting: 1, color: '', creator_id: 1, created_at: T, updated_at: T});
+  s.data.put('ProjectIssue', 'repo:20', {id: 40, issue_id: 30, project_id: 10, column_id: 11, sorting: 0});
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/-/next/projects/10']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const backlog = await screen.findByRole('listbox', {name: 'Backlog'});
+  await waitFor(() => { expect(document.activeElement).toBe(backlog); });
+  // A new issue in the column is in reach on the column itself.
+  expect(screen.getByRole('button', {name: 'New issue in “Backlog”'})).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', {name: 'Add existing issue…'}));
+  const picker = await screen.findByRole('dialog', {name: 'Add existing issues'});
+  expect(within(picker).getByText('Cards are issues: pick existing ones, or create a new issue in this column.')).toBeTruthy();
+  const names = () => within(screen.getByRole('dialog', {name: 'Add existing issues'})).getAllByRole('option').map((o) => o.textContent);
+  expect(names().some((n) => n?.includes('Add 0'))).toBe(false);
+  expect(names()).toEqual([expect.stringContaining('Tile docs refresh'), 'New issue in this column…']);
+  // Picking one offers to add it; adding it puts the card in the column and closes the dialog.
+  fireEvent.click(within(picker).getByRole('option', {name: /Tile docs refresh/}));
+  fireEvent.click(await within(picker).findByRole('option', {name: 'Add 1 selected issue'}));
+  await waitFor(() => { expect(screen.queryByRole('dialog', {name: 'Add existing issues'})).toBeNull(); });
+  expect(issueProject(s.data.pool, editing(app).overlay, 31)).toEqual({project: 10, column: 11});
+  // The focus back on the column (the frame after closing), before the dialog opens again.
+  await new Promise((r) => { setTimeout(r, 50); });
+  expect(document.activeElement).toBe(backlog);
+
+  // Text that matches no issue: said, and Enter makes a new issue in this column (not a silent no-op).
+  fireEvent.click(screen.getByRole('button', {name: 'Add existing issue…'}));
+  const input = await screen.findByRole('combobox');
+
+  fireEvent.change(input, {target: {value: 'Placeholder: tile docs refresh'}});
+  expect(await screen.findByText(/^No issue (on this device )?matches$/)).toBeTruthy();
+  expect(names()).toEqual(['New issue in this column…']);
+  fireEvent.keyDown(input, {key: 'Enter'});
+  await waitFor(() => { expect(app.ui.create?.board).toEqual({projectId: 10, columnId: 11}); });
+  expect(screen.queryByRole('dialog', {name: 'Add existing issues'})).toBeNull();
+  const dialog = await screen.findByRole('dialog', {name: 'New issue'});
+  fireEvent.keyDown(dialog, {key: 'Escape'});
+  await waitFor(() => { expect(document.activeElement).toBe(backlog); });
+  vi.unstubAllGlobals();
 });

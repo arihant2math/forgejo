@@ -7,7 +7,7 @@
 // open composer, and a notes row for the file's comments that are not on a
 // line shown. Collapsed (or viewed) files are their header only. Pure.
 
-import type {DiffFile} from './diff.ts';
+import {ADD, DEL, type DiffFile} from './diff.ts';
 import {lineKey} from './anchor.ts';
 
 export type Row =
@@ -20,10 +20,11 @@ export type Row =
   | {t: 'hunk'; f: number; h: number; hidden: number}
   /** An unchanged line expanded above hunk `h` (from the file's content): its numbers on both sides, its text. */
   | {t: 'extra'; f: number; h: number; o: number; n: number; text: string}
-  | {t: 'line'; f: number; l: number}
+  | {t: 'line'; f: number; l: number; right?: number}
   | {t: 'thread'; f: number; l: number};
 
 export interface RowsOptions {
+  split?: boolean;
   collapsed?: ReadonlySet<number>;
   /** Unchanged lines shown above a hunk (key `${file}:${hunk}`), counted up from the hunk. */
   revealed?: ReadonlyMap<string, number>;
@@ -64,9 +65,28 @@ export function diffRows(files: readonly DiffFile[], o: RowsOptions = {}): DiffR
       if (shown < gap || !prev) rows.push({t: 'hunk', f, h: hi, hidden: gap - shown});
       const delta = h.oldStart - h.newStart;
       for (let n = h.newStart - shown; n < h.newStart; n++) rows.push({t: 'extra', f, h: hi, o: n + delta, n, text: lines?.[n - 1] ?? ''});
+      const push = (l: number, right?: number) => {
+        rows.push(right === undefined ? {t: 'line', f, l} : {t: 'line', f, l, right});
+        for (const index of right === undefined || right === l ? [l] : [l, right]) {
+          if (o.threads?.has(lineKey(f, index))) rows.push({t: 'thread', f, l: index});
+        }
+      };
       for (let l = h.first; l < h.first + h.count; l++) {
-        rows.push({t: 'line', f, l});
-        if (o.threads?.has(lineKey(f, l))) rows.push({t: 'thread', f, l});
+        if (!o.split || file.lines[l]?.k !== DEL) {
+          push(l);
+          continue;
+        }
+        const deleted: number[] = [];
+        const added: number[] = [];
+        while (l < h.first + h.count && file.lines[l]?.k === DEL) deleted.push(l++);
+        while (l < h.first + h.count && file.lines[l]?.k === ADD) added.push(l++);
+        for (let i = 0; i < Math.max(deleted.length, added.length); i++) {
+          const left = deleted[i];
+          const right = added[i];
+          if (left !== undefined) push(left, right);
+          else if (right !== undefined) push(right);
+        }
+        l--;
       }
     });
   });

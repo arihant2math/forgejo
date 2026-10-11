@@ -54,6 +54,7 @@ import {RunControls} from '../code/RunControls.tsx';
 import {checksOf, cleanDescription, unfinishedChecks} from './checks.ts';
 import {mergeOptions} from './mergeStyles.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
+import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
 import {Ago, commitRow, Sha} from '../code/bits.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
@@ -121,14 +122,18 @@ interface Composing {
 }
 
 const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
+  const {whitespace} = useDiffSettings();
   const diff = useDiff(pr.base_repo_id, commits.base, commits.head);
   // A new head (a push) keeps the diff on screen until the new one is here (or for good offline): the
   // review in progress — an open composer, the submit dialog — is not unmounted under the user.
-  const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]}>();
-  if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value});
+  const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]; whitespace: string}>();
+  if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value, whitespace});
   const view = diff.state === 'ready' ? {commits, files: diff.value} : shown;
-  if (!view) return <Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/>;
-  return <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files}/>;
+  const unavailable = diff.state !== 'ready' && shown?.whitespace !== whitespace;
+  return <>
+    {(!view || unavailable) && <><DiffSettings/><Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/></>}
+    {view && <div className={unavailable ? 'hidden' : 'contents'}><ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files}/></div>}
+  </>;
 });
 
 /** The viewer's viewed files at the head on screen (newest state; B9 `?head=` for files changed since an older one). */
@@ -178,8 +183,10 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   // Viewed files start collapsed (below); the user's toggles win afterwards.
   const [toggled, setToggled] = useState<ReadonlyMap<number, boolean>>(() => new Map());
   const [composeHead, setComposeHead] = useState(head);
-  if (composeHead !== head) {
+  const [composeFiles, setComposeFiles] = useState(files);
+  if (composeHead !== head || composeFiles !== files) {
     setComposeHead(head);
+    setComposeFiles(files);
     setComposing(undefined);
     setToggled(new Map()); // by file index: the new diff's files are others
   }
@@ -187,7 +194,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
   useEffect(() => {
     const prev = before.current;
     before.current = {head, files, composing};
-    if (!prev || prev.head === head) return;
+    if (!prev || (prev.head === head && prev.files === files)) return;
     const c = prev.composing;
     const text = c && kept.current.get(composerKey(c));
     const file = c && prev.files[c.f];
@@ -368,6 +375,7 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
       <IconButton size="sm" icon={listOpen ? PanelLeftClose : PanelLeftOpen} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
       <span className="min-w-0 truncate">Changes from <Sha sha={pr.merge_base}/> to <Sha sha={head}/></span>
       {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
+      <DiffSettings/>
       {/* A merged or closed pull request takes no review. */}
       {open && <span className="ml-auto"><Button data-review-button size="sm" variant="primary" shortcut={shortcutHint('review.start')} tooltip="Submit a review (works offline: sent when you are back)" onClick={onReview}>Review</Button></span>}
     </div>

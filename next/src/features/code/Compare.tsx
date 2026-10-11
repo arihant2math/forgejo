@@ -248,11 +248,20 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
 
 /**
  * The open pull request of these branches, or the button that opens the form (hover loads the editor and the
- * people the pickers offer, so the form paints complete).
+ * people the pickers offer, so the form paints complete). The button is offered once the comparison (the same one
+ * the page lists, cached) has commits on head that base lacks: a head merged into base, or behind it, has a
+ * different tip but nothing to propose, and the page says so instead.
  */
 const ComparePull = observer(function ComparePull({owner, repo, repoId, base, head, open, onOpen}: Sides & {onOpen: () => void}) {
   const app = useApp();
   const pool = usePool();
+  const src = useSource();
+  const branches = refTable(pool, repoId).branches;
+  const baseSha = branches.get(base);
+  const headSha = branches.get(head);
+  const pair = branchPair(pool, repoId, base, head) && baseSha !== undefined && headSha !== undefined && baseSha !== headSha;
+  const key = pair && baseSha && headSha ? compareKey(repoId, baseSha, headSha) : undefined;
+  const info = useLoad(key, () => (key ? src.peek<CompareInfo>(key) : undefined), () => src.compare(repoId, baseSha ?? '', headSha ?? ''));
   const pr = openPullOf(pool, repoId, base, head);
   if (pr) {
     return (
@@ -261,9 +270,9 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
       </Button>
     );
   }
-  const branches = refTable(pool, repoId).branches;
-  // Nothing to propose: not two branches, the same branch, or the same commit; or the form is open already.
-  if (open || !branchPair(pool, repoId, base, head) || branches.get(base) === branches.get(head)) return null;
+  // Nothing to propose: not two branches, the same branch or commit, no commit that base lacks (or not known yet);
+  // or the form is open already.
+  if (open || !pair || info.state !== 'ready' || info.value.commits.length === 0) return null;
   return (
     <Button size="sm" variant="primary" icon={GitPullRequest} tooltip={`Propose merging ${head} into ${base}`} onPointerEnter={() => {
       void preloadEditor().catch(() => undefined);

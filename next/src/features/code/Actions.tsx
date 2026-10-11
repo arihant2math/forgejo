@@ -27,9 +27,10 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
 import {Artifacts} from './Artifacts.tsx';
-import {CodeLink, useCodeRows} from './nav.tsx';
+import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RunControls} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
+import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
 export function duration(seconds: number): string {
@@ -161,12 +162,15 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
     setSearch({workflow: w});
   };
   const all = [...pool.model('ActionRun').by('repo_id', props.repoId)].map((r) => r.data).sort((a, b) => b.run_number - a.run_number);
-  const workflows = [...new Set(all.map((r) => r.workflow_id))].sort();
+  const {list, error: workflowError, retry: retryWorkflows} = useWorkflowList(props.repoId);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
+  const workflows = [...new Set([...all.map((r) => r.workflow_id), ...(list?.workflows.map((w) => w.file) ?? [])])].sort();
+  const dispatchable = list?.can_dispatch && list.workflows.some((w) => w.file === workflow && w.dispatchable);
   const runs = all.filter((r) => matches(filter, r.status) && (workflow === undefined || r.workflow_id === workflow));
   const now = useNow(runs.some((r) => !finished(r.status)));
-  const controls = all.length > 0 && <>
+  const controls = <>
     <SegmentedControl label="Show runs" value={filter} onChange={setFilter} options={RUN_FILTERS}/>
-    {workflows.length > 1 && (
+    {workflows.length > 0 && (
       <CommandPopover width="md" label="Workflow" placeholder="Find a workflow…" empty="No workflow matches."
         options={[undefined, ...workflows].map((w): PickOption => ({
           value: w ?? '', label: w ?? 'All workflows', checked: w === workflow, onSelect: () => {
@@ -175,6 +179,12 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
         }))}
         trigger={<Button size="sm" variant="ghost" icon={Workflow}>{workflow ?? 'All workflows'}<Icon icon={ChevronDown} size="sm"/></Button>}/>
     )}
+    {dispatchable && <Button size="sm" disabled={!connectivity.online} tooltip={!connectivity.online ? 'Running a workflow requires a connection.' : undefined} onClick={() => { setDispatchOpen(true); }}>Run workflow</Button>}
+    {workflowError && <Button size="sm" variant="ghost" tooltip={workflowError} onClick={retryWorkflows}>Retry loading workflows</Button>}
+    {dispatchOpen && workflow && <DispatchWorkflowDialog repoId={props.repoId} owner={props.owner} repo={props.repo} file={workflow} onClose={() => { setDispatchOpen(false); }} onRun={(number) => {
+      setDispatchOpen(false);
+      void navigate(codeTo(props.owner, props.repo, `actions/runs/${String(number)}`));
+    }}/>}
   </>;
   return (
     <CodeFrame view={props} title="Actions" controls={controls}>

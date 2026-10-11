@@ -17,10 +17,9 @@
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Reply, Trash2, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {useLocation} from '@tanstack/react-router';
+import {Link, useLocation} from '@tanstack/react-router';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
-import type {BranchProtection} from '../settings/rules.ts';
 import {failureText, online, refused} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
@@ -39,6 +38,7 @@ import type {Entity} from '../../data/entity.ts';
 import {editing, notifyQueued} from '../../intents/session.ts';
 import {issueTitle} from '../../intents/view.ts';
 import {DraftControl} from './DraftControl.tsx';
+import {ConflictHelp} from './ConflictHelp.tsx';
 import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
@@ -52,10 +52,14 @@ import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
-import {statusLook, statusTime} from '../code/Actions.tsx';
+import {runLook, statusLook, statusTime} from '../code/Actions.tsx';
 import {RunControls} from '../code/RunControls.tsx';
-import {checksOf, cleanDescription, unfinishedChecks} from './checks.ts';
+import {checksOf, cleanDescription, latestStatuses, unfinishedChecks} from './checks.ts';
+import {ApprovalPanel, useMergeCheck} from './Approval.tsx';
+import {bumpMergeCheck, protectionWhy} from './mergeCheck.ts';
+import {deleteBranch} from '../code/refOps.ts';
 import {mergeOptions} from './mergeStyles.ts';
+import {pullSettingsOf} from '../settings/forms.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
@@ -708,12 +712,14 @@ const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabP
 
 // ---- checks ----
 
-const ChecksTab = observer(function ChecksTab({owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
+const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
   const pool = usePool();
-  const {statuses, runs} = checksOf(pool, pr, commits.head);
+  const {statuses, runs, awaitingApproval} = checksOf(pool, pr, commits.head);
+  const check = useMergeCheck(awaitingApproval > 0 ? issue : undefined, pr);
   if (!statuses.length && !runs.length) return <EmptyState icon={Workflow} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
   return (
     <PageColumn wide>
+      {awaitingApproval > 0 && <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>}
       {runs.length > 0 && (
         <section aria-label="Workflow runs" className="flex flex-col">
           <SectionHeading>Workflow runs</SectionHeading>
@@ -749,7 +755,7 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
     <>
       <RunControls owner={owner} repo={repo} run={run.data} jobs={jobs.map((j) => j.data)}/>
       {jobs.map((j, i) => {
-        const look = statusLook(j.get('status'));
+        const look = runLook(run.data, j.get('status'));
         return (
           <div key={j.id} className="flex items-center gap-1 pr-2">
           <CodeLink className="min-w-0 flex-1" owner={owner} repo={repo} to={`actions/runs/${String(runNumber)}/jobs/${String(i)}`}>
@@ -779,21 +785,18 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const [rebaseConfirm, setRebaseConfirm] = useState(false);
   const [style, setStyle] = useState<MergeStyle | undefined>(undefined);
   const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
-  const apiPath = repository ? `/repos/${encodeURIComponent(repository.owner_name)}/${encodeURIComponent(repository.name)}` : undefined;
-  const eligibility = useLoad(pr && apiPath ? `merge:${apiPath}:${String(pr.number)}:${pr.base_branch}:${poolHead(pool, pr)}:${[...pool.model('Review').by('issue_id', issue.id)].map((r) => `${r.id}:${r.data.state}:${r.data.dismissed}`).join(',')}` : undefined, () => undefined, async () => {
-    const pull = await online<{mergeable: boolean}>(app, {api: 'v1', path: `${apiPath}/pulls/${String(pr?.number)}`});
-    let protection: BranchProtection | undefined;
-    try {
-      protection = await online<BranchProtection>(app, {api: 'v1', path: `${apiPath}/branch_protections/${encodeURIComponent(pr?.base_branch ?? '')}`});
-    } catch (err) {
-      if ((err as {status?: number}).status !== 404) throw err;
-    }
-    return {pull, protection};
-  });
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  // What Forgejo says for this viewer: the protection verdict (API v1's rules are for administrators only), whether
+  // they may merge or delete the head branch, and runs waiting for approval. Without it (an error) the box still
+  // says what the pool knows; the server decides the merge either way.
+  const eligibility = useMergeCheck(issue, pr);
   if (!pr) return null;
   const repo = repository;
   const config = [...pool.model('RepoUnit').by('repo_id', pr.base_repo_id)].find((u) => u.get('type') === 'pulls')?.data.config;
   const options = mergeOptions(config ?? {});
+  // "Delete the branch afterwards": offered as the classic page does (the viewer may delete it), preselected by the
+  // repository's "Delete the branch after merging" default.
+  const deleteDefault = pullSettingsOf(config ?? {}).deleteBranch;
   const primary = config ? options.primary : undefined;
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
   // A stalled network counts as offline: the request would only hang until its deadline.
@@ -831,18 +834,19 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // with the reason (they were offered and then failed).
   const conflict = pr.status === 'conflict';
   const conflictWhy = conflict ? `It conflicts with ${pr.base_branch}: resolve the conflicts in the branch first.` : undefined;
-  const protection = eligibility.state === 'ready' ? eligibility.value.protection : undefined;
-  const viewer = pool.model('User').get(session.userId)?.data;
-  const outsideMergeList = protection?.enable_merge_whitelist && !(protection.merge_whitelist_teams?.length) && viewer && !(protection.merge_whitelist_usernames ?? []).includes(viewer.login);
-  const approvals = [...latest.values()].filter((r) => r.state === 'APPROVED').length;
-  const missingChecks = protection?.enable_status_check ? (protection.status_check_contexts ?? []).filter((context) => !sum?.statuses.some((s) => s.get('context') === context && s.get('state') === 'success')) : [];
+  const check = eligibility.state === 'ready' ? eligibility.value : undefined;
   const draft = draftPrefix(issueTitle(editing(app).overlay, issue), wipPrefixes(app.config)) !== undefined;
+  const statuses = headSeen ? latestStatuses(pool, pr, headSeen).map((st) => ({context: st.get('context'), state: st.get('state')})) : [];
   const mergeWhy = (draft ? 'Draft pull requests cannot be merged. Mark this ready for review first.' : undefined) ?? conflictWhy ??
-    (outsideMergeList ? 'Only users on the branch’s merge allowlist can merge.' : undefined) ??
-    (protection?.block_on_rejected_reviews && changesRequested ? 'Blocked by a change request.' : undefined) ??
-    (protection && approvals < protection.required_approvals ? `Needs ${String(protection.required_approvals - approvals)} more approval(s).` : undefined) ??
-    (missingChecks.length ? `Required checks have not passed: ${missingChecks.join(', ')}.` : undefined) ??
-    (eligibility.state === 'ready' && eligibility.value.pull?.mergeable === false ? 'Forgejo says this pull request cannot be merged yet. Check the branch protection rules.' : undefined);
+    protectionWhy(check, pr.base_branch, statuses) ??
+    (check?.mergeable === false ? 'Forgejo says this pull request cannot be merged yet. Check the branch protection rules.' : undefined);
+  const waitingApproval = (sum?.awaitingApproval ?? 0) > 0 || check?.actions?.need_approval === true;
+  const checksTab = repo ? <TextLink><Link to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}}>View checks</Link></TextLink> : null;
+  const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
+  const checksTone = checks === 'failure' ? 'danger' : checks === 'pending' ? 'warning' : 'success';
+  // A branch that may go once the work is in (merged, or closed): the classic page's "Delete branch".
+  const headRef = check?.head_repo ? check.head_repo.split('/') : [];
+  const deletable = check ? check.branch_deletable : pr.head_repo_id === pr.base_repo_id;
   let state: ReactNode;
   if (pr.merged) {
     state = (
@@ -855,12 +859,42 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   else if (conflict) state = <><StatusDot tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<Code>{f}</Code></Fragment>)}</> : ''}</>;
   else if (pr.status === 'checking') state = <><StatusDot tone="warning"/> Checking whether it can be merged…</>;
   else if (mergeWhy) state = <><StatusDot tone="warning"/> {mergeWhy}</>;
-  else if (checks === 'pending') state = <><StatusDot tone="warning"/> Checks are not done yet{behind}</>;
+  else if (checks === 'pending') state = <><StatusDot tone="warning"/> {checksWords}{behind}</>;
   else if (checks === 'failure') state = <><StatusDot tone="danger"/> Some checks failed{behind}</>;
   else state = <><StatusDot tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
+  // The checks are said even when something else is the headline (a draft, a conflict, a protection rule): an
+  // author waiting on CI sees what it said where they land.
+  const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
     <div className="mt-4"><Card as="section" label="Merge">
       <p className="flex flex-wrap items-center gap-2 text-base text-fg">{state}</p>
+      {checksLine && <p className="flex flex-wrap items-center gap-2 text-sm text-fg"><StatusDot tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
+      {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p className="text-sm">{checksTab}</p>}
+      {!pr.merged && !closed && waitingApproval && <ApprovalPanel issueId={issue.id} actions={check?.actions ?? undefined} waiting={(sum?.awaitingApproval ?? 0) > 0}/>}
+      {!pr.merged && !closed && !waitingApproval && check?.actions?.poster_trust === 'explicitly' && <ApprovalPanel issueId={issue.id} actions={check.actions} waiting={false}/>}
+      {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+          The branch <Code>{pr.head_branch}</Code> can be deleted{pr.merged ? ': its work is merged' : ''}.
+          <Button size="sm" icon={Trash2} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+            setDeleteConfirm(true);
+          }}>Delete branch</Button>
+        </p>
+      )}
+      {deleteConfirm && headRef.length === 2 && <Dialog open title="Delete branch" description={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} onOpenChange={setDeleteConfirm} footer={<>
+        <Button variant="ghost" onClick={() => { setDeleteConfirm(false); }}>Cancel</Button>
+        <Button variant="danger" icon={Trash2} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+          setDeleteConfirm(false);
+          setBusy(true);
+          deleteBranch(app, {id: pr.head_repo_id, owner: headRef[0] ?? '', name: headRef[1] ?? ''}, pr.head_branch).then(() => {
+            notify(app, {tone: 'success', title: `Deleted ${pr.head_branch}`});
+            bumpMergeCheck(issue.id);
+          }, (err: unknown) => {
+            notify(app, {tone: 'danger', title: 'Deleting the branch failed', description: failureText(err)});
+          }).finally(() => {
+            setBusy(false);
+          });
+        }}>Delete branch</Button>
+      </>}/>}
       {!pr.merged && !closed && <DraftControl issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
       {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
@@ -893,7 +927,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             }}>Cancel auto-merge</Button> :
             checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed'},
-                {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, ...seen}});
+                {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
             }}>Merge when checks succeed</Button>}
           {pr.commits_behind > 0 && <div className="flex items-center gap-1">
             <Button disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {
@@ -915,6 +949,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           {isOnline && conflictWhy && <span className="text-sm text-fg-subtle">{conflictWhy}</span>}
         </div>
       )}
+      {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}
+        pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
+        canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
       {rebaseConfirm && <Dialog open title="Update with rebase" description={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} onOpenChange={setRebaseConfirm} footer={<>
         <Button variant="ghost" onClick={() => { setRebaseConfirm(false); }}>Cancel</Button>
         <Button variant="primary" disabled={!isOnline || busy || conflict || !config || !options.rebaseUpdate} tooltip={offlineWhy('Updating the branch') ?? conflictWhy} onClick={() => {
@@ -923,7 +960,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         }}>Rebase and force-push</Button>
       </>}/>}
       {style && (
-        <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} onClose={() => {
+        <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} deletable={deletable} deleteDefault={deleteDefault} onClose={() => {
           setStyle(undefined);
         }} onMerge={(body) => {
           setStyle(undefined);
@@ -937,16 +974,17 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
 type MergeStyle = typeof STYLES[number][0];
 
 /** Merging is not undone: the commit message and whether the branch goes, confirmed first. */
-function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge, reason}: {
-  reason: string | undefined; pr: PullRequest; title: string; style: MergeStyle; checks: string; unfinished: number; onClose: () => void; onMerge: (body: Record<string, unknown>) => void;
+function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDefault, onClose, onMerge, reason}: {
+  reason: string | undefined; pr: PullRequest; title: string; style: MergeStyle; checks: string; unfinished: number; deletable: boolean; deleteDefault: boolean;
+  onClose: () => void; onMerge: (body: Record<string, unknown>) => void;
 }) {
   const label = STYLES.find(([s]) => s === style)?.[1] ?? style;
   const commit = style === 'merge' || style === 'squash' || style === 'rebase-merge';
   const [head, setHead] = useState(style === 'squash' ? `${title} (#${String(pr.number)})` : `Merge pull request '${title}' (#${String(pr.number)}) from ${pr.head_branch} into ${pr.base_branch}`);
   const [message, setMessage] = useState('');
-  const [drop, setDrop] = useState(false);
+  const [drop, setDrop] = useState(deletable && deleteDefault);
   const merge = () => {
-    onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: drop});
+    onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: deletable && drop});
   };
   return (
     <Dialog open size="md" title={label} description={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} onOpenChange={(o) => {
@@ -969,7 +1007,7 @@ function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge, re
         {commit && <TextArea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
           setMessage(e.target.value);
         }}/>}
-        {pr.head_repo_id === pr.base_repo_id && <Checkbox label={`Delete the branch ${pr.head_branch} afterwards`} checked={drop} onChange={setDrop}/>}
+        {deletable && <Checkbox label={`Delete the branch ${pr.head_branch} afterwards`} checked={drop} onChange={setDrop}/>}
       </div>
     </Dialog>
   );

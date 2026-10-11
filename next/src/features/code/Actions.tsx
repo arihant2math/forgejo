@@ -19,7 +19,7 @@ import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
 import {codeSplat, shortSha} from '../../code/refs.ts';
 import {
-  AnsiText, Avatar, Button, CodeLine, CommandPopover, EmptyState, Icon, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
+  AnsiText, Avatar, Badge, Button, Callout, CodeLine, CommandPopover, EmptyState, Icon, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
@@ -31,6 +31,8 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RunControls} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
 import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
+import {awaitsApproval} from '../pull/checks.ts';
+import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
 export function duration(seconds: number): string {
@@ -103,16 +105,17 @@ function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef
   }
 }
 
-type RunFilter = 'all' | 'failure' | 'running' | 'success' | 'cancelled';
+type RunFilter = 'all' | 'failure' | 'running' | 'approval' | 'success' | 'cancelled';
 const RUN_FILTERS: readonly {value: RunFilter; label: string}[] = [
-  {value: 'all', label: 'All'}, {value: 'failure', label: 'Failed'}, {value: 'running', label: 'In progress'}, {value: 'success', label: 'Succeeded'},
-  {value: 'cancelled', label: 'Cancelled'},
+  {value: 'all', label: 'All'}, {value: 'failure', label: 'Failed'}, {value: 'running', label: 'In progress'}, {value: 'approval', label: 'Needs approval'},
+  {value: 'success', label: 'Succeeded'}, {value: 'cancelled', label: 'Cancelled'},
 ];
 
-function matches(filter: RunFilter, status: string): boolean {
+export function runMatches(filter: RunFilter, run: {status: string; need_approval: boolean}): boolean {
   if (filter === 'all') return true;
-  if (filter === 'running') return !finished(status);
-  return status === filter;
+  if (filter === 'running') return !finished(run.status);
+  if (filter === 'approval') return awaitsApproval(run);
+  return run.status === filter;
 }
 
 /** A run, job or step status as a dot tone and words. */
@@ -135,6 +138,14 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
     default:
       return {tone: 'muted', text: status || 'Unknown'};
   }
+}
+
+/**
+ * A run's (or one of its jobs') status, saying when it is held for a maintainer's approval (a fork's pull request by
+ * an author not trusted with Actions: "Blocked" alone read like any wait).
+ */
+export function runLook(run: {status: string; need_approval: boolean}, status = run.status): {tone: StatusTone; text: string} {
+  return awaitsApproval(run) && !finished(status) ? {tone: 'warning', text: 'Needs approval'} : statusLook(status);
 }
 
 export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
@@ -166,7 +177,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const workflows = [...new Set([...all.map((r) => r.workflow_id), ...(list?.workflows.map((w) => w.file) ?? [])])].sort();
   const dispatchable = list?.can_dispatch && list.workflows.some((w) => w.file === workflow && w.dispatchable);
-  const runs = all.filter((r) => matches(filter, r.status) && (workflow === undefined || r.workflow_id === workflow));
+  const runs = all.filter((r) => runMatches(filter, r) && (workflow === undefined || r.workflow_id === workflow));
   const now = useNow(runs.some((r) => !finished(r.status)));
   const controls = <>
     <SegmentedControl label="Show runs" value={filter} onChange={setFilter} options={RUN_FILTERS}/>
@@ -191,11 +202,11 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
       {(scroller) => (runs.length ?
         <RowList items={runs} scroller={scroller} label="Workflow runs" keyOf={(r) => String(r.id)}
           row={(r) => {
-            const look = statusLook(r.status);
+            const look = runLook(r);
             const t = took(r.started, finished(r.status) ? r.stopped : undefined, now);
             return {
               leading: <span title={look.text}><StatusDot tone={look.tone}/></span>,
-              main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span><span className="sr-only">, {look.text}</span></>,
+              main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Badge tone="warning">Needs approval</Badge></> : <span className="sr-only">, {look.text}</span>}</>,
               trailing: <>
                 <TriggerText gitRef={r.ref}/>
                 <span className="max-md:hidden">{eventText(r.event)}</span>
@@ -212,6 +223,23 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
           }}>Show all runs</Button>}/> :
           <EmptyState icon={Workflow} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
     </CodeFrame>
+  );
+});
+
+/**
+ * A run held for approval: the pull request's approval panel (approve, deny) when the pull request is on this device,
+ * else where to go.
+ */
+const RunApproval = observer(function RunApproval({owner, repo, run}: {owner: string; repo: string; run: ActionRun}) {
+  const pool = usePool();
+  const pr = pool.model('PullRequest').get(run.pull_request_id)?.data;
+  const issue = pr ? pool.model('Issue').get(pr.issue_id) : undefined;
+  const check = useMergeCheck(issue, pr);
+  if (issue && pr) return <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>;
+  return (
+    <Callout tone="warning" title={APPROVAL_TITLE}>
+      This run of a pull request from a fork starts once a maintainer approves it on the pull request <TriggerLink owner={owner} repo={repo} gitRef={run.ref}/>.
+    </Callout>
   );
 });
 
@@ -239,7 +267,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
     return running >= 0 ? running : 0;
   })();
   const job = jobs[first];
-  const look = statusLook(run?.status ?? '');
+  const look = run ? runLook(run) : statusLook('');
   const now = useNow(jobs.some((j) => !finished(j.status)));
   const actor = run ? pool.model('User').get(run.trigger_user_id)?.data : undefined;
   return (
@@ -260,10 +288,11 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             {actor && <span className="flex items-center gap-1.5"><Avatar name={actor.full_name || actor.login} src={actor.avatar_url === '' ? undefined : actor.avatar_url} size="sm"/>{actor.login}</span>}
             <time dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
           </p>
+          {awaitsApproval(run) && <div className="border-b border-border px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">
           <nav aria-label="Jobs" className="shrink-0 border-b border-border py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
             {jobs.map((j, i) => {
-              const jl = statusLook(j.status);
+              const jl = runLook(run, j.status);
               return (
                 <div key={j.id} className="flex items-center gap-1 pr-2">
                 <CodeLink className="min-w-0 flex-1" owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
@@ -275,7 +304,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             })}
           </nav>
           <section aria-label="Log" className="min-w-0 flex-1">
-            {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller}/> :
+            {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
               <EmptyState icon={Workflow} title="No such job"/>}
           </section>
           </div>
@@ -302,7 +331,7 @@ function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
 /** A display row of a log: a step's header, or one of its lines. */
 type LogRow = {t: 'step'; s: number} | {t: 'line'; l: number};
 
-const JobLog = observer(function JobLog({repoId, job, scroller}: {repoId: number; job: ActionRunJob; scroller: HTMLDivElement | null}) {
+const JobLog = observer(function JobLog({repoId, job, scroller, approval = false}: {repoId: number; job: ActionRunJob; scroller: HTMLDivElement | null; approval?: boolean}) {
   const feed = useJobLog(repoId, job);
   const {log, source} = feed;
   const [closed, setClosed] = useState<ReadonlySet<number>>(() => new Set());
@@ -360,7 +389,7 @@ const JobLog = observer(function JobLog({repoId, job, scroller}: {repoId: number
     if (log.expired) return <EmptyState icon={Workflow} title="Log removed" description="This log was removed by the instance's log retention."/>;
     if (source === 'none' && !connectivity.online) return <EmptyState icon={Workflow} title="Not available offline" description="This job's log is not on this device."/>;
     if (feed.closed) return <EmptyState icon={Workflow} title="Log not available" description={feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}/>;
-    return <p className="px-4 py-3 text-sm text-fg-subtle">{job.task_id ? 'Waiting for the log…' : 'Waiting for a runner…'}</p>;
+    return <p className="px-4 py-3 text-sm text-fg-subtle">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;
 });

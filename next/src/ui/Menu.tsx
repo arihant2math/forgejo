@@ -187,10 +187,34 @@ export const {
   RadioItem: ContextMenuRadioItem, Label: ContextMenuLabel, Separator: ContextMenuSeparator, Sub: ContextMenuSub,
 } = context;
 
-export function ContextMenuContent({onCloseAutoFocus, ...props}: Omit<ComponentProps<typeof C.Content>, 'className' | 'style'>) {
+/**
+ * Keeps a context menu inside the viewport across: Radix places it beside the pointer and shifts it only along that
+ * side, so where neither side of the pointer has room for it (the middle of a phone's screen) it ran off an edge.
+ * Nudges the menu (CSS translate, apart from Radix's transform) whenever Radix moves it (a ref: with the element).
+ */
+function insideViewport(node: HTMLElement | null): (() => void) | undefined {
+  const wrapper = node?.parentElement;
+  if (!node || !wrapper) return undefined;
+  const fit = () => {
+    const r = wrapper.getBoundingClientRect();
+    const right = (document.documentElement.clientWidth || innerWidth) - EDGE_GAP;
+    const dx = r.left < EDGE_GAP ? EDGE_GAP - r.left : r.right > right ? Math.max(EDGE_GAP - r.left, right - r.right) : 0;
+    node.style.translate = dx ? `${String(Math.round(dx))}px 0` : '';
+  };
+  fit();
+  const moved = new MutationObserver(fit);
+  moved.observe(wrapper, {attributes: true, attributeFilter: ['style']});
+  addEventListener('resize', fit);
+  return () => {
+    moved.disconnect();
+    removeEventListener('resize', fit);
+  };
+}
+
+export function ContextMenuContent({onCloseAutoFocus, ...props}: Omit<ComponentProps<typeof C.Content>, 'className' | 'style' | 'ref'>) {
   return (
     <C.Portal>
-      <C.Content collisionPadding={EDGE_GAP} sticky="always" className={content} onFocusOutside={keepOnFocusOutside} onCloseAutoFocus={(e) => {
+      <C.Content ref={insideViewport} collisionPadding={EDGE_GAP} sticky="always" className={content} onFocusOutside={keepOnFocusOutside} onCloseAutoFocus={(e) => {
         onCloseAutoFocus?.(e);
         keepDialogFocus(e);
         // Back to the list it was opened on (its cursor shows, J/K go on), not to the row the right click focused,

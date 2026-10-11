@@ -1107,7 +1107,8 @@ func parseCompareInfo(ctx *context.APIContext, form api.CreatePullRequestOption)
 		headUser = ctx.Repo().Owner
 		headBranch = headInfos[0]
 	} else if len(headInfos) == 2 {
-		headUser, err = user_model.GetUserByName(ctx, headInfos[0])
+		headOwner, _, _ := strings.Cut(headInfos[0], "/")
+		headUser, err = user_model.GetUserByName(ctx, headOwner)
 		if err != nil {
 			if user_model.IsErrUserNotExist(err) {
 				ctx.NotFound(fmt.Errorf("the owner %s does not exist", headInfos[0]))
@@ -1118,7 +1119,8 @@ func parseCompareInfo(ctx *context.APIContext, form api.CreatePullRequestOption)
 		}
 		headBranch = headInfos[1]
 		// The head repository can also point to the same repo
-		isSameRepo = ctx.Repo().Owner.ID == headUser.ID
+		_, headName, explicit := strings.Cut(headInfos[0], "/")
+		isSameRepo = ctx.Repo().Owner.ID == headUser.ID && (!explicit || strings.EqualFold(headName, baseRepo.Name))
 	} else {
 		ctx.NotFound(fmt.Errorf("the head part of {basehead} %s must contain zero or one colon (:) but contains %d", form.Head, len(headInfos)-1))
 		return nil, nil, nil, "", ""
@@ -1137,6 +1139,19 @@ func parseCompareInfo(ctx *context.APIContext, form api.CreatePullRequestOption)
 	}
 
 	headRepo := repo_model.GetForkedRepo(ctx, headUser.ID, baseRepo.ID)
+	if len(headInfos) == 2 && !isSameRepo {
+		if _, name, explicit := strings.Cut(headInfos[0], "/"); explicit {
+			headRepo, err = repo_model.GetRepositoryByOwnerAndName(ctx, headUser.Name, name)
+			if err != nil {
+				ctx.NotFound(err)
+				return nil, nil, nil, "", ""
+			}
+			if headRepo.ForkID != baseRepo.ID && baseRepo.ForkID != headRepo.ID && (headRepo.ForkID == 0 || headRepo.ForkID != baseRepo.ForkID) {
+				ctx.NotFound("Head repository is outside the fork network")
+				return nil, nil, nil, "", ""
+			}
+		}
+	}
 	if headRepo == nil && !isSameRepo {
 		err := baseRepo.GetBaseRepo(ctx)
 		if err != nil {

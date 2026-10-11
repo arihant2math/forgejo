@@ -38,6 +38,7 @@ import {usePool} from '../issues/cells.tsx';
 import {AboutSidebar} from './AboutSidebar.tsx';
 import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';
+import {Contribute} from './Contribute.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {EmptyRepo} from '../code/states.tsx';
 import {FileOperations} from '../code/FileOperations.tsx';
@@ -57,6 +58,7 @@ export function RepoHome() {
 
 const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
+  const repository = usePool().model('Repository').get(repoId)?.data;
   return (
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Code2} title="Code" home>
@@ -68,6 +70,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
         <div className="flex flex-col @xl:min-h-full @xl:flex-row">
           <PageColumn wide>
             <Summary repoId={repoId}/>
+            {repository?.fork && <Contribute owner={owner} repo={repo}/>}
             <Files owner={owner} repo={repo} repoId={repoId}/>
           </PageColumn>
           <aside aria-label="About" className="shrink-0 border-t border-border p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">

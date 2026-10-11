@@ -152,6 +152,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   const pool = usePool();
   const navigate = useNavigate();
   const [draft, setDraft] = useState(false);
+  const [allowEdits, setAllowEdits] = useState(true);
   const [form] = useState(() => new PullDraft(app, repoId, base, head));
   useEffect(() => () => {
     form.flush();
@@ -170,7 +171,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
     }
     if (why || !repoData) return;
     form.setBusy(true);
-    void openPull(app, {owner: repoData.owner_name, repo: repoData.name, repoId, form, base, head, title: draftTitle(title, draft, wipPrefixes(app.config)), body}).then((number) => {
+    void openPull(app, {owner: repoData.owner_name, repo: repoData.name, repoId, form, base, head, allowEdits, title: draftTitle(title, draft, wipPrefixes(app.config)), body}).then((number) => {
       form.done();
       void navigate({to: '/$owner/$repo/pulls/$index', params: {owner, repo, index: String(number)}});
     }, (err: unknown) => {
@@ -200,6 +201,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           onChange={(b) => {
             form.setBody(b);
           }} onSubmit={create}/>
+        {head.includes(':') && <Checkbox label="Allow edits by maintainers" checked={allowEdits} onChange={setAllowEdits}/>}
         {!!wipPrefixes(app.config)[0] && <Checkbox label="Create draft pull request" checked={draft} onChange={setDraft}/>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="mr-auto flex items-center gap-1 text-sm text-fg-subtle">
@@ -226,7 +228,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
  * Creates the pull request, asks for its reviews, and waits (at most SYNC_WAIT_MS) until the pool holds what
  * Forgejo wrote. Returns its number.
  */
-async function openPull(app: App, a: {owner: string; repo: string; repoId: number; form: PullDraft; base: string; head: string; title: string; body: string}): Promise<number> {
+async function openPull(app: App, a: {owner: string; repo: string; repoId: number; form: PullDraft; base: string; head: string; allowEdits: boolean; title: string; body: string}): Promise<number> {
   const s = app.session;
   if (!s) throw new Error('Not signed in.');
   const pool = s.data.pool;
@@ -242,6 +244,14 @@ async function openPull(app: App, a: {owner: string; repo: string; repoId: numbe
   const number = typeof made.value?.number === 'number' ? made.value.number : 0;
   if (!number) throw new Error('Forgejo did not say which pull request it opened.');
   let v = made.syncId ?? 0;
+  if (a.head.includes(':')) {
+    try {
+      const edited = await onlineWrite(app, {method: 'PATCH', api: 'v1', path: `${path}/${String(number)}`, body: {allow_maintainer_edit: a.allowEdits}});
+      v = Math.max(v, edited.syncId ?? 0);
+    } catch (err) {
+      notify(app, {tone: 'warning', title: 'Pull request opened, but maintainer permissions were not saved', description: failureText(err)});
+    }
+  }
   const reviewers = logins(a.form.reviewers);
   if (reviewers.length) {
     try {

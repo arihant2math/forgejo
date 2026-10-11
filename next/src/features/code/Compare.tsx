@@ -16,7 +16,7 @@ import {Link, useNavigate, useSearch} from '@tanstack/react-router';
 import {ChevronDown, GitBranch, GitCompare, GitPullRequest, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useRef, useState} from 'react';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {ForkCompare, forkBranches} from './ForkCompare.tsx';
 import {type DiffFile, filePath} from '../../code/diff.ts';
 import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
@@ -131,14 +131,9 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
     </span>
   );
   if (isForkHead(headName)) {
-    // Another repository's branch: not on this device (its branches are not synced here).
-    const classic = `/${[props.owner, props.repo].map(encodeURIComponent).join('/')}/compare/${[baseName, headName].map((s) => s.split('/').map(encodeURIComponent).join('/')).join('...')}`;
-    return (
-      <CodeFrame view={props} title={title}>
-        {() => <EmptyState icon={GitCompare} title="A fork’s branch" description={`${headName} is a branch of another repository: comparing with forks, and opening pull requests from them, is in the classic UI.`}
-          action={<ClassicLink to={classic}>Compare in the classic UI</ClassicLink>}/>}
-      </CodeFrame>
-    );
+    return <CodeFrame view={props} title={title}>
+      {(scroller) => <ForkCompare key={`${baseName}:${headName}`} {...sides} scroller={scroller}/>}
+    </CodeFrame>;
   }
   if (!headName) {
     return (
@@ -168,11 +163,15 @@ type Sides = CodeViewProps & {base: string; head: string; open: boolean};
 const ComparePick = observer(function ComparePick({owner, repo, repoId, base, head, open, side, value, onPick}: Sides & {side: 'base' | 'head'; value: string; onPick?: ((ref: string) => void) | undefined}) {
   const pool = usePool();
   const navigate = useNavigate();
+  const app = useApp();
+  const [forks, setForks] = useState<{value: string; label: string; group: string}[]>([]);
+  const [forkError, setForkError] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const refs = refTable(pool, repoId);
   const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
   const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
   const option = (ref: string, tag: boolean): PickOption => ({
-    value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : 'Branches', icon: tag ? Tag : GitBranch,
+    value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : `${owner}/${repo}`, icon: tag ? Tag : GitBranch,
     meta: !tag && ref === refs.defaultBranch ? 'default' : undefined, checked: ref === value,
     onSelect: () => {
       if (onPick) {
@@ -185,7 +184,16 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   });
   return (
     <CommandPopover width="md" label={side === 'base' ? 'Compare from' : 'Compare to'} placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
-      options={[...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))]}
+      onOpenChange={(on) => {
+        if (!on || side !== 'head' || loaded) return;
+        setLoaded(true);
+        void forkBranches(app, owner, repo).then((choices) => {
+          setForks(choices);
+        }).catch(() => { setForkError(true); setLoaded(false); });
+      }}
+      options={[...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true)), ...forks.map((choice) => ({...choice, checked: choice.value === value, onSelect: () => {
+        void navigate({...codeTo(owner, repo, compareSplat(base, choice.value)), ...(open ? {search: {expand: '1'} as never} : {})});
+      }})), ...(forkError ? [{value: 'error', label: 'Could not load forks. Reopen to retry.', onSelect: () => undefined}] : [])]}
       trigger={
         <Button size="sm" icon={GitBranch} aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
           <span className="max-w-xs truncate font-mono">{value || 'Choose a branch'}</span><Icon icon={ChevronDown} size="sm"/>

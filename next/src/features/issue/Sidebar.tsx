@@ -7,6 +7,7 @@
 // and the pull request's branches. Each value is an observer of what it
 // shows.
 
+import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
 import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
@@ -64,6 +65,7 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
       <DependenciesValue issue={issue} write={write}/>
       <DueValue issue={issue} write={write}/>
       {pull && <BranchesValue issue={issue}/>}
+      {pull && <MaintainerEdits issue={issue}/>}
       <SubscribeValue issue={issue}/>
       {write && !isTemp(issue.id) && <PinLockValue issue={issue}/>}
     </PropertyList>

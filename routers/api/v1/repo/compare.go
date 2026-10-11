@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	user_model "forgejo.org/models/user"
+	"forgejo.org/modules/git"
 	api "forgejo.org/modules/structs"
 	"forgejo.org/services/context"
 	"forgejo.org/services/convert"
@@ -41,6 +42,11 @@ func CompareDiff(ctx *context.APIContext) {
 	//   description: include verification status for each commit
 	//   type: boolean
 	//   default: true
+	// - name: diff
+	//   in: query
+	//   description: return the unified diff from the merge base instead of commit metadata
+	//   type: boolean
+	//   default: false
 	// - name: files
 	//   in: query
 	//   description: include which files changed by a commit
@@ -71,6 +77,14 @@ func CompareDiff(ctx *context.APIContext) {
 	}
 	defer headGitRepo.Close()
 
+	if ctx.FormBool("diff") {
+		ctx.Resp.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if err := git.GetRepoRawDiffForFile(headGitRepo, ci.MergeBase, ci.HeadCommitID, git.RawDiffNormal, "", ctx.Resp); err != nil {
+			ctx.ServerError("GetRepoRawDiffForFile", err)
+		}
+		return
+	}
+
 	verification := ctx.FormString("verification") == "" || ctx.FormBool("verification")
 	files := ctx.FormString("files") == "" || ctx.FormBool("files")
 
@@ -96,5 +110,8 @@ func CompareDiff(ctx *context.APIContext) {
 		TotalCommits: len(ci.Commits),
 		Commits:      apiCommits,
 		Files:        apiFiles,
+		MergeBase:    ci.MergeBase,
+		HeadCommitID: ci.HeadCommitID,
+		HeadRepoID:   headRepository.ID,
 	})
 }

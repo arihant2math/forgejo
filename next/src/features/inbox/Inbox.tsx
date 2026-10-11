@@ -41,6 +41,7 @@ import {issuePath} from '../issues/edits.ts';
 import {ListCursor} from '../issues/flags.ts';
 import {readAll as markAllRead, setStatus} from './actions.ts';
 import {reasonOf} from './reason.ts';
+import {InboxFilters} from './InboxFilters.tsx';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
 import {activityOf, type InboxResult, inboxRows, togglePin} from './inbox.ts';
 
@@ -67,7 +68,7 @@ class InboxModel {
     this.overlay = overlay;
     this.view = view;
     this.off = pool.onApplied((changes) => {
-      if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository' || c.model === 'Issue')) return;
+      if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository' || c.model === 'Issue' || c.model === 'PullRequest' || c.model === 'Review' || c.model === 'Comment' || c.model === 'IssueAssignee' || c.model === 'User')) return;
       this.scheduled = true;
       requestAnimationFrame(() => {
         this.scheduled = false;
@@ -99,7 +100,28 @@ class InboxModel {
       const t0 = performance.now();
       // Already in order: inboxRows' own sort of a sorted list is linear.
       const issues = this.pool.model('Issue');
-      const out = inboxRows(all, {unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
+      const out = inboxRows(all, {...v, unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
+        reason: (n) => {
+          const me = this.app.session?.userId ?? 0;
+          const why = reasonOf(this.pool, n, me, this.pool.model('User').get(me)?.data.login)?.why;
+          const issue = issues.get(n.issue_id)?.data;
+          if (v.reason === 'participating') {
+            return me && (issue?.poster_id === me || [...this.pool.model('Comment').by('issue_id', n.issue_id)].some((c) => c.data.poster_id === me) || [...this.pool.model('Review').by('issue_id', n.issue_id)].some((r) => r.data.reviewer_id === me && r.data.state !== 'REQUEST_REVIEW')) ? 'participating' : undefined;
+          }
+          if (why === 'Review requested') return 'review-requested';
+          if (why === 'Mentioned') return 'mentioned';
+          if (why === 'Assigned') return 'assigned';
+          return undefined;
+        },
+        subject: (n) => {
+          const issue = issues.get(n.issue_id)?.data;
+          if (issue) {
+            const merged = [...this.pool.model('PullRequest').by('issue_id', issue.id)].some((p) => p.data.merged);
+            return {type: issue.is_pull ? 'pr' : 'issue', state: merged ? 'merged' : issue.state};
+          }
+          const subject = knownSubject(this.app, n.id);
+          return subject ? {type: subject.pull ? 'pr' : 'issue', state: subject.state} : undefined;
+        },
         status: (n) => (statuses.get(n.id) as string | undefined) ?? n.status,
         repoName: (id) => this.pool.model('Repository').get(id)?.data.full_name ?? '',
         activity: (n) => activityOf(n, issues.get(n.issue_id)?.data.updated_at ?? knownSubject(this.app, n.id)?.updated),
@@ -144,7 +166,7 @@ export default observer(function Inbox() {
     model.dispose();
   }, [model]);
   const shown = view.get();
-  const set = (patch: {filter?: InboxSearch['filter'] | undefined; group?: InboxSearch['group'] | undefined}) => {
+  const set = (patch: {[K in keyof InboxSearch]?: InboxSearch[K] | undefined}) => {
     const next = Object.fromEntries(Object.entries({...view.get(), ...patch}).filter(([, v]) => v !== undefined)) as InboxSearch;
     const keep = viewChange();
     pushed.current = next;
@@ -152,7 +174,7 @@ export default observer(function Inbox() {
       view.set(next);
     });
     afterPaint(() => {
-      void navigate({to: '.', replace: true, ...keep, search: next});
+      void navigate({to: '.', ...keep, search: next});
     });
   };
   const readAll = () => {
@@ -169,6 +191,7 @@ export default observer(function Inbox() {
     <>
       <PageHeader icon={InboxIcon} title="Inbox">
         <SelectionCount cursor={model.cursor}/>
+        <InboxFilters search={shown} set={set}/>
         <Button size="sm" pressed={shown.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
           set({filter: shown.filter === 'unread' ? undefined : 'unread'});
         }}>Unread<UnreadCount/></Button>
@@ -182,13 +205,13 @@ export default observer(function Inbox() {
         </Menu>
         <Button size="sm" variant="ghost" icon={CheckCheck} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
       </PageHeader>
-      <InboxBody model={model} unreadOnly={shown.filter === 'unread'} byRepo={shown.group === 'repo'}/>
+      <InboxBody model={model} unreadOnly={shown.filter === 'unread'} byRepo={shown.group === 'repo'} filtered={[shown.reason, shown.repo, shown.type, shown.state].some((value) => value !== undefined)}/>
     </>
   );
 });
 
 function sameView(a: InboxSearch, b: InboxSearch): boolean {
-  return a.filter === b.filter && a.group === b.group;
+  return a.filter === b.filter && a.group === b.group && a.reason === b.reason && a.repo === b.repo && a.type === b.type && a.state === b.state;
 }
 
 const UnreadCount = observer(function UnreadCount() {
@@ -198,15 +221,15 @@ const UnreadCount = observer(function UnreadCount() {
   return n ? <span className="text-fg-subtle tabular-nums">{n}</span> : null;
 });
 
-const InboxBody = observer(function InboxBody({model, unreadOnly, byRepo}: {model: InboxModel; unreadOnly: boolean; byRepo: boolean}) {
+const InboxBody = observer(function InboxBody({model, unreadOnly, byRepo, filtered}: {model: InboxModel; unreadOnly: boolean; byRepo: boolean; filtered: boolean}) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const {rows} = model.result.get();
   return (
     <PageBody ref={setScroller}>
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
-        <EmptyState icon={BellOff} title={unreadOnly ? 'All caught up' : 'No notifications'}
-          description={unreadOnly ? 'Nothing unread. Pinned and read notifications are under “Unread” off.' : 'Mentions, reviews and activity on what you watch show here.'}/>}
+        <EmptyState icon={BellOff} title={filtered ? 'No matching notifications' : unreadOnly ? 'All caught up' : 'No notifications'}
+          description={filtered ? 'Try changing the filters to see more notifications.' : unreadOnly ? 'Nothing unread. Pinned and read notifications are under “Unread” off.' : 'Mentions, reviews and activity on what you watch show here.'}/>}
     </PageBody>
   );
 });

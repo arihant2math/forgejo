@@ -381,6 +381,26 @@ function deadlineText(d: Comment): ReactNode {
   }
 }
 
+/** Status changes keep the triggering SHA; older events can use the adjacent commit reference. */
+export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
+  const pool = usePool();
+  const comments = [...pool.model('Comment').by('issue_id', d.issue_id)].map((c) => c.data);
+  const previous = comments.filter((c) => c.id < d.id).sort((a, b) => b.id - a.id)[0];
+  const reference = comments.find((c) => c.type === 'commit_ref' && c.commit_id === d.commit_id) ??
+    (previous?.type === 'commit_ref' && previous.poster_id === d.poster_id && previous.created_at === d.created_at ? previous : undefined);
+  const sha = d.commit_id !== '' ? d.commit_id : reference?.commit_id;
+  const repoId = d.ref_repo_id > 0 ? d.ref_repo_id : pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0;
+  const repo = pool.model('Repository').get(repoId)?.data;
+  const pull = [...pool.model('PullRequest').all()].find((p) => p.get('base_repo_id') === repoId &&
+    ((Boolean(sha) && p.get('merge_commit_sha') === sha) || (d.ref_is_pull && p.get('issue_id') === d.ref_issue_id)));
+  const action = d.type === 'close' ? 'closed this' : 'reopened this';
+  const message = reference?.body_html ? textOfMarkup(reference.body_html).trim().split('\n')[0] ?? '' : '';
+  return <>{action}{sha && repo && <> in <TextLink wrap><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
+    <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
+  </CodeLink></TextLink></>}{pull && <> in <IssueRef id={pull.get('issue_id')} from={d.issue_id}/></>}
+  {!pull && d.ref_is_pull && d.ref_issue_id > 0 && <> in <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>}</>;
+});
+
 /** A commit an event names: its short SHA and its message's first line, linking to the commit. */
 const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
   const pool = usePool();
@@ -474,9 +494,9 @@ const IssueRef = observer(function IssueRef({id, from}: {id: number; from: numbe
 function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
   switch (d.type) {
     case 'close':
-      return {icon: CircleCheck, text: 'closed this'};
+      return {icon: CircleCheck, text: <StatusEvent d={d}/>};
     case 'reopen':
-      return {icon: CircleDot, text: 'reopened this'};
+      return {icon: CircleDot, text: <StatusEvent d={d}/>};
     case 'merge_pull':
       return {icon: GitMerge, text: 'merged this'};
     case 'label':

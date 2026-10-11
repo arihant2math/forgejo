@@ -6,6 +6,7 @@ package issue
 import (
 	"context"
 
+	"forgejo.org/models/db"
 	issues_model "forgejo.org/models/issues"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/log"
@@ -22,6 +23,16 @@ func ChangeStatus(ctx context.Context, issue *issues_model.Issue, doer *user_mod
 			}
 		}
 		return err
+	}
+
+	if comment != nil && prInfo != nil && prInfo.MergedCommitID != "" {
+		comment.CommitSHA = prInfo.MergedCommitID
+		if prInfo.BaseRepo != nil {
+			comment.RefRepoID = prInfo.BaseRepo.ID
+		}
+		if _, err := db.GetEngine(ctx).ID(comment.ID).Cols("commit_sha", "ref_repo_id").Update(comment); err != nil {
+			return err
+		}
 	}
 
 	if closed {

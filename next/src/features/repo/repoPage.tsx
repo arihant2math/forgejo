@@ -7,6 +7,7 @@
 // the page's title and controls), and the page for a repository that is not
 // available here.
 
+import {RepoSocial} from './RepoSocial.tsx';
 import {Link, useLoaderData, useNavigate, useParams, useRouter, useRouterState} from '@tanstack/react-router';
 import {AppWindow, BookOpen, ChartLine, ChevronDown, ChevronRight, CircleDot, CirclePlay, Code2, GitPullRequest, KanbanSquare, Settings, Slash} from 'lucide-react';
 import {reaction, runInAction} from 'mobx';
@@ -139,12 +140,12 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
   }
   const tabTitle = page && !home ? `${page} · ${owner}/${repo}` : `${owner}/${repo}`;
   if (repoId === undefined || detail) {
-    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{children}</PageHeader>;
+    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{repoId !== undefined && <RepoSocial owner={owner} repo={repo} repoId={repoId}/>} {children}</PageHeader>;
   }
   return home ?
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} actions={children}
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} actions={<><RepoSocial owner={owner} repo={repo} repoId={repoId}/>{children}</>}
       tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} actions={<RepoSocial owner={owner} repo={repo} repoId={repoId}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
       icon={icon} title={title} docTitle={tabTitle}>{children}</StackedPageHeader>;
 }
 

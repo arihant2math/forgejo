@@ -62,6 +62,7 @@ export const KEYMAP = {
   'inbox.read': {keys: 'e', label: 'Mark read', scope: 'inbox'},
   'inbox.unread': {keys: 'u', label: 'Mark unread', scope: 'inbox'},
   'inbox.pin': {keys: 'shift+p', label: 'Pin or unpin', scope: 'inbox'},
+  'inbox.unsubscribe': {keys: 'shift+u', label: 'Unsubscribe from thread', scope: 'inbox'},
   'inbox.readAll': {keys: 'shift+e', label: 'Mark all read', scope: 'inbox'},
   'board.open': {keys: 'enter', label: 'Open the card', scope: 'board', local: true},
   'board.arrows': {keys: 'arrowup arrowdown arrowleft arrowright', label: 'Move the cursor', scope: 'board', local: true},

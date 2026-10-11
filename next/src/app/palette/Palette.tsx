@@ -5,7 +5,7 @@
 // requests found in the in-memory pool (search.ts) as you type. Its own
 // chunk, preloaded when the app is idle.
 
-import {useNavigate} from '@tanstack/react-router';
+import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {
   AppWindow, BookMarked, BookPlus, Building2, CircleCheck, CloudUpload, Code2, CircleDot, Compass, FileCode, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home,
   Import, Inbox, KanbanSquare, KeyRound, Layers, Keyboard, LogOut, Mail, Milestone, Monitor, Moon, Palette as PaletteIcon, PanelLeft, Settings, SquarePen, Sun, SunMoon, User,
@@ -18,7 +18,11 @@ import {canGoToCode, GO_CODE_WHY, goToCode} from '../goto.ts';
 import type {LucideIcon} from '../../ui/index.ts';
 import {openCreate} from '../create.ts';
 import {lastBoard} from '../lastBoard.ts';
-import {notify} from '../notices.ts';
+import {notify, undoLatest} from '../notices.ts';
+import {httpsCloneUrl} from '../../code/clone.ts';
+import {parseCodePath, resolveRef} from '../../code/refs.ts';
+import {refTable} from '../../features/code/hooks.ts';
+import {repoAccess} from '../access.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
 import {activeHint, KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
@@ -29,7 +33,7 @@ import {issuePath, issuesOf} from '../../features/issues/edits.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {localSearch} from '../../features/search/local.ts';
-import {searchServer, searchServerRepos, searchServerUsers, type ServerHit, type ServerRepo, type ServerUser} from '../../features/search/server.ts';
+import {searchServer, searchServerOrgs, searchServerRepos, searchServerUsers, type ServerHit, type ServerRepo, type ServerUser} from '../../features/search/server.ts';
 import {viewStore} from '../../features/views/views.ts';
 import type {Issue, Repository} from '../../protocol/types.gen.ts';
 import {searchBoards, searchMilestones, searchPeople} from './entities.ts';
@@ -62,11 +66,12 @@ interface PaletteCommand {
 
 /** Bound shortcuts not listed as page commands: movement (J/K/X/H/L), and the issue pickers (the issue's own group has them). */
 const PAGE_SKIP = new Set<ShortcutId>([
-  'list.next', 'list.prev', 'list.select', 'board.left', 'board.right',
+  'list.next', 'list.prev', 'list.select', 'board.left', 'board.right', 'code.upAlt',
   'issue.state', 'issue.labels', 'issue.assignee', 'issue.milestone', 'issue.priority',
 ]);
 
 const COMMANDS: PaletteCommand[] = [
+  {id: 'undo', icon: CornerDownRight, shortcut: 'undo', aliases: ['undo'], run: (app) => { undoLatest(app); }},
   {id: 'inbox', icon: Inbox, shortcut: 'go.inbox', aliases: ['inbox', 'notifications'], run: (_, nav) => void nav({to: '/notifications'})},
   {id: 'issues', icon: CircleDot, shortcut: 'go.issues', aliases: ['my issues', 'issues'], run: (_, nav) => void nav({to: '/issues'})},
   {id: 'pulls', icon: GitPullRequest, shortcut: 'go.pulls', aliases: ['my pull requests', 'pull requests', 'prs'], keywords: 'pr', run: (_, nav) => void nav({to: '/pulls'})},
@@ -214,6 +219,7 @@ function commandLabel(c: PaletteCommand): string {
 
 function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   const navigate = useNavigate();
+  const pathname = useRouterState({select: (st) => st.location.pathname});
   // Opened with a query (a list's "Search everywhere"): taken once.
   const [query, setQuery] = useState(() => untracked(() => app.ui.paletteQuery));
   useEffect(() => {
@@ -274,14 +280,55 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     },
   })));
 
-  const pageList = onPage.map((id) => ({id, s: matchName(KEYMAP[id].label)})).filter((x) => x.s >= 0);
+  const shortcutMatch = (id: ShortcutId) => {
+    const keys = KEYMAP[id].keys.replaceAll('+', ' ');
+    return words.length && keys === words.join(' ') ? 3 * COMMAND_RANK : matchName(keys);
+  };
+  const splat = /\/-\/next\/code\/[^/]+\/[^/]+\/(.*)$/.exec(pathname)?.[1];
+  const codeRoute = splat === undefined ? undefined : parseCodePath(splat.split('/').map(decodeURIComponent).join('/'));
+  const atCodeRoot = untracked(() => {
+    const pool = app.session?.data.pool;
+    return Boolean(pool && codeRoute?.view === 'src' && resolveRef(refTable(pool, contextRepo), codeRoute.kind, codeRoute.rest)?.path === '');
+  });
+  const pageList = onPage.map((id) => ({id, s: Math.max(matchName(KEYMAP[id].label), shortcutMatch(id))})).filter((x) => x.s >= 0);
   add('On this page', words.length ? actionRank(best(pageList.map((x) => x.s))) : 80, pageList.map(({id}) => ({
-    value: `page:${id}`, icon: CornerDownRight, shortcut: shortcutHint(id), label: KEYMAP[id].label,
+    value: `page:${id}`, icon: CornerDownRight,
+    muted: id === 'code.up' && atCodeRoot,
+    meta: id === 'code.up' && atCodeRoot ? 'Already at the repository root' : undefined,
+    shortcut: id === 'code.up' ? `${shortcutHint(id)} or ${shortcutHint('code.upAlt')}` : shortcutHint(id), label: KEYMAP[id].label,
     // After the palette closed (focus back on the page), as the key would.
     run: () => requestAnimationFrame(() => {
-      shortcuts.run(id);
+      if (id === 'code.up' && atCodeRoot) {
+        notify(app, {tone: 'neutral', title: 'Already at the repository root'});
+      } else shortcuts.run(id);
     }),
   })));
+
+  const repo = untracked(() => app.session?.data.pool.model('Repository').get(contextRepo)?.data);
+  if (repo) {
+    const base = `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}`;
+    const sections = ['Issues', 'Pull requests', 'Commits', 'Branches', 'Releases', 'Actions', 'Wiki', 'Activity', 'Projects',
+      ...app.session && repoAccess(app.session, contextRepo) === 'admin' ? ['Settings'] : []];
+    const rows = sections.map((label) => ({label, s: Math.max(matchName(label), matchName(`Go to ${label} of ${repo.full_name}`))})).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s);
+    add('This repository', words.length ? actionRank(best(rows.map((x) => x.s))) + COMMAND_RANK : 75, rows.map(({label}) => ({
+      value: `repo-tab:${label}`, icon: BookMarked, label: `Go to ${label} of ${repo.full_name}`, meta: label === 'Projects' ? 'classic UI' : undefined,
+      run: () => {
+        const section = label === 'Pull requests' ? 'pulls' : label.toLowerCase();
+        if (['commits', 'branches', 'releases', 'actions'].includes(section)) {
+          const path = section === 'commits' ? `commits/branch/${repo.default_branch}` : section;
+          void navigate({to: '/-/next/code/$owner/$repo/$', params: {owner: repo.owner_name, repo: repo.name, _splat: `${path}/-`}});
+        } else if (section === 'projects') location.assign(classicHref(app, `${base}/projects`));
+        else void navigate({to: `${base}/${section}`});
+      },
+    })));
+    if (matchName('Copy the clone URL') >= 0) add('Clone', words.length ? COMMAND_RANK + 10 : 74, [{
+      value: 'repo-clone', icon: Code2, label: 'Copy the clone URL', run: () => {
+        void navigator.clipboard.writeText(httpsCloneUrl(app.config.app_url, repo.owner_name, repo.name)).then(() => {
+          notify(app, {tone: 'success', title: 'Copied'});
+        }, () => { notify(app, {tone: 'neutral', title: 'Could not copy'}); });
+      },
+    }]);
+  }
 
   const views = untracked(() => (app.session ? viewStore(app.session.userId).views.slice() : [])).map((v) => ({v, s: match(v.name)})).filter((x) => x.s >= 0);
   add('Views', words.length ? best(views.map((x) => x.s)) + NAMED_BONUS : 70, views.map(({v}) => ({
@@ -354,7 +401,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
         run: () => void navigate({to: '/$owner/$repo', params: {owner: r.owner, repo: r.name}}),
       })),
       ...more.users.filter((u) => !shownPeople.has(u.id)).map((u) => ({
-        value: `server-user:${String(u.id)}`, icon: User, meta: u.fullName, label: u.login,
+        value: `server-user:${String(u.id)}`, icon: u.organization ? Building2 : User, meta: u.fullName, label: u.login,
         run: () => void navigate({to: '/$owner', params: {owner: u.login}}),
       })),
       ...more.server.map((h) => ({
@@ -371,9 +418,9 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   // words (Linear: "new issue" is the command, not an issue titled "…new-issue…"); keywords alone rank as any match.
   const commands = untracked(() => COMMANDS.filter((c) => !c.hidden?.()).map((c) => {
     const label = commandLabel(c);
-    const s = Math.max(matchName(label), ...(c.aliases ?? []).map((a) => matchName(a)));
+    const s = Math.max(matchName(label), ...(c.aliases ?? []).map((a) => matchName(a)), c.shortcut ? shortcutMatch(c.shortcut) : -1);
     return {c, label, s, k: matchName(`${label} ${(c.aliases ?? []).join(' ')} ${c.keywords ?? ''}`)};
-  })).filter((x) => x.k >= 0).sort((a, b) => b.s - a.s);
+  })).filter((x) => x.k >= 0 || x.s >= 0).sort((a, b) => b.s - a.s);
   // A command the query names outright ("sign out", "logout") is the default, destructive or not: Enter runs it
   // (signing out still asks first when changes are not synced).
   const typed = words.join(' ');
@@ -401,7 +448,8 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   // The selection: the first row (never a destructive one) whenever the results change; the user's arrow keys move it.
   const values = groups.flatMap((g) => g.rows.map((r) => r.value));
   const sig = `${deferred}\u0000${values.join('\u0000')}`;
-  const first = groups.flatMap((g) => g.rows).find((r) => !r.destructive)?.value ?? '';
+  const rows = groups.flatMap((g) => g.rows);
+  const first = rows[0]?.destructive ? '' : rows.find((r) => !(r.muted && r.value === 'page:code.up'))?.value ?? '';
   const [sel, setSel] = useState({sig: '', value: ''});
   let selected = sel.value;
   if (sel.sig !== sig) {
@@ -409,7 +457,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     setSel({sig, value: first});
   }
   return (
-    <CommandRoot label="Command menu" value={selected} onValueChange={(v) => {
+    <CommandRoot manualSelection label="Command menu" value={selected} onValueChange={(v) => {
       setSel({sig, value: v});
     }}>
       <CommandInput value={query} onValueChange={setQuery} placeholder="Search repositories, issues, files, people and commands…"/>
@@ -499,7 +547,7 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
       };
       ask('server', searchServer(app, q, ctl.signal));
       ask('repos', searchServerRepos(app, q, ctl.signal));
-      ask('users', searchServerUsers(app, q, ctl.signal));
+      ask('users', Promise.all([searchServerUsers(app, q, ctl.signal).catch(() => []), searchServerOrgs(app, q, ctl.signal).catch(() => [])]).then((parts) => parts.flat()));
     }, SERVER_DELAY) : undefined;
     return () => {
       ctl.abort();

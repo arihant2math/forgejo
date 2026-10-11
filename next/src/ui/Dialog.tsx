@@ -15,6 +15,7 @@ const widths = {sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg'} as const;
 export interface DialogProps {
   open?: boolean | undefined;
   onOpenChange?: ((open: boolean) => void) | undefined;
+  onCloseAutoFocus?: ((event: Event) => void) | undefined;
   /** Uncontrolled: the element that opens the dialog (wrap it in <DialogTrigger asChild>). */
   trigger?: ReactNode;
   title: string;
@@ -39,7 +40,7 @@ export interface DialogProps {
 }
 
 /** A modal dialog near the top of the viewport; Esc and the overlay close it. */
-export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', initialFocus = 'first', scroll, children, returnFocus}: DialogProps) {
+export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', initialFocus = 'first', scroll, children, returnFocus, onCloseAutoFocus}: DialogProps) {
   const ret = useReturnFocus();
   const focus = initialFocus === 'first' ? ret : {
     ...ret,
@@ -57,6 +58,8 @@ export function Dialog({open, onOpenChange, trigger, title, description, footer,
           <D.Content
             {...focus}
             onCloseAutoFocus={(e) => {
+              onCloseAutoFocus?.(e);
+              if (e.defaultPrevented) return;
               const target = returnFocus?.();
               if (target?.isConnected) {
                 e.preventDefault();

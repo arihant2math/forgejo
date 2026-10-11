@@ -136,7 +136,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
         setFocused(true);
       }} onBlur={() => {
         setFocused(false);
-      }} className="relative focus-visible:outline-offset-0" style={{height: v.getTotalSize()}}>
+      }} className="relative focus-visible:outline-none" style={{height: v.getTotalSize()}}>
       {v.getVirtualItems().map((it) => {
         const item = items[it.index];
         if (item === undefined) return null;

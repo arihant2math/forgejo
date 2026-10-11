@@ -14,7 +14,8 @@ import {Icon, type LucideIcon} from './Icon.tsx';
 import {ItemBody} from './ItemBody.tsx';
 import {floating, iconSlot, menuItem, sectionLabel} from './recipes.ts';
 
-const content = cx(floating, 'z-popover max-h-popper min-w-48 max-w-sm overflow-y-auto p-1');
+const EDGE_GAP = 8;
+const content = cx(floating, 'z-popover max-h-popper min-w-48 max-w-menu overflow-y-auto p-1');
 
 export interface MenuItemProps {
   icon?: LucideIcon | undefined;
@@ -75,7 +76,7 @@ function makeItems(P: Parts) {
           <Icon icon={ChevronRight} size="sm" className="text-fg-muted"/>
         </P.SubTrigger>
         <P.Portal>
-          <P.SubContent sideOffset={4} className={content}>{children}</P.SubContent>
+          <P.SubContent sideOffset={4} collisionPadding={EDGE_GAP} sticky="always" className={content}>{children}</P.SubContent>
         </P.Portal>
       </P.Sub>
     );
@@ -144,7 +145,7 @@ export function MenuContent({sideOffset = 4, align = 'start', onCloseAutoFocus, 
   const escaped = useRef(false);
   return (
     <D.Portal>
-      <D.Content ref={ref} sideOffset={sideOffset} align={align} className={content} onFocusOutside={keepOnFocusOutside} onPointerDownOutside={(e) => {
+      <D.Content ref={ref} collisionPadding={EDGE_GAP} sideOffset={sideOffset} align={align} className={content} onFocusOutside={keepOnFocusOutside} onPointerDownOutside={(e) => {
         if (onOwnTrigger(e, ref.current)) e.preventDefault();
       }} onEscapeKeyDown={(e) => {
         onEscapeKeyDown?.(e);
@@ -189,7 +190,7 @@ export const {
 export function ContextMenuContent({onCloseAutoFocus, ...props}: Omit<ComponentProps<typeof C.Content>, 'className' | 'style'>) {
   return (
     <C.Portal>
-      <C.Content className={content} onFocusOutside={keepOnFocusOutside} onCloseAutoFocus={(e) => {
+      <C.Content collisionPadding={EDGE_GAP} sticky="always" className={content} onFocusOutside={keepOnFocusOutside} onCloseAutoFocus={(e) => {
         onCloseAutoFocus?.(e);
         keepDialogFocus(e);
         // Back to the list it was opened on (its cursor shows, J/K go on), not to the row the right click focused,

@@ -1,9 +1,27 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {scrub} from '../../app/trusted.ts';
-import {appLinks, toggleTask} from './Markdown.tsx';
+import {appLinks, scrollMarkdownAnchor, toggleTask} from './Markdown.tsx';
+
+test('markdown anchors scroll after rendering, with Forgejo heading prefixes', () => {
+  const root = document.createElement('div');
+  root.innerHTML = '<h2 id="user-content-install">Install</h2><h2 id="user-content-café">Café</h2>';
+  const headings = [...root.querySelectorAll('h2')];
+  const install = vi.fn();
+  const cafe = vi.fn();
+  const [first, second] = headings;
+  if (!first || !second) throw new Error('Missing test headings');
+  first.scrollIntoView = install;
+  second.scrollIntoView = cafe;
+  scrollMarkdownAnchor(root, 'install');
+  scrollMarkdownAnchor(root, '#user-content-install');
+  scrollMarkdownAnchor(root, 'caf%C3%A9');
+  scrollMarkdownAnchor(root, '%invalid');
+  expect(install).toHaveBeenCalledTimes(2);
+  expect(cafe).toHaveBeenCalledWith({block: 'start'});
+});
 
 test('a task is ticked by its index, outside fenced code', () => {
   const text = '- [ ] one\n```\n- [ ] not a task\n```\n1. [x] two\n  * [ ] three';

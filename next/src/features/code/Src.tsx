@@ -154,7 +154,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
         <SegmentedControl label="Show the file as" value={blame ? 'blame' : 'src'} onChange={(v) => {
-          void navigate(codeTo(owner, repo, codeSplat(v, at, at.path)));
+          void navigate({...codeTo(owner, repo, codeSplat(v, at, at.path)), hash: true});
         }} options={[{value: 'src', label: 'Source'}, {value: 'blame', label: 'Blame'}]}/>
       )}
       {file && (
@@ -298,21 +298,7 @@ export function hashRange(hash: string): [number, number] | undefined {
 const TextFile = observer(function TextFile({repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
-  // The lines named by the address's #L…: tinted, scrolled to — when the page opens and whenever the hash changes
-  // (a click on a line number, a link to another line of the same file, Back).
-  const hash = useRouterState({select: (s) => s.location.hash});
-  const range = useMemo(() => hashRange(hash), [hash]);
-  const navigate = useNavigate();
-  const view = useRef<LinesHandle>(null);
-  const [initial] = useState(() => range?.[0]);
-  useEffect(() => {
-    if (range) view.current?.scrollToLine(range[0]);
-  }, [range]);
-  const pick = useCallback((n: number, extend: boolean) => {
-    const from = extend && range ? range[0] + 1 : n;
-    const next = from === n ? `L${String(n)}` : `L${String(Math.min(from, n))}-L${String(Math.max(from, n))}`;
-    void navigate({to: '.', hash: next, search: true, replace: true});
-  }, [navigate, range]);
+  const {range, view, initial, pick} = useLineLinks();
   const line = useCallback((i: number) => {
     const named = range !== undefined && i >= range[0] && i <= range[1];
     return (
@@ -329,6 +315,23 @@ const TextFile = observer(function TextFile({repoId, entry, at, text, scroller, 
     </>
   );
 });
+
+function useLineLinks() {
+  const hash = useRouterState({select: (s) => s.location.hash});
+  const range = useMemo(() => hashRange(hash), [hash]);
+  const navigate = useNavigate();
+  const view = useRef<LinesHandle>(null);
+  const [initial] = useState(() => range?.[0]);
+  useEffect(() => {
+    if (range) view.current?.scrollToLine(range[0]);
+  }, [range]);
+  const pick = useCallback((n: number, extend: boolean) => {
+    const from = extend && range ? range[0] + 1 : n;
+    const next = from === n ? `L${String(n)}` : `L${String(Math.min(from, n))}-L${String(Math.max(from, n))}`;
+    void navigate({to: '.', hash: next, search: true, replace: true});
+  }, [navigate, range]);
+  return {range, view, initial, pick};
+}
 
 /** RUM-style measure for the e2e: a file view's first paint after the navigation that opened it. */
 function useMarkPainted(path: string): void {
@@ -379,6 +382,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
   const blame = useLoad(key, () => src.peek<APIBlame>(key), () => src.blame(repoId, at.sha, at.path));
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
+  const {range, view, initial, pick} = useLineLinks();
   // Per line: the part it belongs to (index), and whether it starts the part.
   const parts = useMemo(() => {
     if (blame.state !== 'ready') return undefined;
@@ -395,7 +399,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
     const commit = b && part ? b.commits[part.sha] : undefined;
     const first = part !== undefined && part.start_line - 1 === i;
     return (
-      <CodeLine gutter={<>
+      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={range !== undefined && i >= range[0] && i <= range[1]} gutter={<>
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
             <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-2">
@@ -404,19 +408,19 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
             </span>
           )}
         </BlameCell>
-        <LineNo n={i + 1}/>
+        <LineNo n={i + 1} onPick={pick}/>
       </>}>
         <CodeTokens text={lines[i] ?? ''} hl={hl} line={i}/>
       </CodeLine>
     );
-  }, [parts, blame, lines, hl, owner, repo]);
+  }, [parts, blame, lines, hl, owner, repo, range, pick]);
   if (blame.state !== 'ready') return <Unloaded loaded={blame} what="This blame" skeleton={<CodeSkeleton/>}/>;
   return (
     <>
       <FileMeta lines={lines.length} size={entry.size}>
         {blame.value.uses_ignore_revs && <span>Ignoring the revisions in .git-blame-ignore-revs</span>}
       </FileMeta>
-      <Lines count={lines.length} scroller={scroller} line={line} label={`Blame of ${at.path}`}/>
+      <Lines ref={view} initial={initial} count={lines.length} scroller={scroller} line={line} label={`Blame of ${at.path}`}/>
     </>
   );
 });

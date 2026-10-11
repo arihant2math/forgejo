@@ -16,6 +16,7 @@ import {AvailableOffline} from '../../app/Available.tsx';
 import {missingWords} from '../../app/Missing.tsx';
 import {EmptyState, Skeleton} from '../../ui/index.ts';
 import type {Loaded} from './hooks.ts';
+import {FileOperations} from './FileOperations.tsx';
 
 /** `action`: the way on from a "Not found" (the list it would be in). */
 export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
@@ -45,6 +46,6 @@ export const EmptyRepo = observer(function EmptyRepo({owner, repo, repoId}: {own
   const commands = `git remote add origin ${httpsCloneUrl(app.config.app_url, owner, repo)}\ngit push -u origin ${branch}`;
   return (
     <EmptyState icon={FolderGit2} title="This repository is empty" description="Push a first commit to it from an existing repository:"
-      action={<pre className="max-w-full overflow-x-auto rounded-md border border-border bg-canvas px-3 py-2 text-left font-mono text-code text-fg select-all">{commands}</pre>}/>
+      action={<FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha: '', path: ''}}><pre className="max-w-full overflow-x-auto rounded-md border border-border bg-canvas px-3 py-2 text-left font-mono text-code text-fg select-all">{commands}</pre></FileOperations>}/>
   );
 });

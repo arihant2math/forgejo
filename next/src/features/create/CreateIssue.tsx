@@ -69,6 +69,31 @@ function repoChoices(app: App, board?: {projectId: number}): {id: number; name: 
     .map((r) => ({id: r.id, name: r.full_name})).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** A fresh device can recover a repository from the user's synced issue and timeline activity. */
+export function recentActivityRepo(app: App, allowed: readonly {id: number}[]): number {
+  const session = app.session;
+  if (!session) return 0;
+  const pool = session.data.pool;
+  const ids = new Set(allowed.map((r) => r.id));
+  let latest = '';
+  let repoId = 0;
+  const consider = (id: number, date: string) => {
+    if (ids.has(id) && date > latest) {
+      latest = date;
+      repoId = id;
+    }
+  };
+  for (const {data: issue} of pool.model('Issue').all()) {
+    if (issue.poster_id === session.userId) consider(issue.repo_id, issue.created_at);
+  }
+  for (const {data: comment} of pool.model('Comment').all()) {
+    if (comment.poster_id !== session.userId) continue;
+    const issue = pool.model('Issue').get(comment.issue_id)?.data;
+    if (issue) consider(issue.repo_id, comment.created_at);
+  }
+  return repoId;
+}
+
 /** One opening's form. */
 class Form {
   repoId: number;
@@ -92,7 +117,7 @@ class Form {
     this.board = board;
     const repos = repoChoices(app, board);
     // The page's repository (or the one last opened, or last created in); its own draft, if any.
-    this.repoId = [initialRepo, lastRepo()].find((id) => id > 0 && repos.some((r) => r.id === id)) ?? repos[0]?.id ?? 0;
+    this.repoId = [initialRepo, lastRepo(), recentActivityRepo(app, repos)].find((id) => id > 0 && repos.some((r) => r.id === id)) ?? repos[0]?.id ?? 0;
     const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
     this.title = text.split('\n')[0] ?? '';
     this.body = text.split('\n').slice(2).join('\n');
@@ -237,12 +262,12 @@ export const CreateIssue = observer(function CreateIssue() {
     <Dialog open={Boolean(req)} onOpenChange={(o) => {
       if (!o) close();
     }} title="New issue" size="lg" footer={form && <Footer form={form} onCancel={close} onCreate={create}/>}>
-      {form && <Fields form={form} onCreate={create}/>}
+      {form && <Fields form={form} onCreate={create} onClose={close}/>}
     </Dialog>
   );
 });
 
-const Fields = observer(function Fields({form, onCreate}: {form: Form; onCreate: () => void}) {
+const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; onCreate: () => void; onClose: () => void}) {
   const app = useApp();
   // Written on the way out (Esc, the overlay, a route change).
   useEffect(() => () => {
@@ -255,15 +280,21 @@ const Fields = observer(function Fields({form, onCreate}: {form: Form; onCreate:
   }
   // ⌘↵ creates from anywhere in the form (the Write/Preview tabs, the property buttons), not only from the fields.
   return (
-    <div className="flex flex-col gap-3" onKeyDown={(e) => {
+    <div className="flex flex-col gap-3" onKeyDownCapture={(e) => {
+      if (e.key === 'Escape' && e.target instanceof HTMLElement && e.target.closest('button[aria-expanded="false"]')) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    }} onKeyDown={(e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) {
         e.preventDefault();
         onCreate();
       }
     }}>
-      <Properties form={form}/>
       <Title form={form} onCreate={onCreate}/>
       <Description form={form} onCreate={onCreate}/>
+      <Properties form={form}/>
     </div>
   );
 });

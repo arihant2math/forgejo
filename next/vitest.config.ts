@@ -4,8 +4,19 @@
 import react from '@vitejs/plugin-react';
 import {defineConfig} from 'vitest/config';
 
-// One Vitest project per suite. `npm test` runs "unit"; B10 adds a
-// "conformance" project (Node environment, conformance/**) next to it.
+// Keep pure tests in Node, without paying for a fresh jsdom per file.
+// Include browser-dependent imports too, not only tests that directly use the DOM.
+const domTests = [
+  'src/**/*.test.tsx',
+  ...[
+    'sync/client', 'sync/data', 'sync/startup', 'auth/auth', 'sw/routes',
+    'app/trusted', 'app/splash', 'app/config', 'app/rum', 'app/routes', 'app/shortcuts/registry',
+    'features/issue/markdown', 'features/issues/closed', 'features/issues/list', 'features/views/views',
+    'features/editor/preview', 'features/new/forms', 'features/usersettings/data',
+    'intents/executor', 'code/logfeed',
+  ].map((path) => `src/${path}.test.ts`),
+];
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -14,8 +25,19 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
+          environment: 'node',
+          maxWorkers: 4,
+          include: ['src/**/*.test.ts', 'tools/**/*.test.ts', 'lint/**/*.test.ts'],
+          exclude: domTests,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'unit-dom',
           environment: 'jsdom',
-          include: ['src/**/*.test.{ts,tsx}', 'tools/**/*.test.ts', 'lint/**/*.test.ts'],
+          maxWorkers: 4,
+          include: domTests,
           setupFiles: ['src/test/setup.ts'],
         },
       },

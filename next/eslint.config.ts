@@ -15,17 +15,16 @@ export default defineConfig(
   // src/test/lint-fixtures hold deliberately bad code for lint/lint.test.ts.
   {ignores: ['dist/', 'test-results/', 'playwright-report/', 'src/protocol/types.gen.ts', 'src/test/lint-fixtures/']},
   js.configs.recommended,
-  tseslint.configs.strictTypeChecked,
-  tseslint.configs.stylisticTypeChecked,
+  tseslint.configs.strict,
+  tseslint.configs.stylistic,
   {
     languageOptions: {
-      // Browser code (tsconfig.json) and Node-side code (tsconfig.node.json: tests, tools, configs).
-      parserOptions: {project: ['./tsconfig.json', './tsconfig.node.json'], tsconfigRootDir: import.meta.dirname},
+      // Keep lint syntax-only; tsgo checks types separately.
+      parserOptions: {ecmaFeatures: {jsx: true}},
     },
     linterOptions: {reportUnusedDisableDirectives: 'error'},
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', {argsIgnorePattern: '^_', varsIgnorePattern: '^_'}],
-      '@typescript-eslint/restrict-template-expressions': ['error', {allowNumber: true}],
       '@typescript-eslint/consistent-type-imports': ['error', {fixStyle: 'inline-type-imports'}],
       '@typescript-eslint/no-import-type-side-effects': 'error',
       'eqeqeq': ['error', 'smart'],

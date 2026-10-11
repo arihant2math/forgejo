@@ -15,6 +15,7 @@ const widths = {sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg'} as const;
 export interface DialogProps {
   open?: boolean | undefined;
   onOpenChange?: ((open: boolean) => void) | undefined;
+  onCloseAutoFocus?: ((event: Event) => void) | undefined;
   /** Uncontrolled: the element that opens the dialog (wrap it in <DialogTrigger asChild>). */
   trigger?: ReactNode;
   title: string;
@@ -37,7 +38,7 @@ export interface DialogProps {
 }
 
 /** A modal dialog near the top of the viewport; Esc and the overlay close it. */
-export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', initialFocus = 'first', scroll, children}: DialogProps) {
+export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', initialFocus = 'first', scroll, children, onCloseAutoFocus}: DialogProps) {
   const ret = useReturnFocus();
   const focus = initialFocus === 'first' ? ret : {
     ...ret,
@@ -54,6 +55,10 @@ export function Dialog({open, onOpenChange, trigger, title, description, footer,
         <D.Overlay className={overlay}>
           <D.Content
             {...focus}
+            onCloseAutoFocus={(e) => {
+              onCloseAutoFocus?.(e);
+              if (!e.defaultPrevented) focus.onCloseAutoFocus(e);
+            }}
             {...(description ? {} : {'aria-describedby': undefined})}
             className={cx(dialogPanel, 'flex flex-col gap-3 p-4 focus-visible:outline-none', widths[size])}>
             <div className="flex flex-col gap-1">

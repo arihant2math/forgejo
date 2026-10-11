@@ -229,7 +229,7 @@ const InboxBody = observer(function InboxBody({model, unreadOnly, byRepo, filter
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
         <EmptyState icon={BellOff} title={filtered ? 'No matching notifications' : unreadOnly ? 'All caught up' : 'No notifications'}
-          description={filtered ? 'Try changing the filters to see more notifications.' : unreadOnly ? 'Nothing unread. Pinned and read notifications are under “Unread” off.' : 'Mentions, reviews and activity on what you watch show here.'}/>}
+          description={filtered ? 'Try changing the filters to see more notifications.' : unreadOnly ? 'Nothing unread. Pinned and read notifications are under “Unread” off.' : 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}/>}
     </PageBody>
   );
 });

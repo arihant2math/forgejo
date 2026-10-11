@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {act, render, screen, within} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -158,5 +158,47 @@ describe('the repository home\'s side pane', () => {
       }));
     });
     expect(stars.textContent).toBe('13stars');
+  });
+});
+
+describe('the header\'s Star and Watch buttons', () => {
+  test('show the About counts and follow them live (#202)', async () => {
+    const parts = session();
+    await renderHome(parts);
+    const star = screen.getByRole('button', {name: /^(Star|Unstar)/});
+    const watch = screen.getByRole('button', {name: /^(Watch|Watching)/});
+    expect(star.textContent).toMatch(/12$/);
+    expect(watch.textContent).toMatch(/3$/);
+    act(() => {
+      parts.s.data.put('Repository', 'repo:20', repo(20, user(2, 'acme', 'organization'), 'website', {
+        description: 'The public website.', stars_count: 11, watchers_count: 4, forks_count: 1, fork: true, parent_id: 22,
+      }));
+    });
+    expect(star.textContent).toMatch(/11$/);
+    expect(watch.textContent).toMatch(/4$/);
+  });
+
+  test('a releases-only watch is shown as such, never as "All activity"; releases are said to come by email (#198, #201)', async () => {
+    const parts = session();
+    parts.s.auth.token = () => Promise.resolve('token');
+    // API v1 says only "watching" (any selection); the pool's Watch row says what.
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      const path = new URL(url, 'http://localhost').pathname;
+      const status = path.endsWith('/subscription') ? 200 : 404;
+      return Promise.resolve(new Response(status === 200 ? JSON.stringify({subscribed: true}) : '{}', {status, headers: {'Content-Type': 'application/json'}}));
+    }));
+    try {
+      parts.s.data.put('Watch', 'user:1', {id: 1, user_id: 1, repo_id: 20, automatic: false, issues: false, pull_requests: false, releases: true, created_at: T, updated_at: T});
+      await renderHome(parts);
+      const watch = screen.getByRole('button', {name: /^Watching/});
+      expect(watch.textContent).toMatch(/3$/);
+      await waitFor(() => { expect((watch as HTMLButtonElement).disabled).toBe(false); });
+      fireEvent.pointerDown(watch, {button: 0, ctrlKey: false});
+      const custom = await screen.findByRole('menuitem', {name: /^Custom: releases ✓/});
+      expect(custom.getAttribute('href')).toBe('/acme/website?ui=classic');
+      expect(screen.getByRole('menuitem', {name: 'All activity'})).toBeTruthy();
+      expect(screen.getByRole('menuitem', {name: 'Participating and mentions'})).toBeTruthy();
+      expect(screen.getByText(/New releases are announced by email only/)).toBeTruthy();
+    } finally { vi.unstubAllGlobals(); }
   });
 });

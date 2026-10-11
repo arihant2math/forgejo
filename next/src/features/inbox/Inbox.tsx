@@ -50,7 +50,7 @@ import {issuePath} from '../issues/edits.ts';
 import {KeyedFlags} from '../issues/flags.ts';
 import {readAll as markAllRead, setStatus, type StatusTo, triage, unsubscribe, unsubscribeReason} from './actions.ts';
 import {InboxCursor} from './cursor.ts';
-import {reasonOf} from './reason.ts';
+import {participates, reasonOf} from './reason.ts';
 import {askServerReasons, serverReasons} from './serverReasons.ts';
 import {InboxFilters} from './InboxFilters.tsx';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
@@ -127,11 +127,9 @@ class InboxModel {
       const out = inboxRows(all, {...v, unread: v.filter === 'unread', working: v.filter === undefined, byRepo: v.group === 'repo'}, {
         reason: (n) => {
           const me = this.app.session?.userId ?? 0;
-          const why = reasonOf(this.pool, n, me, this.pool.model('User').get(me)?.data.login, server)?.why;
-          const issue = issues.get(n.issue_id)?.data;
-          if (v.reason === 'participating') {
-            return me && (issue?.poster_id === me || [...this.pool.model('Comment').by('issue_id', n.issue_id)].some((c) => c.data.poster_id === me) || [...this.pool.model('Review').by('issue_id', n.issue_id)].some((r) => r.data.reviewer_id === me && r.data.state !== 'REQUEST_REVIEW')) ? 'participating' : undefined;
-          }
+          const myLogin = this.pool.model('User').get(me)?.data.login;
+          if (v.reason === 'participating') return participates(this.pool, n, me, myLogin, server) ? 'participating' : undefined;
+          const why = reasonOf(this.pool, n, me, myLogin, server)?.why;
           if (why === 'Review requested') return 'review-requested';
           if (why === 'Mentioned') return 'mentioned';
           if (why === 'Assigned') return 'assigned';

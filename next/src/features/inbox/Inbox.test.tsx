@@ -237,6 +237,25 @@ test('mentions and review requests come from the server, also for issues never o
   });
 });
 
+test('Reason: Participating lists the threads that mention the viewer or are assigned to them (#260)', async () => {
+  search = {mentioned: [100, 103], review_requested: []};
+  const {router, s} = await renderInbox();
+  // "Follow-up 2" is assigned to alice; "cache: evict" to someone else.
+  s.data.put('IssueAssignee', 'repo:20', {id: 1, issue_id: 102, assignee_id: 1});
+  s.data.put('IssueAssignee', 'repo:20', {id: 2, issue_id: 101, assignee_id: 3});
+  await waitFor(() => {
+    expect(within(rowOf('Customer asks')).getByText('· Mentioned')).toBeTruthy();
+  });
+  await act(async () => {
+    await router.navigate({to: '/notifications', search: {reason: 'participating'}});
+  });
+  await waitFor(() => {
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Customer asks'), expect.stringContaining('Follow-up 2'), expect.stringContaining('Beta feedback'),
+    ]);
+  });
+});
+
 test('the server\'s answer is remembered on this device: the next visit shows it before asking again', async () => {
   search = {mentioned: [102], review_requested: []};
   await renderInbox();

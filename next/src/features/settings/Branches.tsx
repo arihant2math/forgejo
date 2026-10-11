@@ -12,7 +12,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Callout, Code, ConfirmDialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, TextArea,
+  Callout, Code, ConfirmDialog, Entry, FormSection, hintId, SegmentedControl
 } from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -23,7 +23,7 @@ import {fetchRules, repoApi, ruleApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
 import {PencilIcon, ShieldCheckIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, Label, Checkbox, FormControl, Dialog} from '@primer/react';
+import {Button, IconButton, Label, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
 
 export const BranchSettings = observer(function BranchSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -152,13 +152,11 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
         void save();
       }}>
         {creating && (
-          <Field htmlFor="rule-name" errorId={hintId('rule-name')} label="Branch name or pattern" error={errors.name}
-            hint={matches.length ? `Matches ${matches.slice(0, 3).join(', ')}${matches.length > 3 ? ` and ${String(matches.length - 3)} more` : ''}.` : 'A branch name, or a glob pattern such as release/* (no branch matches yet).'}>
-            <Input id="rule-name" className="w-full" mono value={form.name} autoFocus autoComplete="off" spellCheck={false} invalid={Boolean(errors.name)}
-              aria-describedby={hintId('rule-name')} onChange={(e) => {
+          <FormControl id="rule-name"><FormControl.Label>Branch name or pattern</FormControl.Label>
+            <TextInput id="rule-name" className="w-full" value={form.name} autoFocus autoComplete="off" spellCheck={false} aria-describedby={hintId('rule-name')} onChange={(e) => {
                 set('name', e.target.value);
-              }}/>
-          </Field>
+              }} {...(errors.name ? {validationStatus: 'error' as const} : {})} monospace/>
+          <FormControl.Caption>{matches.length ? `Matches ${matches.slice(0, 3).join(', ')}${matches.length > 3 ? ` and ${String(matches.length - 3)} more` : ''}.` : 'A branch name, or a glob pattern such as release/* (no branch matches yet).'}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
         )}
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-1 text-base font-medium text-fg">Who may push</legend>
@@ -166,61 +164,55 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
             set('push', v);
           }}/>
           {form.push === 'listed' && <>
-            <Field htmlFor="rule-push-users" errorId={hintId('rule-push-users')} label="People who may push" error={errors.pushUsers} hint="Logins, separated by commas.">
-              <Input id="rule-push-users" className="w-full" value={form.pushUsers} autoComplete="off" spellCheck={false} invalid={Boolean(errors.pushUsers)}
-                aria-describedby={hintId('rule-push-users')} onChange={(e) => {
+            <FormControl id="rule-push-users"><FormControl.Label>People who may push</FormControl.Label>
+              <TextInput id="rule-push-users" className="w-full" value={form.pushUsers} autoComplete="off" spellCheck={false} aria-describedby={hintId('rule-push-users')} onChange={(e) => {
                   set('pushUsers', e.target.value);
-                }}/>
-            </Field>
+                }} {...(errors.pushUsers ? {validationStatus: 'error' as const} : {})}/>
+            <FormControl.Caption>Logins, separated by commas.</FormControl.Caption>{errors.pushUsers && <FormControl.Validation variant="error">{errors.pushUsers}</FormControl.Validation>}</FormControl>
             {check('pushDeployKeys', 'Deploy keys with write access may push too')}
           </>}
         </fieldset>
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-1 text-base font-medium text-fg">Before merging</legend>
-          <Field htmlFor="rule-approvals" errorId={hintId('rule-approvals')} label="Required approvals" error={errors.approvals} hint="Approving reviews a pull request needs (0: none).">
-            <Input id="rule-approvals" className="w-24" inputMode="numeric" value={form.approvals} invalid={Boolean(errors.approvals)} aria-describedby={hintId('rule-approvals')}
-              onChange={(e) => {
+          <FormControl id="rule-approvals"><FormControl.Label>Required approvals</FormControl.Label>
+            <TextInput id="rule-approvals" className="w-24" inputMode="numeric" value={form.approvals} aria-describedby={hintId('rule-approvals')} onChange={(e) => {
                 set('approvals', e.target.value);
-              }}/>
-          </Field>
+              }} {...(errors.approvals ? {validationStatus: 'error' as const} : {})}/>
+          <FormControl.Caption>Approving reviews a pull request needs (0: none).</FormControl.Caption>{errors.approvals && <FormControl.Validation variant="error">{errors.approvals}</FormControl.Validation>}</FormControl>
           {check('dismissStale', 'Dismiss approvals when new commits are pushed')}
           {check('blockRejected', 'Block merging while changes are requested')}
           {check('blockOfficial', 'Block merging while official reviews are pending')}
           {check('blockOutdated', 'Require the branch to be up to date with its base')}
           {check('statusCheck', 'Require status checks to pass')}
           {form.statusCheck && (
-            <Field htmlFor="rule-checks" errorId={hintId('rule-checks')} label="Status checks" error={errors.statusContexts} hint="One check per line; glob patterns (ci/*) match several.">
-              <TextArea id="rule-checks" rows={3} value={form.statusContexts} invalid={Boolean(errors.statusContexts)} aria-describedby={hintId('rule-checks')}
-                onChange={(e) => {
+            <FormControl id="rule-checks"><FormControl.Label>Status checks</FormControl.Label>
+              <Textarea id="rule-checks" rows={3} value={form.statusContexts} aria-describedby={hintId('rule-checks')} onChange={(e) => {
                   set('statusContexts', e.target.value);
-                }}/>
-            </Field>
+                }} block {...(errors.statusContexts ? {validationStatus: 'error' as const} : {})}/>
+            <FormControl.Caption>One check per line; glob patterns (ci/*) match several.</FormControl.Caption>{errors.statusContexts && <FormControl.Validation variant="error">{errors.statusContexts}</FormControl.Validation>}</FormControl>
           )}
           {check('mergeList', 'Only some people may merge')}
           {form.mergeList && (
-            <Field htmlFor="rule-merge-users" errorId={hintId('rule-merge-users')} label="People who may merge" hint="Logins, separated by commas.">
-              <Input id="rule-merge-users" className="w-full" value={form.mergeUsers} autoComplete="off" spellCheck={false} aria-describedby={hintId('rule-merge-users')}
-                onChange={(e) => {
+            <FormControl id="rule-merge-users"><FormControl.Label>People who may merge</FormControl.Label>
+              <TextInput id="rule-merge-users" className="w-full" value={form.mergeUsers} autoComplete="off" spellCheck={false} aria-describedby={hintId('rule-merge-users')} onChange={(e) => {
                   set('mergeUsers', e.target.value);
                 }}/>
-            </Field>
+            <FormControl.Caption>Logins, separated by commas.</FormControl.Caption></FormControl>
           )}
         </fieldset>
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-1 text-base font-medium text-fg">Commits and files</legend>
           {check('signed', 'Require signed commits')}
-          <Field htmlFor="rule-protected" errorId={hintId('rule-protected')} label="Protected files" optional hint="Glob patterns separated by “;” (docs/**; *.lock): changes to them are refused even from people who may push.">
-            <Input id="rule-protected" className="w-full" mono value={form.protectedFiles} spellCheck={false} aria-describedby={hintId('rule-protected')}
-              onChange={(e) => {
+          <FormControl id="rule-protected"><FormControl.Label>Protected files</FormControl.Label>
+            <TextInput id="rule-protected" className="w-full" value={form.protectedFiles} spellCheck={false} aria-describedby={hintId('rule-protected')} onChange={(e) => {
                 set('protectedFiles', e.target.value);
-              }}/>
-          </Field>
-          <Field htmlFor="rule-unprotected" errorId={hintId('rule-unprotected')} label="Unprotected files" optional hint="Glob patterns separated by “;”: pushing changes only to these is allowed even when pushing is not.">
-            <Input id="rule-unprotected" className="w-full" mono value={form.unprotectedFiles} spellCheck={false} aria-describedby={hintId('rule-unprotected')}
-              onChange={(e) => {
+              }} monospace/>
+          <FormControl.Caption>Glob patterns separated by “;” (docs/**; *.lock): changes to them are refused even from people who may push.</FormControl.Caption></FormControl>
+          <FormControl id="rule-unprotected"><FormControl.Label>Unprotected files</FormControl.Label>
+            <TextInput id="rule-unprotected" className="w-full" value={form.unprotectedFiles} spellCheck={false} aria-describedby={hintId('rule-unprotected')} onChange={(e) => {
                 set('unprotectedFiles', e.target.value);
-              }}/>
-          </Field>
+              }} monospace/>
+          <FormControl.Caption>Glob patterns separated by “;”: pushing changes only to these is allowed even when pushing is not.</FormControl.Caption></FormControl>
           {check('applyToAdmins', 'Apply these rules to administrators too')}
         </fieldset>
         {failure && <Callout tone="danger" title="Not saved">{failure}</Callout>}

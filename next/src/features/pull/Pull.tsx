@@ -42,8 +42,8 @@ import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Button, Callout, Card, Code, Dialog, DiffStat, Icon, Input, ListRow, MenuLabel, MenuRadioItem,
-  SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
+  Button, Callout, Card, Code, Dialog, DiffStat, Icon, ListRow, MenuLabel, MenuRadioItem,
+  SectionHeading, SegmentedControl, StatusDot, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
@@ -70,7 +70,7 @@ import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/RouterLinkButton.tsx';
@@ -1008,12 +1008,12 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
           </Callout>
         )}
         {checks === 'failure' && <Callout tone="danger" title="Some checks failed">Merging now merges changes whose checks did not pass.</Callout>}
-        {commit && <Input aria-label="Commit title" value={head} className="w-full" onChange={(e) => {
+        {commit && <TextInput aria-label="Commit title" value={head} className="w-full" onChange={(e) => {
           setHead(e.target.value);
         }}/>}
-        {commit && <TextArea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
+        {commit && <Textarea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
           setMessage(e.target.value);
-        }}/>}
+        }} block/>}
         {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
       </div>
     </PrimerDialog>

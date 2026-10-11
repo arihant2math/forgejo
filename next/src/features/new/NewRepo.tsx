@@ -22,7 +22,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Avatar, Callout, CommandPopover, Input, SegmentedControl} from '../../ui/index.ts';
+import {Avatar, Callout, CommandPopover, SegmentedControl} from '../../ui/index.ts';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -31,7 +31,7 @@ import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} f
 import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl} from '@primer/react';
+import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
@@ -170,19 +170,16 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <div className="min-w-0 flex-1 basis-48">
                 <Field id="new-repo-name" label="Repository name" required error={nameError}
                   hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Great repository names are short and memorable."/>}>
-                  <Input id="new-repo-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={REPO_NAME_MAX} value={name}
-                    invalid={Boolean(nameError)} aria-required aria-describedby={hintOf('new-repo-name')}
-                    onChange={(e) => {
+                  <TextInput id="new-repo-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={REPO_NAME_MAX} value={name} aria-required aria-describedby={hintOf('new-repo-name')} onChange={(e) => {
                       setName(e.target.value);
-                    }}
-                    onBlur={() => {
+                    }} onBlur={() => {
                       if (name) setTouched(true);
-                    }}/>
+                    }} {...(nameError ? {validationStatus: 'error' as const} : {})}/>
                 </Field>
               </div>
             </div>
             <Field id="new-repo-description" label="Description" optional>
-              <Input id="new-repo-description" className="w-full" maxLength={DESCRIPTION_MAX} value={description} onChange={(e) => {
+              <TextInput id="new-repo-description" className="w-full" maxLength={DESCRIPTION_MAX} value={description} onChange={(e) => {
                 setDescription(e.target.value);
               }}/>
             </Field>
@@ -223,8 +220,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                 </Field>
               )}
               <Field id="new-repo-branch" label="Default branch" hint={tpl ? 'The branch the template’s default branch becomes.' : init ? 'The branch of the first commit.' : 'The branch the repository expects first.'}>
-                <Input id="new-repo-branch" className="w-64" autoComplete="off" spellCheck={false} maxLength={100} value={branch} placeholder={defaults?.default_branch ?? 'main'}
-                  aria-describedby={hintOf('new-repo-branch')} onChange={(e) => {
+                <TextInput id="new-repo-branch" className="w-64" autoComplete="off" spellCheck={false} maxLength={100} value={branch} placeholder={defaults?.default_branch ?? 'main'} aria-describedby={hintOf('new-repo-branch')} onChange={(e) => {
                     setBranch(e.target.value);
                   }}/>
               </Field>

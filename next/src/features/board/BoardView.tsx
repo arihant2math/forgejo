@@ -31,7 +31,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
   BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, DropIndicator,
-  ContextMenuSeparator, Input, LabelDot, PromptDialog
+  ContextMenuSeparator, LabelDot, PromptDialog
 } from '../../ui/index.ts';
 import {closedPager} from '../issues/closed.ts';
 import {issueActions, openPicker} from '../issues/actions.ts';
@@ -47,7 +47,7 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Label, Dialog} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/RouterLinkButton.tsx';
@@ -805,14 +805,11 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   if (editing) {
     return (
       <BoardColumnDraft>
-        <Input ref={field} aria-label="New column name" placeholder="Column name" value={title} className="w-full" maxLength={100}
-          onChange={(e) => {
+        <TextInput ref={field} aria-label="New column name" placeholder="Column name" value={title} className="w-full" maxLength={100} onChange={(e) => {
             setTitle(e.target.value);
-          }}
-          onBlur={() => {
+          }} onBlur={() => {
             if (!title.trim()) setEditing(false);
-          }}
-          onKeyDown={(e) => {
+          }} onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
               submit();

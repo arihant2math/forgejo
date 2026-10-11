@@ -13,7 +13,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Callout, ConfirmDialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, Select, StatusDot,
+  Callout, ConfirmDialog, Entry, FormSection, hintId, SegmentedControl, Select, StatusDot,
 } from '../../ui/index.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -22,7 +22,7 @@ import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
 import {PencilIcon, PlusIcon, PaperAirplaneIcon, TrashIcon, WebhookIcon} from '@primer/octicons-react';
-import {Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog} from '@primer/react';
+import {Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export const HookSettings = observer(function HookSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
@@ -179,38 +179,34 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
         e.preventDefault();
         void save();
       }}>
-        <Field htmlFor="hook-url" errorId={hintId('hook-url')} label="Target URL" error={errors.url} hint="Forgejo sends a POST request here for each event.">
-          <Input id="hook-url" type="url" className="w-full" placeholder="https://" value={form.url} autoFocus invalid={Boolean(errors.url)} aria-describedby={hintId('hook-url')}
-            onChange={(e) => {
+        <FormControl id="hook-url"><FormControl.Label>Target URL</FormControl.Label>
+          <TextInput id="hook-url" type="url" className="w-full" placeholder="https://" value={form.url} autoFocus aria-describedby={hintId('hook-url')} onChange={(e) => {
               set('url', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="hook-content-type" errorId={hintId('hook-content-type')} label="Content type" error={errors.contentType}>
+            }} {...(errors.url ? {validationStatus: 'error' as const} : {})}/>
+        <FormControl.Caption>Forgejo sends a POST request here for each event.</FormControl.Caption>{errors.url && <FormControl.Validation variant="error">{errors.url}</FormControl.Validation>}</FormControl>
+        <FormControl id="hook-content-type"><FormControl.Label>Content type</FormControl.Label>
           <Select id="hook-content-type" value={form.contentType} aria-describedby={hintId('hook-content-type')}
             options={[{value: 'json', label: 'application/json'}, {value: 'form', label: 'application/x-www-form-urlencoded'}]} onValueChange={(v) => {
               set('contentType', v);
             }}/>
-        </Field>
+        {errors.contentType && <FormControl.Validation variant="error">{errors.contentType}</FormControl.Validation>}</FormControl>
         {creating && (
-          <Field htmlFor="hook-secret" errorId={hintId('hook-secret')} label="Secret" optional hint="Signs each delivery (the X-Forgejo-Signature header). It cannot be read back or changed here later.">
-            <Input id="hook-secret" type="password" className="w-full" value={form.secret} autoComplete="new-password" aria-describedby={hintId('hook-secret')}
-              onChange={(e) => {
+          <FormControl id="hook-secret"><FormControl.Label>Secret</FormControl.Label>
+            <TextInput id="hook-secret" type="password" className="w-full" value={form.secret} autoComplete="new-password" aria-describedby={hintId('hook-secret')} onChange={(e) => {
                 set('secret', e.target.value);
               }}/>
-          </Field>
+          <FormControl.Caption>Signs each delivery (the X-Forgejo-Signature header). It cannot be read back or changed here later.</FormControl.Caption></FormControl>
         )}
-        <Field htmlFor="hook-authorization" errorId={hintId('hook-authorization')} label="Authorization header" optional error={errors.authorization} hint="Sent as the Authorization header of each delivery (Bearer …).">
-          <Input id="hook-authorization" className="w-full" mono value={form.authorization} autoComplete="off" spellCheck={false} disabled={!ready}
-            invalid={Boolean(errors.authorization)} aria-describedby={hintId('hook-authorization')} onChange={(e) => {
+        <FormControl id="hook-authorization"><FormControl.Label>Authorization header</FormControl.Label>
+          <TextInput id="hook-authorization" className="w-full" value={form.authorization} autoComplete="off" spellCheck={false} disabled={!ready} aria-describedby={hintId('hook-authorization')} onChange={(e) => {
               set('authorization', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="hook-branches" errorId={hintId('hook-branches')} label="Branch filter" optional error={errors.branchFilter} hint="A glob pattern of the branches whose events are sent (empty or *: all).">
-          <Input id="hook-branches" className="w-full" mono value={form.branchFilter} placeholder="*" spellCheck={false} invalid={Boolean(errors.branchFilter)}
-            aria-describedby={hintId('hook-branches')} onChange={(e) => {
+            }} {...(errors.authorization ? {validationStatus: 'error' as const} : {})} monospace/>
+        <FormControl.Caption>Sent as the Authorization header of each delivery (Bearer …).</FormControl.Caption>{errors.authorization && <FormControl.Validation variant="error">{errors.authorization}</FormControl.Validation>}</FormControl>
+        <FormControl id="hook-branches"><FormControl.Label>Branch filter</FormControl.Label>
+          <TextInput id="hook-branches" className="w-full" value={form.branchFilter} placeholder="*" spellCheck={false} aria-describedby={hintId('hook-branches')} onChange={(e) => {
               set('branchFilter', e.target.value);
-            }}/>
-        </Field>
+            }} {...(errors.branchFilter ? {validationStatus: 'error' as const} : {})} monospace/>
+        <FormControl.Caption>A glob pattern of the branches whose events are sent (empty or *: all).</FormControl.Caption>{errors.branchFilter && <FormControl.Validation variant="error">{errors.branchFilter}</FormControl.Validation>}</FormControl>
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-1 text-base font-medium text-fg">Events</legend>
           <SegmentedControl label="Events" value={form.mode} options={MODES} onChange={(v) => {

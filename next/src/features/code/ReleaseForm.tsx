@@ -21,7 +21,7 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Callout, Code, CommandPopover, Input} from '../../ui/index.ts';
+import {Callout, Code, CommandPopover} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -38,7 +38,7 @@ import {
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
@@ -214,11 +214,9 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
           <p className="flex items-center gap-2 text-base text-fg-muted"><TagIcon size={12} className="shrink-0"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <Input aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX}
-                spellCheck={false} autoComplete="off" invalid={tagBad} aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'}
-                onChange={(e) => {
+              <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
                   set({tag: e.target.value});
-                }}/>
+                }} {...(tagBad ? {validationStatus: 'error' as const} : {})}/>
               {freeTags.length > 0 && (
                 <CommandPopover width="md" label="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
                   options={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
@@ -240,8 +238,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                 </div>)}
           </>}
       </section>
-      <Input aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} className="w-full" maxLength={TITLE_MAX}
-        onChange={(e) => {
+      <TextInput aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} className="w-full" maxLength={TITLE_MAX} onChange={(e) => {
           set({title: e.target.value});
         }}/>
       <MarkdownField attachments={false} repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}

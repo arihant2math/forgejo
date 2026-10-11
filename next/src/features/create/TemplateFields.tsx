@@ -3,10 +3,10 @@
 
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
-import {CommandPopover, Field, Input, Select, TextArea} from '../../ui/index.ts';
+import {CommandPopover, Select} from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {type FormValues, type TemplateField, optionLabel, optionVisible, visible} from './templates.ts';
-import {Button, Checkbox, FormControl} from '@primer/react';
+import {Button, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
 
 export const TemplateFields = observer(function TemplateFields({fields, values, missing, repoId, onChange}: {
   fields: TemplateField[]; values: FormValues; missing: string[]; repoId: number;
@@ -26,12 +26,10 @@ export const TemplateFields = observer(function TemplateFields({fields, values, 
 
     let control: ReactNode;
     if (f.type === 'input') {
-      control = <Input id={id} value={text} placeholder={a.placeholder} invalid={invalid} aria-describedby={errorId}
-        onChange={(e) => { setText(e.target.value); }}/>;
+      control = <TextInput id={id} value={text} placeholder={a.placeholder} aria-describedby={errorId} onChange={(e) => { setText(e.target.value); }} {...(invalid ? {validationStatus: 'error' as const} : {})}/>;
     } else if (f.type === 'textarea') {
       control = a.render ?
-        <TextArea id={id} value={text} placeholder={a.placeholder} invalid={invalid} aria-describedby={errorId}
-          onChange={(e) => { setText(e.target.value); }}/> :
+        <Textarea id={id} value={text} placeholder={a.placeholder} aria-describedby={errorId} onChange={(e) => { setText(e.target.value); }} block {...(invalid ? {validationStatus: 'error' as const} : {})} rows={6}/> :
         <MarkdownField repoId={repoId} label={a.label ?? ''} value={text} placeholder={a.placeholder}
           invalid={invalid} describedBy={errorId} onChange={setText}/>;
     } else if (f.type === 'dropdown' && !a.multiple) {
@@ -51,8 +49,6 @@ export const TemplateFields = observer(function TemplateFields({fields, values, 
           <FormControl key={i}><Checkbox checked={selected.includes(i)} onChange={() => { toggle(i); }}/><FormControl.Label>{optionLabel(option)}</FormControl.Label></FormControl>)}
       </div>;
     }
-    return <Field key={id} htmlFor={id} label={a.label ?? ''} hint={a.description}
-      error={invalid ? 'Complete this required field.' : undefined} errorId={errorId}
-      optional={!f.validations?.required && f.type !== 'checkboxes'}>{control}</Field>;
+    return <FormControl key={id} id={id}><FormControl.Label>{a.label ?? ''}</FormControl.Label>{control}<FormControl.Caption>{a.description}</FormControl.Caption>{(invalid ? 'Complete this required field.' : undefined) && <FormControl.Validation variant="error">{invalid ? 'Complete this required field.' : undefined}</FormControl.Validation>}</FormControl>;
   })}</>;
 });

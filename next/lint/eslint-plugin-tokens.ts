@@ -301,11 +301,23 @@ const noRestyle: RuleModule = {
         if (!component) return;
         for (const attr of el.attributes) {
           if (attr.type === 'JSXSpreadAttribute') {
-            if (attr.argument.type !== 'ObjectExpression') {
+            // `{...(cond ? {validationStatus: 'error'} : {})}`: optional props under exactOptionalPropertyTypes. Each
+            // branch must be an object literal, checked like one.
+            const objects = (e: ESTree.Node): ESTree.ObjectExpression[] | undefined => {
+              if (e.type === 'ObjectExpression') return [e];
+              if (e.type === 'ConditionalExpression') {
+                const a = objects(e.consequent);
+                const b = objects(e.alternate);
+                return a && b ? [...a, ...b] : undefined;
+              }
+              return undefined;
+            };
+            const literal = objects(attr.argument);
+            if (!literal) {
               context.report({node: attr.argument, message: `Spread props onto <${component}> as an object literal, so className/style can be checked`});
               continue;
             }
-            if (attr.argument.properties.some((p) => p.type === 'Property' && p.key.type === 'Identifier' && (p.key.name === 'className' || p.key.name === 'style'))) {
+            if (literal.some((o) => o.properties.some((p) => p.type === 'Property' && p.key.type === 'Identifier' && (p.key.name === 'className' || p.key.name === 'style')))) {
               context.report({node: attr.argument, message: `Spreading className/style onto <${component}> restyles it`});
             }
             continue;

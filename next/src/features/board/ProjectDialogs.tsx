@@ -10,8 +10,8 @@ import {onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
-import {Callout, ConfirmDialog, Field, Input, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
-import {Button, ActionMenu, ActionList, Dialog} from '@primer/react';
+import {Callout, ConfirmDialog, SegmentedControl, Select} from '../../ui/index.ts';
+import {Button, ActionMenu, ActionList, Dialog, FormControl, TextInput, Textarea} from '@primer/react';
 
 export interface BoardScope {repo_id: number; owner_id: number}
 export const pendingBoards = observable.map<string, BoardScope & {title: string}>();
@@ -91,11 +91,11 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
     <Button variant="primary" type="button" disabled={busy || !title.trim() || !connectivity.online} title={!connectivity.online ? onlineOnly('Saving a board') : undefined} onClick={() => void save()}>{busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board'}</Button>
   </>}</Dialog.Footer>}>
     <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-      {!scope && !project && <Field label="Location" htmlFor="board-location"><Select id="board-location" value={target} onValueChange={setTarget} options={choices} disabled={busy || !!created}/></Field>}
-      <Field label="Title" htmlFor="board-title"><Input id="board-title" className="w-full" value={title} maxLength={255} required disabled={busy || !!created} onChange={(e) => { setTitle(e.target.value); }}/></Field>
-      <Field label="Description" htmlFor="board-description" optional><TextArea id="board-description" value={description} rows={3} disabled={busy || !!created} onChange={(e) => { setDescription(e.target.value); }}/></Field>
-      {!project && <Field label="Template" htmlFor="board-template"><SegmentedControl label="Template" value={template} onChange={setTemplate} options={templates.map((t) => ({...t, disabled: busy || !!created}))}/></Field>}
-      <Field label="Cards" htmlFor="board-card-type"><Select id="board-card-type" value={cardType} onValueChange={setCardType} options={cards} disabled={busy || !!created}/></Field>
+      {!scope && !project && <FormControl id="board-location"><FormControl.Label>Location</FormControl.Label><Select id="board-location" value={target} onValueChange={setTarget} options={choices} disabled={busy || !!created}/></FormControl>}
+      <FormControl id="board-title"><FormControl.Label>Title</FormControl.Label><TextInput id="board-title" className="w-full" value={title} maxLength={255} required disabled={busy || !!created} onChange={(e) => { setTitle(e.target.value); }}/></FormControl>
+      <FormControl id="board-description"><FormControl.Label>Description</FormControl.Label><Textarea id="board-description" value={description} rows={3} disabled={busy || !!created} onChange={(e) => { setDescription(e.target.value); }} block/></FormControl>
+      {!project && <FormControl id="board-template"><FormControl.Label>Template</FormControl.Label><SegmentedControl label="Template" value={template} onChange={setTemplate} options={templates.map((t) => ({...t, disabled: busy || !!created}))}/></FormControl>}
+      <FormControl id="board-card-type"><FormControl.Label>Cards</FormControl.Label><Select id="board-card-type" value={cardType} onValueChange={setCardType} options={cards} disabled={busy || !!created}/></FormControl>
       {error && <Callout tone="danger" title={created ? 'Board created; sync is still catching up' : 'Board not saved'}>{created ? 'Choose Open board to retry waiting for sync. The board will not be created twice.' : error}</Callout>}
     </form>
   </Dialog>;

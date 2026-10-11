@@ -12,16 +12,16 @@ import {CodeMenuPanel} from '../../features/repo/CodeMenu.tsx';
 import {
   AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
-  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, Input, LabelChip, ListRow, Menu,
+  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
   AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineNo, StepHeader, StatusDot, TabLink, TabNav,
-  ConfirmDialog, FormSection, hintId, SectionNav, SectionNavHeading, SectionNavLink, Select, SettingRow, Switch,
-  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Status, TextArea, TooltipProvider,
-  ColorPicker, Field, LabelPill
+  ConfirmDialog, FormSection, SectionNav, SectionNavHeading, SectionNavLink, Select, SettingRow, Switch,
+  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Status, TooltipProvider,
+  ColorPicker, LabelPill
 } from '../../ui/index.ts';
 import {LABEL_PRESETS} from '../../features/meta/labels.ts';
 import {ArchiveIcon, ArrowUpRightIcon, ChevronDownIcon, IssueDraftIcon, CodeIcon, IssueOpenedIcon, CopyIcon, StarIcon, GraphBarVerticalIcon, FlagIcon, InboxIcon, MoonIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, SearchIcon, SunIcon, DeviceDesktopIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, LinkButton, ActionMenu, ActionList, Label, ProgressBar} from '@primer/react';
+import {Button, IconButton, LinkButton, ActionMenu, ActionList, Label, ProgressBar, FormControl, TextInput, Textarea} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
@@ -30,9 +30,9 @@ function GalleryColor() {
   const [color, setColor] = useState(LABEL_PRESETS[2] ?? '');
   return (
     <div className="w-80">
-      <Field label="Colour" htmlFor="gallery-color" error={/^#[\da-f]{6}$/i.test(color) ? undefined : 'A colour as #rrggbb.'}>
+      <FormControl id="gallery-color"><FormControl.Label>Colour</FormControl.Label>
         <ColorPicker id="gallery-color" label="Colour" value={color} presets={LABEL_PRESETS} onChange={setColor}/>
-      </Field>
+      {(/^#[\da-f]{6}$/i.test(color) ? undefined : 'A colour as #rrggbb.') && <FormControl.Validation variant="error">{/^#[\da-f]{6}$/i.test(color) ? undefined : 'A colour as #rrggbb.'}</FormControl.Validation>}</FormControl>
     </div>
   );
 }
@@ -119,12 +119,12 @@ export default function Gallery() {
         </Section>
 
         <Section title="Inputs">
-          <div className="w-64"><Input placeholder="Filter issues…"/></div>
-          <div className="w-64"><Input placeholder="Invalid" invalid defaultValue="not-a-number"/></div>
-          <div className="w-48"><Input size="sm" placeholder="Small"/></div>
-          <Input size="sm" icon={SearchIcon} placeholder="Search…" className="w-48"/>
-          <div className="w-96"><TextArea aria-label="Comment" placeholder="Leave a comment" rows={3}/></div>
-          <div className="w-96"><TextArea aria-label="Conflict" invalid rows={3} defaultValue={'<<<<<<< yours\nmine\n=======\ntheirs\n>>>>>>> theirs'}/></div>
+          <div className="w-64"><TextInput placeholder="Filter issues…"/></div>
+          <div className="w-64"><TextInput placeholder="Invalid" defaultValue="not-a-number" validationStatus="error"/></div>
+          <div className="w-48"><TextInput placeholder="Small" size="small"/></div>
+          <TextInput placeholder="Search…" className="w-48" size="small" leadingVisual={SearchIcon}/>
+          <div className="w-96"><Textarea aria-label="Comment" placeholder="Leave a comment" rows={3} block/></div>
+          <div className="w-96"><Textarea aria-label="Conflict" rows={3} defaultValue={'<<<<<<< yours\nmine\n=======\ntheirs\n>>>>>>> theirs'} block validationStatus="error"/></div>
         </Section>
 
         <Section title="Keys, badges, labels, avatars">
@@ -240,7 +240,7 @@ export default function Gallery() {
           <Popover>
             <PopoverTrigger asChild><Button type="button">Popover</Button></PopoverTrigger>
             <PopoverContent>
-              <Input size="sm" placeholder="Set due date…" autoFocus/>
+              <TextInput placeholder="Set due date…" autoFocus size="small"/>
             </PopoverContent>
           </Popover>
           <Dialog
@@ -366,15 +366,15 @@ export default function Gallery() {
             </SectionNav>
             <div id="settings" className="flex max-w-lg min-w-0 flex-1 flex-col gap-6">
               <FormSection id="gallery-general" title="General" description="A titled part of a settings page.">
-                <Field htmlFor="gallery-name" errorId={hintId('gallery-name')} label="Repository name" hint="Letters, digits, “-”, “_” and “.”.">
-                  <Input id="gallery-name" className="w-full" defaultValue="atlas"/>
-                </Field>
-                <Field htmlFor="gallery-site" errorId={hintId('gallery-site')} label="Website" optional error="An address starting with http:// or https://.">
-                  <Input id="gallery-site" className="w-full" invalid defaultValue="atlas.example"/>
-                </Field>
-                <Field htmlFor="gallery-filter" errorId={hintId('gallery-filter')} label="Branch filter" optional>
-                  <Input id="gallery-filter" className="w-full" mono defaultValue="release/*"/>
-                </Field>
+                <FormControl id="gallery-name"><FormControl.Label>Repository name</FormControl.Label>
+                  <TextInput id="gallery-name" className="w-full" defaultValue="atlas"/>
+                <FormControl.Caption>Letters, digits, “-”, “_” and “.”.</FormControl.Caption></FormControl>
+                <FormControl id="gallery-site"><FormControl.Label>Website</FormControl.Label>
+                  <TextInput id="gallery-site" className="w-full" defaultValue="atlas.example" validationStatus="error"/>
+                <FormControl.Validation variant="error">An address starting with http:// or https://.</FormControl.Validation></FormControl>
+                <FormControl id="gallery-filter"><FormControl.Label>Branch filter</FormControl.Label>
+                  <TextInput id="gallery-filter" className="w-full" defaultValue="release/*" monospace/>
+                </FormControl>
                 <SettingRow id="gallery-wiki" title="Wiki" description="Pages of documentation next to the code." control={<Switch id="gallery-wiki" checked={feature} onCheckedChange={setFeature}/>}/>
                 <SettingRow id="gallery-off" title="Packages" description="Disabled." control={<Switch id="gallery-off" checked={false} disabled onCheckedChange={() => undefined}/>}/>
                 <SettingRow id="gallery-role" title="Role" control={

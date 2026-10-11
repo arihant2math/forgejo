@@ -10,11 +10,11 @@ import {observer} from 'mobx-react-lite';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {ColorPicker, Field, Input, LabelPill} from '../../ui/index.ts';
+import {ColorPicker, LabelPill} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
-import {Button, Checkbox, FormControl, Dialog} from '@primer/react';
+import {Button, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The pill a draft makes (the form's preview), and a label's own: an exclusive scoped label shows its scope. */
@@ -66,23 +66,21 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
     </>}</Dialog.Footer>}>
       <form className="flex flex-col gap-3" onSubmit={save}>
         <div className="flex min-h-control items-center"><DraftPill name={d.name.trim() || 'Label preview'} color={d.color} exclusive={d.exclusive}/></div>
-        <Field label="Name" htmlFor={`${id}-name`} error={tried ? problems.name : undefined} errorId={`${id}-name-e`}>
-          <Input id={`${id}-name`} value={d.name} autoFocus maxLength={NAME_MAX} placeholder="bug, kind/feature, …" className="w-full" invalid={tried && Boolean(problems.name)}
-            aria-describedby={`${id}-name-e`} onChange={(e) => {
+        <FormControl id={`${id}-name`}><FormControl.Label>Name</FormControl.Label>
+          <TextInput id={`${id}-name`} value={d.name} autoFocus maxLength={NAME_MAX} placeholder="bug, kind/feature, …" className="w-full" aria-describedby={`${id}-name-e`} onChange={(e) => {
               set({name: e.target.value});
-            }}/>
-        </Field>
-        <Field label="Description" htmlFor={`${id}-desc`} error={problems.description} errorId={`${id}-desc-e`}>
-          <Input id={`${id}-desc`} value={d.description} maxLength={DESCRIPTION_MAX} placeholder="What it is for (optional)" className="w-full" aria-describedby={`${id}-desc-e`}
-            onChange={(e) => {
+            }} {...(tried && Boolean(problems.name) ? {validationStatus: 'error' as const} : {})}/>
+        {(tried ? problems.name : undefined) && <FormControl.Validation variant="error">{tried ? problems.name : undefined}</FormControl.Validation>}</FormControl>
+        <FormControl id={`${id}-desc`}><FormControl.Label>Description</FormControl.Label>
+          <TextInput id={`${id}-desc`} value={d.description} maxLength={DESCRIPTION_MAX} placeholder="What it is for (optional)" className="w-full" aria-describedby={`${id}-desc-e`} onChange={(e) => {
               set({description: e.target.value});
             }}/>
-        </Field>
-        <Field label="Colour" htmlFor={`${id}-color`} error={tried ? problems.color : undefined} errorId={`${id}-color-e`}>
+        {problems.description && <FormControl.Validation variant="error">{problems.description}</FormControl.Validation>}</FormControl>
+        <FormControl id={`${id}-color`}><FormControl.Label>Colour</FormControl.Label>
           <ColorPicker id={`${id}-color`} label="Colour" value={d.color} presets={LABEL_PRESETS} invalid={tried && Boolean(problems.color)} onChange={(color) => {
             set({color});
           }}/>
-        </Field>
+        {(tried ? problems.color : undefined) && <FormControl.Validation variant="error">{tried ? problems.color : undefined}</FormControl.Validation>}</FormControl>
         <div className="flex flex-col gap-1">
           <FormControl><Checkbox checked={d.exclusive} onChange={(event) => { const exclusive = event.target.checked; set({exclusive}); }}/><FormControl.Label>Exclusive within its scope</FormControl.Label></FormControl>
           <p className="text-sm text-fg-muted">

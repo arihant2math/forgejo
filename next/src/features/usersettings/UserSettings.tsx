@@ -23,7 +23,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Button, Callout, Input, ListRow, NavHeading, NavItem, Panel, SegmentedControl, TextArea,
+  Avatar, Button, Callout, ListRow, NavHeading, NavItem, Panel, SegmentedControl
 } from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
@@ -35,7 +35,7 @@ import {
 } from './payload.ts';
 import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Checkbox, FormControl, Label, Dialog} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Checkbox, FormControl, Label, Dialog, Textarea, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
@@ -249,17 +249,17 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
           return (
             <Field key={f} id={id} label={LABELS[f]} hint={hint} error={errors[f]}>
               {f === 'description' ?
-                <TextArea id={id} value={shown[f]} invalid={Boolean(errors[f])} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
+                <Textarea id={id} value={shown[f]} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
                   edit(f, e.target.value);
                 }} onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     save();
                   }
-                }}/> :
-                <Input id={id} value={shown[f]} invalid={Boolean(errors[f])} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
+                }} block {...(errors[f] ? {validationStatus: 'error' as const} : {})}/> :
+                <TextInput id={id} value={shown[f]} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
                   edit(f, e.target.value);
-                }}/>}
+                }} {...(errors[f] ? {validationStatus: 'error' as const} : {})}/>}
             </Field>
           );
         })}
@@ -570,11 +570,10 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
     }}>
       <Field id={id} label="Add an email address" error={error} hint={offline}>
         <div className="flex gap-2">
-          <Input id={id} type="email" autoComplete="email" placeholder="you@example.com" value={email} invalid={Boolean(error)} className="min-w-0 flex-1"
-            aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
+          <TextInput id={id} type="email" autoComplete="email" placeholder="you@example.com" value={email} className="min-w-0 flex-1" aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
               setEmail(e.target.value);
               setError(undefined);
-            }}/>
+            }} {...(error ? {validationStatus: 'error' as const} : {})}/>
           <PrimerButton leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
         </div>
       </Field>
@@ -693,16 +692,15 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
       add();
     }}>
       <Field id={`${base}-title`} label="Title" hint="Optional: the key's comment, else its type.">
-        <Input id={`${base}-title`} value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
+        <TextInput id={`${base}-title`} value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
           setTitle(e.target.value);
         }}/>
       </Field>
       <Field id={`${base}-key`} label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
-        <TextArea id={`${base}-key`} value={key} rows={4} autoFocus spellCheck={false} invalid={Boolean(error)} placeholder="ssh-ed25519 AAAA… you@example.com"
-          aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
+        <Textarea id={`${base}-key`} value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }}/>
+          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
@@ -790,11 +788,10 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
       add();
     }}>
       <Field id={id} label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
-        <TextArea id={id} value={key} rows={6} autoFocus spellCheck={false} invalid={Boolean(error)} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
-          aria-describedby={describedBy(id, error, true)} onChange={(e) => {
+        <Textarea id={id} value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" aria-describedby={describedBy(id, error, true)} onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }}/>
+          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>

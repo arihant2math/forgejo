@@ -7,13 +7,13 @@ import {useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Callout, Input} from '../../ui/index.ts';
+import {Callout} from '../../ui/index.ts';
 import {DESCRIPTION_MAX, REPO_NAME_MAX, repoNameProblem, repoRefusal} from '../new/forms.ts';
 import {OwnerPicker, useRemoteOwners} from '../new/NewRepo.tsx';
 import {repoOwners, repoTaken} from '../new/owners.ts';
 import {Field, NameStatus, openWhenSynced, useAvailability} from '../new/parts.tsx';
 import {RepoForkedIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl, Dialog} from '@primer/react';
+import {Button, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 interface Fork {id: number; name: string; owner: {login: string}}
@@ -94,9 +94,9 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
       <Field id="new-repo-owner" label="Owner" required><OwnerPicker owners={owners} owner={owner} me={session.userId} onChange={setOwnerId}/></Field>
       {existing ? <Callout title="Existing fork">You already have a fork: {existing.owner.login}/{existing.name}. Open it instead.</Callout> : <>
         <Field id="fork-name" label="Repository name" required error={problem ?? (availability === 'taken' ? 'This name is taken.' : undefined)} hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Choose a name for your fork."/>}>
-          <Input id="fork-name" className="w-full" value={name} maxLength={REPO_NAME_MAX} onChange={(e) => { setName(e.target.value); }}/>
+          <TextInput id="fork-name" className="w-full" value={name} maxLength={REPO_NAME_MAX} onChange={(e) => { setName(e.target.value); }}/>
         </Field>
-        <Field id="fork-description" label="Description" optional><Input id="fork-description" className="w-full" value={description} maxLength={DESCRIPTION_MAX} onChange={(e) => { setDescription(e.target.value); }}/></Field>
+        <Field id="fork-description" label="Description" optional><TextInput id="fork-description" className="w-full" value={description} maxLength={DESCRIPTION_MAX} onChange={(e) => { setDescription(e.target.value); }}/></Field>
         <FormControl><Checkbox checked={defaultOnly} onChange={(event) => { setDefaultOnly(event.target.checked); }}/><FormControl.Label>Copy the default branch only</FormControl.Label></FormControl>
       </>}
       {error && <Callout tone="danger" title="Could not fork">{error}</Callout>}

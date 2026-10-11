@@ -23,7 +23,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
-import {Avatar, Card, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
+import {Avatar, Card, Code, CommandPopover, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
@@ -31,7 +31,7 @@ import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
 import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl} from '@primer/react';
+import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
@@ -194,11 +194,9 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         <p className="text-sm text-fg-subtle">Opens in <Code>{`${owner}/${repo}`}</Code>: merges <Code>{head}</Code> into <Code>{base}</Code>.</p>
         <Properties form={form} repoId={repoId}/>
         <div className="flex flex-col gap-1">
-          <Input aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} invalid={missing}
-            aria-describedby={missing ? 'new-pull-title-missing' : undefined}
-            onChange={(e) => {
+          <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
               form.setTitle(e.target.value);
-            }}/>
+            }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
           {missing && <p id="new-pull-title-missing" role="alert" className="text-sm text-danger">A pull request needs a title.</p>}
         </div>
         <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={8}

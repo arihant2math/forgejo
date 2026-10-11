@@ -26,7 +26,7 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {CommandPick, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
+import {CommandPick, CommandPopover, Dialog, LabelIcon} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
@@ -39,7 +39,7 @@ import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
 import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {Button, LinkButton, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The dialog's draft in a repository. */
@@ -431,17 +431,14 @@ const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: (
   const missing = form.missing && !form.title.trim();
   return (
     <div className="flex flex-col gap-1">
-    <Input aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} invalid={missing}
-      aria-describedby={missing ? 'create-title-missing' : undefined}
-      onChange={(e) => {
+    <TextInput aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} aria-describedby={missing ? 'create-title-missing' : undefined} onChange={(e) => {
         form.setTitle(e.target.value);
-      }}
-      onKeyDown={(e) => {
+      }} onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
           onCreate();
         }
-      }}/>
+      }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
     {missing && <p id="create-title-missing" role="alert" className="text-sm text-danger">An issue needs a title.</p>}
     </div>
   );

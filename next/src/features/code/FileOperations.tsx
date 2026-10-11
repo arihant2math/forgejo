@@ -10,7 +10,7 @@ import {reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/session.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
-import {Input, ListRow} from '../../ui/index.ts';
+import {ListRow} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
@@ -21,7 +21,7 @@ import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
-import {Button, ActionMenu, ActionList, Dialog} from '@primer/react';
+import {Button, ActionMenu, ActionList, Dialog, TextInput} from '@primer/react';
 
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
   owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined; children?: ReactNode;
@@ -131,7 +131,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
     {blocked && <p className="text-sm text-fg-muted">{blocked}</p>}
     {children}
     {mode && !dialog && <Dialog title={mode === 'create' ? 'Create new file' : 'Upload files'} width="xlarge" onClose={() => { const open = false; if (!open) setMode(undefined); }} renderFooter={() => <Dialog.Footer>{<Button type="button" disabled={Boolean(problem) || Boolean(blocked)} onClick={() => {setDialog(true);}}>Commit changes…</Button>}</Dialog.Footer>}>
-      {mode === 'create' ? <><Input aria-label="File path" placeholder="dir/name.ext" value={path} onChange={(event) => {setPath(event.target.value); void intents.keepText({key: pathKey, title: 'New file path', issueId: 0, repoId, text: event.target.value});}}/><Suspense fallback={<p>Loading editor…</p>}><CodeEditor value={text} path={path} wrap onChange={(value) => {setText(value); void intents.keepText({key, title: `New file in ${dir || repo}`, issueId: 0, repoId, text: value});}}/></Suspense></> : <div className="flex flex-col gap-3">
+      {mode === 'create' ? <><TextInput aria-label="File path" placeholder="dir/name.ext" value={path} onChange={(event) => {setPath(event.target.value); void intents.keepText({key: pathKey, title: 'New file path', issueId: 0, repoId, text: event.target.value});}}/><Suspense fallback={<p>Loading editor…</p>}><CodeEditor value={text} path={path} wrap onChange={(value) => {setText(value); void intents.keepText({key, title: `New file in ${dir || repo}`, issueId: 0, repoId, text: value});}}/></Suspense></> : <div className="flex flex-col gap-3">
         <p className="text-sm text-fg-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
         <input aria-label="Choose files" type="file" multiple onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         <input aria-label="Choose folder" type="file" multiple {...{webkitdirectory: ''}} onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>

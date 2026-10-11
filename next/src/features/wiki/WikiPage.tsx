@@ -24,7 +24,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Callout, Input, NavItem, TextLink,
+  Callout, NavItem, TextLink,
 } from '../../ui/index.ts';
 import type {Loaded} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
@@ -37,7 +37,7 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, LinkButton, ActionMenu, ActionList, Dialog, Link as PrimerLink} from '@primer/react';
+import {Button, LinkButton, ActionMenu, ActionList, Dialog, Link as PrimerLink, TextInput} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
@@ -478,23 +478,19 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
           {!writable && <Callout tone="warning" title="You cannot write this wiki">Forgejo will refuse the change.</Callout>}
           {error !== undefined && <Callout tone="danger" title="Not saved">{error}</Callout>}
           <div className="flex flex-col gap-1">
-            <Input aria-label="Title" placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} invalid={missing && !title.trim()}
-              aria-describedby={missing && !title.trim() ? 'wiki-title-missing' : undefined}
-              onChange={(e) => {
+            <TextInput aria-label="Title" placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} aria-describedby={missing && !title.trim() ? 'wiki-title-missing' : undefined} onChange={(e) => {
                 setTitle(e.target.value);
-              }}
-              onKeyDown={(e) => {
+              }} onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   save();
                 }
-              }}/>
+              }} {...(missing && !title.trim() ? {validationStatus: 'error' as const} : {})}/>
             {missing && !title.trim() && <p id="wiki-title-missing" role="alert" className="text-sm text-danger">A page needs a title.</p>}
           </div>
           <MarkdownField attachments={false} repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
             onChange={setText} onSubmit={save} onCancel={leave} render={(t) => src.render(repoId, t)}/>
-          <Input aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255}
-            onChange={(e) => {
+          <TextInput aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
               setMessage(e.target.value);
             }}/>
           <div className="flex items-center justify-end gap-2">

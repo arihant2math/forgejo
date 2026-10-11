@@ -10,12 +10,12 @@ import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {CommandPopover, Input, ListRow, SegmentedControl} from '../../ui/index.ts';
+import {CommandPopover, ListRow, SegmentedControl} from '../../ui/index.ts';
 import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
 
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, TextInput} from '@primer/react';
 
 const labels: Record<Kind, string> = {code: 'Code', repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
@@ -88,13 +88,13 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   const loading = connected && !page && !error && allowed;
   return <>
     <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
-      <Input aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
+      <TextInput aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
       <CommandPopover label="Sort results" placeholder="Sort…" trigger={<Button size="small" type="button">{sorts.find((sort) => sort.value === search.sort)?.label}</Button>}
         options={sorts.filter((sort) => (sort.value !== 'stars' || search.type === 'repositories') && (sort.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((sort) => ({value: sort.value, label: sort.label, checked: search.sort === sort.value, onSelect: () => { patch({sort: sort.value}); }}))}/>
       {search.type === 'repositories' && <>
         <CommandPopover label="Archived repositories" placeholder="Archived…" trigger={<Button size="small" leadingVisual={FilterIcon} type="button">{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</Button>}
           options={[{value: '', label: 'All repositories'}, {value: 'false', label: 'Not archived'}, {value: 'true', label: 'Archived'}].map((option) => ({...option, checked: search.archived === option.value, onSelect: () => { patch({archived: option.value as DiscoverySearch['archived']}); }}))}/>
-        <Input aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
+        <TextInput aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
       </>}
       {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl label="State" value={search.state} onChange={(state) => { patch({state}); }} options={[{value: 'all', label: 'All'}, {value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>}
     </PageHeader>

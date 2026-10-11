@@ -12,10 +12,10 @@ import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {Input, ListRow, CodeLine, SegmentedControl} from '../../ui/index.ts';
+import {ListRow, CodeLine, SegmentedControl} from '../../ui/index.ts';
 import {discoverySearch, kinds} from './params.ts';
 import {type Hit, matchRows, type ShownLine} from './codeHits.ts';
-import {Button} from '@primer/react';
+import {Button, TextInput} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 
 interface Answer {enabled: boolean; total: number; results: Hit[]; repositories: Record<string, string>}
@@ -73,7 +73,7 @@ export default observer(function CodeSearch() {
     return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
-  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><Input aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
+  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><TextInput aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2"><SegmentedControl label="Search type" value="code" onChange={(type) => { void navigate({to: '/search', search: discoverySearch({q, type})}); }} options={kinds.map((kind) => ({value: kind, label: kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}))}/>{repoId && <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}

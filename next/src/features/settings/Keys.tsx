@@ -9,7 +9,7 @@ import {useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {Badge, Callout, Code, ConfirmDialog, Entry, Field, FormSection, hintId, Input, TextArea} from '../../ui/index.ts';
+import {Badge, Callout, Code, ConfirmDialog, Entry, FormSection, hintId} from '../../ui/index.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -18,7 +18,7 @@ import {fetchKeys, repoApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
 import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, Checkbox, FormControl, Dialog} from '@primer/react';
+import {Button, IconButton, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
 
 export const KeySettings = observer(function KeySettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -114,17 +114,16 @@ function KeyDialog({owner, repo, onClose, onSaved}: {owner: string; repo: string
         e.preventDefault();
         void save();
       }}>
-        <Field htmlFor="key-title" errorId={hintId('key-title')} label="Title" error={errors.title} hint="What uses it (“CI runner”, “docs server”).">
-          <Input id="key-title" className="w-full" value={form.title} autoFocus maxLength={50} invalid={Boolean(errors.title)} aria-describedby={hintId('key-title')}
-            onChange={(e) => {
+        <FormControl id="key-title"><FormControl.Label>Title</FormControl.Label>
+          <TextInput id="key-title" className="w-full" value={form.title} autoFocus maxLength={50} aria-describedby={hintId('key-title')} onChange={(e) => {
               set('title', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="key-key" errorId={hintId('key-key')} label="Key" error={errors.key} hint="The public key: the contents of a .pub file, starting with ssh-ed25519, ssh-rsa, ecdsa-… or sk-….">
-          <TextArea id="key-key" rows={4} value={form.key} spellCheck={false} invalid={Boolean(errors.key)} aria-describedby={hintId('key-key')} onChange={(e) => {
+            }} {...(errors.title ? {validationStatus: 'error' as const} : {})}/>
+        <FormControl.Caption>What uses it (“CI runner”, “docs server”).</FormControl.Caption>{errors.title && <FormControl.Validation variant="error">{errors.title}</FormControl.Validation>}</FormControl>
+        <FormControl id="key-key"><FormControl.Label>Key</FormControl.Label>
+          <Textarea id="key-key" rows={4} value={form.key} spellCheck={false} aria-describedby={hintId('key-key')} onChange={(e) => {
             set('key', e.target.value);
-          }}/>
-        </Field>
+          }} block {...(errors.key ? {validationStatus: 'error' as const} : {})}/>
+        <FormControl.Caption>The public key: the contents of a .pub file, starting with ssh-ed25519, ssh-rsa, ecdsa-… or sk-….</FormControl.Caption>{errors.key && <FormControl.Validation variant="error">{errors.key}</FormControl.Validation>}</FormControl>
         <FormControl><Checkbox checked={form.write} onChange={(event) => { const v = event.target.checked; set('write', v); }}/><FormControl.Label>Allow write access (pushing)</FormControl.Label></FormControl>
         {failure && <Callout tone="danger" title="Not added">{failure}</Callout>}
       </form>

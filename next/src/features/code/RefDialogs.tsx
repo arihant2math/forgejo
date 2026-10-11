@@ -14,13 +14,12 @@ import {failureText} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Input, TextArea} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {refTable, useLoad} from './hooks.ts';
 import {branchProtected, createBranch, createTag, deleteBranch, deleteTag, repoRef} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {BRANCH_MAX, branchDeleteBlock, createBranchBody, createTagBody, type RefChoice, refNameProblem, TAG_MAX, tagDeleteBlock, writeBlock} from './refWrite.ts';
-import {Button, Dialog} from '@primer/react';
+import {Button, Dialog, TextInput, Textarea} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** Why the viewer cannot do `action` in the repository now (archived, a mirror's refs, offline), or undefined. Observes. */
@@ -61,17 +60,14 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
   const bad = shown && problem !== undefined;
   return (
     <div className="flex flex-col gap-1">
-      <Input aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} invalid={bad}
-        aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off"
-        onChange={(e) => {
+      <TextInput aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off" onChange={(e) => {
           onChange(e.target.value);
-        }}
-        onKeyDown={(e) => {
+        }} onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault();
             onEnter();
           }
-        }}/>
+        }} {...(bad ? {validationStatus: 'error' as const} : {})}/>
       {bad && <Problem id="ref-name-problem">{problem}</Problem>}
     </div>
   );
@@ -151,14 +147,14 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
           <span>At</span>
           <RefPicker repoId={repoId} label="Tag the commit of" value={target} onChange={setTarget} commits/>
         </div>
-        <TextArea aria-label="Message" placeholder="Message (optional: makes an annotated tag)" rows={3} value={message} onChange={(e) => {
+        <Textarea aria-label="Message" placeholder="Message (optional: makes an annotated tag)" rows={3} value={message} onChange={(e) => {
           setMessage(e.target.value);
         }} onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             create();
           }
-        }}/>
+        }} block/>
         {block && <p className="text-sm text-fg-subtle">{block}</p>}
         {error && <Problem id="ref-write-error">{error}</Problem>}
       </div>

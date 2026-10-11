@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {useState} from 'react';
-import {Input, TextArea} from '../../ui/index.ts';
-import {Button, Dialog} from '@primer/react';
+import {Button, Dialog, TextInput, Textarea} from '@primer/react';
 
 export interface CommitFields {
   message: string;
@@ -32,12 +31,12 @@ export function CommitDialog({branch, defaultMessage, protectedBranch, busy, err
     <Button type="button" disabled={busy || Boolean(why)} onClick={() => {onCommit({message, description, ...(useNew ? {newBranch: name.trim()} : {}), openPull: useNew && pull && allowPull});}}>{busy ? 'Committing…' : 'Commit changes'}</Button>
   </>}</Dialog.Footer>}>
     <div className="flex flex-col gap-3">
-      <Input aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>
-      <TextArea aria-label="Commit description" value={description} onChange={(e) => {setDescription(e.target.value);}}/>
+      <TextInput aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>
+      <Textarea aria-label="Commit description" value={description} onChange={(e) => {setDescription(e.target.value);}} block rows={6}/>
       {protectedBranch && <p className="text-sm text-fg-muted">This branch is protected. Commit to a new branch and propose a pull request.</p>}
       {!protectedBranch && <label><input type="radio" checked={!useNew} onChange={() => {setNewBranch(false);}}/> Commit directly to {branch}</label>}
       <label><input type="radio" checked={useNew} onChange={() => {setNewBranch(true);}}/> Create a new branch</label>
-      {useNew && <><Input aria-label="New branch name" value={name} onChange={(e) => {setName(e.target.value);}}/>{allowPull ? <label><input type="checkbox" checked={pull} onChange={(e) => {setPull(e.target.checked);}}/> {pullInto ? `Open a pull request into ${pullInto}` : 'Open a pull request'}</label> : <p className="text-sm text-fg-muted">The first commit establishes the branch. A pull request needs an existing base branch.</p>}</>}
+      {useNew && <><TextInput aria-label="New branch name" value={name} onChange={(e) => {setName(e.target.value);}}/>{allowPull ? <label><input type="checkbox" checked={pull} onChange={(e) => {setPull(e.target.checked);}}/> {pullInto ? `Open a pull request into ${pullInto}` : 'Open a pull request'}</label> : <p className="text-sm text-fg-muted">The first commit establishes the branch. A pull request needs an existing base branch.</p>}</>}
       {why && <p className="text-sm text-fg-muted">{why}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>

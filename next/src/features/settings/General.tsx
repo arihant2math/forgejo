@@ -16,7 +16,7 @@ import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import type {Repository} from '../../protocol/types.gen.ts';
 import {
-  Callout, CommandPopover, ConfirmDialog, Field, FormSection, hintId, Input, Select, SettingRow, Switch, TextArea,
+  Callout, CommandPopover, ConfirmDialog, FormSection, hintId, Select, SettingRow, Switch
 } from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -28,7 +28,7 @@ import {
 import {problemOf} from './problems.ts';
 import {deleteRepo, patchRepo, transferRepo} from './requests.ts';
 import {GitBranchIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, TextInput, FormControl, Textarea} from '@primer/react';
 
 export const GeneralSettings = observer(function GeneralSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const pool = usePool();
@@ -108,25 +108,21 @@ function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Reposito
         e.preventDefault();
         void save();
       }}>
-        <Field htmlFor="repo-name" errorId={hintId('repo-name')} label="Repository name" error={errors.name}
-          hint={form.name.trim() !== base.name ? 'Renaming changes its address; Forgejo redirects the old one.' : undefined}>
-          <Input id="repo-name" className="w-full" value={form.name} maxLength={100} autoComplete="off" spellCheck={false} invalid={Boolean(errors.name)}
-            aria-describedby={hintId('repo-name')} onChange={(e) => {
+        <FormControl id="repo-name"><FormControl.Label>Repository name</FormControl.Label>
+          <TextInput id="repo-name" className="w-full" value={form.name} maxLength={100} autoComplete="off" spellCheck={false} aria-describedby={hintId('repo-name')} onChange={(e) => {
               edit('name', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="repo-description" errorId={hintId('repo-description')} label="Description" optional error={errors.description}>
-          <TextArea id="repo-description" rows={3} value={form.description} invalid={Boolean(errors.description)} aria-describedby={hintId('repo-description')}
-            onChange={(e) => {
+            }} {...(errors.name ? {validationStatus: 'error' as const} : {})}/>
+        <FormControl.Caption>{form.name.trim() !== base.name ? 'Renaming changes its address; Forgejo redirects the old one.' : undefined}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
+        <FormControl id="repo-description"><FormControl.Label>Description</FormControl.Label>
+          <Textarea id="repo-description" rows={3} value={form.description} aria-describedby={hintId('repo-description')} onChange={(e) => {
               edit('description', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="repo-website" errorId={hintId('repo-website')} label="Website" optional error={errors.website}>
-          <Input id="repo-website" type="url" className="w-full" placeholder="https://" value={form.website} invalid={Boolean(errors.website)}
-            aria-describedby={hintId('repo-website')} onChange={(e) => {
+            }} block {...(errors.description ? {validationStatus: 'error' as const} : {})}/>
+        {errors.description && <FormControl.Validation variant="error">{errors.description}</FormControl.Validation>}</FormControl>
+        <FormControl id="repo-website"><FormControl.Label>Website</FormControl.Label>
+          <TextInput id="repo-website" type="url" className="w-full" placeholder="https://" value={form.website} aria-describedby={hintId('repo-website')} onChange={(e) => {
               edit('website', e.target.value);
-            }}/>
-        </Field>
+            }} {...(errors.website ? {validationStatus: 'error' as const} : {})}/>
+        {errors.website && <FormControl.Validation variant="error">{errors.website}</FormControl.Validation>}</FormControl>
         {failure && <Callout tone="danger" title="Not saved">{failure}</Callout>}
         <div className="flex items-center gap-2">
           <Button variant="primary" type="submit" disabled={!dirty || busy || offline}>{busy ? 'Saving…' : 'Save changes'}</Button>
@@ -360,12 +356,11 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
             notify(app, {tone: 'success', title: 'Transfer requested', description: `${target.owner} has to accept it; until then it stays here.`});
           }
         })}>
-        <Field htmlFor="transfer-owner" errorId={hintId('transfer-owner')} label="New owner" error={newOwner.trim() && 'error' in target ? target.error : undefined}>
-          <Input id="transfer-owner" className="w-full" value={newOwner} autoComplete="off" spellCheck={false} placeholder="A user or organization"
-            aria-describedby={hintId('transfer-owner')} onChange={(e) => {
+        <FormControl id="transfer-owner"><FormControl.Label>New owner</FormControl.Label>
+          <TextInput id="transfer-owner" className="w-full" value={newOwner} autoComplete="off" spellCheck={false} placeholder="A user or organization" aria-describedby={hintId('transfer-owner')} onChange={(e) => {
               setNewOwner(e.target.value);
             }}/>
-        </Field>
+        {(newOwner.trim() && 'error' in target ? target.error : undefined) && <FormControl.Validation variant="error">{newOwner.trim() && 'error' in target ? target.error : undefined}</FormControl.Validation>}</FormControl>
       </ConfirmDialog>
       <ConfirmDialog open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
         description="Its code, issues, pull requests, wiki, releases and packages are deleted for good."

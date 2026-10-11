@@ -130,7 +130,8 @@ function GlobalShortcuts({app}: {app: App}) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !drawerOpen()) return;
       e.stopPropagation();
-      closeDrawer();
+      e.preventDefault();
+      closeDrawer(true);
     };
     window.addEventListener('keydown', onKey, true);
     return () => {
@@ -175,7 +176,7 @@ function AppShell({app}: {app: App}) {
   return (
     <TooltipProvider>
       <GlobalShortcuts app={app}/>
-      <ShellFrame sidebar={<Sidebar/>} onBackdrop={closeDrawer}>
+      <ShellFrame sidebar={<Sidebar/>} onBackdrop={() => { closeDrawer(true); }}>
         <Outlet/>
       </ShellFrame>
       <Overlays app={app}/>

@@ -44,6 +44,7 @@ export async function online<T = unknown>(app: App, req: OnlineRequest): Promise
 
 /** A write's answer and the sync log position that holds it (X-Livesync-Sync-Id, PLAN §4.8), when the server gave one. */
 export interface Written<T> {
+  totalCount: number | undefined;
   value: T | undefined;
   syncId: number | undefined;
 }
@@ -56,7 +57,7 @@ export function onlineWrite<T = unknown>(app: App, req: OnlineRequest): Promise<
   return send<T>(app, req);
 }
 
-async function send<T>(app: App, req: OnlineRequest): Promise<Written<T>> {
+export async function send<T>(app: App, req: OnlineRequest): Promise<Written<T>> {
   const s = app.session;
   if (!s) throw new RequestFailed(0, 'Not signed in.');
   const method = req.method ?? 'GET';
@@ -95,7 +96,9 @@ async function send<T>(app: App, req: OnlineRequest): Promise<Written<T>> {
     throw new RequestFailed(res.status, msg || `Forgejo answered ${String(res.status)}.`);
   }
   const v = Number(res.headers.get(HeaderSyncID));
-  return {value: json as T | undefined, syncId: Number.isSafeInteger(v) && v > 0 ? v : undefined};
+  const count = res.headers.get('X-Total-Count');
+  const totalCount = count === null ? undefined : Number(count);
+  return {value: json as T | undefined, totalCount: totalCount !== undefined && Number.isSafeInteger(totalCount) && totalCount >= 0 ? totalCount : undefined, syncId: Number.isSafeInteger(v) && v > 0 ? v : undefined};
 }
 
 /** Forgejo refused the request (a 4xx other than a timeout or a rate limit): trying it again would be refused again. */

@@ -281,6 +281,7 @@ export function Sidebar() {
         <NavItem asChild icon={GitPullRequest} label="My pull requests" shortcut={shortcutHint('go.pulls')}>
           <Link to="/pulls" activeOptions={{includeSearch: false}}/>
         </NavItem>
+        <NavItem asChild icon={Search} label="Explore"><Link to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}/></NavItem>
         <BoardsItem/>
         <Workspace/>
         <IdleViews/>

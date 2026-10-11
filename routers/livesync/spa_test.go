@@ -126,7 +126,11 @@ func TestSPARoute(t *testing.T) {
 		"/org/org3/issues":                                             false,
 		"/user2/repo1/issues/1.png":                                    false,
 		"/user2":                                                       true, // an owner's page
-		"/explore":                                                     false,
+		"/explore":                                                     true,
+		"/explore/repos":                                               true,
+		"/explore/users":                                               true,
+		"/explore/organizations":                                       true,
+		"/search":                                                      true,
 		"/user2.keys":                                                  false, // the user's files (reservedUserPatterns)
 		"/user2.rss":                                                   false,
 		// The new repository and organization forms ("repo" and "org" are reserved: never an owner).

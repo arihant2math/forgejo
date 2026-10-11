@@ -55,8 +55,13 @@ import (
 // address: any segment but wikiReserved) or "{code}". Extend
 // this table when the UI supports a route (F3–F7).
 var spaRoutes = [][]string{
-	{},                    // the dashboard
-	{"notifications"},     // the inbox
+	{},                // the dashboard
+	{"notifications"}, // the inbox
+	{"search"},
+	{"explore"},
+	{"explore", "repos"},
+	{"explore", "users"},
+	{"explore", "organizations"},
 	{"issues"},            // the viewer's issues
 	{"pulls"},             // the viewer's pull requests
 	{"repo", "create"},    // a new repository ("repo" and "org" are reserved user names: never an owner)
@@ -695,6 +700,7 @@ func nextConfig() *protocol.NextConfig {
 		AppURL: setting.AppURL, AppSubURL: setting.AppSubURL, Base: setting.AppSubURL + nextBase,
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
 		SSHClonePrefix: sshClonePrefix(),
+		Explore:        &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
 		WIPPrefixes:    &prefixes,
 		Repository: &protocol.NextRepository{
 			DefaultBranch: setting.Repository.DefaultBranch, DefaultPrivate: setting.Repository.DefaultPrivate,

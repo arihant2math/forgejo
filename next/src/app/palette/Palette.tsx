@@ -470,6 +470,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
             ))}
           </CommandGroup>
         ))}
+        {query.trim() && <CommandGroup heading="Search"><CommandItem value="search:all" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>See all results</CommandItem></CommandGroup>}
       </CommandList>
     </CommandRoot>
   );

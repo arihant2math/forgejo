@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {render, screen} from '@testing-library/react';
+import {runInAction} from 'mobx';
 import type {ReactNode} from 'react';
 import {expect, test, vi} from 'vitest';
 import {fakeSession, repo, user} from '../../test/fakeSession.ts';
@@ -21,9 +22,26 @@ test('waits for every workspace repository before displaying the sorted list', (
   }});
   const dev = user(1, 'dev');
   s.data.put('Repository', 'repo:1', repo(1, dev, 'zebra'));
-  expect(owners(s)).toEqual([]);
+  expect(owners(s, true)).toEqual([]);
   s.data.put('Repository', 'repo:2', repo(2, dev, 'atlas'));
   expect(owners(s).map((o) => o.repos)).toEqual([['atlas', 'zebra']]);
+});
+
+test('shows known repositories when initial sync ends even if metadata never arrives', () => {
+  const s = fakeSession({workspace: {
+    viewer_id: 1, truncated: false, max_repos: 200,
+    groups: [1, 2].map((id) => ({group: `repo:${String(id)}`, units: [], reason: 'member' as const})),
+  }});
+  s.data.put('Repository', 'repo:1', repo(1, user(1, 'dev'), 'atlas'));
+  runInAction(() => { s.data.status.connection = 'catching_up'; });
+  expect(owners(s)).toEqual([]);
+  runInAction(() => { s.data.status.connection = 'live'; });
+  expect(owners(s).map((o) => o.repos)).toEqual([['atlas']]);
+  runInAction(() => {
+    s.data.status.connection = 'connecting';
+    s.data.status.lastError = 'bootstrap repo:2: failed';
+  });
+  expect(owners(s).map((o) => o.repos)).toEqual([['atlas']]);
 });
 
 test('keeps a revealed repository row after navigating away', () => {

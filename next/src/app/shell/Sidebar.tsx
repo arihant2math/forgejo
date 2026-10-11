@@ -80,13 +80,17 @@ interface Owner {
 }
 
 /** The workspace's owners (the viewer first, then by name) and their repositories (by name). */
-export function owners(session: Session): Owner[] {
+export function owners(session: Session, hydrating = false): Owner[] {
   const {data, userId} = session;
   const ws = data.workspace.current;
   if (!ws) return [];
   const repos = data.pool.model('Repository');
   const users = data.pool.model('User');
   const peek = data.peek('Repository');
+  const {connection, loading, lastError} = data.status;
+  const arriving = hydrating || (lastError === undefined && (
+    connection === 'idle' || connection === 'connecting' || connection === 'catching_up' || (connection === 'live' && loading > 0)
+  ));
   const byId = new Map<number, Owner>();
   const owner = (id: number, login: string | undefined): Owner | undefined => {
     let o = byId.get(id);
@@ -103,8 +107,11 @@ export function owners(session: Session): Owner[] {
     if (kind === 'repo') {
       const e = repos.get(id);
       const r = e ? {owner_id: e.get('owner_id'), owner_name: e.get('owner_name'), name: e.get('name')} : peek.get(id);
-      // Do not expose a partial, sorted list while repository metadata is still arriving.
-      if (!r) return [];
+      // Missing metadata must not hide known repositories once hydration/sync finishes or fails.
+      if (!r) {
+        if (arriving) return [];
+        continue;
+      }
       owner(r.owner_id, r.owner_name)?.repos.push(r.name);
     } else if (kind === 'org' && g.reason === 'member') {
       owner(id, undefined);
@@ -169,6 +176,15 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
 const Workspace = observer(function Workspace() {
   const session = useSession();
   const [closed, setClosed] = useState(readClosed);
+  const [hydrating, setHydrating] = useState(true);
+  useEffect(() => {
+    let mounted = true;
+    const done = () => {
+      if (mounted) setHydrating(false);
+    };
+    void session.data.hydrated.then(done, done);
+    return () => { mounted = false; };
+  }, [session]);
   const toggle = useCallback((login: string, open: boolean) => {
     setClosed((prev) => {
       const next = new Set(prev);
@@ -178,7 +194,7 @@ const Workspace = observer(function Workspace() {
       return next;
     });
   }, []);
-  const list = owners(session);
+  const list = owners(session, hydrating);
   if (!list.length) return null;
   return (
     <>

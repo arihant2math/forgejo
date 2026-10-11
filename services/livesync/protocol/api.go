@@ -78,6 +78,7 @@ type APIAttachmentPermission struct {
 //	GET    /-/sync/api/repos/{id}/diff/{base}/{head}        → 200 unified diff base..head (immutable)
 //	GET    /-/sync/api/repos/{id}/activity/{commit}         → 200 APICommitActivity     (immutable)
 //	GET    /-/sync/api/repos/{id}/contributors/{commit}     → 200 APIContributors       (immutable); 202 + Retry-After while it is computed
+//	GET    /-/sync/api/repos/{id}/refs/{commit}             → 200 APICommitRefs         (not immutable: refs move)
 //	GET    /-/sync/api/user/options                         → 200 APIUserOptions (user.go)
 //	PUT    /-/sync/api/user/emails/primary                  APIPrimaryEmail → 204; 404 not the viewer's address, 422 not verified (write:user)
 //
@@ -438,4 +439,14 @@ type APIWeek struct {
 	Commits   int   `json:"commits"`
 	Additions int   `json:"additions"`
 	Deletions int   `json:"deletions"`
+}
+
+// APICommitRefs is what GET /-/sync/api/repos/{id}/refs/{commit} answers:
+// the branches and tags whose history contains the commit (git branch /
+// tag --contains, newest first), as the classic commit page loads them
+// (load-branches-and-tags). Not immutable: branches and tags move, so it
+// is sent with "Cache-Control: no-store".
+type APICommitRefs struct {
+	Branches []string `json:"branches"`
+	Tags     []string `json:"tags"`
 }

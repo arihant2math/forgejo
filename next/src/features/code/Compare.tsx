@@ -31,7 +31,8 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings} from './DiffSettings.tsx';
 import {useDiff} from './History.tsx';
-import {Ago, commitRow, summary} from './bits.tsx';
+import {Ago, summary} from './bits.tsx';
+import {linkedCommitRow} from './commitText.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {codeTo, useCodeRows} from './nav.tsx';
 import {
@@ -331,7 +332,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
       <div className="sticky left-0 w-view border-b border-border">
         <div className="px-4 pt-3 pb-1"><SectionHeading>{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</SectionHeading></div>
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={commitRow}
+          row={linkedCommitRow(owner, repo)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       </div>
       <div className="sticky left-0 flex w-view justify-end px-4 py-1"><DiffSettings/></div>

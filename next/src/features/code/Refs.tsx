@@ -24,7 +24,7 @@ import type {Branch, PullRequest, Release} from '../../protocol/types.gen.ts';
 import {Link} from '@tanstack/react-router';
 import {refTable, useLoad, useSource} from './hooks.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Badge, Button, EmptyState, TextLink} from '../../ui/index.ts';
+import {Button, TextLink} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate, shortDate} from '../issues/format.ts';
@@ -40,9 +40,10 @@ import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList} from '@primer/react';
+import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 /** Stops a row's click (it opens the row) at the controls inside it. */
 function RowControls({children}: {children: ReactNode}) {
@@ -103,7 +104,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               const pull = prOf.get(b.name);
               return {
                 leading: <GitBranchIcon size={12} className="shrink-0"/>,
-                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Badge>default</Badge></>} <span className="text-fg-subtle">{b.commit_message.split('\n')[0]}</span></>,
+                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Label>default</Label></>} <span className="text-fg-subtle">{b.commit_message.split('\n')[0]}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
@@ -124,7 +125,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               };
             }}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <EmptyState icon={GitBranchIcon} title="No branches" description="This repository has no branches on this device."/>}
+          <Blankslate><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
         {dialog?.kind === 'new' && <NewBranchDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -152,7 +153,7 @@ const BranchPull = observer(function BranchPull({owner, repo, pr}: {owner: strin
     <span className="flex items-center gap-1" onClick={(e) => {
       e.stopPropagation();
     }}>
-      {pr.merged && <Badge tone="done"><GitMergeIcon size={12} className="shrink-0"/>Merged</Badge>}
+      {pr.merged && <Label variant="done"><GitMergeIcon size={12} className="shrink-0"/>Merged</Label>}
       <TextLink><Link className="flex items-center gap-1" to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}><GitPullRequestIcon size={12} className="shrink-0"/>#{pr.number}</Link></TextLink>
     </span>
   );
@@ -204,7 +205,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
               </>,
             })}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <EmptyState icon={TagIcon} title="No tags" description="This repository has no tags on this device."/>}
+          <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No tags</Blankslate.Heading><Blankslate.Description>This repository has no tags on this device.</Blankslate.Description></Blankslate>}
         {dialog?.kind === 'new' && <NewTagDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -251,8 +252,7 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
           )}
           <div>{releases.map((r, i) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r} previous={releases[i + 1]?.tag_name} writer={writer} latest={r.id === latest && !r.prerelease}/>)}</div>
         </PageColumn> :
-        <EmptyState icon={PackageIcon} title="No releases" description="This repository has no published releases on this device."
-          action={writer ? <Button size="sm" asChild>{newRelease}</Button> : undefined}/>)}
+        <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? <Button size="sm" asChild>{newRelease}</Button> : undefined}</Blankslate>)}
     </CodeFrame>
   );
 });
@@ -309,8 +309,8 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
     <article aria-label={`Draft ${name}`} className="-mx-1 flex flex-col gap-3 border-b border-border-subtle px-1 py-6 first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold text-fg">{name}</h2>
-        <Badge>Draft</Badge>
-        {d.prerelease && <Badge tone="warning">Pre-release</Badge>}
+        <Label>Draft</Label>
+        {d.prerelease && <Label variant="attention">Pre-release</Label>}
         <span className="text-sm text-fg-subtle">
           <span className="font-mono">{d.tag_name}</span>
           {d.created_at && <>{' · '}<time dateTime={d.created_at} title={fullDate(d.created_at)}>{shortDate(d.created_at)}</time></>}
@@ -399,8 +399,8 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
     <article className="-mx-1 flex flex-col gap-3 border-b border-border-subtle px-1 py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold text-fg">{r.name || r.tag_name}</h2>
-        {latest && <Badge tone="success">Latest</Badge>}
-        {r.prerelease && <Badge tone="warning">Pre-release</Badge>}
+        {latest && <Label variant="success">Latest</Label>}
+        {r.prerelease && <Label variant="attention">Pre-release</Label>}
         <span className="text-sm text-fg-subtle">
           <TextLink><CodeLink owner={owner} repo={repo} to={`src/tag/${r.tag_name}`}><span className="font-mono">{r.tag_name}</span></CodeLink></TextLink>
           {' · '}<time dateTime={r.created_at} title={fullDate(r.created_at)}>{shortDate(r.created_at)}</time>

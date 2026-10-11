@@ -20,7 +20,7 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, LineAction, LineNo, ListRow} from '../../ui/index.ts';
+import {CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, LineAction, LineNo, ListRow} from '../../ui/index.ts';
 import {useSource} from './hooks.ts';
 import {ImageDiff, isImageDiff} from './ImageDiff.tsx';
 import {useDiffSettings} from './DiffSettings.tsx';
@@ -28,6 +28,7 @@ import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
 import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-react';
 import {Button, IconButton} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 /** A file header row: the header (h-row, 32) after an 8 px gap. */
 export const FILE_ROW = 40;
@@ -263,7 +264,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   };
   const lastFileStart = v.measurementsCache[fileRow[files.length - 1] ?? 0]?.start ?? 0;
   const lastFileHeight = Math.max(0, v.getTotalSize() - (lastFileStart - margin));
-  if (!files.length) return <EmptyState icon={FileDiffIcon} title="No changes" description={whitespace ? 'No changes remain with whitespace hidden.' : 'These two commits have the same content.'}/>;
+  if (!files.length) return <Blankslate><Blankslate.Visual><FileDiffIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No changes</Blankslate.Heading><Blankslate.Description>{whitespace ? 'No changes remain with whitespace hidden.' : 'These two commits have the same content.'}</Blankslate.Description></Blankslate>;
   const floating = topRow !== fileRow[current] && files[current];
   const active = rows[cursor];
   return (

@@ -17,12 +17,12 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Callout, Checkbox, Input} from '../../ui/index.ts';
+import {Callout, Input} from '../../ui/index.ts';
 import {creationScope, newOrgRequest, ORG_NAME_MAX, orgNameProblem, orgRefusal, type OrgVisibility, type Refusal, scopeAllows} from './forms.ts';
 import {loginTaken} from './owners.ts';
 import {Choice, Field, hintOf, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {OrganizationIcon, EyeClosedIcon, GlobeIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Checkbox, FormControl} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export const NewOrg = observer(function NewOrg() {
@@ -106,7 +106,7 @@ export const NewOrg = observer(function NewOrg() {
 
             <Section title="Permissions">
               <div className="flex flex-col gap-1">
-                <Checkbox label="Repository admins can add or remove the access of teams" checked={teamAccess} onChange={setTeamAccess}/>
+                <FormControl><Checkbox checked={teamAccess} onChange={(event) => { setTeamAccess(event.target.checked); }}/><FormControl.Label>Repository admins can add or remove the access of teams</FormControl.Label></FormControl>
                 <p className="pl-6 text-sm text-fg-muted">Otherwise only the organization’s owners decide which teams have a repository. Which members may create repositories is up to each team.</p>
               </div>
             </Section>

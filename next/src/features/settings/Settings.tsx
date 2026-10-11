@@ -17,7 +17,7 @@ import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {connectivity} from '../../app/online.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {EmptyState, SectionNav, SectionNavHeading, SectionNavLink, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {SectionNav, SectionNavHeading, SectionNavLink} from '../../ui/index.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {OfflineNote} from './bits.tsx';
 import {BranchSettings} from './Branches.tsx';
@@ -27,6 +27,7 @@ import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
 import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -83,9 +84,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
     return <Layout owner={owner} repo={repo}><SettingsSkeleton/></Layout>;
   }
   return (
-    <EmptyState icon={LockIcon} title="Only administrators can change settings"
-      description="You do not administer this repository. Its owner and administrators can give you access."
-      action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}/>
+    <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Only administrators can change settings</Blankslate.Heading><Blankslate.Description>You do not administer this repository. Its owner and administrators can give you access.</Blankslate.Description>{<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}</Blankslate>
   );
 });
 
@@ -153,9 +152,9 @@ function SettingsNav({owner, repo}: {owner: string; repo: string}) {
 function SettingsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-4">
-      <Skeleton className="h-4 w-24"/>
-      <div className="flex flex-col gap-2"><Skeleton className="h-3 w-32"/><Skeleton round="md" className="h-control w-full"/></div>
-      <div className="flex flex-col gap-2"><Skeleton className="h-3 w-24"/><SkeletonText lines={3}/></div>
+      <SkeletonBox className="h-4 w-24"/>
+      <div className="flex flex-col gap-2"><SkeletonBox className="h-3 w-32"/><SkeletonBox className="h-control w-full"/></div>
+      <div className="flex flex-col gap-2"><SkeletonBox className="h-3 w-24"/><SkeletonText lines={3}/></div>
     </div>
   );
 }

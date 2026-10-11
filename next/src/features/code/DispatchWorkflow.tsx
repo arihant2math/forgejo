@@ -7,12 +7,12 @@ import {useEffect, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
-import {Dialog, Field, Input, Select, Switch} from '../../ui/index.ts';
+import {Field, Input, Select, Switch} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {refTable} from './hooks.ts';
 import {RefPicker} from './RefMenu.tsx';
 import type {RefChoice} from './refWrite.ts';
-import {Button} from '@primer/react';
+import {Button, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export interface WorkflowFile {file: string; dispatchable: boolean}
@@ -98,10 +98,10 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
       setError(failureText(err));
     }).finally(() => { setBusy(false); });
   };
-  return <Dialog open size="md" title="Run workflow" description={file} onOpenChange={(open) => { if (!open && !busy) onClose(); }} footer={<>
+  return <Dialog title="Run workflow" subtitle={file} width="large" onClose={() => { const open = false; if (!open && !busy) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
     <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
     <OptionalTooltip text={block}><Button variant="primary" type="button" disabled={busy || Boolean(block) || !schema?.dispatchable} onClick={submit}>{busy ? 'Starting…' : 'Run workflow'}</Button></OptionalTooltip>
-  </>}>
+  </>}</Dialog.Footer>}>
     <div className="flex flex-col gap-3">
       <RefPicker repoId={repoId} label="Run on" value={ref} onChange={(value) => { if (!busy && (value.kind !== ref.kind || value.ref !== ref.ref)) { setSchema(undefined); setError(undefined); setRef(value); } }}/>
       {!schema && !error && !block && <p className="text-sm text-fg-muted">Loading inputs…</p>}

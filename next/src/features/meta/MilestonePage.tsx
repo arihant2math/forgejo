@@ -14,7 +14,7 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {EmptyState, ProgressBar, ProseSource, SkeletonText} from '../../ui/index.ts';
+import {ProseSource} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
@@ -24,8 +24,9 @@ import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
 import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, ActionMenu, ActionList} from '@primer/react';
+import {Button, ActionMenu, ActionList, ProgressBar} from '@primer/react';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {SkeletonText, Blankslate} from '@primer/react/experimental';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');
 
@@ -75,7 +76,7 @@ const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Mi
       </RepoHeader>
       <Summary r={r} m={m}/>
       <ListBody model={model} label={`Issues and pull requests of ${m.title}`}
-        empty={<EmptyState icon={MilestoneIcon} title="Nothing open in this milestone" description="Add issues and pull requests to it from their milestone (M)."/>}/>
+        empty={<Blankslate><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing open in this milestone</Blankslate.Heading><Blankslate.Description>Add issues and pull requests to it from their milestone (M).</Blankslate.Description></Blankslate>}/>
     </>
   );
 });
@@ -98,7 +99,7 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
           }}>{open ? 'Hide the description' : 'Show the description'}<ChevronDownIcon size={12} className="shrink-0"/></Button>
         )}
       </div>
-      <div className="max-w-lg"><ProgressBar value={p.closed} max={p.total} label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
+      <div className="max-w-lg"><ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
       {open && m.description && (
         <div className="max-h-dialog-body overflow-y-auto">
           {offline ? <ProseSource text={m.description}/> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}

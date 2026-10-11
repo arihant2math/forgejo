@@ -38,7 +38,7 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, cx, EmptyState, Icon, ListGroupHeader, ListRow,
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, cx, Icon, ListGroupHeader, ListRow,
   Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuSeparator, MenuTrigger, StatusDot,
 } from '../../ui/index.ts';
 import {AgoCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
@@ -54,6 +54,7 @@ import {activityOf, type InboxResult, inboxRows, noteHash, togglePin} from './in
 import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, FileSubmoduleIcon, GitCommitIcon, InboxIcon, TasklistIcon, MailIcon, ReadIcon, KebabHorizontalIcon, PinIcon, PinSlashIcon, RowsIcon, SquareIcon, CheckboxIcon, XIcon} from '@primer/octicons-react';
 import {Button, IconButton} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 const ROW = 32; // ListRow's h-row
 const route = getRouteApi('/shell/notifications');
@@ -318,8 +319,7 @@ const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}:
     <PageBody ref={setScroller}>
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
-        <EmptyState icon={BellSlashIcon} title={filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}
-          description={filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}/>}
+        <Blankslate><Blankslate.Visual><BellSlashIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}</Blankslate.Heading><Blankslate.Description>{filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}</Blankslate.Description></Blankslate>}
     </PageBody>
   );
 });

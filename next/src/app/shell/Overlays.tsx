@@ -5,11 +5,11 @@
 
 import {runInAction} from 'mobx';
 import {useState} from 'react';
-import {Dialog, DialogClose, SectionHeading, Shortcut} from '../../ui/index.ts';
+import {DialogClose, SectionHeading, Shortcut} from '../../ui/index.ts';
 import {performSignOut} from '../session.ts';
 import {KEYMAP, SCOPE_LABELS, type Scope, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {useApp} from '../store.ts';
-import {Button} from '@primer/react';
+import {Button, Dialog} from '@primer/react';
 
 /** Every keyboard shortcut, by scope: the ones that work on this page first (marked), then the others. */
 export function ShortcutsDialog() {
@@ -35,9 +35,7 @@ export function ShortcutsDialog() {
     });
   };
   return (
-    <Dialog open title="Keyboard shortcuts" initialFocus="dialog" scroll onOpenChange={(open) => {
-      if (!open) close();
-    }} footer={<DialogClose asChild><Button type="button">Close</Button></DialogClose>}>
+    <Dialog title="Keyboard shortcuts" width="large" onClose={() => { const open = false; if (!open) close(); }} renderFooter={() => <Dialog.Footer>{<DialogClose asChild><Button type="button">Close</Button></DialogClose>}</Dialog.Footer>}>
       <div className="flex flex-col gap-3">
         {order.map((scope) => (
           <section key={scope} className="flex flex-col gap-1">
@@ -73,23 +71,12 @@ export function SignOutDialog({pending}: {pending: number}) {
     });
   };
   return (
-    <Dialog
-      open
-      title="Sign out with unsynced changes?"
-      description={`${String(pending)} ${pending === 1 ? 'change has' : 'changes have'} not reached Forgejo yet. Signing out deletes ${pending === 1 ? 'it' : 'them'} from this device.`}
-      size="sm"
-      onOpenChange={(open) => {
-        if (!open) cancel();
-      }}
-      footer={
-        <>
+    <Dialog title="Sign out with unsynced changes?" subtitle={`${String(pending)} ${pending === 1 ? 'change has' : 'changes have'} not reached Forgejo yet. Signing out deletes ${pending === 1 ? 'it' : 'them'} from this device.`} width="medium" onClose={() => { const open = false; if (!open) cancel(); }} renderFooter={() => <Dialog.Footer>{<>
           <Button type="button" onClick={cancel}>Cancel</Button>
           <Button variant="danger" type="button" disabled={busy} onClick={() => {
             setBusy(true);
             void performSignOut(app);
           }}>Sign out anyway</Button>
-        </>
-      }
-    />
+        </>}</Dialog.Footer>}></Dialog>
   );
 }

@@ -5,7 +5,6 @@ import {type ErrorComponentProps, useRouterState} from '@tanstack/react-router';
 import {useEffect} from 'react';
 import {observer} from 'mobx-react-lite';
 import {reach} from './online.ts';
-import {EmptyState} from '../ui/index.ts';
 import {CenteredScreen} from './LoggedOut.tsx';
 import {lazyComponent} from './lazy.tsx';
 import {classicHas, classicPathOf} from './paths.ts';
@@ -15,6 +14,7 @@ import {PageHeader} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
 import {QuestionIcon, SyncIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 /** The not-found page's body (and the classic link) in its own chunk: rare, and off the boot route. */
 const Missing = lazyComponent(() => import('./Missing.tsx').then((m) => m.Missing));
@@ -27,12 +27,7 @@ export function RouteError({error}: ErrorComponentProps) {
   }, [chunk]);
   return (
     <CenteredScreen>
-      <EmptyState
-        icon={SyncIcon}
-        title="This page could not load"
-        description="Check your connection, then reload."
-        action={<Button variant="primary" type="button" onClick={() => { location.reload(); }}>Reload</Button>}
-      />
+      <Blankslate><Blankslate.Visual><SyncIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This page could not load</Blankslate.Heading><Blankslate.Description>Check your connection, then reload.</Blankslate.Description>{<Button variant="primary" type="button" onClick={() => { location.reload(); }}>Reload</Button>}</Blankslate>
     </CenteredScreen>
   );
 }

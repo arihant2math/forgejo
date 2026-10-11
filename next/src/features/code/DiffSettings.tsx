@@ -4,9 +4,9 @@
 import {useSyncExternalStore} from 'react';
 import {useLocation} from '@tanstack/react-router';
 import {useSession} from '../../app/store.ts';
-import {Checkbox, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
+import {Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
 import {GearIcon} from '@primer/octicons-react';
-import {IconButton} from '@primer/react';
+import {IconButton, Checkbox, FormControl} from '@primer/react';
 
 const listeners = new Set<() => void>();
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
@@ -41,7 +41,7 @@ export function DiffSettings() {
     <PopoverContent align="end">
       <div className="flex flex-col gap-3 p-3">
         <SegmentedControl label="Diff layout" value={s.split ? 'split' : 'unified'} options={[{value: 'unified', label: 'Unified'}, {value: 'split', label: 'Split'}]} onChange={(v) => { s.set(v === 'split', s.hide); }}/>
-        <Checkbox label="Hide whitespace changes" checked={s.hide} onChange={(v) => { s.set(s.split, v); }}/>
+        <FormControl><Checkbox checked={s.hide} onChange={(event) => { const v = event.target.checked; s.set(s.split, v); }}/><FormControl.Label>Hide whitespace changes</FormControl.Label></FormControl>
         {s.hide && <p className="text-xs text-fg-muted">Hidden changes cannot receive line comments.</p>}
       </div>
     </PopoverContent>

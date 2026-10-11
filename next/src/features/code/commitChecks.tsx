@@ -25,6 +25,7 @@ import {runLook, statusLook} from './Actions.tsx';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {CheckCircleIcon, DotFillIcon, XCircleIcon} from '@primer/octicons-react';
+import {Link} from '@primer/react';
 
 /** One check of a commit: a job of a workflow run, or a commit status. */
 export interface CheckItem {
@@ -225,7 +226,7 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
         {c.items.map((it) => {
           const look = it.approval ? {tone: 'warning' as const, text: 'Needs approval'} : statusLook(it.state);
           const name = it.code ? <TextLink><CodeLink owner={owner} repo={repo} to={it.code}>{it.name}</CodeLink></TextLink> :
-            it.href ? <TextLink><a href={it.href} target="_blank" rel="noopener noreferrer">{it.name}</a></TextLink> : it.name;
+            it.href ? <Link href={it.href} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{it.name}</Link> : it.name;
           return (
             <li key={it.key} className="flex flex-wrap items-center gap-2">
               <StatusDot tone={look.tone}/>{name}

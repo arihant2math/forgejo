@@ -22,7 +22,7 @@ import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/inde
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {EditorFrame, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
+import {EditorFrame, PendingIcon, ProseSource, SegmentedControl, TextArea} from '../../ui/index.ts';
 import type {EditMaker, Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
@@ -32,6 +32,7 @@ import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon} from '@primer/o
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, IconButton} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {SkeletonText} from '@primer/react/experimental';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
 let Loaded: Editor | undefined;

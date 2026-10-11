@@ -11,6 +11,7 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {ListRow, Panel, Skeleton} from '../../ui/index.ts';
 import {HomeIcon} from '@primer/octicons-react';
+import {SkeletonBox} from '@primer/react/experimental';
 
 /**
  * Home while the device loads what is waiting (its chunk, a first sign-in's sync): the sections' shape, static
@@ -23,7 +24,7 @@ export function HomeSkeleton() {
         {['w-24', 'w-32', 'w-28'].map((w) => (
           <Panel key={w} label="Loading" title={<Skeleton className={`h-3 ${w}`}/>}>
             {['w-72', 'w-56', 'w-64'].map((r) => (
-              <ListRow key={r} role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}>
+              <ListRow key={r} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}>
                 <Skeleton className={`h-3 ${r}`}/>
               </ListRow>
             ))}

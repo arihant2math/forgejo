@@ -7,13 +7,13 @@ import {useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Callout, Checkbox, Dialog, Input} from '../../ui/index.ts';
+import {Callout, Input} from '../../ui/index.ts';
 import {DESCRIPTION_MAX, REPO_NAME_MAX, repoNameProblem, repoRefusal} from '../new/forms.ts';
 import {OwnerPicker, useRemoteOwners} from '../new/NewRepo.tsx';
 import {repoOwners, repoTaken} from '../new/owners.ts';
 import {Field, NameStatus, openWhenSynced, useAvailability} from '../new/parts.tsx';
 import {RepoForkedIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Checkbox, FormControl, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 interface Fork {id: number; name: string; owner: {login: string}}
@@ -89,8 +89,7 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
       await openFork(made.value, made.syncId);
     } catch (err) { setError(repoRefusal(err).text); setBusy(false); }
   };
-  return <Dialog open onOpenChange={(on) => { if (!on && !busy) close(); }} title="Create a new fork" description={`A copy of ${sourceOwner}/${repo}, with its own changes.`} size="lg"
-    footer={<><Button type="button" disabled={busy} onClick={close}>Cancel</Button><OptionalTooltip text={why}><Button type="button" disabled={busy || Boolean(why)} onClick={() => { void create(); }}>{existing ? 'Open existing fork' : busy ? 'Creating fork…' : 'Create fork'}</Button></OptionalTooltip></>}>
+  return <Dialog title="Create a new fork" subtitle={`A copy of ${sourceOwner}/${repo}, with its own changes.`} width="xlarge" onClose={() => { const on = false; if (!on && !busy) close(); }} renderFooter={() => <Dialog.Footer>{<><Button type="button" disabled={busy} onClick={close}>Cancel</Button><OptionalTooltip text={why}><Button type="button" disabled={busy || Boolean(why)} onClick={() => { void create(); }}>{existing ? 'Open existing fork' : busy ? 'Creating fork…' : 'Create fork'}</Button></OptionalTooltip></>}</Dialog.Footer>}>
     <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void create(); }}>
       <Field id="new-repo-owner" label="Owner" required><OwnerPicker owners={owners} owner={owner} me={session.userId} onChange={setOwnerId}/></Field>
       {existing ? <Callout title="Existing fork">You already have a fork: {existing.owner.login}/{existing.name}. Open it instead.</Callout> : <>
@@ -98,7 +97,7 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
           <Input id="fork-name" className="w-full" value={name} maxLength={REPO_NAME_MAX} onChange={(e) => { setName(e.target.value); }}/>
         </Field>
         <Field id="fork-description" label="Description" optional><Input id="fork-description" className="w-full" value={description} maxLength={DESCRIPTION_MAX} onChange={(e) => { setDescription(e.target.value); }}/></Field>
-        <Checkbox label="Copy the default branch only" checked={defaultOnly} onChange={setDefaultOnly}/>
+        <FormControl><Checkbox checked={defaultOnly} onChange={(event) => { setDefaultOnly(event.target.checked); }}/><FormControl.Label>Copy the default branch only</FormControl.Label></FormControl>
       </>}
       {error && <Callout tone="danger" title="Could not fork">{error}</Callout>}
     </form>

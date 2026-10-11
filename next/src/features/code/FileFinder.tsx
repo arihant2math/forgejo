@@ -16,11 +16,12 @@ import {codeSplat, type Resolved} from '../../code/refs.ts';
 import {FileSearcher, markRuns} from '../../code/fuzzy.ts';
 import {CodeSource, type PathList} from '../../code/source.ts';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {Button, CommandEmpty, CommandInput, CommandItem, CommandList, CommandRoot, Popover, PopoverContent, PopoverTrigger, Skeleton} from '../../ui/index.ts';
+import {Button, CommandEmpty, CommandInput, CommandItem, CommandList, CommandRoot, Popover, PopoverContent, PopoverTrigger} from '../../ui/index.ts';
 import {useLoad, useSource} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 import {FileIcon, SearchIcon} from '@primer/octicons-react';
+import {SkeletonBox} from '@primer/react/experimental';
 
 /** Files listed at most (type more to narrow). */
 const LIMIT = 50;
@@ -107,7 +108,7 @@ function Finder({owner, repo, repoId, at, onClose}: FinderProps & {onClose: () =
       <CommandList>
         {list.state !== 'ready' ? (
           <Unloaded loaded={list} what="This branch's files" skeleton={
-            <div className="flex flex-col gap-2 p-2" aria-busy><Skeleton className="h-3 w-48"/><Skeleton className="h-3 w-64"/><Skeleton className="h-3 w-40"/></div>
+            <div className="flex flex-col gap-2 p-2" aria-busy><SkeletonBox className="h-3 w-48"/><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-40"/></div>
           }/>
         ) : (
           <>

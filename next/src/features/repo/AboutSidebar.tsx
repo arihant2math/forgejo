@@ -20,7 +20,7 @@ import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree} from '../../protocol/types.gen.ts';
-import {AsideLink, AsideLinks, AsideSection, Badge, ShareBar, TextLink} from '../../ui/index.ts';
+import {AsideLink, AsideLinks, AsideSection, ShareBar} from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {codeTo} from '../code/nav.tsx';
 import {README_ID, readmeOf} from '../code/Rendered.tsx';
@@ -29,6 +29,8 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {languageShares, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Label} from '@primer/react';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 interface RepoProps {
   owner: string;
@@ -71,7 +73,7 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
           <AsideLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span className="truncate">{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></AsideLink>
         </AsideLinks>
       )}
-      {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><Badge tone="accent" round>{t}</Badge></li>)}</ul>}
+      {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><Label variant="accent">{t}</Label></li>)}</ul>}
     </>
   );
 });
@@ -87,7 +89,7 @@ const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
     <p className="flex min-w-0 items-center gap-2 text-base text-fg-muted">
       <RepoForkedIcon size={12} className="shrink-0"/>
       <span className="shrink-0">Forked from</span>
-      <TextLink><Link to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}}>{p.get('full_name')}</Link></TextLink>
+      <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
     </p>
   );
 });
@@ -171,20 +173,20 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
   const tags = tagCount(all);
   const releasesTo = codeTo(owner, repo, 'releases');
   return (
-    <AsideSection title={count > 0 ? <TextLink><Link {...releasesTo}>Releases</Link></TextLink> : 'Releases'} count={count > 0 ? count : undefined}>
+    <AsideSection title={count > 0 ? <RouterLink {...releasesTo} muted className="min-w-0 truncate">Releases</RouterLink> : 'Releases'} count={count > 0 ? count : undefined}>
       {latest ?
         <Link {...releasesTo} className="interactive group flex min-w-0 items-start gap-2">
           <span className="flex h-row shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
           <span className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate text-base font-semibold text-fg group-hover:text-accent-fg">{latest.name || latest.tag_name}</span>
-              {latest.prerelease ? <Badge tone="warning" round>Pre-release</Badge> : <Badge tone="success" round>Latest</Badge>}
+              {latest.prerelease ? <Label variant="attention">Pre-release</Label> : <Label variant="success">Latest</Label>}
             </span>
             <time dateTime={latest.created_at} title={fullDate(latest.created_at)} className="text-sm text-fg-subtle">{shortDate(latest.created_at)}</time>
           </span>
         </Link> :
         <p className="text-base text-fg-subtle">No releases published.</p>}
-      {count > 1 && <p className="text-sm"><TextLink><Link {...releasesTo}>+ {count - 1} {plural(count - 1, 'release')}</Link></TextLink></p>}
+      {count > 1 && <p className="text-sm"><RouterLink {...releasesTo} muted className="min-w-0 truncate">+ {count - 1}{plural(count - 1, 'release')}</RouterLink></p>}
       {tags > 0 && (
         <AsideLinks>
           <AsideLink icon={TagIcon} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></AsideLink>

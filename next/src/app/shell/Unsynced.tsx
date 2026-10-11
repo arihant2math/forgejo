@@ -15,11 +15,12 @@ import {discardable, type IntentRecord} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {DraftRecord} from '../../intents/store.ts';
-import {Dialog, EmptyState, Entry, EntryList, SectionHeading} from '../../ui/index.ts';
+import {Entry, EntryList, SectionHeading} from '../../ui/index.ts';
 import {notify} from '../notices.ts';
 import {type App, useApp} from '../store.ts';
 import {AlertIcon, IssueDraftIcon, CheckCircleIcon, CopyIcon, GitMergeIcon, RedoIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, Dialog} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const app = useApp();
@@ -38,11 +39,8 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const empty = !records.length && !drafts.length;
   const offline = app.session?.data.status.connection !== 'live';
   return (
-    <Dialog open size="lg" title="Unsynced changes" initialFocus="dialog" scroll onOpenChange={(open) => {
-      if (!open) close();
-    }} description={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'}
-    footer={<Button type="button" onClick={close}>Close</Button>}>
-      {empty ? <EmptyState icon={CheckCircleIcon} tone="success" title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
+    <Dialog title="Unsynced changes" subtitle={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'} width="xlarge" onClose={() => { const open = false; if (!open) close(); }} renderFooter={() => <Dialog.Footer>{<Button type="button" onClick={close}>Close</Button>}</Dialog.Footer>}>
+      {empty ? <Blankslate><Blankslate.Visual><CheckCircleIcon size={24} className="text-success"/></Blankslate.Visual><Blankslate.Heading>Everything is synced</Blankslate.Heading><Blankslate.Description>Changes you make offline wait here until Forgejo has them.</Blankslate.Description></Blankslate> : (
         <div className="flex flex-col gap-4">
           {parked.length > 0 && (
             <Section title="Conflicts">

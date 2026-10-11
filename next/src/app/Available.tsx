@@ -5,11 +5,10 @@
 // lists what is — no blank screens, no spinners): the views, and the
 // repositories whose data is here. Rendered by the pages that cannot show
 // their own content offline.
-
-import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {SectionHeading, TextLink} from '../ui/index.ts';
+import {SectionHeading} from '../ui/index.ts';
 import {useApp} from './store.ts';
+import {RouterLink} from '../app/RouterLinkButton.tsx';
 
 const VIEWS = [
   {to: '/', label: 'Home'},
@@ -29,9 +28,9 @@ export const AvailableOffline = observer(function AvailableOffline() {
     <nav aria-label="Available on this device" className="flex flex-col items-center gap-2">
       <SectionHeading>Available on this device</SectionHeading>
       <ul className="flex flex-col items-center gap-1 text-base">
-        {VIEWS.map((v) => <li key={v.to}><TextLink><Link to={v.to}>{v.label}</Link></TextLink></li>)}
+        {VIEWS.map((v) => <li key={v.to}><RouterLink to={v.to} muted className="min-w-0 truncate">{v.label}</RouterLink></li>)}
         {repos.map((r) => (
-          <li key={r.id}><TextLink><Link to="/$owner/$repo" params={{owner: r.owner_name, repo: r.name}} activeOptions={{exact: true}}>{r.full_name}</Link></TextLink></li>
+          <li key={r.id}><RouterLink to="/$owner/$repo" params={{owner: r.owner_name, repo: r.name}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{r.full_name}</RouterLink></li>
         ))}
       </ul>
     </nav>

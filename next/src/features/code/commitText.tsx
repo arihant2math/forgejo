@@ -7,8 +7,6 @@
 // branches and tags that contain a commit (which release has a fix) — the
 // classic commit page's load-branches-and-tags, from the sync API (refs
 // move: asked for online, not cached).
-
-import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {useApp} from '../../app/store.ts';
@@ -22,6 +20,7 @@ import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {GitBranchIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 /** A piece of a message: text, or a reference to issue `index` of `repo` (owner/name; undefined: this repository). */
 export type MessagePart = {text: string} | {ref: string; repo: string | undefined; index: string};
@@ -55,11 +54,9 @@ export function CommitMessage({owner, repo, text, inRow = false}: {owner: string
         if ('text' in p) return p.text;
         const [o, r] = p.repo ? p.repo.split('/') : [owner, repo];
         return (
-          <TextLink key={i} accent>
-            <Link to="/$owner/$repo/issues/$index" params={{owner: o ?? owner, repo: r ?? repo, index: p.index}} onClick={inRow ? (e) => {
+          <RouterLink key={i} to="/$owner/$repo/issues/$index" params={{owner: o ?? owner, repo: r ?? repo, index: p.index}} onClick={inRow ? (e) => {
               e.stopPropagation();
-            } : undefined}>{p.ref}</Link>
-          </TextLink>
+            } : undefined} className="min-w-0 truncate">{p.ref}</RouterLink>
         );
       })}
     </>

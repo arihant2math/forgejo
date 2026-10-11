@@ -7,9 +7,9 @@
 
 import {useEffect, useState} from 'react';
 import {CenteredScreen} from '../../app/LoggedOut.tsx';
-import {EmptyState} from '../../ui/index.ts';
 import {type BenchResult, benchHydrate} from './hydrate.ts';
 import {MeterIcon} from '@primer/octicons-react';
+import {Blankslate} from '@primer/react/experimental';
 
 declare global {
   interface Window {
@@ -42,7 +42,7 @@ export default function HydrateBench() {
   }, []);
   return (
     <CenteredScreen>
-      <EmptyState icon={MeterIcon} title="Data layer benchmark" description={text}/>
+      <Blankslate><Blankslate.Visual><MeterIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Data layer benchmark</Blankslate.Heading><Blankslate.Description>{text}</Blankslate.Description></Blankslate>
     </CenteredScreen>
   );
 }

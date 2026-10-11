@@ -8,7 +8,7 @@
 // projects are few. J/K walk them, Enter opens one, and Back finds the cursor
 // on the board it opened.
 
-import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -19,9 +19,12 @@ import type {Project} from '../../protocol/types.gen.ts';
 import {useSession} from '../../app/store.ts';
 import {useHold} from '../../app/repo.ts';
 import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
-import {Badge, EmptyState, Entry, EntryList, Panel, SegmentedControl, TextLink} from '../../ui/index.ts';
+import {Entry, EntryList, Panel, SegmentedControl} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
+import {Blankslate} from '@primer/react/experimental';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {Label} from '@primer/react';
 
 interface Place {
   key: string;
@@ -106,13 +109,13 @@ export const BoardsList = observer(function BoardsList() {
       <PageBody>
         {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <Entry key={key} title={p.title} meta="Creating board…" leading={<ProjectIcon size={16} className="shrink-0"/>}/>)}
         {sorted.length === 0 ?
-          <EmptyState icon={ProjectIcon} title={state === 'closed' ? 'No closed boards' : 'No open boards'} description="Projects of your repositories and organizations show here."/> :
+          <Blankslate><Blankslate.Visual><ProjectIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{state === 'closed' ? 'No closed boards' : 'No open boards'}</Blankslate.Heading><Blankslate.Description>Projects of your repositories and organizations show here.</Blankslate.Description></Blankslate> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
               <Panel key={pl.key} label={pl.key || 'Other'} padded
                 title={pl.repo ?
-                  <TextLink><Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}}>{pl.key}</Link></TextLink> :
-                  pl.owner ? <TextLink><Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}}>{pl.owner}</Link></TextLink> : 'Other'}
+                  <RouterLink to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.key}</RouterLink> :
+                  pl.owner ? <RouterLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.owner}</RouterLink> : 'Other'}
                 actions={pl.owner && <NewBoard scope={pl.scope}/>}>
                 <EntryList>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
@@ -136,11 +139,11 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
       id={`board-${String(project.id)}`}
       active={active}
       leading={<ProjectIcon size={16} className="shrink-0"/>}
-      title={<TextLink><Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen}>{project.title}</Link></TextLink>}
+      title={<RouterLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} muted className="min-w-0 truncate">{project.title}</RouterLink>}
       // A board known by reference loads when opened: its columns and cards are not counted here yet.
       meta={project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}
       description={project.description || undefined}
-      actions={project.closed ? <Badge tone="done">Closed</Badge> : undefined}
+      actions={project.closed ? <Label variant="done">Closed</Label> : undefined}
     />
   );
 });

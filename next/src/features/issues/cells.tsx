@@ -21,7 +21,7 @@ import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, AvatarGroup, Badge, Hint, Icon, LabelChip, LabelIcon, PendingIcon, TextLink} from '../../ui/index.ts';
+import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, PendingIcon} from '../../ui/index.ts';
 import {Link} from '@tanstack/react-router';
 import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
@@ -30,6 +30,8 @@ import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from '.
 import {repoLabels} from './candidates.ts';
 import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, StopIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType, IconProps as OcticonProps} from '@primer/octicons-react';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {Label as PrimerLabel} from '@primer/react';
 
 export function usePool(): Pool {
   const s = useApp().session;
@@ -219,7 +221,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
   if (!id || !u.login) return <span className="font-medium text-fg">{id ? u.name : fallback}</span>;
-  return <span className="font-medium"><TextLink wrap><Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}}>{u.name}</Link></TextLink></span>;
+  return <span className="font-medium"><RouterLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} muted>{u.name}</RouterLink></span>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {
@@ -331,9 +333,9 @@ export const PullStateCell = observer(function PullStateCell({issue}: {issue: En
   const review = verdicts.includes('REQUEST_CHANGES') ? 'changes' : verdicts.includes('APPROVED') ? 'approved' : undefined;
   return (
     <>
-      {draft && <Badge>Draft</Badge>}
-      {review === 'changes' && <Badge tone="danger">Changes requested</Badge>}
-      {review === 'approved' && <Badge tone="success">Approved</Badge>}
+      {draft && <PrimerLabel>Draft</PrimerLabel>}
+      {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
+      {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
       {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}><Icon icon={CHECK_ICON[checks]} size="sm" className={CHECK_TONE[checks]}/></Hint>}
     </>
   );
@@ -390,7 +392,7 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
 /** How many rows of a list are selected (X), with the way out; nothing without a selection (lists, the inbox). */
 export const SelectionCount = observer(function SelectionCount({cursor}: {cursor: ListCursor}) {
   const n = cursor.selected.size;
-  return n > 0 ? <Badge tone="accent">{n} selected · Esc clears</Badge> : null;
+  return n > 0 ? <PrimerLabel variant="accent">{n} selected · Esc clears</PrimerLabel> : null;
 });
 
 /** How many rows a narrowed list shows (a search or a filter is in effect): the list itself says nothing of it. */

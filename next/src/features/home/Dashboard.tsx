@@ -21,7 +21,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
-import {EmptyState, Icon, ListRow, Panel, Shortcut, Skeleton} from '../../ui/index.ts';
+import {Icon, ListRow, Panel, Shortcut} from '../../ui/index.ts';
 import {activityOf} from '../inbox/inbox.ts';
 import {AgoCell, PendingCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
 import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
@@ -34,6 +34,7 @@ import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedI
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 /** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
@@ -138,7 +139,7 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   return (
     <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-fg">Review requested</span></>}>
       {Array.from({length: rows}, (_, i) => (
-        <ListRow key={i} role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}><Skeleton className="h-3 w-64"/></ListRow>
+        <ListRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></ListRow>
       ))}
     </Panel>
   );
@@ -218,7 +219,7 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
       <AgoCell at={at}/>
     </>}>
       {/* Its subject is asked of the server (once): a placeholder line meanwhile, never a row without a title. */}
-      {s ? s.title : <Skeleton className="h-3 w-64"/>}
+      {s ? s.title : <SkeletonBox className="h-3 w-64"/>}
     </ListRow>
   );
 });
@@ -238,13 +239,10 @@ function Hints() {
 function Welcome() {
   const {ui, config} = useApp();
   return (
-    <EmptyState icon={CommandPaletteIcon} title={config.app_name} description={<Hints/>}
-      action={
-        <OptionalTooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
+    <Blankslate><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<OptionalTooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
           runInAction(() => {
             ui.paletteOpen = true;
           });
-        }}>Open the command menu</Button></OptionalTooltip>
-      }/>
+        }}>Open the command menu</Button></OptionalTooltip>}</Blankslate>
   );
 }

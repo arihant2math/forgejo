@@ -6,7 +6,8 @@ import {onlineWrite} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {Checkbox, Callout} from '../../ui/index.ts';
+import {Callout} from '../../ui/index.ts';
+import {Checkbox, FormControl} from '@primer/react';
 
 export const MaintainerEdits = observer(function MaintainerEdits({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
@@ -17,9 +18,9 @@ export const MaintainerEdits = observer(function MaintainerEdits({issue}: {issue
   const [error, setError] = useState('');
   if (!pr || !repo || pr.get('head_repo_id') === pr.get('base_repo_id') || pr.get('merged') || issue.get('poster_id') !== session.userId) return null;
   const offline = reach(session.data.status.connection) !== 'online';
-  return <div className="flex flex-col gap-2"><Checkbox label="Allow edits by maintainers" checked={pr.get('allow_maintainer_edit')} disabled={busy || offline} onChange={(checked) => {
+  return <div className="flex flex-col gap-2"><FormControl disabled={busy || offline}><Checkbox checked={pr.get('allow_maintainer_edit')} onChange={(event) => { ((checked) => {
     setBusy(true);
     setError('');
     void onlineWrite(app, {method: 'PATCH', api: 'v1', path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.get('number'))}`, body: {allow_maintainer_edit: checked}}).catch(() => { setError('Could not change maintainer permissions. Try again.'); }).finally(() => { setBusy(false); });
-  }}/>{offline && <span className="text-sm text-fg-muted">Changing permissions requires a connection.</span>}{error && <Callout tone="danger" title="Update failed">{error}</Callout>}</div>;
+  })(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>{offline && <span className="text-sm text-fg-muted">Changing permissions requires a connection.</span>}{error && <Callout tone="danger" title="Update failed">{error}</Callout>}</div>;
 });

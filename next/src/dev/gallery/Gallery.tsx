@@ -10,19 +10,20 @@ import {getThemePreference, setThemePreference} from '../../app/theme.ts';
 import type {ThemePreference} from '../../app/splash.ts';
 import {CodeMenuPanel} from '../../features/repo/CodeMenu.tsx';
 import {
-  AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Badge, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
+  AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
-  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, EmptyState, Input, LabelChip, ListRow, Menu,
+  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
   AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineNo, StepHeader, StatusDot, TabLink, TabNav,
   ConfirmDialog, FormSection, hintId, SectionNav, SectionNavHeading, SectionNavLink, Select, SettingRow, Switch,
-  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TextArea, TooltipProvider,
-  ColorPicker, Field, LabelPill, ProgressBar,
+  NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Status, TextArea, TooltipProvider,
+  ColorPicker, Field, LabelPill
 } from '../../ui/index.ts';
 import {LABEL_PRESETS} from '../../features/meta/labels.ts';
 import {ArchiveIcon, ArrowUpRightIcon, ChevronDownIcon, IssueDraftIcon, CodeIcon, IssueOpenedIcon, CopyIcon, StarIcon, GraphBarVerticalIcon, FlagIcon, InboxIcon, MoonIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, SearchIcon, SunIcon, DeviceDesktopIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, LinkButton, ActionMenu, ActionList} from '@primer/react';
+import {Button, IconButton, LinkButton, ActionMenu, ActionList, Label, ProgressBar} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 /** A colour field with its form field's frame (a label's colour). */
 function GalleryColor() {
@@ -129,12 +130,12 @@ export default function Gallery() {
         <Section title="Keys, badges, labels, avatars">
           <Shortcut keys="⌘K"/>
           <Shortcut keys="G I"/>
-          <Badge>12</Badge>
-          <Badge tone="accent">Review</Badge>
-          <Badge tone="danger">Conflict</Badge>
-          <Badge tone="success">Open</Badge>
-          <Badge tone="warning">Draft</Badge>
-          <Badge tone="done">Merged</Badge>
+          <Label>12</Label>
+          <Label variant="accent">Review</Label>
+          <Label variant="danger">Conflict</Label>
+          <Label variant="success">Open</Label>
+          <Label variant="attention">Draft</Label>
+          <Label variant="done">Merged</Label>
           <LabelChip name="bug" color="var(--color-danger)"/>
           <LabelChip name="enhancement" color="var(--color-accent)"/>
           <Avatar name="alice" size="sm"/>
@@ -149,8 +150,8 @@ export default function Gallery() {
         <Section title="Label pills, progress, colour">
           {LABEL_PRESETS.map((c, i) => <LabelPill key={c} name={i % 3 === 0 ? `kind/label ${String(i)}` : `label ${String(i)}`} scope={i % 3 === 0 ? 'kind' : undefined} color={c}/>)}
           <LabelPill name="not a colour" color="var(--color-accent)"/>
-          <div className="w-64"><ProgressBar value={3} max={8} label="3 of 8 closed"/></div>
-          <div className="w-64"><ProgressBar value={0} max={0} label="Nothing yet"/></div>
+          <div className="w-64"><ProgressBar barSize="small" progress={37.5} aria-label="3 of 8 closed"/></div>
+          <div className="w-64"><ProgressBar barSize="small" progress={0} aria-label="Nothing yet"/></div>
           <GalleryColor/>
         </Section>
 
@@ -411,11 +412,11 @@ export default function Gallery() {
 
         <Section title="Skeleton and empty state">
           <div className="flex w-64 flex-col gap-2">
-            <Skeleton className="h-3 w-full"/>
-            <Skeleton className="h-3 w-2/3"/>
+            <SkeletonBox className="h-3 w-full"/>
+            <SkeletonBox className="h-3 w-2/3"/>
           </div>
           <div className="flex-1">
-            <EmptyState icon={InboxIcon} title="Inbox zero" description="Notifications you receive show up here." action={<Button size="small" type="button">Refresh</Button>}/>
+            <Blankslate><Blankslate.Visual><InboxIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Inbox zero</Blankslate.Heading><Blankslate.Description>Notifications you receive show up here.</Blankslate.Description>{<Button size="small" type="button">Refresh</Button>}</Blankslate>
           </div>
         </Section>
       </div>

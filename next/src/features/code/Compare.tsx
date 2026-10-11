@@ -12,7 +12,7 @@
 // merge, and the form (`?expand=1` opens it at once, as Forgejo's and
 // GitHub's links do).
 
-import {Link, useNavigate, useSearch} from '@tanstack/react-router';
+import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {reach} from '../../app/online.ts';
@@ -23,7 +23,7 @@ import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
 import type {Pool} from '../../data/pool.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Callout, CommandPick, CommandPopover, EmptyState, type PickOption, SectionHeading, TextLink} from '../../ui/index.ts';
+import {Callout, CommandPick, CommandPopover, type PickOption, SectionHeading} from '../../ui/index.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople} from '../issues/people.ts';
@@ -45,7 +45,8 @@ import {Unloaded} from './states.tsx';
 import {ChevronDownIcon, GitBranchIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton, RouterLink} from '../../app/RouterLinkButton.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 /**
  * The merge base's candidates: the parents of the new commits that are not new
@@ -162,7 +163,7 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
         <Compared {...sides} baseSha={base} headSha={head} scroller={scroller} onClose={() => {
           setOpen(false);
         }}/> :
-        <EmptyState icon={GitCompareIcon} title="Branch or tag not found" description={`${base ? headName : baseName} does not exist, or is not on this device.`}/>)}
+        <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>{`${base ? headName : baseName} does not exist, or is not on this device.`}</Blankslate.Description></Blankslate>)}
     </CodeFrame>
   );
 });
@@ -323,8 +324,8 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   if (!info.value.commits.length) {
     // Named as the user chose them (refs, not SHAs).
     const nothing = pullable ? ' There is nothing to open a pull request for.' : '';
-    return <EmptyState icon={GitCompareIcon} title="Nothing to compare" description={baseSha === headSha ?
-      `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}/>;
+    return <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>{baseSha === headSha ?
+      `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}</Blankslate.Description></Blankslate>;
   }
   return (
     <>
@@ -403,13 +404,13 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
   const choices = headChoices(all.map((b): BranchChoice => ({name: b.name, commitTime: b.commit_time, pusherId: b.pusher_id})), base, session.userId);
   const rows = useCodeRows<BranchChoice>(owner, repo, (b) => compareSplat(base, b.name));
   if (!refs.branches.has(base)) {
-    return <EmptyState icon={GitCompareIcon} title="Branch not found" description={`${base || 'The default branch'} does not exist, or is not on this device.`}/>;
+    return <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch not found</Blankslate.Heading><Blankslate.Description>{`${base || 'The default branch'} does not exist, or is not on this device.`}</Blankslate.Description></Blankslate>;
   }
   const mine = <MyForkBranches owner={owner} repo={repo} base={base}/>;
   if (!choices.length) {
     return <>
       {mine}
-      <EmptyState icon={GitBranchIcon} title="No other branch" description={`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}/>
+      <Blankslate><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No other branch</Blankslate.Heading><Blankslate.Description>{`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}</Blankslate.Description></Blankslate>
     </>;
   }
   return (
@@ -467,7 +468,7 @@ const MyForkBranches = observer(function MyForkBranches({owner, repo, base}: {ow
         {list.map((b) => (
           <li key={b.value} className="flex items-center gap-2 text-base">
             <GitBranchIcon size={12} className="shrink-0"/>
-            <TextLink><Link {...codeTo(owner, repo, compareSplat(base, b.value))} search={{expand: '1'} as never}><span className="font-mono">{b.value}</span></Link></TextLink>
+            <RouterLink {...codeTo(owner, repo, compareSplat(base, b.value))} search={{expand: '1'} as never} muted className="min-w-0 truncate"><span className="font-mono">{b.value}</span></RouterLink>
             <span className="text-sm text-fg-subtle">{b.group}</span>
           </li>
         ))}

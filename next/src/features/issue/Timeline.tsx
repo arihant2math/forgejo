@@ -16,7 +16,7 @@ import type {VirtuosoHandle} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Code, CodeLine, cx, Icon, LabelChip, TextLink} from '../../ui/index.ts';
-import {Link, useParams, useRouterState} from '@tanstack/react-router';
+import {useParams, useRouterState} from '@tanstack/react-router';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
@@ -41,7 +41,8 @@ import {blocking, IssueLink} from './Sidebar.tsx';
 import {conversationReplies, conversationRoot, replyOnlyReview, replyRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
 import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckCircleIcon, IssueOpenedIcon, ClockIcon, EyeIcon, GitBranchIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, LockIcon, UnlockIcon, CommentIcon, MilestoneIcon, PencilIcon, PinIcon, PinSlashIcon, ReplyIcon, ProjectIcon, TagIcon, PersonIcon, PersonAddIcon, XCircleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Label} from '@primer/react';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
@@ -262,7 +263,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
         {badge}
         <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
         {c.get('content_version') > 0 && lastEdit && <span className="text-sm text-fg-subtle">by <Who id={lastEdit.poster_id}/></span>}
-        {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
+        {type === 'dismiss_review' ? <Label variant="attention">dismissed a review</Label> : type === 'code' ? <Label>{c.get('path')}</Label> : undefined}
         {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
           setEdit(true);
         }}/>}
@@ -354,9 +355,9 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
     <div className="flex flex-col gap-1 rounded-md border border-border p-3">
       <span className="text-sm text-fg-muted">
         <Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on{' '}
-        {files ? <TextLink><Link to={files} search={{tab: 'files'}} hash={`review-thread-${String(c.id)}`}><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</Link></TextLink> :
+        {files ? <RouterLink to={files} search={{tab: 'files'}} hash={`review-thread-${String(c.id)}`} muted className="min-w-0 truncate"><Code>{c.get('path')}</Code>line {Math.abs(c.get('line'))}</RouterLink> :
           <><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</>}
-        {c.get('invalidated') && <> · <Badge>Outdated</Badge></>}
+        {c.get('invalidated') && <> · <Label>Outdated</Label></>}
       </span>
       {lines.length > 0 && (
         <div className="overflow-x-auto rounded-sm border border-border-subtle" role="presentation">
@@ -418,7 +419,7 @@ const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const chip = <LabelChip name={kind ? scopedValue(l.get('name')) : l.get('name')} color={l.get('color')}/>;
   // The chip opens the repository's issues with that label (GitHub's).
   if (!owner || !repo) return chip;
-  return <TextLink wrap><Link to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(id)}}>{chip}</Link></TextLink>;
+  return <RouterLink to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(id)}} muted>{chip}</RouterLink>;
 });
 
 /** "added [bug]", "set the status to [Done]", "removed the priority [High]". */
@@ -579,7 +580,7 @@ const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   const title = <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
   // The milestone's page (the repository's: an issue's milestone is its repository's).
   if (!m || !owner || !repo) return title;
-  return <TextLink wrap><Link to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}}>{title}</Link></TextLink>;
+  return <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink>;
 });
 
 /** An issue an event names, from the issue `from` whose timeline it is in (its repository decides the prefix). */

@@ -13,7 +13,7 @@ import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
-import {Avatar, Code, EmptyState, TextLink} from '../../ui/index.ts';
+import {Avatar, Code, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {reach} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
@@ -31,6 +31,7 @@ import {RefMenu} from './RefMenu.tsx';
 import {Breadcrumbs} from './Src.tsx';
 import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
@@ -45,7 +46,7 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
-        <EmptyState icon={HistoryIcon} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
+        <Blankslate><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>It does not exist, was deleted, or is not on this device.</Blankslate.Description></Blankslate>)}
     </CodeFrame>
   );
 });
@@ -119,7 +120,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   const {s, more, connected} = useCommitPages(repoId, at.sha, at.path);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
-    if (s.done) return <EmptyState icon={HistoryIcon} title="No commits"/>;
+    if (s.done) return <Blankslate><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
     return <Unloaded loaded={{state: 'loading'}} what="This history"/>;
   }
   return (

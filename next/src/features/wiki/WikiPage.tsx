@@ -24,7 +24,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Callout, Dialog, EmptyState, Input, NavItem, Skeleton, SkeletonText, TextLink,
+  Callout, Input, NavItem, TextLink,
 } from '../../ui/index.ts';
 import type {Loaded} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
@@ -37,9 +37,10 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
+import {Button, LinkButton, ActionMenu, ActionList, Dialog, Link as PrimerLink} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
 
 /** Pages listed in the side pane at most (the page list has them all). */
 const SIDE_PAGES = 40;
@@ -187,14 +188,12 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
         <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem>
       </ActionList></ActionMenu.Overlay></ActionMenu>
       {confirming && (
-        <Dialog open size="sm" title={`Delete “${title}”?`} description="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." onOpenChange={(o) => {
-          if (!o) setConfirming(false);
-        }} footer={<>
+        <Dialog title={`Delete “${title}”?`} subtitle="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." width="medium" onClose={() => { const o = false; if (!o) setConfirming(false); }} renderFooter={() => <Dialog.Footer>{<>
           <Button variant="invisible" type="button" onClick={() => {
             setConfirming(false);
           }}>Cancel</Button>
           <Button variant="danger" type="button" autoFocus onClick={remove}>Delete</Button>
-        </>}/>
+        </>}</Dialog.Footer>}></Dialog>
       )}
     </>
   );
@@ -225,8 +224,8 @@ function unloadedOf(s: Slot<unknown>): Exclude<Loaded<unknown>, {state: 'ready'}
 function ArticleSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy>
-      <Skeleton className="h-3 w-48"/>
-      <Skeleton className="h-5 w-64"/>
+      <SkeletonBox className="h-3 w-48"/>
+      <SkeletonBox className="h-5 w-64"/>
       <SkeletonText lines={6}/>
     </div>
   );
@@ -240,7 +239,7 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
       {rec.date && (
         <p className="text-sm text-fg-muted">
           {rec.author || 'Someone'} edited this page <time dateTime={rec.date} title={fullDate(rec.date)}>{agoWords(rec.date)}</time>
-          {rec.commitCount > 0 && <> · <TextLink wrap><a href={revisions} data-classic="" title={CLASSIC_HINT}>{rec.commitCount === 1 ? '1 revision' : `${String(rec.commitCount)} revisions`}</a></TextLink></>}
+          {rec.commitCount > 0 && <> · <PrimerLink href={revisions} data-classic="" title={CLASSIC_HINT} muted>{rec.commitCount === 1 ? '1 revision' : `${String(rec.commitCount)} revisions`}</PrimerLink></>}
         </p>
       )}
       <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={rec.html} empty="This page is empty."/>
@@ -280,9 +279,7 @@ const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writab
     <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}>Create “{pageTitle(page)}”</RouterLinkButton>
   ) : undefined;
   return (
-    <EmptyState icon={FileIcon} title={page === HOME ? 'This wiki has no Home page' : 'No such page'}
-      description={page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`}
-      action={create}/>
+    <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{page === HOME ? 'This wiki has no Home page' : 'No such page'}</Blankslate.Heading><Blankslate.Description>{page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`}</Blankslate.Description>{create}</Blankslate>
   );
 });
 
@@ -292,21 +289,17 @@ function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclud
   switch (list.kind) {
     case 'disabled':
       return (
-        <EmptyState icon={BookIcon} title="This repository has no wiki" description="Its wiki is turned off."
-          action={admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}/>
+        <Blankslate><Blankslate.Visual><BookIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This repository has no wiki</Blankslate.Heading><Blankslate.Description>Its wiki is turned off.</Blankslate.Description>{admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}</Blankslate>
       );
     case 'external':
       return (
-        <EmptyState icon={GlobeIcon} title="This wiki is elsewhere" description={list.url}
-          action={<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}/>
+        <Blankslate><Blankslate.Visual><GlobeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This wiki is elsewhere</Blankslate.Heading><Blankslate.Description>{list.url}</Blankslate.Description>{<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}</Blankslate>
       );
     case 'empty':
       return (
-        <EmptyState icon={BookIcon} title="This wiki has no pages yet"
-          description={writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'}
-          action={writable ? (
+        <Blankslate><Blankslate.Visual><BookIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This wiki has no pages yet</Blankslate.Heading><Blankslate.Description>{writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'}</Blankslate.Description>{writable ? (
             <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}>Create the first page</RouterLinkButton>
-          ) : undefined}/>
+          ) : undefined}</Blankslate>
       );
   }
 }
@@ -332,7 +325,7 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
           <span>Pages</span>
           {pages.length > 0 && <span className="tabular-nums text-fg-subtle">{pages.length}</span>}
         </h2>
-        {list.state === 'loading' && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><Skeleton className="h-3 w-28"/></div>)}
+        {list.state === 'loading' && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
         {pages.slice(0, SIDE_PAGES).map((p) => (
           <NavItem key={p.name} label={p.title} asChild>
             <Link to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : undefined} activeProps={{}}/>

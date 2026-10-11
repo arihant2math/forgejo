@@ -13,10 +13,10 @@ import {pullOf, poolHead} from '../../code/pull.ts';
 import {conversationRoot} from './resolve.tsx';
 import {editing} from '../../intents/session.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Dialog, Input, CodeLine, LineNo, Callout} from '../../ui/index.ts';
+import {Input, CodeLine, LineNo, Callout} from '../../ui/index.ts';
 import {parseDiff, DEL} from '../../code/diff.ts';
 import {suggestionOf, replaceSuggestions} from './suggestions.ts';
-import {Button} from '@primer/react';
+import {Button, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 function originalLines(c: Comment, start: number, end: number): string[] {
@@ -77,6 +77,6 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
     <div className="flex gap-2"><OptionalTooltip text={why}><Button size="small" type="button" disabled={!!why} onClick={() => {setOpen(true);}}>{batch.length ? `Commit ${batch.length} suggestions` : 'Commit suggestion'}</Button></OptionalTooltip>
       <OptionalTooltip text={why}><Button size="small" type="button" disabled={!!why} onClick={() => batches.set(comment.issue_id, batch.some((c) => c.id === comment.id) ? batch.filter((c) => c.id !== comment.id) : [...batch, comment])}>{batch.some((c) => c.id === comment.id) ? 'Remove from batch' : 'Add to batch'}</Button></OptionalTooltip></div>
     {why && <span className="text-sm text-fg-subtle">{why}</span>}
-    <Dialog open={open} onOpenChange={setOpen} title="Commit suggestions" footer={<Button type="button" disabled={busy || !message.trim() || !!why} onClick={() => {void commit();}}>Commit</Button>}><Input aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>{error && <Callout tone="danger" title={error}/>}</Dialog>
+    {open && <Dialog title="Commit suggestions" width="large" onClose={() => { setOpen(false); }} renderFooter={() => <Dialog.Footer>{<Button type="button" disabled={busy || !message.trim() || !!why} onClick={() => {void commit();}}>Commit</Button>}</Dialog.Footer>}><Input aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>{error && <Callout tone="danger" title={error}/>}</Dialog>}
   </section>;
 });

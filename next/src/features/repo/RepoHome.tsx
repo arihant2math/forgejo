@@ -24,7 +24,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {Badge, EmptyState, ListRow, SkeletonText} from '../../ui/index.ts';
+import {Badge, ListRow} from '../../ui/index.ts';
 import {codeSplat} from '../../code/refs.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {GoToFile} from '../code/FileFinder.tsx';
@@ -44,6 +44,7 @@ import {FileOperations} from '../code/FileOperations.tsx';
 import {CodeIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, PencilIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate, SkeletonText} from '@primer/react/experimental';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -117,7 +118,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
     return (
       <FilesPanel title={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
         {r?.empty ? <EmptyRepo owner={owner} repo={repo} repoId={repoId}/> :
-          <EmptyState icon={FileSubmoduleIcon} title="No code on this device yet" description="Its branches have not arrived yet."/>}
+          <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No code on this device yet</Blankslate.Heading><Blankslate.Description>Its branches have not arrived yet.</Blankslate.Description></Blankslate>}
       </FilesPanel>
     );
   }

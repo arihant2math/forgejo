@@ -10,8 +10,8 @@ import {onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
-import {Callout, ConfirmDialog, Dialog, Field, Input, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
-import {Button, ActionMenu, ActionList} from '@primer/react';
+import {Callout, ConfirmDialog, Field, Input, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
+import {Button, ActionMenu, ActionList, Dialog} from '@primer/react';
 
 export interface BoardScope {repo_id: number; owner_id: number}
 export const pendingBoards = observable.map<string, BoardScope & {title: string}>();
@@ -86,10 +86,10 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
       setBusy(false);
     }
   };
-  return <Dialog open title={project ? 'Edit board' : 'New board'} onOpenChange={(o) => { if (!o && !busy) onClose(); }} footer={<>
+  return <Dialog title={project ? 'Edit board' : 'New board'} width="large" onClose={() => { const o = false; if (!o && !busy) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
     <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
     <Button variant="primary" type="button" disabled={busy || !title.trim() || !connectivity.online} title={!connectivity.online ? onlineOnly('Saving a board') : undefined} onClick={() => void save()}>{busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board'}</Button>
-  </>}>
+  </>}</Dialog.Footer>}>
     <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
       {!scope && !project && <Field label="Location" htmlFor="board-location"><Select id="board-location" value={target} onValueChange={setTarget} options={choices} disabled={busy || !!created}/></Field>}
       <Field label="Title" htmlFor="board-title"><Input id="board-title" className="w-full" value={title} maxLength={255} required disabled={busy || !!created} onChange={(e) => { setTitle(e.target.value); }}/></Field>

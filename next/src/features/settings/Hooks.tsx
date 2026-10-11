@@ -13,7 +13,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Badge, Callout, Checkbox, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, Select, StatusDot,
+  Callout, ConfirmDialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, Select, StatusDot,
 } from '../../ui/index.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -22,7 +22,7 @@ import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
 import {PencilIcon, PlusIcon, PaperAirplaneIcon, TrashIcon, WebhookIcon} from '@primer/octicons-react';
-import {Button, IconButton, LinkButton} from '@primer/react';
+import {Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export const HookSettings = observer(function HookSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
@@ -65,7 +65,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
         {(hooks) => hooks.map((h) => (
           <Entry key={h.id} leading={<span className="flex size-4 items-center justify-center"><StatusDot tone={h.active ? 'success' : 'muted'}/></span>}
             title={hookUrl(h)} meta={h.active ? undefined : 'inactive'}
-            description={<span className="flex flex-wrap items-center gap-1"><Badge>{h.type}</Badge>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
+            description={<span className="flex flex-wrap items-center gap-1"><Label>{h.type}</Label>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
             actions={<>
               <IconButton icon={PaperAirplaneIcon} variant="invisible" size="small" aria-label="Send a test delivery" type="button" disabled={offline} onClick={() => {
                 test(h);
@@ -171,12 +171,10 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
     set('events', on ? [...form.events, name] : form.events.filter((e) => e !== name));
   };
   return (
-    <Dialog open size="lg" scroll title={creating ? 'Add a webhook' : 'Edit the webhook'} onOpenChange={(o) => {
-      if (!o && !busy) onClose();
-    }} footer={<>
+    <Dialog title={creating ? 'Add a webhook' : 'Edit the webhook'} width="xlarge" onClose={() => { const o = false; if (!o && !busy) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
       <Button variant="primary" type="button" disabled={busy || !ready} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Add webhook' : 'Save webhook'}</Button>
-    </>}>
+    </>}</Dialog.Footer>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -223,18 +221,14 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
               <span className="text-sm text-fg-subtle">{g}</span>
               <div className="flex flex-col gap-1">
                 {HOOK_EVENTS.filter((e) => e.group === g).map((e) => (
-                  <Checkbox key={e.name} label={e.label} checked={form.events.includes(e.name)} onChange={(on) => {
-                    toggleEvent(e.name, on);
-                  }}/>
+                  <FormControl key={e.name}><Checkbox checked={form.events.includes(e.name)} onChange={(event) => { const on = event.target.checked; toggleEvent(e.name, on); }}/><FormControl.Label>{e.label}</FormControl.Label></FormControl>
                 ))}
               </div>
             </div>
           ))}
           {errors.events && <p className="text-sm text-danger">{errors.events}</p>}
         </fieldset>
-        <Checkbox label="Active (deliveries are sent)" checked={form.active} onChange={(v) => {
-          set('active', v);
-        }}/>
+        <FormControl><Checkbox checked={form.active} onChange={(event) => { const v = event.target.checked; set('active', v); }}/><FormControl.Label>Active (deliveries are sent)</FormControl.Label></FormControl>
         {failure && <Callout tone="danger" title={ready ? 'Not saved' : 'The webhook could not be loaded'}>{failure}</Callout>}
       </form>
     </Dialog>

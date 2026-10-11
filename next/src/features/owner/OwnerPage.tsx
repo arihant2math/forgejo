@@ -4,7 +4,7 @@
 // User profiles and organizations on the canonical /{owner} route.
 
 import {LinkRows} from '../../ui/LinkRows.tsx';
-import {Link, useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
+import {useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -17,7 +17,7 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, EmptyState, Hint, ListRow, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
+import {Avatar, Hint, ListRow, Panel, TabNav, TabLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
@@ -26,8 +26,9 @@ import {OfflineNote} from '../settings/bits.tsx';
 import {useResource} from '../settings/resource.ts';
 import {Follow, Overview, People} from './Profile.tsx';
 import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {Button, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
+import {RouterLinkButton, RouterLink} from '../../app/RouterLinkButton.tsx';
+import {SkeletonText, Blankslate} from '@primer/react/experimental';
 
 interface OwnerInfo {
   id: number;
@@ -255,10 +256,10 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
       <LinkRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</LinkRows>
       {remote.state !== 'ready' && away ?
         list.length ? <p className="px-3 py-2 text-sm text-fg-subtle">Repositories that are not on this device load when you are online.</p> :
-          <EmptyState icon={CloudOfflineIcon} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
+          <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
         list.length ? null :
           remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
-            <EmptyState title="No repositories" description="None that you can see."/>}
+            <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
     </Panel>
   );
 });
@@ -274,9 +275,9 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
     {kind === 'stars' && <p className="px-3 py-1 text-sm text-fg-muted">Most recently starred first.</p>}
     {remote.state === 'ready' ? <>
       <LinkRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</LinkRows>
-      {!remote.value.length && <EmptyState title="No repositories"/>}
+      {!remote.value.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
       <div className="flex gap-2 px-3 py-2"><Button size="small" type="button" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="small" type="button" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
-    </> : away ? <EmptyState title="Not available offline" description="Connect to load these repositories."/> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <EmptyState title="Could not load repositories"/>}
+    </> : away ? <Blankslate><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>Connect to load these repositories.</Blankslate.Description></Blankslate> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <Blankslate><Blankslate.Heading>Could not load repositories</Blankslate.Heading></Blankslate>}
   </Panel>;
 });
 
@@ -288,8 +289,8 @@ function RepoLine({r}: {r: RepoRow}) {
     // Every row leads with an icon (a lock for a private one), so that the names line up.
     <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={r.private ? <Hint label="Private"><LockIcon size={12} className="shrink-0"/></Hint> : <RepoIcon size={12} className="shrink-0"/>}
       trailing={<>
-        {r.fork && <Badge>Fork</Badge>}
-        {r.archived && <Badge tone="warning">Archived</Badge>}
+        {r.fork && <Label>Fork</Label>}
+        {r.archived && <Label variant="attention">Archived</Label>}
         <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
       </>}>
       <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-fg-subtle">{r.description}</span>}
@@ -305,8 +306,8 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   const boards = [...data.pool.model('Project').by('owner_id', ownerId)].filter((p) => !p.get('repo_id') && !p.get('closed'));
   return (
     <Panel label="Boards" title={<><ProjectIcon size={12} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
-      <TextLink><Link to="/-/next/boards" search={{ownerId}}>All boards, including closed</Link></TextLink>
-      {!boards.length && <EmptyState title="No boards on this device" description="Boards appear here after they have been synced."/>}
+      <RouterLink to="/-/next/boards" search={{ownerId}} muted className="min-w-0 truncate">All boards, including closed</RouterLink>
+      {!boards.length && <Blankslate><Blankslate.Heading>No boards on this device</Blankslate.Heading><Blankslate.Description>Boards appear here after they have been synced.</Blankslate.Description></Blankslate>}
       {boards.map((b) => {
         const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
         return <ListRow key={b.id} role={undefined} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={12} className="shrink-0"/>}>{b.get('title')}</ListRow>;

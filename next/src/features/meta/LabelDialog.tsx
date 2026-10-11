@@ -10,11 +10,11 @@ import {observer} from 'mobx-react-lite';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Checkbox, ColorPicker, Dialog, Field, Input, LabelPill} from '../../ui/index.ts';
+import {ColorPicker, Field, Input, LabelPill} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
-import {Button} from '@primer/react';
+import {Button, Checkbox, FormControl, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The pill a draft makes (the form's preview), and a label's own: an exclusive scoped label shows its scope. */
@@ -58,14 +58,12 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
     if (change) void editLabel(app, repo, label, change);
   };
   return (
-    <Dialog open title={label ? 'Edit label' : 'New label'} onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
+    <Dialog title={label ? 'Edit label' : 'New label'} width="large" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
       <OptionalTooltip text={!connectivity.online ? onlineOnly('Saving a label') : undefined}><Button variant="primary" type="button" disabled={saving || !connectivity.online} onClick={() => {
         save();
       }}>{label ? 'Save' : 'Create label'}</Button></OptionalTooltip>
-    </>}>
+    </>}</Dialog.Footer>}>
       <form className="flex flex-col gap-3" onSubmit={save}>
         <div className="flex min-h-control items-center"><DraftPill name={d.name.trim() || 'Label preview'} color={d.color} exclusive={d.exclusive}/></div>
         <Field label="Name" htmlFor={`${id}-name`} error={tried ? problems.name : undefined} errorId={`${id}-name-e`}>
@@ -86,17 +84,13 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
           }}/>
         </Field>
         <div className="flex flex-col gap-1">
-          <Checkbox label="Exclusive within its scope" checked={d.exclusive} onChange={(exclusive) => {
-            set({exclusive});
-          }}/>
+          <FormControl><Checkbox checked={d.exclusive} onChange={(event) => { const exclusive = event.target.checked; set({exclusive}); }}/><FormControl.Label>Exclusive within its scope</FormControl.Label></FormControl>
           <p className="text-sm text-fg-muted">
             {d.exclusive && problems.exclusive ? problems.exclusive :
               'An issue can have one label of a scope (the name up to its last “/”): adding another removes the one it has. Status and priority are such scopes.'}
           </p>
         </div>
-        {label && <Checkbox label="Archived (kept on its issues, no longer offered)" checked={d.archived} onChange={(archived) => {
-          set({archived});
-        }}/>}
+        {label && <FormControl><Checkbox checked={d.archived} onChange={(event) => { const archived = event.target.checked; set({archived}); }}/><FormControl.Label>Archived (kept on its issues, no longer offered)</FormControl.Label></FormControl>}
         {/* Enter in a field saves. */}
         <button type="submit" hidden/>
       </form>
@@ -108,15 +102,12 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
 export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; label: Label; open: number; onClose: () => void}) {
   const app = useApp();
   return (
-    <Dialog open size="sm" title={`Delete the label “${label.name}”?`} initialFocus="dialog" onOpenChange={(o) => {
-      if (!o) onClose();
-    }} description={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`}
-    footer={<>
+    <Dialog title={`Delete the label “${label.name}”?`} subtitle={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`} width="medium" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
       <Button variant="danger" type="button" onClick={() => {
         onClose();
         void deleteLabel(app, repo, label);
       }}>Delete label</Button>
-    </>}/>
+    </>}</Dialog.Footer>}></Dialog>
   );
 }

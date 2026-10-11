@@ -8,7 +8,7 @@
 // Computed from the pool (counts.ts), so it paints at once and works
 // offline; writers close, reopen, edit and delete (online: writes.ts).
 
-import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -16,7 +16,7 @@ import type {MilestoneSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Badge, cx, EmptyState, Panel, PendingIcon, ProgressBar, Skeleton, TextLink} from '../../ui/index.ts';
+import {cx, Panel, PendingIcon, Skeleton} from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {PageSearch, SortMenu} from './controls.tsx';
@@ -26,9 +26,10 @@ import {excerpt, listMilestones, MILESTONE_SORT_NAMES, type MilestoneRow, milest
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.ts';
 import {CheckCircleIcon, IssueOpenedIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Label, ProgressBar} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {RouterLinkButton, RouterLink} from '../../app/RouterLinkButton.tsx';
+import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
@@ -108,10 +109,10 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
               </ul>
             )}
             {!loading && shown.length === 0 && (q.trim() ?
-              <EmptyState title="No milestone matches" description="No milestone here has these words in its title or description."/> :
+              <Blankslate><Blankslate.Heading>No milestone matches</Blankslate.Heading><Blankslate.Description>No milestone here has these words in its title or description.</Blankslate.Description></Blankslate> :
               state === 'closed' ?
-                <EmptyState icon={CheckCircleIcon} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
-                <EmptyState icon={MilestoneIcon} title="No open milestones" description="Milestones group issues and pull requests towards a release or a date." action={create}/>)}
+                <Blankslate><Blankslate.Visual><CheckCircleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No closed milestones</Blankslate.Heading><Blankslate.Description>Milestones closed when their work is done are listed here.</Blankslate.Description></Blankslate> :
+                <Blankslate><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No open milestones</Blankslate.Heading><Blankslate.Description>Milestones group issues and pull requests towards a release or a date.</Blankslate.Description>{create}</Blankslate>)}
           </Panel>
         </PageColumn>
       </PageBody>
@@ -136,9 +137,9 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h3 className="flex min-w-0 items-center gap-2 text-md font-semibold">
           {temp ? <span className="truncate text-fg">{m.title}</span> :
-            <TextLink><Link to="/$owner/$repo/milestone/$index" params={params}>{m.title}</Link></TextLink>}
+            <RouterLink to="/$owner/$repo/milestone/$index" params={params} muted className="min-w-0 truncate">{m.title}</RouterLink>}
           {isPending('Milestone', m.id) && <PendingIcon label="Saving to Forgejo"/>}
-          {late && <Badge tone="danger">Overdue</Badge>}
+          {late && <Label variant="danger">Overdue</Label>}
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <DueLine m={m}/>
@@ -147,11 +148,11 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         {m.description && <p className="truncate text-base text-fg-muted">{excerpt(m.description)}</p>}
       </div>
       <div className="flex shrink-0 flex-col gap-2 @xl:w-80">
-        <ProgressBar value={p.closed} max={p.total} label={`${String(p.closed)} of ${String(p.total)} closed`}/>
+        <ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted tabular-nums">
           <span className="font-semibold text-fg">{p.percent}% complete</span>
-          {temp ? <span>{p.open} open</span> : <TextLink><Link to="/$owner/$repo/milestone/$index" params={params}>{p.open} open</Link></TextLink>}
-          {temp ? <span>{p.closed} closed</span> : <TextLink><Link to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}}>{p.closed} closed</Link></TextLink>}
+          {temp ? <span>{p.open} open</span> : <RouterLink to="/$owner/$repo/milestone/$index" params={params} muted className="min-w-0 truncate">{p.open}open</RouterLink>}
+          {temp ? <span>{p.closed} closed</span> : <RouterLink to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} muted className="min-w-0 truncate">{p.closed}closed</RouterLink>}
         </div>
         {write && !temp && (
           <div className="flex flex-wrap items-center gap-1">
@@ -175,7 +176,7 @@ function MilestonesSkeleton() {
       {['w-40', 'w-56', 'w-32'].map((w) => (
         <li key={w} className={ENTRY}>
           <Skeleton className={`h-4 ${w}`}/>
-          <Skeleton className="h-3 w-24"/>
+          <SkeletonBox className="h-3 w-24"/>
           <Skeleton round="full" className="h-2 w-full"/>
         </li>
       ))}

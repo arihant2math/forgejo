@@ -12,7 +12,7 @@
 // its own card order changes (BoardModel.cards); a card when its issue's
 // fields do. Dragging touches no React state but the dragged card's flag.
 
-import {Link, useNavigate, useParams, useSearch} from '@tanstack/react-router';
+import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -30,9 +30,8 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
-  Badge, BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
-  ContextMenuSeparator, EmptyState, Input, LabelDot, PromptDialog, Skeleton,
-  TextLink,
+  BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, DropIndicator,
+  ContextMenuSeparator, Input, LabelDot, PromptDialog
 } from '../../ui/index.ts';
 import {closedPager} from '../issues/closed.ts';
 import {issueActions, openPicker} from '../issues/actions.ts';
@@ -48,8 +47,10 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList, Label, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 /** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
 const lastCard = new Map<number, number>();
@@ -95,7 +96,7 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
         <PageHeader icon={ProjectIcon} title="Board"/>
         <PageBody>
           {loading ?
-            <div className="flex gap-3 p-3" aria-busy>{[0, 1, 2].map((i) => <Skeleton key={i} className="h-72 w-column"/>)}</div> :
+            <div className="flex gap-3 p-3" aria-busy>{[0, 1, 2].map((i) => <SkeletonBox className="h-72 w-column" key={i}/>)}</div> :
             <Missing icon={ProjectIcon} what="This board"/>}
         </PageBody>
       </>
@@ -111,18 +112,18 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
   const login = owner?.get('login');
   return (
     <>
-      <TextLink><Link to="/-/next/boards" activeOptions={{exact: true}}>Boards</Link></TextLink>
+      <RouterLink to="/-/next/boards" activeOptions={{exact: true}} muted className="min-w-0 truncate">Boards</RouterLink>
       {repo ? (
         <>
           <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
-          <TextLink><Link to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}}>{repo.get('owner_name')}</Link></TextLink>
+          <RouterLink to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('owner_name')}</RouterLink>
           <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
-          <TextLink><Link to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}}>{repo.get('name')}</Link></TextLink>
+          <RouterLink to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('name')}</RouterLink>
         </>
       ) : login && (
         <>
           <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
-          <TextLink><Link to="/$owner" params={{owner: login}} activeOptions={{exact: true}}>{login}</Link></TextLink>
+          <RouterLink to="/$owner" params={{owner: login}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{login}</RouterLink>
         </>
       )}
     </>
@@ -413,9 +414,9 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   return (
     <>
       <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')}>
-        {closed && <Badge tone="done">Closed</Badge>}
-        {!editable && <span title={readOnlyReason}><Badge>Read-only</Badge></span>}
-        {hidden > 0 && <Badge>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Badge>}
+        {closed && <Label variant="done">Closed</Label>}
+        {!editable && <span title={readOnlyReason}><Label>Read-only</Label></span>}
+        {hidden > 0 && <Label>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Label>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
         {editable && <BoardSettings project={project.data}/>}
       </PageHeader>
@@ -446,7 +447,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
                   setColumnDialog({kind, columnId: c.id});
                 }}/>
             ))}
-            {columns.length === 0 && <EmptyState icon={ColumnsIcon} title="No columns yet" description="Add a column to start the board."/>}
+            {columns.length === 0 && <Blankslate><Blankslate.Visual><ColumnsIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No columns yet</Blankslate.Heading><Blankslate.Description>Add a column to start the board.</Blankslate.Description></Blankslate>}
             {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
           </BoardLanes>
         </ContextMenuTrigger>
@@ -475,8 +476,8 @@ const ClosedTierBadge = observer(function ClosedTierBadge({repoId}: {repoId: num
   if (!repoId) return null;
   const pager = closedPager(data, `repo:${String(repoId)}`);
   if (pager.done) return null;
-  if (pager.pages < CLOSED_PAGES) return pager.loading ? <Badge>Loading older closed cards…</Badge> : null;
-  return <Badge tone="warning">Older closed cards may be missing</Badge>;
+  if (pager.pages < CLOSED_PAGES) return pager.loading ? <Label>Loading older closed cards…</Label> : null;
+  return <Label variant="attention">Older closed cards may be missing</Label>;
 });
 
 function boardRepo(s: ReturnType<typeof useSession>, repoId: number) {
@@ -583,7 +584,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
       leading={column.color ? <LabelDot color={column.color}/> : null}
       // The default column (where new cards and the cards of a deleted column go) says so.
-      badge={column.default ? <Badge>Default</Badge> : undefined}
+      badge={column.default ? <Label>Default</Label> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative min-h-12 w-full"
         style={{height: virtualizer.getTotalSize()}}
@@ -678,9 +679,7 @@ function ColumnDialog({model, state, onClose}: {model: BoardModel; state: Column
     );
   }
   return (
-    <Dialog open title={`Delete “${column.title}”?`} description="Its cards move to the default column." onOpenChange={(o) => {
-      if (!o) onClose(false);
-    }} footer={<>
+    <Dialog title={`Delete “${column.title}”?`} subtitle="Its cards move to the default column." width="large" onClose={() => { const o = false; if (!o) onClose(false); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" onClick={() => {
         onClose(false);
       }}>Cancel</Button>
@@ -688,7 +687,7 @@ function ColumnDialog({model, state, onClose}: {model: BoardModel; state: Column
         onClose(true);
         void deleteColumn(app, projectId, column.id);
       }}>Delete</Button>
-    </>}/>
+    </>}</Dialog.Footer>}></Dialog>
   );
 }
 

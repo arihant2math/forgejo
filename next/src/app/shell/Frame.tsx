@@ -9,6 +9,7 @@
 import {elementScroll, type Virtualizer} from '@tanstack/react-virtual';
 import type {ReactNode, Ref} from 'react';
 import {cx, Skeleton} from '../../ui/index.ts';
+import {SkeletonBox} from '@primer/react/experimental';
 
 /**
  * Wide screens: the sidebar beside the page (collapsible: sidebar-hidden). Narrow ones (below md): a drawer over
@@ -134,7 +135,7 @@ const labelWidths = {sm: 'h-3 w-16', md: 'h-3 w-20', lg: 'h-3 w-24', xl: 'h-3 w-
 export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelWidths; leading?: ReactNode; inset?: boolean}) {
   return (
     <div className={inset ? 'flex h-control items-center gap-2 pr-2 pl-8' : 'flex h-control items-center gap-2 px-2'}>
-      {inset ? null : leading ?? <Skeleton className="size-4"/>}
+      {inset ? null : leading ?? <SkeletonBox className="size-4"/>}
       <Skeleton className={labelWidths[width]}/>
     </div>
   );

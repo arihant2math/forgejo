@@ -22,7 +22,7 @@ import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
 import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
 import {
   Callout, CommandPick, CommandPopover, Dialog, EditableHeading, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
-  type PickOption, ProseSource, SkeletonText, TitleInput,
+  type PickOption, ProseSource, TitleInput,
 } from '../../ui/index.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {reach} from '../../app/online.ts';
@@ -36,8 +36,9 @@ import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
 import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, Dialog as PrimerDialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {SkeletonText} from '@primer/react/experimental';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
 export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
@@ -216,13 +217,13 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
         act(stateAction.run);
       }
     }}>
-      {confirmCancel && <Dialog open size="sm" title="Discard this edit?" description="Your changes can be restored with Undo." onOpenChange={setConfirmCancel} footer={<>
+      {confirmCancel && <PrimerDialog title="Discard this edit?" subtitle="Your changes can be restored with Undo." width="medium" onClose={() => { setConfirmCancel(false); }} renderFooter={() => <PrimerDialog.Footer>{<>
         <Button variant="invisible" type="button" onClick={() => { setConfirmCancel(false); }}>Keep editing</Button>
         <Button variant="danger" type="button" onClick={() => {
           setConfirmCancel(false);
           cancel();
         }}>Discard</Button>
-      </>}/>}
+      </>}</PrimerDialog.Footer>}></PrimerDialog>}
       <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
         onChange={change} onSubmit={save} onCancel={onCancel ? () => {
           if (dirty) setConfirmCancel(true);
@@ -300,7 +301,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     }
     return (
       <div className="flex flex-col gap-2 py-1" aria-busy>
-        <SkeletonText/>
+        <SkeletonText lines={3}/>
       </div>
     );
   }

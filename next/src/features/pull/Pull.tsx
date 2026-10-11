@@ -16,7 +16,7 @@
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {observer} from 'mobx-react-lite';
-import {Link, useLocation} from '@tanstack/react-router';
+import {useLocation} from '@tanstack/react-router';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online, refused} from '../../app/api.ts';
@@ -42,7 +42,7 @@ import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, Input, ListRow, MenuLabel, MenuRadioItem,
+  Button, Callout, Card, Code, Dialog, DiffStat, Icon, Input, ListRow, MenuLabel, MenuRadioItem,
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
@@ -70,8 +70,10 @@ import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate} from '@primer/react/experimental';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 export type PullTabName = 'files' | 'commits' | 'checks';
 
@@ -98,7 +100,7 @@ function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; c
 
 export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {tab: PullTabName}) {
   const {pr, commits, loading} = usePullCommits(props.issue);
-  if (!pr) return <EmptyState icon={GitPullRequestIcon} title="Not on this device" description="This pull request's details have not arrived yet."/>;
+  if (!pr) return <Blankslate><Blankslate.Visual><GitPullRequestIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device</Blankslate.Heading><Blankslate.Description>This pull request's details have not arrived yet.</Blankslate.Description></Blankslate>;
   if (!commits) return <Unloaded loaded={loading.state === 'ready' ? {state: 'loading'} : loading} what="This pull request's head"/>;
   switch (tab) {
     case 'files':
@@ -425,7 +427,7 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
       <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
-      {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
+      {drafts.length > 0 && <Label variant="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Label>}
       <DiffSettings/>
       {/* A merged or closed pull request takes no review. */}
       {open && <span className="ml-auto"><OptionalTooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}><PrimerButton variant="primary" size="small" type="button" data-review-button onClick={onReview}>Review</PrimerButton></OptionalTooltip></span>}
@@ -604,12 +606,12 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
 
 const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pending: boolean}) {
   const entity = usePool().model('Comment').get(c.id);
-  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Badge tone="warning">Pending</Badge>}{c.invalidated && <Badge>Outdated</Badge>}</>}/> : null;
+  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Label variant="attention">Pending</Label>}{c.invalidated && <Label>Outdated</Label>}</>}/> : null;
 });
 
 function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: number; onEdit?: (() => void) | undefined; onDelete: () => void}) {
   return (
-    <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Badge tone="accent">Draft</Badge>}
+    <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Label variant="accent">Draft</Label>}
       actions={<>
         {onEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the comment" type="button" onClick={onEdit}/>}
         <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the comment" type="button" onClick={onDelete}/>
@@ -718,7 +720,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
   const pool = usePool();
   const {statuses, runs, awaitingApproval} = checksOf(pool, pr, commits.head);
   const check = useMergeCheck(awaitingApproval > 0 ? issue : undefined, pr);
-  if (!statuses.length && !runs.length) return <EmptyState icon={WorkflowIcon} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
+  if (!statuses.length && !runs.length) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No checks</Blankslate.Heading><Blankslate.Description>{`Nothing reported for ${shortSha(commits.head)} on this device.`}</Blankslate.Description></Blankslate>;
   return (
     <PageColumn wide>
       {awaitingApproval > 0 && <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>}
@@ -737,7 +739,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
             const description = cleanDescription(s.get('description'));
             return (
               <ListRow key={s.id} role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={look.text}>
-                {/^https?:\/\//.test(url) ? <TextLink><a href={url} target="_blank" rel="noopener noreferrer">{s.get('context')}</a></TextLink> : s.get('context')}
+                {/^https?:\/\//.test(url) ? <PrimerLink href={url} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{s.get('context')}</PrimerLink> : s.get('context')}
                 {description && <span className="text-fg-subtle"> {description}</span>}
               </ListRow>
             );
@@ -850,7 +852,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
     protectionWhy(check, pr.base_branch, statuses) ??
     (check?.mergeable === false ? 'Forgejo says this pull request cannot be merged yet. Check the branch protection rules.' : undefined);
   const waitingApproval = (sum?.awaitingApproval ?? 0) > 0 || check?.actions?.need_approval === true;
-  const checksTab = repo ? <TextLink><Link to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}}>View checks</Link></TextLink> : null;
+  const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
   const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
   const checksTone = checks === 'failure' ? 'danger' : checks === 'pending' ? 'warning' : 'success';
   // A branch that may go once the work is in (merged, or closed): the classic page's "Delete branch".
@@ -889,7 +891,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           }}>Delete branch</PrimerButton></OptionalTooltip>
         </p>
       )}
-      {deleteConfirm && headRef.length === 2 && <Dialog open title="Delete branch" description={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} onOpenChange={setDeleteConfirm} footer={<>
+      {deleteConfirm && headRef.length === 2 && <PrimerDialog title="Delete branch" subtitle={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} width="large" onClose={() => { setDeleteConfirm(false); }} renderFooter={() => <PrimerDialog.Footer>{<>
         <PrimerButton variant="invisible" type="button" onClick={() => { setDeleteConfirm(false); }}>Cancel</PrimerButton>
         <OptionalTooltip text={offlineWhy('Deleting the branch')}><PrimerButton variant="danger" leadingVisual={TrashIcon} type="button" disabled={!isOnline || busy} onClick={() => {
           setDeleteConfirm(false);
@@ -903,7 +905,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             setBusy(false);
           });
         }}>Delete branch</PrimerButton></OptionalTooltip>
-      </>}/>}
+      </>}</PrimerDialog.Footer>}></PrimerDialog>}
       {!pr.merged && !closed && <DraftControl issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
       {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
@@ -959,13 +961,13 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}
         pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
-      {rebaseConfirm && <Dialog open title="Update with rebase" description={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} onOpenChange={setRebaseConfirm} footer={<>
+      {rebaseConfirm && <PrimerDialog title="Update with rebase" subtitle={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} width="large" onClose={() => { setRebaseConfirm(false); }} renderFooter={() => <PrimerDialog.Footer>{<>
         <PrimerButton variant="invisible" type="button" onClick={() => { setRebaseConfirm(false); }}>Cancel</PrimerButton>
         <OptionalTooltip text={offlineWhy('Updating the branch') ?? conflictWhy}><PrimerButton variant="primary" type="button" disabled={!isOnline || busy || conflict || !config || !options.rebaseUpdate} onClick={() => {
           setRebaseConfirm(false);
           run({done: `Rebased onto ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=rebase`});
         }}>Rebase and force-push</PrimerButton></OptionalTooltip>
-      </>}/>}
+      </>}</PrimerDialog.Footer>}></PrimerDialog>}
       {style && (
         <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} deletable={deletable} deleteDefault={deleteDefault} onClose={() => {
           setStyle(undefined);
@@ -994,12 +996,10 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
     onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: deletable && drop});
   };
   return (
-    <Dialog open size="md" title={label} description={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
+    <PrimerDialog title={label} subtitle={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} width="large" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <PrimerDialog.Footer>{<>
       <PrimerButton variant="invisible" type="button" onClick={onClose}>Cancel</PrimerButton>
       <OptionalTooltip text={reason}><PrimerButton variant="primary" leadingVisual={GitMergeIcon} type="button" disabled={!!reason} onClick={merge}>Merge</PrimerButton></OptionalTooltip>
-    </>}>
+    </>}</PrimerDialog.Footer>}>
       <div className="flex flex-col gap-3">
         {reason && <Callout tone="warning" title={reason}/>}
         {checks === 'pending' && (
@@ -1014,8 +1014,8 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
         {commit && <TextArea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
           setMessage(e.target.value);
         }}/>}
-        {deletable && <Checkbox label={`Delete the branch ${pr.head_branch} afterwards`} checked={drop} onChange={setDrop}/>}
+        {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
       </div>
-    </Dialog>
+    </PrimerDialog>
   );
 }

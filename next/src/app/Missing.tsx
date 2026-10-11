@@ -16,6 +16,7 @@ import {useApp} from './store.ts';
 import {CloudOfflineIcon, QuestionIcon, HomeIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLinkButton} from '../app/RouterLinkButton.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 export interface MissingProps {
   /** What is missing, as the subject of a sentence ("This repository"). */
@@ -53,7 +54,7 @@ export const Missing = observer(function Missing({what, title, description, icon
   if (r !== 'online') {
     return (
       <div className="flex flex-col items-center">
-        <EmptyState icon={CloudOfflineIcon} title={r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo'} description={missingWords(what)[r]}/>
+        <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description></Blankslate>
         <AvailableOffline/>
       </div>
     );

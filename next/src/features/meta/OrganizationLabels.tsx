@@ -7,7 +7,7 @@ import {notify} from '../../app/notices.ts';
 import {onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Dialog, LabelPill, ListRow, Panel} from '../../ui/index.ts';
+import {LabelPill, ListRow, Panel} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {useOrgPermissions} from '../owner/Teams.tsx';
 import {ResourceList, useOffline} from '../settings/bits.tsx';
@@ -16,7 +16,7 @@ import {useResource} from '../settings/resource.ts';
 import {LabelDialog} from './LabelDialog.tsx';
 import {type LabelDraft, normalizeColor} from './labels.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /**
@@ -70,9 +70,9 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       </>}><LabelPill name={l.name} color={l.color} scope={exclusiveScope(l) || undefined}/><span className="ml-3 text-fg-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></ListRow>)}
     </ResourceList>
     {editing && <LabelDialog repo={{owner, repo: '', repoId: 0}} label={editing.label} count={shown.value?.length ?? 0} onClose={() => { setEditing(undefined); }} onSave={(d) => send(editing.label ? 'PATCH' : 'POST', editing.label, d)}/>}
-    {deleting && <Dialog open title={`Delete the label “${deleting.name}”?`} description="This removes the label from every issue and pull request in the organization. This cannot be undone." onOpenChange={(o) => { if (!o) setDeleting(undefined); }} footer={<>
+    {deleting && <Dialog title={`Delete the label “${deleting.name}”?`} subtitle="This removes the label from every issue and pull request in the organization. This cannot be undone." width="large" onClose={() => { const o = false; if (!o) setDeleting(undefined); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" onClick={() => { setDeleting(undefined); }}>Cancel</Button>
       <Button variant="danger" type="button" disabled={busy || offline} onClick={() => { void send('DELETE', deleting).then((ok) => { if (ok) setDeleting(undefined); }); }}>Delete label</Button>
-    </>}/>}
+    </>}</Dialog.Footer>}></Dialog>}
   </Panel>;
 });

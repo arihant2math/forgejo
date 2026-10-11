@@ -22,7 +22,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Avatar, Callout, Checkbox, CommandPopover, Input, SegmentedControl} from '../../ui/index.ts';
+import {Avatar, Callout, CommandPopover, Input, SegmentedControl} from '../../ui/index.ts';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -31,7 +31,7 @@ import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} f
 import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Checkbox, FormControl} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
@@ -201,9 +201,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <Section title="Take from the template" description={`What ${tpl.full_name} passes on to the new repository.`}>
                 <div className="flex flex-col gap-2">
                   {TEMPLATE_ITEMS.map((it) => (
-                    <Checkbox key={it.key} label={it.label} checked={items[it.key]} onChange={(on) => {
-                      setItems({...items, [it.key]: on});
-                    }}/>
+                    <FormControl key={it.key}><Checkbox checked={items[it.key]} onChange={(event) => { const on = event.target.checked; setItems({...items, [it.key]: on}); }}/><FormControl.Label>{it.label}</FormControl.Label></FormControl>
                   ))}
                 </div>
                 {templateProblem(items) && <p className="text-sm text-danger">{templateProblem(items)}</p>}
@@ -238,7 +236,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                   <p className="text-sm text-fg-muted">How Git names objects. SHA-256 cannot be changed later, and some tools do not support it yet.</p>
                 </div>
               )}
-              {!tpl && <Checkbox label="Make this repository a template" checked={isTemplate} onChange={setIsTemplate}/>}
+              {!tpl && <FormControl><Checkbox checked={isTemplate} onChange={(event) => { setIsTemplate(event.target.checked); }}/><FormControl.Label>Make this repository a template</FormControl.Label></FormControl>}
             </Section>
 
             <Section>
@@ -273,7 +271,7 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
   return (
     <Section title="Initialize this repository with" description="Skip this to push an existing repository.">
       <div className="flex flex-col gap-1">
-        <Checkbox label="Add a README file" checked={readme || implied} disabled={implied} onChange={setReadme}/>
+        <FormControl disabled={implied}><Checkbox checked={readme || implied} onChange={(event) => { setReadme(event.target.checked); }}/><FormControl.Label>Add a README file</FormControl.Label></FormControl>
         <p className="pl-6 text-sm text-fg-muted">
           {implied ? 'Forgejo adds a README with a .gitignore or a license.' : 'A long description of the project, shown on its home.'}
         </p>

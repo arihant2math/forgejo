@@ -10,11 +10,12 @@ import {type ReactNode, useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import type {App} from '../../app/store.ts';
-import {Callout, EmptyState, EntryList, Skeleton} from '../../ui/index.ts';
+import {Callout, EmptyState, EntryList} from '../../ui/index.ts';
 import {problemOf} from './problems.ts';
 import type {Resource} from './resource.ts';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button} from '@primer/react';
+import {SkeletonAvatar, SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 function same(a: unknown, b: unknown): boolean {
   return Object.is(a, b) || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
@@ -84,8 +85,8 @@ export function ListSkeleton({rows = 3}: {rows?: number}) {
     <EntryList>
       {Array.from({length: rows}, (_, i) => (
         <li key={i} aria-hidden className="flex items-center gap-3 border-b border-border-subtle py-2 last:border-b-0">
-          <Skeleton round="full" className="size-5"/>
-          <span className="flex flex-1 flex-col gap-1.5"><Skeleton className="h-3 w-40"/><Skeleton className="h-3 w-24"/></span>
+          <SkeletonAvatar size={20}/>
+          <span className="flex flex-1 flex-col gap-1.5"><SkeletonBox className="h-3 w-40"/><SkeletonBox className="h-3 w-24"/></span>
         </li>
       ))}
     </EntryList>
@@ -105,7 +106,7 @@ export function ResourceList<T>({res, what, empty, children}: {
 }) {
   if (res.value === undefined) {
     if (res.state === 'loading') return <ListSkeleton/>;
-    if (res.state === 'offline') return <EmptyState title="Not on this device yet" description={`${what} load when you are online.`}/>;
+    if (res.state === 'offline') return <Blankslate><Blankslate.Heading>Not on this device yet</Blankslate.Heading><Blankslate.Description>{`${what} load when you are online.`}</Blankslate.Description></Blankslate>;
     return (
       <Callout tone="danger" title={`${what} could not be loaded`} actions={<Button size="small" type="button" onClick={res.reload}>Try again</Button>}>
         {res.status === 403 ? 'Forgejo refused: this instance may have turned the feature off.' : res.error}

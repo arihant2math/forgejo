@@ -26,7 +26,7 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  BlameCell, CodeLine, CodeTokens, EmptyState, LineAction, LineNo, ListRow, SegmentedControl, Skeleton, TextLink,
+  BlameCell, CodeLine, CodeTokens, LineAction, LineNo, ListRow, SegmentedControl, Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
@@ -42,6 +42,7 @@ import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.t
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
+import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 
@@ -79,7 +80,7 @@ const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: b
 function ListSkeleton() {
   return (
     <div className="flex flex-col" aria-busy>
-      {Array.from({length: 8}, (_, i) => <ListRow key={i} role="presentation" leading={<Skeleton className="size-4"/>}><Skeleton className="h-3 w-48"/></ListRow>)}
+      {Array.from({length: 8}, (_, i) => <ListRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>}><SkeletonBox className="h-3 w-48"/></ListRow>)}
     </div>
   );
 }
@@ -112,9 +113,9 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   } else if (tree.state !== 'ready') {
     body = () => <Unloaded loaded={tree} what="This file or folder"/>;
   } else if (!entry) {
-    body = () => <EmptyState icon={FileIcon} title="Not found" description={`There is no ${at.path} at ${shortSha(at.sha)}.`}/>;
+    body = () => <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{`There is no ${at.path} at ${shortSha(at.sha)}.`}</Blankslate.Description></Blankslate>;
   } else if (entry.type === 'commit') {
-    body = () => <EmptyState icon={FileSubmoduleIcon} title="A submodule" description={`${at.path} is a submodule at commit ${shortSha(entry.sha)}.`}/>;
+    body = () => <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>A submodule</Blankslate.Heading><Blankslate.Description>{`${at.path} is a submodule at commit ${shortSha(entry.sha)}.`}</Blankslate.Description></Blankslate>;
   } else {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
@@ -237,7 +238,7 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
   const entries = useMemo(() => treeOrder(tree.entries), [tree]);
-  if (!entries.length) return <EmptyState icon={FileDirectoryFillIcon} title="Empty directory"/>;
+  if (!entries.length) return <Blankslate><Blankslate.Visual><FileDirectoryFillIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty directory</Blankslate.Heading></Blankslate>;
   return (
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}
@@ -279,9 +280,9 @@ const FileView = observer(function FileView(props: FileProps) {
     case 'image':
       return <ImageFile bytes={c.bytes} type={c.type} path={at.path} size={entry.size}/>;
     case 'binary':
-      return <EmptyState icon={FileIcon} title="Binary file" description={`${formatSize(c.size)} — not shown. Use Raw to download it.`}/>;
+      return <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Binary file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — not shown. Use Raw to download it.`}</Blankslate.Description></Blankslate>;
     case 'large':
-      return <EmptyState icon={FileIcon} title="Large file" description={`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}/>;
+      return <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Large file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}</Blankslate.Description></Blankslate>;
   }
 });
 
@@ -294,7 +295,7 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
   return <>
     {allowed && <div className="flex justify-end border-b border-border-subtle px-4 py-2"><Button variant="invisible" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
     {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-fg-muted">Fork this repository to edit this file.</p>}
-    {props.text === '' ? <EmptyState icon={FileIcon} title="Empty file" description="This file has no content."/> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
+    {props.text === '' ? <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
   </>;
 });
 

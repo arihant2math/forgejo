@@ -7,7 +7,7 @@
 // and, once the job finished, is kept by (job, task) in the code cache, so
 // a finished log opens offline and never streams again.
 
-import {Link, useNavigate, useSearch} from '@tanstack/react-router';
+import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -18,7 +18,7 @@ import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
 import {codeSplat, shortSha} from '../../code/refs.ts';
 import {
-  AnsiText, Avatar, Badge, Callout, CodeLine, CommandPopover, EmptyState, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
+  AnsiText, Avatar, Callout, CodeLine, CommandPopover, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
@@ -33,8 +33,10 @@ import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
 import {awaitsApproval} from '../pull/checks.ts';
 import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx';
 import {ChevronDownIcon, WorkflowIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Label} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
 export function duration(seconds: number): string {
@@ -98,7 +100,7 @@ function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef
   const t = triggerOf(gitRef);
   switch (t.kind) {
     case 'pull':
-      return <TextLink><Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(t.number)}}>#{t.number}</Link></TextLink>;
+      return <RouterLink to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(t.number)}} muted className="min-w-0 truncate">#{t.number}</RouterLink>;
     case 'branch':
     case 'tag':
       return <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat('src', {kind: t.kind, ref: t.name})}><span className="font-mono">{t.name}</span></CodeLink></TextLink>;
@@ -208,7 +210,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
             const t = took(r.started, finished(r.status) ? r.stopped : undefined, now);
             return {
               leading: <span title={look.text}><StatusDot tone={look.tone}/></span>,
-              main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Badge tone="warning">Needs approval</Badge></> : <span className="sr-only">, {look.text}</span>}</>,
+              main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Label variant="attention">Needs approval</Label></> : <span className="sr-only">, {look.text}</span>}</>,
               trailing: <>
                 <TriggerText gitRef={r.ref}/>
                 <span className="max-md:hidden">{eventText(r.event)}</span>
@@ -219,11 +221,11 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
         all.length ?
-          <EmptyState icon={WorkflowIcon} title="No runs match" description="No run of this repository matches the filter." action={<Button size="small" type="button" onClick={() => {
+          <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No runs match</Blankslate.Heading><Blankslate.Description>No run of this repository matches the filter.</Blankslate.Description>{<Button size="small" type="button" onClick={() => {
             setFilter('all');
             setWorkflow(undefined);
-          }}>Show all runs</Button>}/> :
-          <EmptyState icon={WorkflowIcon} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
+          }}>Show all runs</Button>}</Blankslate> :
+          <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No workflow runs</Blankslate.Heading><Blankslate.Description>This repository has no Actions runs on this device.</Blankslate.Description></Blankslate>)}
     </CodeFrame>
   );
 });
@@ -279,7 +281,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
       {job && <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={job} palette/>}
     </>}>
       {(scroller) => (!run ?
-        <EmptyState icon={WorkflowIcon} title="Run not found" description="This run does not exist, or is not on this device."/> :
+        <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
         <div className="flex min-h-full flex-col">
           {/* What started it: the workflow, the event, its pull request or branch, the commit, who. */}
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-sm text-fg-muted">
@@ -307,7 +309,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           </nav>
           <section aria-label="Log" className="min-w-0 flex-1">
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
-              <EmptyState icon={WorkflowIcon} title="No such job"/>}
+              <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No such job</Blankslate.Heading></Blankslate>}
           </section>
           </div>
           <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
@@ -388,9 +390,9 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
     );
   }, [rows, steps, closed, log.lines]);
   if (!count && !steps.length) {
-    if (log.expired) return <EmptyState icon={WorkflowIcon} title="Log removed" description="This log was removed by the instance's log retention."/>;
-    if (source === 'none' && !connectivity.online) return <EmptyState icon={WorkflowIcon} title="Not available offline" description="This job's log is not on this device."/>;
-    if (feed.closed) return <EmptyState icon={WorkflowIcon} title="Log not available" description={feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}/>;
+    if (log.expired) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log removed</Blankslate.Heading><Blankslate.Description>This log was removed by the instance's log retention.</Blankslate.Description></Blankslate>;
+    if (source === 'none' && !connectivity.online) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This job's log is not on this device.</Blankslate.Description></Blankslate>;
+    if (feed.closed) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log not available</Blankslate.Heading><Blankslate.Description>{feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}</Blankslate.Description></Blankslate>;
     return <p className="px-4 py-3 text-sm text-fg-subtle">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;

@@ -15,7 +15,7 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Callout, Field, Input, SkeletonText} from '../../ui/index.ts';
+import {Callout, Field, Input} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
@@ -23,6 +23,7 @@ import {createMilestone, editMilestone, type MilestoneChange, type RepoRef, view
 import {MilestoneIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {SkeletonText} from '@primer/react/experimental';
 
 export function NewMilestone() {
   return <FormPage edit={false}/>;

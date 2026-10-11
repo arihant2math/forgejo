@@ -11,11 +11,12 @@ import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
 import {CodeSource, type FileContent} from '../../code/source.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
-import {Panel, SkeletonText} from '../../ui/index.ts';
+import {Panel} from '../../ui/index.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import {useLoad, useSource} from './hooks.ts';
 import {Unloaded} from './states.tsx';
 import {BookIcon} from '@primer/octicons-react';
+import {SkeletonText} from '@primer/react/experimental';
 
 /** Whether a file has a rendered view ("Preview"): markdown (and other markup Forgejo renders), SVG images. */
 export function renderable(path: string): 'markup' | 'svg' | undefined {

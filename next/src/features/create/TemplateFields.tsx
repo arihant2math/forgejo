@@ -3,10 +3,10 @@
 
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
-import {Checkbox, CommandPopover, Field, Input, Select, TextArea} from '../../ui/index.ts';
+import {CommandPopover, Field, Input, Select, TextArea} from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {type FormValues, type TemplateField, optionLabel, optionVisible, visible} from './templates.ts';
-import {Button} from '@primer/react';
+import {Button, Checkbox, FormControl} from '@primer/react';
 
 export const TemplateFields = observer(function TemplateFields({fields, values, missing, repoId, onChange}: {
   fields: TemplateField[]; values: FormValues; missing: string[]; repoId: number;
@@ -48,7 +48,7 @@ export const TemplateFields = observer(function TemplateFields({fields, values, 
     } else {
       control = <div id={id} role="group" aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId} className="flex flex-col gap-1">
         {options.map((option, i) => !optionVisible(option, 'form') ? null :
-          <Checkbox key={i} checked={selected.includes(i)} onChange={() => { toggle(i); }} label={optionLabel(option)}/>)}
+          <FormControl key={i}><Checkbox checked={selected.includes(i)} onChange={() => { toggle(i); }}/><FormControl.Label>{optionLabel(option)}</FormControl.Label></FormControl>)}
       </div>;
     }
     return <Field key={id} htmlFor={id} label={a.label ?? ''} hint={a.description}

@@ -1,10 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {type ReactNode, useEffect} from 'react';
-import {cx, EmptyState} from '../ui/index.ts';
+import {cx} from '../ui/index.ts';
 import {EARLY_SIGN_IN} from './splash.ts';
 import {SignInIcon} from '@primer/octicons-react';
 import {Button, LinkButton} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 /** A full-height screen with its content centred (logged-out, placeholders). */
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
@@ -50,12 +51,7 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
   }, [boot, onSignIn]);
   return (
     <CenteredScreen boot={boot}>
-      <EmptyState
-        icon={SignInIcon}
-        title={appName ?? 'Forgejo'}
-        description={message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}
-        action={
-          <span className="flex flex-col items-center gap-3">
+      <Blankslate><Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{appName ?? 'Forgejo'}</Blankslate.Heading><Blankslate.Description>{message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}</Blankslate.Description>{<span className="flex flex-col items-center gap-3">
             {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}
             <Button variant="primary" type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
             {(boot ?? classic) && (
@@ -66,9 +62,7 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
                 <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>
               </span>
             )}
-          </span>
-        }
-      />
+          </span>}</Blankslate>
     </CenteredScreen>
   );
 }

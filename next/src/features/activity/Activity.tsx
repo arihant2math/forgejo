@@ -28,7 +28,7 @@ import type {Entity} from '../../data/entity.ts';
 import {issueState} from '../../intents/view.ts';
 import type {APIActivityAuthor, APICommitActivity, APIContributors} from '../../protocol/types.gen.ts';
 import {
-  Avatar, cx, EmptyState, Icon, ListRow, NavItem, Panel,
+  Avatar, cx, Icon, ListRow, NavItem, Panel,
   Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
@@ -45,6 +45,8 @@ import {
 import {GraphIcon, ChevronDownIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
+import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
@@ -235,9 +237,9 @@ const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : ma
 function OverviewSkeleton() {
   return (
     <div className="flex flex-col gap-3 p-4" aria-busy>
-      <Skeleton className="h-3 w-48"/>
-      <Skeleton className="h-2 w-full"/>
-      <Skeleton className="h-3 w-64"/>
+      <SkeletonBox className="h-3 w-48"/>
+      <SkeletonBox className="h-2 w-full"/>
+      <SkeletonBox className="h-3 w-64"/>
     </div>
   );
 }
@@ -424,7 +426,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
           </div>
         )}
         <p className="text-sm text-fg-subtle">
-          <TextLink><Link to="/$owner/$repo/activity/contributors" params={{owner, repo}}>All contributors</Link></TextLink>
+          <RouterLink to="/$owner/$repo/activity/contributors" params={{owner, repo}} muted className="min-w-0 truncate">All contributors</RouterLink>
         </p>
       </div>
     </Panel>
@@ -434,8 +436,8 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
 function CommitsSkeleton() {
   return (
     <div className="flex flex-col gap-3 px-6 py-4" aria-busy>
-      <Skeleton className="h-3 w-96"/>
-      {['w-56', 'w-40', 'w-32'].map((w) => <span key={w} className="flex items-center gap-2"><Skeleton className="size-4"/><Skeleton className={`h-2 ${w}`}/></span>)}
+      <SkeletonBox className="h-3 w-96"/>
+      {['w-56', 'w-40', 'w-32'].map((w) => <span key={w} className="flex items-center gap-2"><SkeletonBox className="size-4"/><Skeleton className={`h-2 ${w}`}/></span>)}
     </div>
   );
 }
@@ -446,8 +448,7 @@ function CommitsSkeleton() {
 function Statistics({repoId, children, skeleton}: {repoId: number; children: (s: APIContributors, branch: string) => ReactNode; skeleton: ReactNode}) {
   const {branch, sha, empty} = useHead(repoId);
   if (!sha) {
-    return <EmptyState icon={GitCommitIcon} title={empty ? 'No commits yet' : 'No code on this device yet'}
-      description={empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}/>;
+    return <Blankslate><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty ? 'No commits yet' : 'No code on this device yet'}</Blankslate.Heading><Blankslate.Description>{empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}</Blankslate.Description></Blankslate>;
   }
   return <StatisticsAt key={sha} repoId={repoId} sha={sha} branch={branch} skeleton={skeleton}>{children}</StatisticsAt>;
 }
@@ -457,7 +458,7 @@ function StatisticsAt({repoId, sha, branch, children, skeleton}: {repoId: number
   const key = CodeSource.contributorsKey(repoId, sha);
   const loaded = useLoad(key, () => src.peek<APIContributors>(key), () => src.contributors(repoId, sha));
   if (loaded.state !== 'ready') return <Unloaded loaded={loaded} what="These statistics" skeleton={skeleton}/>;
-  if (!loaded.value.total.length) return <EmptyState icon={GitCommitIcon} title="No commits to count" description="The default branch has only merge commits."/>;
+  if (!loaded.value.total.length) return <Blankslate><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits to count</Blankslate.Heading><Blankslate.Description>The default branch has only merge commits.</Blankslate.Description></Blankslate>;
   return <>{children(loaded.value, branch)}</>;
 }
 
@@ -466,7 +467,7 @@ function ChartSkeleton({rows = 1}: {rows?: number}) {
     <div className="flex flex-col gap-4" aria-busy>
       {Array.from({length: rows}, (_, i) => (
         <div key={i} className="flex flex-col gap-2 rounded-md border border-border p-4">
-          <Skeleton className="h-3 w-48"/>
+          <SkeletonBox className="h-3 w-48"/>
           <Skeleton className={i === 0 ? 'h-40 w-full' : 'h-12 w-full'}/>
         </div>
       ))}

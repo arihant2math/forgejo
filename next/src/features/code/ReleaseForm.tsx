@@ -21,7 +21,7 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Callout, Checkbox, Code, CommandPopover, EmptyState, Input, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {Callout, Code, CommandPopover, Input} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -38,8 +38,9 @@ import {
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
 interface Editing {
@@ -67,7 +68,7 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
       {() => (
         <PageColumn>
           {!canWrite(session, repoId) ?
-            <EmptyState icon={PackageIcon} title="Writers only" description="Only people who may write this repository's releases make or edit them."/> :
+            <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Writers only</Blankslate.Heading><Blankslate.Description>Only people who may write this repository's releases make or edit them.</Blankslate.Description></Blankslate> :
             tag === undefined ? <ReleaseEditor {...props} editing={undefined}/> : <EditLoader {...props} tag={tag}/>}
         </PageColumn>
       )}
@@ -102,20 +103,20 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   if (now && !opened) setOpened(now);
   const editing = opened ?? now;
   if (editing) return <ReleaseEditor {...props} key={editing.id} editing={editing}/>;
-  if (full.state === 'error' || full.state === 'offline') return <EmptyState icon={PackageIcon} title="Not loaded" description="The release's notes could not be loaded. Try again online."/>;
+  if (full.state === 'error' || full.state === 'offline') return <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not loaded</Blankslate.Heading><Blankslate.Description>The release's notes could not be loaded. Try again online.</Blankslate.Description></Blankslate>;
   if (slot.state === 'loading' || (slot.state === 'ready' && slot.stale) || full.state === 'loading') return <FormSkeleton/>;
   return (
-    <EmptyState icon={TagIcon} title="No release for this tag" description={slot.state === 'offline' ?
+    <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No release for this tag</Blankslate.Heading><Blankslate.Description>{slot.state === 'offline' ?
       'Drafts are loaded from Forgejo: this one is not on this device.' :
-      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}/>
+      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}</Blankslate.Description></Blankslate>
   );
 });
 
 function FormSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy>
-      <Skeleton className="h-8 w-64"/>
-      <Skeleton className="h-8 w-full"/>
+      <SkeletonBox className="h-8 w-64"/>
+      <SkeletonBox className="h-8 w-full"/>
       <SkeletonText lines={6}/>
     </div>
   );
@@ -281,9 +282,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
           <Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" onClick={() => picker.current?.click()}>Attach files</Button>
         </div>
       </section>
-      <Checkbox label="This is a pre-release (not ready for production)" checked={fields.prerelease} onChange={(prerelease) => {
-        set({prerelease});
-      }}/>
+      <FormControl><Checkbox checked={fields.prerelease} onChange={(event) => { const prerelease = event.target.checked; set({prerelease}); }}/><FormControl.Label>This is a pre-release (not ready for production)</FormControl.Label></FormControl>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {block && <span className="mr-auto text-sm text-fg-subtle">{block}</span>}
         <Button variant="invisible" type="button" onClick={back}>Cancel</Button>

@@ -14,7 +14,7 @@ import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
-import {Avatar, Callout, EmptyState, Entry, EntryList, Panel} from '../../ui/index.ts';
+import {Avatar, Callout, Entry, EntryList, Panel} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ListSkeleton} from '../settings/bits.tsx';
@@ -24,6 +24,7 @@ import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
 
@@ -113,7 +114,7 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   const v = res.value;
   if (v === undefined) {
     if (res.state === 'loading') return <div className="px-3"><ListSkeleton/></div>;
-    if (res.state === 'offline') return <EmptyState icon={EyeIcon} title="Not on this device yet" description="The watchers load when you are online."/>;
+    if (res.state === 'offline') return <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device yet</Blankslate.Heading><Blankslate.Description>The watchers load when you are online.</Blankslate.Description></Blankslate>;
     return (
       <Callout tone="danger" title="The watchers could not be loaded" actions={<Button size="small" type="button" onClick={res.reload}>Try again</Button>}>
         {res.error}
@@ -122,8 +123,8 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   }
   if (!v.users.length) {
     return page > 1 ?
-      <EmptyState icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}/> :
-      <EmptyState icon={EyeIcon} title="No watchers" description="Nobody is watching this repository."/>;
+      <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`No watchers on page ${String(page)}`}</Blankslate.Heading>{<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}</Blankslate> :
+      <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No watchers</Blankslate.Heading><Blankslate.Description>Nobody is watching this repository.</Blankslate.Description></Blankslate>;
   }
   return <div className="px-3"><EntryList>{v.users.map((u) => <WatcherCard key={u.id} u={u}/>)}</EntryList></div>;
 }

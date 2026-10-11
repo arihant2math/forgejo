@@ -4,20 +4,19 @@
 // A directory's listing, one look on the repository's Overview and in the
 // Code tab: a panel headed by the ref's latest commit, its entries in git's
 // order (directories first), each with its icon and size.
-
-import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
 import {useLoad, useSource} from './hooks.ts';
 import type {RefKind} from '../../code/refs.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
-import {Icon, Panel, TextLink} from '../../ui/index.ts';
+import {Icon, Panel} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {Ago, Sha, summary} from './bits.tsx';
 import {codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 const ENTRY_ICON = {tree: FileDirectoryFillIcon, blob: FileIcon, symlink: FileSymlinkFileIcon, commit: FileSubmoduleIcon} as const;
 
@@ -64,9 +63,9 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
       </>}
       {message !== undefined ? <>
-        <span className="min-w-0 truncate"><TextLink><Link {...codeTo(owner, repo, `commit/${commit}`)}>{summary(message)}</Link></TextLink></span>
+        <span className="min-w-0 truncate"><RouterLink {...codeTo(owner, repo, `commit/${commit}`)} muted className="min-w-0 truncate">{summary(message)}</RouterLink></span>
         {date !== undefined && <span className="shrink-0 tabular-nums"><Ago at={date}/></span>}
-      </> : kind !== 'commit' && <TextLink><Link {...codeTo(owner, repo, `commit/${commit}`)}><Sha sha={commit}/></Link></TextLink>}
+      </> : kind !== 'commit' && <RouterLink {...codeTo(owner, repo, `commit/${commit}`)} muted className="min-w-0 truncate"><Sha sha={commit}/></RouterLink>}
     </>
   );
 });

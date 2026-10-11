@@ -28,7 +28,7 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
+import {TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
@@ -41,6 +41,7 @@ import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
 import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 // A pull request's code views (Files, Commits, Checks) and its merge box: their own chunk (code surfaces, F7).
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
@@ -287,7 +288,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={IssueOpenedIcon} title={indexLabel(index)} detail="issues"/>
       <PageBody>
         {searching ?
-          <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
+          <div className="flex flex-col gap-3 px-8 py-6" aria-busy><SkeletonBox className="h-5 w-96"/><SkeletonText lines={2}/></div> :
           // Every page of the repository's issues has been asked: Forgejo has no such issue the viewer can see, and
           // its classic page would say the same (no classic link to a 404).
           // A temporary address (an issue created offline) on a device that did not create it: its number is not

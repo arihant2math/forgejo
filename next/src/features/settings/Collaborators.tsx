@@ -13,7 +13,7 @@ import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Avatar, Badge, CommandPick, Entry, FormSection, Popover, PopoverContent, PopoverTrigger, type PickOption, Select, SegmentedControl,
+  Avatar, CommandPick, Entry, FormSection, Popover, PopoverContent, PopoverTrigger, type PickOption, Select, SegmentedControl,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ResourceList, useOffline} from './bits.tsx';
@@ -22,7 +22,7 @@ import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator,
 import {settingsKey, useResource} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
 import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, Label} from '@primer/react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -147,7 +147,7 @@ export function PeopleSearch({members, onPick, onClose, label = 'Add a collabora
   const q = query.trim();
   const options: PickOption[] = q && found.q === q ? found.users.filter((u) => !excludeSelf || u.id !== userId).map((u) => ({
     value: String(u.id), label: u.name, words: u.login, leading: <Avatar size="sm" name={u.login} src={u.avatar || undefined}/>,
-    meta: members.has(u.id) ? <Badge>Already added</Badge> : u.name !== u.login ? u.login : undefined,
+    meta: members.has(u.id) ? <Label>Already added</Label> : u.name !== u.login ? u.login : undefined,
     onSelect: () => {
       if (!members.has(u.id)) onPick(u);
     },

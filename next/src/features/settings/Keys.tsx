@@ -9,7 +9,7 @@ import {useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {Badge, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Input, TextArea} from '../../ui/index.ts';
+import {Badge, Callout, Code, ConfirmDialog, Entry, Field, FormSection, hintId, Input, TextArea} from '../../ui/index.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -18,7 +18,7 @@ import {fetchKeys, repoApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
 import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, Checkbox, FormControl, Dialog} from '@primer/react';
 
 export const KeySettings = observer(function KeySettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -106,12 +106,10 @@ function KeyDialog({owner, repo, onClose, onSaved}: {owner: string; repo: string
     }
   };
   return (
-    <Dialog open title="Add a deploy key" onOpenChange={(o) => {
-      if (!o && !busy) onClose();
-    }} footer={<>
+    <Dialog title="Add a deploy key" width="large" onClose={() => { const o = false; if (!o && !busy) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
       <Button variant="primary" type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Adding…' : 'Add key'}</Button>
-    </>}>
+    </>}</Dialog.Footer>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -127,9 +125,7 @@ function KeyDialog({owner, repo, onClose, onSaved}: {owner: string; repo: string
             set('key', e.target.value);
           }}/>
         </Field>
-        <Checkbox label="Allow write access (pushing)" checked={form.write} onChange={(v) => {
-          set('write', v);
-        }}/>
+        <FormControl><Checkbox checked={form.write} onChange={(event) => { const v = event.target.checked; set('write', v); }}/><FormControl.Label>Allow write access (pushing)</FormControl.Label></FormControl>
         {failure && <Callout tone="danger" title="Not added">{failure}</Callout>}
       </form>
     </Dialog>

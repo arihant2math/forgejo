@@ -23,7 +23,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
-import {Avatar, Card, Checkbox, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
+import {Avatar, Card, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
@@ -31,7 +31,7 @@ import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
 import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Checkbox, FormControl} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
@@ -205,8 +205,8 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           onChange={(b) => {
             form.setBody(b);
           }} onSubmit={create}/>
-        {head.includes(':') && <Checkbox label="Allow edits by maintainers" checked={allowEdits} onChange={setAllowEdits}/>}
-        {!!wipPrefixes(app.config)[0] && <Checkbox label="Create draft pull request" checked={draft} onChange={setDraft}/>}
+        {head.includes(':') && <FormControl><Checkbox checked={allowEdits} onChange={(event) => { setAllowEdits(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>}
+        {!!wipPrefixes(app.config)[0] && <FormControl><Checkbox checked={draft} onChange={(event) => { setDraft(event.target.checked); }}/><FormControl.Label>Create draft pull request</FormControl.Label></FormControl>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="mr-auto flex items-center gap-1 text-sm text-fg-subtle">
             {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {

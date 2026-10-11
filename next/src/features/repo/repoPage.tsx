@@ -21,13 +21,14 @@ import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Badge, TabLink, TabNav, TextLink,
+  TabLink, TabNav
 } from '../../ui/index.ts';
 
 import {ForkButton} from './ForkButton.tsx';
 import {BrowserIcon, BookIcon, GraphIcon, ChevronRightIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {ActionMenu, ActionList} from '@primer/react';
+import {ActionMenu, ActionList, CounterLabel} from '@primer/react';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
@@ -83,20 +84,16 @@ export function useCanWrite(repoId: number): boolean {
  * `heading`: the repository's name is the page's heading (its home, which has no title row).
  */
 export function RepoContext({owner, repo, section, heading = false}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined; heading?: boolean}) {
-  const repoCrumb = <TextLink><Link to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>{repo}</Link></TextLink>;
+  const repoCrumb = <RouterLink to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo}</RouterLink>;
   return (
     <>
       {/* Exact: an ancestor's crumb is no "current page" (TanStack's fuzzy match marked the owner on every page). */}
-      <TextLink><Link to="/$owner" params={{owner}} activeOptions={{exact: true}}>{owner}</Link></TextLink>
+      <RouterLink to="/$owner" params={{owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{owner}</RouterLink>
       <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
       {heading ? <h1 className="flex min-w-0 font-medium">{repoCrumb}</h1> : repoCrumb}
       {section && <>
         <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
-        <TextLink>
-          <Link to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}}>
-            {section === 'pulls' ? 'Pull requests' : 'Issues'}
-          </Link>
-        </TextLink>
+        <RouterLink to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{section === 'pulls' ? 'Pull requests' : 'Issues'}</RouterLink>
       </>}
     </>
   );
@@ -261,7 +258,7 @@ const OpenCount = observer(function OpenCount({repoId, pulls}: {repoId: number |
   const {data} = useSession();
   if (repoId === undefined) return null;
   const n = openCount(data.pool, repoId, pulls);
-  return n > 0 ? <Badge round>{n.toLocaleString()}</Badge> : null;
+  return n > 0 ? <CounterLabel>{n.toLocaleString()}</CounterLabel> : null;
 });
 
 /** The open issues (or pull requests) of a repository in the pool. */

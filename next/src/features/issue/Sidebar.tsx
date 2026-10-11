@@ -10,7 +10,7 @@
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reviewVerdicts} from '../../code/review.ts';
-import {Link, useParams} from '@tanstack/react-router';
+import {useParams} from '@tanstack/react-router';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
@@ -23,8 +23,8 @@ import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
-  Badge, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
-  PropertyValue, TextLink,
+  Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
+  PropertyValue
 } from '../../ui/index.ts';
 import {PickerPopover} from '../issues/Picker.tsx';
 import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
@@ -33,8 +33,9 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
 import {ArrowRightIcon, BellIcon, BellSlashIcon, CalendarIcon, CheckCircleIcon, ClockIcon, FileDiffIcon, GitBranchIcon, GitPullRequestDraftIcon, LockIcon, UnlockIcon, CommentIcon, PinIcon, PinSlashIcon, UndoIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, Label} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
@@ -104,7 +105,7 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
       <>
         <LabelIcon icon={statusIcon(status.name)} color={status.color}/>
         <span>{scopedValue(status.name)}</span>
-        {draft && <Badge>Draft</Badge>}
+        {draft && <Label>Draft</Label>}
       </>
     );
   }
@@ -134,7 +135,7 @@ const LabelsValue = observer(function LabelsValue({issue, link}: {issue: Entity<
   if (!labels.length) return <PropertyEmpty>No labels</PropertyEmpty>;
   if (!link || !owner || !repo) return <>{labels.map((l) => <LabelChip key={l.id} name={l.name} color={l.color}/>)}</>;
   return <>{labels.map((l) => (
-    <TextLink key={l.id} wrap><Link to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}}><LabelChip name={l.name} color={l.color}/></Link></TextLink>
+    <RouterLink key={l.id} to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}} muted><LabelChip name={l.name} color={l.color}/></RouterLink>
   ))}</>;
 });
 
@@ -227,7 +228,7 @@ const MilestoneValue = observer(function MilestoneValue({issue, link}: {issue: E
   const title = m?.get('title') ?? `Milestone ${String(id)}`;
   return (
     <span className="truncate">
-      {link && m && owner && repo ? <TextLink wrap><Link to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}}>{title}</Link></TextLink> : title}
+      {link && m && owner && repo ? <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink> : title}
       {due && <span className="text-fg-subtle"> · due {shortDate(due)}</span>}
     </span>
   );
@@ -251,7 +252,7 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
       {/* Also a board known by its reference only (a user's or an organization's): the board page loads it. The
           card of this issue gets the cursor there. */}
       {project ?? pool.model('ProjectRef').get(pid) ?
-        <TextLink><Link to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}}>{title}</Link></TextLink> :
+        <RouterLink to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}} muted className="min-w-0 truncate">{title}</RouterLink> :
         <span className="truncate">{title}</span>}
       {column && <span className="shrink-0 text-fg-subtle">· {column}</span>}
     </span>
@@ -336,7 +337,7 @@ export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An 
   const path = issuePath(app, i);
   const text = <><span className="text-fg-subtle tabular-nums">{ref}</span> {i.get('title')}</>;
   if (!path) return <span className={inline ? undefined : 'truncate'}>{text}</span>;
-  return <TextLink wrap={inline}><Link to={path}>{text}</Link></TextLink>;
+  return <RouterLink to={path} muted className={inline ? undefined : 'min-w-0 truncate'}>{text}</RouterLink>;
 });
 
 const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
@@ -376,8 +377,8 @@ const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'I
           <span className="flex min-w-0 items-center gap-1" title={deleted ? `${headName} (deleted)` : headName}>
             <GitBranchIcon size={12} className="shrink-0"/>
             <span className={deleted ? 'min-w-0 truncate line-through' : 'min-w-0 truncate'}><Code>{headName}</Code></span>
-            {fork && <Badge>Fork</Badge>}
-            {deleted && <Badge>Deleted</Badge>}
+            {fork && <Label>Fork</Label>}
+            {deleted && <Label>Deleted</Label>}
           </span>
           <span className="flex min-w-0 items-center gap-1" title={pr.get('base_branch')}><ArrowRightIcon size={12} className="shrink-0"/><span className="min-w-0 truncate"><Code>{pr.get('base_branch')}</Code></span></span>
         </span>

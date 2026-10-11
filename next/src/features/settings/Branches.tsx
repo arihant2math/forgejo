@@ -12,7 +12,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Badge, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, TextArea,
+  Callout, Code, ConfirmDialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, TextArea,
 } from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -23,7 +23,7 @@ import {fetchRules, repoApi, ruleApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
 import {PencilIcon, ShieldCheckIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, Label, Checkbox, FormControl, Dialog} from '@primer/react';
 
 export const BranchSettings = observer(function BranchSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -56,7 +56,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
       <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
         {(rules) => rules.map((r) => (
           <Entry key={r.rule_name} leading={<ShieldCheckIcon size={12} className="shrink-0"/>} title={<Code>{r.rule_name}</Code>}
-            description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Badge key={s}>{s}</Badge>)}</span>}
+            description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Label key={s}>{s}</Label>)}</span>}
             actions={<>
               <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={`Edit the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
                 setEditing(r);
@@ -140,17 +140,13 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
     }
   };
   const check = (k: 'dismissStale' | 'blockRejected' | 'blockOfficial' | 'blockOutdated' | 'signed' | 'applyToAdmins' | 'pushDeployKeys' | 'statusCheck' | 'mergeList', label: string) => (
-    <Checkbox label={label} checked={form[k]} onChange={(v) => {
-      set(k, v);
-    }}/>
+    <FormControl><Checkbox checked={form[k]} onChange={(event) => { const v = event.target.checked; set(k, v); }}/><FormControl.Label>{label}</FormControl.Label></FormControl>
   );
   return (
-    <Dialog open size="lg" scroll title={creating ? 'Protect a branch' : `Rule for ${rule.rule_name}`} onOpenChange={(o) => {
-      if (!o && !busy) onClose();
-    }} footer={<>
+    <Dialog title={creating ? 'Protect a branch' : `Rule for ${rule.rule_name}`} width="xlarge" onClose={() => { const o = false; if (!o && !busy) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
       <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
       <Button variant="primary" type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Create rule' : 'Save rule'}</Button>
-    </>}>
+    </>}</Dialog.Footer>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();
         void save();

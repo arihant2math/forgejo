@@ -8,7 +8,7 @@
 // once, offline too. Writers create, edit and delete them (online: writes.ts);
 // organization labels use the same form, with organization permissions.
 
-import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {OrganizationLabels} from './OrganizationLabels.tsx';
@@ -17,7 +17,7 @@ import type {LabelSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {EmptyState, LabelPill, ListRow, Panel, PendingIcon, Skeleton, TextLink} from '../../ui/index.ts';
+import {LabelPill, ListRow, Panel, PendingIcon, Skeleton} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import type {LabelCount} from './counts.ts';
@@ -30,6 +30,8 @@ import {isPending, type RepoRef, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, IconButton} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {RouterLink} from '../../app/RouterLinkButton.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -107,8 +109,8 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
           <Panel label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
-              <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
-              <EmptyState icon={TagIcon} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
+              <Blankslate><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
+              <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
           </Panel>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
@@ -164,8 +166,8 @@ function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; co
   const ids = {labels: String(label.id)};
   return (
     <span className="flex w-40 justify-end gap-3 tabular-nums max-md:hidden">
-      {pulls > 0 && <TextLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids}>{plural(pulls, 'pull request', 'pull requests')}</Link></TextLink>}
-      <TextLink><Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids}>{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link></TextLink>
+      {pulls > 0 && <RouterLink to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} muted className="min-w-0 truncate">{plural(pulls, 'pull request', 'pull requests')}</RouterLink>}
+      <RouterLink to="/$owner/$repo/issues" params={{owner, repo}} search={ids} muted className="min-w-0 truncate">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</RouterLink>
     </span>
   );
 }
@@ -174,5 +176,5 @@ const widths = ['w-16', 'w-24', 'w-20', 'w-28', 'w-12'];
 
 /** The rows' shape while the repository's labels load for the first time. */
 function LabelsSkeleton() {
-  return <>{widths.map((w) => <ListRow key={w} role="presentation" trailing={<Skeleton className="h-3 w-20"/>}><Skeleton round="full" className={`h-5 ${w}`}/></ListRow>)}</>;
+  return <>{widths.map((w) => <ListRow key={w} role="presentation" trailing={<SkeletonBox className="h-3 w-20"/>}><Skeleton round="full" className={`h-5 ${w}`}/></ListRow>)}</>;
 }

@@ -12,10 +12,11 @@ import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {Input, ListRow, EmptyState, CodeLine, SegmentedControl} from '../../ui/index.ts';
+import {Input, ListRow, CodeLine, SegmentedControl} from '../../ui/index.ts';
 import {discoverySearch, kinds} from './params.ts';
 import {type Hit, matchRows, type ShownLine} from './codeHits.ts';
 import {Button} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 interface Answer {enabled: boolean; total: number; results: Hit[]; repositories: Record<string, string>}
 
@@ -76,8 +77,8 @@ export default observer(function CodeSearch() {
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2"><SegmentedControl label="Search type" value="code" onChange={(type) => { void navigate({to: '/search', search: discoverySearch({q, type})}); }} options={kinds.map((kind) => ({value: kind, label: kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}))}/>{repoId && <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}
-      {answer && !answer.enabled && !repoId && <EmptyState title="Global code search is unavailable" description="The repository code indexer is disabled on this instance."/>}
-      {answer && (answer.enabled || repoId) && !rows.length && <EmptyState title={q ? 'No matching code' : 'Search file contents'} description="Enter a word or symbol to find matching files and lines."/>}
+      {answer && !answer.enabled && !repoId && <Blankslate><Blankslate.Heading>Global code search is unavailable</Blankslate.Heading><Blankslate.Description>The repository code indexer is disabled on this instance.</Blankslate.Description></Blankslate>}
+      {answer && (answer.enabled || repoId) && !rows.length && <Blankslate><Blankslate.Heading>{q ? 'No matching code' : 'Search file contents'}</Blankslate.Heading><Blankslate.Description>Enter a word or symbol to find matching files and lines.</Blankslate.Description></Blankslate>}
       {!answer && !error && <p role="status" className="p-4">Searching code…</p>}
       <div role="listbox" aria-label="Code search results" tabIndex={0} onKeyDown={(e) => {
         if (e.key === 'Enter') { e.preventDefault(); open(); }

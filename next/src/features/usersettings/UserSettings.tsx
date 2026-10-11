@@ -23,7 +23,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, Input, ListRow, NavHeading, NavItem, Panel, SegmentedControl, Skeleton, TextArea,
+  Avatar, Button, Callout, Input, ListRow, NavHeading, NavItem, Panel, SegmentedControl, TextArea,
 } from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
@@ -35,8 +35,9 @@ import {
 } from './payload.ts';
 import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Checkbox, FormControl, Label, Dialog} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
@@ -142,7 +143,7 @@ function SideNav({section}: {section: Section}) {
 /** What a page shows while a slot has nothing yet, or why it has nothing. */
 function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; skeleton: ReactNode}) {
   if (slot.state === 'loading') return <>{skeleton}</>;
-  if (slot.state === 'offline') return <EmptyState icon={CloudOfflineIcon} title={`${what} are not on this device`} description="Connect to load them."/>;
+  if (slot.state === 'offline') return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`${what} are not on this device`}</Blankslate.Heading><Blankslate.Description>Connect to load them.</Blankslate.Description></Blankslate>;
   if (slot.state === 'error') return <Callout tone="danger" title={`${what} could not be loaded`}>{slot.message}</Callout>;
   return null;
 }
@@ -150,7 +151,7 @@ function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; s
 function RowsSkeleton({rows = 2}: {rows?: number}) {
   return (
     <div aria-busy className="flex flex-col gap-3 py-1">
-      {Array.from({length: rows}, (_, i) => <Skeleton key={i} className="h-3 w-2/3"/>)}
+      {Array.from({length: rows}, (_, i) => <SkeletonBox className="h-3 w-2/3" key={i}/>)}
     </div>
   );
 }
@@ -380,9 +381,7 @@ const Toggle = observer(function Toggle({src, settings, field, label, hint, offl
   const change = useChange(src);
   return (
     <div className="flex flex-col gap-0.5">
-      <Checkbox label={label} checked={settings[field]} disabled={Boolean(offline)} onChange={(v) => {
-        change({[field]: v}, label);
-      }}/>
+      <FormControl disabled={Boolean(offline)}><Checkbox checked={settings[field]} onChange={(event) => { const v = event.target.checked; change({[field]: v}, label); }}/><FormControl.Label>{label}</FormControl.Label></FormControl>
       <span className="pl-6 text-sm text-fg-subtle">{hint}</span>
     </div>
   );
@@ -511,8 +510,8 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
         <Panel title={`${String(list.length)} ${list.length === 1 ? 'address' : 'addresses'}`}>
           {list.map((e) => (
             <ListRow key={e.email} role={undefined} leading={<MailIcon size={12} className="shrink-0"/>} trailing={<>
-              {e.primary && <Badge tone="accent">Primary</Badge>}
-              {e.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Unverified</Badge>}
+              {e.primary && <Label variant="accent">Primary</Label>}
+              {e.verified ? <Label variant="success">Verified</Label> : <Label variant="attention">Unverified</Label>}
               {!e.primary && e.verified && <OptionalTooltip text={offline}><PrimerButton variant="invisible" size="small" type="button" disabled={Boolean(offline)} onClick={() => {
                 primary(e.email);
               }}>Make primary</PrimerButton></OptionalTooltip>}
@@ -592,15 +591,13 @@ function TextClassic({to, children}: {to: string; children: ReactNode}) {
 /** Asks before a delete. */
 function Confirm({title, description, action, onConfirm, onClose}: {title: string; description: ReactNode; action: string; onConfirm: () => void; onClose: () => void}) {
   return (
-    <Dialog open size="sm" title={title} description={description} initialFocus="dialog" onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
+    <Dialog title={title} subtitle={description} width="medium" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
       <PrimerButton variant="invisible" type="button" onClick={onClose}>Cancel</PrimerButton>
       <PrimerButton variant="danger" type="button" onClick={() => {
         onClose();
         onConfirm();
       }}>{action}</PrimerButton>
-    </>}/>
+    </>}</Dialog.Footer>}></Dialog>
   );
 }
 
@@ -639,7 +636,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
         <Panel title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
           {list.map((k) => (
             <ListRow key={k.id} role={undefined} leading={<KeyIcon size={12} className="shrink-0"/>} trailing={<>
-              {k.verified && <Badge tone="success">Verified</Badge>}
+              {k.verified && <Label variant="success">Verified</Label>}
               <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
@@ -650,7 +647,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
             </ListRow>
           ))}
         </Panel>
-      ) : !adding && <EmptyState icon={KeyIcon} title="No SSH keys" description="Add one to push and pull over SSH."/>) :
+      ) : !adding && <Blankslate><Blankslate.Visual><KeyIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No SSH keys</Blankslate.Heading><Blankslate.Description>Add one to push and pull over SSH.</Blankslate.Description></Blankslate>) :
         <SlotState slot={slot} what="Your SSH keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
         <Confirm title={`Delete “${removing.title ?? 'SSH key'}”?`} description="It can no longer push or pull as you." action="Delete key" onConfirm={() => {
@@ -736,8 +733,8 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (
               <ListRow key={k.id} role={undefined} leading={<LockIcon size={12} className="shrink-0"/>} trailing={<>
-                {k.verified ? <Badge tone="success">Verified</Badge> : <Badge>Unverified</Badge>}
-                {expired(k.expires_at) && <Badge tone="warning">Expired</Badge>}
+                {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
+                {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
                 <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
                 <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key ${k.key_id}`} type="button" disabled={Boolean(offline)} onClick={() => {
                   setRemoving(k);
@@ -749,7 +746,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
             );
           })}
         </Panel>
-      ) : !adding && <EmptyState icon={LockIcon} title="No GPG keys" description="Add one to have your signed commits verified."/>) :
+      ) : !adding && <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No GPG keys</Blankslate.Heading><Blankslate.Description>Add one to have your signed commits verified.</Blankslate.Description></Blankslate>) :
         <SlotState slot={slot} what="Your GPG keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
         <Confirm title={`Delete the key ${spacedKeyId(removing.key_id)}?`} description="Commits it signed no longer show as verified." action="Delete key" onConfirm={() => {

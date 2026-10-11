@@ -41,6 +41,11 @@ const maxAPIBody = 2 << 20
 // registerAPI adds the gap endpoints to livesync's router.
 func registerAPI(r *web.Route) {
 	p := protocol.APIPrefix
+	r.Get(p+"/discovery", apiDiscovery)
+	r.Post(p+"/projects", apiProjectCreate)
+	r.Patch(p+"/projects/{id}", apiProjectEdit)
+	r.Put(p+"/projects/{id}/state", apiProjectState)
+	r.Delete(p+"/projects/{id}", apiProjectDelete)
 	r.Post(p+"/projects/{id}/columns", apiColumnCreate)
 	r.Patch(p+"/projects/{id}/columns/{column}", apiColumnEdit)
 	r.Delete(p+"/projects/{id}/columns/{column}", apiColumnDelete)
@@ -57,15 +62,21 @@ func registerAPI(r *web.Route) {
 	r.Post(p+"/repos/{id}/attachments", apiAttachmentUpload)
 	r.Post(p+"/markdown", apiMarkdown)
 	r.Post(p+"/markup", apiMarkup)
+	r.Get(p+"/repos/{id}/workflows", apiWorkflows)
+	r.Get(p+"/repos/{id}/workflows/{file}/dispatch", apiWorkflows)
 	r.Get(p+"/repos/{id}/tree/{commit}", apiTree)
 	r.Get(p+"/repos/{id}/tree/{commit}/*", apiTree)
 	r.Get(p+"/repos/{id}/raw/{commit}/*", apiRaw)
 	r.Get(p+"/repos/{id}/blobs/{sha}", apiBlob)
 	r.Get(p+"/repos/{id}/blame/{commit}/*", apiBlame)
+	r.Get(p+"/repos/{id}/search", apiCodeSearch)
+	r.Get(p+"/search/code", apiCodeSearch)
 	r.Get(p+"/repos/{id}/diff/{commit}", apiDiff)
 	r.Get(p+"/repos/{id}/diff/{base}/{head}", apiDiff)
 	r.Get(p+"/repos/{id}/activity/{commit}", apiCommitActivity)
 	r.Get(p+"/repos/{id}/contributors/{commit}", apiContributors)
+	r.Get(p+"/repos/{id}/artifacts/{artifact}/ticket", apiArtifactTicket)
+	r.Get(p+"/artifact-download", apiArtifactDownload)
 	r.Get(p+"/user/options", apiUserOptions)
 	r.Put(p+"/user/emails/primary", apiPrimaryEmail)
 }

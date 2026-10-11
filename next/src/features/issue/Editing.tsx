@@ -10,7 +10,7 @@
 // so a reload or a crash never loses it. The field is the CodeMirror
 // composer with Forgejo's preview (editor/Composer.tsx).
 
-import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
+import {Link2, MoreHorizontal, Pencil, Quote, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useId, useRef, useState} from 'react';
@@ -21,7 +21,7 @@ import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
-import {commentBody, issueBody, issueTitle} from '../../intents/view.ts';
+import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
 import {
   Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
 } from '../../ui/index.ts';
@@ -81,13 +81,15 @@ interface TextEditorProps {
   /** A shortcut that focuses the editor (R: the comment box). */
   focusShortcut?: ShortcutId | undefined;
   onTextChange?: (text: string) => void;
+  stateAction?: {label: (hasText: boolean) => string; run: (text: string) => void} | undefined;
+  quote?: boolean;
 }
 
 /** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
 /** The draft keys of the editors open on this page. */
 const openEditors = new Set<string>();
 
-export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut, onTextChange}: TextEditorProps) {
+export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut, onTextChange, stateAction, quote}: TextEditorProps) {
   const app = useApp();
   const {intents} = editing(app);
   const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
@@ -100,6 +102,16 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   const pending = useRef<(() => void) | undefined>(undefined);
   /** Saved or cancelled: an autosave still in flight must not bring the draft back. */
   const done = useRef(false);
+  const [insertion, setInsertion] = useState<{text: string}>();
+  useEffect(() => {
+    if (!quote) return;
+    const insert = (event: Event) => {
+      const detail = (event as CustomEvent<{issueId: number; text: string}>).detail;
+      if (detail.issueId === issueId) setInsertion({text: `\n${detail.text.split('\n').map((line) => `> ${line}`).join('\n')}\n\n`});
+    };
+    window.addEventListener('forgejo:quote', insert);
+    return () => { window.removeEventListener('forgejo:quote', insert); };
+  }, [quote, issueId]);
   const dirty = text !== initial;
   const blocked = markers === true && hasConflictMarkers(text);
   useEffect(() => {
@@ -164,7 +176,15 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   // ⌘↵ saves the editor that has the focus (handled by the editor, not by the global shortcut table: several
   // editors can be open at once); Esc cancels.
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" onKeyDownCapture={(e) => {
+      if (stateAction && e.key === 'Enter' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        forget();
+        stateAction.run(text);
+        change('');
+      }
+    }}>
       {confirmCancel && <Dialog open size="sm" title="Discard this edit?" description="Your changes can be restored with Undo." onOpenChange={setConfirmCancel} footer={<>
         <Button variant="ghost" onClick={() => { setConfirmCancel(false); }}>Keep editing</Button>
         <Button variant="danger" onClick={() => {
@@ -172,7 +192,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
           cancel();
         }}>Discard</Button>
       </>}/>}
-      <MarkdownField repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
+      <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
         onChange={change} onSubmit={save} onCancel={onCancel ? () => {
           if (dirty) setConfirmCancel(true);
           else cancel();
@@ -180,6 +200,12 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
         {onCancel && <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>}
+        {stateAction && <Button size="sm" disabled={hasPendingUploads(text)} onClick={() => {
+          if (hasPendingUploads(text)) return;
+          forget();
+          stateAction.run(text);
+          change('');
+        }}>{stateAction.label(Boolean(text.trim()))}</Button>}
         <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} tooltip={`${saveLabel} (works offline)`} disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button>
       </div>
     </div>
@@ -279,16 +305,19 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   );
 });
 
-/** The viewer's own comment's actions (in its card's header): edit, delete. */
-export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
+/** Comment actions: anyone may quote; authors and repository writers may moderate. */
+export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
   const app = useApp();
-  const {userId} = useSession();
+  const session = useSession();
+  const {userId} = session;
   const {intents} = editing(app);
   /** Edit was chosen: the editor that opens keeps the focus. */
   const chose = useRef(false);
+  const quoted = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const fallback = useRef<HTMLElement | null>(null);
-  if (untracked(() => c.data.poster_id) !== userId) return null;
+  const mayEdit = c.get('poster_id') === userId || canWrite(session, repoOf(app, c.get('issue_id')));
+  const selection = useRef('');
   const remove = () => {
     setConfirming(false);
     const {issue_id: issueId} = untracked(() => c.data);
@@ -306,11 +335,18 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
         <Button variant="danger" onClick={remove}>Delete</Button>
       </>}/>
     )}
-    <Menu>
+    <Menu onOpenChange={(open) => {
+      if (!open) return;
+      const selected = window.getSelection();
+      const card = triggerRef.current?.closest('article');
+      selection.current = selected?.anchorNode && card?.contains(selected.anchorNode) ? selected.toString() : '';
+    }}>
       <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
       {/* After Edit the editor takes the focus once the menu is gone (while the menu is open its focus trap keeps the
           focus, and Radix would return it to the trigger); otherwise the trigger has it. */}
       <MenuContent align="end" onCloseAutoFocus={(e) => {
+        if (quoted.current) e.preventDefault();
+        quoted.current = false;
         if (chose.current) {
           e.preventDefault();
           const card = triggerRef.current?.closest('article');
@@ -320,19 +356,31 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
         }
         chose.current = false;
       }}>
-        <MenuItem icon={Pencil} onSelect={() => {
+        <MenuItem icon={Quote} onSelect={() => {
+          quoted.current = true;
+          window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
+        }}>Quote reply</MenuItem>
+        {mayEdit && <MenuItem icon={Pencil} onSelect={() => {
           chose.current = true;
           onEdit();
-        }}>Edit</MenuItem>
-        <MenuItem icon={Trash2} danger onSelect={() => {
+        }}>Edit</MenuItem>}
+        {mayEdit && c.get('type') !== 'review' && <MenuItem icon={Trash2} danger onSelect={() => {
           fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
           setConfirming(true);
-        }}>Delete…</MenuItem>
+        }}>Delete…</MenuItem>}
+        <MenuItem icon={Link2} onSelect={() => {
+          const url = new URL(window.location.href);
+          if (c.get('type') === 'code') {
+            url.searchParams.set('tab', 'files');
+            url.hash = `review-thread-${String(c.id)}`;
+          } else url.hash = `comment-${String(c.id)}`;
+          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
+        }}>Copy link</MenuItem>
       </MenuContent>
     </Menu>
     </>
   );
-}
+});
 
 /** The repository of an issue (one created offline included). */
 function repoOf(app: ReturnType<typeof useApp>, issueId: number): number {
@@ -345,6 +393,7 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone, o
   const app = useApp();
   const {overlay, intents} = editing(app);
   const b = commentBody(overlay, c);
+  const [selected, setSelected] = useState('');
   const conflict = intents.conflictOf('comment.edit', c.id);
   const issueId = c.get('issue_id');
   const repoId = repoOf(app, issueId);
@@ -365,8 +414,16 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone, o
   }
   if (edit) return <CommentEditor c={c} issueId={issueId} repoId={repoId} onDone={onEditDone} onReopen={onReopen}/>;
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" onMouseUp={(e) => {
+      if ((e.target as HTMLElement).closest('button')) return;
+      const selection = window.getSelection();
+      setSelected(selection?.anchorNode && e.currentTarget.contains(selection.anchorNode) ? selection.toString() : '');
+    }}>
       <Rendered {...b}/>
+      {selected && <Button size="sm" variant="ghost" onClick={() => {
+        window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId, text: selected}}));
+        setSelected('');
+      }}>Quote reply</Button>}
       {b.local && <NotSynced/>}
     </div>
   );
@@ -412,16 +469,29 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
 }
 
 /** The new-comment box at the end of the timeline. */
-export function CommentComposer({issueId, repoId}: {issueId: number; repoId: number}) {
+export const CommentComposer = observer(function CommentComposer({issueId, repoId}: {issueId: number; repoId: number}) {
   const app = useApp();
-  const me = useUser(useSession().userId);
+  const session = useSession();
+  const me = useUser(session.userId);
   const who = useId();
-  const {intents} = editing(app);
+  const {intents, overlay} = editing(app);
+  const issue = session.data.pool.model('Issue').get(issueId) ?? overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined;
+  const state = issue ? issueState(overlay, issue) : 'open';
+  const mayChangeState = issue && (issue.get('poster_id') === session.userId || canWrite(session, repoId));
   return (
     <div className="flex flex-col gap-2 pt-3">
       <span id={who} className="sr-only">Commenting as {me.login}</span>
       <TextEditor describedBy={who} draftKey={`text:new-comment:${String(issueId)}`} title="A new comment" issueId={issueId} repoId={repoId} initial=""
-        label="Leave a comment" saveLabel="Comment" rows={4} focusShortcut="issue.comment"
+        label="Leave a comment" saveLabel="Comment" rows={4} focusShortcut="issue.comment" quote
+        stateAction={mayChangeState ? {
+          label: (hasText) => `${state === 'closed' ? 'Reopen' : 'Close'} ${hasText ? 'with comment' : issue.get('is_pull') ? 'pull request' : 'issue'}`,
+          run: (body) => {
+            runInAction(() => {
+              if (body.trim()) intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
+              intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
+            });
+          },
+        } : undefined}
         onSave={(body) => {
           runInAction(() => {
             intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
@@ -429,7 +499,7 @@ export function CommentComposer({issueId, repoId}: {issueId: number; repoId: num
         }}/>
     </div>
   );
-}
+});
 
 /** Changes of yours that overrode someone's newer value (last writer wins), with one-click undo. */
 export const Overrides = observer(function Overrides({issueId}: {issueId: number}) {

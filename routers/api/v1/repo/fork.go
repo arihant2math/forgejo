@@ -145,10 +145,19 @@ func CreateFork(ctx *context.APIContext) {
 		name = *form.Name
 	}
 
+	description := repo.Description
+	if form.Description != nil {
+		description = *form.Description
+	}
+	var singleBranch string
+	if form.DefaultBranchOnly && !repo.IsEmpty {
+		singleBranch = repo.DefaultBranch
+	}
 	fork, err := repo_service.ForkRepositoryAndUpdates(ctx, ctx.Doer(), forker, repo_service.ForkRepoOptions{
-		BaseRepo:    repo,
-		Name:        name,
-		Description: repo.Description,
+		BaseRepo:     repo,
+		Name:         name,
+		Description:  description,
+		SingleBranch: singleBranch,
 	})
 	if err != nil {
 		if errors.Is(err, util.ErrAlreadyExist) || repo_model.IsErrReachLimitOfRepo(err) {

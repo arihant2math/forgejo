@@ -145,6 +145,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
       const {from, to} = v.state.selection.main;
       const at = position ?? from;
       v.dispatch({changes: {from: at, to: position === undefined ? to : at, insert: text}, selection: {anchor: at + text.length}});
+      v.focus();
     },
     replace: (placeholder, text) => {
       const v = view.current;

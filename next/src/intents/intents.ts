@@ -82,7 +82,7 @@ export type Intent = Base & (
   /** This issue depends on (is blocked by) `dependencyId`. */
   | {kind: 'issue.dependency'; dependencyId: number; add: boolean}
   /** Subscribe (watch) or unsubscribe the viewer `userId`. */
-  | {kind: 'issue.subscribe'; userId: number; add: boolean}
+  | {kind: 'issue.subscribe'; userId: number; add: boolean; target?: {owner: string; repo: string; number: number}}
   /** Request (or withdraw) a review from a user (pull requests). */
   | {kind: 'issue.reviewer'; userId: number; add: boolean}
   /** The viewer's reaction on the issue (commentId 0) or one of its comments. */

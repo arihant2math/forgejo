@@ -24,6 +24,7 @@ import {
 } from '@tanstack/react-router';
 import {isLocalPath, sitePath} from './config.ts';
 import {appPageOf, nextPathOf, wikiAddress} from './paths.ts';
+import {discoverySearch} from '../features/search/params.ts';
 import {lazyView, whenIdle} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
 import {loadRepo, repoFullName, type RepoMatch} from './repo.ts';
@@ -97,6 +98,12 @@ const homeRoute = createRoute({
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/home/Home.tsx')),
 });
+
+const discoveryRoute = createRoute({getParentRoute: () => shellRoute, path: '/search', validateSearch: discoverySearch, staticData: {skeleton: 'list'}, component: lazyView(() => import('../features/search/Discovery.tsx'))});
+const exploreRoute = createRoute({getParentRoute: () => shellRoute, path: '/explore', validateSearch: discoverySearch, staticData: {skeleton: 'list'}, component: lazyView(() => import('../features/search/Discovery.tsx'))});
+const exploreReposRoute = createRoute({getParentRoute: () => shellRoute, path: '/explore/repos', validateSearch: discoverySearch, staticData: {skeleton: 'list'}, component: lazyView(() => import('../features/search/Discovery.tsx'))});
+const exploreUsersRoute = createRoute({getParentRoute: () => shellRoute, path: '/explore/users', validateSearch: discoverySearch, staticData: {skeleton: 'list'}, component: lazyView(() => import('../features/search/Discovery.tsx'))});
+const exploreOrgsRoute = createRoute({getParentRoute: () => shellRoute, path: '/explore/organizations', validateSearch: discoverySearch, staticData: {skeleton: 'list'}, component: lazyView(() => import('../features/search/Discovery.tsx'))});
 
 const myIssuesRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -459,6 +466,10 @@ const repoMilestoneEditRoute = createRoute({
 const boardsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/boards',
+  validateSearch: (s): {repoId?: number; ownerId?: number} => ({
+    ...(Number.isSafeInteger(Number(s.repoId)) && Number(s.repoId) > 0 ? {repoId: Number(s.repoId)} : {}),
+    ...(Number.isSafeInteger(Number(s.ownerId)) && Number(s.ownerId) > 0 ? {ownerId: Number(s.ownerId)} : {}),
+  }),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/board/BoardsList.tsx'), 'BoardsList'),
 });
@@ -539,7 +550,8 @@ const notFoundRoute = createRoute({
     const to = segs.length > 2 ? nextPathOf(path) : undefined;
     // The query goes along (a comparison's `?expand=1` opens its pull request form), unless the page's address has
     // its own (a pull request's tab).
-    const query = to?.includes('?') ? '' : location.searchStr;
+    const w = new URLSearchParams(location.searchStr).get('w');
+    const query = to?.includes('?') ? (w === '1' || w === '0' ? `&w=${w}` : '') : location.searchStr;
     if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}`), replace: true});
   },
   component: ShellNotFound,
@@ -563,6 +575,7 @@ const routeTree = rootRoute.addChildren([
     wikiHomeRoute, wikiPageRoute, wikiPagesRoute, wikiNewRoute, wikiEditRoute,
     settingsProfileRoute, settingsAccountRoute, settingsAppearanceRoute, settingsKeysRoute,
     repoLabelsRoute, repoMilestonesRoute, repoMilestoneNewRoute, repoMilestoneRoute, repoMilestoneEditRoute,
+    discoveryRoute, exploreRoute, exploreReposRoute, exploreUsersRoute, exploreOrgsRoute,
     ownerRoute, nextOwnerRoute, nextRepoRoute, notFoundRoute,
   ]),
   ...devRoutes,

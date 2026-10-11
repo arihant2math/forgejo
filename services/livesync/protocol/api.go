@@ -48,6 +48,10 @@ type APIAttachmentPermission struct {
 // Routes ({id}s are database ids, not issue numbers; {commit}, {base},
 // {head} and {sha} are full hexadecimal object ids):
 //
+//	POST   /-/sync/api/projects                            {repo_id OR owner_id, title, description, template_type, card_type} → 201 APICreated (write:issue)
+//	PATCH  /-/sync/api/projects/{id}                       {title?, description?, card_type?} → 204 (write:issue)
+//	PUT    /-/sync/api/projects/{id}/state                 {closed: boolean} → 204 (write:issue)
+//	DELETE /-/sync/api/projects/{id}                       → 204 (write:issue)
 //	POST   /-/sync/api/projects/{id}/columns                APIColumnCreate → 201 APICreated; 422 at 20 columns (write:issue)
 //	PATCH  /-/sync/api/projects/{id}/columns/{column}       APIColumnEdit   → 200 APICreated   (write:issue)
 //	DELETE /-/sync/api/projects/{id}/columns/{column}       → 204; 422 for the default column   (write:issue)

@@ -23,7 +23,8 @@ import {onlineOnly, reach} from '../../app/online.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
-import {Avatar, Button, Card, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
+import {draftTitle, wipPrefixes} from '../pull/draft.ts';
+import {Avatar, Button, Card, Checkbox, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
@@ -150,6 +151,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   const session = useSession();
   const pool = usePool();
   const navigate = useNavigate();
+  const [draft, setDraft] = useState(false);
   const [form] = useState(() => new PullDraft(app, repoId, base, head));
   useEffect(() => () => {
     form.flush();
@@ -168,7 +170,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
     }
     if (why || !repoData) return;
     form.setBusy(true);
-    void openPull(app, {owner: repoData.owner_name, repo: repoData.name, repoId, form, base, head, title, body}).then((number) => {
+    void openPull(app, {owner: repoData.owner_name, repo: repoData.name, repoId, form, base, head, title: draftTitle(title, draft, wipPrefixes(app.config)), body}).then((number) => {
       form.done();
       void navigate({to: '/$owner/$repo/pulls/$index', params: {owner, repo, index: String(number)}});
     }, (err: unknown) => {
@@ -198,6 +200,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           onChange={(b) => {
             form.setBody(b);
           }} onSubmit={create}/>
+        {!!wipPrefixes(app.config)[0] && <Checkbox label="Create draft pull request" checked={draft} onChange={setDraft}/>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="mr-auto flex items-center gap-1 text-sm text-fg-subtle">
             {form.restored && <>Draft restored<Button size="sm" variant="ghost" onClick={() => {
@@ -211,7 +214,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           }}>Cancel</Button>
           {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a title). */}
           <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? `Merge ${head} into ${base}`} aria-disabled={Boolean(why) || form.busy} onClick={create}>
-            {form.busy ? 'Opening…' : 'Create pull request'}
+            {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
           </Button>
         </div>
       </div>

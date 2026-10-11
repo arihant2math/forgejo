@@ -43,6 +43,7 @@ const (
 
 // NextConfig is the server configuration of the Next UI.
 type NextConfig struct {
+	WIPPrefixes *[]string `json:"wip_prefixes,omitempty"`
 	// AppURL is Forgejo's public URL (ends with "/"), AppSubURL its path
 	// ("" or "/sub", no trailing slash), Base the UI's base path
 	// (AppSubURL + "/-/next/").
@@ -65,8 +66,10 @@ type NextConfig struct {
 	OAuth *NextOAuth `json:"oauth" tstype:"NextOAuth | null,required"`
 	// Repository is what a new repository starts from ([repository]
 	// settings and the Git in use); absent from older servers.
-	Repository  *NextRepository  `json:"repository,omitempty"`
-	Attachments *NextAttachments `json:"attachments,omitempty"`
+	Repository         *NextRepository  `json:"repository,omitempty"`
+	Attachments        *NextAttachments `json:"attachments,omitempty"`
+	CodeIndexerEnabled bool             `json:"code_indexer_enabled,omitempty"`
+	Explore            *NextExplore     `json:"explore,omitempty"`
 }
 
 // NextAttachments describes the online-only composer upload limits.
@@ -75,6 +78,13 @@ type NextAttachments struct {
 	AllowedTypes string `json:"allowed_types"`
 	MaxSize      int64  `json:"max_size"` // bytes
 	MaxFiles     int    `json:"max_files"`
+}
+
+// NextExplore describes the instance's discovery restrictions.
+type NextExplore struct {
+	RequireSignin        bool `json:"require_signin"`
+	DisableUsers         bool `json:"disable_users"`
+	DisableOrganizations bool `json:"disable_organizations"`
 }
 
 // NextRepository is the instance's defaults for a new repository (the

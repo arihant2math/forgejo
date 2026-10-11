@@ -17,7 +17,7 @@ export function fallbackConfig(): NextConfig {
   const appSubUrl = base.replace(/\/-\/next\/$/, '');
   return {
     app_url: `${location.origin}${appSubUrl}/`, app_sub_url: appSubUrl, base, app_name: 'Forgejo', version: '',
-    protocol: ProtocolVersion, oauth: null,
+    protocol: ProtocolVersion, oauth: null, wip_prefixes: ['WIP:', '[WIP]'],
   };
 }
 

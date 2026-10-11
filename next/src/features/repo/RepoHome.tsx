@@ -10,6 +10,8 @@
 // the side pane (AboutSidebar.tsx: what it is, its releases and languages).
 // The tabs lead to everything else. Its own chunk.
 
+import {useNavigate} from '@tanstack/react-router';
+import {discoverySearch} from '../search/params.ts';
 import {LinkRows} from '../../ui/LinkRows.tsx';
 import {Code2, Folder, FolderGit2, GitBranch, History, SquarePen, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
@@ -38,6 +40,7 @@ import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {EmptyRepo} from '../code/states.tsx';
+import {FileOperations} from '../code/FileOperations.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -94,6 +97,7 @@ const MAX_ENTRIES = 60;
 
 /** The default branch's latest commit, its top-level files and its README. */
 const Files = observer(function Files({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
+  const navigate = useNavigate();
   const pool = usePool();
   const refs = refTable(pool, repoId);
   const branch = refs.defaultBranch;
@@ -126,6 +130,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
         </CodeLink>
       </Button>
       <div className="ms-auto flex flex-wrap items-center gap-2">
+        <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
         <GoToFile owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha}}/>
         <CodeMenu owner={owner} repo={repo} branch={branch}/>
       </div>
@@ -166,6 +171,7 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
   return (
     <>
       {toolbar}
+      <FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}}>
       <LinkRows><FilesPanel title={title} actions={actions}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
@@ -176,6 +182,7 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
           </ListRow>
         )}
       </FilesPanel></LinkRows>
+      </FileOperations>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch, sha}}/>}
     </>
   );

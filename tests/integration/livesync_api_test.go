@@ -133,6 +133,7 @@ func livesyncAPIScenario(t *testing.T, u *url.URL) {
 		})
 	}
 
+	t.Run("project lifecycle", func(t *testing.T) { livesyncAPIProjects(t, user2, user5, read2) })
 	t.Run("boards", func(t *testing.T) { livesyncAPIBoards(t, user2, user5, read2, delta) })
 	t.Run("board positions", func(t *testing.T) { livesyncAPIBoardPositions(t, user2) })
 	t.Run("concurrent card moves", func(t *testing.T) { livesyncAPIConcurrentMoves(t, u, user2) })

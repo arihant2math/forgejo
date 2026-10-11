@@ -105,6 +105,7 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   attachmentIssueId?: number | undefined;
   /** Wiki and release notes use different asset lifecycles. */
   attachments?: boolean | undefined;
+  insertion?: {text: string} | undefined;
   /** A shortcut that puts the caret here (R: comment). */
   focusShortcut?: ShortcutId | undefined;
   /** How Preview renders the text (default: as an issue's text in the repository; a wiki page renders as one). */
@@ -144,7 +145,7 @@ function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
   return null;
 }
 
-export const MarkdownField = observer(function MarkdownField({repoId, attachmentIssueId, attachments = true, focusShortcut, render, ...props}: MarkdownFieldProps) {
+export const MarkdownField = observer(function MarkdownField({repoId, attachmentIssueId, attachments = true, focusShortcut, render, insertion, ...props}: MarkdownFieldProps) {
   const [preview, setPreview] = useState(false);
   // The text area stands in until the editor's code is here and the page is idle (creating an editor costs a
   // frame or more on a slow device: not while the page opens), or at once when the field is wanted.
@@ -241,6 +242,24 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
     for (const controller of uploads.current.values()) controller.abort();
     uploads.current.clear();
   }, []);
+  useEffect(() => {
+    if (!insertion) return;
+    setPreview(false);
+    requestAnimationFrame(() => {
+      if (editor.current) editor.current.insert(insertion.text);
+      else if (area.current) {
+        const a = area.current;
+        const from = a.selectionStart;
+        const text = a.value.slice(0, from) + insertion.text + a.value.slice(a.selectionEnd);
+        props.onChange(text);
+        requestAnimationFrame(() => {
+          a.focus();
+          a.setSelectionRange(from + insertion.text.length, from + insertion.text.length);
+        });
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- each insertion is a single user action
+  }, [insertion]);
   useEffect(() => {
     if (ready) return undefined;
     let live = true;

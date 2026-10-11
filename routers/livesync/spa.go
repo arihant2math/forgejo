@@ -55,8 +55,13 @@ import (
 // address: any segment but wikiReserved) or "{code}". Extend
 // this table when the UI supports a route (F3–F7).
 var spaRoutes = [][]string{
-	{},                    // the dashboard
-	{"notifications"},     // the inbox
+	{},                // the dashboard
+	{"notifications"}, // the inbox
+	{"search"},
+	{"explore"},
+	{"explore", "repos"},
+	{"explore", "users"},
+	{"explore", "organizations"},
 	{"issues"},            // the viewer's issues
 	{"pulls"},             // the viewer's pull requests
 	{"repo", "create"},    // a new repository ("repo" and "org" are reserved user names: never an owner)
@@ -690,10 +695,14 @@ func etagMatches(header, tag string) bool {
 
 // nextConfig is the configuration inlined into index.html.
 func nextConfig() *protocol.NextConfig {
+	prefixes := append([]string{}, setting.Repository.PullRequest.WorkInProgressPrefixes...)
 	cfg := &protocol.NextConfig{
 		AppURL: setting.AppURL, AppSubURL: setting.AppSubURL, Base: setting.AppSubURL + nextBase,
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
-		SSHClonePrefix: sshClonePrefix(),
+		SSHClonePrefix:     sshClonePrefix(),
+		CodeIndexerEnabled: setting.Indexer.RepoIndexerEnabled,
+		Explore:            &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
+		WIPPrefixes:        &prefixes,
 		Attachments: &protocol.NextAttachments{
 			Enabled: setting.Attachment.Enabled, AllowedTypes: setting.Attachment.AllowedTypes,
 			MaxSize: setting.Attachment.MaxSize << 20, MaxFiles: setting.Attachment.MaxFiles,

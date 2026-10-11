@@ -18,6 +18,7 @@ import {Avatar, Button, Code, EmptyState, Icon, TextLink} from '../../ui/index.t
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
+import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Ago, commitRow, Sha, summary} from './bits.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
@@ -107,7 +108,8 @@ function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resol
 /** A diff between two commits, parsed in the worker (memory first). `base` "": the commit's first parent; `head` "": nothing yet. */
 export function useDiff(repoId: number, base: string, head: string): Loaded<DiffFile[]> {
   const src = useSource();
-  return useLoad(head ? CodeSource.diffKey(repoId, base, head) : undefined, () => src.peekDiff(repoId, base, head), () => src.diff(repoId, base, head));
+  const {whitespace} = useDiffSettings();
+  return useLoad(head ? CodeSource.diffKey(repoId, base, head, whitespace) : undefined, () => src.peekDiff(repoId, base, head, whitespace), () => src.diff(repoId, base, head, whitespace));
 }
 
 export const CommitView = observer(function CommitView(props: CodeViewProps & {sha: string}) {
@@ -133,9 +135,9 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     );
   }
   return (
-    <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={
+    <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={<><DiffSettings/>
       <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`src/commit/${sha}`}><Icon icon={FileCode} size="sm"/>Browse files</CodeLink></Button>
-    }>
+    </>}>
       {(scroller) => (
         <>
           {/* Pinned to the view's left edge: a wide line scrolls the diff sideways, not the commit's header. */}

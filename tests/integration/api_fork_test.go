@@ -81,6 +81,30 @@ func TestAPIForkAsAdminIgnoringLimits(t *testing.T) {
 	})
 }
 
+func TestAPIForkDescriptionAndDefaultBranch(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	session := loginUser(t, "user5")
+	token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
+	name := "next-fork"
+	description := "A fork created in Next"
+	req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/forks", &api.CreateForkOption{
+		Name: &name, Description: &description, DefaultBranchOnly: true,
+	}).AddTokenAuth(token)
+	resp := MakeRequest(t, req, http.StatusAccepted)
+	var fork api.Repository
+	DecodeJSON(t, resp, &fork)
+	assert.True(t, fork.Fork)
+	assert.Equal(t, description, fork.Description)
+	assert.Equal(t, name, fork.Name)
+	req = NewRequest(t, "GET", "/api/v1/repos/user5/next-fork/branches").AddTokenAuth(token)
+	resp = MakeRequest(t, req, http.StatusOK)
+	var branches []api.Branch
+	DecodeJSON(t, resp, &branches)
+	if assert.Len(t, branches, 1) {
+		assert.Equal(t, fork.DefaultBranch, branches[0].Name)
+	}
+}
+
 func TestCreateForkNoLogin(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
 	req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/forks", &api.CreateForkOption{})

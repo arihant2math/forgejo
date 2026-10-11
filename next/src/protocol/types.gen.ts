@@ -662,6 +662,32 @@ export const WorkspaceAccess = "access";
 export const WorkspaceWatch = "watch";
 
 //////////
+// source: discovery.go
+
+/**
+ * APIDiscovery is GET /-/sync/api/discovery's response. This authenticated,
+ * read-only search uses Explore's repository and profile visibility rules.
+ * Query: type=repositories|users|organizations, q, page (1-based, 50 rows),
+ * sort=updated|created|alpha|stars (stars only for repositories). Repository
+ * filters: archived=true|false and language (the primary language's name).
+ * Disabled Explore categories answer 404; invalid page/sort/filter answers 400.
+ * Total counts all matching visible results, not just the current page.
+ */
+export interface APIDiscovery {
+  rows: APIDiscoveryRow[];
+  total: number /* int64 */;
+}
+/**
+ * APIDiscoveryRow links to a repository or profile. Path excludes AppSubURL.
+ */
+export interface APIDiscoveryRow {
+  id: number /* int64 */;
+  title: string;
+  detail: string;
+  path: string;
+}
+
+//////////
 // source: entities.go
 
 export const MaxBodyBytes = 64 << 10;
@@ -1858,6 +1884,7 @@ export const TrustedTypesPolicy = "forgejo-next";
  * NextConfig is the server configuration of the Next UI.
  */
 export interface NextConfig {
+  wip_prefixes?: string[];
   /**
    * AppURL is Forgejo's public URL (ends with "/"), AppSubURL its path
    * ("" or "/sub", no trailing slash), Base the UI's base path
@@ -1896,6 +1923,8 @@ export interface NextConfig {
    */
   repository?: NextRepository;
   attachments?: NextAttachments;
+  code_indexer_enabled?: boolean;
+  explore?: NextExplore;
 }
 /**
  * NextAttachments describes the online-only composer upload limits.
@@ -1905,6 +1934,14 @@ export interface NextAttachments {
   allowed_types: string;
   max_size: number /* int64 */; // bytes
   max_files: number /* int */;
+}
+/**
+ * NextExplore describes the instance's discovery restrictions.
+ */
+export interface NextExplore {
+  require_signin: boolean;
+  disable_users: boolean;
+  disable_organizations: boolean;
 }
 /**
  * NextRepository is the instance's defaults for a new repository (the

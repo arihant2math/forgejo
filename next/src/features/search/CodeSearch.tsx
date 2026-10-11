@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {observer} from 'mobx-react-lite';
-import {textOfMarkup} from '../../app/trusted.ts';
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {online} from '../../app/api.ts';
@@ -15,13 +14,17 @@ import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {Button, Input, ListRow, EmptyState, CodeLine, SegmentedControl} from '../../ui/index.ts';
 import {discoverySearch, kinds} from './params.ts';
+import {type Hit, matchRows, type ShownLine} from './codeHits.ts';
 
-interface Hit {RepoID: number; Filename: string; CommitID: string; Lines: {Num: number; FormattedContent: string}[]}
 interface Answer {enabled: boolean; total: number; results: Hit[]; repositories: Record<string, string>}
-const plain = textOfMarkup;
-function snippet(text: string, query: string) {
-  const at = text.toLowerCase().indexOf(query.toLowerCase());
-  return at < 0 || !query ? text : <>{text.slice(0, at)}<mark>{text.slice(at, at + query.length)}</mark>{text.slice(at + query.length)}</>;
+
+/** A line of a hit: its number, its text with the words that matched marked; a context line dimmed. */
+function HitCode({line, context = false}: {line: ShownLine; context?: boolean}) {
+  return (
+    <CodeLine gutter={<span className="w-12 shrink-0 pr-2 text-right text-fg-subtle tabular-nums select-none">{line.num}</span>}>
+      <span className={context ? 'text-fg-subtle' : undefined}>{line.runs.map((r, i) => (r.marked ? <mark key={i}>{r.text}</mark> : <span key={i}>{r.text}</span>))}</span>
+    </CodeLine>
+  );
 }
 export default observer(function CodeSearch() {
   const app = useApp();
@@ -54,14 +57,18 @@ export default observer(function CodeSearch() {
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [app, q, page, repoId, connected]);
-  const rows = (answer?.results ?? []).flatMap((hit) => hit.Lines.map((line) => ({hit, line})));
-  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => 64, overscan: 5, ...pageListRect()});
+  // The matching lines only (the hits: rows, the cursor's stops), each with its context (#248).
+  const rows = useMemo(() => matchRows(answer?.results ?? []), [answer]);
+  const virtual = useVirtualizer({
+    count: rows.length, getScrollElement: () => scroller, overscan: 5, ...pageListRect(),
+    estimateSize: (i) => 40 + 20 * (1 + (rows[i]?.before.length ?? 0) + (rows[i]?.after.length ?? 0)),
+  });
   const resultHref = (index: number) => {
     const row = rows[index];
     const name = row && answer?.repositories[String(row.hit.RepoID)];
     const [owner, repo] = name?.split('/') ?? [];
     // The app's code view of the file at the searched commit, at the line (a classic address would be rewritten to it).
-    return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.Num)}`) : undefined;
+    return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
   return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><Input aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
@@ -79,7 +86,17 @@ export default observer(function CodeSearch() {
         const name = answer?.repositories[String(row.hit.RepoID)]; if (!name) return null;
         const href = resultHref(item.index);
         if (!href) return null;
-        return <div key={`${row.hit.RepoID}:${row.hit.Filename}:${row.line.Num}`} className="absolute inset-x-0 top-0" style={{transform: `translateY(${item.start}px)`}}><ListRow role="option" active={cursor === item.index} selected={cursor === item.index} href={href} onClick={(e) => { click(e, href); }}>{name} / {row.hit.Filename}:{row.line.Num}</ListRow><a href={href} onClick={(e) => { click(e, href); }}><CodeLine gutter={null}>{snippet(plain(row.line.FormattedContent), q)}</CodeLine></a></div>;
+        return (
+          <div key={`${String(row.hit.RepoID)}:${row.hit.Filename}:${String(row.line.num)}`} data-index={item.index} ref={virtual.measureElement} className="absolute inset-x-0 top-0 pb-2" style={{transform: `translateY(${String(item.start)}px)`}}>
+            <ListRow role="option" active={cursor === item.index} selected={cursor === item.index} href={href} onClick={(e) => { click(e, href); }}>{name} / {row.hit.Filename}:{row.line.num}</ListRow>
+            {/* The same link as the row (a click on the code opens the line too); the context lines are dimmed. */}
+            <a href={href} tabIndex={-1} aria-hidden onClick={(e) => { click(e, href); }} className="block overflow-x-auto">
+              {row.before.map((l) => <HitCode key={l.num} line={l} context/>)}
+              <HitCode line={row.line}/>
+              {row.after.map((l) => <HitCode key={l.num} line={l} context/>)}
+            </a>
+          </div>
+        );
       })}</div>
       {answer && answer.total > 50 && <div className="flex gap-2 p-4"><Button disabled={page <= 1} onClick={() => { patch({page: page - 1}); }}>Previous</Button><span>Page {page}</span><Button disabled={page * 50 >= answer.total || page >= 100} onClick={() => { patch({page: page + 1}); }}>Next</Button></div>}
     </PageBody></>;

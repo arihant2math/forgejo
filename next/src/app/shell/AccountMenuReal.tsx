@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookPlus, Building2, Command, Keyboard, LogOut, Monitor, Palette, Settings, User} from 'lucide-react';
+import {AppWindow, BookPlus, Building2, Command, Import, Keyboard, LogOut, Monitor, Palette, Settings, User} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ReactElement} from 'react';
@@ -34,9 +34,10 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
       <MenuTrigger asChild>{trigger}</MenuTrigger>
       <MenuContent>
         {login && <MenuItem icon={User} onSelect={() => void navigate({to: '/$owner', params: {owner: login}})}>Your profile and repositories</MenuItem>}
-        <ClassicMenuItem to="/user/settings" icon={Settings}>Settings</ClassicMenuItem>
-        <ClassicMenuItem to="/repo/create" icon={BookPlus}>New repository</ClassicMenuItem>
-        <ClassicMenuItem to="/org/create" icon={Building2}>New organization</ClassicMenuItem>
+        <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
+        <MenuItem icon={BookPlus} onSelect={() => void navigate({to: '/repo/create'})}>New repository</MenuItem>
+        <ClassicMenuItem to="/repo/migrate" icon={Import}>New migration</ClassicMenuItem>
+        <MenuItem icon={Building2} onSelect={() => void navigate({to: '/org/create'})}>New organization</MenuItem>
         <MenuSeparator/>
         <MenuItem icon={Command} shortcut={shortcutHint('palette.open')} onSelect={() => {
           open('paletteOpen');

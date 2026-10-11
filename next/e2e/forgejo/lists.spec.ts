@@ -13,7 +13,7 @@
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, labelId as repoLabelId, seed} from '../lib/api.ts';
-import {indicator, issueList as listbox, issueTitle, sidebarProp, signedIn, signIn, watch} from '../lib/app.ts';
+import {issueList as listbox, unsyncedButton, issueTitle, sidebarProp, signedIn, signIn, watch} from '../lib/app.ts';
 import {storedRecords} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
@@ -380,7 +380,7 @@ test('a change the server refuses is rolled back with a notice', async ({browser
   await expect(notice.getByRole('button', {name: 'Retry'})).toHaveCount(0);
   await page.unroute(/\/api\/v1\/repos\/.*\/issues\/\d+\/labels$/);
   const write = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/labels'));
-  await indicator(page).click();
+  await unsyncedButton(page).click();
   await page.getByRole('dialog').getByRole('button', {name: 'Retry'}).first().click();
   const res = await write;
   await page.keyboard.press('Escape');

@@ -62,6 +62,20 @@ test('detail skeleton shape', async ({page}) => {
   await expect(page.locator('html')).toHaveAttribute('data-skeleton', 'detail');
 });
 
+test('a repository page\'s header rows: breadcrumb, then its tabs, then its title row', async ({page}) => {
+  await page.route('**/assets/*.js', (route) => route.abort());
+  const header = page.getByRole('main').locator('header');
+  // One row of the header's height each (--spacing-header).
+  const rows = async (splash: object) => {
+    await seed(page, {user: '1', ...splash});
+    await page.goto('/-/next/');
+    return Math.round(((await header.boundingBox())?.height ?? 0) / 44);
+  };
+  expect(await rows({skeleton: {shape: 'list'}})).toBe(1);
+  expect(await rows({skeleton: {shape: 'detail', header: 'tabs'}})).toBe(2);
+  expect(await rows({skeleton: {shape: 'list', header: 'toolbar'}})).toBe(3);
+});
+
 test('system theme follows the OS when nothing is stored', async ({page}) => {
   await page.emulateMedia({colorScheme: 'dark'});
   await page.route('**/assets/*.js', (route) => route.abort());

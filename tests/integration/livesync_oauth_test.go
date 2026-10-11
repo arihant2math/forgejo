@@ -153,13 +153,23 @@ func TestLivesyncOAuth(t *testing.T) {
 			// package scope was asked for.
 			req = NewRequest(t, "GET", "/api/v1/packages/user2").AddTokenAuth(tokens.AccessToken)
 			MakeRequest(t, req, http.StatusForbidden)
-			// The account and organizations are read-only to it (PLAN
-			// §4.9): no SSH keys, OAuth2 applications or org hooks from a
-			// token held by the browser.
-			req = NewRequestWithJSON(t, "POST", "/api/v1/user/keys", map[string]string{"title": "next", "key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGs4GE3ZIPkDvJwOLkhw3Ms1CVTX4ALUj9e8pnGhGmXg"}).AddTokenAuth(tokens.AccessToken)
-			MakeRequest(t, req, http.StatusForbidden)
-			req = NewRequestWithJSON(t, "POST", "/api/v1/user/applications/oauth2", map[string]any{"name": "x", "redirect_uris": []string{"https://example.com/"}}).AddTokenAuth(tokens.AccessToken)
-			MakeRequest(t, req, http.StatusForbidden)
+			// The account is the user's to change from the settings pages
+			// (write:user, PLAN §4.9): its settings and SSH keys — the
+			// threat model in oauthapp.Scope says what that exposes...
+			req = NewRequestWithJSON(t, "PATCH", "/api/v1/user/settings", map[string]any{"hide_activity": false}).AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusOK)
+			userPub, _, err := ed25519.GenerateKey(nil)
+			require.NoError(t, err)
+			userSSH, err := ssh.NewPublicKey(userPub)
+			require.NoError(t, err)
+			req = NewRequestWithJSON(t, "POST", "/api/v1/user/keys", map[string]string{"title": fmt.Sprintf("next-%v", additional), "key": string(ssh.MarshalAuthorizedKey(userSSH))}).AddTokenAuth(tokens.AccessToken)
+			var userKey api.PublicKey
+			DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &userKey)
+			MakeRequest(t, NewRequest(t, "DELETE", fmt.Sprintf("/api/v1/user/keys/%d", userKey.ID)).AddTokenAuth(tokens.AccessToken), http.StatusNoContent)
+			// ...but not its access tokens (API v1 wants the password), nor
+			// organizations and their hooks.
+			req = NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", map[string]any{"name": "from-next", "scopes": []string{"read:user"}}).AddTokenAuth(tokens.AccessToken)
+			MakeRequest(t, req, http.StatusUnauthorized)
 			req = NewRequestWithJSON(t, "POST", "/api/v1/orgs/org3/hooks", map[string]any{"type": "forgejo", "config": map[string]string{"url": "https://example.com/", "content_type": "json"}}).AddTokenAuth(tokens.AccessToken)
 			MakeRequest(t, req, http.StatusForbidden)
 			req = NewRequest(t, "GET", "/api/v1/orgs/org3").AddTokenAuth(tokens.AccessToken)

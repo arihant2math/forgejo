@@ -138,3 +138,40 @@ export interface PullSearch {
 export function pullSearch(s: Record<string, unknown>): PullSearch {
   return (PULL_TABS as readonly unknown[]).includes(s.tab) ? {tab: s.tab as typeof PULL_TABS[number]} : {};
 }
+
+/** A repository's labels page (features/meta): the classic page's orders (`sort`; by name by default) and a search. */
+export const LABEL_SORTS = ['alphabetically', 'reversealphabetically', 'mostissues', 'leastissues'] as const;
+export type LabelSort = typeof LABEL_SORTS[number];
+
+export interface LabelsSearch {
+  q?: string;
+  sort?: LabelSort;
+}
+
+export function labelsSearch(s: Record<string, unknown>): LabelsSearch {
+  const sort = oneOf(LABEL_SORTS, s.sort);
+  return {...(typeof s.q === 'string' && s.q.trim() ? {q: s.q.slice(0, 256)} : {}), ...(sort && sort !== 'alphabetically' ? {sort} : {})};
+}
+
+/**
+ * A repository's milestones (features/meta): the open or closed tab, a search and an order — Forgejo's `sort`
+ * names (closest due date by default), so a URL means the same in both UIs; `recentupdate` is new.
+ */
+export const MILESTONE_SORTS = ['closestduedate', 'furthestduedate', 'recentupdate', 'leastcomplete', 'mostcomplete', 'mostissues', 'leastissues', 'name'] as const;
+export type MilestoneSort = typeof MILESTONE_SORTS[number];
+
+export interface MilestonesSearch {
+  /** The closed tab (the open one is the default). */
+  state?: 'closed';
+  q?: string;
+  sort?: MilestoneSort;
+}
+
+export function milestonesSearch(s: Record<string, unknown>): MilestonesSearch {
+  const sort = oneOf(MILESTONE_SORTS, s.sort);
+  return {
+    ...(s.state === 'closed' ? {state: 'closed' as const} : {}),
+    ...(typeof s.q === 'string' && s.q.trim() ? {q: s.q.slice(0, 256)} : {}),
+    ...(sort && sort !== 'closestduedate' ? {sort} : {}),
+  };
+}

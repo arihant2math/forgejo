@@ -11,7 +11,7 @@
 
 import {expect, type Request, test} from '@playwright/test';
 import {apiJson, seed} from '../lib/api.ts';
-import {issueTitle, sidebarProp, signedIn, toggleLabel, watch} from '../lib/app.ts';
+import {indicator, issueTitle, sidebarProp, signedIn, toggleLabel, watch} from '../lib/app.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -55,7 +55,7 @@ test('marks, mutation timings, INP and queue outcomes are posted to /-/sync/rum,
   // A mutation, confirmed by the server.
   const had = (await sidebarProp(page, 'Labels').innerText()).includes('tests');
   await toggleLabel(page, 'tests');
-  await expect(page.getByRole('button', {name: /: show unsynced changes$/})).not.toContainText('pending', {timeout: 30_000});
+  await expect(indicator(page)).not.toContainText('pending', {timeout: 30_000});
   // The page is hidden (tab switched / closed): the reporter sends what it has, INP included.
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', {value: 'hidden', configurable: true});

@@ -9,6 +9,11 @@ export const SPLASH_KEY = 'splash';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type SkeletonShape = 'list' | 'detail';
+/**
+ * The header's rows: one (`page`), or a repository page's — the breadcrumb, the repository's tabs (`tabs`: its
+ * home) and then the page's title row with its controls (`toolbar`: its lists and code views).
+ */
+export type SkeletonHeader = 'page' | 'tabs' | 'toolbar';
 
 export interface Splash {
   theme?: ThemePreference;
@@ -17,7 +22,7 @@ export interface Splash {
   /** The sidebar is collapsed (wide screens; narrow ones always show it as a drawer). */
   sidebarHidden?: boolean;
   /** Shape of the last route, so the skeleton matches the page that renders. */
-  skeleton?: {shape?: SkeletonShape; rows?: number};
+  skeleton?: {shape?: SkeletonShape; rows?: number; header?: SkeletonHeader};
   /**
    * The local DB marker: the id of the user whose IndexedDB exists on this
    * device (F2 writes it). Absent ⇒ the logged-out shell is shown.
@@ -64,6 +69,7 @@ export function applySplash(win: Window): void {
   html.dataset.shell = typeof s.user === 'string' && s.user ? 'app' : 'logged-out';
   const sk = s.skeleton ?? {};
   html.dataset.skeleton = sk.shape === 'detail' ? 'detail' : 'list';
+  html.dataset.header = sk.header === 'tabs' || sk.header === 'toolbar' ? sk.header : 'page';
   const rows = typeof sk.rows === 'number' && Number.isFinite(sk.rows) ?
     Math.round(Math.min(40, Math.max(0, sk.rows))) :
     14;

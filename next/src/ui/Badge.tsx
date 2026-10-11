@@ -4,6 +4,7 @@
 import type {CSSProperties, ReactNode} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
+import {labelInk} from './ink.ts';
 import {Tooltip} from './Tooltip.tsx';
 
 const chip = 'inline-flex h-5 shrink-0 items-center gap-1 px-1.5 text-sm font-medium whitespace-nowrap tabular-nums';
@@ -19,9 +20,9 @@ const tones = {
 
 export type BadgeTone = keyof typeof tones;
 
-/** A small status or count chip. */
-export function Badge({tone = 'neutral', children}: {tone?: BadgeTone; children: ReactNode}) {
-  return <span className={cx(chip, 'rounded-sm', tones[tone])}>{children}</span>;
+/** A small status or count chip; `round`: a pill (a count beside a heading, a topic). */
+export function Badge({tone = 'neutral', round = false, children}: {tone?: BadgeTone; round?: boolean; children: ReactNode}) {
+  return <span className={cx(chip, round ? 'rounded-full' : 'rounded-sm', tones[tone])}>{children}</span>;
 }
 
 /** An issue label: its own colour (server data) as a dot, the name in normal text colour. */
@@ -30,6 +31,25 @@ export function LabelChip({name, color}: {name: string; color: string}) {
     <span className={cx(chip, 'rounded-full border border-border-strong text-fg-muted')} style={labelColor(color)}>
       <LabelDot color={color}/>
       {name}
+    </span>
+  );
+}
+
+const inks = {dark: 'text-on-label-dark', light: 'text-on-label-light'} as const;
+
+/**
+ * A label filled with its own colour (the labels page, a label's form): the text in the ink that contrasts more
+ * with that colour (ink.ts). An exclusive scoped label (`scope/value`) shows its scope lighter, before the value.
+ * A colour that is not a hex value is the plain chip.
+ */
+export function LabelPill({name, color, scope}: {name: string; color: string; scope?: string | undefined}) {
+  const ink = labelInk(color);
+  if (!ink) return <LabelChip name={name} color={color}/>;
+  const value = scope ? name.slice(scope.length + 1) : name;
+  return (
+    <span className={cx(chip, 'max-w-full rounded-full bg-label', inks[ink])} style={labelColor(color)}>
+      {scope && <span className="font-normal">{scope} /</span>}
+      <span className="truncate">{value}</span>
     </span>
   );
 }

@@ -63,6 +63,10 @@ func registerAPI(r *web.Route) {
 	r.Get(p+"/repos/{id}/blame/{commit}/*", apiBlame)
 	r.Get(p+"/repos/{id}/diff/{commit}", apiDiff)
 	r.Get(p+"/repos/{id}/diff/{base}/{head}", apiDiff)
+	r.Get(p+"/repos/{id}/activity/{commit}", apiCommitActivity)
+	r.Get(p+"/repos/{id}/contributors/{commit}", apiContributors)
+	r.Get(p+"/user/options", apiUserOptions)
+	r.Put(p+"/user/emails/primary", apiPrimaryEmail)
 }
 
 // apiReadOnlyPost are the gap endpoints that are POSTed but write nothing:

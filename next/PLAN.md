@@ -398,8 +398,10 @@ S→C  session_invalid | notice {kind:"new_build"} | pong
   token goes in IDB. CSP is strict, with Trusted Types and only the hashed inline boot
   script allowed.
 * Phase 0 must confirm the scope behaviour (`ENABLE_ADDITIONAL_GRANT_SCOPES`).
-  The token needs `write:issue write:repository read:user read:organization
-  write:notification`.
+  The token needs `write:issue write:repository write:user read:organization
+  write:notification` (`write:user` since the settings pages: the profile, email
+  addresses and keys; personal access tokens stay classic, API v1 manages them with a
+  password only).
 * **Offline:** an expired access token doesn't block reads. Writes queue until the
   token is refreshed. If refresh fails, the queue is held (not dropped) until the user
   signs in again, *as the same user*. The queue is keyed by `userId`.

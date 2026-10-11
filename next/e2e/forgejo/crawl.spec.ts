@@ -479,7 +479,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
   }
   const classicPages = [
     `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,
-    `/${USER}?tab=activity`, '/explore/repos', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels`, `/${USER}/${REPO}/activity`,
+    `/${USER}?tab=activity`, '/explore/repos', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels`,
     `/${USER}/${REPO}/issues/new`, `/${USER}/-/projects`, `/${ORG}/-/projects`,
   ];
   // A repository's classic page comes back to that repository (its home, a tab, its boards), never to Home.

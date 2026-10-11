@@ -15,7 +15,8 @@
 // Paths here are site paths (without the instance's sub-path).
 
 import {abbreviatedSha, END, parseCodePath} from '../code/refs.ts';
-import {isOwnerName, isSpaRoute, NAME} from '../sw/routes.ts';
+import {classicWikiPath, parseWikiRest, wikiActionView, wikiPath} from '../features/wiki/paths.ts';
+import {isOwnerName, isSpaRoute, NAME, SETTINGS_SECTIONS, USER_SETTINGS_PAGES} from '../sw/routes.ts';
 
 export {isOwnerName};
 
@@ -51,11 +52,24 @@ export function nextPathOf(path: string): string | undefined {
     if (a === 'notifications' || a === 'issues' || a === 'pulls') return `/${a}`;
     return isOwnerName(a) ? `/${enc(a)}` : undefined;
   }
+  // The viewer's settings: the pages the app has (features/usersettings); the others are classic.
+  if (a === 'user') {
+    if (b !== 'settings' || rest.length > 0) return undefined;
+    if (c === undefined) return '/user/settings';
+    return USER_SETTINGS_PAGES.has(c) ? `/user/settings/${c}` : undefined;
+  }
+  // The new repository and organization forms ("repo" and "org" are reserved: never an owner).
+  if (segs.length === 2 && (a === 'repo' || a === 'org') && b === 'create') return `/${a}/create`;
   // Boards: /{owner}/{repo}/projects/{id}, /{org}/-/projects/{id}, /{user}/-/projects/{id}.
   if (segs.length === 4 && c === 'projects' && /^[1-9]\d{0,15}$/.test(rest[0] ?? '') && isOwnerName(a)) return `/-/next/projects/${rest[0] ?? ''}`;
   if (!isOwnerName(a) || !NAME.test(b)) return undefined;
   const repoPath = `/${enc(a)}/${enc(b)}`;
   if (c === undefined) return repoPath;
+  // Settings: the sections the app has (the others stay classic).
+  if (c === 'settings') {
+    if (rest.length === 0) return `${repoPath}/settings`;
+    return rest.length === 1 && SETTINGS_SECTIONS.includes(rest[0] ?? '') ? `${repoPath}/settings/${rest[0] ?? ''}` : undefined;
+  }
   if (c === 'issues' || c === 'pulls') {
     const [n, sub] = rest;
     if (n === undefined) return `${repoPath}/${c}`;
@@ -65,9 +79,40 @@ export function nextPathOf(path: string): string | undefined {
     if (c === 'pulls' && rest.length === 2 && (sub === 'files' || sub === 'commits' || sub === 'checks')) return `${repoPath}/pulls/${n}?tab=${sub}`;
     return undefined;
   }
+  // The wiki: its Home, a page, the page list, a new page, a page's editor (features/wiki/paths.ts).
+  if (c === 'wiki') {
+    const v = parseWikiRest(rest);
+    if (v === undefined) return undefined;
+    return rest.length === 0 ? `${repoPath}/wiki` : wikiPath(a, b, v);
+  }
+  if (c === 'activity') return isSpaRoute(path) ? `${repoPath}/activity${rest[0] === undefined ? '' : `/${rest[0]}`}` : undefined;
+  // Labels, milestones, a milestone and its form (spaRoutes; features/meta).
+  if (c === 'labels') return rest.length === 0 ? `${repoPath}/labels` : undefined;
+  if (c === 'milestones') return rest.length === 0 ? `${repoPath}/milestones` : rest.length === 1 && rest[0] === 'new' ? `${repoPath}/milestones/new` : undefined;
+  if (c === 'milestone') {
+    const [n, sub] = rest;
+    if (n === undefined || !/^[1-9]\d{0,15}$/.test(n)) return undefined;
+    if (rest.length === 1) return `${repoPath}/milestone/${n}`;
+    return rest.length === 2 && sub === 'edit' ? `${repoPath}/milestone/${n}/edit` : undefined;
+  }
   const code = [c, ...rest].join('/');
   // An abbreviated commit SHA too: the code view resolves it to the full one's address.
   return parseCodePath(code) || abbreviatedSha(code) ? codePath(a, b, code) : undefined;
+}
+
+/**
+ * The app's page for a classic wiki address with its query: the classic wiki's `?action=_pages`, `_new` and
+ * `_edit` are views of their own here (`/wiki/-/pages`, …). undefined for anything else.
+ */
+export function wikiAddress(path: string, search: string): string | undefined {
+  if (/%(?:2e|2f|5c)/i.test(path)) return undefined;
+  const [a = '', b = '', c, ...rest] = segments(path);
+  if (c !== 'wiki' || !isOwnerName(a) || !NAME.test(b)) return undefined;
+  const v = parseWikiRest(rest);
+  if (v === undefined) return undefined;
+  const action = new URLSearchParams(search.replace(/^\?/, '')).get('action') ?? undefined;
+  const to = wikiActionView(v, action);
+  return to === v && rest.length === 0 ? `/${enc(a)}/${enc(b)}/wiki` : wikiPath(a, b, to);
 }
 
 /**
@@ -80,30 +125,38 @@ export function appPageOf(classic: string): string {
   const at = classic.search(/[?#]/);
   const path = at < 0 ? classic : classic.slice(0, at);
   const query = at < 0 || classic[at] === '#' ? '' : classic.slice(at + 1).split('#')[0] ?? '';
-  const mapped = nextPathOf(path) ?? nearestAppPage(path);
+  const mapped = wikiAddress(path, query) ?? nextPathOf(path) ?? nearestAppPage(path);
   if (mapped === undefined) return '/';
-  return query && !mapped.includes('?') && isListPath(mapped) ? `${mapped}?${query}` : mapped;
+  // A list keeps its filters; the new repository form its owner and template (`?org=3&template_id=9`).
+  return query && !mapped.includes('?') && (isListPath(mapped) || mapped === '/repo/create' || /^\/[^/]+\/[^/]+\/(?:labels|milestones)$/.test(mapped)) ?
+    `${mapped}?${query}` : mapped;
 }
 
 /**
  * The nearest page of the app to a classic page it does not render (the pill on the classic page goes there,
- * never to an unrelated Home): a release's page is the Releases tab, the repository's projects its boards, a new
- * issue its issue list, anything else of a repository (wiki, settings, milestones, …) its home.
+ * never to an unrelated Home): a release's page is the releases page, the repository's projects its boards, a new
+ * issue its issue list, a settings section only the classic UI has its settings, anything else of a repository
+ * (wiki, milestones, …) its home.
  */
 function nearestAppPage(path: string): string | undefined {
   if (/%(?:2e|2f|5c)/i.test(path)) return undefined;
   const [a = '', b = '', c] = segments(path);
   // An organization's or a user's projects (/{owner}/-/projects): the boards (QA: the pill went Home).
   if (isOwnerName(a) && b === '-' && c === 'projects') return '/-/next/boards';
+  // Another settings page (applications, security, …): the app's settings.
+  if (a === 'user' && b === 'settings') return '/user/settings';
   if (!isOwnerName(a) || !NAME.test(b) || b === '-') return undefined;
   if (c === 'releases' || c === 'tags') return codePath(a, b, c);
   if (c === 'projects') return '/-/next/boards';
   if (c === 'issues' || c === 'pulls') return `/${enc(a)}/${enc(b)}/${c}`;
+  if (c === 'settings') return `/${enc(a)}/${enc(b)}/settings`;
+  if (c === 'wiki') return `/${enc(a)}/${enc(b)}/wiki`;
+  if (c === 'labels' || c === 'milestones' || c === 'milestone') return `/${enc(a)}/${enc(b)}/${c === 'labels' ? 'labels' : 'milestones'}`;
   return `/${enc(a)}/${enc(b)}`;
 }
 
 /** A repository's sections only the classic UI has (its More menu links them). */
-const CLASSIC_SECTIONS = new Set(['wiki', 'activity', 'projects', 'settings', 'milestones', 'labels', 'packages', 'forks', 'stars', 'watchers', 'graph', 'find']);
+const CLASSIC_SECTIONS = new Set(['wiki', 'projects', 'settings', 'packages', 'forks', 'stars', 'watchers', 'graph', 'find']);
 
 /**
  * Whether a classic address is a page the classic UI is known to have and the app does not: a repository's
@@ -137,6 +190,11 @@ export interface ClassicContext {
  */
 export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
   const segs = segments(path);
+  // The wiki's own views put in a query by the classic wiki (`/wiki/-/pages` → `/wiki/?action=_pages`).
+  if (segs[2] === 'wiki' && segs.length > 3 && isOwnerName(segs[0] ?? '')) {
+    const v = parseWikiRest(segs.slice(3));
+    if (v && v.view !== 'page') return classicWikiPath(segs[0] ?? '', segs[1] ?? '', v);
+  }
   if (segs[0] !== '-' || segs[1] !== 'next') return path || '/';
   const [, , a, ...rest] = segs;
   if (a === undefined || a === 'callback') return '/';
@@ -191,14 +249,18 @@ export function isCanonical(path: string, search = ''): boolean {
 
 /**
  * Whether a site path is a list an issue can be opened from (an issue's Esc goes back there): the inbox, the
- * viewer's issues and pull requests, a repository's lists, a board, the boards.
+ * viewer's issues and pull requests, a repository's lists, a milestone's, a board, the boards.
  */
 export function isListPath(path: string): boolean {
   const segs = segments(path);
   if (segs.length === 1) return segs[0] === 'notifications' || segs[0] === 'issues' || segs[0] === 'pulls';
   if (segs[0] === '-') return segs[1] === 'next' && (segs[2] === 'boards' || (segs[2] === 'projects' && segs.length === 4));
+  if (segs.length === 4 && segs[2] === 'milestone') return isOwnerName(segs[0] ?? '') && /^[1-9]\d{0,15}$/.test(segs[3] ?? '');
   return segs.length === 3 && isOwnerName(segs[0] ?? '') && (segs[2] === 'issues' || segs[2] === 'pulls');
 }
+
+/** A repository's sections that belong to its issues (the Issues tab, the repository's sidebar entry): labels, milestones. */
+export const ISSUE_SECTIONS: ReadonlySet<string> = new Set(['labels', 'milestones', 'milestone']);
 
 /** The repository ("owner/name", lower case) a route belongs to, if any (sidebar highlighting, the tabs). */
 export function repoOfPath(path: string): string | undefined {
@@ -209,6 +271,6 @@ export function repoOfPath(path: string): string | undefined {
   }
   const [a = '', b = '', c] = segs;
   if (segs.length < 2 || !isOwnerName(a) || !NAME.test(b)) return undefined;
-  if (c !== undefined && c !== 'issues' && c !== 'pulls') return undefined;
+  if (c !== undefined && c !== 'issues' && c !== 'pulls' && c !== 'activity' && c !== 'wiki' && c !== 'settings' && !ISSUE_SECTIONS.has(c)) return undefined;
   return `${a}/${b}`.toLowerCase();
 }

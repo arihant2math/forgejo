@@ -110,7 +110,17 @@ func TestSPARoute(t *testing.T) {
 		"/user/settings/issues":                                        false,
 		"/admin/repo1/pulls":                                           false,
 		"/-/next/issues":                                               false,
-		"/user2/repo1/milestones":                                      false,
+		"/user2/repo1/labels":                                          true,
+		"/user2/repo1/labels/x":                                        false,
+		"/user2/repo1/milestones":                                      true,
+		"/user2/repo1/milestones/new":                                  true,
+		"/user2/repo1/milestones/x":                                    false,
+		"/user2/repo1/milestone/3":                                     true,
+		"/user2/repo1/milestone/3/edit":                                true,
+		"/user2/repo1/milestone/0":                                     false,
+		"/user2/repo1/milestone/x/edit":                                false,
+		"/user2/repo1/milestone/3/close":                               false,
+		"/user2/repo1/milestone":                                       false,
 		"/explore/repos/issues":                                        false,
 		"/org/org3/issues":                                             false,
 		"/user2/repo1/issues/1.png":                                    false,
@@ -118,6 +128,13 @@ func TestSPARoute(t *testing.T) {
 		"/explore":                                                     false,
 		"/user2.keys":                                                  false, // the user's files (reservedUserPatterns)
 		"/user2.rss":                                                   false,
+		// The new repository and organization forms ("repo" and "org" are reserved: never an owner).
+		"/repo/create":   true,
+		"/org/create":    true,
+		"/repo/migrate":  false, // stays classic
+		"/repo/create/x": false,
+		"/org/org3":      false,
+		"/user2/create":  true, // a repository named "create"
 		// Code addresses open the app's code views (codeAddress).
 		"/user2/repo1/src/branch/master/README.md":                     true,
 		"/user2/repo1/src":                                             true,
@@ -130,16 +147,81 @@ func TestSPARoute(t *testing.T) {
 		"/user2/repo1/branches/x":                                      false,
 		"/user2/repo1/releases":                                        true,
 		"/user2/repo1/releases/tag/v1":                                 false,
+		"/user2/repo1/releases/new":                                    true,
+		"/user2/repo1/releases/new/x":                                  false,
+		"/user2/repo1/releases/edit/v1.0":                              true,
+		"/user2/repo1/releases/edit/release/1.0":                       true, // a tag with slashes
+		"/user2/repo1/releases/edit":                                   false,
+		"/user2/repo1/releases/edit/../../settings":                    false,
+		"/user2/repo1/releases/latest":                                 false,
 		"/user2/repo1/actions":                                         true,
 		"/user2/repo1/actions/runs/3":                                  true,
 		"/user2/repo1/actions/runs/3/jobs/0/attempt/1":                 true,
 		"/user2/repo1/actions/runs/3/artifacts":                        false,
 		"/user2/repo1/compare/master...feature/x":                      true,
-		"/user2/repo1/compare/master":                                  false,
+		"/user2/repo1/compare/master":                                  true,  // the head alone (the base: the default branch)
+		"/user2/repo1/compare":                                         true,  // the page asks for a head
+		"/user2/repo1/compare/master...user1:feature":                  true,  // a fork's branch (the page says so)
+		"/user2/repo1/compare/master..feature":                         false, // a direct comparison stays classic
+		"/user2/repo1/compare/master...feature.diff":                   false,
+		"/user2/repo1/compare/feature.patch":                           false,
+		"/user2/repo1/compare/master...":                               false,
+		"/user2/repo1/compare/...feature":                              false,
 		"/user2/repo1/pulls/2/files":                                   true,
 		"/user2/repo1/pulls/2/checks":                                  false,
 		"/user2/repo1/src/branch/master/../../settings":                false,
-		"/user2/repo1/wiki":                                            false,
+		// Settings: the sections the app has; the others are classic.
+		"/user2/repo1/settings":               true,
+		"/user2/repo1/settings/collaboration": true,
+		"/user2/repo1/settings/branches":      true,
+		"/user2/repo1/settings/hooks":         true,
+		"/user2/repo1/settings/keys":          true,
+		"/user2/repo1/settings/units":         false,
+		"/user2/repo1/settings/hooks/git":     false,
+		"/user2/repo1/settings/hooks/3":       false,
+		"/user2/repo1.wiki/settings":          false,
+		"/user/settings/hooks":                false,
+		// The wiki (its page addresses; the classic wiki's raw files and search stay classic).
+		"/user2/repo1/wiki":                     true,
+		"/user2/repo1/wiki/":                    true,
+		"/user2/repo1/wiki/Home":                true,
+		"/user2/repo1/wiki/Getting-Started.-":   true,
+		"/user2/repo1/wiki/-/pages":             true,
+		"/user2/repo1/wiki/-/new":               true,
+		"/user2/repo1/wiki/Home/-/edit":         true,
+		"/user2/repo1/wiki/-/history":           false,
+		"/user2/repo1/wiki/Home/-/delete":       false,
+		"/user2/repo1/wiki/raw":                 false,
+		"/user2/repo1/wiki/raw/logo.png":        false,
+		"/user2/repo1/wiki/search":              false,
+		"/user2/repo1/wiki/_pages":              false,
+		"/user2/repo1/wiki/..":                  false,
+		"/user2/repo1/wiki/commit/65f1bf27bc3b": false,
+		"/user2/repo1/wiki/a/b":                 false,
+		"/user2/repo1.wiki/wiki/Home":           false,
+		// The activity pages.
+		"/user2/repo1/activity":                   true,
+		"/user2/repo1/activity/monthly":           true,
+		"/user2/repo1/activity/yearly":            true,
+		"/user2/repo1/activity/hourly":            false, // no such period: the classic page (which shows a week)
+		"/user2/repo1/activity/contributors":      true,
+		"/user2/repo1/activity/code-frequency":    true,
+		"/user2/repo1/activity/recent-commits":    true,
+		"/user2/repo1/activity/contributors/data": false, // the classic graphs' JSON
+		"/user2/repo1/activity/weekly/x":          false,
+		"/user2/repo1/activity_author_data":       false,
+		// The viewer's settings: four pages; the rest stay classic.
+		"/user/settings":              true,
+		"/user/settings/":             true,
+		"/user/settings/account":      true,
+		"/user/settings/appearance":   true,
+		"/user/settings/keys":         true,
+		"/user/settings/applications": false,
+		"/user/settings/security":     false,
+		"/user/settings/keys/x":       false,
+		"/user/login":                 false,
+		"/user":                       false,
+		"/user2/settings":             true, // a repository named "settings" of user2
 	} {
 		assert.Equal(t, want, spaRoute(p), p)
 	}
@@ -253,7 +335,21 @@ func TestSPAServing(t *testing.T) {
 			}
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2/repo1", opted...).Code, "a repository's home")
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2?tab=repositories", opted...).Code, "an owner's page")
-			for _, p := range []string{"/user2/repo1/issues/new", "/api/v1/issues", "/user2/repo1/settings", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic", "/user2?tab=activity", "/user2?ui=classic"} {
+			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2/repo1/settings/hooks", opted...).Code, "a repository's settings")
+			for _, p := range []string{"/user2/repo1/wiki", "/user2/repo1/wiki/?action=_pages", "/user2/repo1/wiki/Home?action=_edit", "/user2/repo1/wiki/-/pages"} {
+				assert.Equal(t, http.StatusOK, get(t, h, sub+p, opted...).Code, p)
+			}
+			for _, p := range []string{"/user/settings", "/user/settings/keys", "/user/settings/account"} {
+				assert.Equal(t, http.StatusOK, get(t, h, sub+p, opted...).Code, p)
+			}
+			// A classic page's form posted to its own address comes back to the classic page (its message).
+			back := append([]string{"Referer", "https://example.com" + sub + "/user/settings/account?ui=classic"}, opted...)
+			assert.Equal(t, 299, get(t, h, sub+"/user/settings/account", back...).Code, "back to the classic page")
+			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user/settings/keys", back...).Code, "another page")
+			other := append([]string{"Referer", "https://example.com" + sub + "/user/settings/account"}, opted...)
+			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user/settings/account", other...).Code, "from the app's page")
+			// A wiki page's revisions are the classic page's.
+			for _, p := range []string{"/user2/repo1/issues/new", "/api/v1/issues", "/user2/repo1/settings/units", "/user2/repo1/settings?ui=classic", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic", "/user2?tab=activity", "/user2?ui=classic", "/user2/repo1/wiki/Home?action=_revision", "/user/settings/applications", "/user/settings?ui=classic"} {
 				assert.Equal(t, 299, get(t, h, sub+p, opted...).Code, p)
 			}
 			req := httptest.NewRequest(http.MethodPost, sub+"/user2/repo1/issues/1", nil)
@@ -294,6 +390,10 @@ func checkDocument(t *testing.T, rec *httptest.ResponseRecorder, sub string) {
 	assert.Equal(t, sub, cfg.AppSubURL)
 	assert.Equal(t, sub+"/-/next/", cfg.Base)
 	assert.Equal(t, protocol.ProtocolVersion, cfg.Protocol)
+	if assert.NotNil(t, cfg.Repository, "the new repository defaults") {
+		assert.Equal(t, setting.Repository.DefaultBranch, cfg.Repository.DefaultBranch)
+		assert.Equal(t, "sha1", cfg.Repository.ObjectFormats[0], "SHA-1 is the default")
+	}
 	boot := strings.ReplaceAll(bootScript, "`/-/next/`", "`"+sub+"/-/next/`")
 	assert.Contains(t, body, "<script>"+boot+"</script>")
 	sum := sha256.Sum256([]byte(boot))
@@ -475,4 +575,22 @@ func TestInsertConfig(t *testing.T) {
 	out, err := json.Marshal(map[string]string{"a": "</script><b>&"})
 	require.NoError(t, err)
 	assert.False(t, bytes.Contains(out, []byte("</script>")), "the config JSON is HTML-safe: %s", out)
+}
+
+func TestSSHClonePrefix(t *testing.T) {
+	defer test.MockVariableValue(&setting.SSH, setting.SSH)()
+	defer test.MockVariableValue(&setting.Repository.UseCompatSSHURI, false)()
+	setting.SSH.Disabled = false
+	setting.SSH.User = "git"
+	setting.SSH.Domain = "code.example"
+	setting.SSH.Port = 22
+	assert.Equal(t, "git@code.example:", sshClonePrefix())
+	setting.SSH.Port = 2222
+	assert.Equal(t, "ssh://git@code.example:2222/", sshClonePrefix())
+	setting.SSH.Port = 22
+	setting.Repository.UseCompatSSHURI = true
+	assert.Equal(t, "ssh://git@code.example/", sshClonePrefix())
+	setting.SSH.Disabled = true
+	assert.Empty(t, sshClonePrefix())
+	assert.Empty(t, nextConfig().SSHClonePrefix)
 }

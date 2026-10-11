@@ -43,34 +43,39 @@ import (
 // administration.
 const Name = "Forgejo Next"
 
-// Scope is what the SPA asks for, exactly PLAN §4.9: livesync needs read
-// access to repositories, issues, organizations, users and notifications
+// Scope is what the SPA asks for, PLAN §4.9: livesync needs read access
+// to repositories, issues, organizations, users and notifications
 // (routers/livesync requiredScopes); the UI writes issues and pull
 // requests, repository metadata (watch, star, labels, milestones) and
-// notifications through API v1. A later milestone that needs more widens
-// Scope; Ensure then revokes the old grants (one forced sign-in, see the
-// package documentation).
+// notifications through API v1, and — since the settings pages
+// (next/src/features/usersettings) — the viewer's own account: the
+// profile, appearance, email addresses, SSH and GPG keys and picture
+// (write:user). A change of Scope makes Ensure revoke the old grants (one
+// forced sign-in, see the package documentation).
 //
 // What the scope does and does not protect (corrected by the backend
-// audit): without write:user / write:organization a stolen token cannot add
-// SSH keys, OAuth2 applications or e-mail addresses to the account, nor
-// change organizations or their hooks. But write:repository opens the whole
-// /repos/{owner}/{repo} API group, so on every repository the user
-// administers a stolen token can add webhooks, writable deploy keys and
-// admin collaborators, start a transfer or set push mirrors: access that
-// lasts after the token is revoked, equivalent to an SSH key for those
-// repositories (TestLivesyncOAuth shows it). The UI needs write:repository
-// for its everyday writes (repository metadata, viewed files), and API v1
-// has no narrower scope, so the protection is where the token lives and for
-// how long: the access token in memory, the refresh token (valid for
-// [oauth2] REFRESH_TOKEN_EXPIRATION_TIME, 730 h by default — an
-// instance-wide setting livesync cannot shorten for its client alone) in
-// IndexedDB, both readable by script of the Next UI's origin only. Note
-// that an XSS on a classic page can already mint a full-scope personal
-// access token with the session cookie; the token adds the refresh token's
+// audit; widened by the settings pages): with write:user a stolen token
+// can change the account itself — add an SSH key (push and pull as the
+// user, lasting after the token is revoked), add an email address (once
+// verified it receives password resets) or an OAuth2 application. It still
+// cannot touch organizations or their hooks (no write:organization). And
+// write:repository opens the whole /repos/{owner}/{repo} API group, so on
+// every repository the user administers a stolen token can add webhooks,
+// writable deploy keys and admin collaborators, start a transfer or set
+// push mirrors: access that lasts after the token is revoked (TestLivesyncOAuth
+// shows both). API v1 has no narrower scopes for these writes, so the
+// protection is where the token lives and for how long: the access token
+// in memory, the refresh token (valid for [oauth2]
+// REFRESH_TOKEN_EXPIRATION_TIME, 730 h by default — an instance-wide
+// setting livesync cannot shorten for its client alone) in IndexedDB, both
+// readable by script of the Next UI's origin only. Note that an XSS on a
+// classic page can already mint a full-scope personal access token with
+// the session cookie (the same origin); the token adds the refresh token's
 // lifetime outside that case. Instances that want less exposure lower
 // REFRESH_TOKEN_EXPIRATION_TIME (users then sign in again more often).
-const Scope = "write:issue write:repository read:user read:organization write:notification"
+// Personal access tokens stay out of reach: API v1 creates and deletes
+// them with a password (basic authentication) only.
+const Scope = "write:issue write:repository write:user read:organization write:notification"
 
 // Meta names in livesync_meta.
 const (

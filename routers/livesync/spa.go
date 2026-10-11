@@ -25,6 +25,7 @@ import (
 
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
+	"forgejo.org/modules/git"
 	"forgejo.org/modules/json"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
@@ -49,13 +50,17 @@ import (
 // Segments: a literal, "{owner}" (a usable user or organization name),
 // "{repo}" (a usable repository name), "{index}" (a number) or "{temp}" (the
 // address "new-<uuid>" the UI gives an issue created offline until Forgejo
-// numbers it: opened later, the UI goes on to the issue it became). Extend
+// numbers it: opened later, the UI goes on to the issue it became), "{period}"
+// (a period of the activity page: activityPeriods), "{page}" (a wiki page's
+// address: any segment but wikiReserved) or "{code}". Extend
 // this table when the UI supports a route (F3–F7).
 var spaRoutes = [][]string{
 	{},                    // the dashboard
 	{"notifications"},     // the inbox
 	{"issues"},            // the viewer's issues
 	{"pulls"},             // the viewer's pull requests
+	{"repo", "create"},    // a new repository ("repo" and "org" are reserved user names: never an owner)
+	{"org", "create"},     // a new organization
 	{"{owner}"},           // an owner's repositories (the profile's other tabs stay classic: profileTab)
 	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
@@ -63,8 +68,50 @@ var spaRoutes = [][]string{
 	{"{owner}", "{repo}", "issues", "{temp}"},
 	{"{owner}", "{repo}", "pulls"},
 	{"{owner}", "{repo}", "pulls", "{index}"},
-	{"{owner}", "{repo}", "{code}"}, // a code address (codeAddress); the app opens its code view for it
+	{"{owner}", "{repo}", "settings"}, // a repository's settings (the app's sections; the others stay classic)
+	{"{owner}", "{repo}", "settings", "collaboration"},
+	{"{owner}", "{repo}", "settings", "branches"},
+	{"{owner}", "{repo}", "settings", "hooks"},
+	{"{owner}", "{repo}", "settings", "keys"},
+	{"{owner}", "{repo}", "labels"},     // the repository's labels
+	{"{owner}", "{repo}", "milestones"}, // its milestones (open, closed)
+	{"{owner}", "{repo}", "milestones", "new"},
+	{"{owner}", "{repo}", "milestone", "{index}"}, // a milestone and its issues
+	{"{owner}", "{repo}", "milestone", "{index}", "edit"},
+	{"{owner}", "{repo}", "{code}"},               // a code address (codeAddress); the app opens its code view for it
+	{"{owner}", "{repo}", "activity"},             // the activity (Pulse) of the last week
+	{"{owner}", "{repo}", "activity", "{period}"}, // … of another period (activityPeriods)
+	{"{owner}", "{repo}", "activity", "contributors"},
+	{"{owner}", "{repo}", "activity", "code-frequency"},
+	{"{owner}", "{repo}", "activity", "recent-commits"},
+	// The wiki: its Home, a page, the page list, a new page, a page's editor
+	// (the classic ?action=_pages, _new and _edit open the same views; a
+	// page's revisions stay classic: wikiClassic).
+	{"{owner}", "{repo}", "wiki"},
+	{"{owner}", "{repo}", "wiki", "{page}"},
+	{"{owner}", "{repo}", "wiki", "-", "pages"},
+	{"{owner}", "{repo}", "wiki", "-", "new"},
+	{"{owner}", "{repo}", "wiki", "{page}", "-", "edit"},
+	// The viewer's settings: the profile, account (email addresses),
+	// appearance and SSH / GPG keys pages; the other pages stay classic.
+	// "user" is a reserved name ({owner} never matches it).
+	{"user", "settings"},
+	{"user", "settings", "account"},
+	{"user", "settings", "appearance"},
+	{"user", "settings", "keys"},
 }
+
+// activityPeriods are the periods of the classic activity page
+// (/{owner}/{repo}/activity/{period}, routers/web/repo/activity.go); keep in
+// step with next/src/features/activity/pulse.ts PERIODS.
+var activityPeriods = map[string]bool{
+	"daily": true, "halfweekly": true, "weekly": true, "monthly": true, "quarterly": true, "semiyearly": true, "yearly": true,
+}
+
+// wikiReserved are the wiki's segments that name no page: the classic
+// wiki's own routes (raw files, search) and the names Forgejo reserves
+// (services/wiki reservedWikiNames). Keep in step with next/src/sw/routes.ts.
+var wikiReserved = map[string]bool{"raw": true, "search": true, "_pages": true, "_new": true, "_edit": true}
 
 // reTempIssue is the address of an issue created offline (next/src/features/issue/paths.ts TEMP_PATH).
 var reTempIssue = regexp.MustCompile(`^new-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$`)
@@ -101,8 +148,13 @@ func codeAddress(rest []string) bool {
 	case "commit":
 		// A full SHA, or an abbreviated one (typed or pasted): the app resolves it to the full one's address.
 		return len(rest) == 2 && shaPattern.MatchString(rest[1])
-	case "branches", "tags", "releases":
+	case "branches", "tags":
 		return len(rest) == 1
+	case "releases":
+		// The list, and a writer's release form: a new release, a tag's release
+		// (whose name may have slashes) to edit. A release's own page
+		// (releases/tag/…) stays classic.
+		return len(rest) == 1 || len(rest) == 2 && rest[1] == "new" || len(rest) >= 3 && rest[1] == "edit"
 	case "actions":
 		switch {
 		case len(rest) == 1:
@@ -117,13 +169,34 @@ func codeAddress(rest []string) bool {
 		}
 		return false
 	case "compare":
-		spec := strings.Join(rest[1:], "/")
-		at := strings.Index(spec, "...")
-		return at > 0 && at+3 < len(spec)
+		return compareAddress(strings.Join(rest[1:], "/"))
 	case "pulls":
 		return len(rest) == 3 && number(rest[1]) && (rest[2] == "files" || rest[2] == "commits")
 	}
 	return false
+}
+
+// compareAddress reports whether spec (what follows /compare/) is a
+// comparison the UI renders, read as routers/web/repo/compare.go does:
+// "" (both sides the default branch: the page asks for a head), "{head}"
+// (the base is the default branch) or "{base}...{head}". A direct
+// comparison ("a..b") and the .diff/.patch downloads stay classic. Keep in
+// step with parseCompare in next/src/code/refs.ts.
+func compareAddress(spec string) bool {
+	if spec == "" {
+		return true
+	}
+	base, head, three := strings.Cut(spec, "...")
+	if !three {
+		base, head = "", spec
+	}
+	if three && (base == "" || head == "") {
+		return false
+	}
+	if strings.Contains(base, "..") || strings.Contains(head, "..") {
+		return false
+	}
+	return !strings.HasSuffix(head, ".diff") && !strings.HasSuffix(head, ".patch")
 }
 
 // shaPattern is a commit SHA (SHA-1 or SHA-256), whole or abbreviated to 7
@@ -167,6 +240,14 @@ next:
 				if !reTempIssue.MatchString(seg) {
 					continue next
 				}
+			case "{page}":
+				if seg == "" || seg == "." || seg == ".." || wikiReserved[seg] {
+					continue next
+				}
+			case "{period}":
+				if !activityPeriods[seg] {
+					continue next
+				}
 			default:
 				if seg != want {
 					continue next
@@ -185,6 +266,28 @@ func classicRequested(req *http.Request) bool {
 	return req.URL.Query().Get(protocol.NextUICookie) == "classic"
 }
 
+// classicReturn reports whether req comes back to the classic page it was
+// sent from: the classic page of a canonical route (?ui=classic) whose form
+// posted to its own address and was redirected there (the classic settings
+// pages: a password changed on /user/settings/account?ui=classic comes back
+// to /user/settings/account, where the classic page shows that it was
+// done). Without it the UI would answer, and the classic page's message
+// would be lost.
+func classicReturn(req *http.Request) bool {
+	ref := req.Header.Get("Referer")
+	if ref == "" {
+		return false
+	}
+	u, err := url.Parse(ref)
+	if err != nil || u.Query().Get(protocol.NextUICookie) != "classic" {
+		return false
+	}
+	if u.Host != "" && u.Host != req.Host {
+		return false
+	}
+	return normalizeSlashes(u.Path) == normalizeSlashes(req.URL.Path)
+}
+
 // profileTab reports whether req asks for a tab of an owner's classic
 // profile other than its repositories (/{owner}?tab=activity): the UI's
 // owner page shows the repositories only. Keep in step with next/src/sw/routes.ts.
@@ -194,6 +297,14 @@ func profileTab(p string, req *http.Request) bool {
 	}
 	tab := req.URL.Query().Get("tab")
 	return tab != "" && tab != "repositories"
+}
+
+// wikiClassic reports whether req asks for a view of the wiki the UI does
+// not render (/{owner}/{repo}/wiki/{page}?action=_revision: a page's
+// revisions). Keep in step with next/src/sw/routes.ts.
+func wikiClassic(p string, req *http.Request) bool {
+	segs := strings.Split(strings.Trim(p, "/"), "/")
+	return len(segs) >= 3 && segs[2] == "wiki" && req.URL.Query().Get("action") == "_revision"
 }
 
 // optedIn reports whether req is a document navigation (Sec-Fetch-Dest:
@@ -581,6 +692,11 @@ func nextConfig() *protocol.NextConfig {
 	cfg := &protocol.NextConfig{
 		AppURL: setting.AppURL, AppSubURL: setting.AppSubURL, Base: setting.AppSubURL + nextBase,
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
+		SSHClonePrefix: sshClonePrefix(),
+		Repository: &protocol.NextRepository{
+			DefaultBranch: setting.Repository.DefaultBranch, DefaultPrivate: setting.Repository.DefaultPrivate,
+			ForcePrivate: setting.Repository.ForcePrivate, ObjectFormats: objectFormats(),
+		},
 	}
 	if app := livesync_service.OAuthApp(); app != nil {
 		cfg.OAuth = &protocol.NextOAuth{
@@ -590,6 +706,27 @@ func nextConfig() *protocol.NextConfig {
 		}
 	}
 	return cfg
+}
+
+// objectFormats are the names of the object formats new repositories may
+// use (git.SupportedObjectFormats: SHA-1 first, SHA-256 with a Git that has it).
+func objectFormats() []string {
+	names := make([]string, 0, len(git.SupportedObjectFormats))
+	for _, f := range git.SupportedObjectFormats {
+		names = append(names, f.Name())
+	}
+	return names
+}
+
+// sshClonePrefix is the part of every SSH clone URL before "{owner}/{repo}.git"
+// (Forgejo's own composition: the user, the host, a non-standard port), or ""
+// when SSH is disabled.
+func sshClonePrefix() string {
+	if setting.SSH.Disabled {
+		return ""
+	}
+	const owner, repo = "o", "r"
+	return strings.TrimSuffix(repo_model.ComposeSSHCloneURL(owner, repo), owner+"/"+repo+".git")
 }
 
 var (
@@ -739,7 +876,7 @@ func (s *spa) serveIndex(w http.ResponseWriter, req *http.Request, canonical boo
 // canonical route the UI supports (and there is a build): it gets the UI's
 // document instead of the classic page.
 func (s *spa) document(req *http.Request) bool {
-	if !optedIn(req) || !s.available() || classicRequested(req) {
+	if !optedIn(req) || !s.available() || classicRequested(req) || classicReturn(req) {
 		return false
 	}
 	p := normalizeSlashes(req.URL.Path)
@@ -750,7 +887,7 @@ func (s *spa) document(req *http.Request) bool {
 			p = p[len(sub):]
 		}
 	}
-	return spaRoute(p) && !profileTab(p, req)
+	return spaRoute(p) && !profileTab(p, req) && !wikiClassic(p, req)
 }
 
 // serveAsset answers GET /-/next/assets/*: hashed, immutable files.

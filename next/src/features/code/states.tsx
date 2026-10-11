@@ -8,6 +8,7 @@
 import {CloudOff, FolderGit2, SearchX, TriangleAlert} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
+import {httpsCloneUrl} from '../../code/clone.ts';
 import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
@@ -38,11 +39,6 @@ export const Unloaded = observer(function Unloaded({loaded, what, skeleton, acti
   }
 });
 
-/** A repository's clone URL over HTTP(S). */
-export function cloneUrl(appUrl: string, owner: string, repo: string): string {
-  return `${appUrl}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}.git`;
-}
-
 /**
  * An empty repository (no commit yet), the same on every code tab: what to push and where, never a missing branch.
  * undefined when the repository is not empty (the caller shows its own content or state).
@@ -52,7 +48,7 @@ export const EmptyRepo = observer(function EmptyRepo({owner, repo, repoId}: {own
   const r = usePool().model('Repository').get(repoId)?.data;
   if (!r?.empty) return null;
   const branch = r.default_branch || 'main';
-  const commands = `git remote add origin ${cloneUrl(app.config.app_url, owner, repo)}\ngit push -u origin ${branch}`;
+  const commands = `git remote add origin ${httpsCloneUrl(app.config.app_url, owner, repo)}\ngit push -u origin ${branch}`;
   return (
     <EmptyState icon={FolderGit2} title="This repository is empty" description="Push a first commit to it from an existing repository:"
       action={<pre className="max-w-full overflow-x-auto rounded-md border border-border bg-canvas px-3 py-2 text-left font-mono text-code text-fg select-all">{commands}</pre>}/>

@@ -19,7 +19,7 @@ import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest
 import {observer} from 'mobx-react-lite';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
-import {online, RequestFailed} from '../../app/api.ts';
+import {failureText, online, refused} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
@@ -749,27 +749,6 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
 });
 
 type MergeStyle = typeof STYLES[number][0];
-
-/**
- * Why an online action failed, for people: Forgejo's message when it is one (short, no internal addresses or
- * stack: a failed hook prints sockets and URLs), else what happened in general. The whole message goes to the
- * console for whoever needs it.
- */
-/** Forgejo refused the request (a 4xx other than a timeout or a rate limit): trying it again would be refused again. */
-export function refused(err: unknown): boolean {
-  return err instanceof RequestFailed && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
-}
-
-export function failureText(err: unknown): string {
-  const status = err instanceof RequestFailed ? err.status : 0;
-  const said = err instanceof Error ? err.message.trim() : '';
-  if (said && said.length <= 140 && !/\n|https?:\/\/|unix|\.sock\b|\bdial\b|\bpanic\b|[A-Z][a-z]+Error:|PushRejected/.test(said)) return said;
-  if (said) console.warn('Forgejo said:', said);
-  if (status === 0) return 'Forgejo could not be reached.';
-  if (status === 409 || status === 405) return 'Forgejo could not do it now (the branch changed, or a hook refused it). Check the pull request, then try again.';
-  if (status >= 500) return 'Forgejo ran into an error. Try again in a moment.';
-  return `Forgejo refused it (HTTP ${String(status)}).`;
-}
 
 /** Merging is not undone: the commit message and whether the branch goes, confirmed first. */
 function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge}: {

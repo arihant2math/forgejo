@@ -1,10 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The global sync indicator (PLAN §5.4): live / catching up / offline,
-// with the number of intents waiting to sync. An observer leaf: it reads the
-// connection fields of the sync status and the auth state, nothing else, so
-// deltas and position updates do not re-render it.
+// The global sync indicator (PLAN §5.4): catching up / offline / signed
+// out, with the number of intents waiting to sync (and of those Forgejo
+// refused). Live with nothing waiting or refused
+// is the normal state and shows nothing (the live region still announces
+// it). An observer leaf: it reads the connection fields of the sync status
+// and the auth state, nothing else, so deltas and position updates do not
+// re-render it.
 
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -55,15 +58,17 @@ export const SyncIndicator = observer(function SyncIndicator() {
   const parts = [pending > 0 && `${String(pending)} pending`, failed > 0 && `${String(failed)} not sent`].filter(Boolean);
   const words = [v.label, ...parts].join(' · ');
   const tip = [v.detail, pending > 0 && `${String(pending)} not synced yet.`, failed > 0 && `${String(failed)} refused by Forgejo: retry or discard.`].filter(Boolean).join(' ');
+  // Up to date and nothing waiting or refused: no badge, only the live region (the header stays quiet, like GitHub's).
+  const quiet = v.tone === 'success' && pending === 0 && failed === 0;
   return (
-    <div className="flex items-center gap-2">
-      <Tooltip content={tip}>
+    <div className="flex items-center gap-2" data-sync-indicator="">
+      {!quiet && <Tooltip content={tip}>
         <Status tone={failed > 0 && v.tone === 'success' ? 'warning' : v.tone} onClick={open} label={`${words}: show unsynced changes`}>
           {v.label}
           {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
           {failed > 0 && <span className="tabular-nums">· {failed} not sent</span>}
         </Status>
-      </Tooltip>
+      </Tooltip>}
       {/* The live region: announces the connection, apart from the button (not every pending change). */}
       <span role="status" className="sr-only">{v.label}</span>
       {v.retry && (

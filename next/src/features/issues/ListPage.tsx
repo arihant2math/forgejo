@@ -80,8 +80,10 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
       nearEnd.set(near);
     });
   }, [nearEnd]);
+  // A milestone's page lists its milestone's issues: that is the list, not a filter in effect.
+  const ownMilestone = src.kind === 'repo' && src.milestone !== undefined;
   const filtered = q.filter.state !== 'open' || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
-    q.filter.poster !== undefined || q.filter.milestone !== undefined || q.filter.status !== undefined || q.filter.priority !== undefined ||
+    q.filter.poster !== undefined || (q.filter.milestone !== undefined && !ownMilestone) || q.filter.status !== undefined || q.filter.priority !== undefined ||
     q.filter.label !== undefined || q.filter.repo !== undefined;
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
   const typed = q.filter.q?.trim();

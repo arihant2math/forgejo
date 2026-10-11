@@ -33,7 +33,7 @@ function Types({to, current, extra}: {to: '/issues' | '/pulls'; current: MyListT
         <Button key={t.label} asChild size="sm" variant={current === t.type ? 'secondary' : 'ghost'}>
           {/* Exact search: "Your repositories" (no type) is not also current on a typed list (a subset match). */}
           <Link to={to} search={(prev) => {
-            const {type: _type, ...rest} = prev;
+            const {type: _type, ...rest} = prev as MyListSearch;
             return t.type ? {...rest, type: t.type} : rest;
           }} activeOptions={{exact: true}}>{t.label}</Link>
         </Button>

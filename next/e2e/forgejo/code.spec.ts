@@ -16,7 +16,7 @@
 // Switching to a cached file and the 5 000-line diff's scrolling are timed in perf.spec.ts.
 // Results (timings) are attached to the test results and printed.
 
-import {expect, test} from '@playwright/test';
+import {expect, type Locator, test} from '@playwright/test';
 import {api, b64, ensureUser, ok} from '../lib/api.ts';
 import {signIn, watch} from '../lib/app.ts';
 import {blobSha as blobShaIn, changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
@@ -87,6 +87,12 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await files.getByRole('option', {name: /^src/}).click();
   await page.getByRole('listbox', {name: 'Files'}).getByRole('option', {name: /^main\.go/}).click();
   await expect(page.getByRole('list', {name: /src\/main\.go, \d+ lines/})).toBeVisible();
+  // GitHub's header rows: the breadcrumb, the repository's tabs, then the file's path with its ref picker.
+  const below = async (a: Locator, b: Locator) => ((await a.boundingBox())?.y ?? 0) >= ((await b.boundingBox())?.y ?? Infinity) + 1;
+  const crumbs = page.getByRole('navigation', {name: 'Breadcrumb'});
+  const repoTabs = page.getByRole('navigation', {name: 'Repository'});
+  expect(await below(repoTabs, crumbs)).toBe(true);
+  expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);
   // Highlighted in the worker: keyword spans (classes only, no HTML from the file).
   await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
   await expect(page.locator('.text-syn-keyword').first()).toHaveText(/package|import|func/);
@@ -94,6 +100,8 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await page.getByRole('radio', {name: 'Blame'}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();
+  // Highlighted too (the same highlighting, by blob SHA: from memory).
+  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syn-keyword').first()).toBeVisible();
   // Hostile file name and content: text.
   await page.goto(code('src/branch/main/docs'));
   await page.getByRole('option', {name: /onerror/}).click();
@@ -106,11 +114,21 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   // A name with a space.
   await page.goto(code('src/branch/main/docs/a b.txt'));
   await expect(page.getByText('spaces in the name')).toBeVisible({timeout: 15_000});
-  // Branches (from the pool), history and a commit with its diff.
-  await page.getByRole('link', {name: 'Branches'}).click();
+  // The overview's files are headed like GitHub's: the branch picker (to that branch's tree), the branches
+  // (from the pool) and the history; then a commit with its diff. The Code tab stays current on all of them.
+  await page.goto(`${BASE}/${USER}/${REPO}`);
+  const tabs = page.getByRole('navigation', {name: 'Repository'});
+  await expect(tabs.getByRole('link', {name: 'Code'})).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', {name: 'Ref: main'}).click();
+  await page.getByRole('option', {name: /^small/}).click();
+  await expect(page).toHaveURL(/\/src\/branch\/small\/-$/);
+  await expect(tabs.getByRole('link', {name: 'Code'})).toHaveAttribute('aria-current', 'page');
+  await page.goBack();
+  await page.getByRole('link', {name: /^\d+ branches$/}).click();
   await expect(page.getByRole('option', {name: /^small/})).toBeVisible();
   await expect(page.getByRole('option', {name: /^main.*default/})).toBeVisible();
-  await page.getByRole('link', {name: 'Commits'}).click();
+  await page.goBack();
+  await page.getByRole('link', {name: 'History', exact: true}).click();
   await page.getByRole('option', {name: /Add sources/}).click();
   await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('src/main.go').first()).toBeVisible();

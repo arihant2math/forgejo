@@ -13,8 +13,12 @@
 //   * Grammars load lazily, one chunk each (lang.ts lists them).
 //   * The output is never HTML: per line, (length, class) pairs over the
 //     line's own text, which the page renders as text nodes.
+//   * A text is tokenized a chunk of lines at a time (the grammar's state
+//     carried over), and each chunk done is reported (`progress`): the page's
+//     watchdog stops a highlight that makes no progress, not one that is long
+//     (src/code/highlighter.ts).
 
-import {createCssVariablesTheme, createHighlighterCore, type HighlighterCore, type LanguageRegistration} from '@shikijs/core';
+import {createCssVariablesTheme, createHighlighterCore, type GrammarState, type HighlighterCore, type LanguageRegistration, type ThemedToken} from '@shikijs/core';
 import {createJavaScriptRegexEngine} from '@shikijs/engine-javascript';
 import {HIGHLIGHT_MAX_CHARS, type Lang} from '../code/lang.ts';
 
@@ -111,6 +115,12 @@ export const MAX_LINES = 40_000;
  * highlight that runs too long: src/code/source.ts).
  */
 const MAX_LINE = 400;
+/**
+ * Lines tokenized between two progress reports: a few hundred milliseconds of
+ * work on a slow device, cold grammar included (the JavaScript engine compiles
+ * a grammar's patterns on first use, while tokenizing).
+ */
+export const CHUNK = 200;
 
 let core: Promise<HighlighterCore> | undefined;
 const loaded = new Map<Lang, Promise<void>>();
@@ -148,15 +158,28 @@ export async function prepare(lang: Lang): Promise<void> {
   if (lang in LOADERS) await loadLang(await highlighter(), lang);
 }
 
-/** Highlights text (lines split on \n; a \r before it is part of the line). null: plain (unknown grammar, too big); rejects when the grammar does not load. */
-export async function highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
+/**
+ * Highlights text (lines split on \n; a \r before it is part of the line). null: plain (unknown grammar, too big);
+ * rejects when the grammar does not load. `progress` is called after each chunk of `chunk` lines.
+ */
+export async function highlight(text: string, lang: Lang | undefined, progress?: () => void, chunk = CHUNK): Promise<Highlight | null> {
   if (!lang || !(lang in LOADERS) || text.length > MAX_CHARS) return null;
   let lineCount = 1;
   for (let i = text.indexOf('\n'); i >= 0 && lineCount <= MAX_LINES; i = text.indexOf('\n', i + 1)) lineCount++;
   if (lineCount > MAX_LINES) return null;
   const h = await highlighter();
   await loadLang(h, lang);
-  const tokens = h.codeToTokensBase(text, {lang, theme: THEME, tokenizeMaxLineLength: MAX_LINE});
+  const lines = text.split('\n');
+  const tokens: ThemedToken[][] = [];
+  let state: GrammarState | undefined;
+  for (let at = 0; at < lines.length; at += chunk) {
+    const part = h.codeToTokensBase(lines.slice(at, at + chunk).join('\n'), {
+      lang, theme: THEME, tokenizeMaxLineLength: MAX_LINE, ...(state ? {grammarState: state} : {}),
+    });
+    state = h.getLastGrammarState(part);
+    for (const line of part) tokens.push(line);
+    progress?.();
+  }
   return compact(tokens, text);
 }
 

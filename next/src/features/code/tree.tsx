@@ -39,15 +39,22 @@ export function entryParts(e: APITreeEntry): RowParts {
   };
 }
 
-/** The ref and its latest commit (a branch's, from the pool), as a files panel's header. */
-export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind, name, sha}: {owner: string; repo: string; repoId: number; kind: RefKind; name: string; sha: string}) {
+/**
+ * The ref and its latest commit (a branch's, from the pool), as a files panel's header (`showRef` false: the
+ * commit alone, where a branch picker above names the ref).
+ */
+export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind, name, sha, showRef = true}: {
+  owner: string; repo: string; repoId: number; kind: RefKind; name: string; sha: string; showRef?: boolean;
+}) {
   const pool = usePool();
   const b = kind === 'branch' ? [...pool.model('Branch').by('repo_id', repoId)].find((x) => x.get('name') === name && !x.get('is_deleted'))?.data : undefined;
   const commit = b?.commit_id ?? sha;
   return (
     <>
-      <Icon icon={kind === 'tag' ? Tag : kind === 'commit' ? GitCommitHorizontal : GitBranch} size="sm"/>
-      {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
+      {showRef && <>
+        <Icon icon={kind === 'tag' ? Tag : kind === 'commit' ? GitCommitHorizontal : GitBranch} size="sm"/>
+        {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
+      </>}
       {b ? <>
         <span className="min-w-0 truncate"><TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${commit}/-`}}>{summary(b.commit_message)}</Link></TextLink></span>
         <span className="shrink-0 tabular-nums"><Ago at={b.commit_time}/></span>
@@ -56,7 +63,7 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
   );
 });
 
-/** A directory's listing panel (the header: RefCommit; actions: e.g. "Browse code"). */
+/** A directory's listing panel (the header: RefCommit; actions: e.g. the overview's History link). */
 export function FilesPanel({title, actions, children}: {title: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return <Panel label="Files" title={title} actions={actions}>{children}</Panel>;
 }

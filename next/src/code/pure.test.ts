@@ -122,10 +122,23 @@ describe('refs', () => {
     expect(parseCodePath(`commit/${A}`)).toEqual({view: 'commit', sha: A});
     expect(parseCodePath('commit/abc123')).toBeUndefined();
     expect(parseCodePath('compare/main...feature/x')).toEqual({view: 'compare', base: 'main', head: 'feature/x'});
-    expect(parseCodePath('compare/main')).toBeUndefined();
+    // Forgejo's compare addresses: no spec (both sides the default branch), a head alone, a fork's branch.
+    expect(parseCodePath('compare')).toEqual({view: 'compare', base: '', head: ''});
+    expect(parseCodePath('compare/-')).toEqual({view: 'compare', base: '', head: ''});
+    expect(parseCodePath('compare/feature/x')).toEqual({view: 'compare', base: '', head: 'feature/x'});
+    expect(parseCodePath('compare/main...alice:feature')).toEqual({view: 'compare', base: 'main', head: 'alice:feature'});
+    // Two dots (a direct comparison), a download, an empty side: classic pages.
+    for (const p of ['compare/main..feature', 'compare/main...feature.diff', 'compare/feature.patch', 'compare/...feature', 'compare/main...', 'compare/a...b...c']) {
+      expect(parseCodePath(p), p).toBeUndefined();
+    }
     expect(parseCodePath('actions/runs/3/jobs/1')).toEqual({view: 'run', run: 3, job: 1});
     expect(parseCodePath('actions/runs/3')).toEqual({view: 'run', run: 3, job: -1});
     expect(parseCodePath('branches/x')).toBeUndefined();
+    // A writer's release form: a new release, a tag's (slashes and all), never a release's own page.
+    expect(parseCodePath('releases/new')).toEqual({view: 'release-form', tag: undefined});
+    expect(parseCodePath(withEnd('releases/edit/v1.2'))).toEqual({view: 'release-form', tag: 'v1.2'});
+    expect(parseCodePath('releases/edit/release/1.0')).toEqual({view: 'release-form', tag: 'release/1.0'});
+    for (const p of ['releases/edit', 'releases/new/x', 'releases/tag/v1', 'releases/latest']) expect(parseCodePath(p), p).toBeUndefined();
     expect(parseCodePath('nope')).toBeUndefined();
     // The END segment: dropped once (a path whose last name is "-" keeps it).
     expect(parseCodePath(withEnd('src/branch/main/a.txt'))).toEqual({view: 'src', kind: 'branch', rest: ['main', 'a.txt']});

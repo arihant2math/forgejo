@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The ⌘K palette's files: the paths of the repository on screen (or the
-// last one opened) at its default branch, from API v1's recursive tree
-// (online; asked once per commit and kept in memory for the session), found
+// last one opened) at its default branch, from the code cache's recursive
+// tree (CodeSource.paths: asked once per commit, kept like the rest of the
+// cache, offline too once seen; the file finder reads the same list), found
 // by name first, then by path.
 
 import {useEffect, useState} from 'react';
-import {online} from '../api.ts';
+import {codeSource} from '../../code/source.ts';
 import type {App} from '../store.ts';
 import {score} from './search.ts';
 
@@ -16,31 +17,19 @@ interface Tree {
   owner: string;
   repo: string;
   ref: string;
-  paths: string[];
+  paths: readonly string[];
 }
-
-const trees = new Map<string, Promise<Tree | undefined>>();
 
 /** The repository's file paths at its default branch's head (undefined: unknown here, offline, or refused). */
 function treeOf(app: App, repoId: number): Promise<Tree | undefined> {
   const s = app.session;
   const r = s?.data.pool.model('Repository').get(repoId)?.data;
-  if (!s || !r) return Promise.resolve(undefined);
+  const src = codeSource(app);
+  if (!s || !r || !src) return Promise.resolve(undefined);
   const branch = [...s.data.pool.model('Branch').by('repo_id', repoId)].find((b) => b.get('name') === r.default_branch && !b.get('is_deleted'));
   const sha = branch?.get('commit_id');
   if (!sha) return Promise.resolve(undefined);
-  const key = `${String(repoId)}:${sha}`;
-  let p = trees.get(key);
-  if (!p) {
-    p = online<{tree?: {path: string; type: string}[]}>(app, {
-      api: 'v1', path: `/repos/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}/git/trees/${sha}?recursive=true&per_page=10000`,
-    }).then((t) => ({owner: r.owner_name, repo: r.name, ref: r.default_branch, paths: (t?.tree ?? []).filter((e) => e.type === 'blob').map((e) => e.path)}), () => {
-      trees.delete(key);
-      return undefined;
-    });
-    trees.set(key, p);
-  }
-  return p;
+  return src.paths(repoId, sha).then((t) => ({owner: r.owner_name, repo: r.name, ref: r.default_branch, paths: t.paths}), () => undefined);
 }
 
 export interface FileHit {

@@ -10,7 +10,7 @@
 
 import {useNavigate, useRouter, useRouterState} from '@tanstack/react-router';
 import {rememberRow} from '../../app/listReturn.ts';
-import {ChevronDown, File, Folder, FolderGit2, GitBranch, GitCommitHorizontal, History, Tag} from 'lucide-react';
+import {File, Folder, FolderGit2, GitBranch, History} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
@@ -21,13 +21,15 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  BlameCell, Button, CodeLine, CodeTokens, CommandPopover, EmptyState, Icon, LineNo, ListRow, type PickOption, SegmentedControl, Skeleton, TextLink,
+  BlameCell, Button, CodeLine, CodeTokens, EmptyState, Icon, LineNo, ListRow, SegmentedControl, Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {hasRefs, type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Lines, type LinesHandle, maxChars} from './Lines.tsx';
+import {GoToFile} from './FileFinder.tsx';
+import {RefMenu} from './RefMenu.tsx';
 import {RowList} from './RowList.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
@@ -155,6 +157,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>History</CodeLink>
       </Button>
+      <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
         <SegmentedControl label="Show the file as" value={blame ? 'blame' : 'src'} onChange={(v) => {
@@ -167,36 +170,6 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
         </Button>
       )}
     </>
-  );
-});
-
-/**
- * The branch or tag on screen, and every other one to switch to (same path): a picker that filters as you
- * type (Enter takes the first match), branches first.
- */
-export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {owner: string; repo: string; repoId: number; at: Resolved; view: 'src' | 'blame' | 'commits'}) {
-  const pool = usePool();
-  const navigate = useNavigate();
-  const refs = refTable(pool, repoId);
-  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
-  const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
-  const current = `${at.kind}:${at.ref}`;
-  const option = (kind: RefKind, ref: string): PickOption => ({
-    value: `${kind}:${ref}`, label: ref, group: kind === 'branch' ? 'Branches' : 'Tags', icon: kind === 'branch' ? GitBranch : Tag,
-    meta: kind === 'branch' && ref === refs.defaultBranch ? 'default' : undefined, checked: current === `${kind}:${ref}`,
-    onSelect: () => {
-      void navigate(codeTo(owner, repo, codeSplat(view, {kind, ref}, at.path)));
-    },
-  });
-  const label = at.kind === 'commit' ? shortSha(at.sha) : at.ref;
-  return (
-    <CommandPopover width="md" label="Switch branch or tag" placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
-      options={[...branches.map((b) => option('branch', b)), ...tags.map((t) => option('tag', t))]}
-      trigger={
-        <Button size="sm" icon={at.kind === 'tag' ? Tag : at.kind === 'commit' ? GitCommitHorizontal : GitBranch} aria-label={`Ref: ${label}`}>
-          <span className="max-w-xs truncate font-mono">{label}</span><Icon icon={ChevronDown} size="sm"/>
-        </Button>
-      }/>
   );
 });
 
@@ -229,12 +202,13 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}
       onOpen={rows.onOpen} linkOf={rows.linkOf}
-      // Hover or the cursor: fetch the entry and highlight it, so opening it paints at once.
+      // Hover or the cursor: fetch the entry and highlight it (idle: never ahead of what is on screen, the newest
+      // intents first), so opening it paints at once.
       onIntent={(e) => {
         const p = pathOf(e);
         if (e.type === 'tree') void src.tree(repoId, at.sha, p).catch(() => undefined);
         else if (e.type === 'blob') {
-          void src.blob(repoId, e.sha, p, e.size).then((c) => (c.kind === 'text' ? src.highlight(repoId, e.sha, p, c.text) : null)).catch(() => undefined);
+          void src.blob(repoId, e.sha, p, e.size).then((c) => (c.kind === 'text' ? src.highlight(repoId, e.sha, p, c.text, 'idle') : null)).catch(() => undefined);
         }
       }}/>
   );
@@ -252,7 +226,11 @@ const FileView = observer(function FileView(props: FileProps) {
   const {repoId, entry, at} = props;
   const src = useSource();
   const key = CodeSource.blobKey(repoId, entry.sha);
-  const content = useLoad(key, () => src.peek<FileContent>(key), () => src.blob(repoId, entry.sha, at.path, entry.size));
+  // The stored highlighting is read with the file (IndexedDB, in parallel): a file highlighted on an earlier visit
+  // paints highlighted in its first frame, not plain and then highlighted.
+  const content = useLoad(key, () => src.peek<FileContent>(key), async () => (await Promise.all([
+    src.blob(repoId, entry.sha, at.path, entry.size), src.loadHighlight(repoId, entry.sha, at.path),
+  ]))[0]);
   if (content.state !== 'ready') return <Unloaded loaded={content} what="This file" skeleton={<CodeSkeleton/>}/>;
   const c = content.value;
   switch (c.kind) {

@@ -43,6 +43,27 @@ func routeModules(p string) []string {
 		}
 		return nil
 	}
+	if segs[0] == "user" {
+		// The viewer's settings pages (spaRoutes); every other /user/… page is classic.
+		if spaRoute(p) {
+			return []string{"src/features/usersettings/UserSettings.tsx"}
+		}
+		return nil
+	}
+	if len(segs) >= 3 && segs[2] == "wiki" {
+		return []string{"src/features/wiki/WikiPage.tsx"}
+	}
+	// A canonical code address (/{owner}/{repo}/releases/new, src/…): the app
+	// goes on to its code view, or to a pull request's tab.
+	if len(segs) >= 3 && codeAddress(segs[2:]) {
+		if segs[2] == "pulls" {
+			return []string{"src/features/issue/IssueView.tsx"}
+		}
+		return []string{"src/features/code/CodePage.tsx"}
+	}
+	if len(segs) >= 3 && segs[2] == "activity" {
+		return []string{"src/features/activity/Activity.tsx"}
+	}
 	switch len(segs) {
 	case 1:
 		switch segs[0] {
@@ -53,14 +74,38 @@ func routeModules(p string) []string {
 		}
 		return []string{"src/features/owner/OwnerPage.tsx"}
 	case 2:
+		switch {
+		case segs[0] == "repo" && segs[1] == "create":
+			return []string{"src/features/new/NewRepo.tsx"}
+		case segs[0] == "org" && segs[1] == "create":
+			return []string{"src/features/new/NewOrg.tsx"}
+		}
 		return []string{"src/features/repo/RepoHome.tsx"}
 	case 3:
-		if segs[2] == "issues" || segs[2] == "pulls" {
+		switch segs[2] {
+		case "issues", "pulls":
 			return []string{"src/features/repo/RepoViews.tsx"}
+		case "labels":
+			return []string{"src/features/meta/LabelsPage.tsx"}
+		case "milestones":
+			return []string{"src/features/meta/MilestonesPage.tsx"}
+		case "settings":
+			return []string{"src/features/settings/Settings.tsx"}
 		}
 	case 4:
-		if segs[2] == "issues" || segs[2] == "pulls" {
+		switch {
+		case segs[2] == "issues" || segs[2] == "pulls":
 			return []string{"src/features/issue/IssueView.tsx"}
+		case segs[2] == "milestones" && segs[3] == "new":
+			return []string{"src/features/meta/MilestoneForm.tsx"}
+		case segs[2] == "milestone":
+			return []string{"src/features/meta/MilestonePage.tsx"}
+		case segs[2] == "settings" && (segs[3] == "collaboration" || segs[3] == "branches" || segs[3] == "hooks" || segs[3] == "keys"):
+			return []string{"src/features/settings/Settings.tsx"}
+		}
+	case 5:
+		if segs[2] == "milestone" && segs[4] == "edit" {
+			return []string{"src/features/meta/MilestoneForm.tsx"}
 		}
 	}
 	return nil

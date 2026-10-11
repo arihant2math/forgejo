@@ -22,7 +22,8 @@ import {Ago, commitRow, Sha, summary} from './bits.tsx';
 import {CodeLink, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
-import {Breadcrumbs, RefMenu} from './Src.tsx';
+import {RefMenu} from './RefMenu.tsx';
+import {Breadcrumbs} from './Src.tsx';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();

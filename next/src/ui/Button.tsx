@@ -14,6 +14,8 @@ const variants = {
   // A transparent border: switching between ghost and secondary (a toggle, a tab, a filter with a value)
   // never changes the width.
   ghost: `border border-transparent ${ghostHover} data-[state=open]:bg-hover data-[state=open]:text-fg`,
+  // The one green button (GitHub's Code menu on the overview); not for confirming things (that is primary).
+  success: 'bg-success-solid text-fg-on-accent hover:bg-success-solid-hover',
   danger: 'bg-danger-solid text-fg-on-accent hover:bg-danger-solid-hover',
 } as const;
 

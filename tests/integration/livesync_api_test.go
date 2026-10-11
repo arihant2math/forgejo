@@ -140,6 +140,7 @@ func livesyncAPIScenario(t *testing.T, u *url.URL) {
 	t.Run("body", func(t *testing.T) { livesyncAPIBody(t, user2, user5, read2, delta) })
 	t.Run("viewed", func(t *testing.T) { livesyncAPIViewed(t, user2, user5, read2, delta) })
 	t.Run("git", func(t *testing.T) { livesyncAPIGit(t, user2, user5) })
+	t.Run("activity", func(t *testing.T) { livesyncAPIActivity(t, user2, user5) })
 	t.Run("markdown", func(t *testing.T) { livesyncAPIMarkdown(t, user2, user5) })
 	t.Run("markup", func(t *testing.T) { livesyncAPIMarkup(t, user2, user5) })
 	t.Run("issue project", func(t *testing.T) { livesyncAPIIssueProject(t, user2, user5) })
@@ -691,6 +692,13 @@ func livesyncAPIMarkup(t *testing.T, user2, user5 string) {
 	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user5, protocol.APIMarkupRequest{RepoID: 2, Ref: "branch/master", Path: "a.md", Text: "x"}), http.StatusNotFound)
 	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Ref: "master", Path: "a.md", Text: "x"}), http.StatusBadRequest)
 	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Ref: "branch/master", Path: "/a.md", Text: "x"}), http.StatusBadRequest)
+	// A wiki page (no ref or path): links resolve to the wiki's pages, images to its files; the wiki unit decides.
+	DecodeJSON(t, MakeRequest(t, livesyncAPI(t, "POST", "/markup", user2, protocol.APIMarkupRequest{RepoID: 1, Wiki: true, Text: "[a](Other-Page) [[Home]] ![i](logo.png) #1"}), http.StatusOK), &out)
+	assert.Contains(t, out.HTML, `href="/user2/repo1/wiki/Other-Page"`)
+	assert.Contains(t, out.HTML, `href="/user2/repo1/wiki/Home"`)
+	assert.Contains(t, out.HTML, `src="/user2/repo1/wiki/raw/logo.png"`)
+	assert.Contains(t, out.HTML, `/user2/repo1/issues/1`)
+	MakeRequest(t, livesyncAPI(t, "POST", "/markup", user5, protocol.APIMarkupRequest{RepoID: 2, Wiki: true, Text: "x"}), http.StatusNotFound)
 }
 
 func livesyncAPIIssueProject(t *testing.T, user2, user5 string) {

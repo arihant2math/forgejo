@@ -1,46 +1,49 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's home (/{owner}/{repo}): what it is (description, topics,
-// clone URL, latest commit, counts) from the pool, its top-level files and
-// its README from the code cache (by commit and blob SHA: there offline
-// once seen). The tabs lead to everything else. Its own chunk.
+// A repository's home (/{owner}/{repo}), the Code tab's first page: its
+// name and kind; above its files, like GitHub's, the branch picker (to that
+// branch's tree), the numbers of branches and tags (their pages), Go to file
+// (FileFinder.tsx, key T) and the Code menu (clone URLs, archives:
+// CodeMenu.tsx), all from the pool at once; the latest commit with its History; its top-level files and its README from the code
+// cache (by commit and blob SHA: there offline once seen); and beside them
+// the side pane (AboutSidebar.tsx: what it is, its releases and languages).
+// The tabs lead to everything else. Its own chunk.
 
-import {Link} from '@tanstack/react-router';
-import {BookMarked, CircleDot, Copy, Folder, FolderGit2, GitBranch, GitPullRequest, Globe, Package, SquarePen, Star, GitFork} from 'lucide-react';
+import {Code2, Folder, FolderGit2, GitBranch, History, SquarePen, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {Fragment, type ReactNode, useEffect, useMemo, useState} from 'react';
+import {type ReactNode, useEffect, useMemo} from 'react';
 import {whenIdle} from '../../app/lazy.tsx';
-import {sitePath} from '../../app/config.ts';
 import {openCreate} from '../../app/create.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
-import {notify} from '../../app/notices.ts';
-import {online} from '../../app/api.ts';
-import {connectivity} from '../../app/online.ts';
 import {codePath} from '../../app/paths.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {
-  Badge, Button, EmptyState, Icon, IconButton, ListRow, Property, PropertyList, PropertyValue, SkeletonText, TextLink,
-} from '../../ui/index.ts';
+import {Badge, Button, EmptyState, Icon, ListRow, SkeletonText} from '../../ui/index.ts';
+import {codeSplat} from '../../code/refs.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
+import {GoToFile} from '../code/FileFinder.tsx';
+import {CodeLink} from '../code/nav.tsx';
+import {RefMenu} from '../code/RefMenu.tsx';
 import {ReadmePanel, readmeOf} from '../code/Rendered.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {entryParts, FilesPanel, RefCommit, treeOrder} from '../code/tree.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {ago, fullDate, shortDate} from '../issues/format.ts';
+import {AboutSidebar} from './AboutSidebar.tsx';
+import {plural} from './about.ts';
+import {CodeMenu} from './CodeMenu.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
-import {cloneUrl, EmptyRepo} from '../code/states.tsx';
+import {EmptyRepo} from '../code/states.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={BookMarked} title="Overview"/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={Code2} title="Code" home/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
@@ -52,7 +55,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
   const app = useApp();
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={BookMarked} title="Overview">
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Code2} title="Code" home>
         <Button size="sm" variant="ghost" icon={SquarePen} shortcut={shortcutHint('create')} tooltip="New issue in this repository" onClick={() => {
           openCreate(app, repoId);
         }}>New issue</Button>
@@ -64,7 +67,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
             <Files owner={owner} repo={repo} repoId={repoId}/>
           </PageColumn>
           <aside aria-label="About" className="shrink-0 border-t border-border p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
-            <About owner={owner} repo={repo} repoId={repoId}/>
+            <AboutSidebar owner={owner} repo={repo} repoId={repoId}/>
           </aside>
         </div>
       </PageBody>
@@ -72,26 +75,20 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
   );
 });
 
-/** The description, the repository's kind and its topics. */
+/** The repository's name and kind (its description and topics are in the side pane's About, like GitHub's). */
 const Summary = observer(function Summary({repoId}: {repoId: number}) {
   const r = usePool().model('Repository').get(repoId)?.data;
   if (!r) return null;
-  const flags = [r.private && 'Private', r.fork && 'Fork', r.mirror && 'Mirror', r.template && 'Template', r.archived && 'Archived'].filter((f): f is string => Boolean(f));
+  const flags = [r.private ? 'Private' : 'Public', r.fork && 'Fork', r.mirror && 'Mirror', r.template && 'Template', r.archived && 'Archived'].filter((f): f is string => Boolean(f));
   return (
-    <div className="flex flex-col gap-2">
-      <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-fg">
-        {r.name}
-        {flags.map((f) => <Badge key={f} tone={f === 'Archived' ? 'warning' : 'neutral'}>{f}</Badge>)}
-      </h2>
-      {/* A fork names what it was forked from, under its name (QA: only a "Fork" badge said it was one). */}
-      {r.fork && r.parent_id > 0 && <ForkLine parentId={r.parent_id}/>}
-      {r.description ? <p className="max-w-lg text-md text-fg-muted">{r.description}</p> : <p className="text-md text-fg-subtle">No description.</p>}
-      {r.topics.length > 0 && <div className="flex flex-wrap gap-1">{r.topics.map((t) => <Badge key={t} tone="accent">{t}</Badge>)}</div>}
-    </div>
+    <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-fg">
+      {r.name}
+      {flags.map((f) => <Badge key={f} tone={f === 'Archived' ? 'warning' : 'neutral'} round>{f}</Badge>)}
+    </h2>
   );
 });
 
-/** At most this many top-level entries are listed (the Code tab has them all). */
+/** At most this many top-level entries are listed (the branch's tree in the code view has them all). */
 const MAX_ENTRIES = 60;
 
 /** The default branch's latest commit, its top-level files and its README. */
@@ -109,11 +106,43 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
       </FilesPanel>
     );
   }
-  const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha}/>;
-  return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title}/>;
+  // GitHub's bar above the files: on the left the branch picker and how many branches and tags there are (their
+  // pages); on the right Go to file and the Code menu. From the pool and the configuration: there at once, the same
+  // size before and after the tree arrives; it wraps on a narrow page.
+  const branches = refs.branches.size;
+  const tags = refs.tags.size;
+  const toolbar = (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <RefMenu owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}} view="src"/>
+      <Button size="sm" variant="ghost" asChild>
+        <CodeLink owner={owner} repo={repo} to="branches">
+          <Icon icon={GitBranch} size="sm"/><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span>
+        </CodeLink>
+      </Button>
+      <Button size="sm" variant="ghost" asChild>
+        <CodeLink owner={owner} repo={repo} to="tags">
+          <Icon icon={Tag} size="sm"/><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span>
+        </CodeLink>
+      </Button>
+      <div className="ms-auto flex flex-wrap items-center gap-2">
+        <GoToFile owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha}}/>
+        <CodeMenu owner={owner} repo={repo} branch={branch}/>
+      </div>
+    </div>
+  );
+  // The latest commit's bar, with the history on the right (API v1 has no commit count the pool holds: "History").
+  const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha} showRef={false}/>;
+  const history = (
+    <Button size="sm" variant="ghost" asChild>
+      <CodeLink owner={owner} repo={repo} to={codeSplat('commits', {kind: 'branch', ref: branch})}><Icon icon={History} size="sm"/>History</CodeLink>
+    </Button>
+  );
+  return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title} toolbar={toolbar} actions={history}/>;
 });
 
-function Tree({owner, repo, repoId, sha, branch, title}: {owner: string; repo: string; repoId: number; sha: string; branch: string; title: ReactNode}) {
+function Tree({owner, repo, repoId, sha, branch, title, toolbar, actions}: {
+  owner: string; repo: string; repoId: number; sha: string; branch: string; title: ReactNode; toolbar: ReactNode; actions: ReactNode;
+}) {
   const app = useApp();
   const src = useSource();
   const click = useLinkClick();
@@ -135,7 +164,8 @@ function Tree({owner, repo, repoId, sha, branch, title}: {owner: string; repo: s
   const all = hrefOf(app, codePath(owner, repo, `src/branch/${branch}`));
   return (
     <>
-      <FilesPanel title={title} actions={<Button size="sm" variant="ghost" asChild><a href={all} onClick={(e) => click(e, all)}>Browse code</a></Button>}>
+      {toolbar}
+      <FilesPanel title={title} actions={actions}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
           <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-3 py-3"><SkeletonText lines={5}/></div>}/>}
@@ -161,109 +191,3 @@ function EntryRow({owner, repo, branch, entry}: {owner: string; repo: string; br
     </ListRow>
   );
 }
-
-/** The side pane: clone URL, website, counts, the latest release. */
-const About = observer(function About({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
-  const app = useApp();
-  const pool = usePool();
-  const r = pool.model('Repository').get(repoId)?.data;
-  let issues = 0;
-  let pulls = 0;
-  for (const i of pool.model('Issue').by('repo_id', repoId)) {
-    if (i.get('state') !== 'open') continue;
-    if (i.get('is_pull')) pulls++;
-    else issues++;
-  }
-  const release = [...pool.model('Release').by('repo_id', repoId)].map((x) => x.data).filter((x) => !x.is_tag && !x.draft && !x.prerelease)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  if (!r) return null;
-  const clone = cloneUrl(app.config.app_url, owner, repo);
-  const copy = () => {
-    void navigator.clipboard.writeText(clone).then(() => {
-      notify(app, {tone: 'success', title: 'Clone URL copied'});
-    }, () => undefined);
-  };
-  return (
-    <PropertyList>
-      <Property label="Clone" stacked>
-        <PropertyValue>
-          <span className="flex min-w-0 items-start gap-1">
-            {/* Whole, on the pane's full width: wrapped after a slash when it is longer, never mid-word. */}
-            <span className="min-w-0 flex-1 py-0.5 font-mono text-code break-normal text-fg select-all">
-              {clone.split(/(?<=\/)/).map((part, i) => <Fragment key={i}>{part}<wbr/></Fragment>)}
-            </span>
-            <IconButton size="sm" icon={Copy} label="Copy the clone URL" onClick={copy}/>
-          </span>
-        </PropertyValue>
-      </Property>
-      {r.website && /^https?:\/\//.test(r.website) && (
-        <Property label="Website">
-          <PropertyValue><span className="flex min-w-0 items-center gap-2"><Icon icon={Globe} size="sm"/><TextLink><a href={r.website} target="_blank" rel="noopener noreferrer">{r.website.replace(/^https?:\/\//, '')}</a></TextLink></span></PropertyValue>
-        </Property>
-      )}
-      <Property label="Issues">
-        <PropertyValue><span className="flex items-center gap-2"><Icon icon={CircleDot} size="sm"/><TextLink><Link to="/$owner/$repo/issues" params={{owner, repo}}>{issues} open</Link></TextLink></span></PropertyValue>
-      </Property>
-      <Property label="Pull requests">
-        <PropertyValue><span className="flex items-center gap-2"><Icon icon={GitPullRequest} size="sm"/><TextLink><Link to="/$owner/$repo/pulls" params={{owner, repo}}>{pulls} open</Link></TextLink></span></PropertyValue>
-      </Property>
-      {release && (
-        <Property label="Release">
-          <PropertyValue>
-            <span className="flex min-w-0 items-center gap-2">
-              <Icon icon={Package} size="sm"/>
-              <TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: 'releases/-'}}>{release.name || release.tag_name}</Link></TextLink>
-              <span className="shrink-0 text-fg-subtle">{shortDate(release.created_at)}</span>
-            </span>
-          </PropertyValue>
-        </Property>
-      )}
-      <Property label="Stars">
-        <PropertyValue tone="muted"><span className="flex items-center gap-2 tabular-nums"><Icon icon={Star} size="sm"/>{r.stars_count}</span></PropertyValue>
-      </Property>
-      <Property label="Forks">
-        <PropertyValue tone="muted"><span className="flex items-center gap-2 tabular-nums"><Icon icon={GitFork} size="sm"/>{r.forks_count}</span></PropertyValue>
-      </Property>
-      <Property label="Updated">
-        <PropertyValue tone="muted"><time dateTime={r.updated_at} title={fullDate(r.updated_at)}>{ago(r.updated_at)}</time></PropertyValue>
-      </Property>
-      {!r.empty && <Property label="Archive">
-        <PropertyValue tone="muted"><TextLink><a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.default_branch)}.zip`)} download>{r.default_branch}.zip</a></TextLink></PropertyValue>
-      </Property>}
-    </PropertyList>
-  );
-});
-
-/** A fork's parent: from the pool, else asked of Forgejo once (a repository outside the workspace). */
-function useParent(parentId: number): {owner: string; name: string; full: string} | undefined {
-  const app = useApp();
-  const p = usePool().model('Repository').get(parentId)?.data;
-  const [asked, setAsked] = useState<{owner: string; name: string; full: string} | undefined>(() => parentCache.get(parentId));
-  useEffect(() => {
-    if (p || asked || !connectivity.online) return undefined;
-    let live = true;
-    online<{name?: string; full_name?: string; owner?: {login?: string}}>(app, {path: `/repositories/${String(parentId)}`, api: 'v1'}).then((r) => {
-      if (!r?.name || !r.owner?.login) return;
-      const v = {owner: r.owner.login, name: r.name, full: r.full_name ?? `${r.owner.login}/${r.name}`};
-      parentCache.set(parentId, v);
-      if (live) setAsked(v);
-    }, () => undefined);
-    return () => {
-      live = false;
-    };
-  }, [app, p, asked, parentId]);
-  return p ? {owner: p.owner_name, name: p.name, full: p.full_name} : asked;
-}
-
-const parentCache = new Map<number, {owner: string; name: string; full: string}>();
-
-const ForkLine = observer(function ForkLine({parentId}: {parentId: number}) {
-  const p = useParent(parentId);
-  if (!p) return null;
-  return (
-    <p className="flex items-center gap-1.5 text-sm text-fg-muted">
-      <Icon icon={GitFork} size="sm"/>Forked from <TextLink><Link to="/$owner/$repo" params={{owner: p.owner, repo: p.name}} activeOptions={{exact: true}}>{p.full}</Link></TextLink>
-    </p>
-  );
-});
-

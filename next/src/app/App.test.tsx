@@ -5,7 +5,7 @@ import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {runInAction} from 'mobx';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {afterEach, describe, expect, test} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {classConflicts} from '../test/conflicts.ts';
 import {fakeSession, issue, repo, user} from '../test/fakeSession.ts';
@@ -73,6 +73,9 @@ describe('boot', () => {
     const html = renderToStaticMarkup(<BootShell/>);
     expect(html.match(/data-sk-row=""/g)).toHaveLength(SKELETON_MAX_ROWS);
     expect(html).toContain('logged-out:flex');
+    // A repository page's header rows under the first (the splash's data-header shows them).
+    expect(html).toContain('header-tabs:contents');
+    expect(html).toContain('header-toolbar:contents');
     const div = document.createElement('div');
     div.innerHTML = html;
     expect(classConflicts(div)).toEqual([]);
@@ -143,11 +146,11 @@ describe('signed in', () => {
 
   test('an unknown address keeps the shell and offers the classic page', async () => {
     const s = signedIn();
-    await renderApp('/-/next/acme/website/settings', s);
+    await renderApp('/-/next/acme/website/settings/units', s);
     expect(screen.getByRole('complementary', {name: 'Sidebar'})).toBeTruthy();
     // The classic UI has the page: "Not available here" (a page nobody has is "Not found").
     expect(screen.getByRole('heading', {name: 'Not available here'})).toBeTruthy();
-    expect((await screen.findByRole('link', {name: /Open this page/})).getAttribute('href')).toBe('/acme/website/settings');
+    expect((await screen.findByRole('link', {name: /Open this page/})).getAttribute('href')).toBe('/acme/website/settings/units');
     expect(screen.getByRole('link', {name: /Go to Home/})).toBeTruthy();
   });
 
@@ -161,13 +164,61 @@ describe('signed in', () => {
     const crumbs = screen.getByRole('navigation', {name: 'Breadcrumb'});
     expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/acme');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
-    expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Overview', 'Issues', 'Pull requests', 'Code', 'Commits', 'Branches', 'Tags', 'Releases', 'Actions']);
-    expect(within(tabs).getByRole('link', {name: 'Overview'}).getAttribute('aria-current')).toBe('page');
+    // GitHub's order; the home is the Code tab. Pages only the classic UI has are marked (data-classic).
+    expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Code', 'Issues', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity']);
+    expect(within(tabs).getByRole('link', {name: 'Code'}).getAttribute('aria-current')).toBe('page');
+    // The home has no title row (GitHub's): its heading is the repository's crumb; the browser tab names the
+    // repository alone. Its actions end the breadcrumb's row, and the header's rows are breadcrumb, then tabs.
+    expect(screen.getByRole('heading', {level: 1}).textContent).toBe('website');
+    expect(within(crumbs).getByRole('heading', {level: 1})).toBeTruthy();
+    const header = crumbs.closest('header');
+    expect(header?.contains(tabs)).toBe(true);
+    expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(header ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
+    await waitFor(() => {
+      expect(document.title).toBe('acme/website · Forgejo');
+    });
+    expect(within(tabs).getByRole('link', {name: 'Wiki'}).getAttribute('href')).toBe('/acme/website/wiki');
+    // The wiki and the activity are the app's; Projects without a board is the classic UI's.
+    expect(within(tabs).getByRole('link', {name: 'Wiki'}).hasAttribute('data-classic')).toBe(false);
+    expect(within(tabs).getByRole('link', {name: 'Activity'}).hasAttribute('data-classic')).toBe(false);
+    expect(within(tabs).getByRole('link', {name: 'Projects'}).hasAttribute('data-classic')).toBe(true);
+    expect(within(tabs).getByRole('button', {name: 'More of this repository'})).toBeTruthy();
     await router.navigate({to: '/$owner/$repo/issues', params: {owner: 'acme', repo: 'website'}});
     await waitFor(() => {
       expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: 'Issues'}).getAttribute('aria-current')).toBe('page');
     });
     expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
+  });
+
+  test('the overview\'s files are headed like GitHub\'s: the branch picker, the branches and tags, Go to file, Code, the history', async () => {
+    const s = signedIn();
+    const branch = (id: number, name: string, sha: string) => ({
+      id, repo_id: 20, name, commit_id: sha, commit_message: `Tip of ${name}`, commit_time: '2026-10-01T00:00:00Z', pusher_id: 1,
+      is_deleted: false, deleted_by_id: 0, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
+    });
+    s.data.put('Branch', 'repo:20', branch(1, 'main', 'a'.repeat(40)));
+    s.data.put('Branch', 'repo:20', branch(2, 'small', 'b'.repeat(40)));
+    // The page starts the highlighter when idle (for the README's code blocks): no workers here.
+    vi.stubGlobal('Worker', class {
+      addEventListener = () => undefined;
+      removeEventListener = () => undefined;
+      postMessage = () => undefined;
+      terminate = () => undefined;
+    });
+    await renderApp('/acme/website', s);
+    // At once, above the files panel, while its tree is still loading (no layout shift when it arrives).
+    const picker = screen.getByRole('button', {name: 'Ref: main'});
+    const files = screen.getByRole('region', {name: 'Files'});
+    expect(picker.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(files.contains(picker)).toBe(false);
+    expect(screen.getByRole('link', {name: '2 branches'}).getAttribute('href')).toBe('/-/next/code/acme/website/branches/-');
+    expect(screen.getByRole('link', {name: '0 tags'}).getAttribute('href')).toBe('/-/next/code/acme/website/tags/-');
+    expect(files.contains(screen.getByRole('button', {name: 'Go to file'}))).toBe(false);
+    expect(files.contains(screen.getByRole('button', {name: 'Code'}))).toBe(false);
+    expect(screen.getByRole('link', {name: 'History'}).getAttribute('href')).toBe('/-/next/code/acme/website/commits/branch/main/-');
+    expect(screen.getByRole('link', {name: 'Tip of main'})).toBeTruthy();
+    expect(screen.queryByRole('link', {name: 'Browse code'})).toBeNull();
   });
 
   test('a repository\'s code address (spaRoutes {code}) opens the app\'s code view; a pull request\'s Files its tab', async () => {
@@ -307,6 +358,15 @@ describe('signed in', () => {
     const s = signedIn();
     const {router} = await renderApp('/acme/website/issues', s);
     expect(screen.getByRole('heading', {name: 'Issues'})).toBeTruthy();
+    // GitHub's rows: the breadcrumb (with the sync indicator), the repository's tabs, then the title with the
+    // list's controls — none of them in the breadcrumb's row.
+    const crumbs = screen.getByRole('navigation', {name: 'Breadcrumb'});
+    const tabs = screen.getByRole('navigation', {name: 'Repository'});
+    const title = screen.getByRole('heading', {level: 1, name: 'Issues'});
+    expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tabs.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(title.parentElement ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
+    expect(within(crumbs.parentElement ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
     expect(s.data.held.get('repo:20')).toBe(1);
     await act(() => router.navigate({to: '/'}));
     expect(s.data.held.has('repo:20')).toBe(false);
@@ -354,6 +414,26 @@ describe('signed in', () => {
       expect(router.state.location.pathname).toBe('/acme/website/issues/42');
     });
     expect(router.history.length).toBe(1);
+  });
+
+  test('the sync indicator: nothing to see while live and up to date, the badge once something waits', async () => {
+    const s = signedIn();
+    const {app} = await renderApp('/', s);
+    expect(screen.getByRole('status').textContent).toBe('Live');
+    expect(screen.queryByRole('button', {name: /show unsynced changes/})).toBeNull();
+    act(() => {
+      runInAction(() => {
+        app.ui.pendingIntents = 1;
+      });
+    });
+    expect(screen.getByRole('button', {name: /show unsynced changes/}).textContent).toBe('Live· 1 pending');
+    act(() => {
+      runInAction(() => {
+        app.ui.pendingIntents = 0;
+        s.data.status.connection = 'catching_up';
+      });
+    });
+    expect(screen.getByRole('button', {name: /show unsynced changes/}).textContent).toBe('Catching up');
   });
 
   test('the sync indicator: offline with pending intents, signed out with a sign-in button', async () => {

@@ -12,7 +12,7 @@ const real = window.matchMedia.bind(window);
 
 function reset() {
   localStorage.clear();
-  for (const a of ['data-theme', 'data-shell', 'data-skeleton', 'style']) html.removeAttribute(a);
+  for (const a of ['data-theme', 'data-shell', 'data-skeleton', 'data-header', 'style']) html.removeAttribute(a);
   for (const s of document.head.querySelectorAll('style')) s.remove();
   performance.clearMarks();
 }
@@ -42,6 +42,7 @@ describe('applySplash', () => {
     expect(html.dataset.theme).toBe('light');
     expect(html.dataset.shell).toBe('logged-out');
     expect(html.dataset.skeleton).toBe('list');
+    expect(html.dataset.header).toBe('page');
     expect(html.style.getPropertyValue('--sidebar-width')).toBe('');
     expect(hiddenRowsRule()).toBe(`[data-sk-row]:nth-child(n+${SKELETON_DEFAULT_ROWS + 1}){display:none}`);
     expect(performance.getEntriesByName('appStart', 'mark')).toHaveLength(1);
@@ -61,10 +62,11 @@ describe('applySplash', () => {
   });
 
   test('stored state: app shell, sidebar width, detail shape, row count, initial', () => {
-    boot({user: '7', sidebarWidth: 300.4, skeleton: {shape: 'detail', rows: 5}, initial: 'A'});
+    boot({user: '7', sidebarWidth: 300.4, skeleton: {shape: 'detail', rows: 5, header: 'toolbar'}, initial: 'A'});
     expect(html.dataset.shell).toBe('app');
     expect(html.style.getPropertyValue('--sidebar-width')).toBe('300px');
     expect(html.dataset.skeleton).toBe('detail');
+    expect(html.dataset.header).toBe('toolbar');
     expect(hiddenRowsRule()).toContain('nth-child(n+6)');
     expect(html.style.getPropertyValue('--splash-initial')).toBe('"A"');
   });
@@ -83,10 +85,11 @@ describe('applySplash', () => {
     boot('{not json');
     expect(html.dataset.theme).toBe('light');
     reset();
-    boot({theme: 'blue', sidebarWidth: 'wide', user: 3, skeleton: {shape: 'grid', rows: Number.NaN}, initial: '</style>'} as unknown as Splash);
+    boot({theme: 'blue', sidebarWidth: 'wide', user: 3, skeleton: {shape: 'grid', rows: Number.NaN, header: '"]{}'}, initial: '</style>'} as unknown as Splash);
     expect(html.dataset.theme).toBe('light');
     expect(html.dataset.shell).toBe('logged-out');
     expect(html.dataset.skeleton).toBe('list');
+    expect(html.dataset.header).toBe('page');
     expect(html.style.getPropertyValue('--sidebar-width')).toBe('');
     expect(html.style.getPropertyValue('--splash-initial')).toBe('');
     reset();

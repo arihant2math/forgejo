@@ -22,6 +22,8 @@ const RANK: Record<string, AccessLevel | undefined> = {read: 'read', write: 'wri
 /** API v1 answers (repository id → level), per session. */
 const confirmed = observable.map<number, AccessLevel>();
 const asked = new Set<number>();
+/** Repositories API v1 was asked about this session and answered or failed (observable). */
+const settled = observable.set<number>();
 
 /** The viewer's access to a repository (observes the pool). Unknown repositories read as "read". */
 export function repoAccess(s: Session, repoId: number): AccessLevel {
@@ -36,6 +38,15 @@ export function repoAccess(s: Session, repoId: number): AccessLevel {
     if (level === 'admin' || (level === 'write' && best === 'read')) best = level;
   }
   return best;
+}
+
+/**
+ * Whether the viewer's access to a repository is as good as known: API v1 answered, or was asked and failed, or
+ * the pool already says administrator. A page only administrators may see waits for it rather than flash a refusal
+ * (site administrators have no Access rows).
+ */
+export function accessKnown(s: Session, repoId: number): boolean {
+  return confirmed.has(repoId) || settled.has(repoId) || repoAccess(s, repoId) === 'admin';
 }
 
 /** Whether the viewer may change the repository's issues and pull requests (labels, state, assignees, merge, boards). */
@@ -56,17 +67,25 @@ export function confirmAccess(app: App, owner: string, repo: string, repoId: num
       });
       if (!res.ok) {
         asked.delete(repoId);
+        settle(repoId);
         return;
       }
       const p = (await res.json() as {permissions?: {admin?: boolean; push?: boolean}}).permissions;
-      if (!p) return;
       runInAction(() => {
-        confirmed.set(repoId, p.admin ? 'admin' : p.push ? 'write' : 'read');
+        settled.add(repoId);
+        if (p) confirmed.set(repoId, p.admin ? 'admin' : p.push ? 'write' : 'read');
       });
     } catch {
       asked.delete(repoId);
+      settle(repoId);
     }
   })();
+}
+
+function settle(repoId: number): void {
+  runInAction(() => {
+    settled.add(repoId);
+  });
 }
 
 /** Confirms the viewer's access while a repository's page is open. */

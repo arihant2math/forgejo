@@ -41,7 +41,11 @@
   --color-fg: #1b1b1f;
   --color-fg-muted: #4f4f59;
   --color-fg-subtle: #64646f;
-  --color-fg-on-accent: #fff; /* on accent and danger-solid fills */
+  --color-fg-on-accent: #fff; /* on accent, success-solid and danger-solid fills */
+  /* Text on a label's own colour (a filled label pill): the one of the two that contrasts more with that colour
+   * (ui/ink.ts labelInk, whose luminances match these). The same in both themes: the fill is the label's. */
+  --color-on-label-dark: #1b1b1f;
+  --color-on-label-light: #fff;
 
   /* The one accent: a fill (+ hover), a text colour and a subtle tint. */
   --color-accent: #5e6ad2;
@@ -53,6 +57,9 @@
   /* Status: text/icon colour + subtle tint; danger also has a solid fill. */
   --color-success: #1a7540;
   --color-success-subtle: #e6f4ec;
+  /* A green fill (+ hover) for the one green button (the overview's Code menu, as on GitHub). */
+  --color-success-solid: #1a7f37;
+  --color-success-solid-hover: #176f30;
   --color-warning: #8a5c00;
   --color-warning-subtle: #fbf1dc;
   --color-danger: #bd2b39;
@@ -76,6 +83,16 @@
   --color-diff-add-strong: #d6efdf;
   --color-diff-del: #fcecee;
   --color-diff-del-strong: #f9dfe3;
+
+  /* Categorical series (a repository's languages bar): fixed order, assigned slot by slot, never cycled (a sixth
+   * share folds into "the rest", fg-subtle). Validated as a set for colour-vision deficiency and separation on
+   * the surface (the dataviz palette's first five slots); slots 3–5 are under 3:1 on the light surface, so a
+   * chart using them always has a legend with names and values. */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-4: #eda100;
+  --color-series-5: #e87ba4;
 
   /* ── Typography. System fonts only: no webfont request on the boot path. ── */
   --font-sans:
@@ -248,6 +265,8 @@
   --color-fg-muted: #a3a4ac;
   --color-fg-subtle: #999aa2;
   --color-fg-on-accent: #fff;
+  --color-on-label-dark: #1b1b1f;
+  --color-on-label-light: #fff;
   --color-accent: #5e6ad2;
   --color-accent-hover: #535fc4;
   --color-accent-fg: #9aa2f0;
@@ -255,6 +274,8 @@
   --color-focus: #838de7;
   --color-success: #4cc27a;
   --color-success-subtle: #17301f;
+  --color-success-solid: #238636;
+  --color-success-solid-hover: #1f7a31;
   --color-warning: #e0a83a;
   --color-warning-subtle: #33280f;
   --color-danger: #f07079;
@@ -274,6 +295,11 @@
   --color-diff-add-strong: #1a3623;
   --color-diff-del: #2b171a;
   --color-diff-del-strong: #3a1c21;
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+  --color-series-5: #d55181;
 }
 
 @media (prefers-reduced-motion: reduce) {

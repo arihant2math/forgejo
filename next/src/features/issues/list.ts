@@ -32,8 +32,12 @@ import type {Issue} from '../../protocol/types.gen.ts';
 import {ListCursor} from './flags.ts';
 import {type Group, type Query, type QueryContext, type QueryResult, type Row, runQuery, type Sort} from './query.ts';
 
+/**
+ * What a list lists. A repository's: its issues, its pull requests, or both (`'any'`: a milestone's page), and
+ * with `milestone` only that milestone's (a filter the view cannot drop).
+ */
 export type ListSource =
-  | {kind: 'repo'; repoId: number; pulls: boolean}
+  | {kind: 'repo'; repoId: number; pulls: boolean | 'any'; milestone?: number}
   | {kind: 'my'; pulls: boolean; type: MyListType | undefined};
 
 /** Models whose changes can change a list's rows. */
@@ -208,6 +212,7 @@ export class IssueListModel {
   get query(): Query {
     const q = queryOf(this.view.get(), {group: this.defaultGroup});
     if (this.source.kind === 'my' && this.source.type === 'assigned') q.filter = {...q.filter, assignee: this.app.session?.userId};
+    if (this.source.kind === 'repo' && this.source.milestone !== undefined) q.filter = {...q.filter, milestone: this.source.milestone};
     return q;
   }
 
@@ -282,7 +287,7 @@ export class IssueListModel {
       const out: Issue[] = [];
       for (const e of this.pool.model('Issue').by('repo_id', src.repoId)) {
         const d = e.data;
-        if (d.is_pull === src.pulls) out.push(d);
+        if (src.pulls === 'any' || d.is_pull === src.pulls) out.push(d);
       }
       return out;
     }
@@ -295,7 +300,7 @@ export class IssueListModel {
     const out: Issue[] = [];
     for (const e of created) {
       const d = e.data as Issue;
-      if (src.kind === 'repo' ? d.repo_id === src.repoId && d.is_pull === src.pulls : !src.pulls && (src.type === undefined || src.type === 'created_by')) out.push(d);
+      if (src.kind === 'repo' ? d.repo_id === src.repoId && (src.pulls === 'any' || d.is_pull === src.pulls) : !src.pulls && (src.type === undefined || src.type === 'created_by')) out.push(d);
     }
     return out;
   }

@@ -9,7 +9,7 @@ import {forgetRoute} from '../splash.ts';
 import {useApp} from '../store.ts';
 import {cx, Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
-import {HeaderBar, WhenSidebarAway} from './Frame.tsx';
+import {HeaderBar, HeaderRow, HeaderStack, WhenSidebarAway} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
 
@@ -67,24 +67,98 @@ export function PageHeader({title, icon, context, children, docTitle}: PageHeade
   return (
     <HeaderBar>
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      <WhenSidebarAway><IconButton size="sm" icon={PanelLeft} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar} data-sidebar-toggle=""/></WhenSidebarAway>
-      {icon && <span className="flex max-md:hidden"><Icon icon={icon} className="text-fg-subtle"/></span>}
+      <SidebarToggle/>
+      <PageIcon icon={icon}/>
       {context && (
         <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted max-md:order-first max-md:w-full max-md:pt-2 max-md:text-sm">
           {context}
           <span className="flex max-md:hidden"><Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/></span>
         </nav>
       )}
+      <TitleAndControls title={title}>{children}</TitleAndControls>
+      <HeaderEnd/>
+    </HeaderBar>
+  );
+}
+
+export interface StackedPageHeaderProps {
+  /** The first row: where you are (a breadcrumb: "owner / repo"), beside the sync indicator. */
+  context: ReactNode;
+  /** Actions at the first row's end, before the sync indicator (a page without a title row). */
+  actions?: ReactNode;
+  /** Between the first row and the title row: a tab bar (a row of its own). */
+  tabs?: ReactNode;
+  /** The title row's title; undefined: no title row (the page's heading is in the breadcrumb). */
+  title?: ReactNode;
+  icon?: LucideIcon | undefined;
+  /** The title row's controls (filters, view switches, a ref picker). */
+  children?: ReactNode;
+  /** The browser tab's title (default: the title when it is text). */
+  docTitle?: string | undefined;
+}
+
+/**
+ * A header of rows, as GitHub's repository pages: where you are (and the sync indicator) on top, then the tabs,
+ * then the page's title with its controls. Each row has the header bar's height and gutter; the title row ends
+ * as the one-row header does (the controls give way on a narrow panel, and scroll in a row of their own under the
+ * title on a phone). Without a title the page has no title row (a repository's home: its heading is the
+ * breadcrumb's last crumb).
+ */
+export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle}: StackedPageHeaderProps) {
+  return (
+    <HeaderStack>
+      <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
+      <HeaderRow>
+        <SidebarToggle/>
+        {/* On a phone too the breadcrumb truncates beside the row's end (no line of its own: basis 0). */}
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-fg-muted max-md:flex-1 max-md:basis-0 max-md:py-2">
+          {context}
+        </nav>
+        <HeaderEnd before={actions}/>
+      </HeaderRow>
+      {tabs}
+      {title !== undefined && (
+        <HeaderRow>
+          <PageIcon icon={icon}/>
+          <TitleAndControls title={title}>{children}</TitleAndControls>
+        </HeaderRow>
+      )}
+    </HeaderStack>
+  );
+}
+
+/** The sidebar's toggle, while the sidebar is not beside the page. */
+function SidebarToggle() {
+  return <WhenSidebarAway><IconButton size="sm" icon={PanelLeft} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar} data-sidebar-toggle=""/></WhenSidebarAway>;
+}
+
+/** The page's icon before its title (wide panels). */
+function PageIcon({icon}: {icon: LucideIcon | undefined}) {
+  return icon ? <span className="flex max-md:hidden"><Icon icon={icon} className="text-fg-subtle"/></span> : null;
+}
+
+/** The page's title and its controls. */
+function TitleAndControls({title, children}: {title: ReactNode; children?: ReactNode}) {
+  return (
+    <>
       {/* With controls the title keeps up to max-w-sm beside them; without (an issue's page) it takes the free width. */}
       <h1 className={cx('min-w-0 truncate text-base font-medium text-fg max-md:max-w-none max-md:flex-1 max-md:basis-0 max-md:py-2', children ? 'max-w-sm md:shrink-0' : 'md:shrink')}>{title}</h1>
-      {/* Controls give way on a narrow panel (the search narrows, the rest clips) before the title and the indicator do;
-          on a phone they are a scrolling row under the title. The padding keeps their focus rings inside the clip. */}
+      {/* Controls give way on a narrow panel (the search narrows, then the rest scrolls sideways, no scrollbar) before
+          the title and the indicator do; on a phone they are a scrolling row under the title. The padding keeps their
+          focus rings inside the clip. */}
+      {/* The phone's line break before them: their negative margins would otherwise let them share the title's line
+          when nothing else is on it (a title row has no sync indicator). */}
+      {children && <span aria-hidden className="hidden max-md:order-last max-md:block max-md:w-full"/>}
       {children && (
-        <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden p-1 max-md:order-last max-md:-mx-2 max-md:w-full max-md:overflow-x-auto max-md:px-2 max-md:scrollbar-none">
+        <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto p-1 scrollbar-none max-md:order-last max-md:-mx-2 max-md:w-full max-md:px-2">
           {children}
         </div>
       )}
-      <div className="ml-auto flex shrink-0 items-center pl-2"><SyncIndicator/></div>
-    </HeaderBar>
+    </>
   );
+}
+
+/** The header's right end: the sync indicator, `before` it a page's actions. */
+function HeaderEnd({before}: {before?: ReactNode}) {
+  return <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">{before}<SyncIndicator/></div>;
 }

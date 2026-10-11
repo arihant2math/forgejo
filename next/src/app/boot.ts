@@ -95,7 +95,8 @@ function started(app: App, router: AppRouter): void {
     const leaf = router.state.matches.at(-1);
     const shape = leaf?.staticData.skeleton;
     if (!shape || showingNotFound()) return;
-    writeSplash({route: `${location.pathname}${location.search}`, skeleton: {shape, rows: shape === 'list' ? listRows : 0}});
+    const header = leaf.staticData.header ?? 'page';
+    writeSplash({route: `${location.pathname}${location.search}`, skeleton: {shape, rows: shape === 'list' ? listRows : 0, header}});
   };
   remember();
   router.subscribe('onResolved', remember);
@@ -124,5 +125,7 @@ let listRows = 0;
  */
 export function rememberListRows(rows: number): void {
   listRows = Math.max(0, Math.round(rows));
-  writeSplash({skeleton: {shape: 'list', rows: listRows}});
+  // The route's header rows stay (the route's resolution wrote them).
+  const {header} = readSplash().skeleton ?? {};
+  writeSplash({skeleton: {shape: 'list', rows: listRows, ...(header ? {header} : {})}});
 }

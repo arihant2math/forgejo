@@ -55,7 +55,7 @@ describe('tokens.css', () => {
     };
     for (const fg of text) for (const bg of backgrounds) need(fg, bg, 4.5);
     for (const [fg, bg] of [['accent-fg', 'accent-subtle'], ['success', 'success-subtle'], ['warning', 'warning-subtle'], ['danger', 'danger-subtle'], ['done', 'done-subtle'], ['fg-muted', 'hover']]) need(fg ?? '', bg ?? '', 4.5);
-    for (const bg of ['accent', 'accent-hover', 'danger-solid', 'danger-solid-hover']) need('fg-on-accent', bg, 4.5);
+    for (const bg of ['accent', 'accent-hover', 'success-solid', 'success-solid-hover', 'danger-solid', 'danger-solid-hover']) need('fg-on-accent', bg, 4.5);
     for (const bg of ['canvas', 'surface', 'raised']) need('focus', bg, 3);
     // Fills must read as a change of state on the surface they sit on (not a WCAG
     // pair: Linear-like subtle fills, but never invisible).

@@ -258,7 +258,7 @@ test('a local mutation is in the DOM within a frame of the key, before the serve
     if (m.et !== undefined) eventTiming.push(m.et);
     await page.keyboard.press('Escape');
     // Let it confirm before the next one (each measured on a quiet page, as a person would).
-    await expect(page.getByRole('button', {name: /: show unsynced changes$/})).not.toContainText('pending', {timeout: 30_000});
+    await expect(indicator(page)).not.toContainText('pending', {timeout: 30_000});
   }
   await page.unroute(/\/api\/v1\/repos\/.*\/issues\/\d+\/labels/);
   record('local mutation: key → DOM (ms)', dom);
@@ -283,7 +283,7 @@ test('a commit reaches another client in < 150 ms (p95)', async ({browser}) => {
   await page.goto(`${BASE}/${USER}/${LIST_REPO}/issues/${String(issue.number)}`);
   const heading = page.getByRole('main').getByRole('heading', {level: 2});
   await expect(heading).toContainText(issue.title, {timeout: 30_000});
-  await expect(page.getByRole('button', {name: /: show unsynced changes$/})).toContainText('Live', {timeout: 30_000});
+  await expect(indicator(page)).toContainText('Live', {timeout: 30_000});
   const sent: number[] = [];
   const answered: number[] = [];
   // dev renames the issue (API v1, from this page's clock); this page shows the new title when the delta lands.

@@ -234,6 +234,11 @@ export interface APIViewedUpdate {
  * for README.md with the tree, before it knows the name: no such file is
  * an answer, Missing, not an error; 404 for no such commit, 413 for a file
  * too large to display).
+ * With Wiki, Text is a page of the repository's wiki, rendered as the
+ * classic wiki page renders it (Ref, Path and Commit are not used): links
+ * resolve to the wiki's pages (/{owner}/{repo}/wiki/{page}) and images to
+ * its files (/{owner}/{repo}/wiki/raw/{path}). Permission: the
+ * repository's wiki unit.
  */
 export interface APIMarkupRequest {
   repo_id: number /* int64 */;
@@ -241,6 +246,7 @@ export interface APIMarkupRequest {
   path: string;
   text: string;
   commit?: string;
+  wiki?: boolean;
 }
 /**
  * APIMarkupResponse is the rendered (sanitized) HTML; Missing: the request
@@ -334,6 +340,76 @@ export interface APIBlameCommit {
   author_id: number /* int64 */;
   authored_at: string;
   committed_at: string;
+}
+/**
+ * APICommitActivity is the history behind a repository's activity page
+ * (Pulse) at a commit (its default branch's head): the commits without
+ * merges reachable from Commit whose committer time is at or after Since —
+ * a year and a day before Commit's own, so any period the page shows (at
+ * most a year, ending at the viewer's now, never before Commit) is in it —
+ * newest first, at most MaxCommitActivity of them (Truncated: there were
+ * more). Each commit is [committer time in Unix seconds, index in Authors,
+ * lines added, lines deleted]. Authors are the commits' authors, each once
+ * (by the Forgejo account their email belongs to, else by email). The same
+ * rows give the commit and line counts and the top committers of every
+ * period: a client computes each period from one cached response.
+ */
+export interface APICommitActivity {
+  commit: string;
+  since: number /* int64 */;
+  authors: APIActivityAuthor[];
+  commits: number /* int64 */[][];
+  truncated: boolean;
+}
+/**
+ * MaxCommitActivity bounds APICommitActivity.Commits.
+ */
+export const MaxCommitActivity = 20000;
+/**
+ * APIActivityAuthor is a commit author of APICommitActivity or
+ * APIContributors. Login and AvatarURL are the Forgejo account one of
+ * their emails belongs to, as the classic activity pages link it (empty:
+ * none), and Name its display name (else the name in the commits). Email
+ * addresses are not included. The account is a display hint as of the
+ * response: it can go stale in a cached copy, the rest cannot.
+ */
+export interface APIActivityAuthor {
+  name: string;
+  login: string;
+  avatar_url: string;
+}
+/**
+ * APIContributors is what the classic contributors, code frequency and
+ * recent commits graphs show (computed in the background, as there: 202
+ * with Retry-After until it is ready): the commits without merges
+ * reachable from Commit, by week of their author date. Total holds every
+ * week with a commit, oldest first; Contributors are the authors, most
+ * commits first, each with their weeks.
+ */
+export interface APIContributors {
+  commit: string;
+  total: APIWeek[];
+  contributors: APIContributor[];
+}
+/**
+ * APIContributor is an author of APIContributors.
+ */
+export interface APIContributor {
+  name: string;
+  login: string;
+  avatar_url: string;
+  commits: number /* int64 */;
+  weeks: APIWeek[];
+}
+/**
+ * APIWeek is a week of APIContributors: Week is its first day (a Sunday,
+ * 00:00 UTC) in Unix milliseconds.
+ */
+export interface APIWeek {
+  week: number /* int64 */;
+  commits: number /* int */;
+  additions: number /* int */;
+  deletions: number /* int */;
 }
 
 //////////
@@ -1809,10 +1885,48 @@ export interface NextConfig {
    */
   protocol: number /* int */;
   /**
+   * SSHClonePrefix is what a repository's SSH clone URL starts with
+   * ("git@code.example:" or "ssh://git@code.example:2222/"); the URL is
+   * the prefix + "{owner}/{repo}.git", as Forgejo composes it. Omitted
+   * when SSH is disabled ([server] DISABLE_SSH).
+   */
+  ssh_clone_prefix?: string;
+  /**
    * OAuth is the UI's OAuth2 client; null when the UI cannot sign in
    * (Forgejo's OAuth2 provider is disabled).
    */
   oauth: NextOAuth | null;
+  /**
+   * Repository is what a new repository starts from ([repository]
+   * settings and the Git in use); absent from older servers.
+   */
+  repository?: NextRepository;
+}
+/**
+ * NextRepository is the instance's defaults for a new repository (the
+ * UI's "New repository" form, as the classic /repo/create page has them).
+ */
+export interface NextRepository {
+  /**
+   * DefaultBranch is the branch an initialized repository starts with
+   * ([repository] DEFAULT_BRANCH).
+   */
+  default_branch: string;
+  /**
+   * DefaultPrivate is "last" (the visibility of the user's last new
+   * repository), "private" or "public" ([repository] DEFAULT_PRIVATE).
+   */
+  default_private: string;
+  /**
+   * ForcePrivate: every new repository is private ([repository]
+   * FORCE_PRIVATE).
+   */
+  force_private: boolean;
+  /**
+   * ObjectFormats are the object formats a new repository may use, the
+   * default first: "sha1", and "sha256" when the Git in use supports it.
+   */
+  object_formats: string[];
 }
 /**
  * NextOAuth describes the Next UI's OAuth2 client (a public client: PKCE
@@ -2156,6 +2270,40 @@ export interface Grant {
 export interface Grants {
   viewer_id: number /* int64 */;
   grants: Grant[];
+}
+
+//////////
+// source: user.go
+
+/**
+ * APIUserOptions are the choices of the appearance settings: the
+ * instance's themes ([ui] THEMES, in that order) and languages ([i18n]
+ * LANGS, by name), as the classic appearance page offers them. API v1's
+ * PATCH /user/settings stores any theme and language it is sent, so a
+ * client offers only these. Names are in the viewer's language.
+ * DefaultTheme is [ui] DEFAULT_THEME (an account without a theme of its
+ * own shows it).
+ */
+export interface APIUserOptions {
+  themes: APIOption[];
+  default_theme: string;
+  languages: APIOption[];
+}
+/**
+ * APIOption is a choice: the value stored (ID) and its display name.
+ */
+export interface APIOption {
+  id: string;
+  name: string;
+}
+/**
+ * APIPrimaryEmail is the body of PUT /user/emails/primary: one of the
+ * viewer's verified addresses (case-insensitive) becomes the account's
+ * primary address, as the classic account page's "Set as primary" does
+ * (Forgejo mails the former primary address about the change).
+ */
+export interface APIPrimaryEmail {
+  email: string;
 }
 
 //////////

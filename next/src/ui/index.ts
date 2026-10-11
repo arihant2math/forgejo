@@ -4,8 +4,11 @@
 // The shared primitives. Features compose these; they never restyle a button,
 // menu, input or row locally (IMPLEMENTATION.md §2.4; tokens/no-restyle).
 
+export {AsideLink, AsideLinks, AsideSection, percent, ShareBar, type Share, type ShareTone} from './Aside.tsx';
 export {Avatar, AvatarGroup} from './Avatar.tsx';
-export {Badge, ChipButton, LabelChip, LabelDot, LabelIcon, type BadgeTone} from './Badge.tsx';
+export {Badge, ChipButton, LabelChip, LabelDot, LabelIcon, LabelPill, type BadgeTone} from './Badge.tsx';
+export {ColorPicker} from './ColorPicker.tsx';
+export {ProgressBar} from './Progress.tsx';
 export {Button, IconButton, type ButtonVariant} from './Button.tsx';
 export {Callout, type CalloutTone} from './Callout.tsx';
 export {Card, Panel} from './Card.tsx';
@@ -17,7 +20,7 @@ export {Dialog, DialogClose, DialogTrigger} from './Dialog.tsx';
 export {EmptyState} from './EmptyState.tsx';
 export {Entry, EntryList} from './Entry.tsx';
 export {Hint, Icon, type LucideIcon} from './Icon.tsx';
-export {Checkbox, EditableHeading, EditorFrame, Input, TextArea, TitleInput} from './Input.tsx';
+export {Checkbox, CopyField, EditableHeading, EditorFrame, Field, Input, TextArea, TitleInput} from './Input.tsx';
 export {Kbd, Shortcut} from './Kbd.tsx';
 export {ListGroupHeader, ListRow} from './ListRow.tsx';
 export {NavGroup, NavHeading, NavItem} from './NavItem.tsx';
@@ -41,3 +44,8 @@ export {Code, TextLink} from './Text.tsx';
 export {Tooltip, TooltipProvider} from './Tooltip.tsx';
 export {BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, DropIndicator} from './Board.tsx';
 export {PromptDialog} from './PromptDialog.tsx';
+export {ConfirmDialog} from './ConfirmDialog.tsx';
+export {FormSection, hintId, SettingRow} from './Form.tsx';
+export {SectionNav, SectionNavHeading, SectionNavLink} from './SectionNav.tsx';
+export {Select, type SelectOption} from './Select.tsx';
+export {Switch} from './Switch.tsx';

@@ -1,7 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {Copy} from 'lucide-react';
 import type {InputHTMLAttributes, ReactNode, Ref, TextareaHTMLAttributes} from 'react';
+import {IconButton} from './Button.tsx';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {control, controlHeight, type ControlSize, field} from './recipes.ts';
@@ -12,10 +14,12 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   invalid?: boolean | undefined;
   /** A decorative icon inside, before the text (search). */
   icon?: LucideIcon | undefined;
+  /** Code-like text (a branch pattern, a path): the monospace face. */
+  mono?: boolean | undefined;
   ref?: Ref<HTMLInputElement>;
 }
 
-export function Input({size = 'md', invalid, icon, className, ...rest}: InputProps) {
+export function Input({size = 'md', invalid, icon, mono, className, ...rest}: InputProps) {
   const input = (
     <input
       aria-invalid={invalid}
@@ -24,7 +28,7 @@ export function Input({size = 'md', invalid, icon, className, ...rest}: InputPro
         controlHeight[size],
         field,
         'px-2',
-        size === 'sm' ? 'text-sm' : 'text-base',
+        mono ? 'font-mono text-code' : size === 'sm' ? 'text-sm' : 'text-base',
         icon ? 'w-full pl-7' : className,
       )}
       {...rest}
@@ -35,6 +39,23 @@ export function Input({size = 'md', invalid, icon, className, ...rest}: InputPro
     <span className={cx('relative inline-flex items-center', className)}>
       <span className="pointer-events-none absolute left-2 flex text-fg-subtle"><Icon icon={icon} size="sm"/></span>
       {input}
+    </span>
+  );
+}
+
+/**
+ * A value to copy (a clone URL): read-only and whole (a click or the focus selects all of it, monospace), with a
+ * copy button after it. Full width. The caller copies (`onCopy`) and says so.
+ */
+export function CopyField({value, label, copyLabel, onCopy}: {value: string; label: string; copyLabel: string; onCopy: () => void}) {
+  return (
+    <span className="flex w-full min-w-0 items-center gap-1">
+      <input readOnly value={value} aria-label={label} spellCheck={false}
+        onFocus={(e) => {
+          e.currentTarget.select();
+        }}
+        className={cx(control, controlHeight.sm, field, 'min-w-0 flex-1 px-2 font-mono text-code')}/>
+      <IconButton size="sm" icon={Copy} label={copyLabel} onClick={onCopy}/>
     </span>
   );
 }
@@ -89,6 +110,25 @@ export function EditableHeading({label, onEdit, children, ref}: {label: string; 
     <h2 className="text-xl font-semibold text-fg">
       <button ref={ref} type="button" title={label} onClick={onEdit} className="interactive -mx-2 w-full cursor-text rounded-md px-2 py-0.5 text-left hover:bg-hover">{children}</button>
     </h2>
+  );
+}
+
+/**
+ * A form's field: its name above the control (`htmlFor`: the control's id), then a hint or — once something is
+ * wrong — the problem, in the danger colour (`errorId`: the control's aria-describedby).
+ */
+export function Field({label, htmlFor, hint, error, errorId, optional, children}: {
+  label: string; htmlFor: string; hint?: ReactNode; error?: string | undefined; errorId?: string | undefined;
+  /** Marked "(optional)" after the name. */
+  optional?: boolean | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={htmlFor} className="text-sm font-medium text-fg">{label}{optional && <span className="font-normal text-fg-subtle"> (optional)</span>}</label>
+      {children}
+      {error ? <p id={errorId} className="text-sm text-danger">{error}</p> : hint ? <p id={errorId} className="text-sm text-fg-muted">{hint}</p> : null}
+    </div>
   );
 }
 

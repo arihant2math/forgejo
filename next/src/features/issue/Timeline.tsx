@@ -18,7 +18,7 @@ import {lazy, type ReactNode, Suspense, useEffect, useRef, useState} from 'react
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {Badge, type BadgeTone, Button, Code, CodeLine, Icon, LabelChip, type LucideIcon, TextLink} from '../../ui/index.ts';
-import {Link} from '@tanstack/react-router';
+import {Link, useParams} from '@tanstack/react-router';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
@@ -366,9 +366,13 @@ const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: 
  */
 const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const l = usePool().model('Label').get(id);
+  const {owner, repo} = useParams({strict: false});
   if (!l) return <span>a label</span>;
   const kind = labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
-  return <LabelChip name={kind ? scopedValue(l.get('name')) : l.get('name')} color={l.get('color')}/>;
+  const chip = <LabelChip name={kind ? scopedValue(l.get('name')) : l.get('name')} color={l.get('color')}/>;
+  // The chip opens the repository's issues with that label (GitHub's).
+  if (!owner || !repo) return chip;
+  return <TextLink wrap><Link to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(id)}}>{chip}</Link></TextLink>;
 });
 
 /** "added [bug]", "set the status to [Done]", "removed the priority [High]". */
@@ -476,7 +480,11 @@ const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
 
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   const m = usePool().model('Milestone').get(id);
-  return <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
+  const {owner, repo} = useParams({strict: false});
+  const title = <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
+  // The milestone's page (the repository's: an issue's milestone is its repository's).
+  if (!m || !owner || !repo) return title;
+  return <TextLink wrap><Link to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}}>{title}</Link></TextLink>;
 });
 
 /** An issue an event names, from the issue `from` whose timeline it is in (its repository decides the prefix). */

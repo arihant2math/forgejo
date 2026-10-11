@@ -11,7 +11,7 @@
 // Offline, the preview says so and shows the source.
 
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type ReactNode, useEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
@@ -100,6 +100,8 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   repoId: number;
   /** A shortcut that puts the caret here (R: comment). */
   focusShortcut?: ShortcutId | undefined;
+  /** How Preview renders the text (default: as an issue's text in the repository; a wiki page renders as one). */
+  render?: ((text: string) => Promise<string>) | undefined;
 }
 
 /** Suggestions per trigger at most. */
@@ -146,7 +148,7 @@ function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
   return null;
 }
 
-export const MarkdownField = observer(function MarkdownField({repoId, focusShortcut, ...props}: MarkdownFieldProps) {
+export const MarkdownField = observer(function MarkdownField({repoId, focusShortcut, render, ...props}: MarkdownFieldProps) {
   const [preview, setPreview] = useState(false);
   // The text area stands in until the editor's code is here and the page is idle (creating an editor costs a
   // frame or more on a slow device: not while the page opens), or at once when the field is wanted.
@@ -216,7 +218,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
         {preview ?
           <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region" className="outline-none"
             style={{minHeight: `calc(var(--text-md--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 3)`}}>
-            <MarkdownPreview repoId={repoId} text={props.value}/>
+            <MarkdownPreview repoId={repoId} text={props.value} render={render}/>
           </div> :
           Editor ?
             <Editor {...props} ref={editor} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
@@ -250,14 +252,15 @@ const FORMATS: [Format, LucideIcon, string, string][] = [['bold', Bold, 'Bold', 
  * Markdown as Forgejo renders it (in a repository's context): the server's rendering online (batched, cached), the
  * text as written offline. The editor's Preview, and drafts shown before they are posted.
  */
-export const MarkdownPreview = observer(function MarkdownPreview({repoId, text}: {repoId: number; text: string}) {
+export const MarkdownPreview = observer(function MarkdownPreview({repoId, text, render}: {repoId: number; text: string; render?: ((text: string) => Promise<string>) | undefined}) {
   const app = useApp();
   const [state, setState] = useState<{text: string; html?: string; error?: string}>({text: ''});
   const offline = !connectivity.online;
+  const rendered = useEffectEvent((t: string) => (render ? render(t) : renderPreview(app, repoId, t)));
   useEffect(() => {
     if (!text.trim() || offline) return undefined;
     let live = true;
-    renderPreview(app, repoId, text).then((html) => {
+    rendered(text).then((html) => {
       if (live) setState({text, html});
     }, (err: unknown) => {
       if (live) setState({text, error: err instanceof RequestFailed ? err.message : 'The preview could not be rendered.'});

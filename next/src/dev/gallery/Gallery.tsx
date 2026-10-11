@@ -6,20 +6,36 @@
 
 import './gallery.css';
 import {
-  Archive, ArrowUpRight, CircleDashed, CircleDot, Copy, SignalHigh, Flag, Inbox, Moon, MoreHorizontal, Pencil, Plus, Search, Sun, SunMoon, Tag,
+  Archive, ArrowUpRight, ChevronDown, CircleDashed, Code2, CircleDot, Copy, Star, SignalHigh, Flag, Inbox, Moon, MoreHorizontal, Pencil, Plus, Search, Sun, SunMoon, Tag,
   Trash2,
 } from 'lucide-react';
 import {useState, type ReactNode} from 'react';
 import {getThemePreference, setThemePreference} from '../../app/theme.ts';
 import type {ThemePreference} from '../../app/splash.ts';
+import {CodeMenuPanel} from '../../features/repo/CodeMenu.tsx';
 import {
-  Avatar, AvatarGroup, Badge, Button, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
+  AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Badge, Button, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
-  ContextMenuTrigger, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
+  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
   AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineNo, StepHeader, StatusDot, TabLink, TabNav,
+  ConfirmDialog, FormSection, hintId, SectionNav, SectionNavHeading, SectionNavLink, Select, SettingRow, Switch,
   NavGroup, NavHeading, NavItem, Popover, PopoverContent, PopoverTrigger, ProseSource, ResizeHandle, SectionHeading, Shortcut, Skeleton, Status, TextArea, TooltipProvider,
+  ColorPicker, Field, LabelPill, ProgressBar,
 } from '../../ui/index.ts';
+import {LABEL_PRESETS} from '../../features/meta/labels.ts';
+
+/** A colour field with its form field's frame (a label's colour). */
+function GalleryColor() {
+  const [color, setColor] = useState(LABEL_PRESETS[2] ?? '');
+  return (
+    <div className="w-80">
+      <Field label="Colour" htmlFor="gallery-color" error={/^#[\da-f]{6}$/i.test(color) ? undefined : 'A colour as #rrggbb.'}>
+        <ColorPicker id="gallery-color" label="Colour" value={color} presets={LABEL_PRESETS} onChange={setColor}/>
+      </Field>
+    </div>
+  );
+}
 
 const swatches = [
   ['canvas', 'bg-canvas'], ['surface', 'bg-surface'], ['raised', 'bg-raised'], ['hover', 'bg-hover'],
@@ -32,6 +48,8 @@ const swatches = [
 const sampleHl = {spans: Uint32Array.of(5, 1, 10, 0, 2, 5, 2, 0, 5, 3), starts: Uint32Array.of(0, 5)};
 
 const themes = [['light', Sun], ['dark', Moon], ['system', SunMoon]] as const;
+
+const OVERFLOW_TABS = ['Code', 'Issues', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity', 'Settings'];
 
 const rows = [
   {id: 'FJ-128', title: 'Sync log trims too early on MySQL with binlog off', labels: [['bug', 'var(--color-danger)']]},
@@ -54,6 +72,9 @@ export default function Gallery() {
   const [showClosed, setShowClosed] = useState(true);
   const [priority, setPriority] = useState('high');
   const [navOpen, setNavOpen] = useState(true);
+  const [feature, setFeature] = useState(true);
+  const [role, setRole] = useState<'read' | 'write' | 'admin'>('write');
+  const [confirm, setConfirm] = useState(false);
   const pick = (t: ThemePreference) => {
     setThemePreference(t);
     setTheme(t);
@@ -87,6 +108,7 @@ export default function Gallery() {
           <Button variant="primary" icon={Plus} tooltip="Create issue" shortcut="C">New issue</Button>
           <Button>Secondary</Button>
           <Button variant="ghost">Ghost</Button>
+          <Button variant="success" icon={Code2}>Code</Button>
           <Button variant="danger" icon={Trash2}>Delete</Button>
           <Button disabled>Disabled</Button>
           <Button size="sm" variant="primary">Small</Button>
@@ -126,6 +148,14 @@ export default function Gallery() {
           <Hint label="Priority: High"><LabelIcon icon={SignalHigh} color="var(--color-danger)"/></Hint>
         </Section>
 
+        <Section title="Label pills, progress, colour">
+          {LABEL_PRESETS.map((c, i) => <LabelPill key={c} name={i % 3 === 0 ? `kind/label ${String(i)}` : `label ${String(i)}`} scope={i % 3 === 0 ? 'kind' : undefined} color={c}/>)}
+          <LabelPill name="not a colour" color="var(--color-accent)"/>
+          <div className="w-64"><ProgressBar value={3} max={8} label="3 of 8 closed"/></div>
+          <div className="w-64"><ProgressBar value={0} max={0} label="Nothing yet"/></div>
+          <GalleryColor/>
+        </Section>
+
         <Section title="Issue list rows, properties, prose, notices">
           <div role="listbox" aria-label="Rows" className="w-full max-w-lg">
             <ListGroupHeader leading={<LabelIcon icon={CircleDashed} color="var(--color-warning)"/>} label="Backlog" count={2}/>
@@ -155,6 +185,26 @@ export default function Gallery() {
               <Entry leading={<Icon icon={Inbox}/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton size="sm" icon={Search} label="Discard"/>}/>
               <Entry title="Posting a comment" meta="#3 · dev/big" description="Forbidden."/>
             </EntryList>
+          </div>
+        </Section>
+
+        <Section title="Side pane: sections, links with counts, share bar">
+          <div className="flex w-pane flex-col">
+            <AsideSection title="About">
+              <AsideLinks label="Links">
+                <AsideLink icon={Star} count={12}><a href="#tokens">stars</a></AsideLink>
+                <AsideLink icon={ArrowUpRight} tone="accent"><a href="#tokens">example.com</a></AsideLink>
+              </AsideLinks>
+            </AsideSection>
+            <AsideSection title="Releases" count={3}>
+              <AsideLinks><AsideLink icon={Tag} count={4}><a href="#tokens">tags</a></AsideLink></AsideLinks>
+            </AsideSection>
+            <AsideSection title="Languages">
+              <ShareBar label="Languages" shares={[
+                {label: 'Go', value: 50, tone: 1}, {label: 'TypeScript', value: 25, tone: 2}, {label: 'CSS', value: 10, tone: 3},
+                {label: 'Shell', value: 6, tone: 4}, {label: 'Makefile', value: 4, tone: 5}, {label: 'Other', value: 5, tone: 'other'},
+              ]}/>
+            </AsideSection>
           </div>
         </Section>
 
@@ -280,6 +330,20 @@ export default function Gallery() {
               <TabLink><a href="#code" aria-current="page">Files</a></TabLink>
               <TabLink><a href="#code">Commits</a></TabLink>
             </TabNav>
+            {/* A repository's tabs in a narrow bar: what does not fit is in More (TabNav's `more`); the current one (Wiki) stays. */}
+            <div className="max-w-sm">
+              <TabNav label="Example tabs that overflow" more={(hidden) => (
+                <Menu>
+                  <MenuTrigger asChild><Button size="sm" variant="ghost" icon={MoreHorizontal}>More</Button></MenuTrigger>
+                  <MenuContent>
+                    {OVERFLOW_TABS.filter((_, i) => hidden.includes(i)).map((t) => <MenuItem key={t}>{t}</MenuItem>)}
+                    <MenuItem>This page in the classic UI</MenuItem>
+                  </MenuContent>
+                </Menu>
+              )}>
+                {OVERFLOW_TABS.map((t, i) => <TabLink key={t}><a href="#code" aria-current={i === 5 ? 'page' : undefined}>{t}</a></TabLink>)}
+              </TabNav>
+            </div>
             <CodeFileHeader path="src/app.ts" oldPath="src/old.ts" status="renamed" stat={<DiffStat additions={12} deletions={3}/>}>
               <Button size="sm" pressed>Viewed</Button>
             </CodeFileHeader>
@@ -290,6 +354,60 @@ export default function Gallery() {
             <CodeLine gutter={<><BlameCell first summary="Fix the parser" meta="3 d"/><LineNo n={3}/></>}>blamed line</CodeLine>
             <StepHeader expanded onToggle={() => undefined} mark={<StatusDot tone="success"/>} meta="1 m 5 s">Run tests</StepHeader>
             <CodeLine gutter={<LineNo n={4}/>}><AnsiText spans={[{text: 'PASS ', color: 2, bold: true}, {text: 'error ', color: 1, bold: false}, {text: 'plain', color: 0, bold: false}]}/></CodeLine>
+          </div>
+        </Section>
+
+        <Section title="Settings: sections, fields, switches, select, confirmation">
+          <div className="flex w-full gap-6">
+            <SectionNav label="Gallery settings">
+              <SectionNavLink label="General" icon={Pencil}><a href="#settings" aria-current="page"/></SectionNavLink>
+              <SectionNavLink label="Webhooks" icon={Tag}><a href="#settings"/></SectionNavLink>
+              <SectionNavHeading>In the classic UI</SectionNavHeading>
+              <SectionNavLink label="Units" icon={Archive} hint="classic"><a href="#settings"/></SectionNavLink>
+            </SectionNav>
+            <div id="settings" className="flex max-w-lg min-w-0 flex-1 flex-col gap-6">
+              <FormSection id="gallery-general" title="General" description="A titled part of a settings page.">
+                <Field htmlFor="gallery-name" errorId={hintId('gallery-name')} label="Repository name" hint="Letters, digits, “-”, “_” and “.”.">
+                  <Input id="gallery-name" className="w-full" defaultValue="atlas"/>
+                </Field>
+                <Field htmlFor="gallery-site" errorId={hintId('gallery-site')} label="Website" optional error="An address starting with http:// or https://.">
+                  <Input id="gallery-site" className="w-full" invalid defaultValue="atlas.example"/>
+                </Field>
+                <Field htmlFor="gallery-filter" errorId={hintId('gallery-filter')} label="Branch filter" optional>
+                  <Input id="gallery-filter" className="w-full" mono defaultValue="release/*"/>
+                </Field>
+                <SettingRow id="gallery-wiki" title="Wiki" description="Pages of documentation next to the code." control={<Switch id="gallery-wiki" checked={feature} onCheckedChange={setFeature}/>}/>
+                <SettingRow id="gallery-off" title="Packages" description="Disabled." control={<Switch id="gallery-off" checked={false} disabled onCheckedChange={() => undefined}/>}/>
+                <SettingRow id="gallery-role" title="Role" control={
+                  <Select id="gallery-role" size="sm" value={role} onValueChange={setRole} options={[{value: 'read', label: 'Read'}, {value: 'write', label: 'Write'}, {value: 'admin', label: 'Admin'}]}/>
+                }/>
+              </FormSection>
+              <FormSection id="gallery-danger" title="Danger zone" tone="danger">
+                <SettingRow id="gallery-delete" title="Delete this repository" description="This cannot be undone." control={<Button variant="danger" onClick={() => {
+                  setConfirm(true);
+                }}>Delete</Button>}/>
+              </FormSection>
+              <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete acme/atlas?" description="Its code, issues and pull requests are deleted for good."
+                confirmLabel="Delete this repository" confirmText="acme/atlas" error="Forgejo could not be reached." onConfirm={() => {
+                  setConfirm(false);
+                }}/>
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Code menu (the overview's file bar), copy field">
+          <Popover>
+            <PopoverTrigger asChild><Button size="sm" variant="success" icon={Code2}>Code<Icon icon={ChevronDown} size="sm"/></Button></PopoverTrigger>
+            <PopoverContent width="md" align="start">
+              <CodeMenuPanel https="https://code.example/acme/website.git" ssh="git@code.example:acme/website.git" onCopy={() => undefined}
+                archives={[{format: 'zip', href: '#code'}, {format: 'tar.gz', href: '#code'}]}/>
+            </PopoverContent>
+          </Popover>
+          <div className="w-80 rounded-lg border border-border p-2">
+            <CodeMenuPanel https="https://code.example/acme/website.git" onCopy={() => undefined} archives={[]}/>
+          </div>
+          <div className="w-64">
+            <CopyField value="https://code.example/acme/a-rather-long-repository-name.git" label="Clone URL" copyLabel="Copy the clone URL" onCopy={() => undefined}/>
           </div>
         </Section>
 

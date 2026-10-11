@@ -70,12 +70,15 @@ const SMALL_ZOOM = 4;
  * A directory's README as a panel: rendered markup (the server reads and renders it at the commit: one round trip,
  * no blob first), or the text as is.
  */
+/** The README panel's element id (a repository's About links it: "Readme"). */
+export const README_ID = 'readme';
+
 export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: APITreeEntry; dir: string; at: {kind: RefKind; ref: string; sha: string}}) {
   const path = dir ? `${dir}/${entry.name}` : entry.name;
   const body = renderable(entry.name) === 'markup' ?
     <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
     <PlainReadme repoId={repoId} entry={entry} path={path}/>;
-  return <Panel label="README" title={<><Icon icon={BookOpen} size="sm"/>{entry.name}</>} padded>{body}</Panel>;
+  return <Panel id={README_ID} label="README" title={<><Icon icon={BookOpen} size="sm"/>{entry.name}</>} padded>{body}</Panel>;
 }
 
 /** A markup file at a commit, rendered by the server from the repository (renderedAt). */

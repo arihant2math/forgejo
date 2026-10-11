@@ -50,7 +50,7 @@ export interface ListControlsProps {
   model: IssueListModel;
   /** The repository whose labels, people and milestones the filters offer (repository lists). */
   repoId?: number | undefined;
-  /** Groupings that make no sense here (by repository in one repository). */
+  /** Groupings that make no sense here (by repository in one repository); without the milestone one, no milestone filter either (a milestone's page). */
   hideGroups?: readonly ListGroup[];
   /** Open / closed / all as buttons (else in the Display menu: the header has less room). */
   stateButtons?: boolean;
@@ -122,7 +122,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       }} onSettle={() => {
         updateUrl(model.search, viewChange());
       }}/>
-      <FilterMenu search={search} repoId={repoId} set={set}/>
+      <FilterMenu search={search} repoId={repoId} set={set} byMilestone={!hideGroups.includes('milestone')}/>
       <Menu>
         <MenuTrigger asChild>
           <Button size="sm" variant="ghost" icon={Rows3} pressed={modified} aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button>
@@ -342,7 +342,7 @@ function kindFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
  * The filters: one picker over every value (labels, assignee, author, milestone) that filters as you type
  * ("alice", "bug"), the filters in effect first (choosing one drops it). Labels stay open for more.
  */
-const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: ListSearch; repoId: number | undefined; set: Setter}) {
+const FilterMenu = observer(function FilterMenu({search, repoId, set, byMilestone}: {search: ListSearch; repoId: number | undefined; set: Setter; byMilestone: boolean}) {
   const pool = usePool();
   const app = useApp();
   const me = app.session?.userId ?? 0;
@@ -353,7 +353,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: 
   }});
   // Status and priority everywhere (by value); labels, people and milestones in a repository's list.
   options.push(...kindFilters(pool, search, repoId, set));
-  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set));
+  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
   // Read untracked: the menu does not re-render on every issue of the workspace (it is built again when it renders).
   else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
   return (
@@ -373,7 +373,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set}: {search: 
 });
 
 /** The values a repository's list filters by, grouped (observes the repository's labels, people and milestones). */
-function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoId: number, me: number, set: Setter): PickOption[] {
+function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoId: number, me: number, set: Setter, byMilestone: boolean): PickOption[] {
   const chosen = new Set(parseLabels(search.labels));
   const users = repoPeople(pool, repoId, me).sort((a, b) => a.login.localeCompare(b.login));
   const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).sort((a, b) => a.title.localeCompare(b.title));
@@ -397,6 +397,7 @@ function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
   for (const u of users) out.push({value: `p:${String(u.id)}`, label: person(u), words: `author ${u.name}`, group: 'Author', icon: UserPen, checked: search.poster === u.id, onSelect: () => {
     set({poster: search.poster === u.id ? undefined : u.id});
   }});
+  if (!byMilestone) return out;
   out.push({value: 'm:-1', label: 'No milestone', words: 'milestone', group: 'Milestone', icon: MilestoneIcon, checked: search.milestone === -1, onSelect: () => {
     set({milestone: search.milestone === -1 ? undefined : -1});
   }});

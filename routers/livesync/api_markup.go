@@ -5,6 +5,7 @@ package livesync
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"path"
@@ -14,6 +15,7 @@ import (
 	"forgejo.org/modules/git"
 	"forgejo.org/modules/gitrepo"
 	"forgejo.org/modules/markup"
+	"forgejo.org/modules/markup/markdown"
 	"forgejo.org/modules/setting"
 	"forgejo.org/modules/util"
 	"forgejo.org/services/livesync/protocol"
@@ -33,6 +35,10 @@ func apiMarkup(w http.ResponseWriter, req *http.Request) {
 	}
 	var body protocol.APIMarkupRequest
 	if !a.decode(&body) {
+		return
+	}
+	if body.Wiki {
+		a.wikiMarkup(&body)
 		return
 	}
 	kind, name, ok := strings.Cut(body.Ref, "/")
@@ -85,6 +91,42 @@ func apiMarkup(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	a.json(http.StatusOK, protocol.APIMarkupResponse{HTML: out.String()})
+}
+
+// wikiMarkup renders a wiki page's text as the classic wiki page does
+// (routers/web/repo/wiki.go renderViewPage: markdown whatever the file's
+// name, IsWiki links from the repository's link, the document metas). The
+// viewer must read the repository's wiki (404 otherwise).
+func (a *apiRequest) wikiMarkup(body *protocol.APIMarkupRequest) {
+	if !a.readable(protocol.RepoGroup(body.RepoID), protocol.UnitWiki) {
+		return
+	}
+	repo, err := repo_model.GetRepositoryByID(a.ctx, body.RepoID)
+	if err != nil {
+		if repo_model.IsErrRepoNotExist(err) {
+			a.notFound()
+		} else {
+			a.internal("load the repository", err)
+		}
+		return
+	}
+	var out bytes.Buffer
+	if err := markdown.Render(wikiRenderContext(a.ctx, repo.Link(), repo.ComposeDocumentMetas(a.ctx)), strings.NewReader(body.Text), &out); err != nil {
+		a.internal("render the wiki page", err)
+		return
+	}
+	a.json(http.StatusOK, protocol.APIMarkupResponse{HTML: out.String()})
+}
+
+// wikiRenderContext is the classic wiki page's render context for a
+// repository at link (its Link(): the sub-path, owner and name).
+func wikiRenderContext(ctx context.Context, link string, metas map[string]string) *markup.RenderContext {
+	return &markup.RenderContext{
+		Ctx:    ctx,
+		Metas:  metas,
+		Links:  markup.Links{Base: link},
+		IsWiki: true,
+	}
 }
 
 // fileText reads a repository file's text at a commit (the markup request's

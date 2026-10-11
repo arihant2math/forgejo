@@ -9,18 +9,21 @@
 // The splash script (splash.ts) picks the variant via attributes on <html>:
 //   data-shell="logged-out"   → the logged-out screen instead of the app frame
 //   data-skeleton="detail"    → the issue-detail shape instead of a list
+//   data-header="tabs"        → a repository page's tabs under the header's first row
+//   data-header="toolbar"     → and its title row (title, controls) under the tabs
 //   [data-sk-row] rows beyond the stored count are hidden
 
 import {Avatar} from '../ui/Avatar.tsx';
 import {ListRow} from '../ui/ListRow.tsx';
 import {Skeleton, SkeletonText} from '../ui/Skeleton.tsx';
 import {LoggedOut} from './LoggedOut.tsx';
-import {HeaderBar, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './shell/Frame.tsx';
+import {HeaderRow, HeaderStack, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './shell/Frame.tsx';
 import {SKELETON_MAX_ROWS} from './splash.ts';
 
 const navWidths = ['sm', 'md', 'xl', 'sm'] as const;
 const repoWidths = ['lg', 'md', 'xl'] as const;
 const rowWidths = ['w-64', 'w-48', 'w-72', 'w-56', 'w-40', 'w-60', 'w-52', 'w-44'];
+const tabWidths = ['w-10', 'w-12', 'w-24', 'w-14', 'w-16', 'w-10'];
 
 function Sidebar() {
   return (
@@ -43,9 +46,25 @@ function Sidebar() {
 function Frame() {
   return (
     <ShellFrame boot sidebar={<Sidebar/>}>
-      <HeaderBar>
-        <Skeleton className="h-3 w-32"/>
-      </HeaderBar>
+      <HeaderStack>
+        <HeaderRow>
+          <Skeleton className="h-3 w-32"/>
+        </HeaderRow>
+        {/* A repository page's tabs (TabNav's geometry), then its title row with the controls. */}
+        <div className="hidden header-tabs:contents">
+          <div className="flex h-header shrink-0 items-center gap-6 border-b border-border px-6">
+            {tabWidths.map((w, i) => <Skeleton key={i} className={`h-3 ${w}`}/>)}
+          </div>
+        </div>
+        <div className="hidden header-toolbar:contents">
+          {/* PageHeader's title and controls: on a phone the controls take a line of their own. */}
+          <HeaderRow>
+            <span className="flex min-w-0 max-md:flex-1 max-md:basis-0 max-md:py-2"><Skeleton className="my-1 h-3 w-24"/></span>
+            <span className="hidden max-md:order-last max-md:block max-md:w-full"/>
+            <span className="flex p-1 max-md:order-last"><Skeleton className="h-control-sm w-40"/></span>
+          </HeaderRow>
+        </div>
+      </HeaderStack>
       <div role="presentation" className="min-h-0 flex-1 overflow-hidden shape-detail:hidden">
         {Array.from({length: SKELETON_MAX_ROWS}, (_, i) => (
           <ListRow

@@ -27,6 +27,8 @@
 /* Splash state set on <html> by the inline boot script (src/app/splash.ts). */
 @custom-variant logged-out (&:where([data-shell="logged-out"] *));
 @custom-variant shape-detail (&:where([data-skeleton="detail"] *));
+@custom-variant header-tabs (&:where([data-header="tabs"] *, [data-header="toolbar"] *));
+@custom-variant header-toolbar (&:where([data-header="toolbar"] *));
 /* The sidebar collapsed on a wide screen (splash `sidebarHidden`), and the drawer open on a narrow one
  * (app/shell/sidebar.ts): attributes on <html>, so toggling restyles without re-rendering the shell. */
 @custom-variant sidebar-hidden (&:where([data-sidebar="hidden"] *));
@@ -85,6 +87,10 @@
 
 @utility max-h-popper {
   max-height: var(--radix-popper-available-height);
+}
+
+@utility max-w-popper {
+  max-width: var(--radix-popper-available-width);
 }
 
 /* A sideways scroller whose edge fades where there is more to see (data-more-start / data-more-end, set by its

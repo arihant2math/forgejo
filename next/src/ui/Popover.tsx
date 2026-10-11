@@ -10,7 +10,8 @@ export const Popover = P.Root;
 export const PopoverTrigger = P.Trigger;
 export const PopoverClose = P.Close;
 
-const widths = {sm: 'w-64', md: 'w-80'} as const;
+// lg: a list of long lines (file paths), never wider than the viewport.
+const widths = {sm: 'w-64', md: 'w-80', lg: 'w-md max-w-popper'} as const;
 
 export interface PopoverContentProps extends Omit<ComponentProps<typeof P.Content>, 'className' | 'style'> {
   width?: keyof typeof widths;

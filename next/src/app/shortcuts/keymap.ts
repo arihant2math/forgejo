@@ -58,6 +58,7 @@ export const KEYMAP = {
   'list.clear': {keys: 'escape', label: 'Clear the selection', scope: 'list', page: true},
   'code.up': {keys: 'backspace', label: 'Up a directory', scope: 'code', page: true},
   'code.upAlt': {keys: 'alt+arrowup', label: 'Up a directory', scope: 'code', page: true},
+  'code.findFile': {keys: 't', label: 'Go to a file', scope: 'code'},
   'view.save': {keys: 'shift+v', label: 'Save the view', scope: 'list'},
   'inbox.read': {keys: 'e', label: 'Mark read', scope: 'inbox'},
   'inbox.unread': {keys: 'u', label: 'Mark unread', scope: 'inbox'},

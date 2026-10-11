@@ -23,6 +23,26 @@ func TestRouteModules(t *testing.T) {
 		"/-/next/projects/4":                 "src/features/board/BoardView.tsx",
 		"/-/next/code/acme/atlas/src/main/-": "src/features/code/CodePage.tsx",
 		"/-/next/boards":                     "src/features/board/BoardsList.tsx",
+		"/acme/atlas/settings":               "src/features/settings/Settings.tsx",
+		"/acme/atlas/settings/hooks":         "src/features/settings/Settings.tsx",
+		"/repo/create":                       "src/features/new/NewRepo.tsx",
+		"/org/create":                        "src/features/new/NewOrg.tsx",
+		"/acme/atlas/wiki":                   "src/features/wiki/WikiPage.tsx",
+		"/acme/atlas/wiki/Home/-/edit":       "src/features/wiki/WikiPage.tsx",
+		"/acme/atlas/activity":               "src/features/activity/Activity.tsx",
+		"/acme/atlas/activity/contributors":  "src/features/activity/Activity.tsx",
+		"/user/settings":                     "src/features/usersettings/UserSettings.tsx",
+		"/user/settings/keys":                "src/features/usersettings/UserSettings.tsx",
+		"/acme/atlas/releases":               "src/features/code/CodePage.tsx",
+		"/acme/atlas/releases/new":           "src/features/code/CodePage.tsx",
+		"/acme/atlas/releases/edit/v1.0":     "src/features/code/CodePage.tsx",
+		"/acme/atlas/src/branch/main/a.go":   "src/features/code/CodePage.tsx",
+		"/acme/atlas/pulls/3/files":          "src/features/issue/IssueView.tsx",
+		"/acme/atlas/labels":                 "src/features/meta/LabelsPage.tsx",
+		"/acme/atlas/milestones":             "src/features/meta/MilestonesPage.tsx",
+		"/acme/atlas/milestones/new":         "src/features/meta/MilestoneForm.tsx",
+		"/acme/atlas/milestone/3":            "src/features/meta/MilestonePage.tsx",
+		"/acme/atlas/milestone/3/edit":       "src/features/meta/MilestoneForm.tsx",
 	} {
 		got := routeModules(p)
 		if assert.NotEmpty(t, got, p) {
@@ -30,7 +50,11 @@ func TestRouteModules(t *testing.T) {
 		}
 	}
 	assert.Nil(t, routeModules("/-/next/"))
-	assert.Nil(t, routeModules("/acme/atlas/wiki/x"))
+	assert.Nil(t, routeModules("/acme/atlas/settings/x"))
+	assert.Nil(t, routeModules("/user/settings/applications"), "a classic settings page")
+	assert.Nil(t, routeModules("/user/login"))
+	assert.Nil(t, routeModules("/acme/atlas/milestone/3/x"))
+	assert.Nil(t, routeModules("/acme/atlas/labels/x"))
 }
 
 func TestPreloadHeaders(t *testing.T) {

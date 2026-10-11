@@ -55,9 +55,34 @@ type NextConfig struct {
 	Version string `json:"version"`
 	// Protocol is ProtocolVersion.
 	Protocol int `json:"protocol"`
+	// SSHClonePrefix is what a repository's SSH clone URL starts with
+	// ("git@code.example:" or "ssh://git@code.example:2222/"); the URL is
+	// the prefix + "{owner}/{repo}.git", as Forgejo composes it. Omitted
+	// when SSH is disabled ([server] DISABLE_SSH).
+	SSHClonePrefix string `json:"ssh_clone_prefix,omitempty"`
 	// OAuth is the UI's OAuth2 client; null when the UI cannot sign in
 	// (Forgejo's OAuth2 provider is disabled).
 	OAuth *NextOAuth `json:"oauth" tstype:"NextOAuth | null,required"`
+	// Repository is what a new repository starts from ([repository]
+	// settings and the Git in use); absent from older servers.
+	Repository *NextRepository `json:"repository,omitempty"`
+}
+
+// NextRepository is the instance's defaults for a new repository (the
+// UI's "New repository" form, as the classic /repo/create page has them).
+type NextRepository struct {
+	// DefaultBranch is the branch an initialized repository starts with
+	// ([repository] DEFAULT_BRANCH).
+	DefaultBranch string `json:"default_branch"`
+	// DefaultPrivate is "last" (the visibility of the user's last new
+	// repository), "private" or "public" ([repository] DEFAULT_PRIVATE).
+	DefaultPrivate string `json:"default_private"`
+	// ForcePrivate: every new repository is private ([repository]
+	// FORCE_PRIVATE).
+	ForcePrivate bool `json:"force_private"`
+	// ObjectFormats are the object formats a new repository may use, the
+	// default first: "sha1", and "sha256" when the Git in use supports it.
+	ObjectFormats []string `json:"object_formats"`
 }
 
 // NextOAuth describes the Next UI's OAuth2 client (a public client: PKCE

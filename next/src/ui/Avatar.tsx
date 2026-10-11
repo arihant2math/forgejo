@@ -4,7 +4,7 @@
 import {type ReactNode, useState} from 'react';
 import {cx} from './cx.ts';
 
-const sizes = {sm: 'size-4 text-xs', md: 'size-5 text-xs', lg: 'size-6 text-sm'} as const;
+const sizes = {sm: 'size-4 text-xs', md: 'size-5 text-xs', lg: 'size-6 text-sm', xl: 'size-20 text-xl'} as const;
 
 export type AvatarProps = {
   size?: keyof typeof sizes;

@@ -15,6 +15,9 @@ export type CodeRoute =
   | {view: 'src' | 'blame' | 'commits'; kind?: RefKind; rest: string[]}
   | {view: 'commit'; sha: string}
   | {view: 'branches' | 'tags' | 'releases' | 'actions'}
+  /** A writer's release form (Forgejo's `releases/new`, `releases/edit/{tag}`): `tag` undefined for a new release. */
+  | {view: 'release-form'; tag: string | undefined}
+  /** `base`/`head` "": the default branch (`compare`, `compare/{head}`); `head` may name a fork's branch (`owner:branch`). */
   | {view: 'compare'; base: string; head: string}
   /** `job`: the job's index in the run, -1 when the URL names none (the view picks one). */
   | {view: 'run'; run: number; job: number};
@@ -75,19 +78,33 @@ export function parseCodePath(splat: string): CodeRoute | undefined {
     }
     case 'commit':
       return rest.length === 1 && rest[0] && isSha(rest[0]) ? {view: 'commit', sha: rest[0]} : undefined;
+    case 'releases':
+      if (rest.length === 0) return {view: head};
+      if (rest[0] === 'new' && rest.length === 1) return {view: 'release-form', tag: undefined};
+      // A tag's name may have slashes ("release/1.0").
+      return rest[0] === 'edit' && rest.length > 1 ? {view: 'release-form', tag: rest.slice(1).join('/')} : undefined;
     case 'branches':
     case 'tags':
-    case 'releases':
     case 'actions':
       return rest.length === 0 ? {view: head} : head === 'actions' ? parseRun(rest) : undefined;
-    case 'compare': {
-      const spec = rest.join('/');
-      const at = spec.indexOf('...');
-      if (at <= 0 || at + 3 >= spec.length) return undefined;
-      return {view: 'compare', base: spec.slice(0, at), head: spec.slice(at + 3)};
-    }
+    case 'compare':
+      return parseCompare(rest.join('/'));
   }
   return undefined;
+}
+
+/**
+ * A compare address as Forgejo reads it (routers/web/repo/compare.go ParseCompareInfo): `compare` (both sides the
+ * default branch: the page asks for a head), `compare/{head}` (base: the default branch), `compare/{base}...{head}`.
+ * "" stands for the default branch. Two dots (a direct comparison) and the `.diff`/`.patch` downloads are classic
+ * pages, never a code view.
+ */
+function parseCompare(spec: string): CodeRoute | undefined {
+  if (spec === '') return {view: 'compare', base: '', head: ''};
+  const at = spec.indexOf('...');
+  const [base, head] = at < 0 ? ['', spec] : [spec.slice(0, at), spec.slice(at + 3)];
+  if ((at >= 0 && (!base || !head)) || base.includes('..') || head.includes('..') || /\.(?:diff|patch)$/.test(head)) return undefined;
+  return {view: 'compare', base, head};
 }
 
 function parseRun(rest: string[]): CodeRoute | undefined {

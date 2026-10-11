@@ -49,7 +49,10 @@ export async function signedIn(ctx: BrowserContext, who: Who = DEV): Promise<Pag
 }
 
 /** The sync indicator (a button: its text is the state and the pending count). */
-export const indicator = (page: Page) => page.getByRole('button', {name: /: show unsynced changes$/});
+/** The sync indicator: its state (the live region, also when Live hides the badge) and, when shown, the badge. */
+export const indicator = (page: Page) => page.locator('[data-sync-indicator]');
+/** The badge that opens "Unsynced changes" (shown unless Live with nothing waiting). */
+export const unsyncedButton = (page: Page) => page.getByRole('button', {name: /: show unsynced changes$/});
 export const sidebar = (page: Page) => page.getByRole('complementary', {name: 'Sidebar'});
 export const issueList = (page: Page) => page.getByRole('listbox', {name: 'Issues'});
 export const issueTitle = (page: Page) => page.getByRole('main').getByRole('heading', {level: 2});

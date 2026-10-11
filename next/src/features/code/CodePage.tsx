@@ -4,7 +4,7 @@
 // The code views of a repository (PLAN §5.7, §7.1 Code), one route
 // (`/-/next/code/{owner}/{repo}/*`, its own chunk): source (directories,
 // files, blame), history (commits, one commit), branches, tags, releases,
-// compare, and Actions (runs, jobs, live logs). Every git read is addressed
+// compare, a writer's release form, and Actions (runs, jobs, live logs). Every git read is addressed
 // by SHA and cached (code/source.ts); refs resolve from the synced branches
 // and tags, so what was seen once is there offline.
 
@@ -19,6 +19,7 @@ import {ActionsView, RunView} from './Actions.tsx';
 import {CompareView} from './Compare.tsx';
 import {CommitView, CommitsView} from './History.tsx';
 import {BranchesView, ReleasesView, TagsView} from './Refs.tsx';
+import {ReleaseFormView} from './ReleaseForm.tsx';
 import {SrcView} from './Src.tsx';
 import {EmptyRepo} from './states.tsx';
 import {observer} from 'mobx-react-lite';
@@ -48,8 +49,9 @@ function viewName(splat: string): string {
 }
 
 /**
- * A code view's frame: the header (title, controls), the repository's tabs
- * and the scroll container, which the body gets (lists virtualize against it).
+ * A code view's frame: the header (breadcrumb, the repository's tabs, the
+ * view's title and controls) and the scroll container, which the body gets
+ * (lists virtualize against it).
  */
 export function CodeFrame({view, title, controls, docTitle, children}: {
   view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode;
@@ -110,6 +112,8 @@ export const CodePage = observer(function CodePage() {
       return <TagsView {...props} key={repoId}/>;
     case 'releases':
       return <ReleasesView {...props} key={repoId}/>;
+    case 'release-form':
+      return <ReleaseFormView {...props} key={`${String(repoId)}:${route.tag ?? ''}`} tag={route.tag}/>;
     case 'compare':
       return <CompareView {...props} key={`${String(repoId)}:${splat}`} base={route.base} head={route.head}/>;
     case 'actions':

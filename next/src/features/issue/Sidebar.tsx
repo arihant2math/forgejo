@@ -7,7 +7,7 @@
 // and the pull request's branches. Each value is an observer of what it
 // shows.
 
-import {Link} from '@tanstack/react-router';
+import {Link, useParams} from '@tanstack/react-router';
 import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -46,7 +46,7 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
         <Editable write={write} label="Set priority" shortcut={shortcutHint('issue.priority')} onClick={pick('priority')}><PriorityValue issue={issue}/></Editable>
       </Property>
       <Property label="Labels">
-        <Editable write={write} label="Change labels" shortcut={shortcutHint('issue.labels')} onClick={pick('labels')}><LabelsValue issue={issue}/></Editable>
+        <Editable write={write} label="Change labels" shortcut={shortcutHint('issue.labels')} onClick={pick('labels')}><LabelsValue issue={issue} link={!write}/></Editable>
       </Property>
       <Property label="Assignees">
         <Editable write={write} label="Change assignees" shortcut={shortcutHint('issue.assignee')} onClick={pick('assignees')}><AssigneesValue issue={issue}/></Editable>
@@ -57,7 +57,7 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
         </Property>
       )}
       <Property label="Milestone">
-        <Editable write={write} label="Set milestone" shortcut={shortcutHint('issue.milestone')} onClick={pick('milestone')}><MilestoneValue issue={issue}/></Editable>
+        <Editable write={write} label="Set milestone" shortcut={shortcutHint('issue.milestone')} onClick={pick('milestone')}><MilestoneValue issue={issue} link={!write}/></Editable>
       </Property>
       <ProjectsValue issue={issue} write={write}/>
       <DependenciesValue issue={issue} write={write}/>
@@ -104,10 +104,15 @@ const PriorityValue = observer(function PriorityValue({issue}: {issue: Entity<'I
   return <><LabelIcon icon={priorityIcon(p.name)} color={p.color}/><span>{scopedValue(p.name)}</span></>;
 });
 
-const LabelsValue = observer(function LabelsValue({issue}: {issue: Entity<'Issue'>}) {
+/** A reader's labels open the issues with that label (GitHub's); a writer's open the picker (the property's button). */
+const LabelsValue = observer(function LabelsValue({issue, link}: {issue: Entity<'Issue'>; link: boolean}) {
   const labels = useLabelView(issue).other;
+  const {owner, repo} = useParams({strict: false});
   if (!labels.length) return <PropertyEmpty>No labels</PropertyEmpty>;
-  return <>{labels.map((l) => <LabelChip key={l.id} name={l.name} color={l.color}/>)}</>;
+  if (!link || !owner || !repo) return <>{labels.map((l) => <LabelChip key={l.id} name={l.name} color={l.color}/>)}</>;
+  return <>{labels.map((l) => (
+    <TextLink key={l.id} wrap><Link to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}}><LabelChip name={l.name} color={l.color}/></Link></TextLink>
+  ))}</>;
 });
 
 const AssigneesValue = observer(function AssigneesValue({issue}: {issue: Entity<'Issue'>}) {
@@ -159,12 +164,20 @@ const Person = observer(function Person({id}: {id: number}) {
   return <span className="flex items-center gap-2"><UserAvatar id={id}/><span className="truncate">{u.name}</span></span>;
 });
 
-const MilestoneValue = observer(function MilestoneValue({issue}: {issue: Entity<'Issue'>}) {
+/** A reader's milestone opens its page; a writer's opens the picker (the property's button). */
+const MilestoneValue = observer(function MilestoneValue({issue, link}: {issue: Entity<'Issue'>; link: boolean}) {
   const id = issueMilestone(useOverlay(), issue);
   const m = usePool().model('Milestone').get(id);
+  const {owner, repo} = useParams({strict: false});
   if (!id) return <PropertyEmpty>No milestone</PropertyEmpty>;
   const due = m?.get('due_on');
-  return <span className="truncate">{m?.get('title') ?? `Milestone ${String(id)}`}{due && <span className="text-fg-subtle"> · due {shortDate(due)}</span>}</span>;
+  const title = m?.get('title') ?? `Milestone ${String(id)}`;
+  return (
+    <span className="truncate">
+      {link && m && owner && repo ? <TextLink wrap><Link to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}}>{title}</Link></TextLink> : title}
+      {due && <span className="text-fg-subtle"> · due {shortDate(due)}</span>}
+    </span>
+  );
 });
 
 /**

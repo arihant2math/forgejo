@@ -8,6 +8,7 @@
 
 import {expose, transfer} from 'comlink';
 import {DEL, type DiffFile, filePath} from '../code/diff.ts';
+import {PROGRESS} from '../code/highlighter.ts';
 import {type Lang, langOf} from '../code/lang.ts';
 import {highlight, type Highlight, prepare} from './highlight.ts';
 
@@ -15,6 +16,11 @@ export type {Highlight} from './highlight.ts';
 
 /** Above this many lines a diff file is shown plain. */
 const MAX_FILE_LINES = 20_000;
+
+/** Tells the page the highlight is getting on (its watchdog stops one that stalls: src/code/highlighter.ts). */
+function progress(): void {
+  (self as unknown as {postMessage(m: unknown): void}).postMessage(PROGRESS);
+}
 
 function out(h: Highlight | null): Highlight | null {
   return h ? transfer(h, [h.spans.buffer, h.starts.buffer]) : null;
@@ -37,8 +43,8 @@ async function highlightFile(f: DiffFile): Promise<Highlight | null> {
     }
   });
   const [n, o] = await Promise.all([
-    newLines.length ? highlight(newLines.join('\n'), lang) : null,
-    oldLines.length ? highlight(oldLines.join('\n'), lang) : null,
+    newLines.length ? highlight(newLines.join('\n'), lang, progress) : null,
+    oldLines.length ? highlight(oldLines.join('\n'), lang, progress) : null,
   ]);
   if (!n && !o) return null;
   const spans: number[] = [];
@@ -69,7 +75,7 @@ const api = {
 
   /** Highlights a file's text (null: plain). */
   async highlight(text: string, lang: Lang | undefined): Promise<Highlight | null> {
-    return out(await highlight(text, lang));
+    return out(await highlight(text, lang, progress));
   },
 
   /** Highlights one file of a diff, per diff line (null: plain). */

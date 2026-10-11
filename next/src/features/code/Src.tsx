@@ -15,6 +15,7 @@ import {observer} from 'mobx-react-lite';
 import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {editableText} from './fileWrite.ts';
+import {FileOperations} from './FileOperations.tsx';
 import {notify} from '../../app/notices.ts';
 import {permalink} from '../../code/permalink.ts';
 import {sitePath} from '../../app/config.ts';
@@ -150,6 +151,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
   const def = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
   return (
     <>
+      {file && <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={entry ? {sha: entry.sha, folder: false} : undefined}/>}
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={at} view={blame ? 'blame' : 'src'}/>
       {at.kind === 'branch' && def && at.ref !== def && (
         <Button size="sm" variant="ghost" asChild>
@@ -213,9 +215,11 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller}: S
   // The Overview's look: a panel headed by the ref's latest commit, the README under it.
   return (
     <PageColumn wide>
+      <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={at.path ? {sha: at.sha, folder: true} : undefined}>
       <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
         <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
       </FilesPanel>
+      </FileOperations>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/>}
     </PageColumn>
   );

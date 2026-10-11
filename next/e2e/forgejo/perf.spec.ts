@@ -454,3 +454,65 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
   expect(median(runs.map((r) => r.boundaryMax))).toBeLessThan(50);
   await ctx.close();
 });
+
+
+test('loaded list search and diff scrolling avoid long tasks at 4x CPU', async ({browser}) => {
+  const ctx = await browser.newContext();
+  try {
+    const page = await signedIn(ctx);
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', {rate: 4});
+    const measure = async (interact: () => Promise<void>) => {
+      const probe = await page.evaluateHandle(() => {
+        const durations: number[] = [];
+        const observer = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) durations.push(entry.duration);
+        });
+        observer.observe({type: 'longtask', buffered: false});
+        return {durations, observer};
+      });
+      await interact();
+      // Include the deferred render and deliver the final observer entries.
+      await page.waitForTimeout(500);
+      const durations = await probe.evaluate(({durations, observer}) => {
+        for (const entry of observer.takeRecords()) durations.push(entry.duration);
+        observer.disconnect();
+        return durations;
+      });
+      await probe.dispose();
+      return durations;
+    };
+    await page.goto(`${BASE}/${USER}/${LIST_REPO}/issues`);
+    await expect(issueList(page).getByRole('option').first()).toBeVisible();
+    await page.waitForTimeout(1000); // Navigation is not part of the measurement.
+    const search = page.getByRole('searchbox', {name: 'Search titles'});
+    const typing: number[][] = [];
+    for (let run = 0; run < 3; run++) {
+      typing.push(await measure(async () => {
+        await search.pressSequentially('crash', {delay: 80});
+        await search.fill('');
+      }));
+    }
+    await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
+    await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
+    await expect(page.locator('.text-syn-keyword').first()).toBeVisible();
+    await page.waitForTimeout(1000);
+    const scrolling: number[][] = [];
+    await page.getByRole('list', {name: 'Changes'}).hover();
+    for (let run = 0; run < 3; run++) {
+      scrolling.push(await measure(async () => {
+        for (const direction of [1, -1]) for (let step = 0; step < 10; step++) {
+          await page.mouse.wheel(0, direction * 500);
+          await page.waitForTimeout(80);
+        }
+      }));
+    }
+    for (const [metric, runs] of [['4x list search', typing], ['4x diff wheel scroll', scrolling]] as const) {
+      const maxima = runs.map((durations) => Math.max(0, ...durations));
+      record(`${metric}: longest task per run`, maxima, {runs});
+      expect(median(maxima)).toBeLessThan(50);
+    }
+  } finally {
+    await ctx.close();
+  }
+});

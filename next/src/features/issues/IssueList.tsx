@@ -63,7 +63,9 @@ export interface IssueListProps {
 export const IssueList = observer(function IssueList({model, scroller, empty, showRepo = false, onNearEnd, label}: IssueListProps) {
   const app = useApp();
   const navigate = useNavigate();
-  const {rows} = model.result.get();
+  // MobX publishes synchronously; defer the row snapshot so filtering (especially clearing a search)
+  // can mount the newly visible rows in interruptible React work instead of the input's task.
+  const {rows, ids} = useDeferredValue(model.result.get());
   const cursor = model.cursor;
   const listRef = useRef<HTMLDivElement>(null);
   const [menuIds, setMenuIds] = useState<number[]>([]);
@@ -93,7 +95,6 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
 
   // The cursor and the selection stay on listed issues (closing or filtering one out drops it), so actions
   // never reach rows the user cannot see; the keyboard's targets go to the palette.
-  const {ids} = model.result.get();
   useLayoutEffect(() => {
     cursor.keep(new Set(ids));
   }, [ids, cursor]);

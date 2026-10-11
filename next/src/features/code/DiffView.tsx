@@ -150,7 +150,11 @@ export const DiffView = observer(function DiffView({repoId, base, head, files, s
   useLayoutEffect(() => {
     setInset(underBar ? scroller?.querySelector<HTMLElement>('[data-sticky-bar]')?.offsetHeight ?? 0 : 0);
   }, [underBar, scroller]);
-  const v = useVirtualizer({count: rows.length, getScrollElement, estimateSize, overscan: 40, scrollMargin: margin, getItemKey, scrollPaddingStart: inset});
+  const v = useVirtualizer({
+    count: rows.length, getScrollElement, estimateSize, overscan: 8, scrollMargin: margin, getItemKey, scrollPaddingStart: inset,
+    // Do not force every entering code row (and its comment action) to mount inside the scroll event.
+    useFlushSync: false,
+  });
   const {hl, want} = useHighlights(repoId, base, head, files.length);
   // The longest line (characters): every row is that wide, so tints span it and rows scroll sideways together.
   const chars = useMemo(() => {

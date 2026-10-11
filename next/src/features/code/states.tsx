@@ -5,7 +5,7 @@
 // loads, "Not available offline" (with what is) when it is not on this
 // device, the server's refusal otherwise. Never a spinner.
 
-import {CloudOff, FolderGit2, SearchX, TriangleAlert} from 'lucide-react';
+import {CloudOff, FolderGit2, RotateCw, SearchX, TriangleAlert} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
 import {reach} from '../../app/online.ts';
@@ -14,23 +14,27 @@ import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
 import {missingWords} from '../../app/Missing.tsx';
-import {EmptyState, Skeleton} from '../../ui/index.ts';
+import {Button, EmptyState, Icon, Skeleton} from '../../ui/index.ts';
 import type {Loaded} from './hooks.ts';
 import {FileOperations} from './FileOperations.tsx';
 
 /** `action`: the way on from a "Not found" (the list it would be in). */
 export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
-  const unreachable = reach(useApp().session?.data.status.connection) === 'unreachable';
+  const r = reach(useApp().session?.data.status.connection);
+  const retry = loaded.state !== 'loading' && loaded.retry ? <Button onClick={loaded.retry}><Icon icon={RotateCw} size="sm"/>Retry</Button> : undefined;
   switch (loaded.state) {
     case 'loading':
       return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><Skeleton className="h-3 w-64"/><Skeleton className="h-3 w-48"/></div>;
     case 'offline':
-      return <EmptyState icon={CloudOff} title={unreachable ? 'Can’t reach Forgejo' : 'Not available offline'} description={missingWords(what)[unreachable ? 'unreachable' : 'offline']} action={<AvailableOffline/>}/>;
+      // Connected, yet the request got no answer (a dropped connection, a timeout): not "offline" — said, with a Retry.
+      if (r === 'online') return <EmptyState icon={TriangleAlert} title="Could not load" description={`${what} could not be loaded: the request to Forgejo failed.`} action={retry}/>;
+      return <EmptyState icon={CloudOff} title={r === 'unreachable' ? 'Can’t reach Forgejo' : 'Not available offline'} description={missingWords(what)[r]}
+        action={<span className="flex flex-col items-center gap-3">{r === 'unreachable' && retry}<AvailableOffline/></span>}/>;
     case 'error':
       if (loaded.status === 404) return <EmptyState icon={SearchX} title="Not found" description={missingWords(what).notFound} action={action}/>;
       if (loaded.status === 413) return <EmptyState icon={TriangleAlert} title="Too large to show here" description={missingWords(what).tooLarge}/>;
       if (loaded.message === 'signed out' || loaded.message.includes('SignedOut')) return <EmptyState icon={CloudOff} title="Signed out" description="Sign in again (the sync indicator above) to load this."/>;
-      return <EmptyState icon={TriangleAlert} title="Could not load" description={loaded.message}/>;
+      return <EmptyState icon={TriangleAlert} title="Could not load" description={loaded.message} action={retry}/>;
   }
 });
 

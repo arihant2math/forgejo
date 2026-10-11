@@ -534,11 +534,12 @@ const nextOwnerRoute = createRoute({
 const nextRepoRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/$owner/$repo/$',
-  beforeLoad: ({context: {app}, params}) => {
+  beforeLoad: ({context: {app}, params, location}) => {
     const rest = (params._splat ?? '').replace(/^\/+|\/+$/g, '');
     const to = nextPathOf(`/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}${rest ? `/${rest}` : ''}`);
-    // An address that names no page of the app: the not-found page (with the classic page, if any).
-    if (to) throw redirect({href: sitePath(app.config, to), replace: true});
+    // An address that names no page of the app: the not-found page (with the classic page, if any). The fragment
+    // (a file's `#L12`) goes along.
+    if (to) throw redirect({href: sitePath(app.config, `${to}${hashOf(location)}`), replace: true});
   },
   component: ShellNotFound,
 });
@@ -561,10 +562,16 @@ const notFoundRoute = createRoute({
     // its own (a pull request's tab).
     const w = new URLSearchParams(location.searchStr).get('w');
     const query = to?.includes('?') ? (w === '1' || w === '0' ? `&w=${w}` : '') : location.searchStr;
-    if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}`), replace: true});
+    // The fragment goes along too: a search hit's or a pasted permalink's `#L14` names the line to show.
+    if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}${hashOf(location)}`), replace: true});
   },
   component: ShellNotFound,
 });
+
+/** A location's fragment as written in an address ("#L12"; "" for none). */
+function hashOf(location: {hash: string}): string {
+  return location.hash ? `#${location.hash}` : '';
+}
 
 // Dev-only pages: `import.meta.env.DEV` is false in production builds, so
 // they and their chunks are not shipped.

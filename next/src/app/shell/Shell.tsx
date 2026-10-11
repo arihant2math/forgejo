@@ -12,7 +12,7 @@ import {useEffect, useRef, useState} from 'react';
 import {markOnce} from '../../sync/rum.ts';
 import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
-import {classicOfLocation} from '../paths.ts';
+import {classicOfLocation, publicPageRepo} from '../paths.ts';
 import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
@@ -192,10 +192,11 @@ export function Shell() {
   useEffect(() => {
     if (app.session) return;
     // Verify anonymously: a repository visible to the previous account may be private.
-    const match = /^\/([^/]+)\/([^/]+)(?:\/(?:issues|pulls)\/[1-9]\d*)?\/?$/.exec(classicPage);
+    // A repository's page (its home, an issue, a code page: paths.ts publicPageRepo).
+    const match = publicPageRepo(classicPage);
     if (!match || searchStr) return;
     const controller = new AbortController();
-    void fetch(sitePath(app.config, `/api/v1/repos/${match[1]}/${match[2]}`), {
+    void fetch(sitePath(app.config, `/api/v1/repos/${encodeURIComponent(match.owner)}/${encodeURIComponent(match.repo)}`), {
       credentials: 'omit', signal: controller.signal,
     }).then(async (response) => {
       if (!response.ok) return;

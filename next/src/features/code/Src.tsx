@@ -173,12 +173,20 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
       {file && (
         <Button size="sm" variant="ghost" asChild>
-          <a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/commit/${at.sha}/${encodePath(at.path)}`)} target="_blank" rel="noopener noreferrer">Raw</a>
+          <a href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</a>
         </Button>
       )}
     </>
   );
 });
+
+/**
+ * The file's raw address at the ref viewed (`raw/branch/main/…`, as Forgejo's and GitHub's Raw: a link to share that
+ * follows the branch), at the commit when the view is at one.
+ */
+export function rawPath(owner: string, repo: string, at: Resolved): string {
+  return `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${at.kind}/${at.kind === 'commit' ? at.sha : encodePath(at.ref)}/${encodePath(at.path)}`;
+}
 
 function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: string; at: Resolved; line?: boolean}) {
   const app = useApp();
@@ -455,6 +463,13 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
             <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-2">
+              {/* The blame at the change's parent (the same file, by its name there): the history behind these lines. */}
+              {part.previous_sha && (
+                <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
+                  className="interactive flex shrink-0 items-center rounded-sm text-fg-subtle hover:text-fg" label="Blame prior to this change">
+                  <Icon icon={History} size="sm"/>
+                </CodeLink>
+              )}
               <span className="shrink-0 text-fg @max-xl:hidden">{commit.author_name}</span>
               <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink></TextLink>
             </span>

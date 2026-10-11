@@ -470,7 +470,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
             ))}
           </CommandGroup>
         ))}
-        {query.trim() && <CommandGroup heading="Search"><CommandItem value="search:all" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>See all results</CommandItem><CommandItem value="search:code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code for {query.trim()}</CommandItem></CommandGroup>}
+        {query.trim() && <CommandGroup heading="Search"><CommandItem value="search:all" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>See all results</CommandItem>{repo && <CommandItem value="search:repo-code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code in {repo.full_name} for {query.trim()}</CommandItem>}<CommandItem value="search:code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code for {query.trim()}</CommandItem></CommandGroup>}
       </CommandList>
     </CommandRoot>
   );

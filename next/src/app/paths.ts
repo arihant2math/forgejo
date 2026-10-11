@@ -240,6 +240,22 @@ export function classicOfLocation(path: string, search: string, ctx: ClassicCont
   return mapped === (path || '/') && q ? `${mapped}?${q}` : mapped;
 }
 
+/**
+ * The repository of a classic page anyone may read when the repository is public — its home, an issue or a pull
+ * request, a code page (a file, a directory, blame, history, a commit, branches, tags, releases, a comparison,
+ * Actions) — else undefined. The signed-out screen offers such a page when the repository turns out to be public.
+ */
+export function publicPageRepo(classic: string): {owner: string; repo: string} | undefined {
+  if (/%(?:2e|2f|5c)/i.test(classic)) return undefined;
+  const at = classic.search(/[?#]/);
+  const [owner = '', repo = '', c, ...rest] = segments(at < 0 ? classic : classic.slice(0, at));
+  if (!isOwnerName(owner) || !NAME.test(repo)) return undefined;
+  if (c === undefined) return {owner, repo};
+  if ((c === 'issues' || c === 'pulls') && rest.length === 1 && /^[1-9]\d{0,15}$/.test(rest[0] ?? '')) return {owner, repo};
+  const code = parseCodePath([c, ...rest].join('/'));
+  return code && code.view !== 'release-form' ? {owner, repo} : undefined;
+}
+
 /** Whether a site path (and query) is one of the app's canonical routes (the server serves the app for it: spaRoutes). */
 export function isCanonical(path: string, search = ''): boolean {
   return isSpaRoute(path, search);

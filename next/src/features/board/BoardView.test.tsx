@@ -95,12 +95,50 @@ test('adding existing issues: no "Add 0" row, what is picked is added, typed tex
 
   fireEvent.change(input, {target: {value: 'Placeholder: tile docs refresh'}});
   expect(await screen.findByText(/^No issue (on this device )?matches$/)).toBeTruthy();
-  expect(names()).toEqual(['New issue in this column…']);
+  expect(names()).toEqual(['New issue “Placeholder: tile docs refresh” in this column…']);
   fireEvent.keyDown(input, {key: 'Enter'});
-  await waitFor(() => { expect(app.ui.create?.board).toEqual({projectId: 10, columnId: 11}); });
+  await waitFor(() => { expect(app.ui.create).toEqual({repoId: 20, board: {projectId: 10, columnId: 11}, title: 'Placeholder: tile docs refresh'}); });
   expect(screen.queryByRole('dialog', {name: 'Add existing issues'})).toBeNull();
   const dialog = await screen.findByRole('dialog', {name: 'New issue'});
   fireEvent.keyDown(dialog, {key: 'Escape'});
   await waitFor(() => { expect(document.activeElement).toBe(backlog); });
+  vi.unstubAllGlobals();
+});
+
+test('a card from the board in three keys: typed text that matches no issue, Enter, then ⌘↵ makes that issue in the column', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}}))));
+  const s = fakeSession({userId: 1});
+  const owner = user(1, 'alice');
+  s.data.put('User', 'profile:1', owner);
+  s.data.put('Repository', 'repo:20', repo(20, owner, 'sandbox'));
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
+  s.data.put('Project', 'repo:20', {id: 10, title: 'Board', description: '', owner_id: 1, repo_id: 20, creator_id: 1,
+    closed: false, template_type: 0, card_type: 0, type: 2, created_at: T, updated_at: T});
+  for (const [id, title] of [[11, 'Backlog'], [12, 'Doing']] as const) {
+    s.data.put('ProjectColumn', 'repo:20', {id, title, project_id: 10, default: id === 11, sorting: id, color: '', creator_id: 1, created_at: T, updated_at: T});
+  }
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/-/next/projects/10']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const doing = await screen.findByRole('listbox', {name: 'Doing'});
+  // The board's first frames (its focus) are over before a dialog opens.
+  await new Promise((r) => { setTimeout(r, 50); });
+  const submit = vi.spyOn(editing(app).intents, 'submit');
+  fireEvent.click(screen.getAllByRole('button', {name: 'Add existing issue…'})[1] as HTMLElement);
+  const input = await screen.findByRole('combobox');
+  fireEvent.change(input, {target: {value: 'Quick note check'}});
+  await screen.findByRole('option', {name: 'New issue “Quick note check” in this column…'});
+  fireEvent.keyDown(input, {key: 'Enter'});
+  // The create dialog: titled with what was typed, on this board's column.
+  const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
+  expect(title.value).toBe('Quick note check');
+  expect(screen.getByText(/On Board · Doing/)).toBeTruthy();
+  fireEvent.keyDown(title, {key: 'Enter', ctrlKey: true});
+  await waitFor(() => { expect(app.ui.create).toBeUndefined(); });
+  const created = submit.mock.calls.map(([i]) => i).find((i) => i.kind === 'issue.create');
+  expect(created).toMatchObject({kind: 'issue.create', repoId: 20, title: 'Quick note check'});
+  expect(submit.mock.calls.map(([i]) => i).find((i) => i.kind === 'issue.project')).toMatchObject({kind: 'issue.project', issueId: created?.issueId, projectId: 10, columnId: 12});
+  await waitFor(() => { expect(document.activeElement).toBe(doing); });
   vi.unstubAllGlobals();
 });

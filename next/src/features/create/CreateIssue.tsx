@@ -131,6 +131,7 @@ class Form {
     if (!template) {
       if (previous) {
         this.discard();
+        this.title = this.prefill;
         this.labels = [];
         this.assignees = [];
       }
@@ -144,7 +145,8 @@ class Form {
       return;
     }
     this.restored = false;
-    this.setTitle(template.title ?? '');
+    // A template's title is a prefix ("[Bug] "): the text the issue was started with follows it.
+    this.setTitle(`${template.title ?? ''}${this.prefill}`);
     this.values = initialValues(template.body ?? []);
     this.setBody(template.body?.length ? formBody(template.body, this.values) : template.content ?? '');
     const pool = this.app.session?.data.pool;
@@ -177,18 +179,22 @@ class Form {
   missing = false;
   /** The board column it goes on (a column's "New issue"), if any. */
   readonly board: {projectId: number; columnId: number} | undefined;
+  /** The title it was opened with (a board's "Add existing issues" text that matched none), or "". */
+  readonly prefill: string;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
   private readonly app: App;
 
-  constructor(app: App, initialRepo: number, board?: {projectId: number; columnId: number}) {
+  constructor(app: App, initialRepo: number, board?: {projectId: number; columnId: number}, title?: string) {
     this.app = app;
     this.board = board;
+    this.prefill = title?.trim() ?? '';
     const repos = repoChoices(app, board);
     // The page's repository (or the one last opened, or last created in); its own draft, if any.
     this.repoId = [initialRepo, lastRepo(), recentActivityRepo(app, repos)].find((id) => id > 0 && repos.some((r) => r.id === id)) ?? repos[0]?.id ?? 0;
     const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
-    this.title = text.split('\n')[0] ?? '';
+    // Opened with a title: that title, with the draft's description (if any; the footer offers to discard it).
+    this.title = this.prefill || (text.split('\n')[0] ?? '');
     this.body = text.split('\n').slice(2).join('\n');
     this.restored = Boolean(text.trim());
     makeAutoObservable<Form, 'timer' | 'done' | 'app'>(this, {timer: false, done: false, app: false}, {autoBind: true});
@@ -326,7 +332,7 @@ export const CreateIssue = observer(function CreateIssue() {
     setPreviousRequest(req);
     if (previousRequest && req) form?.flush();
     if (req) {
-      const next = new Form(app, req.repoId, req.board);
+      const next = new Form(app, req.repoId, req.board, req.title);
       setForm(next);
       void next.load(req.template);
     }

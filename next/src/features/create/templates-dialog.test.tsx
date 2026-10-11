@@ -78,3 +78,11 @@ test('markdown templates prefill body, labels and assignees', async () => {
   fireEvent.click(screen.getByRole('button', {name: 'Create issue'}));
   expect(submit).toHaveBeenCalledWith(expect.objectContaining({body: '## What happened?', labelIds: [3], assigneeIds: [1]}));
 });
+
+test('opened with a title (a board\'s typed text): the title follows the template\'s prefix', async () => {
+  const app = await show('/acme/website/issues');
+  act(() => { openCreate(app, 20, undefined, '  Login fails '); });
+  expect(app.ui.create).toEqual({repoId: 20, title: 'Login fails'});
+  fireEvent.click(await screen.findByRole('option', {name: /Bug report/}));
+  expect((await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'})).value).toBe('[Bug] Login fails');
+});

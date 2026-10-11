@@ -62,6 +62,13 @@ func (a *apiRequest) board() *project_model.Project {
 		}
 		return nil
 	}
+	if !a.boardWritable(p) {
+		return nil
+	}
+	return p
+}
+
+func (a *apiRequest) boardWritable(p *project_model.Project) bool {
 	switch {
 	case p.RepoID != 0:
 		// The repository's /projects routes: MustEnableProjects
@@ -69,23 +76,23 @@ func (a *apiRequest) board() *project_model.Project {
 		// RepoMustNotBeArchived.
 		if unit.TypeProjects.UnitGlobalDisabled() {
 			a.notFound()
-			return nil
+			return false
 		}
 		repo, perm, ok := a.repoPermission(p.RepoID)
 		if !ok {
-			return nil
+			return false
 		}
 		if !perm.CanRead(unit.TypeProjects) {
 			a.notFound()
-			return nil
+			return false
 		}
 		if !perm.CanWrite(unit.TypeProjects) {
 			a.forbidden()
-			return nil
+			return false
 		}
 		if repo.IsArchived {
 			a.error(http.StatusForbidden, "the repository is archived")
-			return nil
+			return false
 		}
 	case p.Type == project_module.TypeOrganization:
 		// /{org}/-/projects: OrgAssignment (the organization is visible),
@@ -97,20 +104,20 @@ func (a *apiRequest) board() *project_model.Project {
 			} else {
 				a.internal("load the organization", err)
 			}
-			return nil
+			return false
 		}
 		if !org_model.HasOrgOrUserVisible(a.ctx, org.AsUser(), a.viewer) {
 			a.notFound()
-			return nil
+			return false
 		}
 		mode := org.UnitPermission(a.ctx, a.viewer, unit.TypeProjects)
 		if mode < perm_model.AccessModeRead {
 			a.notFound()
-			return nil
+			return false
 		}
 		if mode < perm_model.AccessModeWrite {
 			a.forbidden()
-			return nil
+			return false
 		}
 	default:
 		// A user's project: only its owner changes it
@@ -125,16 +132,16 @@ func (a *apiRequest) board() *project_model.Project {
 			} else {
 				a.internal("load the project owner", err)
 			}
-			return nil
+			return false
 		}
 		if !user_model.IsUserVisibleToViewer(a.ctx, owner, a.viewer) {
 			a.notFound()
-			return nil
+			return false
 		}
 		a.forbidden()
-		return nil
+		return false
 	}
-	return p
+	return true
 }
 
 // column loads the {column} parameter's column of project p (404 when it

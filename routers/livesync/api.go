@@ -42,6 +42,10 @@ const maxAPIBody = 2 << 20
 func registerAPI(r *web.Route) {
 	p := protocol.APIPrefix
 	r.Get(p+"/discovery", apiDiscovery)
+	r.Post(p+"/projects", apiProjectCreate)
+	r.Patch(p+"/projects/{id}", apiProjectEdit)
+	r.Put(p+"/projects/{id}/state", apiProjectState)
+	r.Delete(p+"/projects/{id}", apiProjectDelete)
 	r.Post(p+"/projects/{id}/columns", apiColumnCreate)
 	r.Patch(p+"/projects/{id}/columns/{column}", apiColumnEdit)
 	r.Delete(p+"/projects/{id}/columns/{column}", apiColumnDelete)

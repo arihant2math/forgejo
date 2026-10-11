@@ -8,7 +8,7 @@
 // projects are few. J/K walk them, Enter opens one, and Back finds the cursor
 // on the board it opened.
 
-import {Link, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -17,12 +17,15 @@ import {observer} from 'mobx-react-lite';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {Project} from '../../protocol/types.gen.ts';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
-import {Badge, EmptyState, Entry, EntryList, Icon, Panel, TextLink} from '../../ui/index.ts';
+import {useSession} from '../../app/store.ts';
+import {useHold} from '../../app/repo.ts';
+import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
+import {Badge, EmptyState, Entry, EntryList, Icon, Panel, SegmentedControl, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 
 interface Place {
   key: string;
+  scope: BoardScope;
   /** The repository's owner and name, or the owner alone. */
   owner: string;
   repo?: string | undefined;
@@ -35,18 +38,25 @@ const LIST = '/-/next/boards';
 
 export const BoardsList = observer(function BoardsList() {
   const pool = usePool();
+  const session = useSession();
+  const {repoId, ownerId} = getRouteApi('/shell/-/next/boards').useSearch();
+  const owner = ownerId ? pool.model('User').get(ownerId) : undefined;
+  const scope = repoId ? {repo_id: repoId, owner_id: 0} : ownerId ? {repo_id: 0, owner_id: ownerId} : undefined;
+  useHold(session.data, repoId ? `repo:${String(repoId)}` : ownerId ? `${owner?.get('type') === 'organization' ? 'org' : 'profile'}:${String(ownerId)}` : undefined);
+  const [state, setState] = useState('open');
   const projects: Board[] = [...pool.model('Project').all()].map((e) => e.data);
   for (const e of pool.model('ProjectRef').all()) {
     if (!pool.model('Project').get(e.id)) projects.push({...e.data, repo_id: 0, description: '', ref: true});
   }
   const place = (p: Board): Place => {
     const r = pool.model('Repository').get(p.repo_id)?.data;
-    if (r) return {key: r.full_name, owner: r.owner_name, repo: r.name};
+    if (r) return {key: r.full_name, owner: r.owner_name, repo: r.name, scope: {repo_id: r.id, owner_id: 0}};
     const u = pool.model('User').get(p.owner_id)?.data;
-    return {key: u?.login ?? '', owner: u?.login ?? ''};
+    return {key: u?.login ?? '', owner: u?.login ?? '', scope: {repo_id: 0, owner_id: p.owner_id}};
   };
   const groups = new Map<string, {place: Place; list: Board[]}>();
   for (const p of projects.sort((a, b) => Number(a.closed) - Number(b.closed) || a.title.localeCompare(b.title))) {
+    if ((repoId && p.repo_id !== repoId) || (ownerId && (p.owner_id !== ownerId || p.repo_id)) || p.closed !== (state === 'closed')) continue;
     const pl = place(p);
     let g = groups.get(pl.key);
     if (!g) groups.set(pl.key, g = {place: pl, list: []});
@@ -89,19 +99,21 @@ export const BoardsList = observer(function BoardsList() {
   }, true, () => cursor !== undefined);
   return (
     <>
-      <PageHeader icon={KanbanSquare} title="Boards"/>
+      <PageHeader icon={KanbanSquare} title="Boards">
+        <SegmentedControl label="Board state" value={state} onChange={setState} options={[{value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>
+        <NewBoard scope={scope}/>
+      </PageHeader>
       <PageBody>
+        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <Entry key={key} title={p.title} meta="Creating board…" leading={<Icon icon={KanbanSquare}/>}/>)}
         {sorted.length === 0 ?
-          <EmptyState icon={KanbanSquare} title="No boards on this device" description="Projects of your repositories and organizations show here."/> :
+          <EmptyState icon={KanbanSquare} title={state === 'closed' ? 'No closed boards' : 'No open boards'} description="Projects of your repositories and organizations show here."/> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
               <Panel key={pl.key} label={pl.key || 'Other'} padded
                 title={pl.repo ?
                   <TextLink><Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}}>{pl.key}</Link></TextLink> :
                   pl.owner ? <TextLink><Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}}>{pl.owner}</Link></TextLink> : 'Other'}
-                actions={pl.owner && (
-                  <ClassicLink size="sm" to={pl.repo ? `/${encodeURIComponent(pl.owner)}/${encodeURIComponent(pl.repo)}/projects/new` : `/${encodeURIComponent(pl.owner)}/-/projects/new`}>New board</ClassicLink>
-                )}>
+                actions={pl.owner && <NewBoard scope={pl.scope}/>}>
                 <EntryList>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
                     rememberRow(LIST, p.id);

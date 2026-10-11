@@ -214,10 +214,11 @@ describe('signed in', () => {
       expect(document.title).toBe('acme/website · Forgejo');
     });
     expect(within(tabs).getByRole('link', {name: 'Wiki'}).getAttribute('href')).toBe('/acme/website/wiki');
-    // The wiki and the activity are the app's; Projects without a board is the classic UI's.
+    // Projects stays in the app even before the repository has a board.
     expect(within(tabs).getByRole('link', {name: 'Wiki'}).hasAttribute('data-classic')).toBe(false);
     expect(within(tabs).getByRole('link', {name: 'Activity'}).hasAttribute('data-classic')).toBe(false);
-    expect(within(tabs).getByRole('link', {name: 'Projects'}).hasAttribute('data-classic')).toBe(true);
+    expect(within(tabs).getByRole('link', {name: 'Projects'}).hasAttribute('data-classic')).toBe(false);
+    expect(within(tabs).getByRole('link', {name: 'Projects'}).getAttribute('href')).toContain('/-/next/boards?repoId=');
     expect(within(tabs).getByRole('button', {name: 'More of this repository'})).toBeTruthy();
     await router.navigate({to: '/$owner/$repo/issues', params: {owner: 'acme', repo: 'website'}});
     await waitFor(() => {

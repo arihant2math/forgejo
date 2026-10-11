@@ -466,6 +466,10 @@ const repoMilestoneEditRoute = createRoute({
 const boardsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/boards',
+  validateSearch: (s): {repoId?: number; ownerId?: number} => ({
+    ...(Number.isSafeInteger(Number(s.repoId)) && Number(s.repoId) > 0 ? {repoId: Number(s.repoId)} : {}),
+    ...(Number.isSafeInteger(Number(s.ownerId)) && Number(s.ownerId) > 0 ? {ownerId: Number(s.ownerId)} : {}),
+  }),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/board/BoardsList.tsx'), 'BoardsList'),
 });

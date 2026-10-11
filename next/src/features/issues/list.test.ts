@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {autorun, runInAction} from 'mobx';
-import {describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
@@ -71,6 +71,10 @@ describe('IssueListModel', () => {
 });
 
 describe('IssueListModel, a list the server names (QA #261)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   function reviewList(answer: () => Promise<Response>) {
     const session = fakeSession({userId: 1});
     vi.spyOn(session.auth, 'token').mockResolvedValue('t');
@@ -93,7 +97,6 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
     expect(url.searchParams.get('state')).toBe('open');
     expect(url.searchParams.get('review_requested')).toBe('true');
     model.dispose();
-    vi.unstubAllGlobals();
   });
 
   test('no answer (offline, an error status) is unanswered; asking again starts over', async () => {
@@ -109,7 +112,6 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
       expect(model.serverStatus).toBe('answered');
     });
     model.dispose();
-    vi.unstubAllGlobals();
   });
 
   test('a server error is unanswered too', async () => {
@@ -118,7 +120,6 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
       expect(model.serverStatus).toBe('unanswered');
     });
     model.dispose();
-    vi.unstubAllGlobals();
   });
 });
 

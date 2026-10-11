@@ -8,6 +8,7 @@ import {App} from '../../app/App.tsx';
 import {rememberRow} from '../../app/listReturn.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
+import {editing} from '../../intents/session.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
@@ -90,6 +91,17 @@ test('a row links to the comment it is about, and opening it goes there (#211)',
     expect(router.state.location.pathname).toBe('/acme/atlas/issues/1');
   });
   expect(router.state.location.hash).toBe('comment-1779');
+});
+
+test('opening a row reads it once: the issue page it opens does not read it again (#259)', async () => {
+  const {app, router} = await renderInbox();
+  fireEvent.click(rowOf('Follow-up 2'));
+  await waitFor(() => {
+    expect(router.state.location.pathname).toBe('/acme/atlas/issues/3');
+  });
+  await screen.findByRole('heading', {level: 1, name: /Follow-up 2/});
+  const reads = [...editing(app).intents.records.values()].map((r) => r.intent).filter((i) => i.kind === 'notification.status');
+  expect(reads).toEqual([expect.objectContaining({notificationId: 3, status: 'read', base: 'unread'})]);
 });
 
 test('why a row is here stays visible: the title gives way first (#229)', async () => {

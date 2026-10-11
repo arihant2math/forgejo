@@ -3,7 +3,7 @@
 
 // Inbox triage as intents (`notification.status`: offline-capable, PLAN §5.4).
 
-import {runInAction, untracked} from 'mobx';
+import {compareStructural, reaction, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
@@ -93,6 +93,28 @@ export function setStatus(app: App, ids: readonly number[], to: StatusTo): void 
   });
 }
 
+/**
+ * Reading a thread reads its notifications (#259; classic's ViewIssue, `SetIssueReadBy`): while an issue or pull
+ * request is on screen, the viewer's unread notifications about it become read — those there when it opens and
+ * those that arrive (the inbox syncs later than an address opened directly). Each one once while it stays open, so
+ * a notification marked unread again elsewhere (another tab's inbox) is left so. A pinned one stays pinned. Silent:
+ * no notice, no Undo (as opening an Inbox row). Returns the disposer.
+ */
+export function readThreadWhileOpen(app: App, issueId: number): () => void {
+  if (issueId <= 0) return () => undefined;
+  const done = new Set<number>();
+  return reaction(() => {
+    const s = app.session;
+    if (!s) return [];
+    const {overlay} = editing(app);
+    return [...s.data.pool.model('Notification').by('issue_id', issueId)]
+      .filter((n) => !done.has(n.id) && notificationStatus(overlay, n) === 'unread').map((n) => n.id).sort((a, b) => a - b);
+  }, (ids) => {
+    if (!ids.length) return;
+    for (const id of ids) done.add(id);
+    setStatus(app, ids, (st) => (st === 'unread' ? 'read' : undefined));
+  }, {fireImmediately: true, equals: compareStructural});
+}
 
 /**
  * Marks notifications read in one request ("Mark all read"): those unread now, up to the newest of them (one

@@ -10,14 +10,20 @@
 // U unread, Shift+P pins or unpins, Shift+E marks everything read. Like the
 // issue lists: one virtualized listbox with aria-activedescendant, rows that
 // observe their own fields, and a row set recomputed at most once a frame.
+// Without keys (#206): the hovered row offers read/unread, pin and a menu;
+// "Select" makes a tap select rows (a phone), and a selection gets a bar of
+// its actions. Each of them names its key in its tooltip.
 
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {BellOff, CheckCheck, ExternalLink, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, Mail, MailOpen, Pin, Rows3} from 'lucide-react';
+import {
+  BellOff, CheckCheck, ExternalLink, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, ListChecks, Mail, MailOpen, MoreHorizontal, Pin, PinOff, Rows3,
+  Square, SquareCheck, X,
+} from 'lucide-react';
 import {autorun, computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
@@ -33,24 +39,31 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {
-  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, EmptyState, Icon, ListGroupHeader, ListRow, Menu,
-  MenuCheckboxItem, MenuContent, MenuTrigger, StatusDot,
+  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, cx, EmptyState, Icon, IconButton, ListGroupHeader, ListRow,
+  Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuSeparator, MenuTrigger, StatusDot,
 } from '../../ui/index.ts';
-import {AgoCell, RefCell, SelectionCount, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
+import {AgoCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
-import {ListCursor} from '../issues/flags.ts';
-import {readAll as markAllRead, setStatus, unsubscribe, unsubscribeReason} from './actions.ts';
+import {KeyedFlags} from '../issues/flags.ts';
+import {readAll as markAllRead, setStatus, type StatusTo, triage, unsubscribe, unsubscribeReason} from './actions.ts';
+import {InboxCursor} from './cursor.ts';
 import {reasonOf} from './reason.ts';
+import {askServerReasons, serverReasons} from './serverReasons.ts';
 import {InboxFilters} from './InboxFilters.tsx';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
-import {activityOf, type InboxResult, inboxRows, togglePin} from './inbox.ts';
+import {activityOf, type InboxResult, inboxRows, noteHash, togglePin} from './inbox.ts';
 
 const ROW = 32; // ListRow's h-row
 const route = getRouteApi('/shell/notifications');
 
 /** The inbox's rows, recomputed when notifications change (at most once a frame) or a status is overridden. */
 class InboxModel {
-  readonly cursor = new ListCursor();
+  readonly cursor = new InboxCursor();
+  /** Select mode: a click or tap on a row selects it instead of opening it (no Shift, no X on a phone). */
+  readonly selecting = observable.box(false);
+  /** The row the mouse is over (its buttons show), and the row whose "More" menu is open (they stay meanwhile). */
+  readonly hover = new KeyedFlags();
+  menuFor: number | undefined;
   readonly result: IComputedValue<InboxResult>;
   private readonly rev = createAtom('inbox');
   private scheduled = false;
@@ -68,6 +81,8 @@ class InboxModel {
     this.overlay = overlay;
     this.view = view;
     this.off = pool.onApplied((changes) => {
+      // New notifications may be mentions or review requests the server knows of (at most every FRESH ms).
+      if (changes.some((c) => c.model === 'Notification')) askServerReasons(app, () => oldestNote(pool));
       if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository' || c.model === 'Issue' || c.model === 'PullRequest' || c.model === 'Review' || c.model === 'Comment' || c.model === 'IssueAssignee' || c.model === 'User')) return;
       this.scheduled = true;
       requestAnimationFrame(() => {
@@ -96,6 +111,7 @@ class InboxModel {
     const all = this.sorted.get();
     // A notification whose issue is not on this device is ordered by its subject's activity once known.
     subjectsKnown();
+    const server = serverReasons(this.app);
     return untracked(() => {
       const t0 = performance.now();
       // Already in order: inboxRows' own sort of a sorted list is linear.
@@ -103,7 +119,7 @@ class InboxModel {
       const out = inboxRows(all, {...v, unread: v.filter === 'unread', byRepo: v.group === 'repo'}, {
         reason: (n) => {
           const me = this.app.session?.userId ?? 0;
-          const why = reasonOf(this.pool, n, me, this.pool.model('User').get(me)?.data.login)?.why;
+          const why = reasonOf(this.pool, n, me, this.pool.model('User').get(me)?.data.login, server)?.why;
           const issue = issues.get(n.issue_id)?.data;
           if (v.reason === 'participating') {
             return me && (issue?.poster_id === me || [...this.pool.model('Comment').by('issue_id', n.issue_id)].some((c) => c.data.poster_id === me) || [...this.pool.model('Review').by('issue_id', n.issue_id)].some((r) => r.data.reviewer_id === me && r.data.state !== 'REQUEST_REVIEW')) ? 'participating' : undefined;
@@ -141,6 +157,16 @@ class InboxModel {
   }
 }
 
+/** The oldest notification's creation time: an issue that mentioned the viewer since was updated since. */
+function oldestNote(pool: Pool): string | undefined {
+  let min: string | undefined;
+  for (const e of pool.model('Notification').all()) {
+    const at = e.data.created_at;
+    if (at && (min === undefined || at < min)) min = at;
+  }
+  return min;
+}
+
 export default observer(function Inbox() {
   const app = useApp();
   const {data} = useSession();
@@ -165,6 +191,10 @@ export default observer(function Inbox() {
   useEffect(() => () => {
     model.dispose();
   }, [model]);
+  // Which notifications mention the viewer or wait for their review: the server says (serverReasons.ts).
+  useEffect(() => {
+    askServerReasons(app, () => untracked(() => oldestNote(data.pool)), true);
+  }, [app, data.pool]);
   const shown = view.get();
   const set = (patch: {[K in keyof InboxSearch]?: InboxSearch[K] | undefined}) => {
     const next = Object.fromEntries(Object.entries({...view.get(), ...patch}).filter(([, v]) => v !== undefined)) as InboxSearch;
@@ -190,8 +220,9 @@ export default observer(function Inbox() {
   return (
     <>
       <PageHeader icon={InboxIcon} title="Inbox">
-        <SelectionCount cursor={model.cursor}/>
+        <SelectionBar model={model}/>
         <InboxFilters search={shown} set={set}/>
+        <SelectToggle model={model}/>
         <Button size="sm" pressed={shown.filter === 'unread'} tooltip="Show unread notifications only" onClick={() => {
           set({filter: shown.filter === 'unread' ? undefined : 'unread'});
         }}>Unread<UnreadCount/></Button>
@@ -213,6 +244,57 @@ export default observer(function Inbox() {
 function sameView(a: InboxSearch, b: InboxSearch): boolean {
   return a.filter === b.filter && a.group === b.group && a.reason === b.reason && a.repo === b.repo && a.type === b.type && a.state === b.state;
 }
+
+/** Select mode (a phone has no Shift-click and no X): a tap selects; turning it off clears the selection. */
+const SelectToggle = observer(function SelectToggle({model}: {model: InboxModel}) {
+  const on = model.selecting.get();
+  return (
+    <Button size="sm" pressed={on} icon={ListChecks} shortcut={shortcutHint('list.select')}
+      tooltip={on ? 'Tap rows to select them; Esc or Select again to stop' : 'Select notifications to act on several at once (also Shift-click, or X on a row)'} onClick={() => {
+        runInAction(() => {
+          model.selecting.set(!on);
+        });
+        if (on) model.cursor.clearSelection();
+      }}>Select</Button>
+  );
+});
+
+/** What the selection can do (#206), with the count; the keys that do the same are in the tooltips. */
+const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}) {
+  const app = useApp();
+  const overlay = useOverlay();
+  const pool = usePool();
+  const ids = model.cursor.selected.values();
+  if (!ids.length) return null;
+  const statuses = ids.map((id) => {
+    const n = pool.model('Notification').get(id);
+    return n ? notificationStatus(overlay, n) : undefined;
+  });
+  const allPinned = statuses.every((st) => st === 'pinned');
+  const cannotUnsubscribe = unsubscribeReason(app, ids);
+  const run = (to: StatusTo, said: 'read' | 'unread' | 'pin') => () => {
+    triage(app, untracked(() => model.cursor.selected.values()), to, said);
+  };
+  return (
+    <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-1">
+      <span className="px-1 text-sm whitespace-nowrap text-fg-muted tabular-nums">{ids.length} selected</span>
+      <Button size="sm" variant="ghost" icon={MailOpen} shortcut={shortcutHint('inbox.read')} tooltip="Mark the selected notifications read"
+        disabled={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button>
+      <Button size="sm" variant="ghost" icon={Mail} shortcut={shortcutHint('inbox.unread')} tooltip="Mark the selected notifications unread"
+        disabled={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button>
+      <Button size="sm" variant="ghost" icon={allPinned ? PinOff : Pin} shortcut={shortcutHint('inbox.pin')}
+        tooltip={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'}
+        onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button>
+      <Button size="sm" variant="ghost" icon={BellOff} shortcut={shortcutHint('inbox.unsubscribe')} tooltip={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'}
+        disabled={!!cannotUnsubscribe} onClick={() => {
+          unsubscribe(app, untracked(() => model.cursor.selected.values()));
+        }}>Unsubscribe</Button>
+      <Button size="sm" variant="ghost" icon={X} shortcut={formatKeys('escape')} tooltip="Clear the selection" onClick={() => {
+        model.cursor.clearSelection();
+      }}>Clear</Button>
+    </div>
+  );
+});
 
 const UnreadCount = observer(function UnreadCount() {
   const {ui} = useApp();
@@ -309,8 +391,10 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     // Opening it is reading it (Linear); a pinned one stays pinned.
     setStatus(app, [id], (st) => (st === 'unread' ? 'read' : undefined));
     if (!path) return;
-    if (newTab) window.open(`${app.config.app_sub_url}${path}`, '_blank', 'noopener');
-    else void navigate({to: path});
+    // At the comment it is about (#211), not the top of the thread.
+    const hash = noteHash(n.data);
+    if (newTab) window.open(`${app.config.app_sub_url}${path}${hash ? `#${hash}` : ''}`, '_blank', 'noopener');
+    else void navigate({to: path, ...(hash ? {hash} : {})});
   };
   const move = (delta: number) => {
     if (!ids.length) return;
@@ -325,31 +409,23 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
    * Triage keeps the cursor moving: after E/U/pin on the cursor's row, J goes on from there. Read and unread say
    * what they did, with Undo (a row that leaves the Unread view is easy to lose).
    */
-  type To = (st: string) => 'read' | 'unread' | 'pinned' | undefined;
-  const triage = (to: To, said?: 'read' | 'unread' | 'pin') => () => {
+  const triageKey = (to: StatusTo, said?: 'read' | 'unread' | 'pin') => () => {
     // Without a cursor (from the palette, before J): the first row, which then has the cursor.
     let targets = cursor.targets();
     if (!targets.length && ids[0] !== undefined) {
       cursor.setActive(ids[0]);
       targets = [ids[0]];
     }
-    triageIds(targets, to, said);
+    triage(app, targets, to, said);
   };
-  /** Changes the notifications' status and says so, with Undo (keys and the row menu alike). */
-  const triageIds = (targets: readonly number[], to: To, said?: 'read' | 'unread' | 'pin') => {
-    const before = new Map(targets.map((id) => [id, status(id)]));
-    setStatus(app, targets, to);
-    const changed = targets.filter((id) => status(id) !== before.get(id));
-    if (!said || !changed.length) return;
-    const what = changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`;
-    const title = said === 'pin' ? `${status(changed[0] ?? 0) === 'pinned' ? 'Pinned' : 'Unpinned'} ${what}` : `Marked ${what} ${said}`;
-    notify(app, {tone: 'neutral', series: 'inbox', title, action: {label: 'Undo', run: () => {
-      for (const id of changed) {
-        const was = before.get(id);
-        if (was === 'read' || was === 'unread' || was === 'pinned') setStatus(app, [id], () => was);
-      }
-    }}});
+  /** Esc: clears the selection, else leaves select mode. */
+  const clear = () => {
+    if (untracked(() => cursor.selected.size)) cursor.clearSelection();
+    else runInAction(() => {
+      model.selecting.set(false);
+    });
   };
+  const clearable = () => untracked(() => cursor.selected.size > 0 || model.selecting.get());
   useShortcutScope('list');
   useShortcut('list.next', () => {
     move(1);
@@ -358,17 +434,17 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     move(-1);
   });
   useShortcut('list.select', () => {
-    if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
+    // Before J (no cursor yet): the first row, which then has the cursor (#206).
+    if (cursor.activeId === undefined && ids[0] !== undefined) cursor.setActive(ids[0]);
+    if (cursor.activeId !== undefined) cursor.toggle(cursor.activeId);
   });
   useShortcut('list.open', () => {
     if (cursor.activeId !== undefined) open(cursor.activeId);
   }, true, () => cursor.activeId !== undefined);
-  useShortcut('list.clear', () => {
-    cursor.selected.clear();
-  }, true, () => untracked(() => cursor.selected.size) > 0);
-  useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined), 'read'));
-  useShortcut('inbox.unread', triage(() => 'unread', 'unread'));
-  useShortcut('inbox.pin', triage(togglePin, 'pin'));
+  useShortcut('list.clear', clear, true, clearable);
+  useShortcut('inbox.read', triageKey((st) => (st === 'unread' ? 'read' : undefined), 'read'));
+  useShortcut('inbox.unread', triageKey(() => 'unread', 'unread'));
+  useShortcut('inbox.pin', triageKey(togglePin, 'pin'));
   useShortcut('inbox.unsubscribe', () => {
     const targets = cursor.targets();
     unsubscribe(app, targets.length ? targets : ids.slice(0, 1));
@@ -382,13 +458,13 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     } else if (e.key === 'Enter' && cursor.activeId !== undefined) {
       e.preventDefault();
       open(cursor.activeId, e.metaKey || e.ctrlKey);
-    } else if (e.key === 'Escape' && untracked(() => cursor.selected.size)) {
+    } else if (e.key === 'Escape' && clearable()) {
       e.preventDefault();
-      cursor.selected.clear();
+      clear();
     }
   };
-  const handlers = useRef({open, cursor, ids});
-  handlers.current = {open, cursor, ids};
+  const handlers = useRef({open, cursor, ids, model});
+  handlers.current = {open, cursor, ids, model};
   const [click] = useState(() => (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => {
     const h = handlers.current;
     if (e.shiftKey) {
@@ -396,19 +472,16 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
       return;
     }
     h.cursor.setActive(id);
-    h.open(id, e.metaKey || e.ctrlKey);
+    if (untracked(() => h.model.selecting.get()) && !(e.metaKey || e.ctrlKey)) h.cursor.toggle(id);
+    else h.open(id, e.metaKey || e.ctrlKey);
   });
 
   const items = virtualizer.getVirtualItems();
-  const status = (id: number) => {
-    const n = untracked(() => app.session?.data.pool.model('Notification').get(id));
-    return n ? untracked(() => notificationStatus(editing(app).overlay, n)) : undefined;
+  const refocus = () => {
+    focusList(listRef.current);
   };
   // The row menu acts on the selection when the row is in it (and says how many), else on the row.
   const [menuIds, setMenuIds] = useState<number[]>([]);
-  const menuStatus = menuIds.length === 1 && menuIds[0] !== undefined ? status(menuIds[0]) : undefined;
-  const cannotUnsubscribe = unsubscribeReason(app, menuIds);
-  const many = menuIds.length > 1 ? ` (${String(menuIds.length)})` : '';
   return (
     <ContextMenu onOpenChange={(o) => {
       if (!o) setMenuIds([]);
@@ -426,6 +499,9 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
             if (e.target !== e.currentTarget || cursor.activeId !== undefined) return;
             const first = items.map((it) => rows[it.index]).find((r) => r?.type === 'note');
             if (first?.type === 'note') cursor.setActive(first.id);
+          }}
+          onPointerLeave={() => {
+            if (model.menuFor === undefined) model.hover.clear();
           }}
           onContextMenuCapture={(e) => {
             const el = (e.target as Element).closest('[data-note]');
@@ -445,9 +521,15 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
             const r = rows[it.index];
             if (!r) return null;
             return (
-              <div key={it.key} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
+              <div key={it.key} className="absolute inset-x-0 top-0 hover:bg-hover" style={{transform: `translateY(${String(it.start)}px)`}} onPointerEnter={r.type === 'note' ? (e) => {
+                // A mouse: a tap that opens the row has no use for its buttons.
+                if (e.pointerType === 'mouse' && model.menuFor === undefined) model.hover.replace([r.id]);
+              } : undefined}>
                 {r.type === 'note' ?
-                  <NoteRow id={r.id} cursor={cursor} onClick={click} byRepo={byRepo}/> :
+                  <>
+                    <NoteRow id={r.id} model={model} onClick={click} byRepo={byRepo}/>
+                    <RowActions id={r.id} model={model} open={open} refocus={refocus}/>
+                  </> :
                   <ListGroupHeader leading={r.key === 'pinned' ? <Icon icon={Pin}/> : r.key.startsWith('repo:') ? <Icon icon={FolderGit2}/> : null} label={r.label} count={r.count}/>}
               </div>
             );
@@ -455,51 +537,118 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {menuIds.length > 0 && (
-          <>
-            {menuIds.length === 1 && <>
-              <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
-                if (menuIds[0] !== undefined) open(menuIds[0]);
-              }}>Open</ContextMenuItem>
-              <ContextMenuSeparator/>
-            </>}
-            <ContextMenuItem icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={menuStatus !== undefined && menuStatus !== 'unread'} onSelect={() => {
-              triageIds(menuIds, (st) => (st === 'unread' ? 'read' : undefined), 'read');
-            }}>{`Mark read${many}`}</ContextMenuItem>
-            <ContextMenuItem icon={Mail} shortcut={shortcutHint('inbox.unread')} disabled={menuStatus === 'unread'} onSelect={() => {
-              triageIds(menuIds, () => 'unread', 'unread');
-            }}>{`Mark unread${many}`}</ContextMenuItem>
-            <ContextMenuItem icon={Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
-              triageIds(menuIds, togglePin, 'pin');
-            }}>{menuStatus === 'pinned' ? 'Unpin' : `Pin${many}`}</ContextMenuItem>
-            <ContextMenuSeparator/>
-            <ContextMenuItem icon={BellOff} shortcut={shortcutHint('inbox.unsubscribe')} disabled={!!cannotUnsubscribe} onSelect={() => {
-              unsubscribe(app, menuIds);
-            }}>{`Unsubscribe${many}`}</ContextMenuItem>
-            <ContextMenuItem icon={BellOff} disabled={!!cannotUnsubscribe} onSelect={() => {
-              unsubscribe(app, menuIds, true);
-            }}>{`Unsubscribe and mark read${many}`}</ContextMenuItem>
-            {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-fg-subtle">{cannotUnsubscribe}</div>}
-          </>
-        )}
+        {menuIds.length > 0 && <NoteMenu ids={menuIds} open={open} Item={ContextMenuItem} Separator={ContextMenuSeparator}/>}
       </ContextMenuContent>
     </ContextMenu>
   );
 });
 
+// The item parts of the context menu and the dropdown have the same props (ui/Menu.tsx makeItems).
+type ItemComponent = typeof MenuItem;
+
+/**
+ * A row's actions as menu items (its context menu and its "More" menu: the same rows). On the selection when the
+ * row is in it (the labels say how many), else on the row.
+ */
+const NoteMenu = observer(function NoteMenu({ids, open, Item, Separator}: {ids: readonly number[]; open: (id: number) => void; Item: ItemComponent; Separator: typeof MenuSeparator}) {
+  const app = useApp();
+  const pool = usePool();
+  const overlay = useOverlay();
+  const one = ids.length === 1 ? ids[0] : undefined;
+  const n = one === undefined ? undefined : pool.model('Notification').get(one);
+  const status = n ? notificationStatus(overlay, n) : undefined;
+  const cannotUnsubscribe = unsubscribeReason(app, ids);
+  const many = ids.length > 1 ? ` (${String(ids.length)})` : '';
+  return (
+    <>
+      {one !== undefined && <>
+        <Item icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
+          open(one);
+        }}>Open</Item>
+        <Separator/>
+      </>}
+      <Item icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={status !== undefined && status !== 'unread'} onSelect={() => {
+        triage(app, ids, (st) => (st === 'unread' ? 'read' : undefined), 'read');
+      }}>{`Mark read${many}`}</Item>
+      <Item icon={Mail} shortcut={shortcutHint('inbox.unread')} disabled={status === 'unread'} onSelect={() => {
+        triage(app, ids, () => 'unread', 'unread');
+      }}>{`Mark unread${many}`}</Item>
+      <Item icon={status === 'pinned' ? PinOff : Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
+        triage(app, ids, togglePin, 'pin');
+      }}>{status === 'pinned' ? 'Unpin' : `Pin${many}`}</Item>
+      <Separator/>
+      <Item icon={BellOff} shortcut={shortcutHint('inbox.unsubscribe')} disabled={!!cannotUnsubscribe} onSelect={() => {
+        unsubscribe(app, ids);
+      }}>{`Unsubscribe${many}`}</Item>
+      <Item icon={BellOff} disabled={!!cannotUnsubscribe} onSelect={() => {
+        unsubscribe(app, ids, true);
+      }}>{`Unsubscribe and mark read${many}`}</Item>
+      {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-fg-subtle">{cannotUnsubscribe}</div>}
+    </>
+  );
+});
+
+/**
+ * The hovered row's buttons (#206): read or unread, pin (keep it for later) and the row's menu, over its time. For
+ * the mouse; the keys and the row menu (right click, long press, Shift+F10) do the same, so they are hidden from
+ * assistive tech and out of the tab order. Only the hovered row has them (no tooltips mounted per row).
+ */
+const RowActions = observer(function RowActions({id, model, open, refocus}: {id: number; model: InboxModel; open: (id: number) => void; refocus: () => void}) {
+  const app = useApp();
+  const pool = usePool();
+  const overlay = useOverlay();
+  const shown = model.hover.has(id);
+  const n = pool.model('Notification').get(id);
+  if (!shown || !n) return null;
+  const status = notificationStatus(overlay, n);
+  const unread = status === 'unread';
+  // A click keeps the focus where it is (the list: J/K and E go on).
+  const keepFocus = (e: MouseEvent) => {
+    e.preventDefault();
+  };
+  return (
+    <div data-note={id} aria-hidden className="absolute inset-y-0 right-0 flex items-center pe-2">
+      <div className="flex items-center gap-0.5 rounded-md border border-border bg-raised p-0.5">
+        <IconButton size="sm" tabIndex={-1} icon={unread ? MailOpen : Mail} label={unread ? 'Mark read' : 'Mark unread'} shortcut={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')}
+          onMouseDown={keepFocus} onClick={() => {
+          triage(app, [id], unread ? (st) => (st === 'unread' ? 'read' : undefined) : () => 'unread', unread ? 'read' : 'unread');
+        }}/>
+        <IconButton size="sm" tabIndex={-1} icon={status === 'pinned' ? PinOff : Pin} label={status === 'pinned' ? 'Unpin' : 'Pin, to keep it for later'} shortcut={shortcutHint('inbox.pin')}
+          onMouseDown={keepFocus} onClick={() => {
+          triage(app, [id], togglePin, 'pin');
+        }}/>
+        <Menu onOpenChange={(o) => {
+          model.menuFor = o ? id : undefined;
+          if (!o) model.hover.clear();
+        }}>
+          <MenuTrigger asChild><IconButton size="sm" tabIndex={-1} icon={MoreHorizontal} label="More actions"/></MenuTrigger>
+          <MenuContent align="end" onCloseAutoFocus={(e) => {
+            // Back to the list (its buttons are gone with the hover), not to the button.
+            e.preventDefault();
+            refocus();
+          }}>
+            <NoteMenu ids={[id]} open={open} Item={MenuItem} Separator={MenuSeparator}/>
+          </MenuContent>
+        </Menu>
+      </div>
+    </div>
+  );
+});
+
 type RowClick = (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => void;
 
-const NoteRow = observer(function NoteRow({id, cursor, onClick, byRepo}: {id: number; cursor: ListCursor; onClick: RowClick; byRepo: boolean}) {
+const NoteRow = observer(function NoteRow({id, model, onClick, byRepo}: {id: number; model: InboxModel; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
   const n = pool.model('Notification').get(id);
   if (!n) return <ListRow role="presentation"> </ListRow>;
-  return <NoteRowBody n={n} cursor={cursor} onClick={onClick} byRepo={byRepo}/>;
+  return <NoteRowBody n={n} model={model} onClick={onClick} byRepo={byRepo}/>;
 });
 
-const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: {n: Entity<'Notification'>; cursor: ListCursor; onClick: RowClick; byRepo: boolean}) {
+const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {n: Entity<'Notification'>; model: InboxModel; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
   const app = useApp();
   const {userId} = useSession();
+  const {cursor} = model;
   const status = notificationStatus(useOverlay(), n);
   const issue = pool.model('Issue').get(n.get('issue_id'));
   // Not on this device (a repository outside the workspace): what the server says it is about.
@@ -508,17 +657,20 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: 
   const unread = status === 'unread';
   const at = activityOf(n.data, issue?.get('updated_at') ?? subject?.updated);
   const path = issue ? issuePath(app, issue) : subject && subjectPath(subject);
-  const reason = reasonOf(pool, n.data, userId, pool.model('User').get(userId)?.get('login'));
+  const hash = noteHash(n.data);
+  const reason = reasonOf(pool, n.data, userId, pool.model('User').get(userId)?.get('login'), serverReasons(app));
   const number = issue ? issue.get('number') : subject?.number;
+  const selecting = model.selecting.get();
+  const selected = cursor.selected.has(n.id);
   return (
     <ListRow
       role="option"
       id={rowId(n.id)}
       data-note={n.id}
       active={cursor.active.has(n.id)}
-      selected={cursor.selected.has(n.id)}
-      // A link (middle-click, a new tab); a plain click opens it here and marks it read.
-      href={path ? sitePath(app.config, path) : undefined}
+      selected={selected}
+      // A link (middle-click, a new tab) to the comment it is about; a plain click opens it here and marks it read.
+      href={path ? `${sitePath(app.config, path)}${hash ? `#${hash}` : ''}` : undefined}
       tabIndex={-1}
       onClick={(e) => {
         if (path && (e.metaKey || e.ctrlKey) && !e.shiftKey) return;
@@ -526,6 +678,7 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: 
         onClick(n.id, e);
       }}
       leading={<>
+        {selecting && (selected ? <Icon icon={SquareCheck} className="text-accent-fg"/> : <Icon icon={Square}/>)}
         <StatusDot tone="accent" off={!unread}/>
         {issue ? <StateIcon issue={issue}/> : subject ? <SubjectIcon s={subject}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitHorizontal : InboxIcon}/>}
       </>}
@@ -535,11 +688,14 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: 
         <AgoCell at={at}/>
       </>}
     >
-      {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
-      <span className={unread ? 'font-medium text-fg' : 'text-fg-muted'}>
-        {issue ? <TitleCell issue={issue}/> : subject ? subject.title : subjectWords(n.get('subject'))}
+      {/* The title gives way first, then the actor's name; why it is here stays (a phone, #229). */}
+      <span className="flex min-w-0 items-baseline">
+        {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
+        <span className={cx('shrink-4 truncate', reason ? 'min-w-24' : 'min-w-0', unread ? 'font-medium text-fg' : 'text-fg-muted')}>
+          {issue ? <TitleCell issue={issue}/> : subject ? subject.title : subjectWords(n.get('subject'))}
+        </span>
+        {reason && <Why why={reason.why} actor={reason.actor}/>}
       </span>
-      {reason && <Why why={reason.why} actor={reason.actor}/>}
     </ListRow>
   );
 });
@@ -547,7 +703,10 @@ const NoteRowBody = observer(function NoteRowBody({n, cursor, onClick, byRepo}: 
 /** Why the notification is here, and whose activity it is (muted, after the title). */
 function Why({why, actor}: {why: string; actor: number}) {
   const user = useUser(actor);
-  return <span className="text-fg-subtle"> · {why}{actor && user.name ? ` · ${user.name}` : ''}</span>;
+  return <>
+    <span className="ms-1 shrink-0 whitespace-nowrap text-fg-subtle">· {why}</span>
+    {actor && user.name ? <span className="ms-1 min-w-0 truncate text-fg-subtle">· {user.name}</span> : null}
+  </>;
 }
 
 function SubjectIcon({s}: {s: Subject}) {

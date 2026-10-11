@@ -104,3 +104,12 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
 export function togglePin(status: string): 'read' | 'pinned' {
   return status === 'pinned' ? 'read' : 'pinned';
 }
+
+/**
+ * The anchor of the comment a notification is about (`comment-ID`, the issue page's comment ids), so opening it
+ * goes to what is new rather than the top of a long thread (#211). Forgejo keeps a notification's comment_id on the
+ * first comment since it was last read: while it is unread, later comments only move its time.
+ */
+export function noteHash(n: Pick<Notification, 'comment_id'>): string | undefined {
+  return n.comment_id > 0 ? `comment-${String(n.comment_id)}` : undefined;
+}

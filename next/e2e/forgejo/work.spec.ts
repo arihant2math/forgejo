@@ -134,7 +134,8 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
 
   // Enter opens the issue (and reads it).
   await row(page, a.title).click();
-  await expect(page).toHaveURL(`${BASE}/${USER}/${REPO}/issues/${String(a.number)}`);
+  // At alice's reply, the news (#211).
+  await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/issues/${String(a.number)}#comment-\\d+$`));
   await expect.poll(async () => {
     const l = await (await api('GET', '/notifications?status-types=unread&limit=50')).json() as {subject: {title: string}}[];
     return l.some((n) => n.subject.title === a.title);

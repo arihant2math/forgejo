@@ -69,7 +69,8 @@ test('daily triage: inbox → issue → label and priority → its board → car
   for (let i = 0; i < at; i++) await page.keyboard.press('j');
   await expect(row).toHaveAttribute('data-active', '');
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(`${BASE}/${USER}/${REPO}/issues/${String(issue.number)}`);
+  // At alice's comment, the news (#211).
+  await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/issues/${String(issue.number)}#comment-\\d+$`));
   await expect(issueTitle(page)).toContainText(issue.title);
   await expect(page.getByRole('region', {name: 'Activity'})).toContainText('Still happening on main.', {timeout: 15_000});
   await expect.poll(async () => (await unreadTitles()).includes(issue.title), {timeout: 15_000}).toBe(false);

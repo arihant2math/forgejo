@@ -197,7 +197,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   if (up && upHead && refs.branches.has(upHead)) {
     options.push({
       value: `upstream:${up.owner}/${up.name}:${up.defaultBranch}`, label: up.defaultBranch, group: `${up.owner}/${up.name} (upstream)`, icon: GitBranch,
-      words: `${up.owner}/${up.name}`, meta: 'default', onSelect: () => {
+      words: `${up.owner}/${up.name}`, meta: 'default', checked: false, onSelect: () => {
         go(codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, upHead))));
       },
     });

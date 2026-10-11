@@ -153,7 +153,11 @@ test('a release\'s new tag can be made at an existing tag (the release candidate
   expect(status.textContent).toMatch(/head now/);
   // The picker offers tags too: the release candidate.
   fireEvent.click(screen.getByRole('button', {name: 'Target: main'}));
-  fireEvent.click(await screen.findByRole('option', {name: /v1\.1-rc\.1/}));
+  // The current target is the picker's selected option.
+  const rc = await screen.findByRole('option', {name: /v1\.1-rc\.1/});
+  expect(screen.getByRole('option', {name: /^main/}).getAttribute('aria-selected')).toBe('true');
+  expect(rc.getAttribute('aria-selected')).toBe('false');
+  fireEvent.click(rc);
   await waitFor(() => {
     expect(screen.getByRole('status', {name: 'Target commit'}).textContent).toMatch(/cccccccccc.*Release candidate/);
   });

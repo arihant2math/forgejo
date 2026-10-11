@@ -103,7 +103,8 @@ test('a fork\'s own comparison says the pull request stays in the fork, and offe
   fireEvent.click(screen.getByRole('button', {name: 'Base: main'}));
   expect(await screen.findByText('acme/atlas (upstream)')).toBeTruthy();
   const [own, upstream] = screen.getAllByRole('option', {name: /main/});
-  expect(own?.getAttribute('aria-checked')).toBe('true');
+  expect(own?.getAttribute('aria-selected')).toBe('true');
+  expect(upstream?.getAttribute('aria-selected')).toBe('false');
   act(() => {
     if (upstream) fireEvent.click(upstream);
   });

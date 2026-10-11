@@ -51,10 +51,12 @@ export interface ListBodyProps {
   label: string;
   /** Shown when nothing at all is listed (no filter in effect). */
   empty: ReactNode;
+  /** The `empty` state words every state (open, closed, all): a state other than open is then not a filter in effect. */
+  emptyForEveryState?: boolean | undefined;
   showRepo?: boolean | undefined;
 }
 
-export const ListBody = observer(function ListBody({model, label, empty, showRepo}: ListBodyProps) {
+export const ListBody = observer(function ListBody({model, label, empty, emptyForEveryState, showRepo}: ListBodyProps) {
   // State, not a ref: the list's virtualizer needs the element when it first lays out, and a parent's
   // ref is attached after its children's layout effects ran.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -82,7 +84,7 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
   }, [nearEnd]);
   // A milestone's page lists its milestone's issues: that is the list, not a filter in effect.
   const ownMilestone = src.kind === 'repo' && src.milestone !== undefined;
-  const filtered = q.filter.state !== 'open' || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
+  const filtered = (q.filter.state !== 'open' && !emptyForEveryState) || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
     q.filter.poster !== undefined || (q.filter.milestone !== undefined && !ownMilestone) || q.filter.status !== undefined || q.filter.priority !== undefined ||
     q.filter.label !== undefined || q.filter.repo !== undefined;
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;

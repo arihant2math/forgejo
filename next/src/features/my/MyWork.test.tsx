@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {render, screen} from '@testing-library/react';
+import {cleanup, render, screen} from '@testing-library/react';
 import {afterEach, beforeAll, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -62,6 +62,23 @@ describe('My pull requests > Review requested (QA #261)', () => {
     expect(screen.getByText(/Review requests are not kept on this device and Forgejo could not be asked/)).toBeTruthy();
   });
 
+  test('state All or Closed, Forgejo answers nothing: the empty text fits the state (no "choose All")', async () => {
+    await renderPulls('/pulls?type=review_requested&state=all', () => json([]));
+    expect(await screen.findByText('Nothing is waiting for your review, open, closed or merged.')).toBeTruthy();
+    expect(screen.queryByText(/choose All/)).toBeNull();
+    expect(screen.queryByText(/needs a connection/i)).toBeNull();
+    cleanup();
+    await renderPulls('/pulls?type=review_requested&state=closed', () => json([]));
+    expect(await screen.findByText('No closed or merged pull request is waiting for your review.')).toBeTruthy();
+    expect(screen.queryByText(/choose All/)).toBeNull();
+  });
+
+  test('state All, Forgejo not answering: it needs a connection (not "nothing matches")', async () => {
+    await renderPulls('/pulls?type=review_requested&state=all', () => Promise.reject(new TypeError('Failed to fetch')));
+    expect(await screen.findByText('Needs a connection')).toBeTruthy();
+    expect(screen.queryByText('Nothing matches')).toBeNull();
+  });
+
   test('state All lists the merged pull requests the server names', async () => {
     await renderPulls('/pulls?type=review_requested&state=all', (url) => json(url.searchParams.get('state') === 'all' ? [{id: 111}, {id: 107}] : []));
     expect(await screen.findByText('Merged two')).toBeTruthy();
@@ -72,33 +89,51 @@ describe('My pull requests > Review requested (QA #261)', () => {
 
 describe('emptyText (QA #261)', () => {
   test('online and answered: the empty "Review requested" / "Mentioned" lists do not say they need a connection', () => {
-    const review = emptyText('review_requested', true, 'answered', 'online');
+    const review = emptyText('review_requested', true, 'open', 'answered', 'online');
     expect(review.title).toBe('All clear');
     expect(review.description).toBe('Nothing open is waiting for your review. Closed and merged pull requests are not listed here: choose All to see them.');
     expect(review.description).not.toContain('connection');
-    const mentionedPulls = emptyText('mentioned', true, 'answered', 'online');
+    const mentionedPulls = emptyText('mentioned', true, 'open', 'answered', 'online');
     expect(mentionedPulls.description).toBe('Nothing open mentions you. Closed and merged pull requests are not listed here: choose All to see them.');
-    const mentionedIssues = emptyText('mentioned', false, 'answered', 'online');
+    const mentionedIssues = emptyText('mentioned', false, 'open', 'answered', 'online');
     expect(mentionedIssues.description).toBe('Nothing open mentions you. Closed issues are not listed here: choose All to see them.');
     expect(mentionedIssues.description).not.toContain('connection');
   });
 
-  test('a connection is mentioned only when Forgejo could not be asked', () => {
-    for (const t of ['review_requested', 'mentioned'] as const) {
-      expect(emptyText(t, true, 'unanswered', 'online').title).toBe('Needs a connection');
-      expect(emptyText(t, true, 'asking', 'offline').title).toBe('Needs a connection');
-      expect(emptyText(t, true, 'asking', 'unreachable').title).toBe('Needs a connection');
-      // Still asking, online: neither empty nor failed yet.
-      const asking = emptyText(t, true, 'asking', 'online');
-      expect(asking.title).toBe('Asking Forgejo…');
-      expect(asking.description).not.toContain('connection');
+  test('closed and all: the answered text fits the state (no "choose All", no "closed are not listed")', () => {
+    expect(emptyText('review_requested', true, 'closed', 'answered', 'online').description).toBe('No closed or merged pull request is waiting for your review.');
+    expect(emptyText('review_requested', true, 'all', 'answered', 'online').description).toBe('Nothing is waiting for your review, open, closed or merged.');
+    expect(emptyText('mentioned', true, 'closed', 'answered', 'online').description).toBe('No closed or merged pull request mentions you.');
+    expect(emptyText('mentioned', true, 'all', 'answered', 'online').description).toBe('No pull request mentions you, open, closed or merged.');
+    expect(emptyText('mentioned', false, 'closed', 'answered', 'online').description).toBe('No closed issue mentions you.');
+    expect(emptyText('mentioned', false, 'all', 'answered', 'online').description).toBe('No issue mentions you, open or closed.');
+    for (const type of ['review_requested', 'mentioned'] as const) {
+      for (const state of ['closed', 'all'] as const) {
+        const t = emptyText(type, true, state, 'answered', 'online');
+        expect(t.description).not.toContain('choose All');
+        expect(t.description).not.toContain('not listed');
+      }
     }
-    expect(emptyText('review_requested', true, 'unanswered', 'offline').description).toContain('Review requests are not kept on this device and Forgejo could not be asked');
+  });
+
+  test('a connection is mentioned only when Forgejo could not be asked, whatever the state', () => {
+    for (const t of ['review_requested', 'mentioned'] as const) {
+      for (const state of ['open', 'closed', 'all'] as const) {
+        expect(emptyText(t, true, state, 'unanswered', 'online').title).toBe('Needs a connection');
+        expect(emptyText(t, true, state, 'asking', 'offline').title).toBe('Needs a connection');
+        expect(emptyText(t, true, state, 'asking', 'unreachable').title).toBe('Needs a connection');
+        // Still asking, online: neither empty nor failed yet.
+        const asking = emptyText(t, true, state, 'asking', 'online');
+        expect(asking.title).toBe('Asking Forgejo…');
+        expect(asking.description).not.toContain('connection');
+      }
+    }
+    expect(emptyText('review_requested', true, 'open', 'unanswered', 'offline').description).toContain('Review requests are not kept on this device and Forgejo could not be asked');
   });
 
   test('the synced lists keep their wording whatever the server status', () => {
-    expect(emptyText(undefined, false, 'asking', 'offline')).toEqual({title: 'All clear', description: 'Nothing open in the repositories on this device.'});
-    expect(emptyText('assigned', true, 'asking', 'online')).toEqual({title: 'All clear', description: 'Nothing open is assigned to you.'});
-    expect(emptyText('created_by', true, 'unanswered', 'online')).toEqual({title: 'All clear', description: 'You have not opened anything that is still open.'});
+    expect(emptyText(undefined, false, 'open', 'asking', 'offline')).toEqual({title: 'All clear', description: 'Nothing open in the repositories on this device.'});
+    expect(emptyText('assigned', true, 'open', 'asking', 'online')).toEqual({title: 'All clear', description: 'Nothing open is assigned to you.'});
+    expect(emptyText('created_by', true, 'open', 'unanswered', 'online')).toEqual({title: 'All clear', description: 'You have not opened anything that is still open.'});
   });
 });

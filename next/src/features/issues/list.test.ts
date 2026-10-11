@@ -114,6 +114,30 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
     model.dispose();
   });
 
+  test('another state: an answer for the previous state is not this one\'s (asking until its own arrives)', async () => {
+    const answers: ((r: Response) => void)[] = [];
+    const {model} = reviewList(() => new Promise<Response>((resolve) => {
+      answers.push(resolve);
+    }));
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(1);
+    });
+    answers[0]?.(new Response('[]', {status: 200}));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    model.setSearch({state: 'all'});
+    expect(model.serverStatus).toBe('asking');
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(2);
+    });
+    answers[1]?.(new Response('[]', {status: 200}));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    model.dispose();
+  });
+
   test('a server error is unanswered too', async () => {
     const {model} = reviewList(() => Promise.resolve(new Response('', {status: 500})));
     await vi.waitFor(() => {

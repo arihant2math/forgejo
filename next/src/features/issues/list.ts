@@ -135,6 +135,8 @@ export class IssueListModel {
   private readonly serverIds = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
   /** Whether the last question to the server went unanswered (offline, Forgejo not answering, an error status). */
   private readonly serverFailed = observable.box(false);
+  /** The state filter the server's answer is for (its ids stay listed while another state is asked). */
+  private readonly serverAnsweredState = observable.box<string | undefined>(undefined);
   private serverAsked = '';
   readonly result: IComputedValue<QueryResult>;
   /** The keyboard cursor (J/K) and the selection (X). */
@@ -260,7 +262,8 @@ export class IssueListModel {
    */
   get serverStatus(): 'answered' | 'asking' | 'unanswered' {
     if (this.serverFailed.get()) return 'unanswered';
-    return this.serverIds.get() === undefined ? 'asking' : 'answered';
+    // An answer for another state (the filter just changed) does not say what this one holds.
+    return this.serverIds.get() !== undefined && this.serverAnsweredState.get() === this.query.filter.state ? 'answered' : 'asking';
   }
 
   /** Whether the list needs the server's answer (mentioned, review requested). */
@@ -405,6 +408,7 @@ export class IssueListModel {
       }
       runInAction(() => {
         this.serverIds.set(ids);
+        this.serverAnsweredState.set(state);
       });
     })();
   }

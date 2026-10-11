@@ -21,6 +21,7 @@ import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
+import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
@@ -232,9 +233,21 @@ export const CreateIssue = observer(function CreateIssue() {
     });
     // Created from a board column: the card shows there at once (the board stays); otherwise its page opens.
     if (!form?.board) void navigate({to: path});
+    else notify(app, {tone: 'neutral', title: 'Issue added to the column', description: form.title.trim(), action: {label: 'Open', run: () => {
+      void navigate({to: path});
+    }}});
   };
   return (
-    <Dialog open={Boolean(req)} onOpenChange={(o) => {
+    <Dialog open={Boolean(req)} onCloseAutoFocus={(e) => {
+      const column = form?.board?.columnId;
+      if (column === undefined) return;
+      const list = document.querySelector<HTMLElement>(`[data-column="${String(column)}"] [role="listbox"]`);
+      if (list) {
+        e.preventDefault();
+        list.focus({preventScroll: true});
+        list.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      }
+    }} onOpenChange={(o) => {
       if (!o) close();
     }} title="New issue" size="lg" footer={form && <Footer form={form} onCancel={close} onCreate={create}/>}>
       {form && <Fields form={form} onCreate={create}/>}

@@ -8,6 +8,7 @@
 import {CloudOff, FolderGit2, SearchX, TriangleAlert} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
+import {reach} from '../../app/online.ts';
 import {httpsCloneUrl} from '../../code/clone.ts';
 import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
@@ -17,19 +18,20 @@ import {EmptyState, Skeleton} from '../../ui/index.ts';
 import type {Loaded} from './hooks.ts';
 
 /** `action`: the way on from a "Not found" (the list it would be in). */
-export function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
+export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
+  const unreachable = reach(useApp().session?.data.status.connection) === 'unreachable';
   switch (loaded.state) {
     case 'loading':
       return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><Skeleton className="h-3 w-64"/><Skeleton className="h-3 w-48"/></div>;
     case 'offline':
-      return <EmptyState icon={CloudOff} title="Not available offline" description={missingWords(what).offline} action={<AvailableOffline/>}/>;
+      return <EmptyState icon={CloudOff} title={unreachable ? 'Can’t reach Forgejo' : 'Not available offline'} description={missingWords(what)[unreachable ? 'unreachable' : 'offline']} action={<AvailableOffline/>}/>;
     case 'error':
       if (loaded.status === 404) return <EmptyState icon={SearchX} title="Not found" description={missingWords(what).notFound} action={action}/>;
       if (loaded.status === 413) return <EmptyState icon={TriangleAlert} title="Too large to show here" description={missingWords(what).tooLarge}/>;
       if (loaded.message === 'signed out' || loaded.message.includes('SignedOut')) return <EmptyState icon={CloudOff} title="Signed out" description="Sign in again (the sync indicator above) to load this."/>;
       return <EmptyState icon={TriangleAlert} title="Could not load" description={loaded.message}/>;
   }
-}
+});
 
 /**
  * An empty repository (no commit yet), the same on every code tab: what to push and where, never a missing branch.

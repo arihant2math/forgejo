@@ -3,6 +3,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {StrictMode} from 'react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {rememberRow} from '../../app/listReturn.ts';
@@ -68,12 +69,13 @@ function session(statuses: Record<number, string> = {}) {
   return s;
 }
 
-async function renderInbox(path = '/notifications', statuses: Record<number, string> = {}) {
+async function renderInbox(path = '/notifications', statuses: Record<number, string> = {}, strict = false) {
   const s = session(statuses);
   const app = createApp(CONFIG, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
-  render(<App app={app} router={router}/>);
+  // StrictMode (main.tsx, in development) runs every effect's cleanup once after mounting.
+  render(strict ? <StrictMode><App app={app} router={router}/></StrictMode> : <App app={app} router={router}/>);
   const list = await screen.findByRole('listbox', {name: 'Notifications'});
   return {app, router, list, s};
 }
@@ -315,4 +317,33 @@ test('deep links keep working: filters with ?filter=all, and an empty working vi
   render(<App app={app} router={router}/>);
   expect(await screen.findByText('All caught up')).toBeTruthy();
   expect(screen.getByText('Nothing unread or pinned. Read notifications are under “All”.')).toBeTruthy();
+});
+
+test.each([false, true])('a bulk action that empties the list clears the selection: no stale "N selected", none back with Undo (#262; StrictMode: %s)', async (strict) => {
+  rememberRow('/notifications', 0);
+  const {list} = await renderInbox('/notifications?filter=unread', {}, strict);
+  // J X four times: every row selected.
+  for (let i = 0; i < 4; i++) {
+    act(() => {
+      fireEvent.keyDown(list, {key: 'j'});
+    });
+    act(() => {
+      fireEvent.keyDown(list, {key: 'x'});
+    });
+  }
+  expect(screen.getByRole('toolbar', {name: 'Selected notifications'}).textContent).toContain('4 selected');
+  // Shift+P: pinned, they leave the Unread view; the list is empty.
+  act(() => {
+    fireEvent.keyDown(list, {key: 'P', shiftKey: true});
+  });
+  expect(await screen.findByText('All caught up')).toBeTruthy();
+  expect(screen.queryByRole('listbox', {name: 'Notifications'})).toBeNull();
+  expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
+  // Undo (the notices load on their first use): the rows come back, not selected.
+  fireEvent.click((await screen.findAllByRole('button', {name: 'Undo'})).at(-1) ?? document.body);
+  await waitFor(() => {
+    expect(screen.getAllByRole('option')).toHaveLength(4);
+  });
+  expect(screen.queryAllByRole('option', {selected: true})).toEqual([]);
+  expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
 });

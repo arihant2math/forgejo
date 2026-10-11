@@ -246,11 +246,23 @@ test('a job log streams live over the socket; the finished log opens offline', a
   await signIn(page);
   await changeFiles(REPO, {branch: 'main', message: 'CI', files: [{operation: 'create', path: '.forgejo/workflows/ci.yml', content: b64(`on: [push]\njobs:\n  build:\n    runs-on: ${label}\n    steps:\n      - run: echo hello\n`)}]});
   let taskId = 0;
+  let taskContext: {token: string; run_id: string} | undefined;
   await expect.poll(async () => {
-    const r = await runner.call<{task?: {id: string}}>('FetchTask', {tasksVersion: '0'});
-    if (r.task) taskId = Number(r.task.id);
+    const r = await runner.call<{task?: {id: string; context: {token: string; run_id: string}}}>('FetchTask', {tasksVersion: '0'});
+    if (r.task) {
+      taskId = Number(r.task.id);
+      taskContext = r.task.context;
+    }
     return taskId;
   }, {timeout: 60_000, intervals: [1000]}).toBeGreaterThan(0);
+  // Seed a real legacy artifact while the task's upload token is still valid.
+  if (!taskContext) throw new Error('Runner did not receive a task context');
+  const artifactPath = `/api/actions_pipeline/_apis/pipelines/workflows/${taskContext.run_id}/artifacts`;
+  const headers = {Authorization: `Bearer ${taskContext.token}`};
+  const created = await ok(await fetch(`${BASE}${artifactPath}`, {method: 'POST', headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify({Type: 'actions_storage', Name: 'build-output'})}), 'create artifact');
+  const upload = await created.json() as {fileContainerResourceUrl: string};
+  await ok(await fetch(`${upload.fileContainerResourceUrl}?itemPath=build-output/output.txt`, {method: 'PUT', headers: {...headers, 'Content-Range': 'bytes 0-4/5', 'x-tfs-filelength': '5'}, body: 'hello'}), 'upload artifact');
+  await ok(await fetch(`${BASE}${artifactPath}?artifactName=build-output`, {method: 'PATCH', headers}), 'confirm artifact');
   await page.goto(code('actions'));
   await page.getByRole('option', {name: /CI/}).first().click();
   const log = page.getByRole('list', {name: 'Log of build'});
@@ -270,6 +282,22 @@ test('a job log streams live over the socket; the finished log opens offline', a
   await info.attach('log-tail.json', {body: JSON.stringify({firstLinesMs: first}), contentType: 'application/json'});
   // Finished: the job's status arrives, the log is cached by (job, task); offline it opens from the cache.
   await expect(page.getByRole('navigation', {name: 'Jobs'}).getByText('Succeeded')).toBeVisible({timeout: 30_000});
+  const artifacts = page.getByRole('region', {name: 'Artifacts'});
+  await artifacts.scrollIntoViewIfNeeded();
+  await expect(artifacts.getByText('build-output', {exact: true})).toBeVisible({timeout: 30_000});
+  const downloaded = page.waitForEvent('download');
+  await artifacts.getByRole('button', {name: 'Download', exact: true}).click();
+  const archive = await downloaded;
+  expect(archive.suggestedFilename()).toBe('build-output.zip');
+  expect(await archive.failure()).toBeNull();
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(artifacts.getByRole('button', {name: 'Download', exact: true})).toBeDisabled();
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await artifacts.getByRole('button', {name: 'Delete', exact: true}).click();
+  await page.getByRole('dialog').getByRole('button', {name: 'Delete artifact', exact: true}).click();
+  await expect(artifacts.getByText('build-output', {exact: true})).toHaveCount(0);
   await expect.poll(() => cached(page, `log:${String(repoId)}:`), {timeout: 15_000}).toBe(true);
   const url = page.url();
   await context.setOffline(true);

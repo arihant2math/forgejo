@@ -66,6 +66,14 @@ type NextConfig struct {
 	// Repository is what a new repository starts from ([repository]
 	// settings and the Git in use); absent from older servers.
 	Repository *NextRepository `json:"repository,omitempty"`
+	Explore    *NextExplore    `json:"explore,omitempty"`
+}
+
+// NextExplore describes the instance's discovery restrictions.
+type NextExplore struct {
+	RequireSignin        bool `json:"require_signin"`
+	DisableUsers         bool `json:"disable_users"`
+	DisableOrganizations bool `json:"disable_organizations"`
 }
 
 // NextRepository is the instance's defaults for a new repository (the

@@ -76,7 +76,7 @@ export const KEYMAP = {
   'board.addColumn': {keys: '', label: 'Add a column', scope: 'board'},
   'board.renameColumn': {keys: '', label: 'Rename the column', scope: 'board'},
   'board.deleteColumn': {keys: '', label: 'Delete the column', scope: 'board'},
-  'issue.state': {keys: 's', label: 'Change the state', scope: 'issue'},
+  'issue.state': {keys: 's', label: 'Change status', scope: 'issue'},
   'issue.labels': {keys: 'l', label: 'Labels', scope: 'issue'},
   'issue.assignee': {keys: 'a', label: 'Assignees', scope: 'issue'},
   'issue.milestone': {keys: 'm', label: 'Milestone', scope: 'issue'},

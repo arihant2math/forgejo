@@ -26,6 +26,7 @@ export interface PageHeaderProps {
 
 /** How many not-found states are on screen: while one is, the tab says "Not found", whatever the page's header. */
 const notFound = observable.box(0);
+const pageStatuses = observable.array<string>();
 
 /** Whether the page on screen is a not-found state (the next boot does not resume it). */
 export function showingNotFound(): boolean {
@@ -36,6 +37,14 @@ export function showingNotFound(): boolean {
  * Marks the page as not found while `on`: the tab's title is "Not found" (an issue's page that names an issue
  * nobody has is not "#99999 · acme/atlas"), and the base URL does not resume it on the next boot.
  */
+export function usePageStatus(title: string | undefined): void {
+  useEffect(() => {
+    if (!title) return;
+    runInAction(() => { pageStatuses.push(title); });
+    return () => { runInAction(() => { pageStatuses.splice(pageStatuses.indexOf(title), 1); }); };
+  }, [title]);
+}
+
 export function useNotFound(on: boolean): void {
   useEffect(() => {
     if (!on) return;
@@ -48,7 +57,7 @@ export function useNotFound(on: boolean): void {
 /** The tab's title: the page's, then the instance's name ("Issues · acme/atlas · Forgejo"). */
 const DocumentTitle = observer(function DocumentTitle({text}: {text: string | undefined}) {
   const {config} = useApp();
-  const shown = showingNotFound() ? 'Not found' : text;
+  const shown = pageStatuses.at(-1) ?? (showingNotFound() ? 'Not found' : text);
   useEffect(() => {
     document.title = shown ? `${shown} · ${config.app_name}` : config.app_name;
   }, [shown, config.app_name]);

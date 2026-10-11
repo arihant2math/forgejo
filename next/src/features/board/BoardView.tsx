@@ -21,6 +21,7 @@ import {type KeyboardEvent, type MouseEvent, useCallback, useEffect, useMemo, us
 import {canEditBoard, confirmAccess} from '../../app/access.ts';
 import {sitePath} from '../../app/config.ts';
 import {classicHref} from '../../app/classic.ts';
+import {Missing} from '../../app/Missing.tsx';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
@@ -94,8 +95,7 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
         <PageBody>
           {loading ?
             <div className="flex gap-3 p-3" aria-busy>{[0, 1, 2].map((i) => <Skeleton key={i} className="h-72 w-column"/>)}</div> :
-            <EmptyState icon={KanbanSquare} title="Board not found" description="This board does not exist, you cannot see it, or it is not on this device yet."
-              action={<Button asChild size="sm"><Link to="/-/next/boards">All boards</Link></Button>}/>}
+            <Missing icon={KanbanSquare} what="This board"/>}
         </PageBody>
       </>
     );

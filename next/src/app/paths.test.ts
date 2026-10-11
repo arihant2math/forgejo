@@ -83,7 +83,8 @@ test('canonical routes and the repository of a route', () => {
   for (const p of ['/acme/atlas/settings', '/acme/atlas/settings/branches', '/acme/atlas/settings/keys']) expect(isCanonical(p), p).toBe(true);
   expect(isCanonical('/acme/atlas/wiki/Home', '?action=_revision')).toBe(false);
   expect(repoOfPath('/acme/atlas/wiki/Home')).toBe('acme/atlas');
-  for (const p of ['/explore', '/dev.keys', '/user/login', '/acme/atlas/settings/units', '/acme/atlas/settings/hooks/git', '/acme/atlas/issues/new']) expect(isCanonical(p), p).toBe(false);
+  for (const p of ['/explore', '/dev.keys', '/user/login', '/acme/atlas/settings/units', '/acme/atlas/settings/hooks/git']) expect(isCanonical(p), p).toBe(false);
+  expect(isCanonical('/acme/atlas/issues/new')).toBe(true);
   expect(isCanonical('/acme', '?tab=activity')).toBe(false);
   expect(isCanonical('/acme/atlas', '?ui=classic')).toBe(false);
   expect(repoOfPath('/acme/Atlas/issues/3')).toBe('acme/atlas');

@@ -81,6 +81,8 @@ export const KEYMAP = {
   'issue.assignee': {keys: 'a', label: 'Assignees', scope: 'issue'},
   'issue.milestone': {keys: 'm', label: 'Milestone', scope: 'issue'},
   'issue.priority': {keys: 'p', label: 'Priority', scope: 'issue'},
+  'pull.ready': {keys: '', label: 'Ready for review', scope: 'issue'},
+  'pull.draft': {keys: '', label: 'Convert to draft', scope: 'issue'},
   'issue.edit': {keys: 'e', label: 'Edit', scope: 'issue'},
   'issue.subscribe': {keys: 'shift+s', label: 'Subscribe or unsubscribe', scope: 'issue'},
   'issue.comment': {keys: 'r', label: 'Comment', scope: 'issue'},

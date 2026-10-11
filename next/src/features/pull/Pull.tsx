@@ -37,6 +37,9 @@ import {type CommitInfo, type CompareInfo, NotCached} from '../../code/source.ts
 import {newestState, viewedAt, viewedMarks} from '../../code/viewed.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing, notifyQueued} from '../../intents/session.ts';
+import {issueTitle} from '../../intents/view.ts';
+import {DraftControl} from './DraftControl.tsx';
+import {draftPrefix, wipPrefixes} from './draft.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
   Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, ProseSource,
@@ -712,7 +715,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const outsideMergeList = protection?.enable_merge_whitelist && !(protection.merge_whitelist_teams?.length) && viewer && !(protection.merge_whitelist_usernames ?? []).includes(viewer.login);
   const approvals = [...latest.values()].filter((r) => r.state === 'APPROVED').length;
   const missingChecks = protection?.enable_status_check ? (protection.status_check_contexts ?? []).filter((context) => !sum?.statuses.some((s) => s.get('context') === context && s.get('state') === 'success')) : [];
-  const mergeWhy = conflictWhy ??
+  const draft = draftPrefix(issueTitle(editing(app).overlay, issue), wipPrefixes(app.config)) !== undefined;
+  const mergeWhy = (draft ? 'Draft pull requests cannot be merged. Mark this ready for review first.' : undefined) ?? conflictWhy ??
     (outsideMergeList ? 'Only users on the branch’s merge allowlist can merge.' : undefined) ??
     (protection?.block_on_rejected_reviews && changesRequested ? 'Blocked by a change request.' : undefined) ??
     (protection && approvals < protection.required_approvals ? `Needs ${String(protection.required_approvals - approvals)} more approval(s).` : undefined) ??
@@ -736,6 +740,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   return (
     <div className="mt-4"><Card as="section" label="Merge">
       <p className="flex flex-wrap items-center gap-2 text-base text-fg">{state}</p>
+      {!pr.merged && !closed && <DraftControl issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
       {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && write && (

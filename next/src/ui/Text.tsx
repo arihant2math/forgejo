@@ -14,6 +14,8 @@ export function Code({children}: {children: ReactNode}) {
  * accent on hover. Wrap a router <Link> (asChild) so it navigates in place. In a property it truncates
  * to one line; `wrap` (inside a sentence) lets it wrap with the text around it.
  */
-export function TextLink({wrap = false, children}: {wrap?: boolean; children: ReactNode}) {
+export function TextLink({wrap = false, accent = false, children}: {wrap?: boolean; accent?: boolean; children: ReactNode}) {
+  // `accent`: a reference inside text that is not otherwise a link (a commit message's "#12"): visibly a link.
+  if (accent) return <Slot.Root className="interactive text-accent-fg hover:underline">{children}</Slot.Root>;
   return <Slot.Root className={wrap ? 'interactive text-fg hover:text-accent-fg' : 'interactive min-w-0 truncate text-fg hover:text-accent-fg'}>{children}</Slot.Root>;
 }

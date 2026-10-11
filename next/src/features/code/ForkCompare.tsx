@@ -13,6 +13,7 @@ import {Button, Callout, EmptyState} from '../../ui/index.ts';
 import {ChangedFiles, DiffView, type DiffHandle} from './DiffView.tsx';
 import {NewPull} from './NewPull.tsx';
 import type {CodeViewProps} from './CodePage.tsx';
+import {forkHead} from './proposal.ts';
 
 export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & {base: string; head: string; open: boolean; scroller: HTMLDivElement | null}) {
   const app = useApp();
@@ -56,16 +57,28 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
 });
 
 export interface ForkChoice {id: number; name: string; owner: {login: string}}
-export async function forkBranches(app: ReturnType<typeof useApp>, owner: string, repo: string): Promise<{value: string; label: string; group: string}[]> {
-  const options: {value: string; label: string; group: string}[] = [];
+
+/** A fork's branch as a comparison's head: `value` is the head (forkHead), `words` lets `owner:branch` find it. */
+export interface ForkBranch {value: string; label: string; group: string; words: string}
+
+/**
+ * The branches of the forks of owner/repo (`only`: of the forks this login owns), grouped by fork. Forks are not
+ * synced to the device: API v1, online.
+ */
+export async function forkBranches(app: ReturnType<typeof useApp>, owner: string, repo: string, only?: string): Promise<ForkBranch[]> {
+  const options: ForkBranch[] = [];
   for (let page = 1; ; page++) {
     const forks = await online<ForkChoice[]>(app, {api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/forks?limit=50&page=${String(page)}`});
     if (!forks) break;
     for (const fork of forks) {
+      if (only !== undefined && fork.owner.login.toLowerCase() !== only.toLowerCase()) continue;
       for (let branchPage = 1; ; branchPage++) {
         const branches = await online<{name: string}[]>(app, {api: 'v1', path: `/repos/${encodeURIComponent(fork.owner.login)}/${encodeURIComponent(fork.name)}/branches?limit=50&page=${String(branchPage)}`});
         if (!branches) break;
-        options.push(...branches.map((b) => ({value: fork.owner.login === owner ? `${fork.owner.login}/${fork.name}:${b.name}` : `${fork.owner.login}:${b.name}`, label: b.name, group: `${fork.owner.login}/${fork.name}`})));
+        options.push(...branches.map((b) => {
+          const value = forkHead(fork.owner.login, fork.name, owner, b.name);
+          return {value, label: b.name, group: `${fork.owner.login}/${fork.name}`, words: `${value} ${fork.owner.login}/${fork.name}`};
+        }));
         if (branches.length < 50) break;
       }
     }

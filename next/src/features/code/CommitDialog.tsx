@@ -10,11 +10,14 @@ export interface CommitFields {
   openPull: boolean;
 }
 
-/** Shared by browser file operations; the caller owns validation and the write. */
-export function CommitDialog({branch, defaultMessage, protectedBranch, busy, error, blocked, branchProblem, onClose, onCommit, allowPull = true}: {
+/**
+ * Shared by browser file operations; the caller owns validation and the write. `pullInto`: where the pull request of a
+ * new branch is opened, when that is not this repository's `branch` (a fork's: its upstream, `owner/repo:branch`).
+ */
+export function CommitDialog({branch, defaultMessage, protectedBranch, busy, error, blocked, branchProblem, onClose, onCommit, allowPull = true, pullInto}: {
   branch: string; defaultMessage: string; protectedBranch: boolean; busy: boolean; error: string;
   blocked: string | undefined; branchProblem: (name: string) => string | undefined;
-  onClose: () => void; onCommit: (fields: CommitFields) => void; allowPull?: boolean;
+  onClose: () => void; onCommit: (fields: CommitFields) => void; allowPull?: boolean; pullInto?: string | undefined;
 }) {
   const [message, setMessage] = useState(defaultMessage);
   const [description, setDescription] = useState('');
@@ -33,7 +36,7 @@ export function CommitDialog({branch, defaultMessage, protectedBranch, busy, err
       {protectedBranch && <p className="text-sm text-fg-muted">This branch is protected. Commit to a new branch and propose a pull request.</p>}
       {!protectedBranch && <label><input type="radio" checked={!useNew} onChange={() => {setNewBranch(false);}}/> Commit directly to {branch}</label>}
       <label><input type="radio" checked={useNew} onChange={() => {setNewBranch(true);}}/> Create a new branch</label>
-      {useNew && <><Input aria-label="New branch name" value={name} onChange={(e) => {setName(e.target.value);}}/>{allowPull ? <label><input type="checkbox" checked={pull} onChange={(e) => {setPull(e.target.checked);}}/> Open a pull request</label> : <p className="text-sm text-fg-muted">The first commit establishes the branch. A pull request needs an existing base branch.</p>}</>}
+      {useNew && <><Input aria-label="New branch name" value={name} onChange={(e) => {setName(e.target.value);}}/>{allowPull ? <label><input type="checkbox" checked={pull} onChange={(e) => {setPull(e.target.checked);}}/> {pullInto ? `Open a pull request into ${pullInto}` : 'Open a pull request'}</label> : <p className="text-sm text-fg-muted">The first commit establishes the branch. A pull request needs an existing base branch.</p>}</>}
       {why && <p className="text-sm text-fg-muted">{why}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>

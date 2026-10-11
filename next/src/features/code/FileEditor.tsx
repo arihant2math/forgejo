@@ -18,6 +18,7 @@ import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
 import {Button, CodeFileHeader, SegmentedControl} from '../../ui/index.ts';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
+import {proposalTarget, useUpstream} from './upstream.ts';
 import {refTable, useSource} from './hooks.ts';
 import {usePool} from '../issues/cells.tsx';
 import {MarkdownPreview} from '../editor/Composer.tsx';
@@ -108,6 +109,7 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const up = useUpstream(owner, repo, repoId);
   const online = reach(session.data.status.connection) === 'online';
   useEffect(() => {
     if (!online) return;
@@ -134,8 +136,10 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       // The pool has the commit's branch once its sync arrives (the compare form and the branch's view resolve it).
       if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
       const branch = newBranch ?? at.ref;
-      if (newBranch && openPull) {
-        await navigate({...codeTo(owner, repo, `compare/${at.ref}...${newBranch}`), search: {expand: '1'} as never});
+      // A fork's new branch is proposed to its upstream (the form there), not inside the fork.
+      const proposal = newBranch ? proposalTarget(owner, repo, at.ref, newBranch, up) : undefined;
+      if (proposal && openPull) {
+        await navigate({...proposal.to, search: {expand: '1'} as never});
         return;
       }
       // Where the change went, said (a new branch is no longer the branch the file was opened on), and the file there:
@@ -144,7 +148,7 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       await navigate(codeTo(owner, repo, codeSplat('src', landed ? {kind: 'branch', ref: branch} : {kind: 'commit', ref: commitSha}, at.path)));
       notify(app, {
         tone: 'success', title: `Committed to ${branch}`, description: `${shortSha(commitSha)} · ${message}`,
-        ...(newBranch ? {action: {label: 'Open a pull request', run: () => { void navigate({...codeTo(owner, repo, `compare/${at.ref}...${newBranch}`), search: {expand: '1'} as never}); }}} : {}),
+        ...(proposal ? {action: {label: up ? `Open a pull request into ${proposal.into}` : 'Open a pull request', run: () => { void navigate({...proposal.to, search: {expand: '1'} as never}); }}} : {}),
       });
     } catch (err) {
       if (err instanceof RequestFailed && err.status === 409) setError('The file changed since you opened it. Your draft is safe. Reload the file and merge your changes before retrying.');
@@ -160,6 +164,6 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       <Button size="sm" onClick={() => {setDialog(true);}}>Commit changes…</Button>
     </CodeFileHeader>
     {mode === 'edit' ? <CodeEditor value={text} path={at.path} wrap={wrap} onChange={change}/> : <MarkdownPreview repoId={repoId} text={text}/>}
-    {dialog && <CommitDialog branch={at.ref} defaultMessage={`Update ${at.path.split('/').at(-1) ?? at.path}`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={why} branchProblem={(name) => refNameProblem(name, 'branch', refs)} onClose={() => {setDialog(false);}} onCommit={(fields) => {void commit(fields);}}/>}
+    {dialog && <CommitDialog branch={at.ref} defaultMessage={`Update ${at.path.split('/').at(-1) ?? at.path}`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={why} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false);}} onCommit={(fields) => {void commit(fields);}}/>}
   </>;
 });

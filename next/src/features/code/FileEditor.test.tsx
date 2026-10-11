@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   write: vi.fn(), navigate: vi.fn(), notify: vi.fn(),
   session: {data: {status: {connection: 'live'}, whenSynced: vi.fn(() => Promise.resolve())}},
   branches: new Map<string, string>([['main', 'a'.repeat(40)]]),
+  upstream: undefined as {owner: string; name: string; defaultBranch: string} | undefined,
 }));
 vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session}));
 vi.mock('../../app/online.ts', () => ({reach: () => 'online'}));
@@ -24,9 +25,12 @@ vi.mock('../issues/cells.tsx', () => ({usePool: () => ({model: () => ({get: () =
 vi.mock('./hooks.ts', () => ({useSource: () => ({snippet: () => Promise.resolve(null)}), refTable: () => ({branches: mocks.branches, tags: new Map(), defaultBranch: 'main'})}));
 vi.mock('./refOps.ts', () => ({branchProtected: () => Promise.resolve(false)}));
 vi.mock('../editor/Composer.tsx', () => ({MarkdownPreview: () => null}));
+// A fork's upstream (undefined: not a fork).
+vi.mock('./upstream.ts', async (original) => ({...await original<object>(), useUpstream: () => mocks.upstream}));
 
 afterEach(() => {
   vi.clearAllMocks();
+  mocks.upstream = undefined;
 });
 
 const at = {kind: 'branch' as const, ref: 'main', sha: 'a'.repeat(40), path: 'docs/spacing.md'};
@@ -125,4 +129,60 @@ test('a direct commit lands on its branch; before the sync has it, on the commit
   const notice = mocks.notify.mock.calls[0]?.[1] as {action?: unknown} | undefined;
   expect(notice).toMatchObject({tone: 'success', title: 'Committed to main'});
   expect(notice?.action).toBeUndefined();
+});
+
+test('in a fork, the new branch\'s pull request is proposed to the upstream, as the dialog says (#173)', async () => {
+  mocks.upstream = {owner: 'acme', name: 'design-upstream', defaultBranch: 'trunk'};
+  const head = 'e'.repeat(40);
+  mocks.write.mockImplementation(() => {
+    mocks.branches.set('fix-typo', head);
+    return Promise.resolve({value: {commit: {sha: head}}, syncId: 42});
+  });
+  editor();
+  await waitFor(() => {
+    expect(screen.getByRole('button', {name: 'Commit changes…'})).toBeTruthy();
+  });
+  fireEvent.click(screen.getByRole('button', {name: 'Commit changes…'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Commit changes'});
+  fireEvent.click(within(dialog).getByRole('radio', {name: /Create a new branch/}));
+  fireEvent.change(within(dialog).getByRole('textbox', {name: 'New branch name'}), {target: {value: 'fix-typo'}});
+  // The checkbox names where the pull request goes.
+  const pull = within(dialog).getByRole('checkbox', {name: 'Open a pull request into acme/design-upstream:trunk'});
+  expect((pull as HTMLInputElement).checked).toBe(true);
+  const button = within(dialog).getByRole('button', {name: 'Commit changes'});
+  await waitFor(() => {
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(mocks.navigate).toHaveBeenCalled();
+  });
+  // The upstream's comparison with the fork's branch (acme's own fork: owner/repo:branch), the form open.
+  expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({
+    params: {owner: 'acme', repo: 'design-upstream', _splat: 'compare/trunk...acme/design:fix-typo/-'}, search: {expand: '1'},
+  }));
+  expect(mocks.notify).not.toHaveBeenCalled();
+  mocks.branches.delete('fix-typo');
+});
+
+test('in a fork, the notice\'s pull request action goes to the upstream (#173)', async () => {
+  mocks.upstream = {owner: 'upstream-org', name: 'design', defaultBranch: 'main'};
+  const head = 'f'.repeat(40);
+  mocks.write.mockImplementation(() => {
+    mocks.branches.set('later', head);
+    return Promise.resolve({value: {commit: {sha: head}}, syncId: 43});
+  });
+  await commit((dialog) => {
+    fireEvent.click(within(dialog).getByRole('radio', {name: /Create a new branch/}));
+    fireEvent.change(within(dialog).getByRole('textbox', {name: 'New branch name'}), {target: {value: 'later'}});
+    fireEvent.click(within(dialog).getByRole('checkbox', {name: /Open a pull request into upstream-org\/design:main/}));
+  });
+  const notice = mocks.notify.mock.calls[0]?.[1] as {title: string; action?: {label: string; run: () => void}};
+  expect(notice.title).toBe('Committed to later');
+  expect(notice.action?.label).toBe('Open a pull request into upstream-org/design:main');
+  notice.action?.run();
+  expect(mocks.navigate).toHaveBeenLastCalledWith(expect.objectContaining({
+    params: {owner: 'upstream-org', repo: 'design', _splat: 'compare/main...acme:later/-'}, search: {expand: '1'},
+  }));
+  mocks.branches.delete('later');
 });

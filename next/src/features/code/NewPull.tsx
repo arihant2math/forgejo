@@ -188,6 +188,8 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           create();
         }
       }}>
+        {/* Where it opens: a fork's own pull request and one proposed upstream read alike otherwise. */}
+        <p className="text-sm text-fg-subtle">Opens in <Code>{`${owner}/${repo}`}</Code>: merges <Code>{head}</Code> into <Code>{base}</Code>.</p>
         <Properties form={form} repoId={repoId}/>
         <div className="flex flex-col gap-1">
           <Input aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} invalid={missing}

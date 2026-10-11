@@ -7,7 +7,7 @@
 // from B9 (cached, parsed and highlighted in the worker).
 
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {Link, useNavigate} from '@tanstack/react-router';
+import {useNavigate} from '@tanstack/react-router';
 import {FileCode, GitCommitHorizontal, History} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
@@ -22,7 +22,8 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
 import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
-import {Ago, commitRow, Sha, summary} from './bits.tsx';
+import {Ago, Sha, summary} from './bits.tsx';
+import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
@@ -122,7 +123,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   return (
     <>
       <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-        row={commitRow}
+        row={linkedCommitRow(owner, repo)}
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-3">
@@ -171,7 +172,7 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
         <>
           {/* Pinned to the view's left edge: a wide line scrolls the diff sideways, not the commit's header. */}
           <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-border px-6 py-4">
-            {c ? <CommitMeta owner={owner} repo={repo} c={c}/> : <p className="font-mono text-code text-fg-muted">{sha}</p>}
+            {c ? <CommitMeta owner={owner} repo={repo} repoId={repoId} c={c}/> : <p className="font-mono text-code text-fg-muted">{sha}</p>}
           </header>
           {diff.state === 'ready' ?
             <>
@@ -185,30 +186,19 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   );
 });
 
-/** A commit message's text with its issue references ("#12", "Fixes #3") as links to the repository's issues. */
-function MessageText({owner, repo, text}: {owner: string; repo: string; text: string}) {
-  const parts = text.split(/(?<![\w/])(#\d{1,9})\b/);
-  return (
-    <>
-      {parts.map((p, i) => (i % 2 === 1 ?
-        <TextLink key={i}><Link to="/$owner/$repo/issues/$index" params={{owner, repo, index: p.slice(1)}}>{p}</Link></TextLink> :
-        p))}
-    </>
-  );
-}
-
-function CommitMeta({owner, repo, c}: {owner: string; repo: string; c: CommitInfo}): ReactNode {
+function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repoId: number; c: CommitInfo}): ReactNode {
   const body = c.message.slice(summary(c.message).length).trim();
   return (
     <>
-      <h1 className="text-xl font-semibold text-fg"><MessageText owner={owner} repo={repo} text={summary(c.message)}/></h1>
-      {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted"><MessageText owner={owner} repo={repo} text={body}/></pre>}
+      <h1 className="text-xl font-semibold text-fg"><CommitMessage owner={owner} repo={repo} text={summary(c.message)}/></h1>
+      {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted"><CommitMessage owner={owner} repo={repo} text={body}/></pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
         <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-fg">{c.authorName}</span></span>
         <Ago at={c.date}/>
         <span className="flex items-center gap-1"><Icon icon={GitCommitHorizontal} size="sm"/><Code>{c.sha}</Code></span>
         {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}
       </p>
+      <ContainedIn owner={owner} repo={repo} repoId={repoId} sha={c.sha}/>
     </>
   );
 }

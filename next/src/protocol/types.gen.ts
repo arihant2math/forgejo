@@ -412,6 +412,17 @@ export interface APIWeek {
   additions: number /* int */;
   deletions: number /* int */;
 }
+/**
+ * APICommitRefs is what GET /-/sync/api/repos/{id}/refs/{commit} answers:
+ * the branches and tags whose history contains the commit (git branch /
+ * tag --contains, newest first), as the classic commit page loads them
+ * (load-branches-and-tags). Not immutable: branches and tags move, so it
+ * is sent with "Cache-Control: no-store".
+ */
+export interface APICommitRefs {
+  branches: string[];
+  tags: string[];
+}
 
 //////////
 // source: api_merge.go

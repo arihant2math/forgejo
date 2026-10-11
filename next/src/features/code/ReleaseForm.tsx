@@ -26,12 +26,17 @@ import {Button, Callout, Checkbox, Code, CommandPopover, EmptyState, Icon, IconB
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
-import {refTable, useLoad} from './hooks.ts';
+import {refTable, useLoad, useSource} from './hooks.ts';
+import {summary} from './bits.tsx';
+import type {CommitInfo} from '../../code/source.ts';
 import {codeTo} from './nav.tsx';
 import {createRelease, deleteAsset, drafts, editRelease, type RepoRef, repoRef, uploadAsset} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {useWriteBlock} from './RefDialogs.tsx';
-import {type ApiRelease, createReleaseBody, editReleaseBody, type KnownRelease, releaseTagProblem, type ReleaseFields, TAG_MAX, TITLE_MAX} from './refWrite.ts';
+import {
+  type ApiRelease, createReleaseBody, editReleaseBody, type KnownRelease, type RefChoice, refSpec, releaseTagProblem, releaseTarget, type ReleaseFields, TAG_MAX,
+  targetCommit, TITLE_MAX,
+} from './refWrite.ts';
 import {formatSize} from './tree.tsx';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
@@ -144,6 +149,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
     ...(slot.state === 'ready' ? slot.list.map((d) => ({id: d.id, tag_name: d.tag_name, is_tag: false})) : []),
   ];
   const tag = fields.tag.trim();
+  const target = releaseTarget(fields.target, refs);
   const problem = tagFixed ? undefined : releaseTagProblem(tag, refs, known, editing?.id);
   const existing = refs.tags.get(tag);
   const assets = editing && !editing.draft ?
@@ -222,10 +228,12 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
               tag && (existing ?
                 <p id="release-tag-state" className="text-sm text-fg-subtle">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
                 <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-fg-subtle">
-                  <span>A new tag, made when the release is published, from</span>
-                  <RefPicker repoId={repoId} label="Target branch" value={{kind: 'branch', ref: fields.target}} branchesOnly onChange={(c) => {
-                    set({target: c.ref});
+                  <span>A new tag, made when the release is published, at</span>
+                  {/* A branch (its head when published), an existing tag (e.g. the tested release candidate's) or a commit. */}
+                  <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
+                    set({target: refSpec(c, refs)});
                   }}/>
+                  <TargetCommit repoId={repoId} target={target} sha={targetCommit(target, refs)}/>
                 </div>)}
           </>}
       </section>
@@ -285,5 +293,27 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button>
       </div>
     </div>
+  );
+});
+
+/**
+ * The commit a new tag would be made at, before it is: its SHA and summary (a branch's head moves until the release
+ * is published; a commit typed by its SHA is checked with Forgejo).
+ */
+const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repoId: number; target: RefChoice; sha: string | undefined}) {
+  const src = useSource();
+  const key = sha ? `commit:${String(repoId)}:${sha}` : undefined;
+  const commit = useLoad(key, () => (key ? src.peek<CommitInfo>(key) : undefined), () => src.commit(repoId, sha ?? ''));
+  if (!sha) return <span role="status">{target.ref ? `${target.ref} is not on this device.` : 'Choose where the tag is made.'}</span>;
+  if (commit.state === 'error') {
+    return <span role="status" className="text-danger">{target.kind === 'commit' ? `No commit ${target.ref} in this repository.` : `${shortSha(sha)} could not be loaded.`}</span>;
+  }
+  const full = commit.state === 'ready' ? commit.value.sha : sha;
+  return (
+    <span role="status" aria-label="Target commit" className="flex min-w-0 items-center gap-1">
+      <span className="font-mono" title={full}>{shortSha(full)}</span>
+      {commit.state === 'ready' && <span className="truncate text-fg-muted">{summary(commit.value.message)}</span>}
+      {target.kind === 'branch' && <span>({target.ref}’s head now: the tag is made at its head when published)</span>}
+    </span>
   );
 });

@@ -5,7 +5,7 @@ import {describe, expect, test} from 'vitest';
 import type {RefTable} from '../../code/refs.ts';
 import {
   assetUploadPath, branchDeleteBlock, createBranchBody, createReleaseBody, createTagBody, draftsOf, editReleaseBody, looksLikeSha, refNameProblem,
-  refSpec, releaseTagProblem, tagDeleteBlock, writeBlock,
+  refSpec, releaseTagProblem, releaseTarget, tagDeleteBlock, targetCommit, writeBlock,
 } from './refWrite.ts';
 
 const A = 'a'.repeat(40);
@@ -120,5 +120,23 @@ describe('releases', () => {
 
   test('an asset\'s upload address names the file', () => {
     expect(assetUploadPath('/repos/acme/atlas', 7, 'my build.tar.gz')).toBe('/repos/acme/atlas/releases/7/assets?name=my+build.tar.gz');
+  });
+});
+
+describe('a release\'s target', () => {
+  test('a branch, a tag, a commit SHA, or a branch not on this device', () => {
+    expect(releaseTarget('feature', refs)).toEqual({kind: 'branch', ref: 'feature'});
+    expect(releaseTarget('v1.0', refs)).toEqual({kind: 'tag', ref: 'v1.0'});
+    // A name that is both: the branch (refSpec sends the commit when one is chosen explicitly).
+    expect(releaseTarget('v2', refs)).toEqual({kind: 'branch', ref: 'v2'});
+    expect(releaseTarget('ABCDEF1', refs)).toEqual({kind: 'commit', ref: 'abcdef1'});
+    expect(releaseTarget('gone', refs)).toEqual({kind: 'branch', ref: 'gone'});
+  });
+
+  test('the commit it is at now', () => {
+    expect(targetCommit({kind: 'branch', ref: 'feature'}, refs)).toBe(B);
+    expect(targetCommit({kind: 'tag', ref: 'v2'}, refs)).toBe(A);
+    expect(targetCommit({kind: 'commit', ref: 'abcdef1'}, refs)).toBe('abcdef1');
+    expect(targetCommit({kind: 'branch', ref: 'gone'}, refs)).toBeUndefined();
   });
 });

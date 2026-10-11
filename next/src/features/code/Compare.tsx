@@ -15,14 +15,16 @@
 import {Link, useNavigate, useSearch} from '@tanstack/react-router';
 import {ChevronDown, GitBranch, GitCompare, GitPullRequest, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {useRef, useState} from 'react';
-import {ForkCompare, forkBranches} from './ForkCompare.tsx';
+import {useEffect, useRef, useState} from 'react';
+import {reach} from '../../app/online.ts';
+import {ForkCompare, type ForkBranch, forkBranches} from './ForkCompare.tsx';
+import {useUpstream} from './upstream.ts';
 import {type DiffFile, filePath} from '../../code/diff.ts';
 import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
 import type {Pool} from '../../data/pool.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, CommandPopover, EmptyState, Icon, type PickOption, SectionHeading} from '../../ui/index.ts';
+import {Button, Callout, CommandPick, CommandPopover, EmptyState, Icon, type PickOption, SectionHeading, TextLink} from '../../ui/index.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople} from '../issues/people.ts';
@@ -30,10 +32,13 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings} from './DiffSettings.tsx';
 import {useDiff} from './History.tsx';
-import {Ago, commitRow, summary} from './bits.tsx';
+import {Ago, summary} from './bits.tsx';
+import {linkedCommitRow} from './commitText.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {codeTo, useCodeRows} from './nav.tsx';
-import {compareSplat, type BranchChoice, headChoices, isForkHead, mergeOutlook, type MergeOutlook, proposable, pullDefaults} from './proposal.ts';
+import {
+  compareSplat, type BranchChoice, forkHead, headChoices, isForkHead, mergeOutlook, type MergeOutlook, proposable, pullDefaults, typedForkHead,
+} from './proposal.ts';
 import {NewPull, OutlookLine} from './NewPull.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
@@ -164,12 +169,17 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const pool = usePool();
   const navigate = useNavigate();
   const app = useApp();
-  const [forks, setForks] = useState<{value: string; label: string; group: string}[]>([]);
-  const [forkError, setForkError] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const up = useUpstream(owner, repo, repoId);
+  const [forks, setForks] = useState<ForkBranch[]>([]);
+  const [forkState, setForkState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [query, setQuery] = useState('');
   const refs = refTable(pool, repoId);
   const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
   const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
+  // The form stays open on the new comparison.
+  const go = (to: ReturnType<typeof codeTo>) => {
+    void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
+  };
   const option = (ref: string, tag: boolean): PickOption => ({
     value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : `${owner}/${repo}`, icon: tag ? Tag : GitBranch,
     meta: !tag && ref === refs.defaultBranch ? 'default' : undefined, checked: ref === value,
@@ -178,22 +188,56 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
         onPick(ref);
         return;
       }
-      // The form stays open on the new comparison.
-      void navigate({...codeTo(owner, repo, compareSplat(side === 'base' ? ref : base, side === 'head' ? ref : head)), ...(open ? {search: {expand: '1'} as never} : {})});
+      go(codeTo(owner, repo, compareSplat(side === 'base' ? ref : base, side === 'head' ? ref : head)));
     },
   });
+  const options = [...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))];
+  // A fork's base can be its upstream: the same head, proposed to the repository it was forked from.
+  const upHead = side === 'base' && up ? head || refs.defaultBranch : '';
+  if (up && upHead && refs.branches.has(upHead)) {
+    options.push({
+      value: `upstream:${up.owner}/${up.name}:${up.defaultBranch}`, label: up.defaultBranch, group: `${up.owner}/${up.name} (upstream)`, icon: GitBranch,
+      words: `${up.owner}/${up.name}`, meta: 'default', checked: false, onSelect: () => {
+        go(codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, upHead))));
+      },
+    });
+  }
+  if (side === 'head') {
+    for (const f of forks) {
+      options.push({...f, icon: GitBranch, checked: f.value === value, onSelect: () => {
+        go(codeTo(owner, repo, compareSplat(base, f.value)));
+      }});
+    }
+    // A fork's branch typed as `owner:branch` (or `owner/repo:branch`), listed or not.
+    const typed = typedForkHead(query);
+    if (typed && !forks.some((f) => f.value === typed)) {
+      options.unshift({value: `typed:${typed}`, label: typed, group: 'A fork\u2019s branch', icon: GitBranch, onSelect: () => {
+        go(codeTo(owner, repo, compareSplat(base, typed)));
+      }});
+    }
+    if (forkState === 'loading') options.push({value: 'forks:loading', label: 'Loading the forks\u2019 branches\u2026', group: 'Forks', onSelect: () => undefined});
+    if (forkState === 'error') options.push({value: 'forks:error', label: 'Could not load the forks\u2019 branches. Reopen to retry.', group: 'Forks', onSelect: () => undefined});
+  }
+  const label = side === 'base' ? 'Compare from' : 'Compare to';
+  const placeholder = side === 'head' ? 'Find a branch or tag, or type owner:branch\u2026' : 'Find a branch or tag\u2026';
   return (
-    <CommandPopover width="md" label={side === 'base' ? 'Compare from' : 'Compare to'} placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
+    <CommandPopover width="md" label={label} placeholder={placeholder}
       onOpenChange={(on) => {
-        if (!on || side !== 'head' || loaded) return;
-        setLoaded(true);
+        if (!on) setQuery('');
+        if (!on || side !== 'head' || forkState === 'loading' || forkState === 'ready') return;
+        setForkState('loading');
         void forkBranches(app, owner, repo).then((choices) => {
           setForks(choices);
-        }).catch(() => { setForkError(true); setLoaded(false); });
+          setForkState('ready');
+        }, () => {
+          setForkState('error');
+        });
       }}
-      options={[...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true)), ...forks.map((choice) => ({...choice, checked: choice.value === value, onSelect: () => {
-        void navigate({...codeTo(owner, repo, compareSplat(base, choice.value)), ...(open ? {search: {expand: '1'} as never} : {})});
-      }})), ...(forkError ? [{value: 'error', label: 'Could not load forks. Reopen to retry.', onSelect: () => undefined}] : [])]}
+      options={options}
+      render={(close) => (
+        <CommandPick label={label} placeholder={placeholder} options={options} onClose={close} query={query} onQueryChange={setQuery}
+          empty={side === 'head' ? 'No branch or tag of that name. A fork\u2019s branch: owner:branch.' : 'No branch or tag is on this device.'}/>
+      )}
       trigger={
         <Button size="sm" icon={GitBranch} aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
           <span className="max-w-xs truncate font-mono">{value || 'Choose a branch'}</span><Icon icon={ChevronDown} size="sm"/>
@@ -228,6 +272,28 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
   );
 });
 
+/**
+ * In a fork, between two of its branches: a pull request opened here stays in the fork. Says so, and offers the
+ * same head compared with the upstream's default branch (where a contribution is proposed).
+ */
+const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, head, open}: Sides) {
+  const up = useUpstream(owner, repo, repoId);
+  if (!up?.defaultBranch) return null;
+  const upName = `${up.owner}/${up.name}`;
+  return (
+    <Callout title={`A pull request opened here stays in ${owner}/${repo}`}
+      actions={
+        <Button size="sm" variant="primary" asChild>
+          <Link {...codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, head)))} {...(open ? {search: {expand: '1'} as never} : {})}>
+            <Icon icon={GitPullRequest} size="sm"/>Compare with {upName}:{up.defaultBranch}
+          </Link>
+        </Button>
+      }>
+      {`This repository is a fork of ${upName}. To propose ${head} to ${upName}, compare it with ${upName}:${up.defaultBranch}.`}
+    </Callout>
+  );
+});
+
 const Compared = observer(function Compared(props: Sides & {baseSha: string; headSha: string; scroller: HTMLDivElement | null; onClose: () => void}) {
   const {owner, repo, repoId, baseSha, headSha, scroller} = props;
   const pool = usePool();
@@ -257,6 +323,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
     <>
       {pullable && (
         <div className="sticky left-0 flex w-view flex-col gap-3 border-b border-border px-4 py-3">
+          <UpstreamNotice {...props}/>
           <OutlookLine outlook={outlook} base={props.base} head={props.head}/>
           {props.open && proposable(outlook) &&
             <NewPull owner={owner} repo={repo} repoId={repoId} base={props.base} head={props.head} outlook={outlook}
@@ -266,7 +333,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
       <div className="sticky left-0 w-view border-b border-border">
         <div className="px-4 pt-3 pb-1"><SectionHeading>{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</SectionHeading></div>
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={commitRow}
+          row={linkedCommitRow(owner, repo)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       </div>
       <div className="sticky left-0 flex w-view justify-end px-4 py-1"><DiffSettings/></div>
@@ -331,11 +398,16 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
   if (!refs.branches.has(base)) {
     return <EmptyState icon={GitCompare} title="Branch not found" description={`${base || 'The default branch'} does not exist, or is not on this device.`}/>;
   }
+  const mine = <MyForkBranches owner={owner} repo={repo} base={base}/>;
   if (!choices.length) {
-    return <EmptyState icon={GitBranch} title="No other branch" description={`Push a branch to propose merging its changes into ${base}.`}/>;
+    return <>
+      {mine}
+      <EmptyState icon={GitBranch} title="No other branch" description={`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}/>
+    </>;
   }
   return (
     <div className="sticky left-0 w-view">
+      {mine}
       <div className="px-4 pt-3 pb-1"><SectionHeading>{`Choose a branch to merge into ${base}`}</SectionHeading></div>
       <RowList items={choices} scroller={scroller} label="Branches" keyOf={(b) => b.name}
         row={(b) => ({
@@ -355,5 +427,44 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
           loadPeople(app, repoId);
         }}/>
     </div>
+  );
+});
+
+/**
+ * The viewer's forks' branches, to propose into this repository (forks are not synced: API v1, online). Nothing
+ * while loading, without a fork, or offline; the head picker lists every fork's branches and takes owner:branch.
+ */
+const MyForkBranches = observer(function MyForkBranches({owner, repo, base}: {owner: string; repo: string; base: string}) {
+  const app = useApp();
+  const session = useSession();
+  const login = session.data.pool.model('User').get(session.userId)?.data.login;
+  const online = reach(session.data.status.connection) === 'online';
+  const key = login && online ? `${owner}/${repo}:${login}` : undefined;
+  const [mine, setMine] = useState<{key: string; list: ForkBranch[]}>();
+  useEffect(() => {
+    if (!key || !login) return undefined;
+    let live = true;
+    forkBranches(app, owner, repo, login).then((list) => {
+      if (live) setMine({key, list});
+    }, () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [app, key, login, owner, repo]);
+  const list = mine && mine.key === key ? mine.list : [];
+  if (!list.length) return null;
+  return (
+    <section aria-label="Your forks" className="border-b border-border px-4 py-3">
+      <SectionHeading>{`From your fork${new Set(list.map((b) => b.group)).size > 1 ? 's' : ''}`}</SectionHeading>
+      <ul className="mt-1 flex flex-col gap-1">
+        {list.map((b) => (
+          <li key={b.value} className="flex items-center gap-2 text-base">
+            <Icon icon={GitBranch} size="sm"/>
+            <TextLink><Link {...codeTo(owner, repo, compareSplat(base, b.value))} search={{expand: '1'} as never}><span className="font-mono">{b.value}</span></Link></TextLink>
+            <span className="text-sm text-fg-subtle">{b.group}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 });

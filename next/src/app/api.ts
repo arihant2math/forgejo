@@ -111,6 +111,13 @@ export function refused(err: unknown): boolean {
 export function failureText(err: unknown): string {
   const status = err instanceof RequestFailed ? err.status : 0;
   const said = err instanceof Error ? err.message.trim() : '';
+  if (/not allowed to merge|not in mergeable state|User not allowed to merge PR/i.test(said)) {
+    if (/enough approvals/i.test(said)) return 'More approvals are required before this pull request can be merged.';
+    if (/reject|change.?request/i.test(said)) return 'A change request is blocking this merge.';
+    if (/status|check/i.test(said)) return 'Required checks must pass before this pull request can be merged.';
+    if (/whitelist|permission|User not allowed/i.test(said)) return 'You are not allowed to merge into this protected branch.';
+    return 'This pull request cannot be merged yet. Check its reviews, required checks and branch protection rules.';
+  }
   if (said && said.length <= 140 && !/\n|https?:\/\/|unix|\.sock\b|\bdial\b|\bpanic\b|[A-Z][a-z]+Error:|PushRejected/.test(said)) return said;
   if (said) console.warn('Forgejo said:', said);
   if (status === 0) return 'Forgejo could not be reached.';

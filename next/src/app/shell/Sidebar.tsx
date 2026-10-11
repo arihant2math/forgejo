@@ -80,7 +80,7 @@ interface Owner {
 }
 
 /** The workspace's owners (the viewer first, then by name) and their repositories (by name). */
-function owners(session: Session): Owner[] {
+export function owners(session: Session): Owner[] {
   const {data, userId} = session;
   const ws = data.workspace.current;
   if (!ws) return [];
@@ -103,7 +103,9 @@ function owners(session: Session): Owner[] {
     if (kind === 'repo') {
       const e = repos.get(id);
       const r = e ? {owner_id: e.get('owner_id'), owner_name: e.get('owner_name'), name: e.get('name')} : peek.get(id);
-      if (r) owner(r.owner_id, r.owner_name)?.repos.push(r.name);
+      // Do not expose a partial, sorted list while repository metadata is still arriving.
+      if (!r) return [];
+      owner(r.owner_id, r.owner_name)?.repos.push(r.name);
     } else if (kind === 'org' && g.reason === 'member') {
       owner(id, undefined);
     }
@@ -134,7 +136,7 @@ const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boo
   a.open === b.open && a.owner.id === b.owner.id && a.owner.login === b.owner.login && a.owner.repos.join('/') === b.owner.repos.join('/');
 
 /** Re-renders only when its owner, repositories or open state change (owners() builds new objects each time). */
-const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
+export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
   const [all, setAll] = useState(false);
   // The repository on screen: its row stays listed (after the first ten, it joins them) and, folded, the owner's
   // row is current in its place: the sidebar always says where you are.
@@ -144,7 +146,13 @@ const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Own
     return key?.startsWith(prefix) ? owner.repos.find((r) => r.toLowerCase() === key.slice(prefix.length)) : undefined;
   }});
   const first = owner.repos.slice(0, SHOWN);
-  const shown = all ? owner.repos : here !== undefined && !first.includes(here) ? [...first, here] : first;
+  const [visited, setVisited] = useState<string[]>([]);
+  // Retain revealed rows after navigation so subsequent clicks cannot hit a shifted row.
+  if (here !== undefined && !first.includes(here) && !visited.includes(here)) {
+    setVisited([...visited, here]);
+  }
+  const extra = visited.filter((name) => owner.repos.includes(name) && !first.includes(name));
+  const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
   return (
     <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} holdsCurrent={here !== undefined} onOpenChange={(o) => {

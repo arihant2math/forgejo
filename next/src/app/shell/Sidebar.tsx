@@ -80,13 +80,17 @@ interface Owner {
 }
 
 /** The workspace's owners (the viewer first, then by name) and their repositories (by name). */
-function owners(session: Session): Owner[] {
+export function owners(session: Session, hydrating = false): Owner[] {
   const {data, userId} = session;
   const ws = data.workspace.current;
   if (!ws) return [];
   const repos = data.pool.model('Repository');
   const users = data.pool.model('User');
   const peek = data.peek('Repository');
+  const {connection, loading, lastError} = data.status;
+  const arriving = hydrating || (lastError === undefined && (
+    connection === 'idle' || connection === 'connecting' || connection === 'catching_up' || (connection === 'live' && loading > 0)
+  ));
   const byId = new Map<number, Owner>();
   const owner = (id: number, login: string | undefined): Owner | undefined => {
     let o = byId.get(id);
@@ -103,7 +107,12 @@ function owners(session: Session): Owner[] {
     if (kind === 'repo') {
       const e = repos.get(id);
       const r = e ? {owner_id: e.get('owner_id'), owner_name: e.get('owner_name'), name: e.get('name')} : peek.get(id);
-      if (r) owner(r.owner_id, r.owner_name)?.repos.push(r.name);
+      // Missing metadata must not hide known repositories once hydration/sync finishes or fails.
+      if (!r) {
+        if (arriving) return [];
+        continue;
+      }
+      owner(r.owner_id, r.owner_name)?.repos.push(r.name);
     } else if (kind === 'org' && g.reason === 'member') {
       owner(id, undefined);
     }
@@ -134,7 +143,7 @@ const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boo
   a.open === b.open && a.owner.id === b.owner.id && a.owner.login === b.owner.login && a.owner.repos.join('/') === b.owner.repos.join('/');
 
 /** Re-renders only when its owner, repositories or open state change (owners() builds new objects each time). */
-const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
+export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
   const [all, setAll] = useState(false);
   // The repository on screen: its row stays listed (after the first ten, it joins them) and, folded, the owner's
   // row is current in its place: the sidebar always says where you are.
@@ -144,7 +153,13 @@ const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Own
     return key?.startsWith(prefix) ? owner.repos.find((r) => r.toLowerCase() === key.slice(prefix.length)) : undefined;
   }});
   const first = owner.repos.slice(0, SHOWN);
-  const shown = all ? owner.repos : here !== undefined && !first.includes(here) ? [...first, here] : first;
+  const [visited, setVisited] = useState<string[]>([]);
+  // Retain revealed rows after navigation so subsequent clicks cannot hit a shifted row.
+  if (here !== undefined && !first.includes(here) && !visited.includes(here)) {
+    setVisited([...visited, here]);
+  }
+  const extra = visited.filter((name) => owner.repos.includes(name) && !first.includes(name));
+  const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
   return (
     <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} holdsCurrent={here !== undefined} onOpenChange={(o) => {
@@ -161,6 +176,15 @@ const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Own
 const Workspace = observer(function Workspace() {
   const session = useSession();
   const [closed, setClosed] = useState(readClosed);
+  const [hydrating, setHydrating] = useState(true);
+  useEffect(() => {
+    let mounted = true;
+    const done = () => {
+      if (mounted) setHydrating(false);
+    };
+    void session.data.hydrated.then(done, done);
+    return () => { mounted = false; };
+  }, [session]);
   const toggle = useCallback((login: string, open: boolean) => {
     setClosed((prev) => {
       const next = new Set(prev);
@@ -170,7 +194,7 @@ const Workspace = observer(function Workspace() {
       return next;
     });
   }, []);
-  const list = owners(session);
+  const list = owners(session, hydrating);
   if (!list.length) return null;
   return (
     <>

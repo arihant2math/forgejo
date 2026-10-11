@@ -176,3 +176,23 @@ export function setMarkup(el: Element, html: string): void {
 export function textOfMarkup(html: string): string {
   return inert(html).content.textContent;
 }
+
+/**
+ * The text of server HTML in runs, each saying whether it is inside an element of class `marker` (a code search
+ * line's `search-highlight`: the words that matched), parsed inertly; never its markup.
+ */
+export function markedTextOfMarkup(html: string, marker: string): {text: string; marked: boolean}[] {
+  const root = inert(html).content;
+  const runs: {text: string; marked: boolean}[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.textContent ?? '';
+    if (!text) continue;
+    let marked = false;
+    for (let el = n.parentElement; el && !marked; el = el.parentElement) marked = el.classList.contains(marker);
+    const last = runs.at(-1);
+    if (last?.marked === marked) last.text += text;
+    else runs.push({text, marked});
+  }
+  return runs;
+}

@@ -148,3 +148,47 @@ test('blame links each change to the blame before it, and Raw follows the branch
   expect(screen.getAllByRole('link', {name: 'Blame prior to this change'})).toHaveLength(1);
   expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('href')).toBe('/alice/website/raw/branch/main/config.go');
 });
+
+/** A 20-line config.go at main's head (the tree and the blob), and code search answers for `zoom` (#246). */
+function fileServer(url: string): {status: number; json?: unknown; text?: string} | undefined {
+  if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'config.go', type: 'blob', mode: '100644', sha: BLOB, size: 400}]}};
+  if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: Array.from({length: 20}, (_, i) => (i === 16 ? '\treturn Config{MaxZoom: 16}' : `// line ${String(i + 1)}`)).join('\n')};
+  if (url.startsWith('/-/sync/api/repos/20/search?')) {
+    return {status: 200, json: {enabled: false, total: 1, repositories: {'20': 'alice/website'}, results: [{RepoID: 20, Filename: 'config.go', CommitID: MAIN, Lines: [
+      {Num: 16, FormattedContent: '// line 16'}, {Num: 17, FormattedContent: '\treturn Config{Max<span class="search-highlight">Zoom</span>: 16}'}, {Num: 18, FormattedContent: '// line 18'},
+    ]}]}};
+  }
+  return undefined;
+}
+
+async function linkedLine(n: number) {
+  await waitFor(() => {
+    expect(document.getElementById(`L${String(n)}`)?.hasAttribute('data-linked')).toBe(true);
+  }, {timeout: 3000});
+}
+
+test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  const router = await open(`/alice/website/src/commit/${MAIN}/config.go#L17`);
+  await linkedLine(17);
+  // No redirect on the way: the address is the code page's own, with its anchor.
+  expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
+  expect(router.state.location.hash).toBe('L17');
+  expect(document.getElementById('L16')?.hasAttribute('data-linked')).toBe(false);
+  cleanup();
+  // The same on a branch's address.
+  const branch = await open('/alice/website/src/branch/main/config.go#L17');
+  await linkedLine(17);
+  expect(branch.state.location.hash).toBe('L17');
+});
+
+test('a code search hit opens its file at the line it names, highlighted (#246)', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  const router = await open('/search?type=code&repoId=20&q=zoom');
+  fireEvent.click(await screen.findByRole('option', {name: 'alice/website / config.go:17'}));
+  await linkedLine(17);
+  expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
+  expect(router.state.location.hash).toBe('L17');
+});

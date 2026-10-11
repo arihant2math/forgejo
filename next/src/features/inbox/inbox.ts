@@ -16,6 +16,8 @@ export type InboxRow =
 export interface InboxView extends Pick<InboxSearch, 'reason' | 'repo' | 'type' | 'state'> {
   /** Unread only (pinned notifications are not unread: they leave this view). */
   unread: boolean;
+  /** The working view: unread and pinned (read notifications, the handled ones, leave it). */
+  working?: boolean | undefined;
   /** Group by repository (else: pinned, then the rest). */
   byRepo: boolean;
 }
@@ -59,6 +61,7 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
   for (const n of notes) {
     const st = ctx.status(n);
     if (view.unread && st !== 'unread') continue;
+    if (view.working && st !== 'unread' && st !== 'pinned') continue;
     if (view.repo !== undefined && n.repo_id !== view.repo) continue;
     if (view.reason && ctx.reason?.(n) !== view.reason) continue;
     if (view.type || view.state) {
@@ -103,4 +106,13 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
 /** The status a "pin" toggle sets: pinned ones are unpinned (read), others pinned. */
 export function togglePin(status: string): 'read' | 'pinned' {
   return status === 'pinned' ? 'read' : 'pinned';
+}
+
+/**
+ * The anchor of the comment a notification is about (`comment-ID`, the issue page's comment ids), so opening it
+ * goes to what is new rather than the top of a long thread (#211). Forgejo keeps a notification's comment_id on the
+ * first comment since it was last read: while it is unread, later comments only move its time.
+ */
+export function noteHash(n: Pick<Notification, 'comment_id'>): string | undefined {
+  return n.comment_id > 0 ? `comment-${String(n.comment_id)}` : undefined;
 }

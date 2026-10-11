@@ -60,10 +60,13 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   const page = await signedIn(ctx);
   const problems = watch(page);
   const other = await ctx.newPage();
-  await other.goto(`${BASE}/notifications`);
+  // All: a row marked read stays (the default view is unread and pinned only).
+  await other.goto(`${BASE}/notifications?filter=all`);
   await page.keyboard.press('g');
   await page.keyboard.press('n');
   await expect(page).toHaveURL(`${BASE}/notifications`);
+  await page.getByRole('button', {name: 'All', exact: true}).click();
+  await expect(page).toHaveURL(`${BASE}/notifications?filter=all`);
   const list = page.getByRole('listbox', {name: 'Notifications'});
   const row = (p: Page, title: string) => p.getByRole('listbox', {name: 'Notifications'}).getByRole('option').filter({hasText: title});
   await expect(row(page, b.title)).toBeVisible({timeout: 20_000});
@@ -134,7 +137,8 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
 
   // Enter opens the issue (and reads it).
   await row(page, a.title).click();
-  await expect(page).toHaveURL(`${BASE}/${USER}/${REPO}/issues/${String(a.number)}`);
+  // At alice's reply, the news (#211).
+  await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/issues/${String(a.number)}#comment-\\d+$`));
   await expect.poll(async () => {
     const l = await (await api('GET', '/notifications?status-types=unread&limit=50')).json() as {subject: {title: string}}[];
     return l.some((n) => n.subject.title === a.title);

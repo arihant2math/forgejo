@@ -31,6 +31,11 @@ test('unread only, through the overlay', () => {
   expect(inboxRows(NOTES, {unread: true, byRepo: false}, ctx({4: 'read', 2: 'unread'})).ids).toEqual([2, 1]);
 });
 
+test('the working view (the default): unread and pinned; read ones (handled) leave it, through the overlay', () => {
+  expect(inboxRows(NOTES, {unread: false, working: true, byRepo: false}, ctx()).ids).toEqual([3, 4, 1]);
+  expect(inboxRows(NOTES, {unread: false, working: true, byRepo: false}, ctx({4: 'read', 2: 'pinned'})).ids).toEqual([2, 3, 1]);
+});
+
 test('by repository: groups ordered by their newest notification', () => {
   const r = inboxRows(NOTES, {unread: false, byRepo: true}, ctx());
   expect(r.rows.flatMap((x) => (x.type === 'group' ? [x.label] : []))).toEqual(['Pinned', 'b/two', 'a/one']);

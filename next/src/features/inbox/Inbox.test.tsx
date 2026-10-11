@@ -316,3 +316,32 @@ test('deep links keep working: filters with ?filter=all, and an empty working vi
   expect(await screen.findByText('All caught up')).toBeTruthy();
   expect(screen.getByText('Nothing unread or pinned. Read notifications are under “All”.')).toBeTruthy();
 });
+
+test('a bulk action that empties the list clears the selection: no stale "N selected", none back with Undo (#262)', async () => {
+  rememberRow('/notifications', 0);
+  const {list} = await renderInbox('/notifications?filter=unread');
+  // J X four times: every row selected.
+  for (let i = 0; i < 4; i++) {
+    act(() => {
+      fireEvent.keyDown(list, {key: 'j'});
+    });
+    act(() => {
+      fireEvent.keyDown(list, {key: 'x'});
+    });
+  }
+  expect(screen.getByRole('toolbar', {name: 'Selected notifications'}).textContent).toContain('4 selected');
+  // Shift+P: pinned, they leave the Unread view; the list is empty.
+  act(() => {
+    fireEvent.keyDown(list, {key: 'P', shiftKey: true});
+  });
+  expect(await screen.findByText('All caught up')).toBeTruthy();
+  expect(screen.queryByRole('listbox', {name: 'Notifications'})).toBeNull();
+  expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
+  // Undo: the rows come back, not selected.
+  fireEvent.click(screen.getAllByRole('button', {name: 'Undo'}).at(-1) ?? document.body);
+  await waitFor(() => {
+    expect(screen.getAllByRole('option')).toHaveLength(4);
+  });
+  expect(screen.queryAllByRole('option', {selected: true})).toEqual([]);
+  expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
+});

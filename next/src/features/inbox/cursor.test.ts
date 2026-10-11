@@ -33,3 +33,21 @@ test('Shift-click ranges start from the selection, never from a cursor left on a
   c.selectRange(2, ORDER);
   expect(c.selected.values()).toEqual([2]);
 });
+
+test('rows that leave the list leave the selection and the anchor, also when none is left; the cursor stays for the list (#262)', () => {
+  const c = new InboxCursor();
+  c.setActive(4);
+  for (const id of [1, 2, 3, 4]) c.toggle(id);
+  c.keepSelected(new Set([1, 2]));
+  expect(c.selected.values().sort()).toEqual([1, 2]);
+  // Every row gone (the empty state): nothing stays selected.
+  c.keepSelected(new Set());
+  expect(c.selected.values()).toEqual([]);
+  // The list hands the cursor on itself (it knows the old order).
+  expect(c.activeId).toBe(4);
+  // The rows back (Undo): not selected, and no anchor for a Shift-click range.
+  c.keepSelected(new Set(ORDER));
+  expect(c.selected.values()).toEqual([]);
+  c.selectRange(6, ORDER);
+  expect(c.selected.values()).toEqual([6]);
+});

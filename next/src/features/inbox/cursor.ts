@@ -32,6 +32,16 @@ export class InboxCursor extends ListCursor {
     else if (this.anchor === id) this.anchor = undefined;
   }
 
+  /**
+   * Keeps only listed rows in the selection (#262): a row that leaves the list (read in the Unread view, pinned,
+   * filtered out) leaves the selection too, also when no row is left. The cursor's row is the list's to hand on.
+   */
+  keepSelected(listed: ReadonlySet<number>): void {
+    const sel = untracked(() => this.selected.values());
+    if (sel.some((id) => !listed.has(id))) this.selected.replace(sel.filter((id) => listed.has(id)));
+    if (this.anchor !== undefined && !listed.has(this.anchor)) this.anchor = undefined;
+  }
+
   /** Clears the selection, and with it the anchor (Esc, "Clear"). */
   clearSelection(): void {
     this.selected.clear();

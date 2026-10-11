@@ -24,7 +24,7 @@ import {
   BellOff, CheckCheck, ExternalLink, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, ListChecks, Mail, MailOpen, MoreHorizontal, Pin, PinOff, Rows3,
   Square, SquareCheck, X,
 } from 'lucide-react';
-import {autorun, computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
+import {autorun, computed, createAtom, type IComputedValue, observable, reaction, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
@@ -71,6 +71,7 @@ class InboxModel {
   private readonly rev = createAtom('inbox');
   private scheduled = false;
   private readonly off: () => void;
+  private readonly offPrune: () => void;
   private disposed = false;
 
   private readonly pool: Pool;
@@ -99,6 +100,12 @@ class InboxModel {
       const o = b.rows[i];
       return r.type === 'note' ? o?.type === 'note' && o.id === r.id : o?.type === 'group' && o.key === r.key && o.count === r.count && o.label === r.label;
     })});
+    // The selection is the model's (the toolbar shows it), so the model prunes it whenever the rows change (#262):
+    // the list is not there to do it when no row is left (the empty state), and a selection of rows no longer
+    // listed stayed in the toolbar, and came back selected with Undo.
+    this.offPrune = reaction(() => this.result.get().ids, (ids) => {
+      this.cursor.keepSelected(new Set(ids));
+    });
   }
 
   /** Every notification, newest first: sorted again only when notifications change (not on triage). */
@@ -160,6 +167,7 @@ class InboxModel {
   dispose(): void {
     this.disposed = true;
     this.off();
+    this.offPrune();
   }
 }
 

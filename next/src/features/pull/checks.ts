@@ -20,11 +20,14 @@ export interface Checks {
   awaitingApproval: number;
 }
 
+/** The repositories a commit's checks come from: a pull request's (base and head), or one repository's (both the same). */
+export type CheckRepos = Pick<PullRequest, 'base_repo_id' | 'head_repo_id'>;
+
 const PENDING = new Set(['pending', 'waiting', 'running', 'blocked']);
 const FAILED = new Set(['failure', 'error', 'cancelled']);
 
 /** The latest commit status per context at the head (Actions jobs' own statuses too: protection rules require those). */
-export function latestStatuses(pool: Pool, pr: PullRequest, head: string): Entity<'CommitStatus'>[] {
+export function latestStatuses(pool: Pool, pr: CheckRepos, head: string): Entity<'CommitStatus'>[] {
   const latest = new Map<string, Entity<'CommitStatus'>>();
   for (const s of pool.model('CommitStatus').by('sha', head)) {
     if (s.get('repo_id') !== pr.base_repo_id && s.get('repo_id') !== pr.head_repo_id) continue;
@@ -34,12 +37,17 @@ export function latestStatuses(pool: Pool, pr: PullRequest, head: string): Entit
   return [...latest.values()];
 }
 
+/** The sum of check states: any failed is a failure, else any unfinished is pending; none without states. */
+export function summarize(states: readonly string[]): ChecksSummary {
+  return !states.length ? 'none' : states.some((s) => FAILED.has(s)) ? 'failure' : states.some((s) => PENDING.has(s)) ? 'pending' : 'success';
+}
+
 /** Whether a run is held until a maintainer approves it. */
 export function awaitsApproval(run: {need_approval: boolean; status: string}): boolean {
   return run.need_approval && PENDING.has(run.status);
 }
 
-export function checksOf(pool: Pool, pr: PullRequest, head: string): Checks {
+export function checksOf(pool: Pool, pr: CheckRepos, head: string): Checks {
   const latest = latestStatuses(pool, pr, head);
   const runs = [...pool.model('ActionRun').by('repo_id', pr.base_repo_id)].filter((r) => r.data.commit_sha === head).sort((a, b) => b.data.id - a.data.id);
   // The latest run per workflow (a re-run or a new sync of the same commit replaces the older one).
@@ -48,8 +56,7 @@ export function checksOf(pool: Pool, pr: PullRequest, head: string): Checks {
   const current = [...byWorkflow.values()];
   // An Actions job's own status points at its run: listed with the runs, not again as a status.
   const statuses = latest.filter((s) => !(current.length && /\/actions\/runs\/\d+/.test(s.get('target_url'))));
-  const states = [...statuses.map((s) => s.get('state')), ...current.map((r) => r.data.status)];
-  const summary: ChecksSummary = !states.length ? 'none' : states.some((s) => FAILED.has(s)) ? 'failure' : states.some((s) => PENDING.has(s)) ? 'pending' : 'success';
+  const summary = summarize([...statuses.map((s) => s.get('state')), ...current.map((r) => r.data.status)]);
   return {statuses, runs: current, summary, awaitingApproval: current.filter((r) => awaitsApproval(r.data)).length};
 }
 

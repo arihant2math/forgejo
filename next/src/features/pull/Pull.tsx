@@ -65,6 +65,7 @@ import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
 import {Ago, commitRow, Sha} from '../code/bits.tsx';
+import {withChecks} from '../code/commitChecks.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
@@ -705,7 +706,7 @@ const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabP
     <div ref={setScroller} className="h-full overflow-y-auto">
       {info.state !== 'ready' ? <Unloaded loaded={info} what="These commits"/> :
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={commitRow}
+          row={withChecks(commitRow, owner, repo, pr)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>}
     </div>
   );

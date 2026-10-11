@@ -108,7 +108,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
               <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
               <EmptyState icon={Tag} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
           </Panel>
-          {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName}/>}
+          {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
             <Panel label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
               <p className="border-b border-border-subtle px-3 py-2 text-sm text-fg-muted">They stay on their issues but are no longer offered in the pickers.</p>
@@ -133,22 +133,13 @@ const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1
 const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, onDelete}: {
   r: RepoRef; label: Label; count: LabelCount | undefined; editable: boolean; onEdit: () => void; onDelete: () => void;
 }) {
-  const {owner, repo} = r;
   const pending = isPending('Label', label.id);
   const offline = !connectivity.online;
   const scope = exclusiveScope(label);
-  const issues = count?.issues ?? 0;
-  const pulls = count?.pulls ?? 0;
-  const ids = {labels: String(label.id)};
   return (
     <ListRow role={undefined} trailing={<>
       {pending && <PendingIcon label="Saving to Forgejo"/>}
-      {label.id > 0 && (
-        <span className="flex w-40 justify-end gap-3 tabular-nums max-md:hidden">
-          {pulls > 0 && <TextLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids}>{plural(pulls, 'pull request', 'pull requests')}</Link></TextLink>}
-          <TextLink><Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids}>{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link></TextLink>
-        </span>
-      )}
+      <LabelUsage r={r} label={label} count={count}/>
       {editable && (
         <span className="flex">
           <IconButton size="sm" icon={Pencil} label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} disabled={offline || label.id < 0} onClick={onEdit}/>
@@ -161,6 +152,21 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
     </ListRow>
   );
 });
+
+/** A label's open issues and pull requests in a repository: links to its lists filtered by the label. */
+function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
+  const {owner, repo} = r;
+  if (label.id <= 0) return null;
+  const issues = count?.issues ?? 0;
+  const pulls = count?.pulls ?? 0;
+  const ids = {labels: String(label.id)};
+  return (
+    <span className="flex w-40 justify-end gap-3 tabular-nums max-md:hidden">
+      {pulls > 0 && <TextLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids}>{plural(pulls, 'pull request', 'pull requests')}</Link></TextLink>}
+      <TextLink><Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids}>{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link></TextLink>
+    </span>
+  );
+}
 
 const widths = ['w-16', 'w-24', 'w-20', 'w-28', 'w-12'];
 

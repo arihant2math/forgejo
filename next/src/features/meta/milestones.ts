@@ -112,12 +112,30 @@ export interface MilestoneDraft {
   due: string;
 }
 
-/** What is wrong with a draft (undefined: it can be saved). */
-export function milestoneProblem(d: MilestoneDraft): string | undefined {
-  if (!d.title.trim()) return 'A milestone needs a title.';
-  if (d.title.trim().length > 255) return 'At most 255 characters.';
-  if (d.due && !/^\d{4}-\d{2}-\d{2}$/.test(d.due)) return 'A date as YYYY-MM-DD.';
-  return undefined;
+/** What is wrong with a draft, by field (none: it can be saved). */
+export interface MilestoneProblems {
+  title?: string;
+  due?: string;
+}
+
+/** The latest due date the form takes: a four-digit year (a date field lets a longer one through). */
+export const MAX_DUE = '9999-12-31';
+
+/** Whether a date field's value is a real day with a four-digit year ("2026-11-02"; not "61102-02-02", "2026-02-30"). */
+export function validDate(date: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toISOString().slice(0, 10) === date;
+}
+
+/** What is wrong with each field of a draft (an empty object: it can be saved). */
+export function milestoneProblems(d: MilestoneDraft): MilestoneProblems {
+  const out: MilestoneProblems = {};
+  if (!d.title.trim()) out.title = 'A milestone needs a title.';
+  else if (d.title.trim().length > 255) out.title = 'At most 255 characters.';
+  if (d.due && !validDate(d.due)) out.due = /^\d{5,}-/.test(d.due) ? 'The year needs four digits.' : 'Not a valid date.';
+  return out;
 }
 
 /** The draft of an existing milestone (its form, filled). */

@@ -98,6 +98,36 @@ describe('labels and milestones', () => {
     expect(within(screen.getByRole('region', {name: 'Labels'})).getByText('Something is broken')).toBeTruthy();
   });
 
+  test('organization labels on a repository\'s page: who manages them, their open counts and links, their own colours', async () => {
+    const s = session();
+    s.auth.token = () => Promise.resolve('token');
+    // alice is a member of acme, neither owner nor admin; API v1 gives colours without their "#".
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      const json = (v: unknown) => Promise.resolve(new Response(JSON.stringify(v), {status: 200, headers: {'Content-Type': 'application/json'}}));
+      if (url.includes('/api/v1/users/alice/orgs/acme/permissions')) return json({is_owner: false, is_admin: false});
+      if (url.includes('/api/v1/orgs/acme/labels')) {
+        return json([{id: 3, name: 'security', exclusive: false, is_archived: false, color: 'ffffff', description: ''}, {id: 4, name: 'priority/Urgent', exclusive: true, is_archived: false, color: 'e11d21', description: 'Drop everything'}]);
+      }
+      return json([]);
+    }));
+    s.data.put('IssueLabel', 'repo:20', {id: 5, issue_id: 100, label_id: 3});
+    await renderApp('/acme/website/labels', s);
+    const org = screen.getByRole('region', {name: 'Labels of acme'});
+    expect(await within(org).findByText(/Managed by the owners and admins of acme/)).toBeTruthy();
+    expect(within(org).queryByRole('button', {name: /Edit organization label/})).toBeNull();
+    // Counted in this repository, linked to its lists filtered by the label, like the repository's own.
+    await waitFor(() => {
+      expect(within(org).getByRole('link', {name: '1 open issue'}).getAttribute('href')).toBe('/acme/website/issues?labels=3');
+    });
+    expect(within(org).getByRole('link', {name: 'No open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=4');
+    // Their own colours (a filled pill, not the grey fallback chip), the scope shown.
+    const urgent = within(org).getByText('Urgent').closest<HTMLElement>('span:not(.truncate)');
+    expect(urgent?.style.getPropertyValue('--label-color')).toBe('#e11d21');
+    expect(urgent?.className).toContain('bg-label');
+    expect(within(org).getByText('priority /')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
   test('milestones: open and closed tabs, overdue, progress, counts to the milestone\'s page', async () => {
     const {router} = await renderApp('/acme/website/milestones', session());
     const panel = screen.getByRole('region', {name: 'Milestones'});
@@ -164,6 +194,29 @@ describe('labels and milestones', () => {
       expect(within(screen.getByRole('region', {name: 'Labels'})).getByText('Something is broken')).toBeTruthy();
     });
     expect(app.ui.notices.map((n) => [n.title, n.description])).toContainEqual(['Deleting the label “bug” failed', 'The label is in use.']);
+    vi.unstubAllGlobals();
+  });
+
+  test('a milestone\'s bad due date is shown on the due date field, not on the title', async () => {
+    const s = session();
+    s.data.put('Access', 'user:1', {id: 1, user_id: 1, repo_id: 20, permission: 'write'});
+    s.auth.token = () => Promise.resolve('token');
+    const fetch = vi.fn((_url: string) => Promise.resolve(new Response('{}', {status: 404, headers: {'Content-Type': 'application/json'}})));
+    vi.stubGlobal('fetch', fetch);
+    await renderApp('/acme/website/milestones/new', s);
+    const title = await screen.findByRole('textbox', {name: 'Title'});
+    fireEvent.change(title, {target: {value: 'zz-verify-date'}});
+    const due = screen.getByLabelText('Due date');
+    expect(due.getAttribute('max')).toBe('9999-12-31');
+    // What Chromium's date field holds after "2026-11-02" is typed into its mm/dd/yyyy segments.
+    fireEvent.change(due, {target: {value: '61102-02-02'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Create milestone'}));
+    expect(due.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(due.getAttribute('aria-describedby') ?? '')?.textContent).toBe('The year needs four digits.');
+    expect(document.activeElement).toBe(due);
+    expect(title.getAttribute('aria-invalid')).not.toBe('true');
+    expect(screen.queryByText('A milestone needs a title.')).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => url.includes('/milestones'))).toBe(false);
     vi.unstubAllGlobals();
   });
 

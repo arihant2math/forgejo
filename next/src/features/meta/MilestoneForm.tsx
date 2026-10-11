@@ -19,7 +19,7 @@ import type {Milestone} from '../../protocol/types.gen.ts';
 import {Button, Callout, Field, Input, SkeletonText} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
-import {milestoneDraft, type MilestoneDraft, milestoneProblem} from './milestones.ts';
+import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
 import {createMilestone, editMilestone, type MilestoneChange, type RepoRef, viewMilestones} from './writes.ts';
 
 export function NewMilestone() {
@@ -69,7 +69,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
   const [d, setD] = useState<MilestoneDraft>(() => milestoneDraft(milestone));
   const [tried, setTried] = useState(false);
   const id = useId();
-  const problem = milestoneProblem(d);
+  const problems = milestoneProblems(d);
   const offline = !connectivity.online;
   const params = {owner: r.owner, repo: r.repo};
   const back = () => {
@@ -78,8 +78,10 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
   };
   const save = (e?: SyntheticEvent) => {
     e?.preventDefault();
-    if (problem) {
+    if (problems.title || problems.due) {
       setTried(true);
+      // The first field that is wrong takes the focus (its message is under it).
+      document.getElementById(problems.title ? `${id}-title` : `${id}-due`)?.focus();
       return;
     }
     if (offline) return;
@@ -106,16 +108,17 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
           <h2 className="text-xl font-semibold text-fg">{title}</h2>
           {!write && <Callout title="You cannot change this repository’s milestones">Forgejo would refuse it: changing milestones needs write access to the repository’s issues.</Callout>}
           {offline && <Callout title={onlineOnly('Saving a milestone')}>What you type stays here until you are back online.</Callout>}
-          <form className="flex flex-col gap-4" onSubmit={save}>
-            <Field label="Title" htmlFor={`${id}-title`} error={tried ? problem : undefined} errorId={`${id}-title-e`}>
-              <Input id={`${id}-title`} value={d.title} autoFocus maxLength={255} placeholder="v1.2, Sprint 14, …" className="w-full" invalid={tried && Boolean(problem)}
+          {/* noValidate: each field's problem shows under it (milestoneProblems), not as the browser's bubble. */}
+          <form className="flex flex-col gap-4" noValidate onSubmit={save}>
+            <Field label="Title" htmlFor={`${id}-title`} error={tried ? problems.title : undefined} errorId={`${id}-title-e`}>
+              <Input id={`${id}-title`} value={d.title} autoFocus maxLength={255} placeholder="v1.2, Sprint 14, …" className="w-full" invalid={tried && Boolean(problems.title)}
                 aria-describedby={`${id}-title-e`} onChange={(e) => {
                   setD({...d, title: e.target.value});
                 }}/>
             </Field>
-            <Field label="Due date" htmlFor={`${id}-due`} hint="Optional. Issues of the milestone are due by then.">
+            <Field label="Due date" htmlFor={`${id}-due`} hint="Optional. Issues of the milestone are due by then." error={tried ? problems.due : undefined} errorId={`${id}-due-e`}>
               <span className="flex items-center gap-2">
-                <Input id={`${id}-due`} type="date" value={d.due} className="w-48" onChange={(e) => {
+                <Input id={`${id}-due`} type="date" value={d.due} max={MAX_DUE} className="w-48" invalid={tried && Boolean(problems.due)} aria-describedby={`${id}-due-e`} onChange={(e) => {
                   setD({...d, due: e.target.value});
                 }}/>
                 {d.due && <Button size="sm" variant="ghost" onClick={() => {

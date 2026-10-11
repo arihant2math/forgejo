@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.node.json",
+  "include": ["../src", "../tools", "../lint", "../e2e", "../conformance", "../integration", "../*.ts"],
+  "exclude": ["../src/test/lint-fixtures", "../src/protocol/types.gen.ts"]
+}

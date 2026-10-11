@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The repository header's Star and Watch buttons. Their counts are the
+// The repository's Star and Watch buttons (its home's title row: repoPage.tsx RepoActions). Their counts are the
 // Repository entity's (live, as the About sidebar's), shifted by the viewer's
 // own change until the pool holds Forgejo's answer. Whether the viewer stars
 // or watches comes from API v1 once; how they watch (issues, pull requests,

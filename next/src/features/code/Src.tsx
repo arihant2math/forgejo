@@ -12,7 +12,11 @@ import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {File, Folder, FolderGit2, GitBranch, History} from 'lucide-react';
 import {Missing} from '../../app/Missing.tsx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {canWrite} from '../../app/access.ts';
+import {editableText} from './fileWrite.ts';
+
+const FileEditor = lazy(() => import('./FileEditor.tsx'));
 import {sitePath} from '../../app/config.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
@@ -228,10 +232,7 @@ const FileView = observer(function FileView(props: FileProps) {
   const c = content.value;
   switch (c.kind) {
     case 'text':
-      // An empty file says so (not "1 line · 0 B" over an empty line).
-      if (c.text === '') return <EmptyState icon={File} title="Empty file" description="This file has no content."/>;
-      if (props.blame) return <BlameView {...props} text={c.text}/>;
-      return renderable(at.path) ? <PreviewableFile {...props} text={c.text}/> : <TextFile {...props} text={c.text}/>;
+      return <EditableFile {...props} text={c.text}/>;
     case 'image':
       return <ImageFile bytes={c.bytes} type={c.type} path={at.path} size={entry.size}/>;
     case 'binary':
@@ -239,6 +240,19 @@ const FileView = observer(function FileView(props: FileProps) {
     case 'large':
       return <EmptyState icon={File} title="Large file" description={`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}/>;
   }
+});
+
+const EditableFile = observer(function EditableFile(props: FileProps & {text: string}) {
+  const [editing, setEditing] = useState(false);
+  const writer = canWrite(useSession(), props.repoId);
+  const allowed = writer && props.at.kind === 'branch' && editableText(props.text);
+  useShortcut('code.editFile', () => {setEditing(true);}, allowed && !editing);
+  if (editing) return <Suspense fallback={<CodeSkeleton/>}><FileEditor owner={props.owner} repo={props.repo} repoId={props.repoId} at={props.at} sha={props.entry.sha} original={props.text} onCancel={() => {setEditing(false);}}/></Suspense>;
+  return <>
+    {allowed && <div className="flex justify-end border-b border-border-subtle px-4 py-2"><Button size="sm" variant="ghost" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
+    {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-fg-muted">Fork this repository to edit this file.</p>}
+    {props.text === '' ? <EmptyState icon={File} title="Empty file" description="This file has no content."/> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
+  </>;
 });
 
 const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-56'] as const;

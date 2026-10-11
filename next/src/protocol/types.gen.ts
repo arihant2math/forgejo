@@ -414,6 +414,104 @@ export interface APIWeek {
 }
 
 //////////
+// source: api_merge.go
+
+/**
+ * APIMergeCheck is what the classic pull request page's merge box knows
+ * about a pull request for its viewer (GET /-/sync/api/issues/{id}/merge-check,
+ * the pull request's issue): whether Forgejo would merge it, what its base
+ * branch's protection rule still asks for, whether the viewer may merge or
+ * delete the head branch, and whether workflow runs wait for a maintainer's
+ * approval. It is readable by whoever may read the pull request, as the
+ * classic merge box is; the rule's allowlists are never listed, only
+ * whether they admit the viewer (AllowMerge).
+ */
+export interface APIMergeCheck {
+  /**
+   * Mergeable is API v1's "mergeable": not being checked, no conflict,
+   * no error and not a work in progress.
+   */
+  mergeable: boolean;
+  /**
+   * AllowMerge: the viewer may merge into the base branch (write access to
+   * the code, and the protection rule's merge allowlist when it has one).
+   */
+  allow_merge: boolean;
+  /**
+   * Protection is the base branch's protection rule as it applies to this
+   * pull request, null when no rule protects the base branch.
+   */
+  protection?: APIMergeProtection;
+  /**
+   * HeadRepo is the head repository's "owner/name" ("" when it was
+   * deleted); HeadBranchExists whether the head branch still exists.
+   */
+  head_repo: string;
+  head_branch_exists: boolean;
+  /**
+   * BranchDeletable: the viewer may delete the head branch here (as the
+   * classic page's "Delete branch": write access to the head repository,
+   * not its default branch, not protected, it exists and, once merged,
+   * nothing was pushed to it since and no other open pull request uses it).
+   */
+  branch_deletable: boolean;
+  /**
+   * Actions is null when the viewer may not read the repository's
+   * Actions (or Actions are disabled).
+   */
+  actions?: APIMergeActions;
+}
+/**
+ * APIMergeProtection is a protection rule's verdict on a pull request
+ * (the classic merge box's IsBlockedBy* and the merge API's refusals).
+ */
+export interface APIMergeProtection {
+  required_approvals: number /* int64 */;
+  granted_approvals: number /* int64 */;
+  blocked_by_approvals: boolean;
+  blocked_by_rejection: boolean;
+  blocked_by_official_review_requests: boolean;
+  blocked_by_outdated_branch: boolean;
+  blocked_by_protected_files: boolean;
+  changed_protected_files: string[];
+  /**
+   * RequiredChecks are the status check contexts (glob patterns) that must
+   * succeed, empty when the rule does not require status checks.
+   */
+  required_checks: string[];
+}
+/**
+ * APIMergeActions says whether a pull request's workflow runs wait for a
+ * maintainer (runs of a fork's or AGit pull request by an author who is not
+ * trusted with Actions), as the classic page's trust panel.
+ */
+export interface APIMergeActions {
+  /**
+   * NeedApproval: some runs of the pull request wait for approval.
+   */
+  need_approval: boolean;
+  /**
+   * PosterTrust is the author's trust: "no", "explicitly" (approved
+   * always), "implicitly" (not a fork, or write access to Actions).
+   */
+  poster_trust: string;
+  /**
+   * CanDecide: the viewer may approve, deny or (un)trust (POST
+   * /-/sync/api/issues/{id}/action-trust).
+   */
+  can_decide: boolean;
+}
+/**
+ * APIActionTrust decides on a pull request's runs that wait for approval
+ * (POST /-/sync/api/issues/{id}/action-trust, write:repository): "once"
+ * approves them, "always" also trusts the author from now on, "deny"
+ * cancels them, "revoke" withdraws an "always".
+ */
+export interface APIActionTrust {
+  trust: string;
+}
+
+//////////
 // source: bootstrap.go
 
 /**

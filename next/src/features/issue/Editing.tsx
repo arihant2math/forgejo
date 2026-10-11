@@ -273,6 +273,7 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
   /** Edit was chosen: the editor that opens keeps the focus. */
   const chose = useRef(false);
   const [confirming, setConfirming] = useState(false);
+  const fallback = useRef<HTMLElement | null>(null);
   if (untracked(() => c.data.poster_id) !== userId) return null;
   const remove = () => {
     setConfirming(false);
@@ -282,13 +283,13 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
   return (
     <>
     {confirming && (
-      <Dialog open size="sm" title="Delete this comment?" description="It is removed for everyone. This cannot be undone." onOpenChange={(o) => {
+      <Dialog open size="sm" returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : fallback.current} title="Delete this comment?" description="It is removed for everyone. This cannot be undone." onOpenChange={(o) => {
         if (!o) setConfirming(false);
       }} footer={<>
         <Button variant="ghost" onClick={() => {
           setConfirming(false);
         }}>Cancel</Button>
-        <Button variant="danger" autoFocus onClick={remove}>Delete</Button>
+        <Button variant="danger" onClick={remove}>Delete</Button>
       </>}/>
     )}
     <Menu>
@@ -310,6 +311,7 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
           onEdit();
         }}>Edit</MenuItem>
         <MenuItem icon={Trash2} danger onSelect={() => {
+          fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
           setConfirming(true);
         }}>Delete…</MenuItem>
       </MenuContent>

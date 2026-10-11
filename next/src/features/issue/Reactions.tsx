@@ -9,6 +9,7 @@
 import {SmilePlus} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
+import {useRef} from 'react';
 import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
@@ -28,6 +29,7 @@ const DEFAULTS = Object.keys(EMOJI);
 
 export const Reactions = observer(function Reactions({issueId, commentId}: {issueId: number; commentId: number}) {
   const app = useApp();
+  const addButton = useRef<HTMLButtonElement>(null);
   const pool = usePool();
   const overlay = useOverlay();
   const me = useSession().userId;
@@ -66,6 +68,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
             return (
               <li key={g.content}>
                 <ChipButton pressed={g.mine} disabled={!canReact} label={`${names} reacted with ${NAMES[g.content] ?? g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
+                  if (g.mine && g.count === 1) addButton.current?.focus({preventScroll: true});
                   toggle(g.content, !g.mine);
                 }}>
                   <span aria-hidden>{EMOJI[g.content] ?? `:${g.content}:`}</span>
@@ -78,7 +81,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
       )}
       {canReact && (
         <Menu>
-          <MenuTrigger asChild><IconButton size="sm" icon={SmilePlus} label="Add a reaction"/></MenuTrigger>
+          <MenuTrigger asChild><IconButton ref={addButton} size="sm" icon={SmilePlus} label="Add a reaction"/></MenuTrigger>
           <MenuContent>
             {DEFAULTS.map((c) => (
               <MenuItem key={c} onSelect={() => {

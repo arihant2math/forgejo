@@ -34,10 +34,12 @@ export interface DialogProps {
    */
   scroll?: boolean | undefined;
   children?: ReactNode;
+  /** Explicit destination when the opener is a transient menu item. */
+  returnFocus?: (() => HTMLElement | null) | undefined;
 }
 
 /** A modal dialog near the top of the viewport; Esc and the overlay close it. */
-export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', initialFocus = 'first', scroll, children}: DialogProps) {
+export function Dialog({open, onOpenChange, trigger, title, description, footer, size = 'md', initialFocus = 'first', scroll, children, returnFocus}: DialogProps) {
   const ret = useReturnFocus();
   const focus = initialFocus === 'first' ? ret : {
     ...ret,
@@ -54,6 +56,13 @@ export function Dialog({open, onOpenChange, trigger, title, description, footer,
         <D.Overlay className={overlay}>
           <D.Content
             {...focus}
+            onCloseAutoFocus={(e) => {
+              const target = returnFocus?.();
+              if (target?.isConnected) {
+                e.preventDefault();
+                target.focus({preventScroll: true});
+              } else ret.onCloseAutoFocus(e);
+            }}
             {...(description ? {} : {'aria-describedby': undefined})}
             className={cx(dialogPanel, 'flex flex-col gap-3 p-4 focus-visible:outline-none', widths[size])}>
             <div className="flex flex-col gap-1">

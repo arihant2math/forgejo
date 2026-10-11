@@ -139,13 +139,24 @@ export const {
   Label: MenuLabel, Separator: MenuSeparator, Sub: MenuSub,
 } = dropdown;
 
-export function MenuContent({sideOffset = 4, align = 'start', onCloseAutoFocus, ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style' | 'ref'>) {
+export function MenuContent({sideOffset = 4, align = 'start', onCloseAutoFocus, onEscapeKeyDown, ...rest}: Omit<ComponentProps<typeof D.Content>, 'className' | 'style' | 'ref'>) {
   const ref = useRef<HTMLDivElement>(null);
+  const escaped = useRef(false);
   return (
     <D.Portal>
       <D.Content ref={ref} sideOffset={sideOffset} align={align} className={content} onFocusOutside={keepOnFocusOutside} onPointerDownOutside={(e) => {
         if (onOwnTrigger(e, ref.current)) e.preventDefault();
+      }} onEscapeKeyDown={(e) => {
+        onEscapeKeyDown?.(e);
+        if (e.defaultPrevented) return;
+        // Release the keys now, not after the exit animation; its delayed autofocus must not steal them back.
+        escaped.current = true;
+        const id = ref.current?.id;
+        const trigger = [...document.querySelectorAll<HTMLElement>('button[aria-controls]')].find((el) => el.getAttribute('aria-controls') === id);
+        trigger?.focus({preventScroll: true});
       }} onCloseAutoFocus={(e) => {
+        if (escaped.current) e.preventDefault();
+        escaped.current = false;
         onCloseAutoFocus?.(e);
         keepDialogFocus(e);
       }} {...rest}/>

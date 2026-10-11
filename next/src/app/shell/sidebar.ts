@@ -19,19 +19,27 @@ export function drawerOpen(): boolean {
   return document.documentElement.dataset.drawer === 'open';
 }
 
-export function closeDrawer(): void {
+let drawerOpener: HTMLElement | null = null;
+
+export function closeDrawer(restoreFocus = false): void {
+  const wasOpen = drawerOpen();
   delete document.documentElement.dataset.drawer;
+  if (wasOpen && restoreFocus && drawerOpener?.isConnected) drawerOpener.focus({preventScroll: true});
+  drawerOpener = null;
 }
 
 /** Shows or hides the sidebar (the drawer on a narrow screen; collapsed, remembered, on a wide one). */
 export function toggleSidebar(): void {
   const html = document.documentElement;
   if (narrow()) {
-    if (drawerOpen()) closeDrawer();
+    if (drawerOpen()) closeDrawer(true);
     else {
+      drawerOpener = document.querySelector<HTMLElement>('main button[aria-label="Show the sidebar"]') ??
+        (document.activeElement instanceof HTMLElement ? document.activeElement : null);
       html.dataset.drawer = 'open';
       // The drawer takes the focus (its first link), so the keyboard is where the eyes are.
       requestAnimationFrame(() => {
+        if (!drawerOpen()) return;
         document.querySelector<HTMLElement>('aside[aria-label="Sidebar"] a, aside[aria-label="Sidebar"] button')?.focus();
       });
     }

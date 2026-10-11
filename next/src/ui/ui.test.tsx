@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {Plus, Tag} from 'lucide-react';
 import {describe, expect, test, vi} from 'vitest';
 import {
@@ -90,6 +90,21 @@ describe('primitives', () => {
     expect(onSelect).toHaveBeenCalledOnce();
   });
 
+  test('Menu: Escape returns focus immediately, without stealing it back later', async () => {
+    render(<><Menu>
+      <MenuTrigger asChild><Button>React</Button></MenuTrigger>
+      <MenuContent><MenuItem>Thumbs up</MenuItem></MenuContent>
+    </Menu><Input placeholder="Comment"/></>);
+    const trigger = screen.getByRole('button', {name: 'React'});
+    fireEvent.keyDown(trigger, {key: 'Enter'});
+    fireEvent.keyDown(screen.getByRole('menu'), {key: 'Escape'});
+    expect(document.activeElement).toBe(trigger);
+    const input = screen.getByPlaceholderText('Comment');
+    input.focus();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(document.activeElement).toBe(input);
+  });
+
   test('ContextMenu: opens on right click with the same item rendering', () => {
     render(
       <ContextMenu>
@@ -101,6 +116,15 @@ describe('primitives', () => {
     const item = screen.getByRole('menuitem', {name: /Labels/});
     expect(item.className).toContain('data-highlighted:bg-raised-hover');
     expect(classConflicts(document.body)).toEqual([]);
+  });
+
+  test('Dialog: an explicit return target replaces a transient menu opener', async () => {
+    const target = document.createElement('button');
+    document.body.append(target);
+    const {rerender} = render(<Dialog open title="Delete?" returnFocus={() => target} footer={<Button>Cancel</Button>}/>);
+    rerender(<Dialog open={false} title="Delete?" returnFocus={() => target}/>);
+    await waitFor(() => { expect(document.activeElement).toBe(target); });
+    target.remove();
   });
 
   test('Dialog: opens with its title, Escape closes', () => {

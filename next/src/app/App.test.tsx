@@ -68,6 +68,27 @@ function key(k: string, init: KeyboardEventInit = {}) {
   });
 }
 
+test('owner addresses use the known login spelling', async () => {
+  const {router} = await renderApp('/ALICE', signedIn());
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/alice'); });
+});
+
+test('Escape closes the phone drawer and returns focus to its opener', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn()})));
+  try {
+    await renderApp('/', signedIn());
+    const opener = await screen.findByRole('button', {name: 'Show the sidebar'});
+    opener.focus();
+    fireEvent.click(opener);
+    expect(document.documentElement.dataset.drawer).toBe('open');
+    key('Escape');
+    expect(document.documentElement.dataset.drawer).toBeUndefined();
+    expect(document.activeElement).toBe(opener);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 describe('boot', () => {
   test('the static boot shell has the full set of skeleton rows (the splash script hides extras)', () => {
     const html = renderToStaticMarkup(<BootShell/>);

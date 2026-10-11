@@ -79,6 +79,16 @@ const CACHE = cacheName(build.version);
 const SHELL = build.base;
 /** How long a navigation waits for the network before the cached shell answers (lie-fi). */
 const NAVIGATION_TIMEOUT = 4000;
+// Kept across worker restarts; expires so a lost recovery message cannot pin navigations to the old shell.
+const UNREACHABLE_KEY = `${build.base}__unreachable`;
+const UNREACHABLE_TTL = 60_000;
+
+async function markUnreachable(unreachable: boolean): Promise<void> {
+  if (!await alive()) return;
+  const cache = await caches.open(CACHE);
+  if (unreachable) await cache.put(UNREACHABLE_KEY, new Response(String(Date.now())));
+  else await cache.delete(UNREACHABLE_KEY);
+}
 /** The kill switch is checked at most this often while online. */
 const KILL_CHECK = 30 * 60_000;
 
@@ -136,6 +146,8 @@ sw.addEventListener('activate', (e) => {
 sw.addEventListener('message', (e) => {
   const m = e.data as {t?: string; urls?: unknown} | null;
   if (m?.t === 'retire') retired = true;
+  else if (m?.t === 'unreachable') e.waitUntil(markUnreachable(true));
+  else if (m?.t === 'reachable') e.waitUntil(markUnreachable(false));
   else if (m?.t === 'skipWaiting') e.waitUntil(sw.skipWaiting());
   else if (m?.t === 'version') e.source?.postMessage({t: 'version', version: build.version});
   else if (m?.t === 'avatars' && Array.isArray(m.urls)) e.waitUntil(keepAvatars(m.urls.filter((u): u is string => typeof u === 'string').slice(0, 200)));
@@ -258,6 +270,20 @@ async function navigate(e: FetchEvent): Promise<Response> {
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    if (app && await alive()) {
+      const cache = await caches.open(CACHE);
+      const known = await cache.match(UNREACHABLE_KEY);
+      if (known && Date.now() - Number(await known.text()) < UNREACHABLE_TTL) {
+        const cached = await shell();
+        if (cached) {
+          e.waitUntil(net.then(async (res) => {
+            await markUnreachable(false);
+            if (via.preload) await afterOnline(path, app, res);
+          }).catch(() => undefined));
+          return cached;
+        }
+      }
+    }
     if (app) {
       const slow = new Promise<'slow'>((resolve) => {
         timer = setTimeout(() => {
@@ -267,12 +293,17 @@ async function navigate(e: FetchEvent): Promise<Response> {
       if (await Promise.race([net, slow]) === 'slow') {
         const cached = await shell();
         if (cached) {
-          void net.catch(() => undefined);
+          await markUnreachable(true);
+          e.waitUntil(net.then(async (res) => {
+            await markUnreachable(false);
+            if (via.preload) await afterOnline(path, app, res);
+          }).catch(() => undefined));
           return cached;
         }
       }
     }
     const res = await net;
+    if (app) await markUnreachable(false);
     if (via.preload) e.waitUntil(afterOnline(path, app, res));
     return res;
   } catch {

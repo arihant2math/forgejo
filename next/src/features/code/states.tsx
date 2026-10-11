@@ -8,29 +8,23 @@
 import {CloudOff, FolderGit2, SearchX, TriangleAlert} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
+import {reach} from '../../app/online.ts';
 import {httpsCloneUrl} from '../../code/clone.ts';
 import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
 import {missingWords} from '../../app/Missing.tsx';
-import {reach} from '../../app/online.ts';
 import {EmptyState, Skeleton} from '../../ui/index.ts';
 import type {Loaded} from './hooks.ts';
 
-/**
- * `action`: the way on from a "Not found" (the list it would be in). Not on this device: "Not available offline", or
- * "Can't reach Forgejo" while the network is up but Forgejo is not answering (as the indicator says).
- */
+/** `action`: the way on from a "Not found" (the list it would be in). */
 export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
-  const app = useApp();
-  const r = reach(app.session?.data.status.connection);
+  const unreachable = reach(useApp().session?.data.status.connection) === 'unreachable';
   switch (loaded.state) {
     case 'loading':
       return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><Skeleton className="h-3 w-64"/><Skeleton className="h-3 w-48"/></div>;
     case 'offline':
-      return r === 'unreachable' ?
-        <EmptyState icon={CloudOff} title="Can’t reach Forgejo" description={missingWords(what).unreachable} action={<AvailableOffline/>}/> :
-        <EmptyState icon={CloudOff} title="Not available offline" description={missingWords(what).offline} action={<AvailableOffline/>}/>;
+      return <EmptyState icon={CloudOff} title={unreachable ? 'Can’t reach Forgejo' : 'Not available offline'} description={missingWords(what)[unreachable ? 'unreachable' : 'offline']} action={<AvailableOffline/>}/>;
     case 'error':
       if (loaded.status === 404) return <EmptyState icon={SearchX} title="Not found" description={missingWords(what).notFound} action={action}/>;
       if (loaded.status === 413) return <EmptyState icon={TriangleAlert} title="Too large to show here" description={missingWords(what).tooLarge}/>;

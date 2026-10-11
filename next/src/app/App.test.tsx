@@ -568,8 +568,8 @@ describe('signed in', () => {
     const dialog = await screen.findByRole('dialog', {name: 'Keyboard shortcuts'});
     expect(within(dialog).getByText('Go to my issues')).toBeTruthy();
     expect(within(dialog).getByText('Go to Home')).toBeTruthy();
-    expect(within(dialog).getByText('Next item')).toBeTruthy(); // lists too, though no list is on this page
-    expect(within(dialog).getAllByRole('heading', {level: 3}).map((h) => h.textContent)[0]).toBe('General');
+    expect(within(dialog).getByText('Next item')).toBeTruthy();
+    expect(within(dialog).getAllByRole('heading', {level: 3}).map((h) => h.textContent)[0]).toBe('Lists · on this page');
     fireEvent.click(within(dialog).getByRole('button', {name: 'Close'}));
     await waitFor(() => {
       expect(screen.queryByRole('dialog', {name: 'Keyboard shortcuts'})).toBeNull();

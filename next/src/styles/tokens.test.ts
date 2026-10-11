@@ -122,10 +122,10 @@ describe('label ink (text-label)', () => {
   const light = decls(block('@theme static'));
   const dark = decls(block(':root[data-theme="dark"]'));
   const share = Number.parseFloat(decls(block(':root')).get('--label-ink') ?? 'NaN') / 100;
-  const mix = (label: string, fg: string) => {
+  const mix = (label: string, fg: string, part = share) => {
     const a = oklab(hex(label));
     const b = oklab(hex(fg));
-    return rgb(a.map((x, i) => x * share + (b[i] ?? 0) * (1 - share)));
+    return rgb(a.map((x, i) => x * part + (b[i] ?? 0) * (1 - part)));
   };
   // Light and saturated label colours of Forgejo's presets and common palettes.
   const labels = ['#eab308', '#facc15', '#22c55e', '#06b6d4', '#f97316', '#ffffff', '#e11d48', '#3b82f6', '#8b5cf6', '#fbca04', '#c2e0c6', '#bfdadc'];
@@ -135,5 +135,27 @@ describe('label ink (text-label)', () => {
     for (const bg of ['--color-surface', '--color-hover', '--color-canvas']) {
       for (const l of labels) expect(contrast(mix(l, fg), t.get(bg) ?? light.get(bg) ?? ''), `${l} on ${bg}`).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  // A filled label (LabelPill, LabelDot) is edged by its colour mixed towards the text colour (edge-label): whatever
+  // the colour (white on the light canvas, black on the dark), its fill or its edge stands out from the surface.
+  const edge = Number.parseFloat(decls(block(':root')).get('--label-edge') ?? 'NaN') / 100;
+  test.each(['light', 'dark'] as const)('a label\'s fill or edge is ≥ 1.5:1 against the surfaces (%s)', (theme) => {
+    const t = theme === 'light' ? light : dark;
+    const fg = t.get('--color-fg') ?? '';
+    const failures: string[] = [];
+    for (let r = 0; r < 256; r += 17) {
+      for (let g = 0; g < 256; g += 17) {
+        for (let b = 0; b < 256; b += 17) {
+          const fill = `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+          for (const bg of ['--color-canvas', '--color-surface', '--color-raised', '--color-hover', '--color-selected']) {
+            const surface = t.get(bg) ?? '';
+            const best = Math.max(contrast(fill, surface), contrast(mix(fill, fg, edge), surface));
+            if (best < 1.5) failures.push(`${fill} on ${bg}: ${best.toFixed(2)}`);
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
   });
 });

@@ -54,6 +54,7 @@ export const KEYMAP = {
   'list.search': {keys: '/', label: 'Search the list', scope: 'list'},
   'list.open': {keys: 'enter', label: 'Open', scope: 'list', page: true},
   'list.clear': {keys: 'escape', label: 'Clear the selection', scope: 'list', page: true},
+  'code.back': {keys: 'escape', label: 'Back to Commits', scope: 'code', page: true},
   'code.up': {keys: 'backspace', label: 'Up a directory', scope: 'code', page: true},
   'code.upAlt': {keys: 'alt+arrowup', label: 'Up a directory', scope: 'code', page: true},
   'code.findFile': {keys: 't', label: 'Go to a file', scope: 'code'},

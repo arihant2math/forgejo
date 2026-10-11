@@ -8,6 +8,7 @@
 // classic pages for what the app does not do (the profile, teams, and — for
 // those allowed — settings). Its own chunk.
 
+import {LinkRows} from '../../ui/LinkRows.tsx';
 import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {BookMarked, BookPlus, Building2, CloudOff, KanbanSquare, Lock, Settings, User as UserIcon, Users} from 'lucide-react';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
@@ -183,7 +184,7 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
           <Link to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}><Icon icon={BookPlus} size="sm"/>New repository</Link>
         </Button>
       )}>
-      {list.map((r) => <RepoLine key={r.id} r={r}/>)}
+      <LinkRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</LinkRows>
       {remote.state !== 'ready' && away ?
         list.length ? <p className="px-3 py-2 text-sm text-fg-subtle">Repositories that are not on this device load when you are online.</p> :
           <EmptyState icon={CloudOff} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :

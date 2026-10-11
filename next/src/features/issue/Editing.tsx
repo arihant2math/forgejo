@@ -90,6 +90,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   const {intents} = editing(app);
   const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
   const [text, setText] = useState(restored?.text ?? initial);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   // The base the user started from: the restored draft's, else the one when the editor opened.
   const [base] = useState(restored?.base ?? base0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -161,8 +162,18 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   // editors can be open at once); Esc cancels.
   return (
     <div className="flex flex-col gap-2">
+      {confirmCancel && <Dialog open size="sm" title="Discard this edit?" description="Your changes can be restored with Undo." onOpenChange={setConfirmCancel} footer={<>
+        <Button variant="ghost" onClick={() => { setConfirmCancel(false); }}>Keep editing</Button>
+        <Button variant="danger" onClick={() => {
+          setConfirmCancel(false);
+          cancel();
+        }}>Discard</Button>
+      </>}/>}
       <MarkdownField repoId={repoId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
-        onChange={change} onSubmit={save} onCancel={onCancel ? cancel : undefined} focusShortcut={focusShortcut}/>
+        onChange={change} onSubmit={save} onCancel={onCancel ? () => {
+          if (dirty) setConfirmCancel(true);
+          else cancel();
+        } : undefined} focusShortcut={focusShortcut}/>
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
         {onCancel && <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>}

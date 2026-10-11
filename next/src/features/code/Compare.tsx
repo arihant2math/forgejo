@@ -17,7 +17,8 @@ import {ChevronDown, GitBranch, GitCompare, GitPullRequest, Tag} from 'lucide-re
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {reach} from '../../app/online.ts';
-import {ForkCompare, type ForkBranch, forkBranches, useUpstream} from './ForkCompare.tsx';
+import {ForkCompare, type ForkBranch, forkBranches} from './ForkCompare.tsx';
+import {useUpstream} from './upstream.ts';
 import {type DiffFile, filePath} from '../../code/diff.ts';
 import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';

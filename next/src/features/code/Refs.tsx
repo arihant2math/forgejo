@@ -36,7 +36,7 @@ import {releaseSummary} from '../repo/about.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {compareSplat, forkHead} from './proposal.ts';
-import {useUpstream} from './ForkCompare.tsx';
+import {useUpstream} from './upstream.ts';
 import {ConfirmDelete, DeleteBranchDialog, DeleteTagDialog, NewBranchDialog, NewTagDialog, useWriteBlock} from './RefDialogs.tsx';
 import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './refOps.ts';
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';

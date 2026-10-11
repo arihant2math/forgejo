@@ -13,6 +13,7 @@ import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
 import {Button, Dialog, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
+import {proposalTarget, useUpstream} from './upstream.ts';
 const CodeEditor = lazy(() => import('./FileEditor.tsx').then((module) => ({default: module.CodeEditor})));
 import {refTable, useSource} from './hooks.ts';
 import {branchProtected} from './refOps.ts';
@@ -30,6 +31,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
   const source = useSource();
   const navigate = useNavigate();
   const repository = pool.model('Repository').get(repoId)?.data;
+  const up = useUpstream(owner, repo, repoId);
   const refs = refTable(pool, repoId);
   const intents = editing(app).intents;
   const key = `text:new-file:${String(repoId)}:${at.ref}:${at.path}`;
@@ -110,7 +112,8 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       setMode(undefined); setDialog(false); setFiles([]);
       if (fields.newBranch && fields.openPull && !repository?.empty) {
         if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
-        await navigate({...codeTo(owner, repo, `compare/${at.ref}...${fields.newBranch}`), search: {expand: '1'} as never});
+        // A fork's new branch is proposed to its upstream (the form there), not inside the fork.
+        await navigate({...proposalTarget(owner, repo, at.ref, fields.newBranch, up).to, search: {expand: '1'} as never});
       } else await navigate(codeTo(owner, repo, codeSplat('src', {kind: 'commit', ref: sha}, mode === 'delete' ? parentPath(at.path) : mode === 'create' ? fullPath(path) : dir)));
     } catch (err) {
       if (err instanceof RequestFailed && err.status === 403) {setProtected(true); setError('Forgejo refused this commit. Try a new branch, or check permission and storage quota.');}
@@ -135,7 +138,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       </div>}
       {problem && <p className="text-sm text-fg-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Dialog>}
-    {mode && dialog && <CommitDialog allowPull={!repository?.empty} branch={at.ref} defaultMessage={mode === 'delete' ? `Delete ${at.path}` : mode === 'create' ? `Create ${fullPath(path)}` : `Upload ${String(files.length)} files`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={blocked ?? problem ?? (protectedBranch === undefined ? 'Checking branch protection…' : undefined)} branchProblem={(name) => refNameProblem(name, 'branch', refs)} onClose={() => {setDialog(false); if (mode === 'delete') setMode(undefined);}} onCommit={(fields) => {void commit(fields);}}/>}
+    {mode && dialog && <CommitDialog allowPull={!repository?.empty} branch={at.ref} defaultMessage={mode === 'delete' ? `Delete ${at.path}` : mode === 'create' ? `Create ${fullPath(path)}` : `Upload ${String(files.length)} files`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={blocked ?? problem ?? (protectedBranch === undefined ? 'Checking branch protection…' : undefined)} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false); if (mode === 'delete') setMode(undefined);}} onCommit={(fields) => {void commit(fields);}}/>}
     {progress && <p role="status" className="text-sm text-fg-muted">{progress}</p>}
   </div>;
 });

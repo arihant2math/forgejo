@@ -374,6 +374,10 @@ describe('signed in', () => {
         fireEvent.change(input, {target: {value: query}});
         await waitFor(() => { expect(selected().toLowerCase()).toContain(`go to ${query} of acme/website`); });
       }
+      fireEvent.change(input, {target: {value: 'go to commits'}});
+      await waitFor(() => { expect(selected()).toContain('Go to Commits of acme/website'); });
+      fireEvent.change(input, {target: {value: 'g i'}});
+      await waitFor(() => { expect(selected()).toContain('Go to my issues'); });
       fireEvent.change(input, {target: {value: 'clone'}});
       await waitFor(() => { expect(selected()).toContain('Copy the clone URL'); });
       fireEvent.keyDown(input, {key: 'Enter'});

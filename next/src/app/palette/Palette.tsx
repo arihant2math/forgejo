@@ -282,7 +282,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
 
   const shortcutMatch = (id: ShortcutId) => {
     const keys = KEYMAP[id].keys.replaceAll('+', ' ');
-    return words.length && keys === words.join(' ') ? 20 : matchName(keys);
+    return words.length && keys === words.join(' ') ? 3 * COMMAND_RANK : matchName(keys);
   };
   const splat = /\/-\/next\/code\/[^/]+\/[^/]+\/(.*)$/.exec(pathname)?.[1];
   const codeRoute = splat === undefined ? undefined : parseCodePath(splat.split('/').map(decodeURIComponent).join('/'));

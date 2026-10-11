@@ -7,7 +7,7 @@
 
 import {useEffect, useState} from 'react';
 import {useApp} from '../../app/store.ts';
-import {connectivity} from '../../app/online.ts';
+import {reach} from '../../app/online.ts';
 import {codeSource, type CodeSource, NotCached} from '../../code/source.ts';
 import type {RefTable} from '../../code/refs.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -42,7 +42,7 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
     current = {key, loaded: v === undefined ? {state: 'loading'} : {state: 'ready', value: v}};
     setState(current);
   }
-  const online = connectivity.online;
+  const online = reach(useApp().session?.data.status.connection) === 'online';
   const done = current.loaded.state === 'ready';
   useEffect(() => {
     if (key === undefined || done) return undefined;
@@ -63,7 +63,7 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
     // `online`: back online, a key that failed offline loads again.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load/peek are per key
   }, [key, done, online]);
-  return current.loaded;
+  return !online && current.loaded.state === 'loading' ? {state: 'offline'} : current.loaded;
 }
 
 /** Branches and tags → SHA, and the default branch (observes the repository's branches and releases). */

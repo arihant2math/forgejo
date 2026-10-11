@@ -141,7 +141,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title} toolbar={toolbar} actions={history}/>;
 });
 
-function Tree({owner, repo, repoId, sha, branch, title, toolbar, actions}: {
+const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, toolbar, actions}: {
   owner: string; repo: string; repoId: number; sha: string; branch: string; title: ReactNode; toolbar: ReactNode; actions: ReactNode;
 }) {
   const app = useApp();
@@ -179,7 +179,7 @@ function Tree({owner, repo, repoId, sha, branch, title, toolbar, actions}: {
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch, sha}}/>}
     </>
   );
-}
+});
 
 function EntryRow({owner, repo, branch, entry}: {owner: string; repo: string; branch: string; entry: APITreeEntry}) {
   const app = useApp();

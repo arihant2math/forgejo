@@ -8,6 +8,7 @@
 // makes the browser look for it at once), and the kill switch's page side
 // (no worker served → unregister). Its own chunk.
 
+import {autorun} from 'mobx';
 import {notify} from './notices.ts';
 import type {App} from './store.ts';
 import {workerScriptURL} from './trusted.ts';
@@ -18,6 +19,12 @@ export function startServiceWorker(app: App): void {
   const container = (navigator as Partial<Navigator>).serviceWorker;
   if (started || !container || import.meta.env.DEV) return;
   started = true;
+  autorun(() => {
+    const connection = app.session?.data.status.connection;
+    if (connection === 'unreachable' || connection === 'live') {
+      container.controller?.postMessage({t: connection === 'unreachable' ? 'unreachable' : 'reachable'});
+    }
+  });
   const scope = `${app.config.app_sub_url}/`;
   let reloading = false;
   let offered = false;

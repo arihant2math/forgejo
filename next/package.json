@@ -32,6 +32,8 @@
     "@lezer/highlight": "1.2.4",
     "@lezer/lr": "1.4.10",
     "@lezer/markdown": "1.7.2",
+    "@pierre/diffs": "1.5.2",
+    "@primer/css": "22.3.2",
     "@primer/octicons-react": "19.40.0",
     "@primer/primitives": "11.10.0",
     "@primer/react": "38.40.1",

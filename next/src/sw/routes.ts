@@ -127,10 +127,12 @@ function codeAddress(rest: string[]): boolean {
   return head !== undefined && head !== 'src' && parseCodePath(rest.join('/')) !== undefined;
 }
 
-/** A tab of the classic profile other than its repositories (spa.go `profileTab`). */
+/** The owner page's sections the app has (spa.go `appProfileTabs`): `/{owner}?tab=stars` is the app's. */
+const APP_PROFILE_TABS: ReadonlySet<string> = new Set(['', 'repositories', 'overview', 'stars', 'watching', 'boards', 'people', 'teams']);
+
+/** A tab of the classic profile the app's owner page does not have (spa.go `profileTab`): `?tab=activity`. */
 function profileTab(q: URLSearchParams): boolean {
-  const tab = q.get('tab');
-  return tab !== null && tab !== '' && tab !== 'repositories';
+  return !APP_PROFILE_TABS.has(q.get('tab') ?? '');
 }
 
 /** How the worker answers a same-origin GET. */

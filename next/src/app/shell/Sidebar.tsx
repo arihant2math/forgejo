@@ -211,9 +211,15 @@ const SidebarViews = lazyComponent(() => import('../../features/views/SidebarVie
 function IdleViews() {
   const [idle, setIdle] = useState(false);
   useEffect(() => {
+    // The idle callback can come after an unmount (a closed test environment
+    // too, where React's update then reads a `window` that is gone).
+    let live = true;
     whenIdle(() => {
-      setIdle(true);
+      if (live) setIdle(true);
     });
+    return () => {
+      live = false;
+    };
   }, []);
   return idle ? <SidebarViews/> : null;
 }

@@ -52,7 +52,7 @@ test('organization management loads on open, writes organization labels and team
   fireEvent.click(screen.getByRole('button', {name: 'Create label'}));
   await screen.findByText('priority', {exact: true});
   expect(calls.find((c) => c.method === 'POST' && c.path.endsWith('/orgs/acme/labels'))?.body).toMatchObject({name: 'priority', exclusive: false, is_archived: false});
-  fireEvent.click(screen.getByRole('button', {name: 'Teams'}));
+  fireEvent.click(screen.getByRole('link', {name: 'Teams'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Members of triage'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Add member'}));
   fireEvent.change(screen.getByRole('combobox'), {target: {value: 'bob'}});

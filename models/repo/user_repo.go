@@ -25,6 +25,8 @@ func GetStarredRepos(ctx context.Context, userID int64, private bool, listOption
 		sess = sess.And("is_private=?", false)
 	}
 	sess = sess.And(reducer.RepoReadAccessFilter())
+	// Most recently starred first; the star's id breaks ties, so that pages neither repeat nor skip a repository.
+	sess = sess.OrderBy("`star`.created_unix DESC, `star`.id DESC")
 
 	if listOptions.Page != 0 {
 		sess = db.SetSessionPagination(sess, &listOptions)

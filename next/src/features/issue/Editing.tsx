@@ -10,7 +10,7 @@
 // so a reload or a crash never loses it. The field is the CodeMirror
 // composer with Forgejo's preview (editor/Composer.tsx).
 
-import {MoreHorizontal, Pencil, Trash2} from 'lucide-react';
+import {Link2, MoreHorizontal, Pencil, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useId, useRef, useState} from 'react';
@@ -323,10 +323,18 @@ export function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; o
           chose.current = true;
           onEdit();
         }}>Edit</MenuItem>
-        <MenuItem icon={Trash2} danger onSelect={() => {
+        {c.get('type') !== 'review' && <MenuItem icon={Trash2} danger onSelect={() => {
           fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
           setConfirming(true);
-        }}>Delete…</MenuItem>
+        }}>Delete…</MenuItem>}
+        <MenuItem icon={Link2} onSelect={() => {
+          const url = new URL(window.location.href);
+          if (c.get('type') === 'code') {
+            url.searchParams.set('tab', 'files');
+            url.hash = `review-thread-${String(c.id)}`;
+          } else url.hash = `comment-${String(c.id)}`;
+          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
+        }}>Copy link</MenuItem>
       </MenuContent>
     </Menu>
     </>

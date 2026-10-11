@@ -122,10 +122,23 @@ export function issueListSearch(s: Record<string, unknown>): IssueListSearch {
 export interface InboxSearch {
   filter?: 'unread';
   group?: 'repo';
+  reason?: 'review-requested' | 'mentioned' | 'assigned' | 'participating';
+  repo?: number;
+  type?: 'issue' | 'pr';
+  state?: 'open' | 'closed' | 'merged';
 }
 
 export function inboxSearch(s: Record<string, unknown>): InboxSearch {
-  return {...(s.filter === 'unread' ? {filter: 'unread' as const} : {}), ...(s.group === 'repo' ? {group: 'repo' as const} : {})};
+  const out: InboxSearch = {...(s.filter === 'unread' ? {filter: 'unread' as const} : {}), ...(s.group === 'repo' ? {group: 'repo' as const} : {})};
+  const reason = oneOf(['review-requested', 'mentioned', 'assigned', 'participating'] as const, s.reason);
+  const type = oneOf(['issue', 'pr'] as const, s.type);
+  const state = oneOf(['open', 'closed', 'merged'] as const, s.state);
+  const repo = idParam(s.repo);
+  if (reason) out.reason = reason;
+  if (type) out.type = type;
+  if (state) out.state = state;
+  if (repo !== undefined && repo > 0) out.repo = repo;
+  return out;
 }
 
 const PULL_TABS = ['files', 'commits', 'checks'] as const;

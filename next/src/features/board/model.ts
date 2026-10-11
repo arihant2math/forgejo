@@ -15,6 +15,7 @@ import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {PROJECT_FIELD} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
+import {issueProject} from '../../intents/view.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {ListCursor} from '../issues/flags.ts';
 import {type BoardLayout, boardLayout, findCard, type Move, moveTo} from './board.ts';
@@ -137,6 +138,17 @@ export class BoardModel {
   /** The columns in order; observing it reacts to the columns changing, not to card moves. */
   get columns(): ProjectColumn[] {
     return this.columnList.get();
+  }
+
+  setProject(issueId: number, projectId: number, columnId: number): void {
+    const issue = this.pool.model('Issue').get(issueId);
+    if (!issue) return;
+    const {intents, overlay} = editing(this.app);
+    const before = issueProject(this.pool, overlay, issueId);
+    intents.submit({kind: 'issue.project', issueId, repoId: issue.get('repo_id'), projectId, columnId, base: before.project});
+    notify(this.app, {tone: 'neutral', title: projectId ? 'Issue added to board' : 'Card removed from board', action: {label: 'Undo', run: () => {
+      intents.submit({kind: 'issue.project', issueId, repoId: issue.get('repo_id'), projectId: before.project, columnId: before.column, base: projectId});
+    }}});
   }
 
   /** One column's cards; observing it re-renders only when that column's order changes. */

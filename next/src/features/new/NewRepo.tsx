@@ -294,7 +294,7 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
   );
 });
 
-function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
+export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
   return (
     <CommandPopover label="Owner" placeholder="Create for…" empty="Your account is not on this device yet."
       options={owners.map((o) => ({
@@ -323,7 +323,7 @@ interface ApiOrg {
  * The organizations the viewer may create repositories in that the pool does not show (a team not synced yet, a
  * site administrator's), from API v1 when online: their organizations, and for each its `can_create_repository`.
  */
-function useRemoteOwners(app: App, isOnline: boolean): OwnerChoice[] {
+export function useRemoteOwners(app: App, isOnline: boolean): OwnerChoice[] {
   const session = app.session;
   const [owners, setOwners] = useState<OwnerChoice[]>([]);
   useEffect(() => {

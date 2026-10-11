@@ -144,6 +144,12 @@ describe('overlay', () => {
 });
 
 describe('requests (built at send time)', () => {
+  test('posted code comments delete through the pull review endpoint', () => {
+    const w = poolWorld();
+    w.pool.batch(() => w.pool.put('Comment', 34, 'issue:7', 2, {...comment(34, 7, 'nit'), type: 'code', review_id: 91}));
+    const i = newIntent({kind: 'comment.delete', issueId: 7, repoId: 10, commentId: 34});
+    expect(requestFor(i, w.pool, w.overlay)).toEqual({method: 'DELETE', api: 'v1', path: '/repos/dev/big/pulls/3/reviews/91/comments/34'});
+  });
   test('each intent kind maps to its API call', () => {
     const w = poolWorld();
     const req = (input: IntentInput) => {
@@ -167,6 +173,9 @@ describe('requests (built at send time)', () => {
     expect(req({...r, kind: 'issue.assignee', userId: 2, add: true})).toEqual({method: 'PATCH', api: 'v1', path: base, body: {assignees: ['alice', 'dev']}});
     expect(req({...r, kind: 'issue.dependency', dependencyId: 8, add: true})).toEqual({method: 'POST', api: 'v1', path: `${base}/dependencies`, body: {index: 4, owner: 'dev', repo: 'big'}});
     expect(req({...r, kind: 'issue.subscribe', userId: 1, add: false})).toEqual({method: 'DELETE', api: 'v1', path: `${base}/subscriptions/dev`});
+    // Inbox subjects outside the workspace remain sendable without their issue/repository in the pool.
+    expect(req({issueId: 999, repoId: 999, kind: 'issue.subscribe', userId: 1, add: false, target: {owner: 'elsewhere', repo: 'public', number: 12}})).toEqual({method: 'DELETE', api: 'v1', path: '/repos/elsewhere/public/issues/12/subscriptions/dev'});
+    expect(req({issueId: 999, repoId: 999, kind: 'issue.subscribe', userId: 1, add: true, target: {owner: 'elsewhere', repo: 'public', number: 12}})).toEqual({method: 'PUT', api: 'v1', path: '/repos/elsewhere/public/issues/12/subscriptions/dev'});
     expect(req({...r, kind: 'issue.reviewer', userId: 2, add: true})).toEqual({method: 'POST', api: 'v1', path: '/repos/dev/big/pulls/3/requested_reviewers', body: {reviewers: ['alice']}});
     expect(req({...r, kind: 'reaction', commentId: 0, content: '+1', add: true})).toEqual({method: 'POST', api: 'v1', path: `${base}/reactions`, body: {content: '+1'}});
     expect(req({...r, kind: 'reaction', commentId: 33, content: 'heart', add: false})).toEqual({method: 'DELETE', api: 'v1', path: '/repos/dev/big/issues/comments/33/reactions', body: {content: 'heart'}});

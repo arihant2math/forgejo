@@ -27,6 +27,8 @@ import {
   Icon, type LucideIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, MoreMenu, TabLink, TabNav, TextLink,
 } from '../../ui/index.ts';
 
+import {ForkButton} from './ForkButton.tsx';
+
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
   const loaded: unknown = useLoaderData({strict: false});
@@ -143,9 +145,9 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
     return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{repoId !== undefined && <RepoSocial owner={owner} repo={repo} repoId={repoId}/>} {children}</PageHeader>;
   }
   return home ?
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} actions={<><RepoSocial owner={owner} repo={repo} repoId={repoId}/>{children}</>}
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} actions={<><RepoSocial owner={owner} repo={repo} repoId={repoId}/><ForkButton owner={owner} repo={repo} repoId={repoId}/>{children}</>}
       tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} actions={<RepoSocial owner={owner} repo={repo} repoId={repoId}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} actions={<><RepoSocial owner={owner} repo={repo} repoId={repoId}/><ForkButton owner={owner} repo={repo} repoId={repoId}/></>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
       icon={icon} title={title} docTitle={tabTitle}>{children}</StackedPageHeader>;
 }
 

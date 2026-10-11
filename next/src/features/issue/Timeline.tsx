@@ -9,17 +9,13 @@
 // own entity.
 
 import {SuggestionCard} from '../pull/Suggestion.tsx';
-import {
-  ArrowRightLeft, Bookmark, CalendarClock, CircleCheck, CircleDot, Clock, Eye, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, Link2,
-  Lock, LockOpen, MessageSquare, Milestone, Pencil, Pin, PinOff, Reply, SquareKanban, Tag, UserCheck, UserMinus, UserPlus, XCircle,
-} from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState} from 'react';
 import type {VirtuosoHandle} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Badge, type BadgeTone, Button, Code, CodeLine, cx, Icon, LabelChip, type LucideIcon, TextLink} from '../../ui/index.ts';
+import {Badge, type BadgeTone, Button, Code, CodeLine, cx, Icon, LabelChip, TextLink} from '../../ui/index.ts';
 import {Link, useParams, useRouterState} from '@tanstack/react-router';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
@@ -43,6 +39,8 @@ import {textOfMarkup} from '../../app/trusted.ts';
 import {Reactions} from './Reactions.tsx';
 import {blocking, IssueLink} from './Sidebar.tsx';
 import {conversationReplies, conversationRoot, replyOnlyReview, replyRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
+import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckCircleIcon, IssueOpenedIcon, ClockIcon, EyeIcon, GitBranchIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, LockIcon, UnlockIcon, CommentIcon, MilestoneIcon, PencilIcon, PinIcon, PinSlashIcon, ReplyIcon, ProjectIcon, TagIcon, PersonIcon, PersonAddIcon, XCircleIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
@@ -384,7 +382,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
           </div>
         </div> :
         <div className="flex items-center gap-2">
-          <Button ref={replyButton} size="sm" variant="ghost" icon={Reply} onClick={() => {
+          <Button ref={replyButton} size="sm" variant="ghost" icon={ReplyIcon} onClick={() => {
             setReplying(true);
           }}>Reply</Button>
           {root && issueEntity && <ResolveButton root={root} issue={issueEntity}/>}
@@ -396,7 +394,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
 /** One line for an event, by comment type (models/issues/comment.go commentStrings). */
 const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: Entity<'Comment'>; swapFrom?: number | undefined}) {
   const d = c.data as Comment;
-  const ev = swapFrom === undefined ? describeEvent(d) : {icon: Tag, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
+  const ev = swapFrom === undefined ? describeEvent(d) : {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
   return (
     <div className="flex min-h-control items-center gap-3 py-1 text-base text-fg-muted">
       <span className="flex size-6 shrink-0 items-center justify-center"><Icon icon={ev.icon} size="sm"/></span>
@@ -589,75 +587,75 @@ const IssueRef = observer(function IssueRef({id, from}: {id: number; from: numbe
   return <IssueLink id={id} repoId={repoId} missing="another issue" inline/>;
 });
 
-function describeEvent(d: Comment): {icon: LucideIcon; text: ReactNode} {
+function describeEvent(d: Comment): {icon: OcticonType; text: ReactNode} {
   switch (d.type) {
     case 'close':
-      return {icon: CircleCheck, text: <StatusEvent d={d}/>};
+      return {icon: CheckCircleIcon, text: <StatusEvent d={d}/>};
     case 'reopen':
-      return {icon: CircleDot, text: <StatusEvent d={d}/>};
+      return {icon: IssueOpenedIcon, text: <StatusEvent d={d}/>};
     case 'merge_pull':
-      return {icon: GitMerge, text: 'merged this'};
+      return {icon: GitMergeIcon, text: 'merged this'};
     case 'label':
-      return {icon: Tag, text: <LabelEvent id={d.label_id} added={d.body === '1'}/>};
+      return {icon: TagIcon, text: <LabelEvent id={d.label_id} added={d.body === '1'}/>};
     case 'milestone':
-      if (!d.milestone_id) return {icon: Milestone, text: <>removed this from <MilestoneRef id={d.old_milestone_id}/></>};
-      return {icon: Milestone, text: <>{d.old_milestone_id ? 'moved this to' : 'added this to'} <MilestoneRef id={d.milestone_id}/></>};
+      if (!d.milestone_id) return {icon: MilestoneIcon, text: <>removed this from <MilestoneRef id={d.old_milestone_id}/></>};
+      return {icon: MilestoneIcon, text: <>{d.old_milestone_id ? 'moved this to' : 'added this to'} <MilestoneRef id={d.milestone_id}/></>};
     case 'assignees':
-      if (d.assignee_id === d.poster_id) return {icon: d.removed_assignee ? UserMinus : UserCheck, text: d.removed_assignee ? 'removed their assignment' : 'self-assigned this'};
-      return {icon: d.removed_assignee ? UserMinus : UserPlus, text: <>{d.removed_assignee ? 'unassigned' : 'assigned'} <Who id={d.assignee_id}/></>};
+      if (d.assignee_id === d.poster_id) return {icon: d.removed_assignee ? PersonIcon : PersonIcon, text: d.removed_assignee ? 'removed their assignment' : 'self-assigned this'};
+      return {icon: d.removed_assignee ? PersonIcon : PersonAddIcon, text: <>{d.removed_assignee ? 'unassigned' : 'assigned'} <Who id={d.assignee_id}/></>};
     case 'review_request':
-      return {icon: Eye, text: <>{d.removed_assignee ? 'removed the review request for' : 'requested a review from'} {d.assignee_team_id ?
+      return {icon: EyeIcon, text: <>{d.removed_assignee ? 'removed the review request for' : 'requested a review from'} {d.assignee_team_id ?
         <TeamName id={d.assignee_team_id}/> : <Who id={d.assignee_id} fallback="someone"/>}</>};
     case 'change_title':
-      return {icon: Pencil, text: <>changed the title from <s>{d.old_title}</s> to <span className="text-fg">{d.new_title}</span></>};
+      return {icon: PencilIcon, text: <>changed the title from <s>{d.old_title}</s> to <span className="text-fg">{d.new_title}</span></>};
     case 'issue_ref':
     case 'comment_ref':
     case 'pull_ref':
     case 'change_issue_ref':
-      return {icon: Link2, text: <>referenced this from <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>};
+      return {icon: LinkIcon, text: <>referenced this from <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>};
     case 'commit_ref':
-      return {icon: GitCommitHorizontal, text: <CommitRef d={d}/>};
+      return {icon: GitCommitIcon, text: <CommitRef d={d}/>};
     case 'added_deadline':
     case 'modified_deadline':
     case 'removed_deadline':
-      return {icon: CalendarClock, text: deadlineText(d)};
+      return {icon: CalendarIcon, text: deadlineText(d)};
     case 'add_dependency':
     case 'remove_dependency':
-      return {icon: Link2, text: <DependencyEvent d={d}/>};
+      return {icon: LinkIcon, text: <DependencyEvent d={d}/>};
     case 'lock':
       // Forgejo keeps the reason the person chose in the event's content.
-      return {icon: Lock, text: d.body ? <>locked the conversation as <span className="text-fg">{d.body.toLowerCase()}</span></> : 'locked the conversation'};
+      return {icon: LockIcon, text: d.body ? <>locked the conversation as <span className="text-fg">{d.body.toLowerCase()}</span></> : 'locked the conversation'};
     case 'unlock':
-      return {icon: LockOpen, text: 'unlocked the conversation'};
+      return {icon: UnlockIcon, text: 'unlocked the conversation'};
     case 'pin':
-      return {icon: Pin, text: 'pinned this'};
+      return {icon: PinIcon, text: 'pinned this'};
     case 'unpin':
-      return {icon: PinOff, text: 'unpinned this'};
+      return {icon: PinSlashIcon, text: 'unpinned this'};
     case 'delete_branch':
-      return {icon: GitBranch, text: <>deleted the branch <Code>{d.old_ref}</Code></>};
+      return {icon: GitBranchIcon, text: <>deleted the branch <Code>{d.old_ref}</Code></>};
     case 'change_target_branch':
-      return {icon: ArrowRightLeft, text: <>changed the target branch from <Code>{d.old_ref}</Code> to <Code>{d.new_ref}</Code></>};
+      return {icon: ArrowSwitchIcon, text: <>changed the target branch from <Code>{d.old_ref}</Code> to <Code>{d.new_ref}</Code></>};
     case 'pull_push':
-      return {icon: GitPullRequestArrow, text: <PushEvent d={d}/>};
+      return {icon: GitPullRequestIcon, text: <PushEvent d={d}/>};
     case 'project':
-      if (!d.project_id) return {icon: SquareKanban, text: <>removed this from <ProjectName id={d.old_project_id}/></>};
-      return {icon: SquareKanban, text: <>{d.old_project_id ? 'moved this to' : 'added this to'} <ProjectName id={d.project_id}/></>};
+      if (!d.project_id) return {icon: ProjectIcon, text: <>removed this from <ProjectName id={d.old_project_id}/></>};
+      return {icon: ProjectIcon, text: <>{d.old_project_id ? 'moved this to' : 'added this to'} <ProjectName id={d.project_id}/></>};
     case 'project_board':
-      return {icon: SquareKanban, text: <>moved this to another column of <ProjectName id={d.project_id}/></>};
+      return {icon: ProjectIcon, text: <>moved this to another column of <ProjectName id={d.project_id}/></>};
     case 'start_tracking':
     case 'stop_tracking':
     case 'add_time_manual':
     case 'cancel_tracking':
     case 'delete_time_manual':
-      return {icon: Clock, text: 'tracked time'};
+      return {icon: ClockIcon, text: 'tracked time'};
     case 'pull_scheduled_merge':
-      return {icon: GitMerge, text: 'scheduled this to merge when checks succeed'};
+      return {icon: GitMergeIcon, text: 'scheduled this to merge when checks succeed'};
     case 'pull_cancel_scheduled_merge':
-      return {icon: XCircle, text: 'canceled the scheduled merge'};
+      return {icon: XCircleIcon, text: 'canceled the scheduled merge'};
     case 'review':
-      return {icon: Eye, text: 'reviewed'};
+      return {icon: EyeIcon, text: 'reviewed'};
     default:
-      return {icon: d.type ? Bookmark : MessageSquare, text: 'updated this'};
+      return {icon: d.type ? BookmarkIcon : CommentIcon, text: 'updated this'};
   }
 }
 

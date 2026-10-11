@@ -4,8 +4,6 @@
 // Dropdown and context menus. Both are built from one item set (makeItems), so
 // a row's context menu and its "…" menu offer the same rows with the same look
 // and behaviour (PLAN §5.6).
-
-import {Check, ChevronDown, ChevronRight, Dot, MoreHorizontal} from 'lucide-react';
 import {Button} from './Button.tsx';
 import {ContextMenu as C, DropdownMenu as D} from 'radix-ui';
 import {type ComponentProps, type ReactNode, useRef} from 'react';
@@ -13,6 +11,7 @@ import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {ItemBody} from './ItemBody.tsx';
 import {floating, iconSlot, menuItem, sectionLabel} from './recipes.ts';
+import {CheckIcon, ChevronDownIcon, ChevronRightIcon, DotFillIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 
 const EDGE_GAP = 8;
 const content = cx(floating, 'z-popover max-h-popper min-w-48 max-w-menu overflow-y-auto p-1');
@@ -45,7 +44,7 @@ function makeItems(P: Parts) {
     return (
       <P.CheckboxItem className={cx(menuItem, 'text-fg')} {...rest}>
         <span className={iconSlot}>
-          <P.ItemIndicator><Icon icon={Check}/></P.ItemIndicator>
+          <P.ItemIndicator><Icon icon={CheckIcon}/></P.ItemIndicator>
         </span>
         <ItemBody shortcut={shortcut}>{children}</ItemBody>
       </P.CheckboxItem>
@@ -55,7 +54,7 @@ function makeItems(P: Parts) {
     return (
       <P.RadioItem className={cx(menuItem, 'text-fg')} {...rest}>
         <span className={iconSlot}>
-          <P.ItemIndicator><Icon icon={Dot}/></P.ItemIndicator>
+          <P.ItemIndicator><Icon icon={DotFillIcon}/></P.ItemIndicator>
         </span>
         <ItemBody shortcut={shortcut}>{children}</ItemBody>
       </P.RadioItem>
@@ -73,7 +72,7 @@ function makeItems(P: Parts) {
       <P.Sub>
         <P.SubTrigger className={cx(menuItem, 'text-fg data-[state=open]:bg-raised-hover')}>
           <ItemBody icon={icon}>{label}</ItemBody>
-          <Icon icon={ChevronRight} size="sm" className="text-fg-muted"/>
+          <Icon icon={ChevronRightIcon} size="sm" className="text-fg-muted"/>
         </P.SubTrigger>
         <P.Portal>
           <P.SubContent sideOffset={4} collisionPadding={EDGE_GAP} sticky="always" className={content}>{children}</P.SubContent>
@@ -236,7 +235,7 @@ export function MoreMenu({label, children}: {label: string; children: ReactNode}
   return (
     <Menu>
       <D.Trigger asChild>
-        <Button variant="ghost" size="sm" aria-label={label}><Icon icon={MoreHorizontal} size="sm"/>More<Icon icon={ChevronDown} size="sm"/></Button>
+        <Button variant="ghost" size="sm" aria-label={label}><Icon icon={KebabHorizontalIcon} size="sm"/>More<Icon icon={ChevronDownIcon} size="sm"/></Button>
       </D.Trigger>
       <MenuContent>{children}</MenuContent>
     </Menu>

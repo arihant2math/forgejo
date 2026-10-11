@@ -7,16 +7,15 @@
 // cached by blob SHA, so it is there offline once seen) and put in
 // through the Trusted Types gate; an SVG is shown as an image (an <img> from
 // a blob: URL runs no script).
-
-import {BookOpen} from 'lucide-react';
 import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
 import {CodeSource, type FileContent} from '../../code/source.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
-import {Icon, Panel, SkeletonText} from '../../ui/index.ts';
+import {Panel, SkeletonText} from '../../ui/index.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import {useLoad, useSource} from './hooks.ts';
 import {Unloaded} from './states.tsx';
+import {BookIcon} from '@primer/octicons-react';
 
 /** Whether a file has a rendered view ("Preview"): markdown (and other markup Forgejo renders), SVG images. */
 export function renderable(path: string): 'markup' | 'svg' | undefined {
@@ -78,7 +77,7 @@ export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: AP
   const body = renderable(entry.name) === 'markup' ?
     <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
     <PlainReadme repoId={repoId} entry={entry} path={path}/>;
-  return <Panel id={README_ID} label="README" title={<><Icon icon={BookOpen} size="sm"/>{entry.name}</>} padded>{body}</Panel>;
+  return <Panel id={README_ID} label="README" title={<><BookIcon size={12} className="shrink-0"/>{entry.name}</>} padded>{body}</Panel>;
 }
 
 /** A markup file at a commit, rendered by the server from the repository (renderedAt). */

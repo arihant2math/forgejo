@@ -8,12 +8,11 @@
 // would answer with the app again) asks for the classic page with
 // ?ui=classic (routers/livesync/spa.go). The menu row is ClassicMenuItem.tsx:
 // menus stay off the boot route (the not-found page renders ClassicLink).
-
-import {AppWindow} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {Button, type ButtonVariant, Icon} from '../ui/index.ts';
 import {CLASSIC_HINT, classicHref} from './classic.ts';
 import {useApp} from './store.ts';
+import {BrowserIcon} from '@primer/octicons-react';
 
 export {CLASSIC_HINT, classicHref};
 
@@ -26,7 +25,7 @@ export function ClassicLink({to, children, variant = 'ghost', size = 'md'}: {to:
   return (
     <Button asChild variant={variant} size={size} tooltip={CLASSIC_HINT}>
       <a href={classicHref(app, to)} data-classic="">
-        <Icon icon={AppWindow} size={size}/>{children}<span className={variant === 'primary' ? 'text-sm font-normal' : 'text-sm font-normal text-fg-subtle'}>classic</span>
+        <Icon icon={BrowserIcon} size={size}/>{children}<span className={variant === 'primary' ? 'text-sm font-normal' : 'text-sm font-normal text-fg-subtle'}>classic</span>
       </a>
     </Button>
   );

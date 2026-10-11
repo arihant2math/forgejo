@@ -6,8 +6,6 @@
 // only), a dialog that creates a Forgejo webhook or edits a Forgejo or
 // Gitea one (other types — Slack, Matrix, … — are edited in the classic
 // UI), a test delivery, and deletion after a confirmation.
-
-import {Pencil, Plus, Send, Trash2, Webhook} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {ClassicLink, classicHref} from '../../app/ClassicLink.tsx';
@@ -23,6 +21,7 @@ import {problemOf} from './problems.ts';
 import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
+import {PencilIcon, PlusIcon, PaperAirplaneIcon, TrashIcon, WebhookIcon} from '@primer/octicons-react';
 
 export const HookSettings = observer(function HookSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -57,24 +56,24 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
   const repoPath = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
     <FormSection id="settings-hooks" title="Webhooks" description="Forgejo sends a request to these addresses when something happens in the repository."
-      actions={<Button size="sm" variant="primary" icon={Plus} disabled={offline} onClick={() => {
+      actions={<Button size="sm" variant="primary" icon={PlusIcon} disabled={offline} onClick={() => {
         setEditing('new');
       }}>Add webhook</Button>}>
-      <ResourceList res={res} what="The webhooks" empty={{icon: Webhook, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
+      <ResourceList res={res} what="The webhooks" empty={{icon: WebhookIcon, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
         {(hooks) => hooks.map((h) => (
           <Entry key={h.id} leading={<span className="flex size-4 items-center justify-center"><StatusDot tone={h.active ? 'success' : 'muted'}/></span>}
             title={hookUrl(h)} meta={h.active ? undefined : 'inactive'}
             description={<span className="flex flex-wrap items-center gap-1"><Badge>{h.type}</Badge>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
             actions={<>
-              <IconButton size="sm" icon={Send} label="Send a test delivery" disabled={offline} onClick={() => {
+              <IconButton size="sm" icon={PaperAirplaneIcon} label="Send a test delivery" disabled={offline} onClick={() => {
                 test(h);
               }}/>
               {editableHook(h.type) ?
-                <IconButton size="sm" icon={Pencil} label="Edit the webhook" disabled={offline} onClick={() => {
+                <IconButton size="sm" icon={PencilIcon} label="Edit the webhook" disabled={offline} onClick={() => {
                   setEditing(h);
                 }}/> :
                 <Button size="sm" variant="ghost" asChild tooltip="Opens in the classic Forgejo UI"><a href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</a></Button>}
-              <IconButton size="sm" icon={Trash2} label="Delete the webhook" disabled={offline} onClick={() => {
+              <IconButton size="sm" icon={TrashIcon} label="Delete the webhook" disabled={offline} onClick={() => {
                 setError(undefined);
                 setDeleting(h);
               }}/>

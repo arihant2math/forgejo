@@ -1,10 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {CloudUpload} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {Badge} from './Badge.tsx';
 import {Hint, Icon} from './Icon.tsx';
+import {UploadIcon} from '@primer/octicons-react';
 
 /**
  * Marks something Forgejo does not have yet (PLAN §5.4 "pending badge"). It
@@ -16,7 +15,7 @@ import {Hint, Icon} from './Icon.tsx';
 export function PendingIcon({label, now = false}: {label: string; now?: boolean}) {
   return (
     <span className={now ? 'inline-flex align-middle' : 'inline-flex animate-pending align-middle'}>
-      <Hint label={label}><Icon icon={CloudUpload} size="sm" className="text-fg-subtle"/></Hint>
+      <Hint label={label}><Icon icon={UploadIcon} size="sm" className="text-fg-subtle"/></Hint>
     </span>
   );
 }
@@ -25,7 +24,7 @@ export function PendingIcon({label, now = false}: {label: string; now?: boolean}
 export function PendingBadge({label, children}: {label: string; children: ReactNode}) {
   return (
     <span className="inline-flex animate-pending">
-      <Hint label={label}><Badge><Icon icon={CloudUpload} size="sm"/>{children}</Badge></Hint>
+      <Hint label={label}><Badge><Icon icon={UploadIcon} size="sm"/>{children}</Badge></Hint>
     </span>
   );
 }

@@ -10,9 +10,6 @@
 // online only.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {
-  AppWindow, FileArchive, GitBranch, GitBranchPlus, GitCompare, GitMerge, GitPullRequest, GitPullRequestArrow, Package, Paperclip, Pencil, Plus, Send, Tag, Trash2, Undo2,
-} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
 import type {CompareInfo} from '../../code/source.ts';
@@ -27,7 +24,7 @@ import type {Branch, PullRequest, Release} from '../../protocol/types.gen.ts';
 import {Link} from '@tanstack/react-router';
 import {refTable, useLoad, useSource} from './hooks.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Badge, Button, EmptyState, Icon, IconButton, MenuItem, MenuSeparator, MoreMenu, TextLink} from '../../ui/index.ts';
+import {Badge, Button, EmptyState, IconButton, MenuItem, MenuSeparator, MoreMenu, TextLink} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate, shortDate} from '../issues/format.ts';
@@ -42,6 +39,7 @@ import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './ref
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
+import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon} from '@primer/octicons-react';
 
 /** Stops a row's click (it opens the row) at the controls inside it. */
 function RowControls({children}: {children: ReactNode}) {
@@ -55,7 +53,7 @@ function RowControls({children}: {children: ReactNode}) {
 /** A writer's delete button in a row: disabled, and saying why, when the write cannot happen now. */
 function RowDelete({name, block, onDelete}: {name: string; block: string | undefined; onDelete: () => void}) {
   return (
-    <IconButton size="sm" icon={Trash2} label={block ? `Delete ${name}: ${block}` : `Delete ${name}`} aria-disabled={Boolean(block)} onClick={() => {
+    <IconButton size="sm" icon={TrashIcon} label={block ? `Delete ${name}: ${block}` : `Delete ${name}`} aria-disabled={Boolean(block)} onClick={() => {
       if (!block) onDelete();
     }}/>
   );
@@ -86,11 +84,11 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
     if (!had || open || (p.merged && !had.pr.merged)) prOf.set(p.head_branch, {pr: p, open});
   }
   const controls = writer && <>
-    <Button size="sm" icon={GitBranchPlus} onClick={() => {
+    <Button size="sm" icon={GitBranchIcon} onClick={() => {
       setDialog({kind: 'new'});
     }}>New branch</Button>
     <MoreMenu label="More of the branches">
-      <ClassicMenuItem to={`/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/branches`} icon={Undo2}>Restore a deleted branch</ClassicMenuItem>
+      <ClassicMenuItem to={`/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/branches`} icon={UndoIcon}>Restore a deleted branch</ClassicMenuItem>
     </MoreMenu>
   </>;
   return (
@@ -101,7 +99,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
             row={(b) => {
               const pull = prOf.get(b.name);
               return {
-                leading: <Icon icon={GitBranch} size="sm"/>,
+                leading: <GitBranchIcon size={12} className="shrink-0"/>,
                 main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Badge>default</Badge></>} <span className="text-fg-subtle">{b.commit_message.split('\n')[0]}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
@@ -123,7 +121,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               };
             }}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <EmptyState icon={GitBranch} title="No branches" description="This repository has no branches on this device."/>}
+          <EmptyState icon={GitBranchIcon} title="No branches" description="This repository has no branches on this device."/>}
         {dialog?.kind === 'new' && <NewBranchDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -142,7 +140,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
 function NewPullLink({owner, repo, base, head, tooltip}: {owner: string; repo: string; base: string; head: string; tooltip?: string}) {
   return (
     <Button size="sm" variant="ghost" asChild tooltip={tooltip}>
-      <Link {...codeTo(owner, repo, compareSplat(base, head))} search={{expand: '1'} as never}><Icon icon={GitPullRequestArrow} size="sm"/>New pull request</Link>
+      <Link {...codeTo(owner, repo, compareSplat(base, head))} search={{expand: '1'} as never}><GitPullRequestIcon size={12} className="shrink-0"/>New pull request</Link>
     </Button>
   );
 }
@@ -153,8 +151,8 @@ const BranchPull = observer(function BranchPull({owner, repo, pr}: {owner: strin
     <span className="flex items-center gap-1" onClick={(e) => {
       e.stopPropagation();
     }}>
-      {pr.merged && <Badge tone="done"><Icon icon={GitMerge} size="sm"/>Merged</Badge>}
-      <TextLink><Link className="flex items-center gap-1" to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}><Icon icon={GitPullRequest} size="sm"/>#{pr.number}</Link></TextLink>
+      {pr.merged && <Badge tone="done"><GitMergeIcon size={12} className="shrink-0"/>Merged</Badge>}
+      <TextLink><Link className="flex items-center gap-1" to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}><GitPullRequestIcon size={12} className="shrink-0"/>#{pr.number}</Link></TextLink>
     </span>
   );
 });
@@ -182,7 +180,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   const tags = [...pool.model('Release').by('repo_id', props.repoId)].map((r) => r.data).filter((r) => !r.draft && r.sha)
     .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.tag_name.localeCompare(a.tag_name));
   const def = pool.model('Repository').get(props.repoId)?.get('default_branch') ?? '';
-  const controls = writer && <Button size="sm" icon={Plus} onClick={() => {
+  const controls = writer && <Button size="sm" icon={PlusIcon} onClick={() => {
     setDialog({kind: 'new'});
   }}>New tag</Button>;
   return (
@@ -191,14 +189,14 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
         {tags.length ?
           <RowList items={tags} scroller={scroller} label="Tags" keyOf={(t) => t.tag_name}
             row={(t) => ({
-              leading: <Icon icon={Tag} size="sm"/>,
+              leading: <TagIcon size={12} className="shrink-0"/>,
               main: <><span className="font-mono">{t.tag_name}</span>{!t.is_tag && t.name && <> <span className="text-fg-subtle">{t.name}</span></>}</>,
               trailing: <>
                 <span className="font-mono">{shortSha(t.sha)}</span><time dateTime={t.created_at} title={fullDate(t.created_at)}>{ago(t.created_at)}</time>
                 {(def || writer) && <RowControls>
                   {/* What the default branch has gained since the tag ("previous tag vs main"). */}
                   {def && <Button size="sm" variant="ghost" asChild aria-label={`Compare ${t.tag_name} with ${def}`} tooltip={`What ${def} has that ${t.tag_name} lacks`}>
-                    <Link {...codeTo(props.owner, props.repo, compareSplat(t.tag_name, def))}><Icon icon={GitCompare} size="sm"/>Compare</Link>
+                    <Link {...codeTo(props.owner, props.repo, compareSplat(t.tag_name, def))}><GitCompareIcon size={12} className="shrink-0"/>Compare</Link>
                   </Button>}
                   {writer && <RowDelete name={t.tag_name} block={block} onDelete={() => {
                     setDialog({kind: 'delete', name: t.tag_name, hasRelease: !t.is_tag});
@@ -207,7 +205,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
               </>,
             })}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <EmptyState icon={Tag} title="No tags" description="This repository has no tags on this device."/>}
+          <EmptyState icon={TagIcon} title="No tags" description="This repository has no tags on this device."/>}
         {dialog?.kind === 'new' && <NewTagDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -243,7 +241,7 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   const latest = releaseSummary(all).latest?.id;
   // A draft published elsewhere is in the pool before the drafts are asked for again.
   const shownDrafts = (slot?.state === 'ready' ? slot.list : []).filter((d) => !releases.some((r) => r.id === d.id));
-  const newRelease = <CodeLink owner={props.owner} repo={props.repo} to="releases/new"><Icon icon={Plus} size="sm"/>New release</CodeLink>;
+  const newRelease = <CodeLink owner={props.owner} repo={props.repo} to="releases/new"><PlusIcon size={12} className="shrink-0"/>New release</CodeLink>;
   return (
     <CodeFrame view={props} title="Releases" controls={writer && <Button size="sm" variant="primary" asChild>{newRelease}</Button>}>
       {() => (releases.length || shownDrafts.length ?
@@ -254,7 +252,7 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
           )}
           <div>{releases.map((r, i) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r} previous={releases[i + 1]?.tag_name} writer={writer} latest={r.id === latest && !r.prerelease}/>)}</div>
         </PageColumn> :
-        <EmptyState icon={Package} title="No releases" description="This repository has no published releases on this device."
+        <EmptyState icon={PackageIcon} title="No releases" description="This repository has no published releases on this device."
           action={writer ? <Button size="sm" asChild>{newRelease}</Button> : undefined}/>)}
     </CodeFrame>
   );
@@ -321,12 +319,12 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
           <DraftTarget tagged={Boolean(tagged)} target={target} at={at}/>
         </span>
         <span className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`releases/edit/${d.tag_name}`}><Icon icon={Pencil} size="sm"/>Edit</CodeLink></Button>
-          <Button size="sm" icon={Send} aria-disabled={Boolean(block) || publish.busy} tooltip={block} onClick={() => {
+          <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`releases/edit/${d.tag_name}`}><PencilIcon size={12} className="shrink-0"/>Edit</CodeLink></Button>
+          <Button size="sm" icon={PaperAirplaneIcon} aria-disabled={Boolean(block) || publish.busy} tooltip={block} onClick={() => {
             if (!block) publish.run(d, false);
           }}>{publish.busy ? 'Publishing…' : 'Publish'}</Button>
           <MoreMenu label={`More of ${name}`}>
-            <MenuItem icon={Trash2} danger disabled={Boolean(block)} onSelect={() => {
+            <MenuItem icon={TrashIcon} danger disabled={Boolean(block)} onSelect={() => {
               setDeleting(true);
             }}>Delete draft</MenuItem>
           </MoreMenu>
@@ -337,7 +335,7 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
         <ul className="flex flex-col gap-1" aria-label="Assets">
           {d.assets.map((a) => (
             <li key={a.id} className="flex items-center gap-2 text-base">
-              <Icon icon={Paperclip} size="sm"/>{a.name}<span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
+              <PaperclipIcon size={12} className="shrink-0"/>{a.name}<span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
             </li>
           ))}
         </ul>
@@ -370,16 +368,16 @@ const ReleaseControls = observer(function ReleaseControls({owner, repo, r}: {own
   const name = r.name || r.tag_name;
   return (
     <span className="ml-auto flex items-center gap-1">
-      <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`releases/edit/${r.tag_name}`}><Icon icon={Pencil} size="sm"/>Edit</CodeLink></Button>
+      <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`releases/edit/${r.tag_name}`}><PencilIcon size={12} className="shrink-0"/>Edit</CodeLink></Button>
       <MoreMenu label={`More of ${name}`}>
-        <MenuItem icon={Undo2} disabled={Boolean(block) || publish.busy} onSelect={() => {
+        <MenuItem icon={UndoIcon} disabled={Boolean(block) || publish.busy} onSelect={() => {
           publish.run(r, true);
         }}>Back to draft</MenuItem>
-        <MenuItem icon={Trash2} danger disabled={Boolean(block)} onSelect={() => {
+        <MenuItem icon={TrashIcon} danger disabled={Boolean(block)} onSelect={() => {
           setDeleting(true);
         }}>Delete release</MenuItem>
         <MenuSeparator/>
-        <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/tag/${r.tag_name.split('/').map(encodeURIComponent).join('/')}`} icon={AppWindow}>This release</ClassicMenuItem>
+        <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/tag/${r.tag_name.split('/').map(encodeURIComponent).join('/')}`} icon={BrowserIcon}>This release</ClassicMenuItem>
       </MoreMenu>
       {deleting && <DeleteReleaseDialog repoId={r.repo_id} id={r.id} name={name} draft={false} onClose={() => {
         setDeleting(false);
@@ -420,7 +418,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
                 <a {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
                   {href: a.external_url, target: '_blank'} :
                   {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">
-                  <Icon icon={Paperclip} size="sm"/>{a.name}
+                  <PaperclipIcon size={12} className="shrink-0"/>{a.name}
                 </a>
               </Button>
               <span className="text-sm text-fg-subtle tabular-nums">
@@ -435,7 +433,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
           <li key={ext}>
             <Button size="sm" variant="ghost" asChild>
               <a href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download>
-                <Icon icon={FileArchive} size="sm"/>Source code ({ext})
+                <FileZipIcon size={12} className="shrink-0"/>Source code ({ext})
               </a>
             </Button>
           </li>
@@ -443,7 +441,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
         {previous && (
           <li>
             <Button size="sm" variant="ghost" asChild>
-              <CodeLink owner={owner} repo={repo} to={`compare/${previous}...${r.tag_name}`}><Icon icon={GitCompare} size="sm"/>Changes since {previous}</CodeLink>
+              <CodeLink owner={owner} repo={repo} to={`compare/${previous}...${r.tag_name}`}><GitCompareIcon size={12} className="shrink-0"/>Changes since {previous}</CodeLink>
             </Button>
           </li>
         )}
@@ -489,7 +487,7 @@ const SinceRelease = observer(function SinceRelease({owner, repo, r}: {owner: st
     <li ref={ref}>
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to={compareSplat(r.tag_name, target)}>
-          <Icon icon={GitCompare} size="sm"/>
+          <GitCompareIcon size={12} className="shrink-0"/>
           {since.state === 'ready' ? `${String(since.value)} ${since.value === 1 ? 'commit' : 'commits'} to ${target} since this release` : `Compare with ${target}`}
         </CodeLink>
       </Button>

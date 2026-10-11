@@ -3,7 +3,6 @@
 
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {Search, ListFilter} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
@@ -15,6 +14,7 @@ import {Button, CommandPopover, Input, ListRow, SegmentedControl} from '../../ui
 import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
 
 import CodeSearch from './CodeSearch.tsx';
+import {SearchIcon, FilterIcon} from '@primer/octicons-react';
 
 const labels: Record<Kind, string> = {code: 'Code', repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
@@ -86,12 +86,12 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => 32, overscan: 10, ...pageListRect()});
   const loading = connected && !page && !error && allowed;
   return <>
-    <PageHeader title={explore ? 'Explore' : 'Search'} icon={Search}>
+    <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
       <Input aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
       <CommandPopover label="Sort results" placeholder="Sort…" trigger={<Button size="sm">{sorts.find((sort) => sort.value === search.sort)?.label}</Button>}
         options={sorts.filter((sort) => (sort.value !== 'stars' || search.type === 'repositories') && (sort.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((sort) => ({value: sort.value, label: sort.label, checked: search.sort === sort.value, onSelect: () => { patch({sort: sort.value}); }}))}/>
       {search.type === 'repositories' && <>
-        <CommandPopover label="Archived repositories" placeholder="Archived…" trigger={<Button size="sm" icon={ListFilter}>{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</Button>}
+        <CommandPopover label="Archived repositories" placeholder="Archived…" trigger={<Button size="sm" icon={FilterIcon}>{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</Button>}
           options={[{value: '', label: 'All repositories'}, {value: 'false', label: 'Not archived'}, {value: 'true', label: 'Archived'}].map((option) => ({...option, checked: search.archived === option.value, onSelect: () => { patch({archived: option.value as DiscoverySearch['archived']}); }}))}/>
         <Input aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
       </>}

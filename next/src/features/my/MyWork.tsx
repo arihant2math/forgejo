@@ -7,13 +7,13 @@
 // names those issues (online) and the rows come from the pool.
 
 import {getRouteApi, Link} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {MyListSearch, MyListType} from '../../app/search.ts';
 import {Button, EmptyState} from '../../ui/index.ts';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
+import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
 
 const TYPES: {type: MyListType | undefined; label: string}[] = [
   // Everything open in the repositories of the workspace (Forgejo's "In your repositories"), not only the viewer's own.
@@ -55,13 +55,13 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
   const model = useListModel({kind: 'my', pulls, type: search.type}, search, 'repo');
   return (
     <>
-      <PageHeader icon={pulls ? GitPullRequest : CircleDot} title={pulls ? 'My pull requests' : 'My issues'}>
+      <PageHeader icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={pulls ? 'My pull requests' : 'My issues'}>
         <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
         {/* Open / closed / all where every list has them (Linear's one place for the state). */}
         <ListControls model={model}/>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo
-        empty={<EmptyState icon={pulls ? GitPullRequest : CircleDot} title="All clear" description={DESCRIPTIONS[search.type ?? 'all']}/>}/>
+        empty={<EmptyState icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title="All clear" description={DESCRIPTIONS[search.type ?? 'all']}/>}/>
     </>
   );
 });

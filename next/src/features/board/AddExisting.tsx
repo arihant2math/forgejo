@@ -1,7 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {SquarePen} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -13,6 +11,7 @@ import {issueProject} from '../../intents/view.ts';
 import {CommandDialog, CommandPick, type PickOption} from '../../ui/index.ts';
 import {searchServer, type ServerHit} from '../search/server.ts';
 import type {BoardModel} from './model.ts';
+import {PencilIcon} from '@primer/octicons-react';
 
 /**
  * A column's "Add existing issue…": the issues the board can hold (this device's, and what the server search finds)
@@ -85,7 +84,7 @@ export const AddExisting = observer(function AddExisting({model, project, column
   const none = typed !== '' && matches === 0;
   const title = /^#?\d+$/.test(typed) ? '' : typed;
   options.push({
-    value: 'new', label: title ? `New issue “${title}” in this column…` : 'New issue in this column…', icon: SquarePen, keepOpen: true, onSelect: () => { onCreate(title); },
+    value: 'new', label: title ? `New issue “${title}” in this column…` : 'New issue in this column…', icon: PencilIcon, keepOpen: true, onSelect: () => { onCreate(title); },
     ...(none ? {group: connectivity.online ? 'No issue matches' : 'No issue on this device matches'} : {}),
   });
   return <CommandDialog open label="Add existing issues" bare onOpenChange={(open) => { if (!open) onClose(); }}>

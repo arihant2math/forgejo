@@ -10,7 +10,6 @@
 // Writes are online only (PLAN §5.4). Its own chunk.
 
 import {Link} from '@tanstack/react-router';
-import {AppWindow, GitBranch, KeyRound, Lock, Settings as SettingsIcon, Users, Webhook} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {accessKnown, repoAccess} from '../../app/access.ts';
@@ -26,6 +25,7 @@ import {CollaboratorSettings} from './Collaborators.tsx';
 import {GeneralSettings} from './General.tsx';
 import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
+import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -59,14 +59,14 @@ function RepoSettings({section}: {section: SettingsSection}) {
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={SettingsIcon} title="Settings" docTitle={docTitle}/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={GearIcon} title="Settings" docTitle={docTitle}/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
   }
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={SettingsIcon} title="Settings" docTitle={docTitle}/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={GearIcon} title="Settings" docTitle={docTitle}/>
       <PageBody><Gate key={repoId} owner={owner} repo={repo} repoId={repoId} section={section}/></PageBody>
     </>
   );
@@ -82,7 +82,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
     return <Layout owner={owner} repo={repo}><SettingsSkeleton/></Layout>;
   }
   return (
-    <EmptyState icon={Lock} title="Only administrators can change settings"
+    <EmptyState icon={LockIcon} title="Only administrators can change settings"
       description="You do not administer this repository. Its owner and administrators can give you access."
       action={<Button asChild variant="primary"><Link to="/$owner/$repo" params={{owner, repo}}>Go to the repository</Link></Button>}/>
   );
@@ -133,14 +133,14 @@ function SettingsNav({owner, repo}: {owner: string; repo: string}) {
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
     <SectionNav label="Settings">
-      <SectionNavLink label="General" icon={SettingsIcon}><Link to="/$owner/$repo/settings" params={params} activeOptions={{exact: true}}/></SectionNavLink>
-      <SectionNavLink label="Collaborators" icon={Users}><Link to="/$owner/$repo/settings/collaboration" params={params}/></SectionNavLink>
-      <SectionNavLink label="Branches" icon={GitBranch}><Link to="/$owner/$repo/settings/branches" params={params}/></SectionNavLink>
-      <SectionNavLink label="Webhooks" icon={Webhook}><Link to="/$owner/$repo/settings/hooks" params={params}/></SectionNavLink>
-      <SectionNavLink label="Deploy keys" icon={KeyRound}><Link to="/$owner/$repo/settings/keys" params={params}/></SectionNavLink>
+      <SectionNavLink label="General" icon={GearIcon}><Link to="/$owner/$repo/settings" params={params} activeOptions={{exact: true}}/></SectionNavLink>
+      <SectionNavLink label="Collaborators" icon={PeopleIcon}><Link to="/$owner/$repo/settings/collaboration" params={params}/></SectionNavLink>
+      <SectionNavLink label="Branches" icon={GitBranchIcon}><Link to="/$owner/$repo/settings/branches" params={params}/></SectionNavLink>
+      <SectionNavLink label="Webhooks" icon={WebhookIcon}><Link to="/$owner/$repo/settings/hooks" params={params}/></SectionNavLink>
+      <SectionNavLink label="Deploy keys" icon={KeyIcon}><Link to="/$owner/$repo/settings/keys" params={params}/></SectionNavLink>
       <SectionNavHeading>In the classic UI</SectionNavHeading>
       {CLASSIC_SECTIONS.map(([label, path]) => (
-        <SectionNavLink key={path} label={label} icon={AppWindow} hint="classic">
+        <SectionNavLink key={path} label={label} icon={BrowserIcon} hint="classic">
           <a href={classicHref(app, `${base}/${path}`)} title={CLASSIC_HINT} data-classic=""/>
         </SectionNavLink>
       ))}

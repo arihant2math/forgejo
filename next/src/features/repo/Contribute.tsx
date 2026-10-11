@@ -9,7 +9,6 @@
 // own). Forks' upstreams need not be synced to the device: API v1, online.
 
 import {Link} from '@tanstack/react-router';
-import {GitPullRequestArrow, RefreshCw} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -17,9 +16,10 @@ import {failureText, online, onlineWrite} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Callout, Icon} from '../../ui/index.ts';
+import {Button, Callout} from '../../ui/index.ts';
 import {codeTo} from '../code/nav.tsx';
 import {compareSplat, forkHead} from '../code/proposal.ts';
+import {GitPullRequestIcon, SyncIcon} from '@primer/octicons-react';
 
 /** API v1's GET /repos/{owner}/{repo}/sync_fork (the fork's default branch and the upstream's branch of that name). */
 interface SyncInfo {
@@ -101,12 +101,12 @@ export const Contribute = observer(function Contribute({owner, repo}: {owner: st
       {s.ahead > 0 && (
         <Button size="sm" variant="secondary" asChild>
           <Link {...codeTo(s.upstream.owner, s.upstream.name, compareSplat(s.upstream.defaultBranch, forkHead(owner, repo, s.upstream.owner, s.branch)))} search={{expand: '1'} as never}>
-            <Icon icon={GitPullRequestArrow} size="sm"/>Compare &amp; open pull request
+            <GitPullRequestIcon size={12} className="shrink-0"/>Compare &amp; open pull request
           </Link>
         </Button>
       )}
       {s.behind > 0 && writer && s.syncable && (
-        <Button size="sm" variant="primary" icon={RefreshCw} aria-disabled={Boolean(why) || syncing} tooltip={why ?? `Fast-forward ${s.branch} to ${s.upstream.owner}/${s.upstream.name}:${s.branch}`} onClick={sync}>
+        <Button size="sm" variant="primary" icon={SyncIcon} aria-disabled={Boolean(why) || syncing} tooltip={why ?? `Fast-forward ${s.branch} to ${s.upstream.owner}/${s.upstream.name}:${s.branch}`} onClick={sync}>
           {syncing ? 'Syncing…' : 'Sync fork'}
         </Button>
       )}

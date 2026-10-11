@@ -4,8 +4,6 @@
 // {base}callback: Forgejo's authorization page sends the browser here with
 // `code` and `state` (or `error`). The code is exchanged once, then the app
 // reloads at the page the sign-in started from, booting with the user's data.
-
-import {LogIn} from 'lucide-react';
 import {useEffect, useState} from 'react';
 import {completeSignIn, type SignInResult} from '../../auth/signin.ts';
 import {dropPreviousUser} from '../../auth/signout.ts';
@@ -14,6 +12,7 @@ import {leaveCallback} from '../../app/history.ts';
 import {signInHere} from '../../app/session.ts';
 import {type App, useApp} from '../../app/store.ts';
 import {EmptyState} from '../../ui/index.ts';
+import {SignInIcon} from '@primer/octicons-react';
 
 // Once per page load (StrictMode runs effects twice in development).
 let running: Promise<SignInResult> | undefined;
@@ -46,7 +45,7 @@ export default function Callback() {
   }
   return (
     <CenteredScreen>
-      <EmptyState icon={LogIn} title="Signing in…" description="Getting your workspace ready."/>
+      <EmptyState icon={SignInIcon} title="Signing in…" description="Getting your workspace ready."/>
     </CenteredScreen>
   );
 }

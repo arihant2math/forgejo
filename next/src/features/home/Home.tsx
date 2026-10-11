@@ -6,12 +6,11 @@
 // (Dashboard.tsx) is its own chunk (the server preloads it with the document:
 // spa_preload.go), so the boot route stays small and the first frame is
 // never an empty page.
-
-import {Home as HomeIcon} from 'lucide-react';
 import {lazyComponent} from '../../app/lazy.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {ListRow, Panel, Skeleton} from '../../ui/index.ts';
+import {HomeIcon} from '@primer/octicons-react';
 
 /**
  * Home while the device loads what is waiting (its chunk, a first sign-in's sync): the sections' shape, static

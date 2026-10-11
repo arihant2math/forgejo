@@ -6,7 +6,6 @@
 // leaf, so a delta re-renders the row it changed and nothing else.
 
 import {Link, useRouterState} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest, Home, Inbox, KanbanSquare, PanelLeftClose, Search, SquarePen} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useEffect, useState} from 'react';
@@ -21,11 +20,12 @@ import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
+import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, PencilIcon} from '@primer/octicons-react';
 
 /** New issue (C): Linear's compose button, at the top. */
 function SidebarCreate() {
   const app = useApp();
-  return <NavItem icon={SquarePen} label="New issue" shortcut={shortcutHint('create')} onClick={() => {
+  return <NavItem icon={PencilIcon} label="New issue" shortcut={shortcutHint('create')} onClick={() => {
     openCreate(app);
   }}/>;
 }
@@ -33,7 +33,7 @@ function SidebarCreate() {
 const SidebarSearch = function SidebarSearch() {
   const {ui} = useApp();
   return (
-    <NavItem icon={Search} label="Search" shortcut={shortcutHint('palette.open')} onClick={() => {
+    <NavItem icon={SearchIcon} label="Search" shortcut={shortcutHint('palette.open')} onClick={() => {
       runInAction(() => {
         ui.paletteOpen = true;
       });
@@ -46,7 +46,7 @@ const InboxItem = observer(function InboxItem() {
   const {ui} = useApp();
   // The overlay-aware count once the queue runs (a read marked offline counts at once), else the pool's.
   const unread = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
-  return <NavItem asChild icon={Inbox} label="Inbox" count={unread} shortcut={shortcutHint('go.inbox')}><Link to="/notifications"/></NavItem>;
+  return <NavItem asChild icon={InboxIcon} label="Inbox" count={unread} shortcut={shortcutHint('go.inbox')}><Link to="/notifications"/></NavItem>;
 });
 
 // ── Workspace: owners and their repositories ─────────────────────────────
@@ -228,7 +228,7 @@ function IdleViews() {
 function BoardsItem() {
   const onBoard = useRouterState({select: (s) => s.location.pathname.startsWith('/-/next/projects/')});
   return (
-    <NavItem asChild icon={KanbanSquare} label="Boards" shortcut={shortcutHint('go.board')}>
+    <NavItem asChild icon={ProjectIcon} label="Boards" shortcut={shortcutHint('go.board')}>
       <Link to="/-/next/boards" {...(onBoard ? {'aria-current': 'page' as const} : {})}/>
     </NavItem>
   );
@@ -271,23 +271,23 @@ export function Sidebar() {
       <SidebarTop>
         <div className="flex min-w-0 items-center gap-1">
           <div className="min-w-0 flex-1"><AccountMenu/></div>
-          <IconButton size="sm" icon={PanelLeftClose} label="Hide the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/>
+          <IconButton size="sm" icon={SidebarExpandIcon} label="Hide the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/>
         </div>
         <SidebarCreate/>
         <SidebarSearch/>
       </SidebarTop>
       <SidebarBody>
-        <NavItem asChild icon={Home} label="Home" shortcut={shortcutHint('go.home')}>
+        <NavItem asChild icon={HomeIcon} label="Home" shortcut={shortcutHint('go.home')}>
           <Link to="/" activeOptions={{exact: true, includeSearch: false}}/>
         </NavItem>
         <InboxItem/>
-        <NavItem asChild icon={CircleDot} label="My issues" shortcut={shortcutHint('go.issues')}>
+        <NavItem asChild icon={IssueOpenedIcon} label="My issues" shortcut={shortcutHint('go.issues')}>
           <Link to="/issues" activeOptions={{includeSearch: false}}/>
         </NavItem>
-        <NavItem asChild icon={GitPullRequest} label="My pull requests" shortcut={shortcutHint('go.pulls')}>
+        <NavItem asChild icon={GitPullRequestIcon} label="My pull requests" shortcut={shortcutHint('go.pulls')}>
           <Link to="/pulls" activeOptions={{includeSearch: false}}/>
         </NavItem>
-        <NavItem asChild icon={Search} label="Explore"><Link to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}/></NavItem>
+        <NavItem asChild icon={SearchIcon} label="Explore"><Link to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}/></NavItem>
         <BoardsItem/>
         <Workspace/>
         <IdleViews/>

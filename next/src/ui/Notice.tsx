@@ -1,19 +1,18 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {CircleAlert, CircleCheck, Info, TriangleAlert, X} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {IconButton} from './Button.tsx';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {floating, message} from './recipes.ts';
+import {AlertIcon, CheckCircleIcon, InfoIcon, XIcon} from '@primer/octicons-react';
 
 /** The tones of a message (Notice, Callout): icon and colour. */
 export const messageTones = {
-  neutral: {icon: Info, text: 'text-fg-muted'},
-  success: {icon: CircleCheck, text: 'text-success'},
-  warning: {icon: TriangleAlert, text: 'text-warning'},
-  danger: {icon: CircleAlert, text: 'text-danger'},
+  neutral: {icon: InfoIcon, text: 'text-fg-muted'},
+  success: {icon: CheckCircleIcon, text: 'text-success'},
+  warning: {icon: AlertIcon, text: 'text-warning'},
+  danger: {icon: AlertIcon, text: 'text-danger'},
 } as const satisfies Record<string, {icon: LucideIcon; text: string}>;
 
 const tones = messageTones;
@@ -63,7 +62,7 @@ export function Notice({tone = 'neutral', title, description, action, onDismiss,
         {description && <p className={message.description}>{description}</p>}
         {action && <div className={message.actions}>{action}</div>}
       </div>
-      <IconButton icon={X} label="Dismiss" size="sm" onClick={onDismiss} className="-mt-1 -mr-1"/>
+      <IconButton icon={XIcon} label="Dismiss" size="sm" onClick={onDismiss} className="-mt-1 -mr-1"/>
     </div>
   );
 }

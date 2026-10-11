@@ -5,8 +5,6 @@
 // from API v1 (kept for the next visit), a dialog that creates or edits one
 // (an edit sends only what changed, so what the form does not show — teams,
 // approval allowlists — stays), and deletion after a confirmation.
-
-import {Pencil, ShieldCheck, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
@@ -14,7 +12,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Badge, Button, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Icon, IconButton, Input, SegmentedControl, TextArea,
+  Badge, Button, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, IconButton, Input, SegmentedControl, TextArea,
 } from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -24,6 +22,7 @@ import {problemOf} from './problems.ts';
 import {fetchRules, repoApi, ruleApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
+import {PencilIcon, ShieldCheckIcon, TrashIcon} from '@primer/octicons-react';
 
 export const BranchSettings = observer(function BranchSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -50,18 +49,18 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
   };
   return (
     <FormSection id="settings-branches" title="Branch protection" description="Rules for branches whose name matches: who may push, what a pull request needs before it is merged."
-      actions={<Button size="sm" variant="primary" icon={ShieldCheck} disabled={offline || res.value === undefined} onClick={() => {
+      actions={<Button size="sm" variant="primary" icon={ShieldCheckIcon} disabled={offline || res.value === undefined} onClick={() => {
         setEditing('new');
       }}>Add rule</Button>}>
-      <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheck, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
+      <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
         {(rules) => rules.map((r) => (
-          <Entry key={r.rule_name} leading={<Icon icon={ShieldCheck} size="sm"/>} title={<Code>{r.rule_name}</Code>}
+          <Entry key={r.rule_name} leading={<ShieldCheckIcon size={12} className="shrink-0"/>} title={<Code>{r.rule_name}</Code>}
             description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Badge key={s}>{s}</Badge>)}</span>}
             actions={<>
-              <IconButton size="sm" icon={Pencil} label={`Edit the rule for ${r.rule_name}`} disabled={offline} onClick={() => {
+              <IconButton size="sm" icon={PencilIcon} label={`Edit the rule for ${r.rule_name}`} disabled={offline} onClick={() => {
                 setEditing(r);
               }}/>
-              <IconButton size="sm" icon={Trash2} label={`Remove the rule for ${r.rule_name}`} disabled={offline} onClick={() => {
+              <IconButton size="sm" icon={TrashIcon} label={`Remove the rule for ${r.rule_name}`} disabled={offline} onClick={() => {
                 setError(undefined);
                 setDeleting(r);
               }}/>

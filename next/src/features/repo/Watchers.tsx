@@ -9,19 +9,19 @@
 // shown offline); the count is the repository's own (the pool's).
 
 import {getRouteApi, Link} from '@tanstack/react-router';
-import {CalendarDays, Eye, Link2, MapPin} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
-import {Avatar, Button, Callout, EmptyState, Entry, EntryList, Icon, Panel} from '../../ui/index.ts';
+import {Avatar, Button, Callout, EmptyState, Entry, EntryList, Panel} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ListSkeleton} from '../settings/bits.tsx';
 import {repoApi} from '../settings/requests.ts';
 import {type Resource, settingsKey, useResource} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
+import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
 
@@ -56,14 +56,14 @@ export function RepoWatchers() {
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={Eye} title="Watchers"/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={EyeIcon} title="Watchers"/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
   }
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Eye} title="Watchers"/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={EyeIcon} title="Watchers"/>
       <PageBody>
         <PageColumn>
           <WatcherList key={repoId} owner={owner} repo={repo} repoId={repoId}/>
@@ -94,7 +94,7 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
   const more = last === undefined ? (res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE : page < last;
   const to = (n: number) => ({to: '/$owner/$repo/watchers', params: {owner, repo}, search: n > 1 ? {page: n} : {}}) as const;
   return (
-    <Panel label="Watchers" title={<><Icon icon={Eye} size="sm"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
+    <Panel label="Watchers" title={<><EyeIcon size={12} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
       {(page > 1 || more) && (
         <nav aria-label="Pages" className="flex items-center gap-2 border-t border-border-subtle px-3 py-2">
@@ -111,7 +111,7 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   const v = res.value;
   if (v === undefined) {
     if (res.state === 'loading') return <div className="px-3"><ListSkeleton/></div>;
-    if (res.state === 'offline') return <EmptyState icon={Eye} title="Not on this device yet" description="The watchers load when you are online."/>;
+    if (res.state === 'offline') return <EmptyState icon={EyeIcon} title="Not on this device yet" description="The watchers load when you are online."/>;
     return (
       <Callout tone="danger" title="The watchers could not be loaded" actions={<Button size="sm" onClick={res.reload}>Try again</Button>}>
         {res.error}
@@ -120,8 +120,8 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   }
   if (!v.users.length) {
     return page > 1 ?
-      <EmptyState icon={Eye} title={`No watchers on page ${String(page)}`} action={<Button asChild size="sm"><Link to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</Link></Button>}/> :
-      <EmptyState icon={Eye} title="No watchers" description="Nobody is watching this repository."/>;
+      <EmptyState icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<Button asChild size="sm"><Link to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</Link></Button>}/> :
+      <EmptyState icon={EyeIcon} title="No watchers" description="Nobody is watching this repository."/>;
   }
   return <div className="px-3"><EntryList>{v.users.map((u) => <WatcherCard key={u.id} u={u}/>)}</EntryList></div>;
 }
@@ -135,11 +135,11 @@ function WatcherCard({u}: {u: Watcher}) {
       title={<Link to="/$owner" params={{owner: u.login}} className="font-medium hover:text-accent-fg">{name}</Link>}
       meta={u.full_name ? u.login : undefined}
       description={site ?
-        <span className="flex min-w-0 items-center gap-1"><Icon icon={Link2} size="sm"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate hover:text-accent-fg">{site}</a></span> :
+        <span className="flex min-w-0 items-center gap-1"><LinkIcon size={12} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate hover:text-accent-fg">{site}</a></span> :
         u.location ?
-          <span className="flex min-w-0 items-center gap-1"><Icon icon={MapPin} size="sm"/><span className="truncate">{u.location}</span></span> :
+          <span className="flex min-w-0 items-center gap-1"><LocationIcon size={12} className="shrink-0"/><span className="truncate">{u.location}</span></span> :
           u.created ?
-            <span className="flex items-center gap-1"><Icon icon={CalendarDays} size="sm"/>Joined <time dateTime={u.created} title={fullDate(u.created)}>{shortDate(u.created)}</time></span> :
+            <span className="flex items-center gap-1"><CalendarIcon size={12} className="shrink-0"/>Joined <time dateTime={u.created} title={fullDate(u.created)}>{shortDate(u.created)}</time></span> :
             undefined}/>
   );
 }

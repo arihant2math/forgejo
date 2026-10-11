@@ -1,13 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {ChevronDown, ChevronRight} from 'lucide-react';
 import {Slot} from 'radix-ui';
 import type {ButtonHTMLAttributes, ReactElement, ReactNode, Ref} from 'react';
 import {cx} from './cx.ts';
 import {sectionLabel} from './recipes.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {Tooltip} from './Tooltip.tsx';
+import {ChevronDownIcon, ChevronRightIcon} from '@primer/octicons-react';
 
 // Sidebar rows sit on the canvas, so they use the canvas fills (plain hover
 // is too faint there). The current page is marked by aria-current="page",
@@ -68,7 +67,7 @@ export interface NavGroupProps {
 export function NavGroup({label, leading, open, onOpenChange, link, holdsCurrent, children}: NavGroupProps) {
   const lead = leading && <span aria-hidden className="flex shrink-0">{leading}</span>;
   const name = <span className="min-w-0 flex-1 truncate">{label}</span>;
-  const chevron = <Icon icon={open ? ChevronDown : ChevronRight} size="sm" className="text-fg-subtle"/>;
+  const chevron = <Icon icon={open ? ChevronDownIcon : ChevronRightIcon} size="sm" className="text-fg-subtle"/>;
   const toggle = () => {
     onOpenChange(!open);
   };

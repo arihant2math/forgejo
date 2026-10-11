@@ -20,10 +20,6 @@
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {
-  BellOff, CheckCheck, ExternalLink, FolderGit2, GitCommitHorizontal, Inbox as InboxIcon, ListChecks, Mail, MailOpen, MoreHorizontal, Pin, PinOff, Rows3,
-  Square, SquareCheck, X,
-} from 'lucide-react';
 import {autorun, computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
@@ -55,6 +51,7 @@ import {askServerReasons, serverReasons} from './serverReasons.ts';
 import {InboxFilters} from './InboxFilters.tsx';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
 import {activityOf, type InboxResult, inboxRows, noteHash, togglePin} from './inbox.ts';
+import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, FileSubmoduleIcon, GitCommitIcon, InboxIcon, TasklistIcon, MailIcon, ReadIcon, KebabHorizontalIcon, PinIcon, PinSlashIcon, RowsIcon, SquareIcon, CheckboxIcon, XIcon} from '@primer/octicons-react';
 
 const ROW = 32; // ListRow's h-row
 const route = getRouteApi('/shell/notifications');
@@ -238,14 +235,14 @@ export default observer(function Inbox() {
           set({filter: shown.filter === 'all' ? undefined : 'all'});
         }}>All</Button>
         <Menu>
-          <MenuTrigger asChild><Button size="sm" variant="ghost" icon={Rows3}>Display</Button></MenuTrigger>
+          <MenuTrigger asChild><Button size="sm" variant="ghost" icon={RowsIcon}>Display</Button></MenuTrigger>
           <MenuContent>
             <MenuCheckboxItem checked={shown.group === 'repo'} onCheckedChange={(on) => {
               set({group: on ? 'repo' : undefined});
             }}>Group by repository</MenuCheckboxItem>
           </MenuContent>
         </Menu>
-        <Button size="sm" variant="ghost" icon={CheckCheck} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
+        <Button size="sm" variant="ghost" icon={ChecklistIcon} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
       </PageHeader>
       <InboxBody model={model} filter={shown.filter} byRepo={shown.group === 'repo'} filtered={[shown.reason, shown.repo, shown.type, shown.state].some((value) => value !== undefined)}/>
     </>
@@ -260,7 +257,7 @@ function sameView(a: InboxSearch, b: InboxSearch): boolean {
 const SelectToggle = observer(function SelectToggle({model}: {model: InboxModel}) {
   const on = model.selecting.get();
   return (
-    <Button size="sm" pressed={on} icon={ListChecks} shortcut={shortcutHint('list.select')}
+    <Button size="sm" pressed={on} icon={TasklistIcon} shortcut={shortcutHint('list.select')}
       tooltip={on ? 'Tap rows to select them; Esc or Select again to stop' : 'Select notifications to act on several at once (also Shift-click, or X on a row)'} onClick={() => {
         runInAction(() => {
           model.selecting.set(!on);
@@ -289,18 +286,18 @@ const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}
   return (
     <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-1">
       <span className="px-1 text-sm whitespace-nowrap text-fg-muted tabular-nums">{ids.length} selected</span>
-      <Button size="sm" variant="ghost" icon={MailOpen} shortcut={shortcutHint('inbox.read')} tooltip="Mark the selected notifications read"
+      <Button size="sm" variant="ghost" icon={ReadIcon} shortcut={shortcutHint('inbox.read')} tooltip="Mark the selected notifications read"
         disabled={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button>
-      <Button size="sm" variant="ghost" icon={Mail} shortcut={shortcutHint('inbox.unread')} tooltip="Mark the selected notifications unread"
+      <Button size="sm" variant="ghost" icon={MailIcon} shortcut={shortcutHint('inbox.unread')} tooltip="Mark the selected notifications unread"
         disabled={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button>
-      <Button size="sm" variant="ghost" icon={allPinned ? PinOff : Pin} shortcut={shortcutHint('inbox.pin')}
+      <Button size="sm" variant="ghost" icon={allPinned ? PinSlashIcon : PinIcon} shortcut={shortcutHint('inbox.pin')}
         tooltip={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'}
         onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button>
-      <Button size="sm" variant="ghost" icon={BellOff} shortcut={shortcutHint('inbox.unsubscribe')} tooltip={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'}
+      <Button size="sm" variant="ghost" icon={BellSlashIcon} shortcut={shortcutHint('inbox.unsubscribe')} tooltip={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'}
         disabled={!!cannotUnsubscribe} onClick={() => {
           unsubscribe(app, untracked(() => model.cursor.selected.values()));
         }}>Unsubscribe</Button>
-      <Button size="sm" variant="ghost" icon={X} shortcut={formatKeys('escape')} tooltip="Clear the selection" onClick={() => {
+      <Button size="sm" variant="ghost" icon={XIcon} shortcut={formatKeys('escape')} tooltip="Clear the selection" onClick={() => {
         model.cursor.clearSelection();
       }}>Clear</Button>
     </div>
@@ -325,7 +322,7 @@ const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}:
     <PageBody ref={setScroller}>
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
-        <EmptyState icon={BellOff} title={filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}
+        <EmptyState icon={BellSlashIcon} title={filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}
           description={filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}/>}
     </PageBody>
   );
@@ -545,7 +542,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
                     <NoteRow id={r.id} model={model} onClick={click} byRepo={byRepo}/>
                     <RowActions id={r.id} model={model} open={open} refocus={refocus}/>
                   </> :
-                  <ListGroupHeader leading={r.key === 'pinned' ? <Icon icon={Pin}/> : r.key.startsWith('repo:') ? <Icon icon={FolderGit2}/> : null} label={r.label} count={r.count}/>}
+                  <ListGroupHeader leading={r.key === 'pinned' ? <PinIcon size={16} className="shrink-0"/> : r.key.startsWith('repo:') ? <FileSubmoduleIcon size={16} className="shrink-0"/> : null} label={r.label} count={r.count}/>}
               </div>
             );
           })}
@@ -577,25 +574,25 @@ const NoteMenu = observer(function NoteMenu({ids, open, Item, Separator}: {ids: 
   return (
     <>
       {one !== undefined && <>
-        <Item icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
+        <Item icon={LinkExternalIcon} shortcut={formatKeys('enter')} onSelect={() => {
           open(one);
         }}>Open</Item>
         <Separator/>
       </>}
-      <Item icon={MailOpen} shortcut={shortcutHint('inbox.read')} disabled={status !== undefined && status !== 'unread'} onSelect={() => {
+      <Item icon={ReadIcon} shortcut={shortcutHint('inbox.read')} disabled={status !== undefined && status !== 'unread'} onSelect={() => {
         triage(app, ids, (st) => (st === 'unread' ? 'read' : undefined), 'read');
       }}>{`Mark read${many}`}</Item>
-      <Item icon={Mail} shortcut={shortcutHint('inbox.unread')} disabled={status === 'unread'} onSelect={() => {
+      <Item icon={MailIcon} shortcut={shortcutHint('inbox.unread')} disabled={status === 'unread'} onSelect={() => {
         triage(app, ids, () => 'unread', 'unread');
       }}>{`Mark unread${many}`}</Item>
-      <Item icon={status === 'pinned' ? PinOff : Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
+      <Item icon={status === 'pinned' ? PinSlashIcon : PinIcon} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
         triage(app, ids, togglePin, 'pin');
       }}>{status === 'pinned' ? 'Unpin' : `Pin${many}`}</Item>
       <Separator/>
-      <Item icon={BellOff} shortcut={shortcutHint('inbox.unsubscribe')} disabled={!!cannotUnsubscribe} onSelect={() => {
+      <Item icon={BellSlashIcon} shortcut={shortcutHint('inbox.unsubscribe')} disabled={!!cannotUnsubscribe} onSelect={() => {
         unsubscribe(app, ids);
       }}>{`Unsubscribe${many}`}</Item>
-      <Item icon={BellOff} disabled={!!cannotUnsubscribe} onSelect={() => {
+      <Item icon={BellSlashIcon} disabled={!!cannotUnsubscribe} onSelect={() => {
         unsubscribe(app, ids, true);
       }}>{`Unsubscribe and mark read${many}`}</Item>
       {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-fg-subtle">{cannotUnsubscribe}</div>}
@@ -624,11 +621,11 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
   return (
     <div data-note={id} aria-hidden className="absolute inset-y-0 right-0 flex items-center pe-2">
       <div className="flex items-center gap-0.5 rounded-md border border-border bg-raised p-0.5">
-        <IconButton size="sm" tabIndex={-1} icon={unread ? MailOpen : Mail} label={unread ? 'Mark read' : 'Mark unread'} shortcut={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')}
+        <IconButton size="sm" tabIndex={-1} icon={unread ? ReadIcon : MailIcon} label={unread ? 'Mark read' : 'Mark unread'} shortcut={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')}
           onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], unread ? (st) => (st === 'unread' ? 'read' : undefined) : () => 'unread', unread ? 'read' : 'unread');
         }}/>
-        <IconButton size="sm" tabIndex={-1} icon={status === 'pinned' ? PinOff : Pin} label={status === 'pinned' ? 'Unpin' : 'Pin, to keep it for later'} shortcut={shortcutHint('inbox.pin')}
+        <IconButton size="sm" tabIndex={-1} icon={status === 'pinned' ? PinSlashIcon : PinIcon} label={status === 'pinned' ? 'Unpin' : 'Pin, to keep it for later'} shortcut={shortcutHint('inbox.pin')}
           onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], togglePin, 'pin');
         }}/>
@@ -636,7 +633,7 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
           model.menuFor = o ? id : undefined;
           if (!o) model.hover.clear();
         }}>
-          <MenuTrigger asChild><IconButton size="sm" tabIndex={-1} icon={MoreHorizontal} label="More actions"/></MenuTrigger>
+          <MenuTrigger asChild><IconButton size="sm" tabIndex={-1} icon={KebabHorizontalIcon} label="More actions"/></MenuTrigger>
           <MenuContent align="end" onCloseAutoFocus={(e) => {
             // Back to the list (its buttons are gone with the hover), not to the button.
             e.preventDefault();
@@ -693,12 +690,12 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
         onClick(n.id, e);
       }}
       leading={<>
-        {selecting && (selected ? <Icon icon={SquareCheck} className="text-accent-fg"/> : <Icon icon={Square}/>)}
+        {selecting && (selected ? <CheckboxIcon size={16} className="shrink-0 text-accent-fg"/> : <SquareIcon size={16} className="shrink-0"/>)}
         <StatusDot tone="accent" off={!unread}/>
-        {issue ? <StateIcon issue={issue}/> : subject ? <SubjectIcon s={subject}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitHorizontal : InboxIcon}/>}
+        {issue ? <StateIcon issue={issue}/> : subject ? <SubjectIcon s={subject}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitIcon : InboxIcon}/>}
       </>}
       trailing={<>
-        {status === 'pinned' && <Icon icon={Pin} size="sm"/>}
+        {status === 'pinned' && <PinIcon size={12} className="shrink-0"/>}
         <RefCell repo={byRepo ? '' : repo} number={number}/>
         <AgoCell at={at}/>
       </>}

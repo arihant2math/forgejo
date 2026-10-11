@@ -1,10 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {LogIn} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
 import {Button, cx, EmptyState} from '../ui/index.ts';
 import {EARLY_SIGN_IN} from './splash.ts';
+import {SignInIcon} from '@primer/octicons-react';
 
 /** A full-height screen with its content centred (logged-out, placeholders). */
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
@@ -51,7 +50,7 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
   return (
     <CenteredScreen boot={boot}>
       <EmptyState
-        icon={LogIn}
+        icon={SignInIcon}
         title={appName ?? 'Forgejo'}
         description={message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}
         action={

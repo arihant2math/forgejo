@@ -9,7 +9,6 @@
 // offline; writers close, reopen, edit and delete (online: writes.ts).
 
 import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
-import {CircleCheck, CircleDot, Milestone as MilestoneIcon, Pencil, RotateCcw, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -17,7 +16,7 @@ import type {MilestoneSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Badge, Button, cx, EmptyState, Icon, Panel, PendingIcon, ProgressBar, Skeleton, TextLink} from '../../ui/index.ts';
+import {Badge, Button, cx, EmptyState, Panel, PendingIcon, ProgressBar, Skeleton, TextLink} from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {PageSearch, SortMenu} from './controls.tsx';
@@ -26,6 +25,7 @@ import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {excerpt, listMilestones, MILESTONE_SORT_NAMES, type MilestoneRow, milestoneRows, overdue} from './milestones.ts';
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.ts';
+import {CheckCircleIcon, IssueOpenedIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
@@ -71,7 +71,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   const loading = s.data.status.loading > 0 && all.length === 0;
   const create = write && (
     <Button size="sm" variant="primary" asChild tooltip={offline ? onlineOnly('Creating a milestone') : undefined}>
-      <Link to="/$owner/$repo/milestones/new" params={{owner, repo}}><Icon icon={MilestoneIcon} size="sm"/>New milestone</Link>
+      <Link to="/$owner/$repo/milestones/new" params={{owner, repo}}><MilestoneIcon size={12} className="shrink-0"/>New milestone</Link>
     </Button>
   );
   return (
@@ -91,10 +91,10 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
         <PageColumn wide>
           <Panel label="Milestones" title={
             <span className="flex items-center gap-1">
-              <Button size="sm" pressed={state === 'open'} icon={CircleDot} onClick={() => {
+              <Button size="sm" pressed={state === 'open'} icon={IssueOpenedIcon} onClick={() => {
                 go({state: undefined});
               }}><span className="tabular-nums">{open}</span> Open</Button>
-              <Button size="sm" pressed={state === 'closed'} icon={CircleCheck} onClick={() => {
+              <Button size="sm" pressed={state === 'closed'} icon={CheckCircleIcon} onClick={() => {
                 go({state: 'closed'});
               }}><span className="tabular-nums">{closed}</span> Closed</Button>
             </span>
@@ -109,7 +109,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
             {!loading && shown.length === 0 && (q.trim() ?
               <EmptyState title="No milestone matches" description="No milestone here has these words in its title or description."/> :
               state === 'closed' ?
-                <EmptyState icon={CircleCheck} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
+                <EmptyState icon={CheckCircleIcon} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
                 <EmptyState icon={MilestoneIcon} title="No open milestones" description="Milestones group issues and pull requests towards a release or a date." action={create}/>)}
           </Panel>
         </PageColumn>
@@ -154,13 +154,13 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         </div>
         {write && !temp && (
           <div className="flex flex-wrap items-center gap-1">
-            <Button size="sm" variant="ghost" asChild><Link to="/$owner/$repo/milestone/$index/edit" params={params}><Icon icon={Pencil} size="sm"/>Edit</Link></Button>
-            <Button size="sm" variant="ghost" icon={m.state === 'closed' ? RotateCcw : CircleCheck} disabled={offline}
+            <Button size="sm" variant="ghost" asChild><Link to="/$owner/$repo/milestone/$index/edit" params={params}><PencilIcon size={12} className="shrink-0"/>Edit</Link></Button>
+            <Button size="sm" variant="ghost" icon={m.state === 'closed' ? UndoIcon : CheckCircleIcon} disabled={offline}
               tooltip={offline ? onlineOnly(m.state === 'closed' ? 'Reopening a milestone' : 'Closing a milestone') : undefined} onClick={() => {
                 const closing = m.state !== 'closed';
                 void editMilestone(app, r, m, {state: closing ? 'closed' : 'open'}, `${closing ? 'Closing' : 'Reopening'} the milestone “${m.title}”`);
               }}>{m.state === 'closed' ? 'Reopen' : 'Close'}</Button>
-            <Button size="sm" variant="ghost" icon={Trash2} disabled={offline} tooltip={offline ? onlineOnly('Deleting a milestone') : undefined} onClick={onDelete}>Delete</Button>
+            <Button size="sm" variant="ghost" icon={TrashIcon} disabled={offline} tooltip={offline ? onlineOnly('Deleting a milestone') : undefined} onClick={onDelete}>Delete</Button>
           </div>
         )}
       </div>

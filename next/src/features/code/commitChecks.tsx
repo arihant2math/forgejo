@@ -10,8 +10,6 @@
 // checks may be in a closed tier the pool never loaded. Those requests are
 // made for the rows that stay on screen (the lists are virtualized), at most
 // FETCH_CONCURRENCY at a time, once per commit and session.
-
-import {CircleCheck, CircleDotDashed, CircleX} from 'lucide-react';
 import {observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type MouseEvent, useEffect} from 'react';
@@ -26,6 +24,7 @@ import {type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summari
 import {runLook, statusLook} from './Actions.tsx';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
+import {CheckCircleIcon, DotFillIcon, XCircleIcon} from '@primer/octicons-react';
 
 /** One check of a commit: a job of a workflow run, or a commit status. */
 export interface CheckItem {
@@ -180,7 +179,7 @@ export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, 
   return local ?? fetched.get(key);
 }
 
-const ICON = {success: CircleCheck, failure: CircleX, pending: CircleDotDashed} as const;
+const ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
 const TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-warning'} as const;
 const WORDS = {success: 'Checks passed', failure: 'Some checks failed', pending: 'Checks are not done yet'} as const;
 

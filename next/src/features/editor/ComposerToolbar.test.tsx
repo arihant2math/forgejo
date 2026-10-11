@@ -3,7 +3,6 @@
 
 import {EditorView} from '@codemirror/view';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {Quote} from 'lucide-react';
 import {useState} from 'react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
@@ -11,6 +10,7 @@ import {AppContext, createApp, type App, type Session} from '../../app/store.ts'
 import {TooltipProvider} from '../../ui/Tooltip.tsx';
 import {type EditorTool, MarkdownField} from './Composer.tsx';
 import MarkdownEditor from './MarkdownEditor.tsx';
+import {QuoteIcon} from '@primer/octicons-react';
 
 vi.mock('../issues/people.ts', () => ({loadPeople: vi.fn(), repoPeople: () => []}));
 afterEach(cleanup);
@@ -55,7 +55,7 @@ test('the toolbar has a Code button: a pasted log becomes a fenced block, a word
 });
 
 test('callers add their own toolbar tools, applied to the selection as one change', async () => {
-  const tool: EditorTool = {id: 'shout', icon: Quote, label: 'Shout', edit: (doc, from, to) => {
+  const tool: EditorTool = {id: 'shout', icon: QuoteIcon, label: 'Shout', edit: (doc, from, to) => {
     const insert = doc.slice(from, to).toUpperCase();
     return {from, to, insert, anchor: from, head: from + insert.length};
   }};

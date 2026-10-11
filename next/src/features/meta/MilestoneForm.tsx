@@ -8,7 +8,6 @@
 // refusal is rolled back there with a notice.
 
 import {useNavigate, useParams} from '@tanstack/react-router';
-import {Milestone as MilestoneIcon} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useId, useState} from 'react';
 import {Missing} from '../../app/Missing.tsx';
@@ -21,6 +20,7 @@ import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
 import {createMilestone, editMilestone, type MilestoneChange, type RepoRef, viewMilestones} from './writes.ts';
+import {MilestoneIcon} from '@primer/octicons-react';
 
 export function NewMilestone() {
   return <FormPage edit={false}/>;

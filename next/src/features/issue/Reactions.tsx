@@ -5,8 +5,6 @@
 // pressed when the viewer reacted, naming who did on hover. Clicking a chip
 // (or picking an emoji from the menu) adds or removes the viewer's reaction:
 // an offline-capable intent (`reaction`), counted at once.
-
-import {SmilePlus} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useRef} from 'react';
@@ -16,6 +14,7 @@ import {editing} from '../../intents/session.ts';
 import {viewMembers} from '../../intents/view.ts';
 import {ChipButton, IconButton, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {useOverlay, usePool} from '../issues/cells.tsx';
+import {SmileyIcon} from '@primer/octicons-react';
 
 /** Forgejo's default [ui] REACTIONS; other (custom) ones show by name. */
 const EMOJI: Record<string, string> = {
@@ -81,7 +80,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
       )}
       {canReact && (
         <Menu>
-          <MenuTrigger asChild><IconButton ref={addButton} size="sm" icon={SmilePlus} label="Add a reaction"/></MenuTrigger>
+          <MenuTrigger asChild><IconButton ref={addButton} size="sm" icon={SmileyIcon} label="Add a reaction"/></MenuTrigger>
           <MenuContent>
             {DEFAULTS.map((c) => (
               <MenuItem key={c} onSelect={() => {

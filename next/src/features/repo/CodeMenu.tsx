@@ -7,14 +7,13 @@
 // has it on: NextConfig.ssh_clone_prefix), each with a copy button, and the
 // default branch's source archives. Everything is known at once (the
 // configuration and the pool): no request until a download.
-
-import {ChevronDown, Code2, FileArchive} from 'lucide-react';
 import {useState} from 'react';
 import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {ARCHIVE_FORMATS, archivePath, httpsCloneUrl, sshCloneUrl} from '../../code/clone.ts';
-import {AsideLink, AsideLinks, Button, CopyField, Icon, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
+import {AsideLink, AsideLinks, Button, CopyField, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
+import {ChevronDownIcon, CodeIcon, FileZipIcon} from '@primer/octicons-react';
 
 type Protocol = 'https' | 'ssh';
 
@@ -57,7 +56,7 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
         <div className="border-t border-border pt-3">
           <AsideLinks label="Download">
             {archives.map((a) => (
-              <AsideLink key={a.format} icon={FileArchive}><a href={a.href} download>{ARCHIVE_LABELS[a.format]}</a></AsideLink>
+              <AsideLink key={a.format} icon={FileZipIcon}><a href={a.href} download>{ARCHIVE_LABELS[a.format]}</a></AsideLink>
             ))}
           </AsideLinks>
         </div>
@@ -73,7 +72,7 @@ export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; br
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="sm" icon={Code2}>Code<Icon icon={ChevronDown} size="sm"/></Button>
+        <Button size="sm" icon={CodeIcon}>Code<ChevronDownIcon size={12} className="shrink-0"/></Button>
       </PopoverTrigger>
       <PopoverContent width="md" align="end">
         <CodeMenuPanel https={httpsCloneUrl(app.config.app_url, owner, repo)} ssh={sshCloneUrl(app.config.ssh_clone_prefix, owner, repo)} archives={archives}

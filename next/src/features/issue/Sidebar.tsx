@@ -11,7 +11,6 @@ import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
-import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, Clock, FileDiff, GitBranch, GitPullRequestDraft, Lock, LockOpen, MessageSquare, Pin, PinOff, RotateCcw} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
@@ -24,7 +23,7 @@ import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
-  Badge, Button, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
+  Badge, Button, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, TextLink,
 } from '../../ui/index.ts';
 import {PickerPopover} from '../issues/Picker.tsx';
@@ -32,6 +31,8 @@ import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, use
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
+import {ArrowRightIcon, BellIcon, BellSlashIcon, CalendarIcon, CheckCircleIcon, ClockIcon, FileDiffIcon, GitBranchIcon, GitPullRequestDraftIcon, LockIcon, UnlockIcon, CommentIcon, PinIcon, PinSlashIcon, UndoIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
@@ -105,7 +106,7 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
       </>
     );
   }
-  if (draft) return <><Icon icon={GitPullRequestDraft} className="text-fg-muted"/><span>Draft</span></>;
+  if (draft) return <><GitPullRequestDraftIcon size={16} className="shrink-0 text-fg-muted"/><span>Draft</span></>;
   // Open without a status label in a repository that has them: no status yet ("No priority" alike), not a stage
   // called "Open" (QA #192).
   const none = !status && !pull && state === 'open' && usesStatuses(pool, issue.get('repo_id'));
@@ -167,11 +168,11 @@ const ReviewersValue = observer(function ReviewersValue({issue}: {issue: Entity<
 
 const REVIEW_TONE = {APPROVED: 'text-success', REQUEST_CHANGES: 'text-danger', COMMENT: 'text-fg-subtle', REQUEST_REVIEW: 'text-warning'} as const;
 
-const REVIEW_LOOK: Record<string, {icon: LucideIcon; label: string; tone: keyof typeof REVIEW_TONE} | undefined> = {
-  APPROVED: {icon: CircleCheck, label: 'Approved', tone: 'APPROVED'},
-  REQUEST_CHANGES: {icon: FileDiff, label: 'Changes requested', tone: 'REQUEST_CHANGES'},
-  COMMENT: {icon: MessageSquare, label: 'Commented', tone: 'COMMENT'},
-  REQUEST_REVIEW: {icon: Clock, label: 'Review requested', tone: 'REQUEST_REVIEW'},
+const REVIEW_LOOK: Record<string, {icon: OcticonType; label: string; tone: keyof typeof REVIEW_TONE} | undefined> = {
+  APPROVED: {icon: CheckCircleIcon, label: 'Approved', tone: 'APPROVED'},
+  REQUEST_CHANGES: {icon: FileDiffIcon, label: 'Changes requested', tone: 'REQUEST_CHANGES'},
+  COMMENT: {icon: CommentIcon, label: 'Commented', tone: 'COMMENT'},
+  REQUEST_REVIEW: {icon: ClockIcon, label: 'Review requested', tone: 'REQUEST_REVIEW'},
 };
 
 /**
@@ -203,7 +204,7 @@ const ReRequestReviews = observer(function ReRequestReviews({issue, write}: {iss
 const ReRequestButton = observer(function ReRequestButton({id, onClick}: {id: number; onClick: () => void}) {
   const name = useUser(id).name;
   return (
-    <Button size="sm" variant="ghost" icon={RotateCcw} aria-label={`Re-request review from ${name}`} tooltip={`Ask ${name} to review again`} onClick={onClick}>
+    <Button size="sm" variant="ghost" icon={UndoIcon} aria-label={`Re-request review from ${name}`} tooltip={`Ask ${name} to review again`} onClick={onClick}>
       <span className="truncate">Re-request {name}</span>
     </Button>
   );
@@ -341,7 +342,7 @@ const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issu
   const open = issueState(useOverlay(), issue) === 'open';
   const late = Boolean(due) && open && Date.parse(due ?? '') < Date.now();
   const value = due ?
-    <span className={late ? 'flex items-center gap-2 text-danger' : 'flex items-center gap-2'} title={fullDate(due)}><Icon icon={CalendarClock}/>{shortDate(due)}{late && ' · overdue'}</span> :
+    <span className={late ? 'flex items-center gap-2 text-danger' : 'flex items-center gap-2'} title={fullDate(due)}><CalendarIcon size={16} className="shrink-0"/>{shortDate(due)}{late && ' · overdue'}</span> :
     <PropertyEmpty>No due date</PropertyEmpty>;
   return (
     <Property label="Due date">
@@ -371,12 +372,12 @@ const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'I
         {/* Head, then base, one per line: long names truncate inside the pane (the full name on hover). */}
         <span className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="flex min-w-0 items-center gap-1" title={deleted ? `${headName} (deleted)` : headName}>
-            <Icon icon={GitBranch} size="sm"/>
+            <GitBranchIcon size={12} className="shrink-0"/>
             <span className={deleted ? 'min-w-0 truncate line-through' : 'min-w-0 truncate'}><Code>{headName}</Code></span>
             {fork && <Badge>Fork</Badge>}
             {deleted && <Badge>Deleted</Badge>}
           </span>
-          <span className="flex min-w-0 items-center gap-1" title={pr.get('base_branch')}><Icon icon={ArrowRight} size="sm"/><span className="min-w-0 truncate"><Code>{pr.get('base_branch')}</Code></span></span>
+          <span className="flex min-w-0 items-center gap-1" title={pr.get('base_branch')}><ArrowRightIcon size={12} className="shrink-0"/><span className="min-w-0 truncate"><Code>{pr.get('base_branch')}</Code></span></span>
         </span>
       </PropertyValue>
     </Property>
@@ -398,7 +399,7 @@ const SubscribeValue = observer(function SubscribeValue({issue}: {issue: Entity<
   return (
     <Property label="Notifications">
       <PropertyButton label={on ? 'Unsubscribe' : 'Subscribe'} shortcut={shortcutHint('issue.subscribe')} onClick={toggle}>
-        <Icon icon={on ? Bell : BellOff}/><span>{on ? 'Subscribed' : 'Not subscribed'}</span>
+        <Icon icon={on ? BellIcon : BellSlashIcon}/><span>{on ? 'Subscribed' : 'Not subscribed'}</span>
       </PropertyButton>
     </Property>
   );
@@ -429,9 +430,9 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
         {mayPin ?
           <PropertyButton label={pinned ? 'Unpin' : 'Pin to the list'} onClick={() => {
             submit({kind: 'issue.pin', pinned: !pinned});
-          }}><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton> :
+          }}><Icon icon={pinned ? PinIcon : PinSlashIcon}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton> :
           <PropertyValue tone="muted">
-            <span className="flex items-center gap-1"><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></span>
+            <span className="flex items-center gap-1"><Icon icon={pinned ? PinIcon : PinSlashIcon}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></span>
             <span className="text-sm text-fg-subtle">Only repository administrators can pin issues.</span>
           </PropertyValue>}
       </Property>
@@ -439,16 +440,16 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
         {locked ?
           // Unlocking asks too (one stray click opened a locked conversation to everyone).
           <CommandPopover label="Unlock the conversation" placeholder="Unlock it?"
-            options={[{value: 'unlock', label: 'Unlock: everyone who can read it may comment again', icon: LockOpen, onSelect: () => {
+            options={[{value: 'unlock', label: 'Unlock: everyone who can read it may comment again', icon: UnlockIcon, onSelect: () => {
               submit({kind: 'issue.lock', locked: false, reason: ''});
             }}]}
-            trigger={<PropertyButton label="Unlock the conversation"><Icon icon={Lock}/><span>Locked</span></PropertyButton>}/> :
+            trigger={<PropertyButton label="Unlock the conversation"><LockIcon size={16} className="shrink-0"/><span>Locked</span></PropertyButton>}/> :
           // Forgejo asks why (its lock reasons, [repository.issue] LOCK_REASONS by default).
           <CommandPopover label="Lock the conversation" placeholder="Why lock it?"
             options={LOCK_REASONS.map((reason) => ({value: reason, label: reason, onSelect: () => {
               submit({kind: 'issue.lock', locked: true, reason});
             }}))}
-            trigger={<PropertyButton label="Lock the conversation (only collaborators can comment)"><Icon icon={LockOpen}/><span>Open to comments</span></PropertyButton>}/>}
+            trigger={<PropertyButton label="Lock the conversation (only collaborators can comment)"><UnlockIcon size={16} className="shrink-0"/><span>Open to comments</span></PropertyButton>}/>}
       </Property>
     </>
   );

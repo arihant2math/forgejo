@@ -8,13 +8,12 @@
 
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {useNavigate} from '@tanstack/react-router';
-import {FileCode, GitCommitHorizontal, History} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
-import {Avatar, Button, Code, EmptyState, Icon, TextLink} from '../../ui/index.ts';
+import {Avatar, Button, Code, EmptyState, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {reach} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
@@ -30,6 +29,7 @@ import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 import {RefMenu} from './RefMenu.tsx';
 import {Breadcrumbs} from './Src.tsx';
+import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
@@ -38,13 +38,13 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
   const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
-    <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><Icon icon={FileCode} size="sm"/>Browse files</CodeLink></Button>
+    <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><FileCodeIcon size={12} className="shrink-0"/>Browse files</CodeLink></Button>
   </>;
   return (
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
-        <EmptyState icon={History} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
+        <EmptyState icon={HistoryIcon} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
     </CodeFrame>
   );
 });
@@ -118,7 +118,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   const {s, more, connected} = useCommitPages(repoId, at.sha, at.path);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
-    if (s.done) return <EmptyState icon={History} title="No commits"/>;
+    if (s.done) return <EmptyState icon={HistoryIcon} title="No commits"/>;
     return <Unloaded loaded={{state: 'loading'}} what="This history"/>;
   }
   return (
@@ -160,14 +160,14 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     return (
       <CodeFrame view={props} title={shortSha(sha)}>
         {() => <Unloaded loaded={info} what="This commit" action={
-          <Button asChild><CodeLink owner={owner} repo={repo} to="commits"><Icon icon={History} size="sm"/>All commits</CodeLink></Button>
+          <Button asChild><CodeLink owner={owner} repo={repo} to="commits"><HistoryIcon size={12} className="shrink-0"/>All commits</CodeLink></Button>
         }/>}
       </CodeFrame>
     );
   }
   return (
     <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={<><DiffSettings/>
-      <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`src/commit/${sha}`}><Icon icon={FileCode} size="sm"/>Browse files</CodeLink></Button>
+      <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`src/commit/${sha}`}><FileCodeIcon size={12} className="shrink-0"/>Browse files</CodeLink></Button>
     </>}>
       {(scroller) => (
         <>
@@ -196,7 +196,7 @@ function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repo
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
         <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-fg">{c.authorName}</span></span>
         <Ago at={c.date}/>
-        <span className="flex items-center gap-1"><Icon icon={GitCommitHorizontal} size="sm"/><Code>{c.sha}</Code></span>
+        <span className="flex items-center gap-1"><GitCommitIcon size={12} className="shrink-0"/><Code>{c.sha}</Code></span>
         {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}
       </p>
       <ContainedIn owner={owner} repo={repo} repoId={repoId} sha={c.sha}/>

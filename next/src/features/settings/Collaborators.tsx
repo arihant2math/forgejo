@@ -7,8 +7,6 @@
 // v1 then gives the exact roles (kept for the next visit). Adding someone
 // (a people search), changing a role and removing apply at once and are
 // undone if Forgejo refuses; removing offers Undo.
-
-import {Trash2, UserPlus, Users} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {RepositoryTeams} from '../owner/Teams.tsx';
@@ -23,6 +21,7 @@ import {problemOf} from './problems.ts';
 import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator, searchUsers} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
+import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -74,7 +73,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
   return (
     <FormSection id="settings-collaborators" title="Collaborators" description="People with access to this repository besides its owner."
       actions={<AddPerson disabled={offline} members={members} onAdd={add}/>}>
-      <ResourceList res={shown} what="The collaborators" empty={{icon: Users, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
+      <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
           <Entry key={c.id} leading={<Avatar name={c.login} src={c.avatar || undefined}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
             description={c.approximate ? 'Checking the exact role…' : undefined}
@@ -82,7 +81,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
               <Select aria-label={`${c.login}’s role`} size="sm" value={c.role} disabled={offline} options={ROLES} onValueChange={(v) => {
                 if (v !== c.role) setRole(c, v);
               }}/>
-              <IconButton size="sm" icon={Trash2} label={`Remove ${c.login}`} disabled={offline} onClick={() => {
+              <IconButton size="sm" icon={TrashIcon} label={`Remove ${c.login}`} disabled={offline} onClick={() => {
                 remove(c);
               }}/>
             </>}/>
@@ -99,7 +98,7 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
   const [role, setRole] = useState<Role>('write');
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild><Button size="sm" variant="primary" icon={UserPlus} disabled={disabled}>Add people</Button></PopoverTrigger>
+      <PopoverTrigger asChild><Button size="sm" variant="primary" icon={PersonAddIcon} disabled={disabled}>Add people</Button></PopoverTrigger>
       {/* The search field takes the focus (as in every picker): typing a name narrows the list at once. Radix would
           focus the first control, the role's. */}
       <PopoverContent width="md" align="end" onOpenAutoFocus={(e) => {

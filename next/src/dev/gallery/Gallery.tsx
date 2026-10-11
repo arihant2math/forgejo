@@ -5,10 +5,6 @@
 // Switch the theme at the top to check both token sets.
 
 import './gallery.css';
-import {
-  Archive, ArrowUpRight, ChevronDown, CircleDashed, Code2, CircleDot, Copy, Star, SignalHigh, Flag, Inbox, Moon, MoreHorizontal, Pencil, Plus, Search, Sun, SunMoon, Tag,
-  Trash2,
-} from 'lucide-react';
 import {useState, type ReactNode} from 'react';
 import {getThemePreference, setThemePreference} from '../../app/theme.ts';
 import type {ThemePreference} from '../../app/splash.ts';
@@ -16,7 +12,7 @@ import {CodeMenuPanel} from '../../features/repo/CodeMenu.tsx';
 import {
   AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Badge, Button, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
-  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, EmptyState, Icon, IconButton, Input, LabelChip, ListRow, Menu,
+  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, EmptyState, IconButton, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
   AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineNo, StepHeader, StatusDot, TabLink, TabNav,
   ConfirmDialog, FormSection, hintId, SectionNav, SectionNavHeading, SectionNavLink, Select, SettingRow, Switch,
@@ -24,6 +20,7 @@ import {
   ColorPicker, Field, LabelPill, ProgressBar,
 } from '../../ui/index.ts';
 import {LABEL_PRESETS} from '../../features/meta/labels.ts';
+import {ArchiveIcon, ArrowUpRightIcon, ChevronDownIcon, IssueDraftIcon, CodeIcon, IssueOpenedIcon, CopyIcon, StarIcon, GraphBarVerticalIcon, FlagIcon, InboxIcon, MoonIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, SearchIcon, SunIcon, DeviceDesktopIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 
 /** A colour field with its form field's frame (a label's colour). */
 function GalleryColor() {
@@ -47,7 +44,7 @@ const swatches = [
 // "const answer = 42; // ok": keyword, plain, constant, plain, comment (workers/highlight.ts SYN).
 const sampleHl = {spans: Uint32Array.of(5, 1, 10, 0, 2, 5, 2, 0, 5, 3), starts: Uint32Array.of(0, 5)};
 
-const themes = [['light', Sun], ['dark', Moon], ['system', SunMoon]] as const;
+const themes = [['light', SunIcon], ['dark', MoonIcon], ['system', DeviceDesktopIcon]] as const;
 
 const OVERFLOW_TABS = ['Code', 'Issues', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity', 'Settings'];
 
@@ -105,25 +102,25 @@ export default function Gallery() {
         </Section>
 
         <Section title="Buttons">
-          <Button variant="primary" icon={Plus} tooltip="Create issue" shortcut="C">New issue</Button>
+          <Button variant="primary" icon={PlusIcon} tooltip="Create issue" shortcut="C">New issue</Button>
           <Button>Secondary</Button>
           <Button variant="ghost">Ghost</Button>
-          <Button variant="success" icon={Code2}>Code</Button>
-          <Button variant="danger" icon={Trash2}>Delete</Button>
+          <Button variant="success" icon={CodeIcon}>Code</Button>
+          <Button variant="danger" icon={TrashIcon}>Delete</Button>
           <Button disabled>Disabled</Button>
           <Button size="sm" variant="primary">Small</Button>
           <Button size="sm">Small</Button>
-          <Button asChild variant="ghost"><a href="#tokens">Link <Icon icon={ArrowUpRight} size="sm"/></a></Button>
-          <IconButton icon={Search} label="Search" shortcut="/"/>
-          <IconButton icon={Plus} label="Create issue" shortcut="C" variant="secondary"/>
-          <IconButton icon={Pencil} label="Edit" shortcut="E" size="sm"/>
+          <Button asChild variant="ghost"><a href="#tokens">Link <ArrowUpRightIcon size={12} className="shrink-0"/></a></Button>
+          <IconButton icon={SearchIcon} label="Search" shortcut="/"/>
+          <IconButton icon={PlusIcon} label="Create issue" shortcut="C" variant="secondary"/>
+          <IconButton icon={PencilIcon} label="Edit" shortcut="E" size="sm"/>
         </Section>
 
         <Section title="Inputs">
           <div className="w-64"><Input placeholder="Filter issues…"/></div>
           <div className="w-64"><Input placeholder="Invalid" invalid defaultValue="not-a-number"/></div>
           <div className="w-48"><Input size="sm" placeholder="Small"/></div>
-          <Input size="sm" icon={Search} placeholder="Search…" className="w-48"/>
+          <Input size="sm" icon={SearchIcon} placeholder="Search…" className="w-48"/>
           <div className="w-96"><TextArea aria-label="Comment" placeholder="Leave a comment" rows={3}/></div>
           <div className="w-96"><TextArea aria-label="Conflict" invalid rows={3} defaultValue={'<<<<<<< yours\nmine\n=======\ntheirs\n>>>>>>> theirs'}/></div>
         </Section>
@@ -144,8 +141,8 @@ export default function Gallery() {
           <Avatar name="Ünal" size="lg"/>
           <AvatarGroup><Avatar name="alice" size="sm"/><Avatar name="Bob" size="sm"/></AvatarGroup>
           <LabelDot color="var(--color-done)"/>
-          <LabelIcon icon={CircleDashed} color="var(--color-warning)"/>
-          <Hint label="Priority: High"><LabelIcon icon={SignalHigh} color="var(--color-danger)"/></Hint>
+          <LabelIcon icon={IssueDraftIcon} color="var(--color-warning)"/>
+          <Hint label="Priority: High"><LabelIcon icon={GraphBarVerticalIcon} color="var(--color-danger)"/></Hint>
         </Section>
 
         <Section title="Label pills, progress, colour">
@@ -158,13 +155,13 @@ export default function Gallery() {
 
         <Section title="Issue list rows, properties, prose, notices">
           <div role="listbox" aria-label="Rows" className="w-full max-w-lg">
-            <ListGroupHeader leading={<LabelIcon icon={CircleDashed} color="var(--color-warning)"/>} label="Backlog" count={2}/>
-            <ListRow role="option" active leading={<Icon icon={CircleDot}/>} trailing={<LabelChip name="bug" color="var(--color-danger)"/>}>Active row</ListRow>
-            <ListRow role="option" selected leading={<Icon icon={CircleDot}/>}>Selected row</ListRow>
+            <ListGroupHeader leading={<LabelIcon icon={IssueDraftIcon} color="var(--color-warning)"/>} label="Backlog" count={2}/>
+            <ListRow role="option" active leading={<IssueOpenedIcon size={16} className="shrink-0"/>} trailing={<LabelChip name="bug" color="var(--color-danger)"/>}>Active row</ListRow>
+            <ListRow role="option" selected leading={<IssueOpenedIcon size={16} className="shrink-0"/>}>Selected row</ListRow>
           </div>
           <div className="w-80">
             <PropertyList>
-              <Property label="Status"><PropertyButton label="Change status" shortcut="S" onClick={() => undefined}><Icon icon={CircleDot}/>Open</PropertyButton></Property>
+              <Property label="Status"><PropertyButton label="Change status" shortcut="S" onClick={() => undefined}><IssueOpenedIcon size={16} className="shrink-0"/>Open</PropertyButton></Property>
               <Property label="Priority"><PropertyButton label="Set priority" onClick={() => undefined}><PropertyEmpty>No priority</PropertyEmpty></PropertyButton></Property>
               <Property label="Due date"><PropertyValue tone="danger">Oct 3 · overdue</PropertyValue></Property>
             </PropertyList>
@@ -182,7 +179,7 @@ export default function Gallery() {
           </div>
           <div className="w-96">
             <EntryList>
-              <Entry leading={<Icon icon={Inbox}/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton size="sm" icon={Search} label="Discard"/>}/>
+              <Entry leading={<InboxIcon size={16} className="shrink-0"/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton size="sm" icon={SearchIcon} label="Discard"/>}/>
               <Entry title="Posting a comment" meta="#3 · dev/big" description="Forbidden."/>
             </EntryList>
           </div>
@@ -192,12 +189,12 @@ export default function Gallery() {
           <div className="flex w-pane flex-col">
             <AsideSection title="About">
               <AsideLinks label="Links">
-                <AsideLink icon={Star} count={12}><a href="#tokens">stars</a></AsideLink>
-                <AsideLink icon={ArrowUpRight} tone="accent"><a href="#tokens">example.com</a></AsideLink>
+                <AsideLink icon={StarIcon} count={12}><a href="#tokens">stars</a></AsideLink>
+                <AsideLink icon={ArrowUpRightIcon} tone="accent"><a href="#tokens">example.com</a></AsideLink>
               </AsideLinks>
             </AsideSection>
             <AsideSection title="Releases" count={3}>
-              <AsideLinks><AsideLink icon={Tag} count={4}><a href="#tokens">tags</a></AsideLink></AsideLinks>
+              <AsideLinks><AsideLink icon={TagIcon} count={4}><a href="#tokens">tags</a></AsideLink></AsideLinks>
             </AsideSection>
             <AsideSection title="Languages">
               <ShareBar label="Languages" shares={[
@@ -210,32 +207,32 @@ export default function Gallery() {
 
         <Section title="Menus, popover, dialog">
           <Menu>
-            <MenuTrigger asChild><Button icon={MoreHorizontal}>Menu</Button></MenuTrigger>
+            <MenuTrigger asChild><Button icon={KebabHorizontalIcon}>Menu</Button></MenuTrigger>
             <MenuContent>
               <MenuLabel>Issue</MenuLabel>
-              <MenuItem icon={CircleDot} shortcut="S">Change status</MenuItem>
-              <MenuItem icon={Tag} shortcut="L">Labels</MenuItem>
-              <MenuItem icon={Copy} shortcut="⌘ ." disabled>Copy link</MenuItem>
+              <MenuItem icon={IssueOpenedIcon} shortcut="S">Change status</MenuItem>
+              <MenuItem icon={TagIcon} shortcut="L">Labels</MenuItem>
+              <MenuItem icon={CopyIcon} shortcut="⌘ ." disabled>Copy link</MenuItem>
               <MenuCheckboxItem checked={showClosed} onCheckedChange={(v) => {
                 setShowClosed(v);
               }}
               >
                 Show closed
               </MenuCheckboxItem>
-              <MenuSub label="Priority" icon={Flag}>
+              <MenuSub label="Priority" icon={FlagIcon}>
                 <MenuRadioGroup value={priority} onValueChange={setPriority}>
                   <MenuRadioItem value="high">High</MenuRadioItem>
                   <MenuRadioItem value="low">Low</MenuRadioItem>
                 </MenuRadioGroup>
               </MenuSub>
               <MenuSeparator/>
-              <MenuItem icon={Trash2} danger>Delete</MenuItem>
+              <MenuItem icon={TrashIcon} danger>Delete</MenuItem>
             </MenuContent>
           </Menu>
           <Menu>
-            <MenuTrigger asChild><IconButton icon={MoreHorizontal} label="More actions"/></MenuTrigger>
+            <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} label="More actions"/></MenuTrigger>
             <MenuContent>
-              <MenuItem icon={Copy}>Copy link</MenuItem>
+              <MenuItem icon={CopyIcon}>Copy link</MenuItem>
             </MenuContent>
           </Menu>
           <Popover>
@@ -247,7 +244,7 @@ export default function Gallery() {
           <Dialog
             title="Archive repository?"
             description="Archived repositories are read-only. You can unarchive it later."
-            trigger={<DialogTrigger asChild><Button icon={Archive}>Dialog</Button></DialogTrigger>}
+            trigger={<DialogTrigger asChild><Button icon={ArchiveIcon}>Dialog</Button></DialogTrigger>}
             footer={(
               <>
                 <DialogClose asChild><Button variant="ghost">Cancel</Button></DialogClose>
@@ -256,7 +253,7 @@ export default function Gallery() {
             )}
           >
             <Menu>
-              <MenuTrigger asChild><Button size="sm" icon={Tag}>Labels</Button></MenuTrigger>
+              <MenuTrigger asChild><Button size="sm" icon={TagIcon}>Labels</Button></MenuTrigger>
               <MenuContent>
                 <MenuItem>bug</MenuItem>
                 <MenuItem>enhancement</MenuItem>
@@ -280,7 +277,7 @@ export default function Gallery() {
                     leading={(
                       <>
                         <span className="w-12 text-sm tabular-nums">{row.id}</span>
-                        <Icon icon={CircleDot} className="text-success"/>
+                        <IssueOpenedIcon size={16} className="shrink-0 text-success"/>
                       </>
                     )}
                     trailing={(
@@ -294,11 +291,11 @@ export default function Gallery() {
                   </ListRow>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  <ContextMenuItem icon={CircleDot} shortcut="S">Change status</ContextMenuItem>
-                  <ContextMenuItem icon={Tag} shortcut="L">Labels</ContextMenuItem>
+                  <ContextMenuItem icon={IssueOpenedIcon} shortcut="S">Change status</ContextMenuItem>
+                  <ContextMenuItem icon={TagIcon} shortcut="L">Labels</ContextMenuItem>
                   <ContextMenuCheckboxItem checked={showClosed} onCheckedChange={setShowClosed}>Show closed</ContextMenuCheckboxItem>
                   <ContextMenuSeparator/>
-                  <ContextMenuItem icon={Trash2} danger>Delete</ContextMenuItem>
+                  <ContextMenuItem icon={TrashIcon} danger>Delete</ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
             ))}
@@ -307,8 +304,8 @@ export default function Gallery() {
 
         <Section title="Sidebar navigation, status">
           <div className="relative flex w-sidebar flex-col gap-px rounded-md border border-border bg-canvas p-2">
-            <NavItem icon={Inbox} label="Inbox" count={3} shortcut="G N"/>
-            <NavItem icon={CircleDot} label="My issues" aria-current="page"/>
+            <NavItem icon={InboxIcon} label="Inbox" count={3} shortcut="G N"/>
+            <NavItem icon={IssueOpenedIcon} label="My issues" aria-current="page"/>
             <NavHeading>Workspace</NavHeading>
             <NavGroup label="acme" leading={<Avatar size="sm" name="acme"/>} open={navOpen} onOpenChange={setNavOpen}>
               <NavItem inset label="website"/>
@@ -334,7 +331,7 @@ export default function Gallery() {
             <div className="max-w-sm">
               <TabNav label="Example tabs that overflow" more={(hidden) => (
                 <Menu>
-                  <MenuTrigger asChild><Button size="sm" variant="ghost" icon={MoreHorizontal}>More</Button></MenuTrigger>
+                  <MenuTrigger asChild><Button size="sm" variant="ghost" icon={KebabHorizontalIcon}>More</Button></MenuTrigger>
                   <MenuContent>
                     {OVERFLOW_TABS.filter((_, i) => hidden.includes(i)).map((t) => <MenuItem key={t}>{t}</MenuItem>)}
                     <MenuItem>This page in the classic UI</MenuItem>
@@ -360,10 +357,10 @@ export default function Gallery() {
         <Section title="Settings: sections, fields, switches, select, confirmation">
           <div className="flex w-full gap-6">
             <SectionNav label="Gallery settings">
-              <SectionNavLink label="General" icon={Pencil}><a href="#settings" aria-current="page"/></SectionNavLink>
-              <SectionNavLink label="Webhooks" icon={Tag}><a href="#settings"/></SectionNavLink>
+              <SectionNavLink label="General" icon={PencilIcon}><a href="#settings" aria-current="page"/></SectionNavLink>
+              <SectionNavLink label="Webhooks" icon={TagIcon}><a href="#settings"/></SectionNavLink>
               <SectionNavHeading>In the classic UI</SectionNavHeading>
-              <SectionNavLink label="Units" icon={Archive} hint="classic"><a href="#settings"/></SectionNavLink>
+              <SectionNavLink label="Units" icon={ArchiveIcon} hint="classic"><a href="#settings"/></SectionNavLink>
             </SectionNav>
             <div id="settings" className="flex max-w-lg min-w-0 flex-1 flex-col gap-6">
               <FormSection id="gallery-general" title="General" description="A titled part of a settings page.">
@@ -397,7 +394,7 @@ export default function Gallery() {
 
         <Section title="Code menu (the overview's file bar), copy field">
           <Popover>
-            <PopoverTrigger asChild><Button size="sm" variant="success" icon={Code2}>Code<Icon icon={ChevronDown} size="sm"/></Button></PopoverTrigger>
+            <PopoverTrigger asChild><Button size="sm" variant="success" icon={CodeIcon}>Code<ChevronDownIcon size={12} className="shrink-0"/></Button></PopoverTrigger>
             <PopoverContent width="md" align="start">
               <CodeMenuPanel https="https://code.example/acme/website.git" ssh="git@code.example:acme/website.git" onCopy={() => undefined}
                 archives={[{format: 'zip', href: '#code'}, {format: 'tar.gz', href: '#code'}]}/>
@@ -417,7 +414,7 @@ export default function Gallery() {
             <Skeleton className="h-3 w-2/3"/>
           </div>
           <div className="flex-1">
-            <EmptyState icon={Inbox} title="Inbox zero" description="Notifications you receive show up here." action={<Button size="sm">Refresh</Button>}/>
+            <EmptyState icon={InboxIcon} title="Inbox zero" description="Notifications you receive show up here." action={<Button size="sm">Refresh</Button>}/>
           </div>
         </Section>
       </div>

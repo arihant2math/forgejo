@@ -13,7 +13,6 @@
 import {useNavigate} from '@tanstack/react-router';
 import {discoverySearch} from '../search/params.ts';
 import {LinkRows} from '../../ui/LinkRows.tsx';
-import {Code2, Folder, FolderGit2, GitBranch, History, SquarePen, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo} from 'react';
 import {whenIdle} from '../../app/lazy.tsx';
@@ -25,7 +24,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {Badge, Button, EmptyState, Icon, ListRow, SkeletonText} from '../../ui/index.ts';
+import {Badge, Button, EmptyState, ListRow, SkeletonText} from '../../ui/index.ts';
 import {codeSplat} from '../../code/refs.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {GoToFile} from '../code/FileFinder.tsx';
@@ -42,13 +41,14 @@ import {Contribute} from './Contribute.tsx';
 import {RepoActions, RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {EmptyRepo} from '../code/states.tsx';
 import {FileOperations} from '../code/FileOperations.tsx';
+import {CodeIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, PencilIcon, TagIcon} from '@primer/octicons-react';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={Code2} title="Code" home/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={CodeIcon} title="Code" home/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
@@ -61,7 +61,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
   const repository = usePool().model('Repository').get(repoId)?.data;
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Code2} title="Code" home/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CodeIcon} title="Code" home/>
       <PageBody>
         <div className="flex flex-col @xl:min-h-full @xl:flex-row">
           <PageColumn wide>
@@ -70,7 +70,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
               <Summary repoId={repoId}/>
               <div className="ms-auto flex flex-wrap items-center gap-2">
                 <RepoActions owner={owner} repo={repo} repoId={repoId}/>
-                <Button size="sm" variant="ghost" icon={SquarePen} shortcut={shortcutHint('create')} tooltip="New issue in this repository" onClick={() => {
+                <Button size="sm" variant="ghost" icon={PencilIcon} shortcut={shortcutHint('create')} tooltip="New issue in this repository" onClick={() => {
                   openCreate(app, repoId);
                 }}>New issue</Button>
               </div>
@@ -113,9 +113,9 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   const r = pool.model('Repository').get(repoId)?.data;
   if (!sha) {
     return (
-      <FilesPanel title={<><Icon icon={GitBranch} size="sm"/>Code</>}>
+      <FilesPanel title={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
         {r?.empty ? <EmptyRepo owner={owner} repo={repo} repoId={repoId}/> :
-          <EmptyState icon={FolderGit2} title="No code on this device yet" description="Its branches have not arrived yet."/>}
+          <EmptyState icon={FileSubmoduleIcon} title="No code on this device yet" description="Its branches have not arrived yet."/>}
       </FilesPanel>
     );
   }
@@ -129,12 +129,12 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}} view="src"/>
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to="branches">
-          <Icon icon={GitBranch} size="sm"/><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span>
+          <GitBranchIcon size={12} className="shrink-0"/><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span>
         </CodeLink>
       </Button>
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to="tags">
-          <Icon icon={Tag} size="sm"/><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span>
+          <TagIcon size={12} className="shrink-0"/><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span>
         </CodeLink>
       </Button>
       <div className="ms-auto flex flex-wrap items-center gap-2">
@@ -148,7 +148,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha} showRef={false}/>;
   const history = (
     <Button size="sm" variant="ghost" asChild>
-      <CodeLink owner={owner} repo={repo} to={codeSplat('commits', {kind: 'branch', ref: branch})}><Icon icon={History} size="sm"/>History</CodeLink>
+      <CodeLink owner={owner} repo={repo} to={codeSplat('commits', {kind: 'branch', ref: branch})}><HistoryIcon size={12} className="shrink-0"/>History</CodeLink>
     </Button>
   );
   return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title} toolbar={toolbar} actions={history}/>;
@@ -190,7 +190,7 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
           <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-3 py-3"><SkeletonText lines={5}/></div>}/>}
         {entries.length > MAX_ENTRIES && (
-          <ListRow role={undefined} href={all} onClick={(e) => click(e, all)} leading={<Icon icon={Folder} size="sm"/>}>
+          <ListRow role={undefined} href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={12} className="shrink-0"/>}>
             {entries.length - MAX_ENTRIES} more
           </ListRow>
         )}

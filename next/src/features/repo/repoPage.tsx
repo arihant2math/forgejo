@@ -9,7 +9,6 @@
 
 import {RepoSocial} from './RepoSocial.tsx';
 import {Link, useLoaderData, useNavigate, useParams, useRouter, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookOpen, ChartLine, ChevronRight, CircleDot, CirclePlay, Code2, GitPullRequest, KanbanSquare, Settings, Slash} from 'lucide-react';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {Fragment, type ReactElement, type ReactNode, useEffect} from 'react';
@@ -22,10 +21,12 @@ import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Badge, Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
+  Badge, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
 } from '../../ui/index.ts';
 
 import {ForkButton} from './ForkButton.tsx';
+import {BrowserIcon, BookIcon, GraphIcon, ChevronRightIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
@@ -86,10 +87,10 @@ export function RepoContext({owner, repo, section, heading = false}: {owner: str
     <>
       {/* Exact: an ancestor's crumb is no "current page" (TanStack's fuzzy match marked the owner on every page). */}
       <TextLink><Link to="/$owner" params={{owner}} activeOptions={{exact: true}}>{owner}</Link></TextLink>
-      <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+      <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
       {heading ? <h1 className="flex min-w-0 font-medium">{repoCrumb}</h1> : repoCrumb}
       {section && <>
-        <Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/>
+        <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
         <TextLink>
           <Link to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}}>
             {section === 'pulls' ? 'Pull requests' : 'Issues'}
@@ -107,7 +108,7 @@ export interface RepoHeaderProps {
   repoId: number | undefined;
   /** The title row's title (on the home, which has no title row, only the tab's title when it is text). */
   title: ReactNode;
-  icon?: LucideIcon | undefined;
+  icon?: OcticonType | undefined;
   /** The page's controls (filters, ref picker): in the title row (the home has none: its actions are in its body). */
   children?: ReactNode;
   /** The tab's title before the repository's name (default: the title when it is text). */
@@ -197,46 +198,46 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
   const code = {to: '/$owner/$repo/$view/$', params: {owner, repo, view: 'actions', _splat: ''}} as const;
   const projects: RepoTab = {
     key: 'projects',
-    tab: <RepoTabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></RepoTabLink>,
-    item: <MenuItem icon={KanbanSquare} onSelect={() => void navigate({to: '/-/next/boards', search: repoId ? {repoId} : {}})}>Projects</MenuItem>,
+    tab: <RepoTabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><ProjectIcon size={12} className="shrink-0"/>Projects</Link></RepoTabLink>,
+    item: <MenuItem icon={ProjectIcon} onSelect={() => void navigate({to: '/-/next/boards', search: repoId ? {repoId} : {}})}>Projects</MenuItem>,
   };
   const tabs: RepoTab[] = [
     {
       key: 'code',
-      tab: <RepoTabLink><Link to="/$owner/$repo" params={{owner, repo}} {...cur('code')}><Icon icon={Code2} size="sm"/>Code</Link></RepoTabLink>,
-      item: <MenuItem icon={Code2} onSelect={() => void navigate({to: '/$owner/$repo', params: {owner, repo}})}>Code</MenuItem>,
+      tab: <RepoTabLink><Link to="/$owner/$repo" params={{owner, repo}} {...cur('code')}><CodeIcon size={12} className="shrink-0"/>Code</Link></RepoTabLink>,
+      item: <MenuItem icon={CodeIcon} onSelect={() => void navigate({to: '/$owner/$repo', params: {owner, repo}})}>Code</MenuItem>,
     },
     {
       key: 'issues',
-      tab: <RepoTabLink><Link to="/$owner/$repo/issues" params={{owner, repo}} {...cur('issues')}><Icon icon={CircleDot} size="sm"/>Issues<OpenCount repoId={repoId} pulls={false}/></Link></RepoTabLink>,
-      item: <MenuItem icon={CircleDot} onSelect={() => void navigate({to: '/$owner/$repo/issues', params: {owner, repo}})}>Issues</MenuItem>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/issues" params={{owner, repo}} {...cur('issues')}><IssueOpenedIcon size={12} className="shrink-0"/>Issues<OpenCount repoId={repoId} pulls={false}/></Link></RepoTabLink>,
+      item: <MenuItem icon={IssueOpenedIcon} onSelect={() => void navigate({to: '/$owner/$repo/issues', params: {owner, repo}})}>Issues</MenuItem>,
     },
     {
       key: 'pulls',
-      tab: <RepoTabLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} {...cur('pulls')}><Icon icon={GitPullRequest} size="sm"/>Pull requests<OpenCount repoId={repoId} pulls/></Link></RepoTabLink>,
-      item: <MenuItem icon={GitPullRequest} onSelect={() => void navigate({to: '/$owner/$repo/pulls', params: {owner, repo}})}>Pull requests</MenuItem>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} {...cur('pulls')}><GitPullRequestIcon size={12} className="shrink-0"/>Pull requests<OpenCount repoId={repoId} pulls/></Link></RepoTabLink>,
+      item: <MenuItem icon={GitPullRequestIcon} onSelect={() => void navigate({to: '/$owner/$repo/pulls', params: {owner, repo}})}>Pull requests</MenuItem>,
     },
     {
       key: 'actions',
-      tab: <RepoTabLink><Link {...code} {...cur('actions')}><Icon icon={CirclePlay} size="sm"/>Actions</Link></RepoTabLink>,
-      item: <MenuItem icon={CirclePlay} onSelect={() => void navigate(code)}>Actions</MenuItem>,
+      tab: <RepoTabLink><Link {...code} {...cur('actions')}><PlayIcon size={12} className="shrink-0"/>Actions</Link></RepoTabLink>,
+      item: <MenuItem icon={PlayIcon} onSelect={() => void navigate(code)}>Actions</MenuItem>,
     },
     projects,
     {
       key: 'wiki',
-      tab: <RepoTabLink><Link to="/$owner/$repo/wiki" params={{owner, repo}} {...cur('wiki')}><Icon icon={BookOpen} size="sm"/>Wiki</Link></RepoTabLink>,
-      item: <MenuItem icon={BookOpen} onSelect={() => void navigate({to: '/$owner/$repo/wiki', params: {owner, repo}})}>Wiki</MenuItem>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/wiki" params={{owner, repo}} {...cur('wiki')}><BookIcon size={12} className="shrink-0"/>Wiki</Link></RepoTabLink>,
+      item: <MenuItem icon={BookIcon} onSelect={() => void navigate({to: '/$owner/$repo/wiki', params: {owner, repo}})}>Wiki</MenuItem>,
     },
     {
       key: 'activity',
       // Every activity page (the Pulse of any period, the graphs) is this tab.
-      tab: <RepoTabLink><Link to="/$owner/$repo/activity" params={{owner, repo}} {...cur('activity')}><Icon icon={ChartLine} size="sm"/>Activity</Link></RepoTabLink>,
-      item: <MenuItem icon={ChartLine} onSelect={() => void navigate({to: '/$owner/$repo/activity', params: {owner, repo}})}>Activity</MenuItem>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/activity" params={{owner, repo}} {...cur('activity')}><GraphIcon size={12} className="shrink-0"/>Activity</Link></RepoTabLink>,
+      item: <MenuItem icon={GraphIcon} onSelect={() => void navigate({to: '/$owner/$repo/activity', params: {owner, repo}})}>Activity</MenuItem>,
     },
     ...admin ? [{
       key: 'settings',
-      tab: <RepoTabLink><Link to="/$owner/$repo/settings" params={{owner, repo}} {...cur('settings')}><Icon icon={Settings} size="sm"/>Settings</Link></RepoTabLink>,
-      item: <MenuItem icon={Settings} onSelect={() => void navigate({to: '/$owner/$repo/settings', params: {owner, repo}})}>Settings</MenuItem>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/settings" params={{owner, repo}} {...cur('settings')}><GearIcon size={12} className="shrink-0"/>Settings</Link></RepoTabLink>,
+      item: <MenuItem icon={GearIcon} onSelect={() => void navigate({to: '/$owner/$repo/settings', params: {owner, repo}})}>Settings</MenuItem>,
     }] : [],
   ];
   return (
@@ -278,7 +279,7 @@ function RepoMore({overflow}: {overflow: RepoTab[]}) {
       {overflow.map((t) => <Fragment key={t.key}>{t.item}</Fragment>)}
       {overflow.length > 0 && <MenuSeparator/>}
       <MenuLabel>In the classic UI</MenuLabel>
-      <ClassicMenuItem to={here} icon={AppWindow}>This page</ClassicMenuItem>
+      <ClassicMenuItem to={here} icon={BrowserIcon}>This page</ClassicMenuItem>
     </MoreMenu>
   );
 }

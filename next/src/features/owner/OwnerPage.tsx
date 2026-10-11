@@ -5,7 +5,6 @@
 
 import {LinkRows} from '../../ui/LinkRows.tsx';
 import {Link, useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
-import {BookMarked, BookPlus, Building2, CloudOff, KanbanSquare, Lock, Settings, User as UserIcon, Users} from 'lucide-react';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -18,7 +17,7 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
+import {Avatar, Badge, Button, EmptyState, Hint, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
@@ -26,6 +25,7 @@ import {OrganizationPeople, OrganizationTeams} from './Teams.tsx';
 import {OfflineNote} from '../settings/bits.tsx';
 import {useResource} from '../settings/resource.ts';
 import {Follow, Overview, People} from './Profile.tsx';
+import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon} from '@primer/octicons-react';
 
 interface OwnerInfo {
   id: number;
@@ -116,7 +116,7 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   if (!info) {
     return (
       <>
-        <PageHeader icon={UserIcon} title={owner}/>
+        <PageHeader icon={PersonIcon} title={owner}/>
         <PageBody>
           {remote.state === 'loading' ? <PageColumn><SkeletonText lines={3}/></PageColumn> :
             <Missing what="This user or organization" classic={remote.state === 'failed' && remote.status === 404 ? undefined : classic}/>}
@@ -170,23 +170,23 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   return (
     <>
       {/* What only the classic UI has is in More, as on a repository's pages (buttons ran off a phone's edge). */}
-      <PageHeader icon={isOrg ? Building2 : UserIcon} title={info.login}>
+      <PageHeader icon={isOrg ? OrganizationIcon : PersonIcon} title={info.login}>
         {isOrg && <>
           <Button size="sm" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
         </>}
         <MoreMenu label={isOrg ? 'More of this organization' : 'More of this user'}>
           {isOrg && <>
-            <MenuItem icon={Users} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'people', true)})}>People</MenuItem>
-            <MenuItem icon={Users} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'teams', true)})}>Teams</MenuItem>
+            <MenuItem icon={PeopleIcon} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'people', true)})}>People</MenuItem>
+            <MenuItem icon={PeopleIcon} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'teams', true)})}>Teams</MenuItem>
             <MenuSeparator/>
           </>}
           {settings && !isOrg && <>
-            <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
+            <MenuItem icon={GearIcon} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
             <MenuSeparator/>
           </>}
           <MenuLabel>In the classic UI</MenuLabel>
-          {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/members`} icon={Users}>Members</ClassicMenuItem>}
-          {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={Settings}>Settings</ClassicMenuItem>}
+          {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/members`} icon={PeopleIcon}>Members</ClassicMenuItem>}
+          {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={GearIcon}>Settings</ClassicMenuItem>}
         </MoreMenu>
       </PageHeader>
       <PageBody>
@@ -249,13 +249,13 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
     <Panel label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
       actions={canCreate && (
         <Button asChild size="sm" variant="ghost">
-          <Link to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}><Icon icon={BookPlus} size="sm"/>New repository</Link>
+          <Link to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}><RepoIcon size={12} className="shrink-0"/>New repository</Link>
         </Button>
       )}>
       <LinkRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</LinkRows>
       {remote.state !== 'ready' && away ?
         list.length ? <p className="px-3 py-2 text-sm text-fg-subtle">Repositories that are not on this device load when you are online.</p> :
-          <EmptyState icon={CloudOff} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
+          <EmptyState icon={CloudOfflineIcon} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
         list.length ? null :
           remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
             <EmptyState title="No repositories" description="None that you can see."/>}
@@ -286,7 +286,7 @@ function RepoLine({r}: {r: RepoRow}) {
   const href = hrefOf(app, `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
   return (
     // Every row leads with an icon (a lock for a private one), so that the names line up.
-    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={r.private ? <Hint label="Private"><Icon icon={Lock} size="sm"/></Hint> : <Icon icon={BookMarked} size="sm"/>}
+    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={r.private ? <Hint label="Private"><LockIcon size={12} className="shrink-0"/></Hint> : <RepoIcon size={12} className="shrink-0"/>}
       trailing={<>
         {r.fork && <Badge>Fork</Badge>}
         {r.archived && <Badge tone="warning">Archived</Badge>}
@@ -304,12 +304,12 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   const click = useLinkClick();
   const boards = [...data.pool.model('Project').by('owner_id', ownerId)].filter((p) => !p.get('repo_id') && !p.get('closed'));
   return (
-    <Panel label="Boards" title={<><Icon icon={KanbanSquare} size="sm"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
+    <Panel label="Boards" title={<><ProjectIcon size={12} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
       <TextLink><Link to="/-/next/boards" search={{ownerId}}>All boards, including closed</Link></TextLink>
       {!boards.length && <EmptyState title="No boards on this device" description="Boards appear here after they have been synced."/>}
       {boards.map((b) => {
         const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
-        return <ListRow key={b.id} role={undefined} href={href} onClick={(e) => click(e, href)} leading={<Icon icon={KanbanSquare} size="sm"/>}>{b.get('title')}</ListRow>;
+        return <ListRow key={b.id} role={undefined} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={12} className="shrink-0"/>}>{b.get('title')}</ListRow>;
       })}
     </Panel>
   );

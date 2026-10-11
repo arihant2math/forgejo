@@ -6,12 +6,12 @@
 // moves nothing above it).
 
 import {Link} from '@tanstack/react-router';
-import {Layers, Pencil, Trash2} from 'lucide-react';
 import {useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {useSession} from '../../app/store.ts';
 import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, NavHeading, NavItem, PromptDialog} from '../../ui/index.ts';
 import {type SavedView, viewStore} from './views.ts';
+import {StackIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
 
 export const SidebarViews = observer(function SidebarViews() {
   const {userId} = useSession();
@@ -41,16 +41,16 @@ function ViewItem({view, onOpen, onRemove, onRename}: {view: SavedView; onOpen: 
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <NavItem asChild icon={Layers} label={view.name}>
+          <NavItem asChild icon={StackIcon} label={view.name}>
             <Link to={view.path} search={view.search as never} activeOptions={{includeSearch: true, exact: true}} data-view={view.id} onClick={onOpen}
               title={`${view.name} (a view saved on this device)`}/>
           </NavItem>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem icon={Pencil} onSelect={() => {
+          <ContextMenuItem icon={PencilIcon} onSelect={() => {
             setRenaming(true);
           }}>Rename the view…</ContextMenuItem>
-          <ContextMenuItem icon={Trash2} danger onSelect={onRemove}>Remove the view</ContextMenuItem>
+          <ContextMenuItem icon={TrashIcon} danger onSelect={onRemove}>Remove the view</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
       {renaming && <PromptDialog title="Rename the view" label="View name" initial={view.name} maxLength={80} onClose={() => {

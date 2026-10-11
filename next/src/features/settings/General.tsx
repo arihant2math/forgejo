@@ -10,7 +10,6 @@
 // with only the changed fields, online only.
 
 import {useNavigate} from '@tanstack/react-router';
-import {GitBranch} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {notify} from '../../app/notices.ts';
@@ -28,6 +27,7 @@ import {
 } from './forms.ts';
 import {problemOf} from './problems.ts';
 import {deleteRepo, patchRepo, transferRepo} from './requests.ts';
+import {GitBranchIcon} from '@primer/octicons-react';
 
 export const GeneralSettings = observer(function GeneralSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const pool = usePool();
@@ -151,7 +151,7 @@ const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: 
     <FormSection id="settings-branch" title="Default branch" description="The branch the repository opens on, and the base of new pull requests.">
       <div className="flex items-center gap-2">
         <CommandPopover label="Default branch" placeholder="Find a branch…" empty={r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.'}
-          trigger={<Button icon={GitBranch} disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
+          trigger={<Button icon={GitBranchIcon} disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
           options={branches.map((b) => ({value: b, label: b, checked: b === opt.shown, onSelect: () => {
             if (b === opt.shown) return;
             sendChange(app, opt, b, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: b}), `The default branch is ${b}`);

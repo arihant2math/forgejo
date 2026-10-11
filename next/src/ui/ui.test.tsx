@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {Plus, Tag} from 'lucide-react';
 import {describe, expect, test, vi} from 'vitest';
 import {
   Avatar, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, Dialog, DialogTrigger, IconButton,
   Input, LabelChip, LabelDot, LabelPill, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, Shortcut, TooltipProvider,
 } from './index.ts';
 import {classConflicts} from '../test/conflicts.ts';
+import {PlusIcon, TagIcon} from '@primer/octicons-react';
 
 describe('primitives', () => {
   test('Button: type=button by default, variant and size classes, icon', () => {
-    render(<Button variant="primary" size="sm" icon={Plus}>New</Button>);
+    render(<Button variant="primary" size="sm" icon={PlusIcon}>New</Button>);
     const b = screen.getByRole('button', {name: 'New'});
     expect(b.getAttribute('type')).toBe('button');
     expect(b.className).toContain('bg-accent');
@@ -21,7 +21,7 @@ describe('primitives', () => {
   });
 
   test('IconButton: accessible name from label', () => {
-    render(<TooltipProvider><IconButton icon={Plus} label="Create issue" shortcut="C"/></TooltipProvider>);
+    render(<TooltipProvider><IconButton icon={PlusIcon} label="Create issue" shortcut="C"/></TooltipProvider>);
     expect(screen.getByRole('button', {name: 'Create issue'}).className).toContain('size-control');
   });
 
@@ -85,7 +85,7 @@ describe('primitives', () => {
       <Menu>
         <MenuTrigger asChild><Button>Open</Button></MenuTrigger>
         <MenuContent>
-          <MenuItem icon={Tag} shortcut="L" onSelect={onSelect}>Labels</MenuItem>
+          <MenuItem icon={TagIcon} shortcut="L" onSelect={onSelect}>Labels</MenuItem>
         </MenuContent>
       </Menu>,
     );
@@ -116,7 +116,7 @@ describe('primitives', () => {
     render(
       <ContextMenu>
         <ContextMenuTrigger asChild><ListRow role="option">Row</ListRow></ContextMenuTrigger>
-        <ContextMenuContent><ContextMenuItem icon={Tag} shortcut="L">Labels</ContextMenuItem></ContextMenuContent>
+        <ContextMenuContent><ContextMenuItem icon={TagIcon} shortcut="L">Labels</ContextMenuItem></ContextMenuContent>
       </ContextMenu>,
     );
     fireEvent.contextMenu(screen.getByText('Row'));

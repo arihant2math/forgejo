@@ -7,7 +7,6 @@
 // milestone. Writers edit, close or reopen and delete it (online).
 
 import {getRouteApi, Link, useNavigate, useParams} from '@tanstack/react-router';
-import {ChevronDown, CircleCheck, Milestone as MilestoneIcon, Pencil, RotateCcw, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {Missing} from '../../app/Missing.tsx';
@@ -15,7 +14,7 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Button, EmptyState, Icon, Menu, MenuContent, MenuItem, MenuTrigger, ProgressBar, ProseSource, SkeletonText} from '../../ui/index.ts';
+import {Button, EmptyState, Menu, MenuContent, MenuItem, MenuTrigger, ProgressBar, ProseSource, SkeletonText} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
@@ -24,6 +23,7 @@ import {milestoneProgress} from './counts.ts';
 import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
+import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');
 
@@ -93,7 +93,7 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
         {m.description && (
           <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => {
             setOpen(!open);
-          }}>{open ? 'Hide the description' : 'Show the description'}<Icon icon={ChevronDown} size="sm"/></Button>
+          }}>{open ? 'Hide the description' : 'Show the description'}<ChevronDownIcon size={12} className="shrink-0"/></Button>
         )}
       </div>
       <div className="max-w-lg"><ProgressBar value={p.closed} max={p.total} label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
@@ -116,17 +116,17 @@ const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Mi
   return (
     <>
       <Button size="sm" variant="ghost" asChild>
-        <Link to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}><Icon icon={Pencil} size="sm"/>Edit</Link>
+        <Link to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}><PencilIcon size={12} className="shrink-0"/>Edit</Link>
       </Button>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="ghost" aria-label="Milestone actions">Milestone<Icon icon={ChevronDown} size="sm"/></Button>
+          <Button size="sm" variant="ghost" aria-label="Milestone actions">Milestone<ChevronDownIcon size={12} className="shrink-0"/></Button>
         </MenuTrigger>
         <MenuContent>
-          <MenuItem icon={closed ? RotateCcw : CircleCheck} disabled={offline} hint={offline ? onlineOnly(closed ? 'Reopening a milestone' : 'Closing a milestone') : undefined} onSelect={() => {
+          <MenuItem icon={closed ? UndoIcon : CheckCircleIcon} disabled={offline} hint={offline ? onlineOnly(closed ? 'Reopening a milestone' : 'Closing a milestone') : undefined} onSelect={() => {
             void editMilestone(app, r, m, {state: closed ? 'open' : 'closed'}, `${closed ? 'Reopening' : 'Closing'} the milestone “${m.title}”`);
           }}>{closed ? 'Reopen the milestone' : 'Close the milestone'}</MenuItem>
-          <MenuItem icon={Trash2} danger disabled={offline} hint={offline ? onlineOnly('Deleting a milestone') : undefined} onSelect={() => {
+          <MenuItem icon={TrashIcon} danger disabled={offline} hint={offline ? onlineOnly('Deleting a milestone') : undefined} onSelect={() => {
             setDeleting(true);
           }}>Delete the milestone…</MenuItem>
         </MenuContent>

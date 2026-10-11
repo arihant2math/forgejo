@@ -8,10 +8,6 @@
 // Hints are native titles (Hint): a Radix tooltip per cell would cost a
 // mount per cell for every row scrolled into view.
 
-import {
-  Circle, CircleCheck, CircleCheckBig, CircleDashed, CircleDot, CircleDotDashed, CircleEllipsis, CircleX, GitMerge, GitPullRequest,
-  CalendarClock, createLucideIcon, GitPullRequestClosed, OctagonAlert, Pin, SignalMedium,
-} from 'lucide-react';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ListCursor} from './flags.ts';
@@ -25,13 +21,15 @@ import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, AvatarGroup, Badge, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, PendingIcon, TextLink} from '../../ui/index.ts';
+import {Avatar, AvatarGroup, Badge, Hint, Icon, LabelChip, LabelIcon, PendingIcon, TextLink} from '../../ui/index.ts';
 import {Link} from '@tanstack/react-router';
 import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
 import {checksOf} from '../pull/checks.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
 import {repoLabels} from './candidates.ts';
+import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, StopIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType, IconProps as OcticonProps} from '@primer/octicons-react';
 
 export function usePool(): Pool {
   const s = useApp().session;
@@ -84,8 +82,8 @@ export function useLabelView(issue: Entity<'Issue'>): LabelView {
   return labelView(usePool(), useOverlay(), issue);
 }
 
-const STAGE_ICONS: Record<StatusStage, LucideIcon> = {
-  backlog: CircleDashed, todo: Circle, started: CircleDotDashed, review: CircleEllipsis, done: CircleCheckBig, canceled: CircleX,
+const STAGE_ICONS: Record<StatusStage, OcticonType> = {
+  backlog: IssueDraftIcon, todo: CircleIcon, started: DotFillIcon, review: CodeReviewIcon, done: IssueClosedIcon, canceled: XCircleIcon,
 };
 
 /** Whether a status label means the work ended (done, canceled). */
@@ -94,34 +92,41 @@ export function terminal(name: string): boolean {
   return stage === 'done' || stage === 'canceled';
 }
 
-export function statusIcon(name: string): LucideIcon {
+export function statusIcon(name: string): OcticonType {
   const stage = statusStage(scopedValue(name));
-  return stage ? STAGE_ICONS[stage] : Circle;
+  return stage ? STAGE_ICONS[stage] : CircleIcon;
 }
 
 /**
  * Priority as bars (Linear's look): the filled bars say the level, the others stay faint, so Low is one bar
  * of three rather than lucide's lone short bar (which reads as a stray mark at 16 px).
  */
-function bars(name: string, filled: number): LucideIcon {
-  const bar = (i: number) => ['rect', {
-    x: String(3 + i * 7), y: String(14 - i * 5), width: '4', height: String(6 + i * 5), rx: '1', fill: 'currentColor', stroke: 'none',
-    ...(i < filled ? {} : {opacity: '0.3'}), key: `b${String(i)}`,
-  }] as [string, Record<string, string>];
-  return createLucideIcon(name, [bar(0), bar(1), bar(2)]);
+function bars(name: string, filled: number): OcticonType {
+  // Drawn like an octicon (a 16 px grid, currentColor), so it sits wherever an octicon does.
+  function Bars({size = 16, className, 'aria-label': label}: OcticonProps) {
+    const px = typeof size === 'number' ? size : size === 'small' ? 16 : size === 'medium' ? 32 : 64;
+    return (
+      <svg viewBox="0 0 24 24" width={px} height={px} className={className} fill="currentColor" role={label ? 'img' : undefined}
+        aria-label={label} aria-hidden={label ? undefined : true}>
+        {[0, 1, 2].map((i) => <rect key={i} x={3 + i * 7} y={14 - i * 5} width={4} height={6 + i * 5} rx={1} opacity={i < filled ? undefined : 0.3}/>)}
+      </svg>
+    );
+  }
+  Bars.displayName = name;
+  return Bars;
 }
 
 /** No priority: the three bars, all faint (lucide's SignalZero is a lone dot, a stray mark in a menu). */
 export const NoPriorityIcon = bars('priority-none', 0);
 
-const PRIORITY_ICONS: LucideIcon[] = [OctagonAlert, bars('priority-high', 3), bars('priority-medium', 2), bars('priority-low', 1), NoPriorityIcon];
+const PRIORITY_ICONS: OcticonType[] = [StopIcon, bars('priority-high', 3), bars('priority-medium', 2), bars('priority-low', 1), NoPriorityIcon];
 
-export function priorityIcon(name: string): LucideIcon {
-  return PRIORITY_ICONS[Math.min(4, Math.max(0, Math.round(kindRank('priority', name))))] ?? SignalMedium;
+export function priorityIcon(name: string): OcticonType {
+  return PRIORITY_ICONS[Math.min(4, Math.max(0, Math.round(kindRank('priority', name))))] ?? GraphBarVerticalIcon;
 }
 
 interface StateLook {
-  icon: LucideIcon;
+  icon: OcticonType;
   tone: keyof typeof STATE_TONES;
   label: string;
 }
@@ -131,10 +136,10 @@ const STATE_TONES = {open: 'text-success', merged: 'text-done', done: 'text-done
 /** Open/closed/merged as Forgejo shows it, without workflow labels. */
 export function stateLook(state: string, pull: boolean, merged: boolean): StateLook {
   if (pull) {
-    if (merged) return {icon: GitMerge, tone: 'merged', label: 'Merged'};
-    return state === 'open' ? {icon: GitPullRequest, tone: 'open', label: 'Open'} : {icon: GitPullRequestClosed, tone: 'closed', label: 'Closed'};
+    if (merged) return {icon: GitMergeIcon, tone: 'merged', label: 'Merged'};
+    return state === 'open' ? {icon: GitPullRequestIcon, tone: 'open', label: 'Open'} : {icon: GitPullRequestClosedIcon, tone: 'closed', label: 'Closed'};
   }
-  return state === 'open' ? {icon: CircleDot, tone: 'open', label: 'Open'} : {icon: CircleCheck, tone: 'done', label: 'Closed'};
+  return state === 'open' ? {icon: IssueOpenedIcon, tone: 'open', label: 'Open'} : {icon: CheckCircleIcon, tone: 'done', label: 'Closed'};
 }
 
 /** The icon of a state look in its colour. */
@@ -288,7 +293,7 @@ export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'
   const late = issueState(overlay, issue) === 'open' && Date.parse(due) < Date.now();
   return (
     <span title={`Due ${fullDate(due)}${late ? ' (overdue)' : ''}`} className={late ? 'flex items-center gap-1 whitespace-nowrap text-danger' : 'flex items-center gap-1 whitespace-nowrap'}>
-      <Icon icon={CalendarClock} size="sm"/>{shortDate(due)}
+      <CalendarIcon size={12} className="shrink-0"/>{shortDate(due)}
     </span>
   );
 });
@@ -299,7 +304,7 @@ export function isDraft(title: string, prefixes: readonly string[] = ['WIP:', '[
   return draftPrefix(title, prefixes) !== undefined;
 }
 
-const CHECK_ICON = {success: CircleCheck, failure: CircleX, pending: CircleDotDashed} as const;
+const CHECK_ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
 const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-warning'} as const;
 const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending: 'Checks running'} as const;
 
@@ -336,7 +341,7 @@ export const PullStateCell = observer(function PullStateCell({issue}: {issue: En
 
 /** A pinned issue's mark in a row (pinned to its repository's list). */
 export const PinCell = observer(function PinCell({issue}: {issue: Entity<'Issue'>}) {
-  return issuePinned(useOverlay(), issue) ? <Hint label="Pinned"><Icon icon={Pin} size="sm"/></Hint> : null;
+  return issuePinned(useOverlay(), issue) ? <Hint label="Pinned"><PinIcon size={12} className="shrink-0"/></Hint> : null;
 });
 
 /** When the issue was last updated, compact ("3d"), with the full date on hover. */

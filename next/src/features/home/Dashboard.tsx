@@ -8,8 +8,6 @@
 // does not have yet. Each section is a short list of links with a way to
 // the full list; empty sections are left out. Only the review requests ask
 // the server (they are not synced), as My pull requests does.
-
-import {Command, GitPullRequest, Inbox, Eye, CircleDot, CloudOff, CloudUpload} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect} from 'react';
@@ -23,7 +21,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
-import {Button, EmptyState, Icon, ListRow, type LucideIcon, Panel, Shortcut, Skeleton} from '../../ui/index.ts';
+import {Button, EmptyState, Icon, ListRow, Panel, Shortcut, Skeleton} from '../../ui/index.ts';
 import {activityOf} from '../inbox/inbox.ts';
 import {AgoCell, PendingCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
 import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
@@ -32,6 +30,8 @@ import type {ListSource} from '../issues/list.ts';
 import {useListModel} from '../issues/ListPage.tsx';
 import {HomeSkeleton} from './Home.tsx';
 import Feed from './Feed.tsx';
+import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedIcon, CloudOfflineIcon, UploadIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 /** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
@@ -76,13 +76,13 @@ export default observer(function Dashboard() {
 
   if (!settled) return <HomeSkeleton/>;
   const sections: SectionProps[] = [
-    {title: 'Unread', icon: Inbox, items: unread, all: '/notifications?filter=unread'},
-    {title: 'Assigned to you', icon: CircleDot, items: assigned, all: '/issues?type=assigned'},
-    {title: 'Your pull requests', icon: GitPullRequest, items: mine, all: '/pulls?type=created_by'},
+    {title: 'Unread', icon: InboxIcon, items: unread, all: '/notifications?filter=unread'},
+    {title: 'Assigned to you', icon: IssueOpenedIcon, items: assigned, all: '/issues?type=assigned'},
+    {title: 'Your pull requests', icon: GitPullRequestIcon, items: mine, all: '/pulls?type=created_by'},
   ].filter((x) => x.items.length);
   return (
     <LinkRows><PageColumn>
-      {pending.length > 0 && <Section title="Not synced yet" icon={CloudUpload} items={pending}/>}
+      {pending.length > 0 && <Section title="Not synced yet" icon={UploadIcon} items={pending}/>}
       {/* Asked once the session holds a token (the server is asked as the signed-in user); its place is kept
           from the first frame, as tall as it was last time (nothing below moves when it arrives). */}
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
@@ -126,15 +126,15 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   const {data} = useSession();
   if (reach(data.status.connection) !== 'online') {
     return rows ? (
-      <Panel label="Review requested" title={<><Icon icon={Eye} size="sm"/><span className="text-fg">Review requested</span></>}>
-        <ListRow role="presentation" leading={<Icon icon={CloudOff} size="sm"/>}><span className="text-fg-muted">Review requests load when you are online.</span></ListRow>
+      <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-fg">Review requested</span></>}>
+        <ListRow role="presentation" leading={<CloudOfflineIcon size={12} className="shrink-0"/>}><span className="text-fg-muted">Review requests load when you are online.</span></ListRow>
       </Panel>
     ) : null;
   }
   rows = Math.max(rows, min);
   if (!rows) return null;
   return (
-    <Panel label="Review requested" title={<><Icon icon={Eye} size="sm"/><span className="text-fg">Review requested</span></>}>
+    <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-fg">Review requested</span></>}>
       {Array.from({length: rows}, (_, i) => (
         <ListRow key={i} role="presentation" leading={<Skeleton className="size-4"/>} trailing={<Skeleton className="h-3 w-12"/>}><Skeleton className="h-3 w-64"/></ListRow>
       ))}
@@ -156,12 +156,12 @@ const ReviewRequests = observer(function ReviewRequests() {
   // Its place is kept while the server is asked: the sections below do not move when it arrives.
   if (!answered && !items.length) return <ReviewPlaceholder rows={lastReviews()} min={1}/>;
   if (!items.length) return null;
-  return <Section title="Review requested" icon={Eye} items={items} all="/pulls?type=review_requested"/>;
+  return <Section title="Review requested" icon={EyeIcon} items={items} all="/pulls?type=review_requested"/>;
 });
 
 interface SectionProps {
   title: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   items: Item[];
   /** The full list. */
   all?: string | undefined;
@@ -211,7 +211,7 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
   return (
     <ListRow role={undefined} href={href} onClick={(e) => {
       if (href) click(e, href);
-    }} leading={s ? <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/> : <Icon icon={Inbox}/>} trailing={<>
+    }} leading={s ? <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/> : <InboxIcon size={16} className="shrink-0"/>} trailing={<>
       {s && <RefCell repo={`${s.owner}/${s.repo}`} number={s.number}/>}
       <AgoCell at={at}/>
     </>}>
@@ -236,7 +236,7 @@ function Hints() {
 function Welcome() {
   const {ui, config} = useApp();
   return (
-    <EmptyState icon={Command} title={config.app_name} description={<Hints/>}
+    <EmptyState icon={CommandPaletteIcon} title={config.app_name} description={<Hints/>}
       action={
         <Button variant="primary" shortcut={shortcutHint('palette.open')} tooltip="Search repositories, issues and commands" onClick={() => {
           runInAction(() => {

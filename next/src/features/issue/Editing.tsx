@@ -9,8 +9,6 @@
 // either side whole. While typing, the text is kept in IndexedDB (drafts),
 // so a reload or a crash never loses it. The field is the CodeMirror
 // composer with Forgejo's preview (editor/Composer.tsx).
-
-import {ChevronDown, CircleSlash, Copy, Link2, MoreHorizontal, Pencil, Quote, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, type RefObject, useEffect, useId, useRef, useState} from 'react';
@@ -23,7 +21,7 @@ import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
 import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
 import {
-  Button, Callout, CommandPick, CommandPopover, Dialog, EditableHeading, Icon, IconButton, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
+  Button, Callout, CommandPick, CommandPopover, Dialog, EditableHeading, IconButton, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
   type PickOption, ProseSource, SkeletonText, TitleInput,
 } from '../../ui/index.ts';
 import {Missing} from '../../app/Missing.tsx';
@@ -37,6 +35,7 @@ import {repoLabels} from '../issues/candidates.ts';
 import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
+import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon} from '@primer/octicons-react';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
 export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
@@ -330,7 +329,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
         } : undefined}/> : <p className="text-base text-fg-subtle">No description.</p>}
         {body.local && <NotSynced/>}
       </div>
-      {mayEdit && <IconButton ref={editButton} size="sm" icon={Pencil} label="Edit the description" shortcut={shortcutHint('issue.edit')} onClick={start}/>}
+      {mayEdit && <IconButton ref={editButton} size="sm" icon={PencilIcon} label="Edit the description" shortcut={shortcutHint('issue.edit')} onClick={start}/>}
     </div>
   );
 });
@@ -371,7 +370,7 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
       const card = triggerRef.current?.closest('article');
       selection.current = selected?.anchorNode && card?.contains(selected.anchorNode) ? selected.toString() : '';
     }}>
-      <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={MoreHorizontal} label="Comment actions" className="ml-auto"/></MenuTrigger>
+      <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={KebabHorizontalIcon} label="Comment actions" className="ml-auto"/></MenuTrigger>
       {/* After Edit the editor takes the focus once the menu is gone (while the menu is open its focus trap keeps the
           focus, and Radix would return it to the trigger); otherwise the trigger has it. */}
       <MenuContent align="end" onCloseAutoFocus={(e) => {
@@ -386,19 +385,19 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
         }
         chose.current = false;
       }}>
-        <MenuItem icon={Quote} onSelect={() => {
+        <MenuItem icon={QuoteIcon} onSelect={() => {
           quoted.current = true;
           window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
         }}>Quote reply</MenuItem>
-        {mayEdit && <MenuItem icon={Pencil} onSelect={() => {
+        {mayEdit && <MenuItem icon={PencilIcon} onSelect={() => {
           chose.current = true;
           onEdit();
         }}>Edit</MenuItem>}
-        {mayEdit && c.get('type') !== 'review' && <MenuItem icon={Trash2} danger onSelect={() => {
+        {mayEdit && c.get('type') !== 'review' && <MenuItem icon={TrashIcon} danger onSelect={() => {
           fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
           setConfirming(true);
         }}>Delete…</MenuItem>}
-        <MenuItem icon={Link2} onSelect={() => {
+        <MenuItem icon={LinkIcon} onSelect={() => {
           const url = new URL(window.location.href);
           if (c.get('type') === 'code') {
             url.searchParams.set('tab', 'files');
@@ -551,7 +550,7 @@ const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity
   const app = useApp();
   return (
     <CommandPopover label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" width="md" options={[]}
-      trigger={<Button size="sm" aria-label="Close with a reason" tooltip="Close as not planned or as a duplicate"><Icon icon={ChevronDown} size="sm"/></Button>}
+      trigger={<Button size="sm" aria-label="Close with a reason" tooltip="Close as not planned or as a duplicate"><ChevronDownIcon size={12} className="shrink-0"/></Button>}
       render={(onClose) => <CloseReasonPick issue={issue} onClose={onClose} choose={(reason) => {
         act((text) => {
           const {issueId, repoId} = {issueId: issue.id, repoId: issue.get('repo_id')};
@@ -582,7 +581,7 @@ const CloseReasonPick = observer(function CloseReasonPick({issue, onClose, choos
   const options: PickOption[] = [];
   if (notPlanned) {
     options.push(...matchOptions([{value: 'not-planned', label: 'Not planned', words: `${scopedValue(notPlanned.name)} wontfix canceled`, group: 'Close as',
-      icon: CircleSlash, meta: `status: ${scopedValue(notPlanned.name)}`, onSelect: () => {
+      icon: SkipIcon, meta: `status: ${scopedValue(notPlanned.name)}`, onSelect: () => {
         choose({status: notPlanned});
       }}], query));
   }
@@ -590,12 +589,12 @@ const CloseReasonPick = observer(function CloseReasonPick({issue, onClose, choos
   const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
   // A number not on this device is still a reference Forgejo resolves (an older closed issue).
   if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) {
-    options.push({value: `number-${String(exact)}`, label: `#${String(exact)}`, group: 'Duplicate of', icon: Copy, onSelect: () => {
+    options.push({value: `number-${String(exact)}`, label: `#${String(exact)}`, group: 'Duplicate of', icon: CopyIcon, onSelect: () => {
       choose({status: duplicateStatus, duplicateOf: exact});
     }});
   }
   options.push(...matchOptions(others.map((i) => ({value: `issue-${String(i.id)}`, label: `#${String(i.number)} ${i.title}`, group: 'Duplicate of',
-    icon: Copy, meta: i.state === 'closed' ? 'closed' : undefined, onSelect: () => {
+    icon: CopyIcon, meta: i.state === 'closed' ? 'closed' : undefined, onSelect: () => {
       choose({status: duplicateStatus, duplicateOf: i.number});
     }})), q).slice(0, DUPLICATE_CHOICES));
   return <CommandPick label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" options={options} filtered query={query} onQueryChange={setQuery}

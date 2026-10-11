@@ -1,7 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {ChevronDown} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -12,7 +10,8 @@ import {useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {finished} from '../../code/logs.ts';
 import type {ActionRun, ActionRunJob} from '../../protocol/types.gen.ts';
-import {Button, Icon, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {Button, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {ChevronDownIcon} from '@primer/octicons-react';
 
 type Operation = 'all' | 'failed' | 'job' | 'cancel';
 
@@ -66,7 +65,7 @@ export const RunControls = observer(function RunControls({owner, repo, run, jobs
   return <div className="flex items-center gap-1">
     {complete ? <>
       <Button size="sm" disabled={!!reason} title={reason} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button>
-      <Menu><MenuTrigger asChild><Button size="sm" disabled={!!reason} title={reason} aria-label="Re-run options"><Icon icon={ChevronDown} size="sm"/></Button></MenuTrigger>
+      <Menu><MenuTrigger asChild><Button size="sm" disabled={!!reason} title={reason} aria-label="Re-run options"><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
         <MenuContent><MenuItem onSelect={() => { void execute('all'); }}>Re-run all jobs</MenuItem><MenuItem disabled={!failed} onSelect={() => { void execute('failed'); }}>Re-run failed jobs</MenuItem></MenuContent>
       </Menu>
     </> : <Button size="sm" disabled={!!reason} title={reason} onClick={() => { void execute('cancel'); }}>{pending?.label ?? 'Cancel workflow'}</Button>}

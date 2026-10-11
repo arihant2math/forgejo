@@ -1,7 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {Pencil, Tag, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
@@ -17,6 +15,7 @@ import {allPages} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
 import {LabelDialog} from './LabelDialog.tsx';
 import {type LabelDraft, normalizeColor} from './labels.ts';
+import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 
 /**
  * An organization's labels (its page, and below a repository's own labels). Only the organization's owners and admins
@@ -59,12 +58,12 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
     {managed && <p className="border-b border-border-subtle px-3 py-2 text-sm text-fg-muted">
       Managed by the owners and admins of {owner}: only they can change these labels. Every repository of the organization can use them.
     </p>}
-    <ResourceList res={shown} what="The organization labels" empty={{icon: Tag, title: 'No organization labels', description: 'These labels are available to every repository in the organization.'}}>
+    <ResourceList res={shown} what="The organization labels" empty={{icon: TagIcon, title: 'No organization labels', description: 'These labels are available to every repository in the organization.'}}>
       {(labels) => labels.map((l) => <ListRow key={l.id} role={undefined} trailing={<>
         {usage?.(l)}
         {editable && <span className="flex">
-          <IconButton icon={Pencil} label={offline ? onlineOnly('Editing an organization label') : `Edit organization label ${l.name}`} disabled={offline || busy} onClick={() => { setEditing({label: l}); }}/>
-          <IconButton icon={Trash2} label={offline ? onlineOnly('Deleting an organization label') : `Delete organization label ${l.name}`} disabled={offline || busy} onClick={() => { setDeleting(l); }}/>
+          <IconButton icon={PencilIcon} label={offline ? onlineOnly('Editing an organization label') : `Edit organization label ${l.name}`} disabled={offline || busy} onClick={() => { setEditing({label: l}); }}/>
+          <IconButton icon={TrashIcon} label={offline ? onlineOnly('Deleting an organization label') : `Delete organization label ${l.name}`} disabled={offline || busy} onClick={() => { setDeleting(l); }}/>
         </span>}
       </>}><LabelPill name={l.name} color={l.color} scope={exclusiveScope(l) || undefined}/><span className="ml-3 text-fg-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></ListRow>)}
     </ResourceList>

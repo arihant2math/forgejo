@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {Link} from '@tanstack/react-router';
-import {Trash2, UserMinus, Users} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
@@ -14,6 +13,7 @@ import {PeopleSearch} from '../settings/Collaborators.tsx';
 import {ResourceList, useOffline} from '../settings/bits.tsx';
 import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
+import {TrashIcon, PersonIcon, PeopleIcon} from '@primer/octicons-react';
 
 interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
@@ -35,7 +35,7 @@ export const OrganizationTeams = observer(function OrganizationTeams({owner}: {o
   const res = useResource(`org:${owner}:teams`, (signal) => allPages<Team>(app, `/orgs/${encodeURIComponent(owner)}/teams`, signal));
   const [selected, setSelected] = useState<number>();
   return <Panel label="Teams" title="Teams">
-    <ResourceList res={res} what="The teams" empty={{icon: Users, title: 'No teams', description: 'This organization has no teams you can see.'}}>
+    <ResourceList res={res} what="The teams" empty={{icon: PeopleIcon, title: 'No teams', description: 'This organization has no teams you can see.'}}>
       {(teams) => teams.map((team) => <Entry key={team.id} title={team.name} meta={team.permission}
         description={<>{team.description && <p>{team.description}</p>}<TeamRepos team={team}/></>}
         actions={<Button size="sm" onClick={() => { setSelected(selected === team.id ? undefined : team.id); }}>Members of {team.name}</Button>}/>)}
@@ -71,10 +71,10 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
     } finally { setBusy(false); }
   };
   return <Panel label="People" title="People">
-    <ResourceList res={res} what="The people" empty={{icon: Users, title: 'No people to show', description: 'None that you can see.'}}>
+    <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
       {(people) => people.map((m) => <Entry key={m.id} leading={<Avatar name={m.login} src={m.avatar_url}/>}
         title={<Link to="/$owner" params={{owner: m.login}}>{m.full_name || m.login}</Link>} meta={m.full_name ? m.login : undefined}
-        actions={manage && <IconButton icon={UserMinus} label={offline ? onlineOnly('Removing a member') : `Remove ${m.login} from the organization`} disabled={offline || busy} onClick={() => {
+        actions={manage && <IconButton icon={PersonIcon} label={offline ? onlineOnly('Removing a member') : `Remove ${m.login} from the organization`} disabled={offline || busy} onClick={() => {
           setError(undefined);
           setRemoving(m);
         }}/>}/>)}
@@ -126,9 +126,9 @@ const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; e
     <PopoverTrigger asChild><Button size="sm" disabled={offline || busy} tooltip={offline ? onlineOnly('Changing team membership') : undefined}>Add member</Button></PopoverTrigger>
     <PopoverContent width="md"><PeopleSearch excludeSelf={false} label="Add a team member" members={new Set((res.value ?? []).map((u) => u.id))} onPick={add} onClose={() => { setOpen(false); }}/></PopoverContent>
   </Popover>}>
-    <ResourceList res={res} what="The members" empty={{icon: Users, title: 'No members', description: 'Add a person to this team.'}}>
+    <ResourceList res={res} what="The members" empty={{icon: PeopleIcon, title: 'No members', description: 'Add a person to this team.'}}>
       {(members) => members.map((u) => <Entry key={u.id} leading={<Avatar name={u.login} src={u.avatar_url}/>} title={u.full_name || u.login} meta={u.login}
-        actions={editable && <IconButton icon={Trash2} label={offline ? onlineOnly('Changing team membership') : `Remove ${u.login} from team`} disabled={offline || busy} onClick={() => { void change(u.login, 'DELETE'); }}/>}/>)}
+        actions={editable && <IconButton icon={TrashIcon} label={offline ? onlineOnly('Changing team membership') : `Remove ${u.login} from team`} disabled={offline || busy} onClick={() => { void change(u.login, 'DELETE'); }}/>}/>)}
     </ResourceList>
   </Panel>;
 });
@@ -154,8 +154,8 @@ export const RepositoryTeams = observer(function RepositoryTeams({owner, repo, r
     <PopoverTrigger asChild><Button size="sm" disabled={offline || busy} tooltip={offline ? onlineOnly('Changing team access') : undefined}>Add team</Button></PopoverTrigger>
     <PopoverContent width="md">{open && <TeamPicker owner={owner} excluded={new Set((res.value ?? []).map((t) => t.id))} onPick={(t) => { void change(t, 'PUT'); }} onClose={() => { setOpen(false); }}/>}</PopoverContent>
   </Popover>}>
-    <ResourceList res={res} what="The repository teams" empty={{icon: Users, title: 'No teams with access', description: 'Give an organization team access to this repository.'}}>
-      {(teams) => teams.map((t) => <Entry key={t.id} title={t.name} meta={t.permission} actions={<IconButton icon={Trash2} label={offline ? onlineOnly('Changing team access') : `Remove team ${t.name}`} disabled={offline || busy} onClick={() => { void change(t, 'DELETE'); }}/>}/>)}
+    <ResourceList res={res} what="The repository teams" empty={{icon: PeopleIcon, title: 'No teams with access', description: 'Give an organization team access to this repository.'}}>
+      {(teams) => teams.map((t) => <Entry key={t.id} title={t.name} meta={t.permission} actions={<IconButton icon={TrashIcon} label={offline ? onlineOnly('Changing team access') : `Remove team ${t.name}`} disabled={offline || busy} onClick={() => { void change(t, 'DELETE'); }}/>}/>)}
     </ResourceList>
   </Panel>;
 });

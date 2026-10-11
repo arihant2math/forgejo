@@ -1,27 +1,24 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {LucideIcon} from 'lucide-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 import type {ReactNode} from 'react';
 import {cx} from './cx.ts';
-import {symbolId} from './sprite.ts';
 
-export type {LucideIcon};
+/** An octicon component (transitional name: the app used lucide before Primer). */
+export type LucideIcon = OcticonType;
 
-const sizes = {sm: 'size-3.5', md: 'size-4', lg: 'size-8'} as const;
+const sizes = {sm: 12, md: 16, lg: 32} as const;
 
 export interface IconProps {
-  icon: LucideIcon;
+  icon: OcticonType;
   size?: keyof typeof sizes;
   className?: string;
 }
 
-/** A decorative lucide icon at one of the standard sizes (drawn from a sprite: sprite.ts). */
+/** A decorative octicon at one of the standard sizes. */
 export function Icon({icon: Glyph, size = 'md', className}: IconProps) {
-  const cls = cx(sizes[size], 'shrink-0', className);
-  const id = symbolId(Glyph);
-  if (id) return <svg aria-hidden className={cls}><use href={`#${id}`}/></svg>;
-  return <Glyph aria-hidden className={cls} strokeWidth={1.75}/>;
+  return <Glyph size={sizes[size]} className={cx('shrink-0', className)}/>;
 }
 
 /**

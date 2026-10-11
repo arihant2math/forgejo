@@ -1,12 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {Copy} from 'lucide-react';
 import type {InputHTMLAttributes, ReactNode, Ref, TextareaHTMLAttributes} from 'react';
 import {IconButton} from './Button.tsx';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {control, controlHeight, type ControlSize, field} from './recipes.ts';
+import {CopyIcon} from '@primer/octicons-react';
 
 /** A text input. It has no width of its own: size it with className (w-full, w-64). */
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
@@ -55,7 +54,7 @@ export function CopyField({value, label, copyLabel, onCopy}: {value: string; lab
           e.currentTarget.select();
         }}
         className={cx(control, controlHeight.sm, field, 'min-w-0 flex-1 px-2 font-mono text-code')}/>
-      <IconButton size="sm" icon={Copy} label={copyLabel} onClick={onCopy}/>
+      <IconButton size="sm" icon={CopyIcon} label={copyLabel} onClick={onCopy}/>
     </span>
   );
 }

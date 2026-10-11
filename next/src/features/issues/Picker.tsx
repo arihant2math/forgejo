@@ -8,8 +8,6 @@
 // ones (labels, assignees) stay open for more. One list (CommandPick), shown
 // two ways as in Linear: a key opens it as a command menu that names its
 // issues, a click on a property under that property (PickerPopover).
-
-import {CalendarClock, KanbanSquare} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactElement, useEffect, useState} from 'react';
@@ -18,7 +16,7 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issueProject, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, CommandDialog, CommandPick, CommandPopover, Icon, LabelDot, LabelIcon, type LucideIcon, matchOptions, type PickOption} from '../../ui/index.ts';
+import {Avatar, CommandDialog, CommandPick, CommandPopover, LabelDot, LabelIcon, matchOptions, type PickOption} from '../../ui/index.ts';
 import {shortDate} from './format.ts';
 import {NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
@@ -26,6 +24,8 @@ import {loadPeople, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
 import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
+import {CalendarIcon, ProjectIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 const TITLES: Record<PickerKind, string> = {
   status: 'Change status', priority: 'Set priority', labels: 'Change labels', assignees: 'Change assignees', milestone: 'Set milestone',
@@ -134,7 +134,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
   const options: PickOption[] = [];
   let empty = 'Nothing to choose from in this repository.';
 
-  const labelOption = (l: Label, icon: LucideIcon | undefined, keepOpen: boolean): PickOption => {
+  const labelOption = (l: Label, icon: OcticonType | undefined, keepOpen: boolean): PickOption => {
     const checked = draft ? draft.labels.includes(l.id) : coverage(issues, hasLabel(l.id));
     return {
       value: `l${String(l.id)}`, label: kind === 'labels' ? l.name : scopedValue(l.name), words: l.description, checked, keepOpen,
@@ -175,7 +175,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const scopes = new Set(priorities.map(exclusiveScope));
     if (priorities.length) {
       const none = draft ? !priorities.some((l) => draft.labels.includes(l.id)) : coverage(issues, (i) => !priorities.some((l) => hasLabel(l.id)(i)));
-      options.push({value: 'none', label: 'No priority', checked: none, leading: <Icon icon={NoPriorityIcon} className="text-fg-subtle"/>, onSelect: () => {
+      options.push({value: 'none', label: 'No priority', checked: none, leading: <NoPriorityIcon size={16} className="shrink-0 text-fg-subtle"/>, onSelect: () => {
         if (draft) for (const l of priorities) draft.toggleLabel(l, false, priorities);
         else for (const scope of scopes) clearScope(app, issues, scope);
       }});
@@ -301,7 +301,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const boards = [...pool.model('Project').all()].map((e) => e.data)
       .filter((p) => !p.closed && (p.repo_id === repoId || (p.repo_id === 0 && p.owner_id === repo?.owner_id)))
       .sort((a, b) => a.title.localeCompare(b.title));
-    for (const b of boards) options.push({value: `p${String(b.id)}`, label: b.title, icon: KanbanSquare, checked: b.id === pid, onSelect: () => {
+    for (const b of boards) options.push({value: `p${String(b.id)}`, label: b.title, icon: ProjectIcon, checked: b.id === pid, onSelect: () => {
       set(b.id);
     }});
     empty = 'No open board of this repository or its owner is on this device.';
@@ -318,11 +318,11 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     };
     const typed = parseDue(query);
     const presets = dueOptions(Date.now()).map(({label, day}) => ({
-      value: `due:${label}`, label, meta: shortDate(day), icon: CalendarClock, checked: dues.every((d) => d === day), onSelect: () => {
+      value: `due:${label}`, label, meta: shortDate(day), icon: CalendarIcon, checked: dues.every((d) => d === day), onSelect: () => {
         set(day);
       },
     }));
-    if (typed) options.push({value: 'due:typed', label: `Due ${shortDate(typed)}`, meta: typed, icon: CalendarClock, onSelect: () => {
+    if (typed) options.push({value: 'due:typed', label: `Due ${shortDate(typed)}`, meta: typed, icon: CalendarIcon, onSelect: () => {
       set(typed);
     }});
     options.push(...matchOptions([

@@ -11,7 +11,6 @@
 // them on hover. Writers only see the writing controls; the server decides.
 
 import {Link, useNavigate, useParams, useSearch} from '@tanstack/react-router';
-import {AppWindow, BookOpen, FilePlus2, FileText, Globe, History, List, Pencil, Settings, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type PointerEvent, type ReactNode, useEffect, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
@@ -25,7 +24,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Button, Callout, Dialog, EmptyState, Icon, Input, MenuItem, MenuSeparator, MoreMenu, NavItem, Skeleton, SkeletonText, TextLink,
+  Button, Callout, Dialog, EmptyState, Input, MenuItem, MenuSeparator, MoreMenu, NavItem, Skeleton, SkeletonText, TextLink,
 } from '../../ui/index.ts';
 import type {Loaded} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
@@ -37,6 +36,7 @@ import {ago, agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
+import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon} from '@primer/octicons-react';
 
 /** Pages listed in the side pane at most (the page list has them all). */
 const SIDE_PAGES = 40;
@@ -75,7 +75,7 @@ function WikiFrame({owner, repo, repoId, title, docTitle, controls, children}: {
 }) {
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={BookOpen} title={title} docTitle={docTitle ?? `${title} · Wiki`}>{controls}</RepoHeader>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={BookIcon} title={title} docTitle={docTitle ?? `${title} · Wiki`}>{controls}</RepoHeader>
       {children}
     </>
   );
@@ -167,27 +167,27 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
   return (
     <>
       <Button size="sm" variant="ghost" asChild>
-        <Link to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}><Icon icon={List} size="sm"/>Pages</Link>
+        <Link to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}><ListUnorderedIcon size={12} className="shrink-0"/>Pages</Link>
       </Button>
       {writable && exists && (
         <Button size="sm" variant="ghost" asChild tooltip={offline ? onlineOnly('Editing a wiki page') : undefined}>
-          <Link to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}><Icon icon={Pencil} size="sm"/>Edit</Link>
+          <Link to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}><PencilIcon size={12} className="shrink-0"/>Edit</Link>
         </Button>
       )}
       {writable && (
         <Button size="sm" variant="ghost" asChild>
-          <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}}><Icon icon={FilePlus2} size="sm"/>New page</Link>
+          <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}}><FileAddedIcon size={12} className="shrink-0"/>New page</Link>
         </Button>
       )}
       <MoreMenu label="More of this page">
         {writable && exists && (
-          <MenuItem icon={Trash2} danger disabled={offline} hint={offline ? 'offline' : undefined} onSelect={() => {
+          <MenuItem icon={TrashIcon} danger disabled={offline} hint={offline ? 'offline' : undefined} onSelect={() => {
             setConfirming(true);
           }}>Delete page</MenuItem>
         )}
-        {exists && <ClassicMenuItem to={revisionsPath(owner, repo, page)} icon={History}>Revisions</ClassicMenuItem>}
+        {exists && <ClassicMenuItem to={revisionsPath(owner, repo, page)} icon={HistoryIcon}>Revisions</ClassicMenuItem>}
         {writable && exists && <MenuSeparator/>}
-        <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={AppWindow}>This page</ClassicMenuItem>
+        <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem>
       </MoreMenu>
       {confirming && (
         <Dialog open size="sm" title={`Delete “${title}”?`} description="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." onOpenChange={(o) => {
@@ -281,11 +281,11 @@ const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writab
   if (list.state === 'ready' && list.value.kind !== 'pages') return <NoWiki owner={owner} repo={repo} repoId={repoId} list={list.value} writable={writable}/>;
   const create = writable && page !== SIDEBAR && page !== FOOTER ? (
     <Button variant="primary" asChild>
-      <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}><Icon icon={FilePlus2}/>Create “{pageTitle(page)}”</Link>
+      <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}><FileAddedIcon size={16} className="shrink-0"/>Create “{pageTitle(page)}”</Link>
     </Button>
   ) : undefined;
   return (
-    <EmptyState icon={FileText} title={page === HOME ? 'This wiki has no Home page' : 'No such page'}
+    <EmptyState icon={FileIcon} title={page === HOME ? 'This wiki has no Home page' : 'No such page'}
       description={page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`}
       action={create}/>
   );
@@ -297,21 +297,21 @@ function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclud
   switch (list.kind) {
     case 'disabled':
       return (
-        <EmptyState icon={BookOpen} title="This repository has no wiki" description="Its wiki is turned off."
-          action={admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><Icon icon={Settings} size="md"/>Turn it on in the settings</ClassicLink> : undefined}/>
+        <EmptyState icon={BookIcon} title="This repository has no wiki" description="Its wiki is turned off."
+          action={admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}/>
       );
     case 'external':
       return (
-        <EmptyState icon={Globe} title="This wiki is elsewhere" description={list.url}
-          action={<Button asChild><a href={list.url} rel="noopener noreferrer"><Icon icon={Globe}/>Open the wiki</a></Button>}/>
+        <EmptyState icon={GlobeIcon} title="This wiki is elsewhere" description={list.url}
+          action={<Button asChild><a href={list.url} rel="noopener noreferrer"><GlobeIcon size={16} className="shrink-0"/>Open the wiki</a></Button>}/>
       );
     case 'empty':
       return (
-        <EmptyState icon={BookOpen} title="This wiki has no pages yet"
+        <EmptyState icon={BookIcon} title="This wiki has no pages yet"
           description={writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'}
           action={writable ? (
             <Button variant="primary" asChild>
-              <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}><Icon icon={FilePlus2}/>Create the first page</Link>
+              <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}><FileAddedIcon size={16} className="shrink-0"/>Create the first page</Link>
             </Button>
           ) : undefined}/>
       );
@@ -371,11 +371,11 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
     <>
       {writable && (
         <Button size="sm" variant="ghost" asChild>
-          <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}}><Icon icon={FilePlus2} size="sm"/>New page</Link>
+          <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}}><FileAddedIcon size={12} className="shrink-0"/>New page</Link>
         </Button>
       )}
       <MoreMenu label="More of the wiki">
-        <ClassicMenuItem to={classicWikiPath(owner, repo, {view: 'pages'})} icon={AppWindow}>This page</ClassicMenuItem>
+        <ClassicMenuItem to={classicWikiPath(owner, repo, {view: 'pages'})} icon={BrowserIcon}>This page</ClassicMenuItem>
       </MoreMenu>
     </>
   );
@@ -387,7 +387,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
     body = (
       <RowList items={pages} scroller={scroller} label="Pages" keyOf={(p) => p.name}
         row={(p) => ({
-          leading: <Icon icon={FileText} size="sm"/>,
+          leading: <FileIcon size={12} className="shrink-0"/>,
           main: p.title,
           trailing: p.date ? <>{p.author && <span>{p.author}</span>}<time dateTime={p.date} title={fullDate(p.date)}>{ago(p.date)}</time></> : undefined,
         })}
@@ -488,7 +488,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
   const view: WikiView = page ? {view: 'edit', page: page.name} : {view: 'new'};
   return (
     <WikiFrame owner={owner} repo={repo} repoId={repoId} title={heading}
-      controls={<MoreMenu label="More of this page"><ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={AppWindow}>This page</ClassicMenuItem></MoreMenu>}>
+      controls={<MoreMenu label="More of this page"><ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem></MoreMenu>}>
       <PageBody>
         <PageColumn wide>
           {!writable && <Callout tone="warning" title="You cannot write this wiki">Forgejo will refuse the change.</Callout>}

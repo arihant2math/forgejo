@@ -22,13 +22,14 @@ import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/inde
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {Bold, Code2, Italic, Link2, Paperclip} from 'lucide-react';
-import {Button, EditorFrame, IconButton, type LucideIcon, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
+import {Button, EditorFrame, IconButton, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
 import type {EditMaker, Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
 import {untracked} from 'mobx';
 import {loadPeople, repoPeople} from '../issues/people.ts';
+import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
 let Loaded: Editor | undefined;
@@ -117,7 +118,7 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
 /** A toolbar button of a field: an edit of the selection (applied as one change, like the formatting buttons). */
 export interface EditorTool {
   id: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   label: string;
   edit: EditMaker;
 }
@@ -312,7 +313,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
       if (v === 'write') requestAnimationFrame(() => editor.current?.focus());
     }} options={[{value: 'write', label: 'Write'}, {value: 'preview', label: 'Preview'}]}/>
     <span className="ml-auto flex items-center">
-      {allowed && <Button size="sm" variant="ghost" icon={Paperclip} disabled={preview || !isOnline}
+      {allowed && <Button size="sm" variant="ghost" icon={PaperclipIcon} disabled={preview || !isOnline}
         tooltip={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'} onClick={() => picker.current?.click()}>Attach files</Button>}
       {FORMATS.map(([kind, icon, label, key]) => (
         <IconButton key={kind} size="sm" icon={icon} label={label} shortcut={`${mod}${key}`} disabled={preview || !Editor} onClick={() => {
@@ -381,8 +382,8 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
 });
 
 /** The formatting buttons (the editor's keys: ⌘B, ⌘I, ⌘K, ⌘E). Code: inline for a selection in a line, else a fenced block. */
-const FORMATS: [Format, LucideIcon, string, string][] = [
-  ['bold', Bold, 'Bold', 'B'], ['italic', Italic, 'Italic', 'I'], ['link', Link2, 'Link', 'K'], ['code', Code2, 'Code', 'E'],
+const FORMATS: [Format, OcticonType, string, string][] = [
+  ['bold', BoldIcon, 'Bold', 'B'], ['italic', ItalicIcon, 'Italic', 'I'], ['link', LinkIcon, 'Link', 'K'], ['code', CodeIcon, 'Code', 'E'],
 ];
 
 /**

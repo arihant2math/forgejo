@@ -4,14 +4,12 @@
 // A repository's deploy keys (/{owner}/{repo}/settings/keys): SSH keys that
 // give a machine access to this one repository. Listed from API v1 (kept
 // for the next visit), added in a dialog, deleted after a confirmation.
-
-import {KeyRound, Plus, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {Badge, Button, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Icon, IconButton, Input, TextArea} from '../../ui/index.ts';
+import {Badge, Button, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, IconButton, Input, TextArea} from '../../ui/index.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -19,6 +17,7 @@ import {problemOf} from './problems.ts';
 import {fetchKeys, repoApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
+import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
 
 export const KeySettings = observer(function KeySettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -44,15 +43,15 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
   };
   return (
     <FormSection id="settings-keys" title="Deploy keys" description="SSH keys that can clone (and, with write access, push to) this repository only."
-      actions={<Button size="sm" variant="primary" icon={Plus} disabled={offline} onClick={() => {
+      actions={<Button size="sm" variant="primary" icon={PlusIcon} disabled={offline} onClick={() => {
         setAdding(true);
       }}>Add key</Button>}>
-      <ResourceList res={res} what="The deploy keys" empty={{icon: KeyRound, title: 'No deploy keys', description: 'Add one to let a server or a CI job clone this repository.'}}>
+      <ResourceList res={res} what="The deploy keys" empty={{icon: KeyIcon, title: 'No deploy keys', description: 'Add one to let a server or a CI job clone this repository.'}}>
         {(keys) => keys.map((k) => (
-          <Entry key={k.id} leading={<Icon icon={KeyRound} size="sm"/>} title={k.title}
+          <Entry key={k.id} leading={<KeyIcon size={12} className="shrink-0"/>} title={k.title}
             meta={<time dateTime={k.created_at} title={fullDate(k.created_at)}>{shortDate(k.created_at)}</time>}
             description={<span className="flex flex-wrap items-center gap-1"><Badge tone={k.read_only ? 'neutral' : 'warning'}>{k.read_only ? 'Read' : 'Read and write'}</Badge><Code>{k.fingerprint}</Code></span>}
-            actions={<IconButton size="sm" icon={Trash2} label={`Delete the key “${k.title}”`} disabled={offline} onClick={() => {
+            actions={<IconButton size="sm" icon={TrashIcon} label={`Delete the key “${k.title}”`} disabled={offline} onClick={() => {
               setError(undefined);
               setDeleting(k);
             }}/>}/>

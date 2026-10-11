@@ -11,7 +11,6 @@
 // (refOps.ts drafts: drafts are not synced).
 
 import {useNavigate} from '@tanstack/react-router';
-import {AppWindow, ChevronDown, Package, Paperclip, Plus, Tag, Undo2, X} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -22,7 +21,7 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Button, Callout, Checkbox, Code, CommandPopover, EmptyState, Icon, IconButton, Input, MoreMenu, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {Button, Callout, Checkbox, Code, CommandPopover, EmptyState, IconButton, Input, MoreMenu, Skeleton, SkeletonText} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -38,6 +37,7 @@ import {
   targetCommit, TITLE_MAX,
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
+import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon} from '@primer/octicons-react';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
 interface Editing {
@@ -59,13 +59,13 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
   const {owner, repo, repoId, tag} = props;
   const session = useSession();
   const title = tag === undefined ? 'New release' : `Edit ${tag}`;
-  const controls = <MoreMenu label="More of this page"><ClassicMenuItem to={classicForm(owner, repo, tag)} icon={AppWindow}>This page</ClassicMenuItem></MoreMenu>;
+  const controls = <MoreMenu label="More of this page"><ClassicMenuItem to={classicForm(owner, repo, tag)} icon={BrowserIcon}>This page</ClassicMenuItem></MoreMenu>;
   return (
     <CodeFrame view={props} title={title} controls={controls}>
       {() => (
         <PageColumn>
           {!canWrite(session, repoId) ?
-            <EmptyState icon={Package} title="Writers only" description="Only people who may write this repository's releases make or edit them."/> :
+            <EmptyState icon={PackageIcon} title="Writers only" description="Only people who may write this repository's releases make or edit them."/> :
             tag === undefined ? <ReleaseEditor {...props} editing={undefined}/> : <EditLoader {...props} tag={tag}/>}
         </PageColumn>
       )}
@@ -100,10 +100,10 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   if (now && !opened) setOpened(now);
   const editing = opened ?? now;
   if (editing) return <ReleaseEditor {...props} key={editing.id} editing={editing}/>;
-  if (full.state === 'error' || full.state === 'offline') return <EmptyState icon={Package} title="Not loaded" description="The release's notes could not be loaded. Try again online."/>;
+  if (full.state === 'error' || full.state === 'offline') return <EmptyState icon={PackageIcon} title="Not loaded" description="The release's notes could not be loaded. Try again online."/>;
   if (slot.state === 'loading' || (slot.state === 'ready' && slot.stale) || full.state === 'loading') return <FormSkeleton/>;
   return (
-    <EmptyState icon={Tag} title="No release for this tag" description={slot.state === 'offline' ?
+    <EmptyState icon={TagIcon} title="No release for this tag" description={slot.state === 'offline' ?
       'Drafts are loaded from Forgejo: this one is not on this device.' :
       `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}/>
   );
@@ -208,7 +208,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       {error && <Callout tone="danger" title="Not saved">{error}</Callout>}
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
-          <p className="flex items-center gap-2 text-base text-fg-muted"><Icon icon={Tag} size="sm"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
+          <p className="flex items-center gap-2 text-base text-fg-muted"><TagIcon size={12} className="shrink-0"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
           <>
             <div className="flex flex-wrap items-center gap-2">
               <Input aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX}
@@ -218,10 +218,10 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                 }}/>
               {freeTags.length > 0 && (
                 <CommandPopover width="md" label="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
-                  options={freeTags.map((t) => ({value: t, label: t, icon: Tag, checked: t === tag, onSelect: () => {
+                  options={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
                     set({tag: t});
                   }}))}
-                  trigger={<Button size="sm" variant="ghost">Existing tag<Icon icon={ChevronDown} size="sm"/></Button>}/>
+                  trigger={<Button size="sm" variant="ghost">Existing tag<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
               )}
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
@@ -252,10 +252,10 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
           const gone = removed.includes(a.id);
           return (
             <div key={a.id} className="flex items-center gap-2 text-base">
-              <Icon icon={Paperclip} size="sm"/>
+              <PaperclipIcon size={12} className="shrink-0"/>
               <span className={gone ? 'text-fg-subtle line-through' : 'text-fg'}>{a.name}</span>
               <span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
-              <IconButton size="sm" icon={gone ? Undo2 : X} label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} onClick={() => {
+              <IconButton size="sm" icon={gone ? UndoIcon : XIcon} label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} onClick={() => {
                 setRemoved((r) => (gone ? r.filter((x) => x !== a.id) : [...r, a.id]));
               }}/>
             </div>
@@ -263,9 +263,9 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         })}
         {files.map((f, i) => (
           <div key={`${f.name}:${String(i)}`} className="flex items-center gap-2 text-base">
-            <Icon icon={Plus} size="sm"/><span className="text-fg">{f.name}</span>
+            <PlusIcon size={12} className="shrink-0"/><span className="text-fg">{f.name}</span>
             <span className="text-sm text-fg-subtle tabular-nums">{formatSize(f.size)}</span>
-            <IconButton size="sm" icon={X} label={`Do not upload ${f.name}`} onClick={() => {
+            <IconButton size="sm" icon={XIcon} label={`Do not upload ${f.name}`} onClick={() => {
               setFiles((fs) => fs.filter((_, k) => k !== i));
             }}/>
           </div>
@@ -276,7 +276,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
             setFiles((fs) => [...fs, ...picked]);
             e.target.value = '';
           }}/>
-          <Button size="sm" variant="ghost" icon={Paperclip} onClick={() => picker.current?.click()}>Attach files</Button>
+          <Button size="sm" variant="ghost" icon={PaperclipIcon} onClick={() => picker.current?.click()}>Attach files</Button>
         </div>
       </section>
       <Checkbox label="This is a pre-release (not ready for production)" checked={fields.prerelease} onChange={(prerelease) => {

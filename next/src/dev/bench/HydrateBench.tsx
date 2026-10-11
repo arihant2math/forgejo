@@ -8,8 +8,8 @@
 import {useEffect, useState} from 'react';
 import {CenteredScreen} from '../../app/LoggedOut.tsx';
 import {EmptyState} from '../../ui/index.ts';
-import {Gauge} from 'lucide-react';
 import {type BenchResult, benchHydrate} from './hydrate.ts';
+import {MeterIcon} from '@primer/octicons-react';
 
 declare global {
   interface Window {
@@ -42,7 +42,7 @@ export default function HydrateBench() {
   }, []);
   return (
     <CenteredScreen>
-      <EmptyState icon={Gauge} title="Data layer benchmark" description={text}/>
+      <EmptyState icon={MeterIcon} title="Data layer benchmark" description={text}/>
     </CenteredScreen>
   );
 }

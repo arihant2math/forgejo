@@ -16,7 +16,6 @@
 // in, not the menus.
 
 import {useNavigate} from '@tanstack/react-router';
-import {BookMarked, Milestone as MilestoneIcon, Tag, User} from 'lucide-react';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -39,6 +38,7 @@ import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels
 import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
+import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
 
 /** The dialog's draft in a repository. */
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
@@ -483,19 +483,19 @@ const Properties = observer(function Properties({form}: {form: Form}) {
         options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => {
           form.setRepo(r.id);
         }}))}
-        trigger={<Button size="sm" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button>}/>
+        trigger={<Button size="sm" icon={RepoIcon}>{repo?.full_name ?? 'Repository'}</Button>}/>
       {writable ? <>
         <KindChip form={form} kind="status" labels={ofKind('status')}/>
         <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
         {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
         <PickerPopover kind="labels" draft={form}
           trigger={
-            <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag}>
+            <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={TagIcon}>
               {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
         <PickerPopover kind="assignees" draft={form}
-          trigger={<Button size="sm" variant={who.length ? 'secondary' : 'ghost'} icon={User}>{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
+          trigger={<Button size="sm" variant={who.length ? 'secondary' : 'ghost'} icon={PersonIcon}>{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
         <PickerPopover kind="milestone" draft={form}
           trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
       </> : repoId > 0 && <span className="px-1 text-sm text-fg-subtle">You can read this repository: its maintainers set labels, people and milestones.</span>}

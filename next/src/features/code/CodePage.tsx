@@ -9,7 +9,6 @@
 // and tags, so what was seen once is there offline.
 
 import {useNavigate, useParams} from '@tanstack/react-router';
-import {Code2} from 'lucide-react';
 import {type ReactNode, useEffect, useState} from 'react';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {abbreviatedCommit, codeRestOf, parseCodePath, shortSha} from '../../code/refs.ts';
@@ -27,6 +26,7 @@ import {useLoad, useSource} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {observer} from 'mobx-react-lite';
 import {usePool} from '../issues/cells.tsx';
+import {CodeIcon} from '@primer/octicons-react';
 
 export interface CodeViewProps {
   owner: string;
@@ -62,7 +62,7 @@ export function CodeFrame({view, title, controls, docTitle, children}: {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   return (
     <>
-      <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={Code2} title={title}
+      <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={CodeIcon} title={title}
         docTitle={docTitle ?? (typeof title === 'string' ? title : viewName(view.splat))}>{controls}</RepoHeader>
       <PageBody ref={setScroller}>{children(scroller)}</PageBody>
     </>
@@ -85,7 +85,7 @@ const CodeViews = observer(function CodeViews() {
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={Code2} title="Code"/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={CodeIcon} title="Code"/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );

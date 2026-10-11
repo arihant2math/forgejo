@@ -15,17 +15,17 @@
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
-import {ChevronDown, ChevronRight, FileDiff} from 'lucide-react';
 import {type CSSProperties, type KeyboardEvent, memo, type ReactNode, type Ref, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, Icon, IconButton, LineAction, LineNo, ListRow} from '../../ui/index.ts';
+import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, IconButton, LineAction, LineNo, ListRow} from '../../ui/index.ts';
 import {useSource} from './hooks.ts';
 import {ImageDiff, isImageDiff} from './ImageDiff.tsx';
 import {useDiffSettings} from './DiffSettings.tsx';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
+import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-react';
 
 /** A file header row: the header (h-row, 32) after an 8 px gap. */
 export const FILE_ROW = 40;
@@ -261,7 +261,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   };
   const lastFileStart = v.measurementsCache[fileRow[files.length - 1] ?? 0]?.start ?? 0;
   const lastFileHeight = Math.max(0, v.getTotalSize() - (lastFileStart - margin));
-  if (!files.length) return <EmptyState icon={FileDiff} title="No changes" description={whitespace ? 'No changes remain with whitespace hidden.' : 'These two commits have the same content.'}/>;
+  if (!files.length) return <EmptyState icon={FileDiffIcon} title="No changes" description={whitespace ? 'No changes remain with whitespace hidden.' : 'These two commits have the same content.'}/>;
   const floating = topRow !== fileRow[current] && files[current];
   const active = rows[cursor];
   return (
@@ -415,7 +415,7 @@ const FileHeader = memo(function FileHeader({file, f, extras}: {file: DiffFile; 
     <CodeFileHeader path={filePath(file)} oldPath={file.status === 'renamed' ? file.oldPath : undefined} status={STATUS[file.status]}
       stat={<DiffStat additions={file.additions} deletions={file.deletions}/>}
       leading={extras ? (
-        <IconButton size="sm" icon={collapsed ? ChevronRight : ChevronDown} label={collapsed ? 'Expand the file' : 'Collapse the file'} aria-expanded={!collapsed} onClick={() => {
+        <IconButton size="sm" icon={collapsed ? ChevronRightIcon : ChevronDownIcon} label={collapsed ? 'Expand the file' : 'Collapse the file'} aria-expanded={!collapsed} onClick={() => {
           extras.onToggle(f);
         }}/>
       ) : undefined}>
@@ -438,14 +438,14 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
   return (
     <section aria-label="Changed files" className="sticky left-0 w-view border-b border-border-subtle py-1">
       <div className="flex h-control items-center gap-2 px-4 text-sm text-fg-muted">
-        <IconButton size="sm" icon={open ? ChevronDown : ChevronRight} label={open ? 'Hide the files' : 'Show the files'} aria-expanded={open} onClick={() => {
+        <IconButton size="sm" icon={open ? ChevronDownIcon : ChevronRightIcon} label={open ? 'Hide the files' : 'Show the files'} aria-expanded={open} onClick={() => {
           setOpen((o) => !o);
         }}/>
         <span className="text-fg">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
         <DiffStat additions={additions} deletions={deletions}/>
       </div>
       {open && files.map((f, i) => (
-        <ListRow role="presentation" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`} leading={<Icon icon={FileDiff} size="sm"/>}
+        <ListRow role="presentation" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`} leading={<FileDiffIcon size={12} className="shrink-0"/>}
           trailing={<DiffStat additions={f.additions} deletions={f.deletions}/>}
           onClick={(e) => {
             e.preventDefault();

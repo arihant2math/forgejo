@@ -6,10 +6,10 @@
 // one is current. Small on purpose: the issue list's chunk includes it.
 
 import {Link} from '@tanstack/react-router';
-import {Milestone as MilestoneIcon, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useSession} from '../../app/store.ts';
-import {Button, Icon} from '../../ui/index.ts';
+import {Button} from '../../ui/index.ts';
+import {MilestoneIcon, TagIcon} from '@primer/octicons-react';
 
 export const IssueNav = observer(function IssueNav({owner, repo, repoId, current}: {owner: string; repo: string; repoId: number | undefined; current?: 'labels' | 'milestones' | undefined}) {
   const {data} = useSession();
@@ -27,12 +27,12 @@ export const IssueNav = observer(function IssueNav({owner, repo, repoId, current
     <>
       <Button size="sm" variant={look(current === 'labels')} asChild tooltip="The repository's labels">
         <Link to="/$owner/$repo/labels" params={{owner, repo}} aria-current={current === 'labels' ? 'page' : undefined} activeProps={{}}>
-          <Icon icon={Tag} size="sm"/>Labels{labels > 0 && <span className="text-fg-subtle tabular-nums">{labels}</span>}
+          <TagIcon size={12} className="shrink-0"/>Labels{labels > 0 && <span className="text-fg-subtle tabular-nums">{labels}</span>}
         </Link>
       </Button>
       <Button size="sm" variant={look(current === 'milestones')} asChild tooltip="The repository's milestones">
         <Link to="/$owner/$repo/milestones" params={{owner, repo}} aria-current={current === 'milestones' ? 'page' : undefined} activeProps={{}}>
-          <Icon icon={MilestoneIcon} size="sm"/>Milestones{milestones > 0 && <span className="text-fg-subtle tabular-nums">{milestones}</span>}
+          <MilestoneIcon size={12} className="shrink-0"/>Milestones{milestones > 0 && <span className="text-fg-subtle tabular-nums">{milestones}</span>}
         </Link>
       </Button>
     </>

@@ -15,7 +15,6 @@
 //            offline with the reason), never queued.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Reply, Trash2, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {Link, useLocation} from '@tanstack/react-router';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -71,6 +70,7 @@ import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
+import {CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 
 export type PullTabName = 'files' | 'commits' | 'checks';
 
@@ -97,7 +97,7 @@ function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; c
 
 export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {tab: PullTabName}) {
   const {pr, commits, loading} = usePullCommits(props.issue);
-  if (!pr) return <EmptyState icon={GitPullRequest} title="Not on this device" description="This pull request's details have not arrived yet."/>;
+  if (!pr) return <EmptyState icon={GitPullRequestIcon} title="Not on this device" description="This pull request's details have not arrived yet."/>;
   if (!commits) return <Unloaded loaded={loading.state === 'ready' ? {state: 'loading'} : loading} what="This pull request's head"/>;
   switch (tab) {
     case 'files':
@@ -339,7 +339,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
       const path = files[f] ? filePath(files[f]) : '';
       const on = viewed.paths.has(path);
       return (
-        <Button size="sm" pressed={on} icon={on ? Check : Eye} shortcut={shortcutHint('diff.viewed')}
+        <Button size="sm" pressed={on} icon={on ? CheckIcon : EyeIcon} shortcut={shortcutHint('diff.viewed')}
           tooltip={viewed.older.has(path) ? 'Viewed at an earlier commit (not known whether it changed since)' : on ? 'Mark as not viewed' : 'Mark as viewed'}
           onClick={() => {
             setViewed(f, !on);
@@ -390,9 +390,9 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
             row={({f, i}) => {
               const n = counts.get(i);
               return {
-                leading: <Icon icon={viewed.paths.has(filePath(f)) ? CircleCheck : FileDiff} size="sm"/>,
+                leading: <Icon icon={viewed.paths.has(filePath(f)) ? CheckCircleIcon : FileDiffIcon} size="sm"/>,
                 main: <span title={filePath(f)}>{filePath(f)}</span>,
-                trailing: n ? <span className="flex items-center gap-1"><Icon icon={MessageSquare} size="sm"/>{n}</span> : undefined,
+                trailing: n ? <span className="flex items-center gap-1"><CommentIcon size={12} className="shrink-0"/>{n}</span> : undefined,
               };
             }}
             onOpen={({i}) => {
@@ -424,7 +424,7 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
   return (
     // Sticky: the pending count and Review stay in reach anywhere in a long diff.
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
-      <IconButton size="sm" icon={listOpen ? PanelLeftClose : PanelLeftOpen} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
+      <IconButton size="sm" icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
       {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
       <DiffSettings/>
@@ -447,7 +447,7 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
       <MenuTrigger asChild>
         <Button size="sm" variant="ghost" className="min-w-0" aria-label={`${label}: choose the changes shown`} tooltip="Choose the changes shown">
           <span className="min-w-0 truncate">{label} <span className="text-fg-subtle">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
-          <Icon icon={ChevronDown} size="sm"/>
+          <ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       </MenuTrigger>
       <MenuContent>
@@ -578,7 +578,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
       )}
       {!composing && posted && (
         <div className="flex items-center gap-2">
-          <Button ref={replyButton} size="sm" variant="ghost" icon={Reply} onClick={() => {
+          <Button ref={replyButton} size="sm" variant="ghost" icon={ReplyIcon} onClick={() => {
             setComposing({f, l, initial: ''});
           }}>Reply</Button>
           {root && <ResolveButton root={root} issue={issue}/>}
@@ -611,8 +611,8 @@ function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: numbe
   return (
     <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Badge tone="accent">Draft</Badge>}
       actions={<>
-        {onEdit && <IconButton size="sm" icon={Pencil} label="Edit the comment" onClick={onEdit}/>}
-        <IconButton size="sm" icon={Trash2} label="Delete the comment" onClick={onDelete}/>
+        {onEdit && <IconButton size="sm" icon={PencilIcon} label="Edit the comment" onClick={onEdit}/>}
+        <IconButton size="sm" icon={TrashIcon} label="Delete the comment" onClick={onDelete}/>
       </>}>
       {/* Rendered as it will be posted (Forgejo's rendering online; the text as written offline). */}
       <MarkdownPreview repoId={repoId} text={d.text}/>
@@ -718,7 +718,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
   const pool = usePool();
   const {statuses, runs, awaitingApproval} = checksOf(pool, pr, commits.head);
   const check = useMergeCheck(awaitingApproval > 0 ? issue : undefined, pr);
-  if (!statuses.length && !runs.length) return <EmptyState icon={Workflow} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
+  if (!statuses.length && !runs.length) return <EmptyState icon={WorkflowIcon} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
   return (
     <PageColumn wide>
       {awaitingApproval > 0 && <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>}
@@ -860,7 +860,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   if (pr.merged) {
     state = (
       <>
-        <Icon icon={GitMerge} className="text-done"/> Merged{pr.merged_at ? <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
+        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
         {pr.merge_commit_sha && repo && <> as <TextLink><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></CodeLink></TextLink></>}
       </>
     );
@@ -884,14 +884,14 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
         <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
           The branch <Code>{pr.head_branch}</Code> can be deleted{pr.merged ? ': its work is merged' : ''}.
-          <Button size="sm" icon={Trash2} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+          <Button size="sm" icon={TrashIcon} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
             setDeleteConfirm(true);
           }}>Delete branch</Button>
         </p>
       )}
       {deleteConfirm && headRef.length === 2 && <Dialog open title="Delete branch" description={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} onOpenChange={setDeleteConfirm} footer={<>
         <Button variant="ghost" onClick={() => { setDeleteConfirm(false); }}>Cancel</Button>
-        <Button variant="danger" icon={Trash2} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+        <Button variant="danger" icon={TrashIcon} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
           setDeleteConfirm(false);
           setBusy(true);
           deleteBranch(app, {id: pr.head_repo_id, owner: headRef[0] ?? '', name: headRef[1] ?? ''}, pr.head_branch).then(() => {
@@ -910,7 +910,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {!pr.merged && !closed && path && write && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
-          <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy || !primary}
+          <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMergeIcon} disabled={!isOnline || busy || !!mergeWhy || !primary}
             tooltip={offlineWhy('Merging') ?? mergeWhy} onClick={() => {
               if (primary) setStyle(primary.style as MergeStyle);
             }}>{primary?.label ?? 'Merge'}…</Button>
@@ -918,7 +918,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             <MenuTrigger asChild>
               <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
                 aria-label="Choose merge method" tooltip={offlineWhy('Merging') ?? mergeWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
-                <Icon icon={ChevronDown} size="sm"/>
+                <ChevronDownIcon size={12} className="shrink-0"/>
               </Button>
             </MenuTrigger>
             <MenuContent>
@@ -934,7 +934,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             <Button disabled={!isOnline || busy} tooltip={offlineWhy('Canceling the auto-merge')} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</Button> :
-            checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
+            checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMergeIcon} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
             }}>Merge when checks succeed</Button>}
@@ -943,7 +943,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
             }}>Update branch</Button>
           {config && <Menu>
-            <MenuTrigger asChild><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><Icon icon={ChevronDown} size="sm"/></Button></MenuTrigger>
+            <MenuTrigger asChild><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
             <MenuContent>
               <MenuItem onSelect={() => {
                 run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
@@ -1000,7 +1000,7 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
       if (!o) onClose();
     }} footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" icon={GitMerge} disabled={!!reason} tooltip={reason} onClick={merge}>Merge</Button>
+      <Button variant="primary" icon={GitMergeIcon} disabled={!!reason} tooltip={reason} onClick={merge}>Merge</Button>
     </>}>
       <div className="flex flex-col gap-3">
         {reason && <Callout tone="warning" title={reason}/>}

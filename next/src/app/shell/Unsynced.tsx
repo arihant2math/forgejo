@@ -8,7 +8,6 @@
 // the sync indicator and from notices.
 
 import {useNavigate} from '@tanstack/react-router';
-import {CircleAlert, CircleDashed, CloudCheck, Copy, GitMerge, RotateCw, Trash2, TriangleAlert} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useId} from 'react';
@@ -16,9 +15,10 @@ import {discardable, type IntentRecord} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {DraftRecord} from '../../intents/store.ts';
-import {Button, Dialog, EmptyState, Entry, EntryList, Icon, IconButton, SectionHeading} from '../../ui/index.ts';
+import {Button, Dialog, EmptyState, Entry, EntryList, IconButton, SectionHeading} from '../../ui/index.ts';
 import {notify} from '../notices.ts';
 import {type App, useApp} from '../store.ts';
+import {AlertIcon, IssueDraftIcon, CheckCircleIcon, CopyIcon, GitMergeIcon, RedoIcon, TrashIcon} from '@primer/octicons-react';
 
 export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const app = useApp();
@@ -41,7 +41,7 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
       if (!open) close();
     }} description={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'}
     footer={<Button onClick={close}>Close</Button>}>
-      {empty ? <EmptyState icon={CloudCheck} tone="success" title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
+      {empty ? <EmptyState icon={CheckCircleIcon} tone="success" title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
         <div className="flex flex-col gap-4">
           {parked.length > 0 && (
             <Section title="Conflicts">
@@ -136,7 +136,7 @@ function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: (
   const w = where(app, rec.intent, rec.issueNumber);
   return (
     <Entry
-      leading={<Icon icon={GitMerge} className="text-warning"/>}
+      leading={<GitMergeIcon size={16} className="shrink-0 text-warning"/>}
       title={describeIntent(rec.intent, names(app))}
       meta={w.meta}
       description="You and someone else changed the same lines. Open it to resolve the conflict in the editor."
@@ -145,10 +145,10 @@ function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: (
           onOpen();
           void navigate({to: w.path ?? '/'});
         }}>Resolve</Button>}
-        <IconButton size="sm" icon={Copy} label="Copy your text" onClick={() => {
+        <IconButton size="sm" icon={CopyIcon} label="Copy your text" onClick={() => {
           copy(app, intentText(rec.intent) ?? '');
         }}/>
-        <IconButton size="sm" icon={Trash2} label="Discard your change" onClick={() => {
+        <IconButton size="sm" icon={TrashIcon} label="Discard your change" onClick={() => {
           discardWithUndo(app, rec);
         }}/>
       </>}
@@ -161,18 +161,18 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
   const w = where(app, draft.issueId === undefined || draft.repoId === undefined ? undefined : {issueId: draft.issueId, repoId: draft.repoId}, draft.issueNumber);
   return (
     <Entry
-      leading={draft.kind === 'failed' ? <Icon icon={CircleAlert} className="text-danger"/> : <Icon icon={CircleDashed}/>}
+      leading={draft.kind === 'failed' ? <AlertIcon size={16} className="shrink-0 text-danger"/> : <IssueDraftIcon size={16} className="shrink-0"/>}
       title={draft.title}
       meta={w.meta}
       description={excerpt(draft.text) ? <>{excerpt(draft.text)}<br/>{draft.reason}</> : draft.reason}
       actions={<>
-        {draft.intent && !draft.refused && <IconButton size="sm" icon={RotateCw} label="Retry" onClick={() => {
+        {draft.intent && !draft.refused && <IconButton size="sm" icon={RedoIcon} label="Retry" onClick={() => {
           intents.retry(draft.key);
         }}/>}
-        {draft.text !== undefined && <IconButton size="sm" icon={Copy} label="Copy the text" onClick={() => {
+        {draft.text !== undefined && <IconButton size="sm" icon={CopyIcon} label="Copy the text" onClick={() => {
           copy(app, draft.text ?? '');
         }}/>}
-        <IconButton size="sm" icon={Trash2} label="Discard" onClick={() => {
+        <IconButton size="sm" icon={TrashIcon} label="Discard" onClick={() => {
           void intents.discardDraft(draft.key).then(() => {
             notify(app, {tone: 'neutral', title: 'Discarded', description: draft.title, action: {label: 'Undo', run: () => {
               void intents.restoreDraft(draft);
@@ -202,11 +202,11 @@ function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline
   const tried = rec.req !== undefined;
   return (
     <Entry
-      leading={rec.attempts > 2 ? <Icon icon={TriangleAlert} className="text-warning"/> : <Icon icon={CircleDashed}/>}
+      leading={rec.attempts > 2 ? <AlertIcon size={16} className="shrink-0 text-warning"/> : <IssueDraftIcon size={16} className="shrink-0"/>}
       title={describeIntent(rec.intent, names(app))}
       meta={w.meta}
       description={text ? <>{text}<br/>{state}</> : state}
-      actions={discardable(rec) ? <IconButton size="sm" icon={Trash2} label={tried ? 'Stop sending (it may have reached Forgejo)' : 'Discard (not sent yet)'} onClick={() => {
+      actions={discardable(rec) ? <IconButton size="sm" icon={TrashIcon} label={tried ? 'Stop sending (it may have reached Forgejo)' : 'Discard (not sent yet)'} onClick={() => {
         discardWithUndo(app, rec);
       }}/> : undefined}
     />

@@ -13,7 +13,6 @@
 // chunk.
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
-import {BookPlus, ChevronDown, FileStack, Globe, Lock} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
@@ -23,7 +22,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, Callout, Checkbox, CommandPopover, Icon, Input, SegmentedControl} from '../../ui/index.ts';
+import {Avatar, Button, Callout, Checkbox, CommandPopover, Input, SegmentedControl} from '../../ui/index.ts';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -31,6 +30,7 @@ import {
 import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} from './owners.ts';
 import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
+import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
 
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
 
@@ -128,7 +128,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
 
   return (
     <>
-      <PageHeader icon={BookPlus} title="New repository">
+      <PageHeader icon={RepoIcon} title="New repository">
         <ClassicLink to="/repo/migrate" size="sm">New migration</ClassicLink>
       </PageHeader>
       <PageBody>
@@ -152,11 +152,11 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                     {value: '0', label: 'No template', checked: template === 0, onSelect: () => {
                       setTemplate(0);
                     }},
-                    ...templates.map((t) => ({value: String(t.id), label: t.full_name, words: t.description, icon: FileStack, checked: t.id === template, onSelect: () => {
+                    ...templates.map((t) => ({value: String(t.id), label: t.full_name, words: t.description, icon: StackIcon, checked: t.id === template, onSelect: () => {
                       setTemplate(t.id);
                     }})),
                   ]}
-                  trigger={<Button id="new-repo-template" variant="secondary" aria-describedby={hintOf('new-repo-template')}>{tpl?.full_name ?? 'No template'}<Icon icon={ChevronDown} size="sm"/></Button>}/>
+                  trigger={<Button id="new-repo-template" variant="secondary" aria-describedby={hintOf('new-repo-template')}>{tpl?.full_name ?? 'No template'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
               </div>
             </Field>
 
@@ -189,9 +189,9 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <Choice name="new-repo-visibility" label="Visibility" value={priv || forced ? 'private' : 'public'} onChange={(v) => {
                 setPriv(v === 'private');
               }} options={[
-                {value: 'public', label: 'Public', icon: Globe, description: 'Anyone who can see the owner can see this repository. You choose who can commit.',
+                {value: 'public', label: 'Public', icon: GlobeIcon, description: 'Anyone who can see the owner can see this repository. You choose who can commit.',
                   disabled: forced ? 'This instance makes every new repository private.' : undefined},
-                {value: 'private', label: 'Private', icon: Lock, description: 'You choose who can see and commit to this repository.'},
+                {value: 'private', label: 'Private', icon: LockIcon, description: 'You choose who can see and commit to this repository.'},
               ]}/>
             </Section>
 
@@ -305,7 +305,7 @@ export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[
       }))}
       trigger={
         <Button id="new-repo-owner" variant="secondary">
-          {owner ? <><Avatar size="sm" name={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}<Icon icon={ChevronDown} size="sm"/>
+          {owner ? <><Avatar size="sm" name={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}<ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       }/>
   );

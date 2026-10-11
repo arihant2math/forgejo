@@ -10,9 +10,10 @@ import {type ReactNode, useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import type {App} from '../../app/store.ts';
-import {Button, Callout, EmptyState, EntryList, Skeleton, type LucideIcon} from '../../ui/index.ts';
+import {Button, Callout, EmptyState, EntryList, Skeleton} from '../../ui/index.ts';
 import {problemOf} from './problems.ts';
 import type {Resource} from './resource.ts';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 function same(a: unknown, b: unknown): boolean {
   return Object.is(a, b) || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
@@ -98,7 +99,7 @@ export function ResourceList<T>({res, what, empty, children}: {
   res: Resource<T[]>;
   /** What the list is, as the subject of a sentence ("The webhooks"). */
   what: string;
-  empty: {icon: LucideIcon; title: string; description: string; action?: ReactNode};
+  empty: {icon: OcticonType; title: string; description: string; action?: ReactNode};
   children: (items: T[]) => ReactNode;
 }) {
   if (res.value === undefined) {

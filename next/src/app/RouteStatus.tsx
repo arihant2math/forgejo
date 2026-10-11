@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {type ErrorComponentProps, useRouterState} from '@tanstack/react-router';
-import {FileQuestion, RefreshCw} from 'lucide-react';
 import {useEffect} from 'react';
 import {observer} from 'mobx-react-lite';
 import {reach} from './online.ts';
@@ -14,6 +13,7 @@ import {isChunkError, reloadOnce} from './reload.ts';
 import {PageBody} from './shell/Frame.tsx';
 import {PageHeader} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
+import {QuestionIcon, SyncIcon} from '@primer/octicons-react';
 
 /** The not-found page's body (and the classic link) in its own chunk: rare, and off the boot route. */
 const Missing = lazyComponent(() => import('./Missing.tsx').then((m) => m.Missing));
@@ -27,7 +27,7 @@ export function RouteError({error}: ErrorComponentProps) {
   return (
     <CenteredScreen>
       <EmptyState
-        icon={RefreshCw}
+        icon={SyncIcon}
         title="This page could not load"
         description="Check your connection, then reload."
         action={<Button variant="primary" onClick={() => { location.reload(); }}>Reload</Button>}
@@ -62,7 +62,7 @@ export const ShellNotFound = observer(function ShellNotFound() {
   const title = r === 'offline' ? 'Not available offline' : r === 'unreachable' ? 'Can’t reach Forgejo' : classic ? 'Not available here' : 'Not found';
   return (
     <>
-      <PageHeader icon={FileQuestion} title={title}/>
+      <PageHeader icon={QuestionIcon} title={title}/>
       <PageBody>
         <Missing what="This page" description={classic ? 'Forgejo Next has no page for this address yet. The classic UI has it.' : 'There is no page at this address.'} classic={classic}/>
       </PageBody>

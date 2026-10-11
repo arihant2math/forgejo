@@ -13,7 +13,6 @@
 // GitHub's links do).
 
 import {Link, useNavigate, useSearch} from '@tanstack/react-router';
-import {ChevronDown, GitBranch, GitCompare, GitPullRequest, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {reach} from '../../app/online.ts';
@@ -24,7 +23,7 @@ import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
 import type {Pool} from '../../data/pool.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Callout, CommandPick, CommandPopover, EmptyState, Icon, type PickOption, SectionHeading, TextLink} from '../../ui/index.ts';
+import {Button, Callout, CommandPick, CommandPopover, EmptyState, type PickOption, SectionHeading, TextLink} from '../../ui/index.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople} from '../issues/people.ts';
@@ -43,6 +42,7 @@ import {
 import {NewPull, OutlookLine} from './NewPull.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
+import {ChevronDownIcon, GitBranchIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
 
 /**
  * The merge base's candidates: the parents of the new commits that are not new
@@ -159,7 +159,7 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
         <Compared {...sides} baseSha={base} headSha={head} scroller={scroller} onClose={() => {
           setOpen(false);
         }}/> :
-        <EmptyState icon={GitCompare} title="Branch or tag not found" description={`${base ? headName : baseName} does not exist, or is not on this device.`}/>)}
+        <EmptyState icon={GitCompareIcon} title="Branch or tag not found" description={`${base ? headName : baseName} does not exist, or is not on this device.`}/>)}
     </CodeFrame>
   );
 });
@@ -182,7 +182,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
     void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
   };
   const option = (ref: string, tag: boolean): PickOption => ({
-    value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : `${owner}/${repo}`, icon: tag ? Tag : GitBranch,
+    value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : `${owner}/${repo}`, icon: tag ? TagIcon : GitBranchIcon,
     meta: !tag && ref === refs.defaultBranch ? 'default' : undefined, checked: ref === value,
     onSelect: () => {
       if (onPick) {
@@ -197,7 +197,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const upHead = side === 'base' && up ? head || refs.defaultBranch : '';
   if (up && upHead && refs.branches.has(upHead)) {
     options.push({
-      value: `upstream:${up.owner}/${up.name}:${up.defaultBranch}`, label: up.defaultBranch, group: `${up.owner}/${up.name} (upstream)`, icon: GitBranch,
+      value: `upstream:${up.owner}/${up.name}:${up.defaultBranch}`, label: up.defaultBranch, group: `${up.owner}/${up.name} (upstream)`, icon: GitBranchIcon,
       words: `${up.owner}/${up.name}`, meta: 'default', checked: false, onSelect: () => {
         go(codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, upHead))));
       },
@@ -205,14 +205,14 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   }
   if (side === 'head') {
     for (const f of forks) {
-      options.push({...f, icon: GitBranch, checked: f.value === value, onSelect: () => {
+      options.push({...f, icon: GitBranchIcon, checked: f.value === value, onSelect: () => {
         go(codeTo(owner, repo, compareSplat(base, f.value)));
       }});
     }
     // A fork's branch typed as `owner:branch` (or `owner/repo:branch`), listed or not.
     const typed = typedForkHead(query);
     if (typed && !forks.some((f) => f.value === typed)) {
-      options.unshift({value: `typed:${typed}`, label: typed, group: 'A fork\u2019s branch', icon: GitBranch, onSelect: () => {
+      options.unshift({value: `typed:${typed}`, label: typed, group: 'A fork\u2019s branch', icon: GitBranchIcon, onSelect: () => {
         go(codeTo(owner, repo, compareSplat(base, typed)));
       }});
     }
@@ -240,8 +240,8 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
           empty={side === 'head' ? 'No branch or tag of that name. A fork\u2019s branch: owner:branch.' : 'No branch or tag is on this device.'}/>
       )}
       trigger={
-        <Button size="sm" icon={GitBranch} aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
-          <span className="max-w-xs truncate font-mono">{value || 'Choose a branch'}</span><Icon icon={ChevronDown} size="sm"/>
+        <Button size="sm" icon={GitBranchIcon} aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
+          <span className="max-w-xs truncate font-mono">{value || 'Choose a branch'}</span><ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       }/>
   );
@@ -267,7 +267,7 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
   if (pr) {
     return (
       <Button size="sm" variant="ghost" asChild>
-        <Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}><Icon icon={GitPullRequest} size="sm"/>Pull request #{pr.number}</Link>
+        <Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}><GitPullRequestIcon size={12} className="shrink-0"/>Pull request #{pr.number}</Link>
       </Button>
     );
   }
@@ -275,7 +275,7 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
   // or the form is open already.
   if (open || !pair || info.state !== 'ready' || info.value.commits.length === 0) return null;
   return (
-    <Button size="sm" variant="primary" icon={GitPullRequest} tooltip={`Propose merging ${head} into ${base}`} onPointerEnter={() => {
+    <Button size="sm" variant="primary" icon={GitPullRequestIcon} tooltip={`Propose merging ${head} into ${base}`} onPointerEnter={() => {
       void preloadEditor().catch(() => undefined);
       loadPeople(app, repoId);
     }} onClick={onOpen}>New pull request</Button>
@@ -295,7 +295,7 @@ const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, he
       actions={
         <Button size="sm" variant="primary" asChild>
           <Link {...codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, head)))} {...(open ? {search: {expand: '1'} as never} : {})}>
-            <Icon icon={GitPullRequest} size="sm"/>Compare with {upName}:{up.defaultBranch}
+            <GitPullRequestIcon size={12} className="shrink-0"/>Compare with {upName}:{up.defaultBranch}
           </Link>
         </Button>
       }>
@@ -326,7 +326,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   if (!info.value.commits.length) {
     // Named as the user chose them (refs, not SHAs).
     const nothing = pullable ? ' There is nothing to open a pull request for.' : '';
-    return <EmptyState icon={GitCompare} title="Nothing to compare" description={baseSha === headSha ?
+    return <EmptyState icon={GitCompareIcon} title="Nothing to compare" description={baseSha === headSha ?
       `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}/>;
   }
   return (
@@ -406,13 +406,13 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
   const choices = headChoices(all.map((b): BranchChoice => ({name: b.name, commitTime: b.commit_time, pusherId: b.pusher_id})), base, session.userId);
   const rows = useCodeRows<BranchChoice>(owner, repo, (b) => compareSplat(base, b.name));
   if (!refs.branches.has(base)) {
-    return <EmptyState icon={GitCompare} title="Branch not found" description={`${base || 'The default branch'} does not exist, or is not on this device.`}/>;
+    return <EmptyState icon={GitCompareIcon} title="Branch not found" description={`${base || 'The default branch'} does not exist, or is not on this device.`}/>;
   }
   const mine = <MyForkBranches owner={owner} repo={repo} base={base}/>;
   if (!choices.length) {
     return <>
       {mine}
-      <EmptyState icon={GitBranch} title="No other branch" description={`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}/>
+      <EmptyState icon={GitBranchIcon} title="No other branch" description={`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}/>
     </>;
   }
   return (
@@ -421,7 +421,7 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
       <div className="px-4 pt-3 pb-1"><SectionHeading>{`Choose a branch to merge into ${base}`}</SectionHeading></div>
       <RowList items={choices} scroller={scroller} label="Branches" keyOf={(b) => b.name}
         row={(b) => ({
-          leading: <Icon icon={GitBranch} size="sm"/>,
+          leading: <GitBranchIcon size={12} className="shrink-0"/>,
           main: <><span className="font-mono">{b.name}</span> <span className="text-fg-subtle">{summary(byName.get(b.name)?.commit_message ?? '')}</span></>,
           trailing: b.commitTime ? <Ago at={b.commitTime}/> : undefined,
         })}
@@ -469,7 +469,7 @@ const MyForkBranches = observer(function MyForkBranches({owner, repo, base}: {ow
       <ul className="mt-1 flex flex-col gap-1">
         {list.map((b) => (
           <li key={b.value} className="flex items-center gap-2 text-base">
-            <Icon icon={GitBranch} size="sm"/>
+            <GitBranchIcon size={12} className="shrink-0"/>
             <TextLink><Link {...codeTo(owner, repo, compareSplat(base, b.value))} search={{expand: '1'} as never}><span className="font-mono">{b.value}</span></Link></TextLink>
             <span className="text-sm text-fg-subtle">{b.group}</span>
           </li>

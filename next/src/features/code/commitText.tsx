@@ -9,7 +9,6 @@
 // move: asked for online, not cached).
 
 import {Link} from '@tanstack/react-router';
-import {GitBranch, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {useApp} from '../../app/store.ts';
@@ -21,6 +20,7 @@ import {commitRow, summary} from './bits.tsx';
 import {useLoad} from './hooks.ts';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
+import {GitBranchIcon, TagIcon} from '@primer/octicons-react';
 
 /** A piece of a message: text, or a reference to issue `index` of `repo` (owner/name; undefined: this repository). */
 export type MessagePart = {text: string} | {ref: string; repo: string | undefined; index: string};
@@ -101,7 +101,7 @@ function RefList({owner, repo, kind, names}: {owner: string; repo: string; kind:
   const what = kind === 'tag' ? (names.length === 1 ? 'tag' : 'tags') : (names.length === 1 ? 'branch' : 'branches');
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="flex items-center gap-1"><Icon icon={kind === 'tag' ? Tag : GitBranch} size="sm"/>{`In ${String(names.length)} ${what}:`}</span>
+      <span className="flex items-center gap-1"><Icon icon={kind === 'tag' ? TagIcon : GitBranchIcon} size="sm"/>{`In ${String(names.length)} ${what}:`}</span>
       {shown.map((n) => (
         <TextLink key={n} accent><CodeLink owner={owner} repo={repo} to={`src/${kind}/${n}`}><span className="font-mono">{n}</span></CodeLink></TextLink>
       ))}

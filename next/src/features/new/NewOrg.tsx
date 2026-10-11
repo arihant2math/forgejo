@@ -9,7 +9,6 @@
 // pool holds it. Its own chunk.
 
 import {useNavigate} from '@tanstack/react-router';
-import {Building2, EyeOff, Globe, Users} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useState} from 'react';
 import {onlineWrite} from '../../app/api.ts';
@@ -22,6 +21,7 @@ import {Button, Callout, Checkbox, Input} from '../../ui/index.ts';
 import {creationScope, newOrgRequest, ORG_NAME_MAX, orgNameProblem, orgRefusal, type OrgVisibility, type Refusal, scopeAllows} from './forms.ts';
 import {loginTaken} from './owners.ts';
 import {Choice, Field, hintOf, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
+import {OrganizationIcon, EyeClosedIcon, GlobeIcon, PeopleIcon} from '@primer/octicons-react';
 
 export const NewOrg = observer(function NewOrg() {
   const app = useApp();
@@ -70,7 +70,7 @@ export const NewOrg = observer(function NewOrg() {
 
   return (
     <>
-      <PageHeader icon={Building2} title="New organization"/>
+      <PageHeader icon={OrganizationIcon} title="New organization"/>
       <PageBody>
         <PageColumn>
           <form className="flex flex-col gap-4" noValidate onSubmit={create} onKeyDown={(e) => {
@@ -96,9 +96,9 @@ export const NewOrg = observer(function NewOrg() {
 
             <Section title="Visibility">
               <Choice name="new-org-visibility" label="Visibility" value={visibility} onChange={setVisibility} options={[
-                {value: 'public', label: 'Public', icon: Globe, description: 'Anyone can see the organization.'},
-                {value: 'limited', label: 'Limited', icon: Users, description: 'Only signed-in users can see the organization.'},
-                {value: 'private', label: 'Private', icon: EyeOff, description: 'Only its members can see the organization.'},
+                {value: 'public', label: 'Public', icon: GlobeIcon, description: 'Anyone can see the organization.'},
+                {value: 'limited', label: 'Limited', icon: PeopleIcon, description: 'Only signed-in users can see the organization.'},
+                {value: 'private', label: 'Private', icon: EyeClosedIcon, description: 'Only its members can see the organization.'},
               ]}/>
             </Section>
 

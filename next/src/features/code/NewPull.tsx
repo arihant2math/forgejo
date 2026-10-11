@@ -12,7 +12,6 @@
 // at once instead of saying "not on this device".
 
 import {useNavigate} from '@tanstack/react-router';
-import {Eye, Milestone as MilestoneIcon, Tag, User} from 'lucide-react';
 import {makeAutoObservable, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -31,6 +30,7 @@ import {repoLabels} from '../issues/candidates.ts';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
+import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
 
 /** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
 const SYNC_WAIT_MS = 5000;
@@ -308,11 +308,11 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
             },
           }))}
           trigger={
-            <Button size="sm" variant={chosen.length ? 'secondary' : 'ghost'} icon={Tag}>
+            <Button size="sm" variant={chosen.length ? 'secondary' : 'ghost'} icon={TagIcon}>
               {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
-        <PeoplePick label="Assignees" placeholder="Assign to…" icon={User} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
+        <PeoplePick label="Assignees" placeholder="Assign to…" icon={PersonIcon} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
           form.toggle('assignees', id);
         }}/>
         <CommandPopover label="Milestone" placeholder="Add to the milestone…"
@@ -327,7 +327,7 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
           trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
       {/* One's own review cannot be asked for. */}
-      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={Eye} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
+      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
         form.toggle('reviewers', id);
       }}/>
     </div>
@@ -335,7 +335,7 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
 });
 
 function PeoplePick({label, placeholder, icon, people, me, chosen, onToggle}: {
-  label: string; placeholder: string; icon: typeof User; people: Person[]; me: number; chosen: readonly number[]; onToggle: (id: number) => void;
+  label: string; placeholder: string; icon: typeof PersonIcon; people: Person[]; me: number; chosen: readonly number[]; onToggle: (id: number) => void;
 }) {
   const names = people.filter((p) => chosen.includes(p.id)).map((p) => p.login);
   return (

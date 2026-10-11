@@ -10,7 +10,6 @@
 // shown as such and changed there.
 
 import {useNavigate} from '@tanstack/react-router';
-import {Eye, Star, Users} from 'lucide-react';
 import {makeAutoObservable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect} from 'react';
@@ -20,7 +19,8 @@ import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Badge, Button, Icon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger} from '../../ui/index.ts';
+import {Badge, Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger} from '../../ui/index.ts';
+import {EyeIcon, StarIcon, PeopleIcon} from '@primer/octicons-react';
 
 /** What a Watch row selects (livesync's Watch entity). */
 export interface WatchFlags {
@@ -211,10 +211,10 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
   return <div className="flex items-center gap-2" title={away ? 'Available when online' : undefined}>
     {s.failed && !away && <Button size="sm" variant="ghost" disabled={s.loading} onClick={() => { void s.load(app, owner, repo); }}>Retry star/watch status</Button>}
     <Button size="sm" variant="secondary" disabled={disabled} aria-pressed={s.starred} onClick={star}>
-      <Icon icon={Star} size="sm"/>{s.starred ? 'Unstar' : 'Star'}{s.stars !== undefined && <Badge>{s.stars}</Badge>}
+      <StarIcon size={12} className="shrink-0"/>{s.starred ? 'Unstar' : 'Star'}{s.stars !== undefined && <Badge>{s.stars}</Badge>}
     </Button>
     <Menu><Button asChild size="sm" variant="secondary" disabled={disabled}><MenuTrigger>
-      <Icon icon={Eye} size="sm"/>{s.watching ? 'Watching' : 'Watch'}{s.watchers !== undefined && <Badge>{s.watchers}</Badge>}
+      <EyeIcon size={12} className="shrink-0"/>{s.watching ? 'Watching' : 'Watch'}{s.watchers !== undefined && <Badge>{s.watchers}</Badge>}
     </MenuTrigger></Button><MenuContent>
       <MenuLabel>Repository notifications</MenuLabel>
       <MenuItem onSelect={() => { watch('none'); }}>Participating and mentions{mark(level === 'none')}</MenuItem>
@@ -222,7 +222,7 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
       {/* A part only (releases, say) is set in the classic UI's watch dialog: API v1 watches all or nothing. */}
       <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}>{level === 'custom' ? `Custom: ${s.parts}${mark(true)}` : 'Custom (issues, pull requests or releases)…'}</ClassicMenuItem>
       <MenuSeparator/>
-      <MenuItem icon={Users} onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}>Watchers</MenuItem>
+      <MenuItem icon={PeopleIcon} onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}>Watchers</MenuItem>
       <MenuSeparator/>
       <MenuLabel>New releases are announced by email only (when this server sends mail), not in the Inbox.</MenuLabel>
     </MenuContent></Menu>

@@ -1,21 +1,21 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {ChevronRight, PanelLeft} from 'lucide-react';
 import {observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {forgetRoute} from '../splash.ts';
 import {useApp} from '../store.ts';
-import {cx, Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
+import {cx, Icon, IconButton} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import {HeaderBar, HeaderRow, HeaderStack, WhenSidebarAway} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
+import {ChevronRightIcon, SidebarExpandIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 export interface PageHeaderProps {
   title: ReactNode;
-  icon?: LucideIcon | undefined;
+  icon?: OcticonType | undefined;
   /** Shown before the title, muted (a breadcrumb: "owner / repo"). */
   context?: ReactNode;
   /** Controls after the title (filters, view switches). */
@@ -80,7 +80,7 @@ export function PageHeader({title, icon, context, children, docTitle}: PageHeade
       {context && (
         <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted @max-xl:order-first @max-xl:w-full @max-xl:pt-2 @max-xl:text-sm">
           {context}
-          <span className="flex @max-xl:hidden"><Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/></span>
+          <span className="flex @max-xl:hidden"><ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/></span>
         </nav>
       )}
       <TitleAndControls title={title}>{children}</TitleAndControls>
@@ -98,7 +98,7 @@ export interface StackedPageHeaderProps {
   tabs?: ReactNode;
   /** The title row's title; undefined: no title row (the page's heading is in the breadcrumb). */
   title?: ReactNode;
-  icon?: LucideIcon | undefined;
+  icon?: OcticonType | undefined;
   /** The title row's controls (filters, view switches, a ref picker). */
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
@@ -136,11 +136,11 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
 
 /** The sidebar's toggle, while the sidebar is not beside the page. */
 function SidebarToggle() {
-  return <WhenSidebarAway><IconButton size="sm" icon={PanelLeft} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/></WhenSidebarAway>;
+  return <WhenSidebarAway><IconButton size="sm" icon={SidebarExpandIcon} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/></WhenSidebarAway>;
 }
 
 /** The page's icon before its title (wide panels). */
-function PageIcon({icon}: {icon: LucideIcon | undefined}) {
+function PageIcon({icon}: {icon: OcticonType | undefined}) {
   return icon ? <span className="flex shrink-0 @max-xl:hidden"><Icon icon={icon} className="text-fg-subtle"/></span> : null;
 }
 

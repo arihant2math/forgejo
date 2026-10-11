@@ -14,7 +14,6 @@
 
 import {Link, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {ArrowLeft, ArrowRight, Columns3, ExternalLink, KanbanSquare, MoreHorizontal, Pencil, Plus, Slash, SquareMinus, SquarePen, Star, Trash2} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -32,7 +31,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
   Badge, BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
-  ContextMenuSeparator, EmptyState, Icon, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
+  ContextMenuSeparator, EmptyState, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
   TextLink,
 } from '../../ui/index.ts';
 import {closedPager} from '../issues/closed.ts';
@@ -48,6 +47,7 @@ import {openCreate} from '../../app/create.ts';
 import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
+import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
 
 /** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
 const lastCard = new Map<number, number>();
@@ -90,11 +90,11 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
     const loading = data.status.loading > 0;
     return (
       <>
-        <PageHeader icon={KanbanSquare} title="Board"/>
+        <PageHeader icon={ProjectIcon} title="Board"/>
         <PageBody>
           {loading ?
             <div className="flex gap-3 p-3" aria-busy>{[0, 1, 2].map((i) => <Skeleton key={i} className="h-72 w-column"/>)}</div> :
-            <Missing icon={KanbanSquare} what="This board"/>}
+            <Missing icon={ProjectIcon} what="This board"/>}
         </PageBody>
       </>
     );
@@ -112,14 +112,14 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
       <TextLink><Link to="/-/next/boards" activeOptions={{exact: true}}>Boards</Link></TextLink>
       {repo ? (
         <>
-          <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+          <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
           <TextLink><Link to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}}>{repo.get('owner_name')}</Link></TextLink>
-          <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+          <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
           <TextLink><Link to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}}>{repo.get('name')}</Link></TextLink>
         </>
       ) : login && (
         <>
-          <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
+          <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
           <TextLink><Link to="/$owner" params={{owner: login}} activeOptions={{exact: true}}>{login}</Link></TextLink>
         </>
       )}
@@ -410,7 +410,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const hidden = model.hiddenCount;
   return (
     <>
-      <PageHeader icon={KanbanSquare} context={<ProjectContext project={project}/>} title={project.get('title')}>
+      <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')}>
         {closed && <Badge tone="done">Closed</Badge>}
         {!editable && <span title={readOnlyReason}><Badge>Read-only</Badge></span>}
         {hidden > 0 && <Badge>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Badge>}
@@ -444,7 +444,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
                   setColumnDialog({kind, columnId: c.id});
                 }}/>
             ))}
-            {columns.length === 0 && <EmptyState icon={Columns3} title="No columns yet" description="Add a column to start the board."/>}
+            {columns.length === 0 && <EmptyState icon={ColumnsIcon} title="No columns yet" description="Add a column to start the board."/>}
             {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
           </BoardLanes>
         </ContextMenuTrigger>
@@ -499,18 +499,18 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
   };
   return (
     <>
-      <ContextMenuItem icon={ExternalLink} shortcut={formatKeys('enter')} onSelect={() => {
+      <ContextMenuItem icon={LinkExternalIcon} shortcut={formatKeys('enter')} onSelect={() => {
         open(issueId);
       }}>Open</ContextMenuItem>
       {editable && <>
       <ContextMenuSeparator/>
-      <ContextMenuItem icon={ArrowLeft} shortcut={shortcutHint('board.moveLeft')} disabled={ci <= 0} onSelect={() => {
+      <ContextMenuItem icon={ArrowLeftIcon} shortcut={shortcutHint('board.moveLeft')} disabled={ci <= 0} onSelect={() => {
         moveBy(-1);
       }}>Move to the previous column</ContextMenuItem>
-      <ContextMenuItem icon={ArrowRight} shortcut={shortcutHint('board.moveRight')} disabled={ci < 0 || ci >= layout.columns.length - 1} onSelect={() => {
+      <ContextMenuItem icon={ArrowRightIcon} shortcut={shortcutHint('board.moveRight')} disabled={ci < 0 || ci >= layout.columns.length - 1} onSelect={() => {
         moveBy(1);
       }}>Move to the next column</ContextMenuItem>
-      <ContextMenuSub label="Move to" icon={Columns3}>
+      <ContextMenuSub label="Move to" icon={ColumnsIcon}>
         {layout.columns.map((c) => (
           <ContextMenuItem key={c.id} disabled={c.id === at?.column} onSelect={() => {
             moveTo(c.id);
@@ -527,7 +527,7 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
       {issue && editable && (
         <>
           <ContextMenuSeparator/>
-          <ContextMenuItem icon={SquareMinus} shortcut={shortcutHint('board.removeCard')} onSelect={() => { model.setProject(issueId, 0, 0); }}>Remove from board</ContextMenuItem>
+          <ContextMenuItem icon={DashIcon} shortcut={shortcutHint('board.removeCard')} onSelect={() => { model.setProject(issueId, 0, 0); }}>Remove from board</ContextMenuItem>
         </>
       )}
     </>
@@ -606,9 +606,9 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       </div>
       {editable && (
         <div className="flex flex-wrap gap-1">
-          <Button variant="ghost" icon={Plus} onClick={onAdd}>Add existing issue…</Button>
+          <Button variant="ghost" icon={PlusIcon} onClick={onAdd}>Add existing issue…</Button>
           {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
-          <Button variant="ghost" icon={SquarePen} aria-label={`New issue in “${column.title}”`}
+          <Button variant="ghost" icon={PencilIcon} aria-label={`New issue in “${column.title}”`}
             tooltip="Cards are issues: a board holds no notes. The new issue goes in this column." onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button>
         </div>
       )}
@@ -708,13 +708,13 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
   return (
     <>
       <Menu>
-        <MenuTrigger asChild><IconButton size="sm" icon={MoreHorizontal} label={`Column “${column.title}”`}/></MenuTrigger>
+        <MenuTrigger asChild><IconButton size="sm" icon={KebabHorizontalIcon} label={`Column “${column.title}”`}/></MenuTrigger>
         <MenuContent align="end">
           {offline && <MenuItem disabled>{onlineOnly('Changing columns')}</MenuItem>}
-          <MenuItem icon={Pencil} disabled={offline} onSelect={() => {
+          <MenuItem icon={PencilIcon} disabled={offline} onSelect={() => {
             onDialog('rename');
           }}>Rename…</MenuItem>
-          <MenuItem icon={Star} disabled={offline || column.default} onSelect={() => {
+          <MenuItem icon={StarIcon} disabled={offline || column.default} onSelect={() => {
             const before = untracked(() => model.columns.find((c) => c.default));
             void editColumn(app, projectId, column.id, {default: true}).then((ok) => {
               if (!ok) return;
@@ -725,18 +725,18 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
                 }}} : {})});
             });
           }}>{column.default ? 'The default column' : 'Make it the default'}</MenuItem>
-          <MenuItem icon={ArrowLeft} disabled={offline || index === 0} onSelect={() => {
+          <MenuItem icon={ArrowLeftIcon} disabled={offline || index === 0} onSelect={() => {
             reorder(-1);
           }}>Move left</MenuItem>
-          <MenuItem icon={ArrowRight} disabled={offline || index === count - 1} onSelect={() => {
+          <MenuItem icon={ArrowRightIcon} disabled={offline || index === count - 1} onSelect={() => {
             reorder(1);
           }}>Move right</MenuItem>
           <MenuSeparator/>
-          <MenuItem icon={SquarePen} onSelect={() => {
+          <MenuItem icon={PencilIcon} onSelect={() => {
             newIssueIn(app, model.projectId, column.id);
           }}>New issue in this column…</MenuItem>
           <MenuSeparator/>
-          <MenuItem icon={Trash2} danger disabled={offline || column.default} onSelect={() => {
+          <MenuItem icon={TrashIcon} danger disabled={offline || column.default} onSelect={() => {
             onDialog('delete');
           }}>Delete…</MenuItem>
         </MenuContent>
@@ -827,7 +827,7 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   }
   return (
     <div className="flex w-column shrink-0 flex-col">
-      <Button ref={button} variant="ghost" icon={Plus} tooltip={tip} disabled={offline} onClick={() => {
+      <Button ref={button} variant="ghost" icon={PlusIcon} tooltip={tip} disabled={offline} onClick={() => {
         setEditing(true);
       }}>Add column</Button>
     </div>

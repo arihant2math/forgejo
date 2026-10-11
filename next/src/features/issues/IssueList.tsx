@@ -23,7 +23,6 @@
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {CircleDashed, FolderGit2, User as UserIcon} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState} from 'react';
@@ -35,7 +34,7 @@ import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Icon, LabelIcon, ListGroupHeader, ListRow,
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, LabelIcon, ListGroupHeader, ListRow,
 } from '../../ui/index.ts';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {
@@ -46,6 +45,7 @@ import {issuePath, issuesOf} from './edits.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
+import {IssueDraftIcon, FileSubmoduleIcon, PersonIcon} from '@primer/octicons-react';
 
 const ROW = 32; // ListRow's h-row (tokens.css --spacing-row)
 
@@ -419,11 +419,11 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
     const l = pool.model('Label').get(row.value);
     if (l) leading = <LabelIcon icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
   } else if (row.kind === 'status') {
-    leading = <Icon icon={CircleDashed}/>;
+    leading = <IssueDraftIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'assignee') {
-    leading = row.value ? <UserAvatar id={row.value}/> : <Icon icon={UserIcon}/>;
+    leading = row.value ? <UserAvatar id={row.value}/> : <PersonIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'repo') {
-    leading = <Icon icon={FolderGit2}/>;
+    leading = <FileSubmoduleIcon size={16} className="shrink-0"/>;
   }
   return <ListGroupHeader leading={leading} label={row.label} count={row.count}/>;
 });

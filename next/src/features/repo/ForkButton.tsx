@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {useNavigate} from '@tanstack/react-router';
-import {GitFork} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Callout, Checkbox, Dialog, Icon, Input} from '../../ui/index.ts';
+import {Button, Callout, Checkbox, Dialog, Input} from '../../ui/index.ts';
 import {DESCRIPTION_MAX, REPO_NAME_MAX, repoNameProblem, repoRefusal} from '../new/forms.ts';
 import {OwnerPicker, useRemoteOwners} from '../new/NewRepo.tsx';
 import {repoOwners, repoTaken} from '../new/owners.ts';
 import {Field, NameStatus, openWhenSynced, useAvailability} from '../new/parts.tsx';
+import {RepoForkedIcon} from '@primer/octicons-react';
 
 interface Fork {id: number; name: string; owner: {login: string}}
 
@@ -23,7 +23,7 @@ export const ForkButton = observer(function ForkButton({owner, repo, repoId}: {o
   const isOnline = reach(session.data.status.connection) === 'online';
   return <>
     <Button size="sm" variant="secondary" disabled={!isOnline} tooltip={!isOnline ? onlineOnly('Forking a repository') : undefined} onClick={() => { setOpen(true); }}>
-      <Icon icon={GitFork} size="sm"/>Fork · {source?.forks_count ?? 0}
+      <RepoForkedIcon size={12} className="shrink-0"/>Fork · {source?.forks_count ?? 0}
     </Button>
     {open && <ForkForm owner={owner} repo={repo} repoId={repoId} close={() => { setOpen(false); }}/>}
   </>;

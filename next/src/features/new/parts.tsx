@@ -9,13 +9,13 @@
 //
 // (Local to these forms: a settings Field/Select/Switch set for src/ui is
 // under review separately; these move there once it lands.)
-
-import {Check, ChevronDown, CircleAlert} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import type {App} from '../../app/store.ts';
-import {Button, Callout, Code, CommandPick, CommandPopover, Icon, type LucideIcon, matchOptions, type PickOption} from '../../ui/index.ts';
+import {Button, Callout, Code, CommandPick, CommandPopover, Icon, matchOptions, type PickOption} from '../../ui/index.ts';
+import {CheckIcon, ChevronDownIcon, AlertIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 /** The id of a field's hint or error (its control's aria-describedby). */
 export const hintOf = (id: string) => `${id}-hint`;
@@ -32,7 +32,7 @@ export function Field({id, label, required, optional, hint, error, children}: {
       </label>
       {children}
       {error ?
-        <p id={hintOf(id)} role="alert" className="flex items-center gap-1 text-sm text-danger"><Icon icon={CircleAlert} size="sm"/>{error}</p> :
+        <p id={hintOf(id)} role="alert" className="flex items-center gap-1 text-sm text-danger"><AlertIcon size={12} className="shrink-0"/>{error}</p> :
         hint && <div id={hintOf(id)} className="text-sm text-fg-muted">{hint}</div>}
     </div>
   );
@@ -57,7 +57,7 @@ export interface ChoiceOption<V extends string> {
   value: V;
   label: string;
   description: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   /** Why it cannot be chosen (forced private), or undefined. */
   disabled?: string | undefined;
 }
@@ -102,7 +102,7 @@ export function NamePicker({id, label, placeholder, names, chosen, onChange, mul
     <CommandPopover label={label} placeholder={placeholder} width="md"
       render={(onClose) => <LongPick label={label} placeholder={placeholder} names={names} chosen={chosen} multi={multi} empty={empty} none={none} onChange={onChange} onClose={onClose}/>}
       options={[]}
-      trigger={<Button id={id} variant="secondary" aria-describedby={hintOf(id)}>{shown || none}<Icon icon={ChevronDown} size="sm"/></Button>}/>
+      trigger={<Button id={id} variant="secondary" aria-describedby={hintOf(id)}>{shown || none}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
   );
 }
 
@@ -156,7 +156,7 @@ export function useAvailability(app: App, path: string | undefined, local: boole
 
 /** The line under a name: free (a check), checking, or `idle` advice; taken and invalid names are errors (Field). */
 export function NameStatus({availability, free, idle}: {availability: Availability; free: string; idle: string}) {
-  if (availability === 'free') return <span className="flex items-center gap-1 text-success"><Icon icon={Check} size="sm"/>{free}</span>;
+  if (availability === 'free') return <span className="flex items-center gap-1 text-success"><CheckIcon size={12} className="shrink-0"/>{free}</span>;
   if (availability === 'checking') return <span className="text-fg-subtle">Checking the name…</span>;
   return <span>{idle}</span>;
 }

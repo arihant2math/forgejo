@@ -9,7 +9,6 @@
 // organization labels use the same form, with organization permissions.
 
 import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
-import {Pencil, Tag, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {OrganizationLabels} from './OrganizationLabels.tsx';
@@ -28,6 +27,7 @@ import {DeleteLabelDialog, LabelDialog} from './LabelDialog.tsx';
 import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts';
 import {useRepoCounts} from './repoCounts.ts';
 import {isPending, type RepoRef, viewLabels} from './writes.ts';
+import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -36,7 +36,7 @@ export function LabelsPage() {
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={Tag} title="Labels"/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={TagIcon} title="Labels"/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
@@ -74,7 +74,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && own.length === 0 && org.length === 0;
   const create = write && (
-    <Button size="sm" variant="primary" icon={Tag} disabled={offline} tooltip={offline ? onlineOnly('Creating a label') : undefined} onClick={() => {
+    <Button size="sm" variant="primary" icon={TagIcon} disabled={offline} tooltip={offline ? onlineOnly('Creating a label') : undefined} onClick={() => {
       setEditing({});
     }}>New label</Button>
   );
@@ -89,7 +89,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const filtered = q.trim() !== '';
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Tag} title="Labels">
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={TagIcon} title="Labels">
         <IssueNav owner={owner} repo={repo} repoId={repoId} current="labels"/>
         <PageSearch label="Search labels" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
           setTyped(undefined);
@@ -106,7 +106,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
               <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
-              <EmptyState icon={Tag} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
+              <EmptyState icon={TagIcon} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
           </Panel>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
@@ -142,8 +142,8 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
       <LabelUsage r={r} label={label} count={count}/>
       {editable && (
         <span className="flex">
-          <IconButton size="sm" icon={Pencil} label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} disabled={offline || label.id < 0} onClick={onEdit}/>
-          <IconButton size="sm" icon={Trash2} label={offline ? onlineOnly('Deleting a label') : `Delete ${label.name}`} disabled={offline || label.id < 0} onClick={onDelete}/>
+          <IconButton size="sm" icon={PencilIcon} label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} disabled={offline || label.id < 0} onClick={onEdit}/>
+          <IconButton size="sm" icon={TrashIcon} label={offline ? onlineOnly('Deleting a label') : `Delete ${label.name}`} disabled={offline || label.id < 0} onClick={onDelete}/>
         </span>
       )}
     </>}>

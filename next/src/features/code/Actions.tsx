@@ -8,7 +8,6 @@
 // a finished log opens offline and never streams again.
 
 import {Link, useNavigate, useSearch} from '@tanstack/react-router';
-import {ChevronDown, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -19,7 +18,7 @@ import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
 import {codeSplat, shortSha} from '../../code/refs.ts';
 import {
-  AnsiText, Avatar, Badge, Button, Callout, CodeLine, CommandPopover, EmptyState, Icon, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
+  AnsiText, Avatar, Badge, Button, Callout, CodeLine, CommandPopover, EmptyState, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
@@ -33,6 +32,7 @@ import {RowList} from './RowList.tsx';
 import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
 import {awaitsApproval} from '../pull/checks.ts';
 import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx';
+import {ChevronDownIcon, WorkflowIcon} from '@primer/octicons-react';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
 export function duration(seconds: number): string {
@@ -188,7 +188,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
             setWorkflow(w);
           },
         }))}
-        trigger={<Button size="sm" variant="ghost" icon={Workflow}>{workflow ?? 'All workflows'}<Icon icon={ChevronDown} size="sm"/></Button>}/>
+        trigger={<Button size="sm" variant="ghost" icon={WorkflowIcon}>{workflow ?? 'All workflows'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
     )}
     {dispatchable && <Button size="sm" disabled={!connectivity.online} tooltip={!connectivity.online ? 'Running a workflow requires a connection.' : undefined} onClick={() => { setDispatchOpen(true); }}>Run workflow</Button>}
     {workflowError && <Button size="sm" variant="ghost" tooltip={workflowError} onClick={retryWorkflows}>Retry loading workflows</Button>}
@@ -217,11 +217,11 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
         all.length ?
-          <EmptyState icon={Workflow} title="No runs match" description="No run of this repository matches the filter." action={<Button size="sm" onClick={() => {
+          <EmptyState icon={WorkflowIcon} title="No runs match" description="No run of this repository matches the filter." action={<Button size="sm" onClick={() => {
             setFilter('all');
             setWorkflow(undefined);
           }}>Show all runs</Button>}/> :
-          <EmptyState icon={Workflow} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
+          <EmptyState icon={WorkflowIcon} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
     </CodeFrame>
   );
 });
@@ -277,7 +277,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
       {job && <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={job} palette/>}
     </>}>
       {(scroller) => (!run ?
-        <EmptyState icon={Workflow} title="Run not found" description="This run does not exist, or is not on this device."/> :
+        <EmptyState icon={WorkflowIcon} title="Run not found" description="This run does not exist, or is not on this device."/> :
         <div className="flex min-h-full flex-col">
           {/* What started it: the workflow, the event, its pull request or branch, the commit, who. */}
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-sm text-fg-muted">
@@ -305,7 +305,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           </nav>
           <section aria-label="Log" className="min-w-0 flex-1">
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
-              <EmptyState icon={Workflow} title="No such job"/>}
+              <EmptyState icon={WorkflowIcon} title="No such job"/>}
           </section>
           </div>
           <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
@@ -386,9 +386,9 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
     );
   }, [rows, steps, closed, log.lines]);
   if (!count && !steps.length) {
-    if (log.expired) return <EmptyState icon={Workflow} title="Log removed" description="This log was removed by the instance's log retention."/>;
-    if (source === 'none' && !connectivity.online) return <EmptyState icon={Workflow} title="Not available offline" description="This job's log is not on this device."/>;
-    if (feed.closed) return <EmptyState icon={Workflow} title="Log not available" description={feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}/>;
+    if (log.expired) return <EmptyState icon={WorkflowIcon} title="Log removed" description="This log was removed by the instance's log retention."/>;
+    if (source === 'none' && !connectivity.online) return <EmptyState icon={WorkflowIcon} title="Not available offline" description="This job's log is not on this device."/>;
+    if (feed.closed) return <EmptyState icon={WorkflowIcon} title="Log not available" description={feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}/>;
     return <p className="px-4 py-3 text-sm text-fg-subtle">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;

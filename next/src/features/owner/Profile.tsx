@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {Link} from '@tanstack/react-router';
-import {Users, BookMarked, Activity} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {failureText, online, RequestFailed} from '../../app/api.ts';
@@ -14,6 +13,7 @@ import {FeedPage} from '../home/Feed.tsx';
 import {ResourceList} from '../settings/bits.tsx';
 import {allPages} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
+import {PeopleIcon, RepoIcon, PulseIcon} from '@primer/octicons-react';
 
 export const Follow = observer(function Follow({owner}: {owner: string}) {
   const app = useApp();
@@ -45,7 +45,7 @@ export const People = observer(function People({owner, isOrg}: {owner: string; i
   const res = useResource(`profile-people:${path}`, (signal) => allPages<Person>(app, path, signal));
   return <Panel label="People" title={isOrg ? 'People' : 'Followers and following'}>
     {!isOrg && <div className="flex gap-2 px-3 py-2"><Button size="sm" onClick={() => { setKind('followers'); }}>Followers</Button><Button size="sm" onClick={() => { setKind('following'); }}>Following</Button></div>}
-    <ResourceList res={res} what="The people" empty={{icon: Users, title: 'No people to show', description: 'None that you can see.'}}>
+    <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
       {(people) => people.map((p) => <Link key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-3 px-3 py-2"><Avatar name={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-fg-muted">{p.login}</span></Link>)}
     </ResourceList>
   </Panel>;
@@ -73,7 +73,7 @@ export const Overview = observer(function Overview({owner}: {owner: string}) {
 const Heatmap = observer(function Heatmap({owner}: {owner: string}) {
   const app = useApp();
   const res = useResource(`profile-heatmap:${owner}`, async (signal) => await online<{timestamp: number; contributions: number}[]>(app, {api: 'v1', path: `/users/${encodeURIComponent(owner)}/heatmap`, signal}) ?? []);
-  return <Panel label="Contributions" title="Contributions"><ResourceList res={res} what="Contributions" empty={{icon: Activity, title: 'No contributions', description: 'No activity in the last year.'}}>{(rows) => <ContributionHeatmap rows={rows}/>}</ResourceList></Panel>;
+  return <Panel label="Contributions" title="Contributions"><ResourceList res={res} what="Contributions" empty={{icon: PulseIcon, title: 'No contributions', description: 'No activity in the last year.'}}>{(rows) => <ContributionHeatmap rows={rows}/>}</ResourceList></Panel>;
 });
 
 const Popular = observer(function Popular({owner}: {owner: string}) {
@@ -82,5 +82,5 @@ const Popular = observer(function Popular({owner}: {owner: string}) {
     const rows = await allPages<{id: number; name: string; owner: {login: string}; stars_count: number; description: string}>(app, `/users/${encodeURIComponent(owner)}/repos`, signal);
     return rows.sort((a, b) => b.stars_count - a.stars_count).slice(0, 6);
   });
-  return <Panel label="Popular repositories" title="Popular repositories"><ResourceList res={res} what="Repositories" empty={{icon: BookMarked, title: 'No repositories', description: 'None that you can see.'}}>{(rows) => rows.map((r) => <Link key={r.id} to="/$owner/$repo" params={{owner: r.owner.login, repo: r.name}} className="flex flex-col px-3 py-2"><span>{r.name} · {r.stars_count} stars</span><span className="text-sm text-fg-muted">{r.description}</span></Link>)}</ResourceList></Panel>;
+  return <Panel label="Popular repositories" title="Popular repositories"><ResourceList res={res} what="Repositories" empty={{icon: RepoIcon, title: 'No repositories', description: 'None that you can see.'}}>{(rows) => rows.map((r) => <Link key={r.id} to="/$owner/$repo" params={{owner: r.owner.login, repo: r.name}} className="flex flex-col px-3 py-2"><span>{r.name} · {r.stars_count} stars</span><span className="text-sm text-fg-muted">{r.description}</span></Link>)}</ResourceList></Panel>;
 });

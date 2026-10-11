@@ -6,7 +6,6 @@
 // order (directories first), each with its icon and size.
 
 import {Link} from '@tanstack/react-router';
-import {File, FileSymlink, Folder, FolderGit2, GitBranch, GitCommitHorizontal, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
@@ -18,8 +17,9 @@ import {usePool} from '../issues/cells.tsx';
 import {Ago, Sha, summary} from './bits.tsx';
 import {codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
+import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
 
-const ENTRY_ICON = {tree: Folder, blob: File, symlink: FileSymlink, commit: FolderGit2} as const;
+const ENTRY_ICON = {tree: FileDirectoryFillIcon, blob: FileIcon, symlink: FileSymlinkFileIcon, commit: FileSubmoduleIcon} as const;
 
 export function formatSize(n: number | undefined): string {
   if (n === undefined) return '';
@@ -60,7 +60,7 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
   return (
     <>
       {showRef && <>
-        <Icon icon={kind === 'tag' ? Tag : kind === 'commit' ? GitCommitHorizontal : GitBranch} size="sm"/>
+        <Icon icon={kind === 'tag' ? TagIcon : kind === 'commit' ? GitCommitIcon : GitBranchIcon} size="sm"/>
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
       </>}
       {message !== undefined ? <>

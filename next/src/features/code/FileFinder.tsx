@@ -11,7 +11,6 @@
 // up the field (a deferred value). The highlighted result is fetched ahead.
 
 import {useNavigate} from '@tanstack/react-router';
-import {File, Search} from 'lucide-react';
 import {useDeferredValue, useEffect, useMemo, useState} from 'react';
 import {codeSplat, type Resolved} from '../../code/refs.ts';
 import {FileSearcher, markRuns} from '../../code/fuzzy.ts';
@@ -21,6 +20,7 @@ import {Button, CommandEmpty, CommandInput, CommandItem, CommandList, CommandRoo
 import {useLoad, useSource} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
+import {FileIcon, SearchIcon} from '@primer/octicons-react';
 
 /** Files listed at most (type more to narrow). */
 const LIMIT = 50;
@@ -49,7 +49,7 @@ export function GoToFile(props: FinderProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" icon={Search} tooltip="Find a file in this branch" shortcut={shortcutHint('code.findFile')} onPointerEnter={prefetch} onFocus={prefetch}>
+        <Button size="sm" icon={SearchIcon} tooltip="Find a file in this branch" shortcut={shortcutHint('code.findFile')} onPointerEnter={prefetch} onFocus={prefetch}>
           Go to file
         </Button>
       </PopoverTrigger>
@@ -113,7 +113,7 @@ function Finder({owner, repo, repoId, at, onClose}: FinderProps & {onClose: () =
           <>
             {!hits.length && <CommandEmpty>{list.value.paths.length ? 'No file matches.' : 'No files here.'}</CommandEmpty>}
             {hits.map((h) => (
-              <CommandItem key={h.path} value={h.path} icon={File} onSelect={() => {
+              <CommandItem key={h.path} value={h.path} icon={FileIcon} onSelect={() => {
                 open(h.path);
               }}>
                 {markRuns(h.path, h.marks).map((r, i) => (r.marked ? <span key={i} className="font-semibold text-accent-fg">{r.text}</span> : r.text))}

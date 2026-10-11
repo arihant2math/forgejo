@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type {CSSProperties} from 'react';
-import {Check, Pipette} from 'lucide-react';
 import {cx} from './cx.ts';
 import {Icon} from './Icon.tsx';
 import {Input} from './Input.tsx';
 import {labelInk} from './ink.ts';
+import {CheckIcon, PaintbrushIcon} from '@primer/octicons-react';
 
 const swatchColor = (color: string) => ({'--label-color': color} as CSSProperties);
 
@@ -36,7 +36,7 @@ export function ColorPicker({value, onChange, presets, label, invalid, id}: Colo
       <div className="flex items-center gap-2">
         <label className={cx(swatch, 'relative cursor-pointer overflow-hidden', ink === 'light' ? 'text-on-label-light' : 'text-on-label-dark')} style={swatchColor(hex ?? 'transparent')}
           title="Pick a colour">
-          <Icon icon={Pipette} size="sm"/>
+          <Icon icon={PaintbrushIcon} size="sm"/>
           {/* The system picker, over the square (invisible; the square shows its colour). */}
           <input type="color" aria-label={`${label}: pick a colour`} value={hex ?? presets[0] ?? ''} className="absolute inset-0 size-full cursor-pointer opacity-0"
             onChange={(e) => {
@@ -57,7 +57,7 @@ export function ColorPicker({value, onChange, presets, label, invalid, id}: Colo
               style={swatchColor(c)} onClick={() => {
                 onChange(c);
               }}>
-              {on && <Icon icon={Check} size="sm"/>}
+              {on && <Icon icon={CheckIcon} size="sm"/>}
             </button>
           );
         })}

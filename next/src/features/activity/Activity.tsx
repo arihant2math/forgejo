@@ -15,9 +15,6 @@
 // chunk.
 
 import {Link, useNavigate, useParams} from '@tanstack/react-router';
-import {
-  ChartLine, ChevronDown, CircleCheck, CircleDot, CloudOff, GitCommitHorizontal, GitMerge, GitPullRequest, MessagesSquare, Tag, Users,
-} from 'lucide-react';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
@@ -31,7 +28,7 @@ import type {Entity} from '../../data/entity.ts';
 import {issueState} from '../../intents/view.ts';
 import type {APIActivityAuthor, APICommitActivity, APIContributors} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Button, cx, EmptyState, Icon, ListRow, type LucideIcon, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger, NavItem, Panel,
+  Avatar, Button, cx, EmptyState, Icon, ListRow, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger, NavItem, Panel,
   Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
@@ -45,14 +42,16 @@ import {ColumnChart, DivergingChart, Meter, Split} from './charts.tsx';
 import {
   commitSummary, fillWeeks, lastWeeks, yearAtLeast, type Period, PERIODS, parsePeriod, periodLabel, periodStart, pulse, type PulseIssue, type PulseRelease, weekOf,
 } from './pulse.ts';
+import {GraphIcon, ChevronDownIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
-const SECTIONS: {id: Section; label: string; icon: LucideIcon}[] = [
-  {id: 'pulse', label: 'Pulse', icon: ChartLine},
-  {id: 'contributors', label: 'Contributors', icon: Users},
-  {id: 'code-frequency', label: 'Code frequency', icon: GitCommitHorizontal},
-  {id: 'recent-commits', label: 'Recent commits', icon: GitCommitHorizontal},
+const SECTIONS: {id: Section; label: string; icon: OcticonType}[] = [
+  {id: 'pulse', label: 'Pulse', icon: GraphIcon},
+  {id: 'contributors', label: 'Contributors', icon: PeopleIcon},
+  {id: 'code-frequency', label: 'Code frequency', icon: GitCommitIcon},
+  {id: 'recent-commits', label: 'Recent commits', icon: GitCommitIcon},
 ];
 
 const SECTION_ROUTES = {
@@ -75,7 +74,7 @@ function ActivityPage({section, controls, children}: {section: Section; controls
   const title = SECTIONS.find((s) => s.id === section)?.label ?? 'Pulse';
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={ChartLine} title="Activity" docTitle={`${title} · Activity`}>{repoId !== undefined && controls}</RepoHeader>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={GraphIcon} title="Activity" docTitle={`${title} · Activity`}>{repoId !== undefined && controls}</RepoHeader>
       <PageBody>
         {repoId === undefined ? <Unavailable owner={owner} repo={repo}/> : (
           <div className="flex min-h-full flex-col @xl:flex-row">
@@ -132,7 +131,7 @@ function PeriodMenu({period}: {period: Period}) {
     <Menu>
       <MenuTrigger asChild>
         <Button size="sm" variant="ghost" aria-label={`Period: ${periodLabel(period)}`}>
-          <span className="text-fg-muted">Period:</span>{periodLabel(period)}<Icon icon={ChevronDown} size="sm"/>
+          <span className="text-fg-muted">Period:</span>{periodLabel(period)}<ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       </MenuTrigger>
       <MenuContent>
@@ -201,10 +200,10 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
                 aLabel="closed" bLabel="new"/>
             </div>
             <div className="flex">
-              <Stat href="#merged" icon={GitMerge} tone="done" value={p.merged.items.length} label={`merged pull ${plural(p.merged.items.length, 'request')}`}/>
-              <Stat href="#opened" icon={GitPullRequest} tone="success" value={p.opened.items.length} label={`open pull ${plural(p.opened.items.length, 'request')}`}/>
-              <Stat href="#closed" icon={CircleCheck} tone="done" value={p.closed.items.length} label={`closed ${plural(p.closed.items.length, 'issue')}`}/>
-              <Stat href="#new" icon={CircleDot} tone="success" value={p.created.items.length} label={`new ${plural(p.created.items.length, 'issue')}`}/>
+              <Stat href="#merged" icon={GitMergeIcon} tone="done" value={p.merged.items.length} label={`merged pull ${plural(p.merged.items.length, 'request')}`}/>
+              <Stat href="#opened" icon={GitPullRequestIcon} tone="success" value={p.opened.items.length} label={`open pull ${plural(p.opened.items.length, 'request')}`}/>
+              <Stat href="#closed" icon={CheckCircleIcon} tone="done" value={p.closed.items.length} label={`closed ${plural(p.closed.items.length, 'issue')}`}/>
+              <Stat href="#new" icon={IssueOpenedIcon} tone="success" value={p.created.items.length} label={`new ${plural(p.created.items.length, 'issue')}`}/>
             </div>
           </div>
         )}
@@ -212,19 +211,19 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
       {long && <OlderNote pager={pager}/>}
       <Commits owner={owner} repo={repo} repoId={repoId} from={from}/>
       {p.releases.items.length > 0 && (
-        <Panel label="Releases" title={<><Icon icon={Tag} size="sm"/><span className="text-fg">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span>by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
+        <Panel label="Releases" title={<><TagIcon size={12} className="shrink-0"/><span className="text-fg">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span>by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
           {p.releases.items.slice(0, MAX_ROWS).map((r) => <ReleaseItem key={r.id} owner={owner} repo={repo} release={r.release}/>)}
         </Panel>
       )}
-      <List id="merged" icon={GitMerge} title="merged pull" noun="request" items={p.merged.items} authors={p.merged.authors} at={(r) => r.merged_at ?? r.updated_at}
+      <List id="merged" icon={GitMergeIcon} title="merged pull" noun="request" items={p.merged.items} authors={p.merged.authors} at={(r) => r.merged_at ?? r.updated_at}
         all={`${base}/pulls?state=closed&sort=recentupdate`}/>
-      <List id="opened" icon={GitPullRequest} title="open pull" noun="request" items={p.opened.items} authors={p.opened.authors} at={(r) => r.created_at}
+      <List id="opened" icon={GitPullRequestIcon} title="open pull" noun="request" items={p.opened.items} authors={p.opened.authors} at={(r) => r.created_at}
         all={`${base}/pulls?sort=newest`}/>
-      <List id="closed" icon={CircleCheck} title="closed" noun="issue" items={p.closed.items} authors={p.closed.authors} at={(r) => r.closed_at ?? r.updated_at}
+      <List id="closed" icon={CheckCircleIcon} title="closed" noun="issue" items={p.closed.items} authors={p.closed.authors} at={(r) => r.closed_at ?? r.updated_at}
         all={`${base}/issues?state=closed&sort=recentupdate`}/>
-      <List id="new" icon={CircleDot} title="new" noun="issue" items={p.created.items} authors={p.created.authors} at={(r) => r.created_at}
+      <List id="new" icon={IssueOpenedIcon} title="new" noun="issue" items={p.created.items} authors={p.created.authors} at={(r) => r.created_at}
         all={`${base}/issues?state=all&sort=newest`}/>
-      <List id="unresolved" icon={MessagesSquare} title="unresolved" noun="conversation" items={p.unresolved} at={(r) => r.updated_at}
+      <List id="unresolved" icon={CommentDiscussionIcon} title="unresolved" noun="conversation" items={p.unresolved} at={(r) => r.updated_at}
         all={`${base}/issues?sort=recentupdate`}
         hint="Opened before this period, still open, and updated in it."/>
     </>
@@ -255,7 +254,7 @@ function Share({title, a, b, aLabel, bLabel}: {title: string; a: number; b: numb
 
 const TONES = {done: 'text-done', success: 'text-success'} as const;
 
-function Stat({href, icon, tone, value, label}: {href: string; icon: LucideIcon; tone: keyof typeof TONES; value: number; label: string}) {
+function Stat({href, icon, tone, value, label}: {href: string; icon: OcticonType; tone: keyof typeof TONES; value: number; label: string}) {
   return (
     <a href={href} className="interactive flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-3 text-center hover:bg-hover focus-visible:focus-inset">
       <span className={cx('flex items-center gap-1.5 text-xl font-semibold tabular-nums', TONES[tone])}><Icon icon={icon}/>{count(value)}</span>
@@ -270,7 +269,7 @@ const OlderNote = observer(function OlderNote({pager}: {pager: ReturnType<typeof
   const offline = !connectivity.online;
   return (
     <p role="status" className="flex items-center gap-2 text-sm text-fg-subtle">
-      {offline && <Icon icon={CloudOff} size="sm"/>}
+      {offline && <CloudOfflineIcon size={12} className="shrink-0"/>}
       {offline ?
         'Older closed issues and pull requests are not all on this device: the counts may miss some until you are online.' :
         'Counting older closed issues and pull requests…'}
@@ -281,7 +280,7 @@ const OlderNote = observer(function OlderNote({pager}: {pager: ReturnType<typeof
 /** A list of the Pulse: its first rows, all of them (up to a hundred) on request. */
 function List({id, icon, title, noun, items, authors, at, all, hint}: {
   id: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   title: string;
   noun: string;
   items: Row[];
@@ -344,7 +343,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, release}: {owner
   return (
     <ListRow role={undefined} href={href} onClick={(e) => {
       click(e, href);
-    }} leading={<Icon icon={Tag} size="sm"/>} trailing={<>
+    }} leading={<TagIcon size={12} className="shrink-0"/>} trailing={<>
       {r.prerelease && <span>Pre-release</span>}
       <span className="font-mono">{r.tag_name}</span>
       <AgoCell at={r.created_at}/>
@@ -370,7 +369,7 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
 /** Commits of the period on the default branch, and who made them (from the cached year of history). */
 const Commits = observer(function Commits({owner, repo, repoId, from}: {owner: string; repo: string; repoId: number; from: number}) {
   const {branch, sha, empty} = useHead(repoId);
-  const title = <><Icon icon={GitCommitHorizontal} size="sm"/><span className="text-fg">Commits</span>{branch && <span className="font-mono">{branch}</span>}</>;
+  const title = <><GitCommitIcon size={12} className="shrink-0"/><span className="text-fg">Commits</span>{branch && <span className="font-mono">{branch}</span>}</>;
   if (!sha) {
     return (
       <Panel label="Commits" title={title} padded>
@@ -448,7 +447,7 @@ function CommitsSkeleton() {
 function Statistics({repoId, children, skeleton}: {repoId: number; children: (s: APIContributors, branch: string) => ReactNode; skeleton: ReactNode}) {
   const {branch, sha, empty} = useHead(repoId);
   if (!sha) {
-    return <EmptyState icon={GitCommitHorizontal} title={empty ? 'No commits yet' : 'No code on this device yet'}
+    return <EmptyState icon={GitCommitIcon} title={empty ? 'No commits yet' : 'No code on this device yet'}
       description={empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}/>;
   }
   return <StatisticsAt key={sha} repoId={repoId} sha={sha} branch={branch} skeleton={skeleton}>{children}</StatisticsAt>;
@@ -459,7 +458,7 @@ function StatisticsAt({repoId, sha, branch, children, skeleton}: {repoId: number
   const key = CodeSource.contributorsKey(repoId, sha);
   const loaded = useLoad(key, () => src.peek<APIContributors>(key), () => src.contributors(repoId, sha));
   if (loaded.state !== 'ready') return <Unloaded loaded={loaded} what="These statistics" skeleton={skeleton}/>;
-  if (!loaded.value.total.length) return <EmptyState icon={GitCommitHorizontal} title="No commits to count" description="The default branch has only merge commits."/>;
+  if (!loaded.value.total.length) return <EmptyState icon={GitCommitIcon} title="No commits to count" description="The default branch has only merge commits."/>;
   return <>{children(loaded.value, branch)}</>;
 }
 

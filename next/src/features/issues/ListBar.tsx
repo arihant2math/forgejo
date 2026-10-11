@@ -9,7 +9,6 @@
 // view is a link; the list recomputes locally on every change.
 
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
-import {ChevronDown, FolderGit2, Layers, ListChecks, ListFilter, Pencil, Rows3, Save, Search, Trash2, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useRef, useState} from 'react';
@@ -23,7 +22,7 @@ import {SaveViewDialog} from '../views/SaveView.tsx';
 import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
 import {
-  Avatar, Button, CommandPopover, Icon, IconButton, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  Avatar, Button, CommandPopover, IconButton, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
   MenuTrigger, type PickOption, PromptDialog,
 } from '../../ui/index.ts';
 import {ResultCount, SelectionCount, usePool} from './cells.tsx';
@@ -34,6 +33,7 @@ import {priorityIcon, statusIcon} from './cells.tsx';
 import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
+import {ChevronDownIcon, FileSubmoduleIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -122,7 +122,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       <FilterMenu search={search} repoId={repoId} set={set} byMilestone={!hideGroups.includes('milestone')}/>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="ghost" icon={Rows3} pressed={modified} aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button>
+          <Button size="sm" variant="ghost" icon={RowsIcon} pressed={modified} aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button>
         </MenuTrigger>
         <MenuContent>
           {!stateButtons && (
@@ -157,7 +157,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
             {SORTS.map((s) => <MenuRadioItem key={s.sort} value={s.sort}>{s.label}</MenuRadioItem>)}
           </MenuRadioGroup>
           <MenuSeparator/>
-          <MenuItem icon={Layers} shortcut={shortcutHint('view.save')} onSelect={() => {
+          <MenuItem icon={StackIcon} shortcut={shortcutHint('view.save')} onSelect={() => {
             setSaving(true);
           }}>Save view…</MenuItem>
         </MenuContent>
@@ -187,7 +187,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
       <SelectionCount cursor={cursor}/>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="secondary" icon={ListChecks}>Edit selected<Icon icon={ChevronDown} size="sm"/></Button>
+          <Button size="sm" variant="secondary" icon={TasklistIcon}>Edit selected<ChevronDownIcon size={12} className="shrink-0"/></Button>
         </MenuTrigger>
         <MenuContent>
           <SelectionActions ids={cursor.selected.values()} navigate={(path) => void navigate({to: path})}/>
@@ -196,7 +196,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
       {n < listed.length && <Button size="sm" variant="ghost" onClick={() => {
         cursor.selected.replace(listed);
       }}>Select all {listed.length}</Button>}
-      <IconButton size="sm" icon={X} label="Clear the selection" shortcut="Esc" onClick={() => {
+      <IconButton size="sm" icon={XIcon} label="Clear the selection" shortcut="Esc" onClick={() => {
         cursor.selected.clear();
       }}/>
     </>
@@ -244,7 +244,7 @@ function SearchField({inputRef, value, onChange, onSettle}: {inputRef: RefObject
     }, 300);
   };
   return (
-    <Input ref={inputRef} size="sm" icon={Search} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 shrink-0"
+    <Input ref={inputRef} size="sm" icon={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 shrink-0"
       onChange={(e) => {
         change(e.target.value);
       }}
@@ -337,7 +337,7 @@ function workspaceFilters(pool: ReturnType<typeof usePool>, search: ListSearch, 
   }
   const repos = [...pool.model('Repository').all()].map((e) => e.data).sort((a, b) => a.full_name.localeCompare(b.full_name));
   for (const r of repos) {
-    out.push({value: `o:${String(r.id)}`, label: r.full_name, words: 'repository', group: 'Repository', icon: FolderGit2, checked: search.repo === r.id, onSelect: () => {
+    out.push({value: `o:${String(r.id)}`, label: r.full_name, words: 'repository', group: 'Repository', icon: FileSubmoduleIcon, checked: search.repo === r.id, onSelect: () => {
       set({repo: search.repo === r.id ? undefined : r.id});
     }});
   }
@@ -346,7 +346,7 @@ function workspaceFilters(pool: ReturnType<typeof usePool>, search: ListSearch, 
   const users = [...posters].map((id) => pool.model('User').get(id)?.data).filter((u) => u !== undefined)
     .sort((a, b) => Number(b.id === me) - Number(a.id === me) || a.login.localeCompare(b.login));
   for (const u of users) {
-    out.push({value: `p:${String(u.id)}`, label: u.id === me ? `${u.login} (you)` : u.login, words: `author ${u.full_name}`, group: 'Author', icon: UserPen,
+    out.push({value: `p:${String(u.id)}`, label: u.id === me ? `${u.login} (you)` : u.login, words: `author ${u.full_name}`, group: 'Author', icon: PersonIcon,
       checked: search.poster === u.id, onSelect: () => {
         set({poster: search.poster === u.id ? undefined : u.id});
       }});
@@ -392,8 +392,8 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const app = useApp();
   const me = app.session?.userId ?? 0;
   const active = activeFilters(pool, search, set, (app.session?.data.status.loading ?? 0) > 0);
-  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: X, onSelect: f.clear}));
-  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: X, onSelect: () => {
+  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
+  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {
     set({labels: undefined, assignee: undefined, poster: undefined, milestone: undefined, status: undefined, priority: undefined, label: undefined, repo: undefined});
   }});
   // Status and priority everywhere (by value); labels, people and milestones in a repository's list.
@@ -409,7 +409,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
       }}
       trigger={
         // The filter in effect by name ("Label: bug"), the others counted.
-        <Button size="sm" variant={active.length ? 'secondary' : 'ghost'} icon={ListFilter}>
+        <Button size="sm" variant={active.length ? 'secondary' : 'ghost'} icon={FilterIcon}>
           <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
         </Button>
       }/>
@@ -432,13 +432,13 @@ function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
     },
   }));
   const person = (u: (typeof users)[number]) => (u.id === me ? `${u.login} (you)` : u.login);
-  out.push({value: 'a:-1', label: 'Nobody', words: 'assignee unassigned', group: 'Assignee', icon: User, checked: search.assignee === -1, onSelect: () => {
+  out.push({value: 'a:-1', label: 'Nobody', words: 'assignee unassigned', group: 'Assignee', icon: PersonIcon, checked: search.assignee === -1, onSelect: () => {
     set({assignee: search.assignee === -1 ? undefined : -1});
   }});
   for (const u of users) out.push({value: `a:${String(u.id)}`, label: person(u), words: `assignee ${u.name}`, group: 'Assignee', leading: <Avatar name={u.name} src={u.avatar} size="sm"/>, checked: search.assignee === u.id, onSelect: () => {
     set({assignee: search.assignee === u.id ? undefined : u.id});
   }});
-  for (const u of users) out.push({value: `p:${String(u.id)}`, label: person(u), words: `author ${u.name}`, group: 'Author', icon: UserPen, checked: search.poster === u.id, onSelect: () => {
+  for (const u of users) out.push({value: `p:${String(u.id)}`, label: person(u), words: `author ${u.name}`, group: 'Author', icon: PersonIcon, checked: search.poster === u.id, onSelect: () => {
     set({poster: search.poster === u.id ? undefined : u.id});
   }});
   if (!byMilestone) return out;
@@ -464,21 +464,21 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
     <>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="ghost" icon={Layers} aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
-            {view.name}{changed && <span className="text-fg-subtle">· changed</span>}<Icon icon={ChevronDown} size="sm"/>
+          <Button size="sm" variant="ghost" icon={StackIcon} aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
+            {view.name}{changed && <span className="text-fg-subtle">· changed</span>}<ChevronDownIcon size={12} className="shrink-0"/>
           </Button>
         </MenuTrigger>
         <MenuContent>
-          <MenuItem icon={Save} disabled={!changed} onSelect={() => {
+          <MenuItem icon={CheckIcon} disabled={!changed} onSelect={() => {
             store.update(view.id, search);
             notify(app, {tone: 'neutral', title: `Updated the view “${view.name}”`});
           }}>Update the view with these filters</MenuItem>
-          <MenuItem icon={Layers} onSelect={onSaveAs}>Save as a new view…</MenuItem>
+          <MenuItem icon={StackIcon} onSelect={onSaveAs}>Save as a new view…</MenuItem>
           <MenuSeparator/>
-          <MenuItem icon={Pencil} onSelect={() => {
+          <MenuItem icon={PencilIcon} onSelect={() => {
             setRenaming(true);
           }}>Rename the view…</MenuItem>
-          <MenuItem icon={Trash2} danger onSelect={() => {
+          <MenuItem icon={TrashIcon} danger onSelect={() => {
             const removed = view;
             store.remove(view.id);
             notify(app, {tone: 'neutral', title: `Removed the view “${removed.name}”`, action: {label: 'Undo', run: () => {

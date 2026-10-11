@@ -10,7 +10,6 @@
 // first match on Enter.
 
 import {Command as K} from 'cmdk';
-import {Check, Minus, Search} from 'lucide-react';
 import {Dialog as D} from 'radix-ui';
 import {type KeyboardEvent, type ReactElement, type ReactNode, type Ref, useId, useLayoutEffect, useRef, useState} from 'react';
 import {cx} from './cx.ts';
@@ -19,6 +18,7 @@ import {ItemBody} from './ItemBody.tsx';
 import {Popover, PopoverContent, PopoverTrigger} from './Popover.tsx';
 import {dialogPanel, iconSlot, menuRow, overlay, sectionLabel} from './recipes.ts';
 import {useReturnFocus} from './returnFocus.ts';
+import {CheckIcon, DashIcon, SearchIcon} from '@primer/octicons-react';
 
 export interface CommandDialogProps {
   open: boolean;
@@ -106,7 +106,7 @@ function GroupHeading({children}: {children: ReactNode}) {
 export function CommandInput({value, onValueChange, placeholder, ref}: CommandInputProps) {
   return (
     <div className={inputRow}>
-      <Icon icon={Search} className="text-fg-subtle"/>
+      <Icon icon={SearchIcon} className="text-fg-subtle"/>
       <K.Input ref={ref} value={value} onValueChange={onValueChange} placeholder={placeholder} className={inputField}/>
     </div>
   );
@@ -163,7 +163,7 @@ function ItemContent({icon, leading, meta, shortcut, checked, children}: Omit<Co
   return (
     <>
       {checked !== undefined && (
-        <span className={iconSlot}>{checked && <Icon icon={checked === 'mixed' ? Minus : Check}/>}</span>
+        <span className={iconSlot}>{checked && <Icon icon={checked === 'mixed' ? DashIcon : CheckIcon}/>}</span>
       )}
       <ItemBody icon={icon} leading={leading} meta={meta ?? ''} shortcut={shortcut}>{children}</ItemBody>
     </>
@@ -382,7 +382,7 @@ export function CommandPick({label, placeholder, options, empty, onClose, target
       <label htmlFor={`${id}input`} id={`${id}label`} className="sr-only">{label}</label>
       {target && <p className="truncate px-3 pt-2 text-sm text-fg-muted">{target}</p>}
       <div className={inputRow}>
-        <Icon icon={Search} className="text-fg-subtle"/>
+        <Icon icon={SearchIcon} className="text-fg-subtle"/>
         <input id={`${id}input`} type="text" role="combobox" aria-expanded aria-controls={`${id}list`} aria-labelledby={`${id}label`}
           aria-autocomplete="list" aria-activedescendant={at < 0 ? undefined : optionId(at)} autoComplete="off" autoCorrect="off" spellCheck={false}
           value={query} placeholder={placeholder} className={inputField} onChange={(e) => {

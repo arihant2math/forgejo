@@ -12,7 +12,6 @@ import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {KanbanSquare} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
@@ -20,8 +19,9 @@ import type {Project} from '../../protocol/types.gen.ts';
 import {useSession} from '../../app/store.ts';
 import {useHold} from '../../app/repo.ts';
 import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
-import {Badge, EmptyState, Entry, EntryList, Icon, Panel, SegmentedControl, TextLink} from '../../ui/index.ts';
+import {Badge, EmptyState, Entry, EntryList, Panel, SegmentedControl, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
+import {ProjectIcon} from '@primer/octicons-react';
 
 interface Place {
   key: string;
@@ -99,14 +99,14 @@ export const BoardsList = observer(function BoardsList() {
   }, true, () => cursor !== undefined);
   return (
     <>
-      <PageHeader icon={KanbanSquare} title="Boards">
+      <PageHeader icon={ProjectIcon} title="Boards">
         <SegmentedControl label="Board state" value={state} onChange={setState} options={[{value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>
         <NewBoard scope={scope}/>
       </PageHeader>
       <PageBody>
-        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <Entry key={key} title={p.title} meta="Creating board…" leading={<Icon icon={KanbanSquare}/>}/>)}
+        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <Entry key={key} title={p.title} meta="Creating board…" leading={<ProjectIcon size={16} className="shrink-0"/>}/>)}
         {sorted.length === 0 ?
-          <EmptyState icon={KanbanSquare} title={state === 'closed' ? 'No closed boards' : 'No open boards'} description="Projects of your repositories and organizations show here."/> :
+          <EmptyState icon={ProjectIcon} title={state === 'closed' ? 'No closed boards' : 'No open boards'} description="Projects of your repositories and organizations show here."/> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
               <Panel key={pl.key} label={pl.key || 'Other'} padded
@@ -135,7 +135,7 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
     <Entry
       id={`board-${String(project.id)}`}
       active={active}
-      leading={<Icon icon={KanbanSquare}/>}
+      leading={<ProjectIcon size={16} className="shrink-0"/>}
       title={<TextLink><Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen}>{project.title}</Link></TextLink>}
       // A board known by reference loads when opened: its columns and cards are not counted here yet.
       meta={project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}

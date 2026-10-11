@@ -1,11 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {ChevronDown} from 'lucide-react';
 import type {SelectHTMLAttributes} from 'react';
 import {cx} from './cx.ts';
 import {Icon} from './Icon.tsx';
 import {control, controlHeight, type ControlSize, field} from './recipes.ts';
+import {ChevronDownIcon} from '@primer/octicons-react';
 
 export interface SelectOption<V extends string> {
   value: V;
@@ -40,7 +39,7 @@ export function Select<V extends string>({value, onValueChange, options, size = 
       >
         {options.map((o) => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
       </select>
-      <span className="pointer-events-none absolute right-2 flex text-fg-subtle"><Icon icon={ChevronDown} size="sm"/></span>
+      <span className="pointer-events-none absolute right-2 flex text-fg-subtle"><Icon icon={ChevronDownIcon} size="sm"/></span>
     </span>
   );
 }

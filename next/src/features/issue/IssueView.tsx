@@ -9,7 +9,6 @@
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
 import {Link, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
-import {CircleDot, Lock, SearchX} from 'lucide-react';
 import {openCreate} from '../../app/create.ts';
 import {canWrite} from '../../app/access.ts';
 import {issueLocked, issueTitle} from '../../intents/view.ts';
@@ -29,7 +28,7 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {Button, Icon, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
+import {Button, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
@@ -40,6 +39,7 @@ import {BodySection, CommentComposer, Overrides, TitleSection} from './Editing.t
 import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
+import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
 
 // A pull request's code views (Files, Commits, Checks) and its merge box: their own chunk (code surfaces, F7).
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
@@ -218,7 +218,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
 const Composer = observer(function Composer({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
   const locked = issueLocked(editing(useApp()).overlay, issue);
-  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><Icon icon={Lock} size="sm"/>{text}</p>;
+  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><LockIcon size={12} className="shrink-0"/>{text}</p>;
   if (locked && !canWrite(session, issue.get('repo_id'))) return note('This conversation is locked: only collaborators can comment.');
   return (
     <>
@@ -283,7 +283,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={indexLabel(index)} detail="issues"/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={IssueOpenedIcon} title={indexLabel(index)} detail="issues"/>
       <PageBody>
         {searching ?
           <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
@@ -291,7 +291,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
           // its classic page would say the same (no classic link to a 404).
           // A temporary address (an issue created offline) on a device that did not create it: its number is not
           // known here.
-          <Missing what="This issue" icon={SearchX} description={index < 0 ?
+          <Missing what="This issue" icon={SearchIcon} description={index < 0 ?
             'This address belongs to an issue created offline on another device. Find it in the repository’s issues.' :
             undefined}/>}
       </PageBody>

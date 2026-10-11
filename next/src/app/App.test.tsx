@@ -128,8 +128,10 @@ describe('boot', () => {
     // addresses (the app knows them): the first frame keeps their place, invisible.
     const links = / invisible" aria-hidden="true"/;
     expect(panel?.outerHTML).toMatch(links);
-    expect(panel?.outerHTML.replace('hidden logged-out:flex', 'flex').replace(links, '"'))
-      .toBe(appRoot(container)?.outerHTML.replace(/<a href="[^"]*"/g, '<a'));
+    // Inline styles (an octicon's vertical-align) serialize with spaces from the DOM, without from React's markup.
+    const styles = (html = '') => html.replace(/style="([^"]*)"/g, (_, css: string) => `style="${css.replace(/\s+|;$/g, '')}"`);
+    expect(styles(panel?.outerHTML.replace('hidden logged-out:flex', 'flex').replace(links, '"')))
+      .toBe(styles(appRoot(container)?.outerHTML.replace(/<a href="[^"]*"/g, '<a')));
   });
 
   test('without OAuth2 on the server, signing in is unavailable (and says so)', async () => {

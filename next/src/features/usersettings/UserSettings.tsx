@@ -9,10 +9,6 @@
 // cache (data.ts). Writes are online only. Its own chunk.
 
 import {Link} from '@tanstack/react-router';
-import {
-  AppWindow, BadgeCheck, Building2, ChevronDown, CircleUser, CloudOff, FolderGit2, KeyRound, LockKeyhole, Mail, Palette, Plus, Settings,
-  ShieldCheck, Trash2, Upload, UserX, Webhook,
-} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useId, useRef, useState} from 'react';
 import {classicHref} from '../../app/classic.ts';
@@ -27,7 +23,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, Icon, IconButton, Input, ListRow, type LucideIcon, Menu, MenuContent, MenuRadioGroup,
+  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, IconButton, Input, ListRow, Menu, MenuContent, MenuRadioGroup,
   MenuRadioItem, MenuTrigger, MoreMenu, NavHeading, NavItem, Panel, SegmentedControl, Skeleton, TextArea,
 } from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
@@ -38,25 +34,27 @@ import {
   type ProfileField, keepUnsaved, profileOf, profilePayload, profileProblems, scopeRefused, type SettingsPatch, shownProfile, sortEmails, spacedKeyId, sshKeyProblem,
   sshKeyTitle, toBase64, type UserSettings,
 } from './payload.ts';
+import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
-const SECTIONS: {id: Section; label: string; icon: LucideIcon; to: string; kinds: Kind[]}[] = [
-  {id: 'profile', label: 'Profile', icon: CircleUser, to: '/user/settings', kinds: ['settings']},
-  {id: 'account', label: 'Account', icon: Mail, to: '/user/settings/account', kinds: ['emails']},
-  {id: 'appearance', label: 'Appearance', icon: Palette, to: '/user/settings/appearance', kinds: ['settings', 'options']},
-  {id: 'keys', label: 'SSH and GPG keys', icon: KeyRound, to: '/user/settings/keys', kinds: ['keys', 'gpg']},
+const SECTIONS: {id: Section; label: string; icon: OcticonType; to: string; kinds: Kind[]}[] = [
+  {id: 'profile', label: 'Profile', icon: PersonIcon, to: '/user/settings', kinds: ['settings']},
+  {id: 'account', label: 'Account', icon: MailIcon, to: '/user/settings/account', kinds: ['emails']},
+  {id: 'appearance', label: 'Appearance', icon: PaintbrushIcon, to: '/user/settings/appearance', kinds: ['settings', 'options']},
+  {id: 'keys', label: 'SSH and GPG keys', icon: KeyIcon, to: '/user/settings/keys', kinds: ['keys', 'gpg']},
 ];
 
 /** The settings pages only the classic UI has (its settings menu, less what depends on the instance's features). */
-const CLASSIC: {label: string; icon: LucideIcon; to: string}[] = [
-  {label: 'Security', icon: ShieldCheck, to: '/user/settings/security'},
-  {label: 'Applications', icon: AppWindow, to: '/user/settings/applications'},
-  {label: 'Authorized integrations', icon: BadgeCheck, to: '/user/settings/authorized-integrations'},
-  {label: 'Webhooks', icon: Webhook, to: '/user/settings/hooks'},
-  {label: 'Organizations', icon: Building2, to: '/user/settings/organization'},
-  {label: 'Repositories', icon: FolderGit2, to: '/user/settings/repos'},
-  {label: 'Blocked users', icon: UserX, to: '/user/settings/blocked_users'},
+const CLASSIC: {label: string; icon: OcticonType; to: string}[] = [
+  {label: 'Security', icon: ShieldCheckIcon, to: '/user/settings/security'},
+  {label: 'Applications', icon: BrowserIcon, to: '/user/settings/applications'},
+  {label: 'Authorized integrations', icon: VerifiedIcon, to: '/user/settings/authorized-integrations'},
+  {label: 'Webhooks', icon: WebhookIcon, to: '/user/settings/hooks'},
+  {label: 'Organizations', icon: OrganizationIcon, to: '/user/settings/organization'},
+  {label: 'Repositories', icon: FileSubmoduleIcon, to: '/user/settings/repos'},
+  {label: 'Blocked users', icon: PersonIcon, to: '/user/settings/blocked_users'},
 ];
 
 export function SettingsProfile() {
@@ -100,9 +98,9 @@ function SettingsPage({section, children}: {section: Section; children: ReactNod
   const page = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
     <>
-      <PageHeader icon={Settings} title="Settings" docTitle={`${page?.label ?? 'Profile'} · Settings`}>
+      <PageHeader icon={GearIcon} title="Settings" docTitle={`${page?.label ?? 'Profile'} · Settings`}>
         <MoreMenu label="More of the settings">
-          <ClassicMenuItem to={page?.to ?? '/user/settings'} icon={AppWindow}>This page</ClassicMenuItem>
+          <ClassicMenuItem to={page?.to ?? '/user/settings'} icon={BrowserIcon}>This page</ClassicMenuItem>
         </MoreMenu>
       </PageHeader>
       <PageBody>
@@ -143,7 +141,7 @@ function SideNav({section}: {section: Section}) {
 /** What a page shows while a slot has nothing yet, or why it has nothing. */
 function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; skeleton: ReactNode}) {
   if (slot.state === 'loading') return <>{skeleton}</>;
-  if (slot.state === 'offline') return <EmptyState icon={CloudOff} title={`${what} are not on this device`} description="Connect to load them."/>;
+  if (slot.state === 'offline') return <EmptyState icon={CloudOfflineIcon} title={`${what} are not on this device`} description="Connect to load them."/>;
   if (slot.state === 'error') return <Callout tone="danger" title={`${what} could not be loaded`}>{slot.message}</Callout>;
   return null;
 }
@@ -333,8 +331,8 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
         <Avatar size="xl" name={login} src={shown}/>
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
-            <Button icon={Upload} disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</Button>
-            <Button variant="ghost" icon={Trash2} disabled={busy || Boolean(offline)} onClick={remove}>Remove</Button>
+            <Button icon={UploadIcon} disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</Button>
+            <Button variant="ghost" icon={TrashIcon} disabled={busy || Boolean(offline)} onClick={remove}>Remove</Button>
           </div>
           {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <p className="text-sm text-fg-subtle">{offline ?? 'A square picture looks best.'}</p>}
         </div>
@@ -459,7 +457,7 @@ function ChoiceMenu({label, value, options, fallback, disabled, onChange}: {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <Button size="sm" aria-label={`${label}: ${name}`} disabled={Boolean(disabled)} tooltip={disabled}>{name}<Icon icon={ChevronDown} size="sm"/></Button>
+        <Button size="sm" aria-label={`${label}: ${name}`} disabled={Boolean(disabled)} tooltip={disabled}>{name}<ChevronDownIcon size={12} className="shrink-0"/></Button>
       </MenuTrigger>
       <MenuContent align="end">
         <MenuRadioGroup value={value} onValueChange={(v) => {
@@ -513,13 +511,13 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
       {list ? (
         <Panel title={`${String(list.length)} ${list.length === 1 ? 'address' : 'addresses'}`}>
           {list.map((e) => (
-            <ListRow key={e.email} role={undefined} leading={<Icon icon={Mail} size="sm"/>} trailing={<>
+            <ListRow key={e.email} role={undefined} leading={<MailIcon size={12} className="shrink-0"/>} trailing={<>
               {e.primary && <Badge tone="accent">Primary</Badge>}
               {e.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Unverified</Badge>}
               {!e.primary && e.verified && <Button size="sm" variant="ghost" disabled={Boolean(offline)} tooltip={offline} onClick={() => {
                 primary(e.email);
               }}>Make primary</Button>}
-              {!e.primary && <IconButton size="sm" icon={Trash2} label={`Remove ${e.email}`} disabled={Boolean(offline)} onClick={() => {
+              {!e.primary && <IconButton size="sm" icon={TrashIcon} label={`Remove ${e.email}`} disabled={Boolean(offline)} onClick={() => {
                 setRemoving(e.email);
               }}/>}
             </>}>
@@ -579,7 +577,7 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
               setEmail(e.target.value);
               setError(undefined);
             }}/>
-          <Button type="submit" icon={Plus} disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</Button>
+          <Button type="submit" icon={PlusIcon} disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</Button>
         </div>
       </Field>
     </form>
@@ -632,7 +630,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
   const list = slot.state === 'ready' ? slot.value : undefined;
   return (
     <FormSection title="SSH keys" description="The keys that may push and pull over SSH as you."
-      actions={!adding && <Button size="sm" icon={Plus} disabled={Boolean(offline)} tooltip={offline} onClick={() => {
+      actions={!adding && <Button size="sm" icon={PlusIcon} disabled={Boolean(offline)} tooltip={offline} onClick={() => {
         setAdding(true);
       }}>New SSH key</Button>}>
       {adding && <AddSshKey src={src} offline={offline} onDone={() => {
@@ -641,10 +639,10 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
       {list ? (list.length ? (
         <Panel title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
           {list.map((k) => (
-            <ListRow key={k.id} role={undefined} leading={<Icon icon={KeyRound} size="sm"/>} trailing={<>
+            <ListRow key={k.id} role={undefined} leading={<KeyIcon size={12} className="shrink-0"/>} trailing={<>
               {k.verified && <Badge tone="success">Verified</Badge>}
               <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
-              <IconButton size="sm" icon={Trash2} label={`Delete ${k.title ?? 'this key'}`} disabled={Boolean(offline)} onClick={() => {
+              <IconButton size="sm" icon={TrashIcon} label={`Delete ${k.title ?? 'this key'}`} disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
               }}/>
             </>}>
@@ -653,7 +651,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
             </ListRow>
           ))}
         </Panel>
-      ) : !adding && <EmptyState icon={KeyRound} title="No SSH keys" description="Add one to push and pull over SSH."/>) :
+      ) : !adding && <EmptyState icon={KeyIcon} title="No SSH keys" description="Add one to push and pull over SSH."/>) :
         <SlotState slot={slot} what="Your SSH keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
         <Confirm title={`Delete “${removing.title ?? 'SSH key'}”?`} description="It can no longer push or pull as you." action="Delete key" onConfirm={() => {
@@ -727,7 +725,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
   const list = slot.state === 'ready' ? slot.value : undefined;
   return (
     <FormSection title="GPG keys" description="The keys whose signatures mark your commits as verified."
-      actions={!adding && <Button size="sm" icon={Plus} disabled={Boolean(offline)} tooltip={offline} onClick={() => {
+      actions={!adding && <Button size="sm" icon={PlusIcon} disabled={Boolean(offline)} tooltip={offline} onClick={() => {
         setAdding(true);
       }}>New GPG key</Button>}>
       {adding && <AddGpgKey src={src} offline={offline} onDone={() => {
@@ -738,11 +736,11 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
           {list.map((k) => {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (
-              <ListRow key={k.id} role={undefined} leading={<Icon icon={LockKeyhole} size="sm"/>} trailing={<>
+              <ListRow key={k.id} role={undefined} leading={<LockIcon size={12} className="shrink-0"/>} trailing={<>
                 {k.verified ? <Badge tone="success">Verified</Badge> : <Badge>Unverified</Badge>}
                 {expired(k.expires_at) && <Badge tone="warning">Expired</Badge>}
                 <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
-                <IconButton size="sm" icon={Trash2} label={`Delete the key ${k.key_id}`} disabled={Boolean(offline)} onClick={() => {
+                <IconButton size="sm" icon={TrashIcon} label={`Delete the key ${k.key_id}`} disabled={Boolean(offline)} onClick={() => {
                   setRemoving(k);
                 }}/>
               </>}>
@@ -752,7 +750,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
             );
           })}
         </Panel>
-      ) : !adding && <EmptyState icon={LockKeyhole} title="No GPG keys" description="Add one to have your signed commits verified."/>) :
+      ) : !adding && <EmptyState icon={LockIcon} title="No GPG keys" description="Add one to have your signed commits verified."/>) :
         <SlotState slot={slot} what="Your GPG keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
         <Confirm title={`Delete the key ${spacedKeyId(removing.key_id)}?`} description="Commits it signed no longer show as verified." action="Delete key" onConfirm={() => {

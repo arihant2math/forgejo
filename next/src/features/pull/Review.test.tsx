@@ -31,6 +31,8 @@ const SINCE = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,
 const FIRST = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n four\n';
 
 let fetches: {url: string; method: string; body?: unknown}[] = [];
+/** A test's own answers (else 201 {} for a POST, 404 otherwise). */
+let answer: (url: string, method: string) => Response | undefined = () => undefined;
 
 beforeEach(() => {
   // jsdom lays nothing out: a view's size for the virtualized diff, so that its rows mount.
@@ -41,8 +43,11 @@ beforeEach(() => {
   vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'diffHighlight').mockResolvedValue(null);
   fetches = [];
+  answer = () => undefined;
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     fetches.push({url, method: init?.method ?? 'GET', body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined});
+    const own = answer(url, init?.method ?? 'GET');
+    if (own) return Promise.resolve(own);
     return Promise.resolve(new Response('{}', {status: init?.method === 'POST' ? 201 : 404, headers: {'Content-Type': 'application/json'}}));
   }));
 });
@@ -243,4 +248,99 @@ test('the line composer inserts a suggestion of the line', async () => {
     expect(screen.getByRole('textbox', {name: 'Review comment'}).textContent).toContain('```suggestion');
   });
   expect(screen.getByRole('textbox', {name: 'Review comment'}).textContent).toContain('three');
+});
+
+// ---- follow-ups: #243 (single comments), #244 (touch), #242 (already merged) ----
+
+test('"Add single comment" posts a one-comment review; the conversation shows the comment once, without an empty summary', async () => {
+  const s = session();
+  await open(s, '/acme/website/pulls/4?tab=files');
+  fireEvent.click(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'}));
+  await screen.findByRole('textbox', {name: 'Review comment'});
+  fireEvent.click(screen.getByRole('button', {name: 'Suggest change'}));
+  const single = screen.getByRole('button', {name: /Add single comment/});
+  await waitFor(() => {
+    expect(single.hasAttribute('disabled') || single.getAttribute('aria-disabled') === 'true').toBe(false);
+  });
+  fireEvent.click(single);
+  await waitFor(() => {
+    expect(fetches.some((f) => f.method === 'POST' && f.url.endsWith('/repos/acme/website/pulls/4/reviews'))).toBe(true);
+  });
+  const sent = fetches.find((f) => f.method === 'POST' && f.url.endsWith('/pulls/4/reviews'))?.body as {event: string; body: string; comments: {path: string; new_position: number}[]};
+  expect(sent.event).toBe('COMMENT');
+  expect(sent.comments).toEqual([expect.objectContaining({path: 'a.txt', new_position: 3})]);
+});
+
+test('a single line comment\'s review (COMMENT, empty summary) shows its comment once and no "No text." card', async () => {
+  const s = session();
+  const hunk = '@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three';
+  // What Forgejo keeps for "Add single comment": a COMMENT review with an empty summary comment and the line comment.
+  s.data.put('Review', 'issue:300', review(53, 1, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
+  s.data.put('Comment', 'issue:300', comment(530, 300, '', {type: 'review', poster_id: 1, review_id: 53, created_at: '2026-10-02T00:00:00Z'}));
+  s.data.put('Comment', 'issue:300', comment(531, 300, 'This swallows every error.', {type: 'code', poster_id: 1, review_id: 53, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-02T00:00:00Z', body_html: '<p>This swallows every error.</p>'}));
+  await open(s, '/acme/website/pulls/4');
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  expect(await within(activity).findAllByText('This swallows every error.')).toHaveLength(1);
+  expect(within(activity).queryByText('No text.')).toBeNull();
+  // One card for the comment (its file and line, Reply, Resolve), none for the empty summary.
+  expect(within(activity).getAllByRole('article')).toHaveLength(2); // the review's card and the comment's
+  expect(within(activity).getAllByRole('button', {name: 'Reply'})).toHaveLength(1);
+});
+
+test('touch (no hover): a tap on a line shows its comment button, and a tap on it opens the composer', async () => {
+  await open(session(), '/acme/website/pulls/4?tab=files');
+  const row = await lineRow('four');
+  const button = within(row).getByRole('button', {name: 'Comment on line 4'});
+  // Hidden until hovered or on the cursor line: a data-* variant, which no (hover: hover) media query gates.
+  const shown = button.parentElement;
+  expect(shown?.className).toContain('invisible');
+  expect(shown?.className).toContain('group-data-active:visible');
+  expect(button.closest('[data-active]')).toBeNull();
+  fireEvent.pointerDown(row.querySelector('.code-text') ?? row, {pointerType: 'touch'});
+  fireEvent.click(row.querySelector('.code-text') ?? row);
+  expect(button.closest('.group')?.hasAttribute('data-active')).toBe(true);
+  fireEvent.click(button);
+  const field = await screen.findByRole('textbox', {name: 'Review comment'});
+  expect(Number(field.closest('[role="listitem"]')?.getAttribute('data-index'))).toBe(Number(row.getAttribute('data-index')) + 1);
+});
+
+test('a merge refused because someone else merged it first says so, without a failure', async () => {
+  const s = session();
+  s.data.put('RepoUnit', 'repo:20', {id: 7, repo_id: 20, type: 'pulls', config: {}, default_permissions: '', created_at: T});
+  answer = (url, method) => {
+    const json = (v: unknown, status: number) => new Response(JSON.stringify(v), {status, headers: {'Content-Type': 'application/json'}});
+    // Forgejo: 405 with an empty message for an already merged pull request.
+    if (method === 'POST' && url.endsWith('/api/v1/repos/acme/website/pulls/4/merge')) return json({message: '', url: 'http://localhost/api/swagger'}, 405);
+    if (method === 'GET' && url.endsWith('/api/v1/repos/acme/website/pulls/4')) return json({number: 4, merged: true, merged_by: {login: 'carol'}}, 200);
+    return undefined;
+  };
+  const app = await open(s, '/acme/website/pulls/4');
+  fireEvent.click(await screen.findByRole('button', {name: /Create a merge commit…/}));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', {name: 'Merge'}));
+  await waitFor(() => {
+    expect(app.ui.notices.map((n) => n.title)).toContain('Already merged');
+  });
+  const notice = app.ui.notices.find((n) => n.title === 'Already merged');
+  expect(notice?.tone).toBe('neutral');
+  expect(notice?.description).toBe('carol merged this pull request before your merge went through.');
+  expect(app.ui.notices.some((n) => n.tone === 'danger')).toBe(false);
+});
+
+test('a merge refused for another reason (empty 405, not merged) says what to do', async () => {
+  const s = session();
+  s.data.put('RepoUnit', 'repo:20', {id: 7, repo_id: 20, type: 'pulls', config: {}, default_permissions: '', created_at: T});
+  answer = (url, method) => {
+    const json = (v: unknown, status: number) => new Response(JSON.stringify(v), {status, headers: {'Content-Type': 'application/json'}});
+    if (method === 'POST' && url.endsWith('/pulls/4/merge')) return json({message: ''}, 405);
+    if (method === 'GET' && url.endsWith('/api/v1/repos/acme/website/pulls/4')) return json({number: 4, merged: false}, 200);
+    return undefined;
+  };
+  const app = await open(s, '/acme/website/pulls/4');
+  fireEvent.click(await screen.findByRole('button', {name: /Create a merge commit…/}));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Merge'}));
+  await waitFor(() => {
+    expect(app.ui.notices.map((n) => n.title)).toContain('Merging failed');
+  });
+  expect(app.ui.notices.find((n) => n.title === 'Merging failed')?.description).toBe('Forgejo could not do it now (the branch changed, or a hook refused it). Check the pull request, then try again.');
 });

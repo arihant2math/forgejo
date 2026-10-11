@@ -73,6 +73,7 @@ export function nextPathOf(path: string): string | undefined {
   if (c === 'issues' || c === 'pulls') {
     const [n, sub] = rest;
     if (n === undefined) return `${repoPath}/${c}`;
+    if (c === 'issues' && n === 'new' && rest.length === 1) return `${repoPath}/issues/new`;
     if (!/^[1-9]\d{0,15}$/.test(n)) return undefined;
     if (rest.length === 1) return `${repoPath}/${c}/${n}`;
     // /pulls/{n}/files|commits|checks → the pull request's tab.
@@ -127,7 +128,7 @@ export function appPageOf(classic: string): string {
   const mapped = wikiAddress(path, query) ?? nextPathOf(path) ?? nearestAppPage(path);
   if (mapped === undefined) return '/';
   // A list keeps its filters; the new repository form its owner and template (`?org=3&template_id=9`).
-  return query && !mapped.includes('?') && (isListPath(mapped) || mapped === '/repo/create' || /^\/[^/]+\/[^/]+\/(?:labels|milestones)$/.test(mapped)) ?
+  return query && !mapped.includes('?') && (isListPath(mapped) || mapped === '/repo/create' || mapped.endsWith('/issues/new') || /^\/[^/]+\/[^/]+\/(?:labels|milestones)$/.test(mapped)) ?
     `${mapped}?${query}` : mapped;
 }
 

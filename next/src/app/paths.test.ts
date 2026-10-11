@@ -54,7 +54,7 @@ test('classic links → the app\'s pages', () => {
   expect(nextPathOf('/user/settings/keys')).toBe('/user/settings/keys');
   expect(nextPathOf('/user/settings/account')).toBe('/user/settings/account');
   for (const p of ['/user/settings/applications', '/user/settings/keys/x', '/user/login', '/user']) expect(nextPathOf(p), p).toBeUndefined();
-  for (const p of ['/explore', '/repo/migrate', '/org/acme/teams', '/repo/create/x', '/acme/atlas/settings/units', '/acme/atlas/settings/hooks/3', '/acme/atlas/settings/hooks/git', '/acme/atlas/wiki/raw/logo.png', '/acme/atlas/wiki/search', '/acme/atlas/wiki/a%2Fb', '/acme/atlas/issues/new', '/api/v1/repos', '/acme/atlas/src/x%2f..', '/-/next/']) {
+  for (const p of ['/explore', '/repo/migrate', '/org/acme/teams', '/repo/create/x', '/acme/atlas/settings/units', '/acme/atlas/settings/hooks/3', '/acme/atlas/settings/hooks/git', '/acme/atlas/wiki/raw/logo.png', '/acme/atlas/wiki/search', '/acme/atlas/wiki/a%2Fb', '/api/v1/repos', '/acme/atlas/src/x%2f..', '/-/next/']) {
     expect(nextPathOf(p), p).toBeUndefined();
   }
 });
@@ -154,7 +154,8 @@ test('classic pages\' way back to the app: the app\'s page for the address, else
   expect(appPageOf('/acme/atlas/activity/monthly')).toBe('/acme/atlas/activity/monthly');
   expect(appPageOf('/acme/atlas/activity/code-frequency')).toBe('/acme/atlas/activity/code-frequency');
   expect(appPageOf('/acme/atlas/activity/hourly')).toBe('/acme/atlas');
-  expect(appPageOf('/acme/atlas/issues/new')).toBe('/acme/atlas/issues');
+  expect(appPageOf('/acme/atlas/issues/new')).toBe('/acme/atlas/issues/new');
+  expect(appPageOf('/acme/atlas/issues/new?template=bug.yaml')).toBe('/acme/atlas/issues/new?template=bug.yaml');
 });
 
 test('"This page" in the classic UI keeps the list\'s query', () => {

@@ -27,7 +27,7 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Button, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
+import {Button, CommandPick, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
@@ -37,10 +37,20 @@ import {PickerPopover} from '../issues/Picker.tsx';
 import {priorityIcon, statusIcon, usePool} from '../issues/cells.tsx';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels.ts';
 import {canWrite} from '../../app/access.ts';
+import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
+import {TemplateFields} from './TemplateFields.tsx';
 
 /** The dialog's draft in a repository. */
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
 const LAST_REPO = 'forgejo-next:create';
+const templateDraftKey = (repoId: number) => `${draftKey(repoId)}:template`;
+interface TemplateDraft {file: string; values: FormValues; labels: number[]; assignees: number[]}
+
+function templateDraft(app: App, repoId: number): TemplateDraft | undefined {
+  const text = untracked(() => editing(app).intents.drafts.get(templateDraftKey(repoId)))?.text;
+  if (!text) return undefined;
+  try { return JSON.parse(text) as TemplateDraft; } catch { return undefined; }
+}
 
 function rememberRepo(repoId: number): void {
   try {
@@ -105,6 +115,62 @@ class Form {
   labels: number[] = [];
   assignees: number[] = [];
   milestone = 0;
+  templates: TemplateSet | undefined;
+  choosing = true;
+  template: IssueTemplate | undefined;
+  values: FormValues = {};
+  fieldErrors: string[] = [];
+
+  choose(template?: IssueTemplate): void {
+    this.choosing = false;
+    this.fieldErrors = [];
+    if (template && this.template === template) return;
+    const previous = this.template;
+    this.template = template;
+    const draft = templateDraft(this.app, this.repoId);
+    if (!template) {
+      if (previous) {
+        this.discard();
+        this.labels = [];
+        this.assignees = [];
+      }
+      void editing(this.app).intents.discardDraft(templateDraftKey(this.repoId));
+      return;
+    }
+    if (this.restored && draft?.file === template.file_name) {
+      this.values = {...initialValues(template.body ?? []), ...draft.values};
+      this.labels = draft.labels;
+      this.assignees = draft.assignees;
+      return;
+    }
+    this.restored = false;
+    this.setTitle(template.title ?? '');
+    this.values = initialValues(template.body ?? []);
+    this.setBody(template.body?.length ? formBody(template.body, this.values) : template.content ?? '');
+    const pool = this.app.session?.data.pool;
+    this.labels = pool ? repoLabels(pool, this.repoId).filter((l) => template.labels?.includes(l.name)).map((l) => l.id) : [];
+    const known = [...(this.templates?.people ?? []), ...[...(pool?.model('User').all() ?? [])].map((u) => ({id: u.data.id, login: u.data.login}))];
+    this.assignees = [...new Set(known.filter((u) => template.assignees?.includes(u.login)).map((u) => u.id))];
+  }
+
+  setValue(id: string, value: string | number[]): void {
+    this.values[id] = value;
+    this.setBody(formBody(this.template?.body ?? [], this.values));
+    this.fieldErrors = this.fieldErrors.filter((key) => key !== id);
+  }
+
+  async load(templateName?: string): Promise<void> {
+    const id = this.repoId;
+    const result = await loadTemplates(this.app, id);
+    if (this.repoId !== id) return;
+    runInAction(() => {
+      this.templates = result;
+      const name = templateName ?? templateDraft(this.app, id)?.file;
+      const chosen = name ? result.templates.find((t) => t.file_name === name || t.file_name.split('/').at(-1) === name) : undefined;
+      if (chosen) this.choose(chosen);
+      else if (!result.templates.length && result.config.blank_issues_enabled && !result.config.contact_links.length) this.choose();
+    });
+  }
   /** The text came back from a draft (the footer offers to discard it). */
   restored = false;
   /** Create was asked for without a title: the field says what is missing. */
@@ -151,8 +217,14 @@ class Form {
       // Otherwise the text goes along: its draft moves to the new repository.
       clearTimeout(this.timer);
       void intents.discardDraft(draftKey(this.repoId));
+      void intents.discardDraft(templateDraftKey(this.repoId));
     }
     this.repoId = id;
+    this.templates = undefined;
+    this.template = undefined;
+    this.choosing = true;
+    this.values = {};
+    void this.load();
     this.labels = [];
     this.assignees = [];
     this.milestone = 0;
@@ -193,6 +265,8 @@ class Form {
   discard(): void {
     clearTimeout(this.timer);
     void editing(this.app).intents.discardDraft(draftKey(this.repoId));
+    void editing(this.app).intents.discardDraft(templateDraftKey(this.repoId));
+    this.values = initialValues(this.template?.body ?? []);
     this.title = '';
     this.body = '';
     this.restored = false;
@@ -204,12 +278,17 @@ class Form {
     this.timer = undefined;
     if (this.done) return;
     const {intents} = editing(this.app);
+    if (!this.choosing && this.template) void intents.keepText({key: templateDraftKey(this.repoId), title: 'Issue template draft', issueId: 0, repoId: this.repoId, text: JSON.stringify({file: this.template.file_name, values: this.values, labels: this.labels, assignees: this.assignees})});
     if (!this.title.trim() && !this.body.trim()) void intents.discardDraft(draftKey(this.repoId));
     else void intents.keepText({key: draftKey(this.repoId), title: 'A new issue', issueId: 0, repoId: this.repoId, text: `${this.title}\n\n${this.body}`});
   }
 
   /** Creates the issue (an intent) and forgets the draft; returns its page, or undefined when it cannot be made. */
   create(): string | undefined {
+    if (this.choosing) return undefined;
+    this.fieldErrors = missingFields(this.template?.body ?? [], this.values);
+    if (this.fieldErrors.length) return undefined;
+    if (this.template?.body?.length) this.body = formBody(this.template.body, this.values);
     const t = this.title.trim();
     const repo = untracked(() => this.app.session?.data.pool.model('Repository').get(this.repoId)?.data);
     if (!t) this.missing = true;
@@ -218,6 +297,7 @@ class Form {
     clearTimeout(this.timer);
     const {intents} = editing(this.app);
     void intents.discardDraft(draftKey(this.repoId));
+    void intents.discardDraft(templateDraftKey(this.repoId));
     const tempId = uuid();
     // A reader's issue has no properties (the pickers are not offered; Forgejo would drop them).
     const s = this.app.session;
@@ -241,10 +321,15 @@ export const CreateIssue = observer(function CreateIssue() {
   const req = app.ui.create;
   // A fresh form for each opening (the draft brings the text back).
   const [form, setForm] = useState<Form | undefined>();
-  const [wasOpen, setWasOpen] = useState(false);
-  if (Boolean(req) !== wasOpen) {
-    setWasOpen(Boolean(req));
-    if (req) setForm(new Form(app, req.repoId, req.board));
+  const [previousRequest, setPreviousRequest] = useState<typeof req>();
+  if (req !== previousRequest) {
+    setPreviousRequest(req);
+    if (previousRequest && req) form?.flush();
+    if (req) {
+      const next = new Form(app, req.repoId, req.board);
+      setForm(next);
+      void next.load(req.template);
+    }
   }
   const close = () => {
     form?.flush();
@@ -277,9 +362,27 @@ export const CreateIssue = observer(function CreateIssue() {
     }} onOpenChange={(o) => {
       if (!o) close();
     }} title="New issue" size="lg" footer={form && <Footer form={form} onCancel={close} onCreate={create}/>}>
-      {form && <Fields form={form} onCreate={create} onClose={close}/>}
+      {form && (form.choosing ? <TemplatePicker form={form}/> : <Fields form={form} onCreate={create} onClose={close}/>)}
     </Dialog>
   );
+});
+
+const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
+  const set = form.templates;
+  if (!set) return <p className="text-sm text-fg-muted" role="status">Loading issue templates…</p>;
+  return <div className="flex flex-col gap-2">
+    <p className="text-sm text-fg-muted">Choose an issue template</p>
+    {set.note && <p className="text-sm text-fg-muted">{set.note}</p>}
+    <CommandPick onClose={() => { runInAction(() => { form.choosing = false; }); }} label="Issue templates" placeholder="Find a template…" empty="No matching templates" options={[
+      ...set.templates.map((t) => ({value: t.file_name, label: t.name, words: t.about, meta: t.about, onSelect: () => { form.choose(t); }})),
+      ...(set.config.blank_issues_enabled ? [{value: 'blank', label: 'Blank issue', onSelect: () => { form.choose(); }}] : []),
+    ]}/>
+    {set.config.contact_links.filter((l) => /^https?:\/\//i.test(l.url)).map((l) => <div key={l.url}>
+      <Button variant="ghost" asChild><a href={l.url} target="_blank" rel="noopener noreferrer">{l.name} ↗</a></Button>
+      <p className="text-sm text-fg-muted">{l.about}</p>
+    </div>)}
+    <Properties form={form}/>
+  </div>;
 });
 
 const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; onCreate: () => void; onClose: () => void}) {
@@ -307,8 +410,10 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
         onCreate();
       }
     }}>
+      {form.templates?.templates.length ? <Button size="sm" variant="ghost" onClick={() => { runInAction(() => { form.choosing = true; }); }}>Change template</Button> : null}
       <Title form={form} onCreate={onCreate}/>
-      <Description form={form} onCreate={onCreate}/>
+      {form.templates?.note && <p className="text-sm text-fg-muted">{form.templates.note}</p>}
+      {form.template?.body?.length ? <TemplateFields fields={form.template.body} values={form.values} missing={form.fieldErrors} repoId={form.repoId} onChange={form.setValue}/> : <Description form={form} onCreate={onCreate}/>}
       <Properties form={form}/>
     </div>
   );
@@ -363,7 +468,7 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const plain = allLabels.filter((l) => labelKind(l) === undefined);
   const people = repoId ? repoPeople(pool, repoId, userId, form.assignees) : [];
   const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
-  const who = people.filter((u) => form.assignees.includes(u.id));
+  const who = [...people, ...(form.templates?.people ?? []).filter((p) => !people.some((u) => u.id === p.id)).map((p) => ({id: p.id, name: p.login}))].filter((u) => form.assignees.includes(u.id));
   const ms = pool.model('Milestone').get(form.milestone)?.data;
   // Every property filters as you type (a repository with many labels or people stays usable).
   return (
@@ -410,7 +515,7 @@ const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; k
 
 const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form; onCancel: () => void; onCreate: () => void}) {
   const uploading = hasPendingUploads(form.body);
-  const ready = Boolean(form.title.trim()) && form.repoId > 0 && !uploading;
+  const ready = !form.choosing && Boolean(form.title.trim()) && form.repoId > 0 && !uploading;
   return (
     <>
       <span className="mr-auto flex items-center gap-1 self-center text-sm text-fg-subtle">
@@ -422,9 +527,9 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
       </span>
       <Button variant="ghost" onClick={onCancel}>Cancel</Button>
       {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
-      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={onCreate}>
+      {!form.choosing && <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={onCreate}>
         Create issue
-      </Button>
+      </Button>}
     </>
   );
 });

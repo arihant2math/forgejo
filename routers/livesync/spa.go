@@ -69,6 +69,7 @@ var spaRoutes = [][]string{
 	{"{owner}"},           // an owner's repositories (the profile's other tabs stay classic: profileTab)
 	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
+	{"{owner}", "{repo}", "issues", "new"},
 	{"{owner}", "{repo}", "issues", "{issue}"},
 	{"{owner}", "{repo}", "pulls"},
 	{"{owner}", "{repo}", "pulls", "{index}"},

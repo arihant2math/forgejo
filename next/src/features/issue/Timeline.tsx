@@ -29,7 +29,7 @@ import {CodeLink} from '../code/nav.tsx';
 import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
-import {issueComments, viewMembers} from '../../intents/view.ts';
+import {commentBody, issueComments, viewMembers} from '../../intents/view.ts';
 import {firstOf, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue} from '../issues/labels.ts';
 import {agoWords, fullDate, shortDate} from '../issues/format.ts';
@@ -150,9 +150,9 @@ export function Edited({updated, version}: {updated: string; version: number}) {
 }
 
 /** A card: comments and reviews. */
-function Card({poster, original, at, badge, children, footer}: {poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode}) {
+function Card({poster, original, at, badge, children, footer, id}: {poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string}) {
   return (
-    <article className="flex gap-3 py-3">
+    <article id={id} className="flex gap-3 py-3">
       <UserAvatar id={poster} size="lg"/>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <header className="flex flex-wrap items-center gap-x-2 text-base">
@@ -181,18 +181,22 @@ const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; s
 });
 
 /** A comment's card: its header (with the viewer's actions), its body or editor, its reactions. */
-function CommentCard({c, type}: {c: Entity<'Comment'>; type: string}) {
+export const CommentCard = observer(function CommentCard({c, type, badge}: {c: Entity<'Comment'>; type: string; badge?: ReactNode}) {
   const [edit, setEdit] = useState(false);
   const actions = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
+  const overlay = useOverlay();
+  const deleted = commentBody(overlay, c).deleted;
   useEffect(() => {
     // Back to the comment's actions once its editor closes.
     if (!edit && refocus.current) actions.current?.focus();
     refocus.current = false;
   }, [edit]);
+  if (deleted) return null;
   return (
-    <Card poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+    <Card id={`comment-${String(c.id)}`} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
       badge={<>
+        {badge}
         <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
         {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
         {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
@@ -208,7 +212,7 @@ function CommentCard({c, type}: {c: Entity<'Comment'>; type: string}) {
       }}/>
     </Card>
   );
-}
+});
 
 const REVIEW_LOOK: Record<string, {tone: BadgeTone; text: string}> = {
   APPROVED: {tone: 'success', text: 'approved'},
@@ -221,12 +225,13 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   const r = pool.model('Review').get(id);
   if (!r) return null;
   const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'neutral' as const, text: 'reviewed'};
+  const summary = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
   const html = r.get('body_html');
   const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code');
   return (
     <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')}
       badge={<Badge tone={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Badge>}>
-      {html && <Markdown html={html}/>}
+      {summary ? <CommentCard c={summary} type="review"/> : html && <Markdown html={html}/>}
       {codes.map((c) => <CodeComment key={c.id} c={c}/>)}
     </Card>
   );
@@ -295,7 +300,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
           ))}
         </div>
       )}
-      <Markdown html={c.get('body_html')}/>
+      <CommentCard c={c} type="code"/>
       {issue && !c.get('invalidated') && (replying ?
         <div className="flex flex-col gap-2">
           <MarkdownField repoId={issue.repo_id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {

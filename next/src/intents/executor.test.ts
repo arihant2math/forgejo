@@ -144,6 +144,12 @@ describe('overlay', () => {
 });
 
 describe('requests (built at send time)', () => {
+  test('posted code comments delete through the pull review endpoint', () => {
+    const w = poolWorld();
+    w.pool.batch(() => w.pool.put('Comment', 34, 'issue:7', 2, {...comment(34, 7, 'nit'), type: 'code', review_id: 91}));
+    const i = newIntent({kind: 'comment.delete', issueId: 7, repoId: 10, commentId: 34});
+    expect(requestFor(i, w.pool, w.overlay)).toEqual({method: 'DELETE', api: 'v1', path: '/repos/dev/big/pulls/3/reviews/91/comments/34'});
+  });
   test('each intent kind maps to its API call', () => {
     const w = poolWorld();
     const req = (input: IntentInput) => {

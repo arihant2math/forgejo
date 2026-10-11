@@ -61,8 +61,15 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
     switch (i.kind) {
       case 'comment.edit':
         return {method: 'PATCH', api: 'sync', path: `/comments/${String(i.commentId)}/body`, body: {body: i.text, expected_version: i.baseVersion}};
-      case 'comment.delete':
+      case 'comment.delete': {
+        const comment = pool.model('Comment').get(i.commentId)?.data;
+        if (comment?.type === 'code') {
+          const issue = pool.model('Issue').get(i.issueId)?.data;
+          if (!issue) throw new NotReady('the pull request is not on this device yet');
+          return {method: 'DELETE', api: 'v1', path: `${repoPath}/pulls/${String(issue.number)}/reviews/${String(comment.review_id)}/comments/${String(i.commentId)}`};
+        }
         return {method: 'DELETE', api: 'v1', path: `${repoPath}/issues/comments/${String(i.commentId)}`};
+      }
       case 'comment.resolve':
         return {method: 'PUT', api: 'sync', path: `/comments/${String(i.commentId)}/resolved`, body: {resolved: i.resolved}};
       case 'reaction':

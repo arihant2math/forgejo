@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {SquarePen} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -13,8 +14,13 @@ import {CommandDialog, CommandPick, type PickOption} from '../../ui/index.ts';
 import {searchServer, type ServerHit} from '../search/server.ts';
 import type {BoardModel} from './model.ts';
 
-export const AddExisting = observer(function AddExisting({model, project, columnId, onClose}: {
-  model: BoardModel; project: Entity<'Project'>; columnId: number; onClose: () => void;
+/**
+ * A column's "Add existing issue…": the issues the board can hold (this device's, and what the server search finds)
+ * to pick, then add at once. Cards are issues (Forgejo's boards hold nothing else), so the dialog says so and offers a
+ * new issue in this column (`onCreate`: the create dialog) where no issue matches.
+ */
+export const AddExisting = observer(function AddExisting({model, project, columnId, onClose, onCreate}: {
+  model: BoardModel; project: Entity<'Project'>; columnId: number; onClose: () => void; onCreate: () => void;
 }) {
   const app = useApp();
   const {data} = useSession();
@@ -55,8 +61,8 @@ export const AddExisting = observer(function AddExisting({model, project, column
     value: String(c.id), label: c.title, meta: `#${c.number}`, checked: selected.includes(c.id), keepOpen: true,
     onSelect: () => { setSelected((ids) => ids.includes(c.id) ? ids.filter((id) => id !== c.id) : [...ids, c.id]); },
   }));
-  options.unshift({value: 'add', label: `Add ${selected.length} selected issues`, keepOpen: selected.length === 0, onSelect: () => {
-    if (!selected.length) return;
+  const matches = options.length;
+  const add = () => {
     for (const id of selected) {
       const candidate = candidates.get(id);
       if (!candidate) continue;
@@ -69,9 +75,18 @@ export const AddExisting = observer(function AddExisting({model, project, column
         });
       }
     }
-    onClose();
-  }});
+  };
+  // Only once something is picked: an "Add 0" row would be the first (Enter's) choice, and do nothing. Choosing it
+  // closes the dialog (CommandPick).
+  if (selected.length) options.unshift({value: 'add', label: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, onSelect: add});
+  // Typed text is not a card: where nothing matches it says so, and Enter makes a new issue in this column instead.
+  const none = query.trim() !== '' && matches === 0;
+  options.push({
+    value: 'new', label: 'New issue in this column…', icon: SquarePen, keepOpen: true, onSelect: onCreate,
+    ...(none ? {group: connectivity.online ? 'No issue matches' : 'No issue on this device matches'} : {}),
+  });
   return <CommandDialog open label="Add existing issues" bare onOpenChange={(open) => { if (!open) onClose(); }}>
-    <CommandPick label="Add existing issues" placeholder="Search by number or title…" query={query} onQueryChange={setQuery} filtered options={options} empty="No matching issues on this device. Search online for more." onClose={onClose}/>
+    <CommandPick label="Add existing issues" placeholder="Search by number or title…" query={query} onQueryChange={setQuery} filtered options={options} empty="No issues to add."
+      target="Cards are issues: pick existing ones, or create a new issue in this column." onClose={onClose}/>
   </CommandDialog>;
 });

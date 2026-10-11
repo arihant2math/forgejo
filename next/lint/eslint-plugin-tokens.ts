@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Local ESLint rules that keep every visual value in src/styles/tokens.css and
+// Local lint rules (an ESLint-style plugin, run by Oxlint's jsPlugins) that keep every visual value in src/styles/tokens.css and
 // every look in src/ui (IMPLEMENTATION.md §2.4):
 //   tokens/tokens-only      raw colours, arbitrary values, off-scale numbers, dark:, transitions
 //   tokens/no-literal-style literal values in style={{…}}
@@ -9,8 +9,29 @@
 // Classes that do not exist at all are caught by src/styles/classes.test.ts,
 // which compiles every class used in src/ against the theme.
 
-import type {Rule} from 'eslint';
 import type * as ESTree from 'estree';
+
+// The parts of the ESLint plugin API the rules use (Oxlint implements it; its types are not exported).
+type Node = ESTree.Node & {parent?: Node | null};
+type Def = {type: 'Variable'; parent: ESTree.VariableDeclaration; node: ESTree.VariableDeclarator} | {type: 'Parameter'; node: Node} |
+  {type: 'FunctionName' | 'ClassName' | 'ImportBinding' | 'CatchClause' | 'ImplicitGlobalVariable'; node: Node};
+interface Scope {set: Map<string, {defs: Def[]}>; upper: Scope | null}
+export interface RuleContext {
+  filename: string;
+  sourceCode: {getScope(node: ESTree.Node): Scope};
+  report(problem: {node: ESTree.Node; message: string}): void;
+}
+interface Visitor {
+  Literal?: (node: ESTree.Literal & {parent?: Node | null}) => void;
+  TemplateElement?: (node: ESTree.TemplateElement) => void;
+  CallExpression?: (node: ESTree.CallExpression) => void;
+  ImportDeclaration?: (node: ESTree.ImportDeclaration) => void;
+  [selector: string]: ((node: never) => void) | undefined;
+}
+export interface RuleModule {
+  meta: {type: 'problem' | 'suggestion'; docs?: {description: string}; schema: []};
+  create(context: RuleContext): Visitor;
+}
 
 /** Splits a Tailwind class into its variants and the utility (last segment), respecting brackets. */
 export function splitClass(token: string): {variants: string[]; utility: string} {
@@ -83,7 +104,7 @@ interface ClassValues {
  * conditionals, cx(…) arguments, arrays, and same-file consts (also through
  * `arr[i]` and `arr.map((x) => …)` parameters).
  */
-function classValues(context: Rule.RuleContext, expr: ESTree.Node, out: ClassValues = {strings: [], opaque: []}, seen = new Set<ESTree.Node>()): ClassValues {
+function classValues(context: RuleContext, expr: ESTree.Node, out: ClassValues = {strings: [], opaque: []}, seen = new Set<ESTree.Node>()): ClassValues {
   if (seen.has(expr)) return out;
   seen.add(expr);
   const recurse = (n: ESTree.Node | null | undefined) => {
@@ -133,7 +154,7 @@ function classValues(context: Rule.RuleContext, expr: ESTree.Node, out: ClassVal
       if (def?.type === 'Variable' && def.parent.kind === 'const' && def.node.init) recurse(def.node.init);
       else if (def?.type === 'Parameter') {
         // (x) => … passed to list.map(…): follow the list.
-        const fn = def.node as Rule.Node;
+        const fn = def.node;
         const call = fn.parent as ESTree.Node | null;
         if (call?.type === 'CallExpression' && call.callee.type === 'MemberExpression' && call.arguments[0] === fn) recurse(call.callee.object);
         else out.opaque.push(expr);
@@ -150,7 +171,7 @@ function classValues(context: Rule.RuleContext, expr: ESTree.Node, out: ClassVal
   return out;
 }
 
-function classProblems(context: Rule.RuleContext, node: ESTree.Node, value: string) {
+function classProblems(context: RuleContext, node: ESTree.Node, value: string) {
   for (const token of value.split(/\s+/)) {
     const problem = token && classProblem(token);
     if (problem) context.report({node, message: problem});
@@ -168,7 +189,7 @@ const attrExpression = (attr: JSXAttr): ESTree.Node | undefined => {
   return attr.value.type === 'Literal' ? attr.value : attr.value.expression;
 };
 
-const tokensOnly: Rule.RuleModule = {
+const tokensOnly: RuleModule = {
   meta: {
     type: 'problem',
     docs: {description: 'Disallow raw colours anywhere, and arbitrary/off-scale values, dark: variants and transitions in class lists'},
@@ -186,7 +207,7 @@ const tokensOnly: Rule.RuleModule = {
     };
     return {
       Literal(node) {
-        const parent = (node as Partial<Rule.Node>).parent?.type ?? '';
+        const parent = (node as Partial<Node>).parent?.type ?? '';
         if (parent === 'ImportDeclaration' || parent === 'ImportExpression' || parent.startsWith('Export')) return;
         if (typeof node.value !== 'string') return;
         if (rawColor.test(node.value)) context.report({node, message: `Raw colour "${node.value.trim()}": use a colour token (tokens.css)`});
@@ -207,7 +228,7 @@ const tokensOnly: Rule.RuleModule = {
   },
 };
 
-const noLiteralStyle: Rule.RuleModule = {
+const noLiteralStyle: RuleModule = {
   meta: {
     type: 'problem',
     docs: {description: 'Disallow literal values in style={{…}}: visual values come from token utilities'},
@@ -235,7 +256,7 @@ const ownedSize: Partial<Record<string, RegExp>> = {
 const iconTint = /^text-(?!xs$|sm$|base$|md$|lg$|xl$)/;
 const uiModule = /(?:^|\/)ui(?:\/index\.ts|\/[A-Z]\w*\.tsx)?$/;
 
-const noRestyle: Rule.RuleModule = {
+const noRestyle: RuleModule = {
   meta: {
     type: 'problem',
     docs: {description: 'Disallow restyling src/ui primitives (look classes, style, spreads) and bare icons outside src/ui'},

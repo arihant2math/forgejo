@@ -276,19 +276,22 @@ next/conformance/            B10 headless suite        next/e2e/   F8 Playwright
 
 ### 2.4 Frontend rules
 
-* **Look:** clean, functional, Linear-inspired. Dense layouts, neutral greys with one
-  accent colour, 1px hairline borders, small radii, no decorative shadows (popovers and
-  dialogs only), system font stack, 13px UI base size, tabular numbers for counts. Light
-  and dark themes from the same tokens (`[data-theme]` on `<html>`, set before paint).
-  One icon set (F1 picks it, e.g. lucide) used everywhere.
-* **One source of design tokens:** every colour, spacing step, radius, font size, shadow,
-  z-index and motion duration is a CSS variable in `next/src/styles/tokens.css`, exposed
-  to Tailwind v4 via `@theme`. Components never hard-code a hex value, px spacing, or a
-  Tailwind arbitrary value (`bg-[#…]`, `p-[13px]`); lint enforces it. Need a new value? Add
-  a token.
-* **Shared primitives only:** features compose `next/src/ui/*`. Never restyle a button,
-  menu, input or row locally — extend the primitive (variant prop) instead. No duplicated
-  class strings across features; extract to a primitive.
+* **Look: GitHub Primer.** The design system is [Primer](https://primer.style): `@primer/react` components,
+  `@primer/primitives` tokens (light and dark themes, plus Primer's high-contrast and colour-blind variants, selected
+  by `data-color-mode` / `data-light-theme` / `data-dark-theme` on `<html>`, set before paint by the splash script and
+  `app/theme.ts`), `@primer/octicons-react` icons, Primer's markdown styles (`markdown-body`, `@primer/css`) for
+  rendered markdown. Code and diff views use `@pierre/diffs` (Shiki, GitHub themes, worker highlighting, review
+  threads as line annotations).
+* **Tokens:** `next/src/styles/tokens.css` maps Tailwind's per-property namespaces onto Primer's functional tokens, so
+  utilities read like Primer: `bg-muted` = bgColor-muted, `text-muted` = fgColor-muted, `border-default` =
+  borderColor-default. Plain CSS uses Primer's variables directly. Components never hard-code a hex value, px spacing,
+  or a Tailwind arbitrary value; lint enforces it.
+* **Primer components only:** features compose `@primer/react` (and `@primer/react/experimental`) components. Never
+  restyle one: `className` on a Primer component is for layout only (`tokens/no-restyle`). Where Primer has no
+  component (a board column, a dense issue row, a code line), compose Primer parts with Tailwind layout utilities in
+  the feature folder. Router links use `app/routerLinks.tsx` (TanStack `createLink` over Primer's `Link` /
+  `LinkButton`). Primer's stylesheets live in the `primer` cascade layer (between preflight and the utilities;
+  `tools/vite-plugin-primer-layer.ts`, order declared first in `index.html`) and ship as one linked, hashed stylesheet.
 * **Performance first:** reads come from the MobX pool, not from fetch-in-effect;
   `observer()` on leaf components, with props being ids or stable model refs; virtualize
   every list that can exceed ~50 rows (TanStack Virtual / Virtuoso); `content-visibility`/
@@ -296,7 +299,7 @@ next/conformance/            B10 headless suite        next/e2e/   F8 Playwright
   (stylelint rule); motion tokens `--speed-in: 0s`, `--speed-out: .15s`,
   `--speed-quick: .1s`; honour `prefers-reduced-motion`; no spinners for local data.
   Heavy work (Shiki, diff parsing, search index) runs in workers.
-* Budgets (CI-enforced from F1): boot-route JS ≤ **500 KiB** br, CSS ≤ 30 KiB br (`tools/budget.ts` `BUDGET`, also
+* Budgets (CI-enforced from F1): boot-route JS ≤ **500 KiB** br, CSS ≤ 48 KiB br (30 KiB until the Primer port: Primer's themes and component styles) (`tools/budget.ts` `BUDGET`, also
   asserted by `e2e/forgejo/perf.spec.ts`). The JS limit was 150 KB until 2026-10-09, when the project owner raised it.
   It is a ceiling, not an allowance: fast loads still come first. Keep new code off the boot route (lazy routes and
   chunks) as before; the headroom is there for a later foundation pass (server rendering of the first view, streaming

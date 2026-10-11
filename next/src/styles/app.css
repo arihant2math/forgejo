@@ -35,6 +35,7 @@
  * src/dev (the dev-only gallery, which brings its own sheet) are not scanned. */
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "./tokens.css";
+@import "./fonts.css";
 @import "./base.css" layer(base);
 @import "@primer/css/dist/markdown.css" layer(primer);
 

@@ -67,7 +67,7 @@ export async function searchServer(app: App, query: string, signal: AbortSignal,
   } catch {
     // No User Timing.
   }
-  return relevantHits(list, query);
+  return /^#?\d+$/.test(query.trim()) ? parseServerHits(list).filter((hit) => hit.number === Number(query.trim().replace(/^#/, ''))) : relevantHits(list, query);
 }
 
 export interface ServerRepo {

@@ -44,7 +44,7 @@ interface ApiUser {
 const PAGE = 50;
 
 /** Every page of a list endpoint (`?limit=50&page=n` until a short page). */
-async function allPages<T>(app: App, path: string, signal: AbortSignal): Promise<T[]> {
+export async function allPages<T>(app: App, path: string, signal: AbortSignal): Promise<T[]> {
   const out: T[] = [];
   for (let page = 1; page <= 20; page++) {
     const sep = path.includes('?') ? '&' : '?';

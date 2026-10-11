@@ -20,7 +20,6 @@ import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canEditBoard, confirmAccess} from '../../app/access.ts';
 import {sitePath} from '../../app/config.ts';
-import {classicHref} from '../../app/classic.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
@@ -48,6 +47,7 @@ import {rememberBoard} from '../../app/lastBoard.ts';
 import {openCreate} from '../../app/create.ts';
 import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
+import {AddExisting} from './AddExisting.tsx';
 
 /** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
 const lastCard = new Map<number, number>();
@@ -340,6 +340,11 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   // Column commands (the palette): the cursor's column. Online only, as the column menu's.
   const [columnDialog, setColumnDialog] = useState<ColumnDialogState | undefined>();
   const [adding, setAdding] = useState(false);
+  const [addTo, setAddTo] = useState<number>();
+  useShortcut('board.removeCard', () => {
+    const id = model.cursor.activeId;
+    if (id !== undefined) model.setProject(id, 0, 0);
+  }, editable, () => untracked(here)?.at !== undefined);
   const cursorColumn = () => untracked(here)?.at?.column ?? activeColumn.current;
   const columnOf = (id: number | undefined) => (id === undefined ? undefined : untracked(() => model.columns.find((c) => c.id === id)));
   useShortcut('board.addColumn', () => {
@@ -433,7 +438,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
             }}>
             {columns.map((c, i) => (
               <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}
-                onFocus={() => {
+                onAdd={() => { setAddTo(c.id); }} onFocus={() => {
                   activeColumn.current = c.id;
                 }} onDialog={(kind) => {
                   setColumnDialog({kind, columnId: c.id});
@@ -448,6 +453,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         </ContextMenuContent>
       </ContextMenu>
       <DropIndicator ref={indicatorRef}/>
+      {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }}/>}
       {columnDialog && <ColumnDialog model={model} state={columnDialog} onClose={(deleted) => {
         setColumnDialog(undefined);
         focusColumn(deleted ? undefined : columnDialog.columnId);
@@ -478,7 +484,6 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
   const issue = untracked(() => app.session?.data.pool.model('Issue').get(issueId));
   const ci = layout.columns.findIndex((c) => c.id === at?.column);
   const actions = issue ? issueActions(app, [issue]).filter((a) => a.id !== 'open') : [];
-  const path = issue && issuePath(app, issue);
   // One rule for every move to another column, by key or by menu: the card keeps its rank among the column's cards.
   const moveTo = (columnId: number) => {
     model.move(issueId, columnId, model.rankIn(issueId, columnId));
@@ -514,11 +519,10 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
           a.run();
         }}>{a.label}</ContextMenuItem>
       ))}
-      {path && editable && (
+      {issue && editable && (
         <>
           <ContextMenuSeparator/>
-          {/* No API removes a card (B9): the issue's classic page sets its projects. */}
-          <ContextMenuItem icon={SquareMinus} href={classicHref(app, path)} classic>Remove from the board…</ContextMenuItem>
+          <ContextMenuItem icon={SquareMinus} shortcut={shortcutHint('board.removeCard')} onSelect={() => { model.setProject(issueId, 0, 0); }}>Remove from board</ContextMenuItem>
         </>
       )}
     </>
@@ -532,8 +536,9 @@ interface CardHandlers {
 
 const cardDomId = (id: number) => `card-${String(id)}`;
 
-const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable, onDialog, onFocus}: {
+const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable, onDialog, onFocus, onAdd}: {
   model: BoardModel; column: ProjectColumn; index: number; count: number; dragging: KeyedFlags; handlers: CardHandlers;
+  onAdd: () => void;
   register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean; onFocus: () => void; onDialog: (kind: ColumnDialogState['kind']) => void;
 }) {
   const cards = model.cards(column.id);
@@ -593,6 +598,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
           );
         })}
       </div>
+      {editable && <Button variant="ghost" icon={Plus} onClick={onAdd}>Add existing issue…</Button>}
     </BoardColumn>
   );
 });

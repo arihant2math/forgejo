@@ -1841,6 +1841,7 @@ export const TrustedTypesPolicy = "forgejo-next";
  * NextConfig is the server configuration of the Next UI.
  */
 export interface NextConfig {
+  wip_prefixes?: string[];
   /**
    * AppURL is Forgejo's public URL (ends with "/"), AppSubURL its path
    * ("" or "/sub", no trailing slash), Base the UI's base path

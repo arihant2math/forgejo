@@ -6,13 +6,14 @@
 // by repository (groups ordered by their latest activity). Like the issue
 // lists, the rows are fixed-height items: group headers and notifications.
 
+import type {InboxSearch} from '../../app/search.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
 
 export type InboxRow =
   | {type: 'group'; key: string; label: string; count: number}
   | {type: 'note'; id: number};
 
-export interface InboxView {
+export interface InboxView extends Pick<InboxSearch, 'reason' | 'repo' | 'type' | 'state'> {
   /** Unread only (pinned notifications are not unread: they leave this view). */
   unread: boolean;
   /** Group by repository (else: pinned, then the rest). */
@@ -23,6 +24,8 @@ export interface InboxContext {
   /** The status as the user sees it (pending read/unread/pin included). */
   status(n: Notification): string;
   repoName(repoId: number): string;
+  reason?: (n: Notification) => InboxSearch['reason'];
+  subject?: (n: Notification) => {type: 'issue' | 'pr'; state: string} | undefined;
   /**
    * When its subject last had activity (the order, and the time shown). Forgejo moves a notification's
    * updated_at when its status changes too (read, pinned): triage must not move it to the top.
@@ -56,6 +59,12 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
   for (const n of notes) {
     const st = ctx.status(n);
     if (view.unread && st !== 'unread') continue;
+    if (view.repo !== undefined && n.repo_id !== view.repo) continue;
+    if (view.reason && ctx.reason?.(n) !== view.reason) continue;
+    if (view.type || view.state) {
+      const subject = ctx.subject?.(n);
+      if (!subject || (view.type && subject.type !== view.type) || (view.state && subject.state !== view.state)) continue;
+    }
     (st === 'pinned' ? pinned : rest).push(n);
   }
   pinned.sort(newestFirst);

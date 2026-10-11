@@ -17,6 +17,7 @@ import {observer} from 'mobx-react-lite';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import {useApp} from '../../app/store.ts';
+import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -247,11 +248,9 @@ export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'
 });
 
 /** Forgejo's default work-in-progress title prefixes (setting.Repository.PullRequest.WorkInProgressPrefixes). */
-const WIP = /^\s*(?:WIP:|\[WIP\])/i;
-
 /** Whether a pull request is a draft (its title starts with a work-in-progress prefix, as Forgejo decides). */
-export function isDraft(title: string): boolean {
-  return WIP.test(title);
+export function isDraft(title: string, prefixes: readonly string[] = ['WIP:', '[WIP]']): boolean {
+  return draftPrefix(title, prefixes) !== undefined;
 }
 
 const CHECK_ICON = {success: CircleCheck, failure: CircleX, pending: CircleDotDashed} as const;
@@ -265,8 +264,9 @@ const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending
 export const PullStateCell = observer(function PullStateCell({issue}: {issue: Entity<'Issue'>}) {
   const pool = usePool();
   const overlay = useOverlay();
+  const prefixes = wipPrefixes(useApp().config);
   if (!issue.get('is_pull')) return null;
-  const draft = isDraft(issueTitle(overlay, issue));
+  const draft = isDraft(issueTitle(overlay, issue), prefixes);
   const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0]?.data;
   const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
   const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';

@@ -543,7 +543,8 @@ const notFoundRoute = createRoute({
     const to = segs.length > 2 ? nextPathOf(path) : undefined;
     // The query goes along (a comparison's `?expand=1` opens its pull request form), unless the page's address has
     // its own (a pull request's tab).
-    const query = to?.includes('?') ? '' : location.searchStr;
+    const w = new URLSearchParams(location.searchStr).get('w');
+    const query = to?.includes('?') ? (w === '1' || w === '0' ? `&w=${w}` : '') : location.searchStr;
     if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}`), replace: true});
   },
   component: ShellNotFound,

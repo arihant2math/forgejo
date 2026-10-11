@@ -23,9 +23,12 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TextLink} from '../../ui/index.ts';
+import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {ago, fullDate} from '../issues/format.ts';
+import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
+import {OrganizationTeams} from './Teams.tsx';
+import {OfflineNote} from '../settings/bits.tsx';
 
 interface OwnerInfo {
   id: number;
@@ -47,6 +50,7 @@ interface RepoRow {
   fork: boolean;
   archived: boolean;
   updated: string;
+  fullName?: string;
 }
 
 type Remote<T> = {state: 'loading'} | {state: 'ready'; value: T} | {state: 'failed'; status: number};
@@ -120,6 +124,7 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
 });
 
 const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info: OwnerInfo; isOrg: boolean; me: boolean; classic: string}) {
+  const [tab, setTab] = useState<'repos' | 'stars' | 'watching'>('repos');
   const {data, userId} = useSession();
   const viewer = data.pool.model('User').get(userId)?.get('login');
   const perms = useRemote<OrgPermissions>(isOrg && viewer ? `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(info.login)}/permissions` : undefined);
@@ -128,10 +133,15 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
   const settings = isOrg ? p !== undefined && (p.is_owner || p.is_admin) : me;
   const create = isOrg ? p !== undefined && (p.can_create_repository || p.is_owner) : me;
   const navigate = useNavigate();
+  const [section, setSection] = useState<'teams' | 'labels'>();
   return (
     <>
       {/* What only the classic UI has is in More, as on a repository's pages (buttons ran off a phone's edge). */}
       <PageHeader icon={isOrg ? Building2 : UserIcon} title={info.login}>
+        {isOrg && <>
+          <Button size="sm" icon={Users} onClick={() => { setSection(section === 'teams' ? undefined : 'teams'); }}>Teams</Button>
+          <Button size="sm" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
+        </>}
         <MoreMenu label={isOrg ? 'More of this organization' : 'More of this user'}>
           {settings && !isOrg && <>
             <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
@@ -139,7 +149,6 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
           </>}
           <MenuLabel>In the classic UI</MenuLabel>
           <ClassicMenuItem to={classic} icon={isOrg ? Building2 : UserIcon}>{isOrg ? 'Organization page' : 'Profile'}</ClassicMenuItem>
-          {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/teams`} icon={Users}>Teams</ClassicMenuItem>}
           {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={Settings}>Settings</ClassicMenuItem>}
         </MoreMenu>
       </PageHeader>
@@ -153,8 +162,16 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
             </div>
           </div>
           {info.description && <p className="text-md text-fg-muted">{info.description}</p>}
-          <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/>
-          <Boards ownerId={info.id}/>
+          {section && <OfflineNote/>}
+          {section === 'teams' && <OrganizationTeams owner={info.login}/>}
+          {section === 'labels' && <OrganizationLabels owner={info.login}/>}
+          <TabNav label="Owner repositories">
+            <TabLink><button aria-current={tab === 'repos' ? 'page' : undefined} onClick={() => { setTab('repos'); }}>Repositories</button></TabLink>
+            {!isOrg && <TabLink><button aria-current={tab === 'stars' ? 'page' : undefined} onClick={() => { setTab('stars'); }}>Stars</button></TabLink>}
+            {me && <TabLink><button aria-current={tab === 'watching' ? 'page' : undefined} onClick={() => { setTab('watching'); }}>Watching</button></TabLink>}
+          </TabNav>
+          {tab === 'repos' ? <><Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/><Boards ownerId={info.id}/></> :
+            <SocialRepos key={tab} owner={info.login} kind={tab}/>}
         </PageColumn>
       </PageBody>
     </>
@@ -196,6 +213,22 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
   );
 });
 
+interface APIRepo {id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}
+
+const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string; kind: 'stars' | 'watching'}) {
+  const {data} = useSession();
+  const [page, setPage] = useState(1);
+  const remote = useRemote<APIRepo[]>(`${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=50&page=${String(page)}`);
+  const away = reach(data.status.connection) !== 'online';
+  return <Panel label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
+    {remote.state === 'ready' ? <>
+      <LinkRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</LinkRows>
+      {!remote.value.length && <EmptyState title="No repositories"/>}
+      <div className="flex gap-2 px-3 py-2"><Button size="sm" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="sm" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
+    </> : away ? <EmptyState title="Not available offline" description="Connect to load these repositories."/> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <EmptyState title="Could not load repositories"/>}
+  </Panel>;
+});
+
 function RepoLine({r}: {r: RepoRow}) {
   const app = useApp();
   const click = useLinkClick();
@@ -208,7 +241,7 @@ function RepoLine({r}: {r: RepoRow}) {
         {r.archived && <Badge tone="warning">Archived</Badge>}
         <time dateTime={r.updated} title={fullDate(r.updated)}>{ago(r.updated)}</time>
       </>}>
-      <span className="font-medium">{r.name}</span>{r.description && <span className="ml-3 text-fg-subtle">{r.description}</span>}
+      <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-fg-subtle">{r.description}</span>}
     </ListRow>
   );
 }

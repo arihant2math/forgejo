@@ -10,6 +10,8 @@
 // the side pane (AboutSidebar.tsx: what it is, its releases and languages).
 // The tabs lead to everything else. Its own chunk.
 
+import {useNavigate} from '@tanstack/react-router';
+import {discoverySearch} from '../search/params.ts';
 import {LinkRows} from '../../ui/LinkRows.tsx';
 import {Code2, Folder, FolderGit2, GitBranch, History, SquarePen, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
@@ -95,6 +97,7 @@ const MAX_ENTRIES = 60;
 
 /** The default branch's latest commit, its top-level files and its README. */
 const Files = observer(function Files({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
+  const navigate = useNavigate();
   const pool = usePool();
   const refs = refTable(pool, repoId);
   const branch = refs.defaultBranch;
@@ -127,6 +130,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
         </CodeLink>
       </Button>
       <div className="ms-auto flex flex-wrap items-center gap-2">
+        <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
         <GoToFile owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha}}/>
         <CodeMenu owner={owner} repo={repo} branch={branch}/>
       </div>

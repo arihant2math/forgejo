@@ -699,9 +699,10 @@ func nextConfig() *protocol.NextConfig {
 	cfg := &protocol.NextConfig{
 		AppURL: setting.AppURL, AppSubURL: setting.AppSubURL, Base: setting.AppSubURL + nextBase,
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
-		SSHClonePrefix: sshClonePrefix(),
-		Explore:        &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
-		WIPPrefixes:    &prefixes,
+		SSHClonePrefix:     sshClonePrefix(),
+		CodeIndexerEnabled: setting.Indexer.RepoIndexerEnabled,
+		Explore:            &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
+		WIPPrefixes:        &prefixes,
 		Repository: &protocol.NextRepository{
 			DefaultBranch: setting.Repository.DefaultBranch, DefaultPrivate: setting.Repository.DefaultPrivate,
 			ForcePrivate: setting.Repository.ForcePrivate, ObjectFormats: objectFormats(),

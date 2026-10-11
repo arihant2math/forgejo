@@ -66,8 +66,9 @@ type NextConfig struct {
 	OAuth *NextOAuth `json:"oauth" tstype:"NextOAuth | null,required"`
 	// Repository is what a new repository starts from ([repository]
 	// settings and the Git in use); absent from older servers.
-	Repository *NextRepository `json:"repository,omitempty"`
-	Explore    *NextExplore    `json:"explore,omitempty"`
+	Repository         *NextRepository `json:"repository,omitempty"`
+	CodeIndexerEnabled bool            `json:"code_indexer_enabled,omitempty"`
+	Explore            *NextExplore    `json:"explore,omitempty"`
 }
 
 // NextExplore describes the instance's discovery restrictions.

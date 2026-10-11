@@ -14,10 +14,16 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {Button, CommandPopover, Input, ListRow, SegmentedControl} from '../../ui/index.ts';
 import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
 
-const labels: Record<Kind, string> = {repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
+import CodeSearch from './CodeSearch.tsx';
+
+const labels: Record<Kind, string> = {code: 'Code', repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
 
-export default observer(function Discovery() {
+export default function Discovery() {
+  const raw = useSearch({strict: false}) as Record<string, unknown>;
+  return raw.type === 'code' ? <CodeSearch/> : <DiscoveryResults/>;
+}
+const DiscoveryResults = observer(function DiscoveryResults() {
   const app = useApp();
   const navigate = useNavigate();
   const path = useLocation({select: (l) => l.pathname});
@@ -35,7 +41,7 @@ export default observer(function Discovery() {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState(0);
   const click = useLinkClick();
-  const available = useMemo(() => kinds.filter((kind) => (!explore || kind !== 'issues' && kind !== 'pulls') && (kind !== 'users' || !app.config.explore?.disable_users) && (kind !== 'organizations' || !app.config.explore?.disable_organizations)), [explore, app]);
+  const available = useMemo(() => kinds.filter((kind) => (!explore || kind !== 'issues' && kind !== 'pulls' && kind !== 'code') && (kind !== 'users' || !app.config.explore?.disable_users) && (kind !== 'organizations' || !app.config.explore?.disable_organizations)), [explore, app]);
   const allowed = available.includes(search.type);
   const patch = useCallback((change: Partial<DiscoverySearch>) => {
     const next = discoverySearch({...search, page: 1, ...change});
@@ -67,7 +73,7 @@ export default observer(function Discovery() {
     if (!connected) return undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      for (const kind of available.filter((kind) => kind !== search.type)) {
+      for (const kind of available.filter((kind) => kind !== search.type && kind !== 'code')) {
         void discover(app, discoverySearch({...search, type: kind, page: 1, sort: 'updated'}), controller.signal).then((page) => {
           if (!controller.signal.aborted) setCounts((previous) => ({...previous, [kind]: page.total}));
         }).catch(() => { /* The selected tab reports its own error. */ });
@@ -92,7 +98,7 @@ export default observer(function Discovery() {
       {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl label="State" value={search.state} onChange={(state) => { patch({state}); }} options={[{value: 'all', label: 'All'}, {value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>}
     </PageHeader>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
-      <SegmentedControl label={explore ? 'Explore type' : 'Search type'} value={search.type} onChange={(type) => { patch({type}); }} options={available.map((kind) => ({value: kind, label: `${labels[kind]} (${connected ? counts[kind] ?? '…' : localDiscovery(app, discoverySearch({...search, type: kind, page: 1})).total})`}))}/>
+      <SegmentedControl label={explore ? 'Explore type' : 'Search type'} value={search.type} onChange={(type) => { patch({type}); }} options={available.map((kind) => ({value: kind, label: kind === 'code' ? labels[kind] : `${labels[kind]} (${connected ? counts[kind] ?? '…' : localDiscovery(app, discoverySearch({...search, type: kind, page: 1})).total})`}))}/>
     </div>
     {!connected && <p role="note" className="px-4 py-2 text-sm text-fg-muted">Offline — showing results on this device only. Language filtering and people sort by activity are unavailable offline.</p>}
     <PageBody ref={setScroller}>

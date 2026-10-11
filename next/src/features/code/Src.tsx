@@ -14,6 +14,7 @@ import {Missing} from '../../app/Missing.tsx';
 import {observer} from 'mobx-react-lite';
 import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
+import {discoverySearch} from '../search/params.ts';
 import {editableText} from './fileWrite.ts';
 import {FileOperations} from './FileOperations.tsx';
 import {notify} from '../../app/notices.ts';
@@ -161,6 +162,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>Commits</CodeLink>
       </Button>
+      <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (

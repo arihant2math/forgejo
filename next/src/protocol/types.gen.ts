@@ -1905,6 +1905,7 @@ export interface NextConfig {
    * settings and the Git in use); absent from older servers.
    */
   repository?: NextRepository;
+  code_indexer_enabled?: boolean;
   explore?: NextExplore;
 }
 /**

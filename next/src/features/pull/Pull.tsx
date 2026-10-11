@@ -47,6 +47,7 @@ import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {statusLook, statusTime} from '../code/Actions.tsx';
+import {RunControls} from '../code/RunControls.tsx';
 import {checksOf, cleanDescription, unfinishedChecks} from './checks.ts';
 import {mergeOptions} from './mergeStyles.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
@@ -628,14 +629,18 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
   if (!run) return null;
   return (
     <>
+      <RunControls owner={owner} repo={repo} run={run.data} jobs={jobs.map((j) => j.data)}/>
       {jobs.map((j, i) => {
         const look = statusLook(j.get('status'));
         return (
-          <CodeLink key={j.id} owner={owner} repo={repo} to={`actions/runs/${String(runNumber)}/jobs/${String(i)}`}>
+          <div key={j.id} className="flex items-center gap-1 pr-2">
+          <CodeLink className="min-w-0 flex-1" owner={owner} repo={repo} to={`actions/runs/${String(runNumber)}/jobs/${String(i)}`}>
             <ListRow role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={statusTime(look.text, j.get('started'), j.get('stopped'))}>
               {run.get('workflow_id')} / {j.get('name')}
             </ListRow>
           </CodeLink>
+          <RunControls owner={owner} repo={repo} run={run.data} jobs={jobs.map((item) => item.data)} job={j.data}/>
+          </div>
         );
       })}
     </>

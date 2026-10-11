@@ -40,14 +40,13 @@ export function SidebarBody({children}: {children: ReactNode}) {
 }
 
 /**
- * The main panel's header bar. On a phone (below md) it may take a second row: the page's controls go under the
- * title (PageHeader), where they scroll sideways instead of being cut off.
+ * The main panel's header bar. On a narrow panel the page's controls wrap below the title.
  */
 export function HeaderBar({children}: {children: ReactNode}) {
   return <header className={headerRow}>{children}</header>;
 }
 
-const headerRow = 'flex h-header shrink-0 items-center gap-2 border-b border-border px-4 max-md:h-auto max-md:min-h-header max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0 max-md:px-2';
+const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-border px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
 
 /**
  * A row of a header that has several (a repository page's: where you are, the tabs, the page's title and

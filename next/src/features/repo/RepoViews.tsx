@@ -42,9 +42,9 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
         {/* Creating from the list (C as well). A pull request starts from a comparison: its branches are chosen there. */}
         {pulls ?
           <NewPullButton owner={owner} repo={repo} repoId={repoId}/> :
-          <Button size="sm" icon={SquarePen} shortcut={shortcutHint('create')} tooltip="New issue" onClick={() => {
+          <Button size="sm" icon={SquarePen} aria-label="New issue" shortcut={shortcutHint('create')} tooltip="New issue" onClick={() => {
             openCreate(app, repoId);
-          }}>New issue</Button>}
+          }}><span className="@max-md:hidden">New issue</span></Button>}
       </RepoHeader>
       <ListBody model={model} label={pulls ? 'Pull requests' : 'Issues'}
         empty={<EmptyState icon={pulls ? GitPullRequest : CircleDot} title={`No open ${noun}`} description={`This repository has no open ${noun} on this device.`}/>}/>

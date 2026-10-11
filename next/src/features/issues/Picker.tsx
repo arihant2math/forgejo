@@ -22,7 +22,7 @@ import {Avatar, CommandDialog, CommandPick, CommandPopover, Icon, LabelDot, Labe
 import {shortDate} from './format.ts';
 import {NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
-import {loadPeople, repoPeople} from './people.ts';
+import {loadPeople, personLogin, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
 import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
@@ -212,7 +212,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     for (const u of repoPeople(pool, repoId, s.userId, current)) {
       const checked = draft ? draft.assignees.includes(u.id) : coverage(issues, (i) => issueAssigneeIds(pool, overlay, i.id).includes(u.id));
       options.push({
-        value: `u${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
+        value: `u${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, meta: personLogin(u), checked, keepOpen: true,
         leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
         onSelect: () => {
           if (draft) draft.setAssignee(u.id, checked !== true);
@@ -227,7 +227,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       if (posters.has(u.id)) continue; // nobody reviews their own pull request
       const checked = coverage(issues, (i) => requested(i).has(u.id));
       options.push({
-        value: `r${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
+        value: `r${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, meta: personLogin(u), checked, keepOpen: true,
         leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
         onSelect: () => {
           runInAction(() => {

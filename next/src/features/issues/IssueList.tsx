@@ -43,6 +43,7 @@ import {
   usePool,
 } from './cells.tsx';
 import {issuePath, issuesOf} from './edits.ts';
+import {personLogin} from './people.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
@@ -415,6 +416,7 @@ const RepoRef = observer(function RepoRef({repoId, number}: {repoId: number; num
 const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'group'}>}) {
   const pool = usePool();
   let leading: ReactNode = null;
+  let detail: string | undefined;
   if ((row.kind === 'status' || row.kind === 'priority') && row.value) {
     const l = pool.model('Label').get(row.value);
     if (l) leading = <LabelIcon icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
@@ -422,8 +424,11 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
     leading = <Icon icon={CircleDashed}/>;
   } else if (row.kind === 'assignee') {
     leading = row.value ? <UserAvatar id={row.value}/> : <Icon icon={UserIcon}/>;
+    // The login beside the name: two people of the same name get two headers that can be told apart (QA #263).
+    const login = row.value ? pool.model('User').get(row.value)?.get('login') : undefined;
+    detail = login ? personLogin({login, name: row.label}) : undefined;
   } else if (row.kind === 'repo') {
     leading = <Icon icon={FolderGit2}/>;
   }
-  return <ListGroupHeader leading={leading} label={row.label} count={row.count}/>;
+  return <ListGroupHeader leading={leading} label={row.label} detail={detail} count={row.count}/>;
 });

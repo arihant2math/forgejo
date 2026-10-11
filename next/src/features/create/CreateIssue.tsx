@@ -29,6 +29,7 @@ import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Button, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
+import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {repoPeople} from '../issues/people.ts';
@@ -212,7 +213,7 @@ class Form {
     const t = this.title.trim();
     const repo = untracked(() => this.app.session?.data.pool.model('Repository').get(this.repoId)?.data);
     if (!t) this.missing = true;
-    if (!t || !repo) return undefined;
+    if (!t || !repo || hasPendingUploads(this.body)) return undefined;
     this.done = true;
     clearTimeout(this.timer);
     const {intents} = editing(this.app);
@@ -408,7 +409,8 @@ const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; k
 });
 
 const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form; onCancel: () => void; onCreate: () => void}) {
-  const ready = Boolean(form.title.trim()) && form.repoId > 0;
+  const uploading = hasPendingUploads(form.body);
+  const ready = Boolean(form.title.trim()) && form.repoId > 0 && !uploading;
   return (
     <>
       <span className="mr-auto flex items-center gap-1 self-center text-sm text-fg-subtle">
@@ -420,7 +422,7 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
       </span>
       <Button variant="ghost" onClick={onCancel}>Cancel</Button>
       {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
-      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={onCreate}>
+      <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={onCreate}>
         Create issue
       </Button>
     </>

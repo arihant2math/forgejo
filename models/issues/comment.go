@@ -1083,6 +1083,11 @@ func CreateComment(ctx context.Context, opts *CreateCommentOptions) (_ *Comment,
 		return nil, err
 	}
 
+	if comment.Type.HasAttachmentSupport() {
+		if err := repo_model.LinkMarkdownAttachments(ctx, opts.Repo.ID, opts.Doer.ID, opts.Issue.ID, comment.ID, comment.Content); err != nil {
+			return nil, err
+		}
+	}
 	if err = opts.Repo.LoadOwner(ctx); err != nil {
 		return nil, err
 	}
@@ -1379,6 +1384,11 @@ func UpdateComment(ctx context.Context, c *Comment, contentVersion int, doer *us
 	}
 	if affected == 0 {
 		return ErrCommentAlreadyChanged
+	}
+	if c.Type.HasAttachmentSupport() {
+		if err := repo_model.LinkMarkdownAttachments(ctx, c.Issue.RepoID, doer.ID, c.IssueID, c.ID, c.Content); err != nil {
+			return err
+		}
 	}
 	if err := c.AddCrossReferences(ctx, doer, true); err != nil {
 		return err

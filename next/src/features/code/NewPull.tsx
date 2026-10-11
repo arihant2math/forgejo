@@ -25,6 +25,7 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
 import {Avatar, Button, Card, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
+import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
@@ -157,7 +158,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   const isOnline = reach(session.data.status.connection) === 'online';
   const title = form.title ?? defaults.title;
   const body = form.body ?? defaults.body;
-  const why = repoData?.archived ? 'This repository is archived: it takes no new pull requests.' :
+  const why = hasPendingUploads(body) ? 'Wait for the attachments to finish uploading.' : repoData?.archived ? 'This repository is archived: it takes no new pull requests.' :
     !isOnline ? onlineOnly('Opening a pull request') : !title.trim() ? 'Add a title first' : undefined;
   const create = () => {
     if (form.busy) return;

@@ -18,8 +18,8 @@ import {autocompletion, type CompletionContext, type CompletionResult, completio
 
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {syntaxHighlighting} from '@codemirror/language';
-import {Compartment, EditorState} from '@codemirror/state';
-import {EditorView, keymap, placeholder as cmPlaceholder} from '@codemirror/view';
+import {Compartment, EditorState, Transaction} from '@codemirror/state';
+import {Decoration, EditorView, keymap, MatchDecorator, placeholder as cmPlaceholder, ViewPlugin, type ViewUpdate, WidgetType} from '@codemirror/view';
 import {classHighlighter} from '@lezer/highlight';
 import {continueList, markdown} from './markdown.ts';
 import {type Ref, useEffect, useImperativeHandle, useRef, useState} from 'react';
@@ -58,6 +58,28 @@ const theme = EditorView.theme({
   '.cm-completionIcon': {display: 'none'},
 });
 
+class UploadChip extends WidgetType {
+  readonly name: string;
+  constructor(name: string) { super(); this.name = name; }
+  override eq(other: UploadChip) { return other.name === this.name; }
+  toDOM() {
+    const chip = document.createElement('span');
+    chip.className = 'inline-flex rounded-sm bg-raised px-1 text-sm text-fg-muted';
+    chip.textContent = `Uploading ${this.name}`;
+    return chip;
+  }
+}
+
+const uploadMatcher = new MatchDecorator({
+  regexp: /<!-- uploading-attachment:[^\s]+ (.*?) -->/g,
+  decoration: (match) => Decoration.replace({widget: new UploadChip(match[1] ?? 'file…')}),
+});
+const uploadChips = ViewPlugin.fromClass(class {
+  decorations;
+  constructor(view: EditorView) { this.decorations = uploadMatcher.createDeco(view); }
+  update(update: ViewUpdate) { this.decorations = uploadMatcher.updateDeco(update, this.decorations); }
+}, {decorations: (plugin) => plugin.decorations});
+
 /** A suggestion for "@" (a person: login) or "#" (an issue: its number). */
 export interface Suggestion {
   /** Inserted after the trigger. */
@@ -82,6 +104,8 @@ function suggestions(complete: (trigger: '@' | '#', query: string) => Suggestion
 
 export interface MarkdownEditorHandle {
   focus(): void;
+  insert(text: string, position?: number): void;
+  replace(placeholder: string, text: string): void;
   /** Formats the selection (the toolbar; the keys are ⌘B, ⌘I, ⌘K). */
   format(kind: Format): void;
 }
@@ -99,21 +123,35 @@ export interface MarkdownEditorProps {
   rows?: number | undefined;
   onSubmit?: (() => void) | undefined;
   onCancel?: (() => void) | undefined;
+  onFiles?: ((files: File[], position?: number) => void) | undefined;
   /** Suggestions after "@" (people) and "#" (issues). */
   complete?: ((trigger: '@' | '#', query: string) => Suggestion[]) | undefined;
   ref?: Ref<MarkdownEditorHandle>;
 }
 
-export default function MarkdownEditor({value, onChange, label, placeholder, describedBy, invalid, autoFocus, rows = 4, onSubmit, onCancel, complete, ref}: MarkdownEditorProps) {
+export default function MarkdownEditor({value, onChange, label, placeholder, describedBy, invalid, autoFocus, rows = 4, onSubmit, onCancel, complete, onFiles, ref}: MarkdownEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | undefined>(undefined);
   // The latest callbacks, read by the editor's handlers (created once).
-  const cb = useRef({onChange, onSubmit, onCancel, complete});
+  const cb = useRef({onChange, onSubmit, onCancel, complete, onFiles});
   useEffect(() => {
-    cb.current = {onChange, onSubmit, onCancel, complete};
+    cb.current = {onChange, onSubmit, onCancel, complete, onFiles};
   });
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),
+    insert: (text, position) => {
+      const v = view.current;
+      if (!v) return;
+      const {from, to} = v.state.selection.main;
+      const at = position ?? from;
+      v.dispatch({changes: {from: at, to: position === undefined ? to : at, insert: text}, selection: {anchor: at + text.length}});
+    },
+    replace: (placeholder, text) => {
+      const v = view.current;
+      if (!v) return;
+      const from = v.state.doc.toString().indexOf(placeholder);
+      if (from >= 0) v.dispatch({changes: {from, to: from + placeholder.length, insert: text}, annotations: Transaction.addToHistory.of(false)});
+    },
     format: (kind) => {
       if (view.current) {
         applyFormat(view.current, kind);
@@ -139,6 +177,28 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
         selection: {anchor: value.length},
         extensions: [
           history(),
+          uploadChips,
+          EditorView.domEventHandlers({
+            paste: (event) => {
+              const files = [...(event.clipboardData?.files ?? [])];
+              if (!files.length || !cb.current.onFiles) return false;
+              event.preventDefault();
+              event.stopPropagation();
+              cb.current.onFiles(files);
+              return true;
+            },
+            dragover: (event) => {
+              if (event.dataTransfer?.types.includes('Files') && cb.current.onFiles) event.preventDefault();
+            },
+            drop: (event, v) => {
+              const files = [...(event.dataTransfer?.files ?? [])];
+              if (!files.length || !cb.current.onFiles) return false;
+              event.preventDefault();
+              event.stopPropagation();
+              cb.current.onFiles(files, v.posAtCoords({x: event.clientX, y: event.clientY}) ?? undefined);
+              return true;
+            },
+          }),
           autocompletion({override: [suggestions((t, q) => cb.current.complete?.(t, q) ?? [])], icons: false, activateOnTyping: true}),
           // Before the editor's own keys: with the list open, Enter and Esc are the list's.
           keymap.of(completionKeymap),

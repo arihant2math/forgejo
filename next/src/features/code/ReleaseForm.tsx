@@ -233,7 +233,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         onChange={(e) => {
           set({title: e.target.value});
         }}/>
-      <MarkdownField repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}
+      <MarkdownField attachments={false} repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}
         onChange={(notes) => {
           set({notes});
         }} onSubmit={() => {

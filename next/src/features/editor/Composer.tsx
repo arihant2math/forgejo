@@ -12,14 +12,18 @@
 
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react';
-import {online, RequestFailed} from '../../app/api.ts';
-import {connectivity} from '../../app/online.ts';
+import {failureText, online, RequestFailed} from '../../app/api.ts';
+import {connectivity, onlineOnly, reach} from '../../app/online.ts';
+import {canWrite} from '../../app/access.ts';
+import {notify} from '../../app/notices.ts';
+import {uuid} from '../../intents/intents.ts';
+import {attachmentMarkdown, hasPendingUploads, replaceUpload, stripUploadPlaceholders, uploadPlaceholder} from './attachments.ts';
 import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
-import type {APIMarkdownRequest, APIMarkdownResponse} from '../../protocol/types.gen.ts';
+import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {Bold, Italic, Link2} from 'lucide-react';
-import {EditorFrame, IconButton, type LucideIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
+import {Bold, Italic, Link2, Paperclip} from 'lucide-react';
+import {Button, EditorFrame, IconButton, type LucideIcon, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
 import type {Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
@@ -98,6 +102,9 @@ async function flush(app: App, repoId: number): Promise<void> {
 export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   /** The repository the text belongs to (references and links in the preview resolve there); 0 for none. */
   repoId: number;
+  attachmentIssueId?: number | undefined;
+  /** Wiki and release notes use different asset lifecycles. */
+  attachments?: boolean | undefined;
   /** A shortcut that puts the caret here (R: comment). */
   focusShortcut?: ShortcutId | undefined;
   /** How Preview renders the text (default: as an issue's text in the repository; a wiki page renders as one). */
@@ -137,7 +144,7 @@ function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
   return null;
 }
 
-export const MarkdownField = observer(function MarkdownField({repoId, focusShortcut, render, ...props}: MarkdownFieldProps) {
+export const MarkdownField = observer(function MarkdownField({repoId, attachmentIssueId, attachments = true, focusShortcut, render, ...props}: MarkdownFieldProps) {
   const [preview, setPreview] = useState(false);
   // The text area stands in until the editor's code is here and the page is idle (creating an editor costs a
   // frame or more on a slow device: not while the page opens), or at once when the field is wanted.
@@ -145,6 +152,95 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
   const editor = useRef<MarkdownEditorHandle>(null);
   const area = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const text = useRef(props.value);
+  text.current = props.value;
+  const callbacks = useRef(props);
+  callbacks.current = props;
+  const uploads = useRef(new Map<string, AbortController>());
+  const [pending, setPending] = useState(0);
+  const [serverAllowed, setServerAllowed] = useState<boolean>();
+  const app = useApp();
+  const session = app.session;
+  const limits = app.config.attachments;
+  const repo = session?.data.pool.model('Repository').get(repoId)?.data;
+  const issue = attachmentIssueId ? session?.data.pool.model('Issue').get(attachmentIssueId)?.data : undefined;
+  const locallyAllowed = attachments && limits?.enabled === true && session !== undefined && repo !== undefined && !repo.archived &&
+    (!issue?.is_locked || canWrite(session, repoId));
+  const query = attachmentIssueId && attachmentIssueId > 0 ? `?issue_id=${String(attachmentIssueId)}` : '';
+  const endpoint = `/repos/${String(repoId)}/attachments${query}`;
+  const isOnline = reach(session?.data.status.connection) === 'online';
+  useEffect(() => {
+    if (!locallyAllowed || !isOnline) return undefined;
+    const controller = new AbortController();
+    setServerAllowed(undefined);
+    void online<APIAttachmentPermission>(app, {api: 'sync', path: endpoint, signal: controller.signal}).then((result) => {
+      if (!controller.signal.aborted) setServerAllowed(result?.allowed === true);
+    }, () => { if (!controller.signal.aborted) setServerAllowed(false); });
+    return () => { controller.abort(); };
+  }, [app, endpoint, locallyAllowed, isOnline]);
+  const allowed = locallyAllowed && (isOnline ? serverAllowed === true : serverAllowed !== false);
+  const insert = (value: string, position?: number) => {
+    if (editor.current) editor.current.insert(value, position);
+    else {
+      const from = position ?? area.current?.selectionStart ?? text.current.length;
+      const to = position ?? area.current?.selectionEnd ?? from;
+      const next = text.current.slice(0, from) + value + text.current.slice(to);
+      text.current = next;
+      callbacks.current.onChange(next);
+    }
+  };
+  const replace = (placeholder: string, value: string) => {
+    if (editor.current) editor.current.replace(placeholder, value);
+    else {
+      const next = replaceUpload(text.current, placeholder, value);
+      text.current = next;
+      callbacks.current.onChange(next);
+    }
+  };
+  const attach = (files: File[], position?: number) => {
+    if (!isOnline || !allowed) {
+      notify(app, {tone: 'neutral', title: !isOnline ? onlineOnly('Attaching files') : 'Attachments are not available here.'});
+      return;
+    }
+    if (limits.max_files > 0 && files.length + uploads.current.size + new Set(text.current.match(/\/attachments\/[0-9a-f-]{36}/g) ?? []).size > limits.max_files) {
+      notify(app, {tone: 'danger', title: `Attach at most ${String(limits.max_files)} files.`});
+      return;
+    }
+    const tasks = files.filter((file) => {
+      if (file.size <= limits.max_size) return true;
+      notify(app, {tone: 'danger', title: `${file.name} is too large`, description: `The maximum attachment size is ${String(Math.floor(limits.max_size / 1048576))} MiB.`});
+      return false;
+    }).map((file) => ({file, placeholder: uploadPlaceholder(uuid(), file.name), controller: new AbortController()}));
+    if (!tasks.length) return;
+    for (const task of tasks) uploads.current.set(task.placeholder, task.controller);
+    insert(tasks.map((task) => task.placeholder).join('\n') + '\n', position);
+    setPending(uploads.current.size);
+    for (const {file, placeholder, controller} of tasks) {
+      const form = new FormData();
+      form.set('attachment', file);
+      void online<APIUploadedAttachment>(app, {method: 'POST', api: 'sync', path: endpoint, form, timeout: 120_000, signal: controller.signal}).then((result) => {
+        if (controller.signal.aborted) return;
+        if (!result?.url) throw new Error('Forgejo did not return an attachment URL.');
+        replace(placeholder, attachmentMarkdown(file, result.url));
+      }).catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        replace(placeholder, '');
+        notify(app, {tone: 'danger', title: `${file.name} was not attached`, description: failureText(err)});
+      }).finally(() => {
+        if (controller.signal.aborted) return;
+        uploads.current.delete(placeholder);
+        setPending(uploads.current.size);
+      });
+    }
+  };
+  useEffect(() => {
+    if (!uploads.current.size && hasPendingUploads(props.value)) props.onChange(stripUploadPlaceholders(props.value));
+  }, [props]);
+  useEffect(() => () => {
+    for (const controller of uploads.current.values()) controller.abort();
+    uploads.current.clear();
+  }, []);
   useEffect(() => {
     if (ready) return undefined;
     let live = true;
@@ -187,6 +283,8 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
       if (v === 'write') requestAnimationFrame(() => editor.current?.focus());
     }} options={[{value: 'write', label: 'Write'}, {value: 'preview', label: 'Preview'}]}/>
     <span className="ml-auto flex items-center">
+      {allowed && <Button size="sm" variant="ghost" icon={Paperclip} disabled={preview || !isOnline}
+        tooltip={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'} onClick={() => picker.current?.click()}>Attach files</Button>}
       {FORMATS.map(([kind, icon, label, key]) => (
         <IconButton key={kind} size="sm" icon={icon} label={label} shortcut={`${mod}${key}`} disabled={preview || !Editor} onClick={() => {
           editor.current?.format(kind);
@@ -196,6 +294,10 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
   </>;
   return (
     <div onKeyDown={onKeyDown}>
+      <input ref={picker} type="file" aria-label="Attach files" multiple hidden accept={limits?.allowed_types === '*/*' ? undefined : limits?.allowed_types} onChange={(e) => {
+        attach([...e.target.files ?? []]);
+        e.target.value = '';
+      }}/>
       {focusShortcut && <FocusOn id={focusShortcut} focus={() => {
         setPreview(false);
         requestAnimationFrame(() => {
@@ -210,9 +312,18 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
             <MarkdownPreview repoId={repoId} text={props.value} render={render}/>
           </div> :
           Editor ?
-            <Editor {...props} ref={editor} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
+            <Editor {...props} ref={editor} onFiles={attach} onSubmit={props.onSubmit ? () => { if (!hasPendingUploads(text.current)) props.onSubmit?.(); } : undefined} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
             <TextArea bare ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
               value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} invalid={props.invalid}
+              onPaste={(e) => {
+                const files = [...e.clipboardData.files];
+                if (files.length) { e.preventDefault(); attach(files); }
+              }}
+              onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+              onDrop={(e) => {
+                const files = [...e.dataTransfer.files];
+                if (files.length) { e.preventDefault(); attach(files); }
+              }}
               onFocus={() => {
                 hadFocus.current = true;
                 if (Loaded) setReady(true);
@@ -223,13 +334,14 @@ export const MarkdownField = observer(function MarkdownField({repoId, focusShort
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
-                  props.onSubmit?.();
+                  if (!hasPendingUploads(text.current)) props.onSubmit?.();
                 } else if (e.key === 'Escape' && props.onCancel) {
                   e.preventDefault();
                   props.onCancel();
                 }
               }}/>}
       </EditorFrame>
+      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-fg-muted"><PendingIcon label="Uploading attachments" now/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
     </div>
   );
 });

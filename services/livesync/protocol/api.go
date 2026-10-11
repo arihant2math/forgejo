@@ -3,6 +3,21 @@
 
 package protocol
 
+// APIUploadedAttachment is an online-only, unattached upload. Issue/PR and comment
+// text writes claim local attachment URLs in the same transaction, restricted to
+// the writer's unattached uploads in that repository. Removed draft links remain
+// unattached, as in the classic composer. Uploads obey NextConfig.Attachments and
+// the repository owner's quota. issue_id additionally checks locks and its unit.
+type APIUploadedAttachment struct {
+	UUID string `json:"uuid"`
+	URL  string `json:"url"`
+}
+
+// APIAttachmentPermission lets the composer hide Attach when commenting is forbidden.
+type APIAttachmentPermission struct {
+	Allowed bool `json:"allowed"`
+}
+
 // Gap endpoints (PLAN §4.8): what API v1 lacks, under /-/sync/api/. They
 // are authenticated like every livesync endpoint (an OAuth2 or personal
 // access token in "Authorization: Bearer"/"token"; the token needs the
@@ -45,6 +60,8 @@ package protocol
 //	GET    /-/sync/api/issues/{id}/viewed[?head={sha}]      → 200 APIViewedFiles (a pull request's issue)
 //	PUT    /-/sync/api/issues/{id}/viewed                   APIViewedUpdate → 200 APIViewedFiles (write:repository)
 //	PUT    /-/sync/api/issues/{id}/project                  APIIssueProject → 204              (write:issue)
+//	GET    /-/sync/api/repos/{id}/attachments[?issue_id={id}] → 200 APIAttachmentPermission (write:issue)
+//	POST   /-/sync/api/repos/{id}/attachments[?issue_id={id}] multipart attachment → 201 APIUploadedAttachment; 400 type forbidden; 413 size/quota (write:issue)
 //	POST   /-/sync/api/markdown                             APIMarkdownRequest → 200 APIMarkdownResponse
 //	POST   /-/sync/api/markup                               APIMarkupRequest → 200 APIMarkupResponse (code unit; wiki unit with Wiki)
 //	GET    /-/sync/api/repos/{id}/tree/{commit}[/{path}]    → 200 APITree               (immutable)

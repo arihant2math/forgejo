@@ -694,6 +694,10 @@ func nextConfig() *protocol.NextConfig {
 		AppURL: setting.AppURL, AppSubURL: setting.AppSubURL, Base: setting.AppSubURL + nextBase,
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
 		SSHClonePrefix: sshClonePrefix(),
+		Attachments: &protocol.NextAttachments{
+			Enabled: setting.Attachment.Enabled, AllowedTypes: setting.Attachment.AllowedTypes,
+			MaxSize: setting.Attachment.MaxSize << 20, MaxFiles: setting.Attachment.MaxFiles,
+		},
 		Repository: &protocol.NextRepository{
 			DefaultBranch: setting.Repository.DefaultBranch, DefaultPrivate: setting.Repository.DefaultPrivate,
 			ForcePrivate: setting.Repository.ForcePrivate, ObjectFormats: objectFormats(),

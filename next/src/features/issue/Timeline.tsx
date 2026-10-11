@@ -41,7 +41,7 @@ import {afterPaint} from '../../app/paint.ts';
 import {textOfMarkup} from '../../app/trusted.ts';
 import {Reactions} from './Reactions.tsx';
 import {blocking, IssueLink} from './Sidebar.tsx';
-import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
+import {conversationReplies, conversationRoot, replyOnlyReview, replyRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
@@ -67,6 +67,8 @@ function useItems(issueId: number): Item[] {
     for (const r of reviews) {
       const st = r.data.state;
       if (st === 'PENDING' || st === 'REQUEST_REVIEW') continue;
+      // A reply (its own review in Forgejo's data) shows in the thread it answers, not as a review of its own.
+      if (replyOnlyReview(pool, r.id)) continue;
       out.push({kind: 'review', id: r.id, at: r.data.created_at});
     }
     out.sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
@@ -235,11 +237,13 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'neutral' as const, text: 'reviewed'};
   const summary = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
   const html = r.get('body_html');
-  const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code');
+  // Replies to conversations started in an earlier review show in those threads.
+  const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code' && !replyRoot(pool, c));
   return (
     <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')}
       badge={<Badge tone={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Badge>}>
-      {summary ? <CommentCard c={summary} type="review"/> : html && <Markdown html={html}/>}
+      {/* A review without a summary (only line comments, or only a verdict) has no empty "No text." card. */}
+      {summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review"/> : html && <Markdown html={html}/>}
       {codes.map((c) => <CodeComment key={c.id} c={c}/>)}
     </Card>
   );
@@ -271,6 +275,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const repo = issue ? pool.model('Repository').get(issue.repo_id)?.data : undefined;
   const files = issue && repo ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.number)}` : undefined;
   const lines = hunkLines(c.get('diff_hunk'), SNIPPET_LINES);
+  const replies = conversationReplies(pool, c);
   const reply = () => {
     if (!issue || !text.trim() || hasPendingUploads(text)) return;
     submitReview(editing(app).intents, {
@@ -309,6 +314,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
         </div>
       )}
       <CommentCard c={c} type="code"/>
+      {replies.map((r) => <CommentCard key={r.id} c={r} type="code"/>)}
       {issue && !c.get('invalidated') && (replying ?
         <div className="flex flex-col gap-2">
           <MarkdownField repoId={issue.repo_id} attachmentIssueId={issue.id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {

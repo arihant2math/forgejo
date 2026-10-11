@@ -10,7 +10,7 @@
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
-import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
+import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, Clock, FileDiff, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff, RotateCcw} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
@@ -23,7 +23,7 @@ import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
-  Badge, Code, CommandPopover, Hint, Icon, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
+  Badge, Button, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, TextLink,
 } from '../../ui/index.ts';
 import {PickerPopover} from '../issues/Picker.tsx';
@@ -56,6 +56,7 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
       {pull && (
         <Property label="Reviewers">
           <Editable write={write} label="Request reviews" onClick={pick('reviewers')}><ReviewersValue issue={issue}/></Editable>
+          <ReRequestReviews issue={issue} write={write}/>
         </Property>
       )}
       <Property label="Milestone">
@@ -136,10 +137,11 @@ const ReviewersValue = observer(function ReviewersValue({issue}: {issue: Entity<
       {ids.map((id) => {
         const v = verdicts.get(id);
         const look = requested.has(id) ? REVIEW_LOOK.REQUEST_REVIEW : v ? REVIEW_LOOK[v.state] : undefined;
+        // The verdict in words too: an icon alone (a red mark) read as a remove button.
         return (
-          <span key={id} className="flex min-w-0 items-center gap-2">
+          <span key={id} className="flex min-w-0 flex-wrap items-center gap-x-2">
             <Person id={id}/>
-            {look && <Hint label={look.label}><Icon icon={look.icon} size="sm" className={REVIEW_TONE[look.tone]}/></Hint>}
+            {look && <span className={cx('flex items-center gap-1 text-sm', REVIEW_TONE[look.tone])}><Icon icon={look.icon} size="sm"/>{look.label}</span>}
           </span>
         );
       })}
@@ -151,10 +153,45 @@ const REVIEW_TONE = {APPROVED: 'text-success', REQUEST_CHANGES: 'text-danger', C
 
 const REVIEW_LOOK: Record<string, {icon: LucideIcon; label: string; tone: keyof typeof REVIEW_TONE} | undefined> = {
   APPROVED: {icon: CircleCheck, label: 'Approved', tone: 'APPROVED'},
-  REQUEST_CHANGES: {icon: CircleX, label: 'Changes requested', tone: 'REQUEST_CHANGES'},
+  REQUEST_CHANGES: {icon: FileDiff, label: 'Changes requested', tone: 'REQUEST_CHANGES'},
   COMMENT: {icon: MessageSquare, label: 'Commented', tone: 'COMMENT'},
   REQUEST_REVIEW: {icon: Clock, label: 'Review requested', tone: 'REQUEST_REVIEW'},
 };
+
+/**
+ * Asking someone who already reviewed to review again (GitHub's re-request): one button per reviewer with a verdict
+ * and no open request, for those Forgejo lets (writers; the pull request's author, for someone who reviewed it).
+ */
+const ReRequestReviews = observer(function ReRequestReviews({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
+  const app = useApp();
+  const session = useSession();
+  const pool = usePool();
+  const overlay = useOverlay();
+  const requested = viewMembers(pool, overlay, 'ReviewRequest', issue.id);
+  const verdicts = reviewVerdicts([...pool.model('Review').by('issue_id', issue.id)].map((r) => r.data));
+  const poster = issue.get('poster_id');
+  if (isTemp(issue.id) || issueState(overlay, issue) !== 'open' || isMerged(pool, issue.id) || (!write && session.userId !== poster)) return null;
+  const ids = [...verdicts.keys()].filter((id) => !requested.has(id) && id !== poster).sort((a, b) => a - b);
+  if (!ids.length) return null;
+  return (
+    <span className="flex flex-col items-start px-1">
+      {ids.map((id) => <ReRequestButton key={id} id={id} onClick={() => {
+        runInAction(() => {
+          editing(app).intents.submit({kind: 'issue.reviewer', issueId: issue.id, repoId: issue.get('repo_id'), userId: id, add: true});
+        });
+      }}/>)}
+    </span>
+  );
+});
+
+const ReRequestButton = observer(function ReRequestButton({id, onClick}: {id: number; onClick: () => void}) {
+  const name = useUser(id).name;
+  return (
+    <Button size="sm" variant="ghost" icon={RotateCcw} aria-label={`Re-request review from ${name}`} tooltip={`Ask ${name} to review again`} onClick={onClick}>
+      <span className="truncate">Re-request {name}</span>
+    </Button>
+  );
+});
 
 const Person = observer(function Person({id}: {id: number}) {
   const u = useUser(id);

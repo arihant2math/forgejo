@@ -8,7 +8,7 @@
 // come near the view, and each row is memoized on its own data — a file's
 // highlighting arriving re-renders that file's rows only, a scroll frame
 // mounts the rows coming into view. A floating header names the file in
-// view; `[` and `]` jump between files; ↑/↓ move a line cursor (Enter
+// view; `[` and `]` jump between files; ↑/↓ (or a click) move a line cursor (Enter
 // comments on it). A hunk's header expands the unchanged lines above it
 // (from the new file at the head, asked once). Rows share the longest line's width (they scroll
 // sideways together); headers and threads stay pinned to the view's left.
@@ -40,6 +40,8 @@ export interface DiffExtras {
   notesOf: (f: number) => ReactNode;
   /** Starts a comment on line l of file f (undefined: no comments here, e.g. offline without the head). */
   onComment?: ((f: number, l: number, range?: boolean) => void) | undefined;
+  /** Whether line l of file f takes a comment (default: every line, when onComment is set). */
+  commentable?: ((f: number, l: number) => boolean) | undefined;
   fileActions: (f: number) => ReactNode;
   onToggle: (f: number) => void;
 }
@@ -234,6 +236,17 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     setCursor(from);
     v.scrollToIndex(from, {align: 'auto'});
   };
+  /**
+   * A click or tap on a line makes it the cursor's line (on its side, split): Enter comments on the line clicked, and
+   * its comment button shows without hover (touch screens have none). Focus moves to the list unless the click went to
+   * a control of its own (the comment button, a line number).
+   */
+  const pick = (index: number, target: EventTarget) => {
+    setCursor(index);
+    const side = target instanceof Element ? target.closest('[data-side]')?.getAttribute('data-side') : undefined;
+    if (side) setRightSide(side === 'right');
+    if (!(target instanceof Element && target.closest('a, button'))) listRef.current?.focus({preventScroll: true});
+  };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return; // a composer inside a thread keeps its keys
     if (e.key === 'ArrowDown') move(1);
@@ -241,7 +254,8 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     else if (split && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) setRightSide(e.key === 'ArrowRight');
     else if (e.key === 'Enter' && cursor >= 0 && extras?.onComment) {
       const r = rows[cursor];
-      if (r?.t === 'line') extras.onComment(r.f, rightSide ? r.right ?? r.l : r.l);
+      const l = r?.t === 'line' ? rightSide ? r.right ?? r.l : r.l : undefined;
+      if (r && l !== undefined && (extras.commentable?.(r.f, l) ?? true)) extras.onComment(r.f, l);
     } else return;
     e.preventDefault();
   };
@@ -270,7 +284,10 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
           const measured = row.t === 'thread' || row.t === 'notes' || image;
           return (
             <div key={it.key} role="listitem" data-index={it.index} ref={measured ? v.measureElement : undefined}
-              className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
+              className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start - margin)}px)`}}
+              onClick={row.t === 'line' ? (e) => {
+                pick(it.index, e.target);
+              } : undefined}>
               {image ? <ImageDiff repoId={repoId} base={base} head={head} file={file}/> : <RowView row={row} id={`${listId}-${String(it.index)}`} active={it.index === cursor} file={files[row.f]} hl={row.t === 'extra' ? highlit.get(row.f) : hl[row.f]}
                 extras={extras} split={split} rightSide={rightSide} onExpand={failed.has(row.f) ? undefined : expand}/>  }
             </div>
@@ -344,7 +361,8 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
     case 'line': {
       const l = file.lines[row.l];
       if (!l) return null;
-      const comment = extras?.onComment;
+      const onComment = extras?.onComment;
+      const comment = onComment && (extras.commentable?.(row.f, row.l) ?? true) ? onComment : undefined;
       if (split) {
         const left = l.k === ADD ? undefined : row.l;
         const right = row.right ?? (l.k === DEL ? undefined : row.l);
@@ -352,10 +370,10 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
         return <div className="flex divide-x divide-border-subtle">
           {[left, right].map((index, side) => {
             const line = index === undefined ? undefined : file.lines[index];
-            return <div key={side} className="min-w-0 flex-1 overflow-hidden">
+            return <div key={side} data-side={side === 0 ? 'left' : 'right'} className="min-w-0 flex-1 overflow-hidden">
               <CodeLine id={index === selected && (side === 0 || left !== right) ? id : undefined} active={active && index === selected && (side === 0 || left !== right)} tone={line?.k === ADD ? 'add' : line?.k === DEL ? 'del' : 'none'}
                 gutter={<LineNo n={line ? side === 0 ? line.o : line.n : 0}/>}
-                action={line && index !== undefined && comment && <LineAction label={`Comment on ${side === 0 ? 'old' : 'new'} line ${String(side === 0 ? line.o : line.n)}`} onClick={() => { comment(row.f, index); }}/>}>
+                action={line && index !== undefined && onComment && (extras.commentable?.(row.f, index) ?? true) && <LineAction label={`Comment on ${side === 0 ? 'old' : 'new'} line ${String(side === 0 ? line.o : line.n)}`} onClick={() => { onComment(row.f, index); }}/>}>
                 {line && index !== undefined ? <CodeTokens text={line.t} hl={hl} line={index}/> : ' '}
               </CodeLine>
             </div>;

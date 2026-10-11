@@ -4,14 +4,15 @@
 // The command palette's parts (cmdk inside a Radix dialog). cmdk only does
 // the keyboard and selection here: callers filter and rank themselves
 // (shouldFilter is off), so the list renders only what is shown.
-// CommandPopover is the same list in a popover under a button: every picker
-// that chooses from more than a handful of values (a branch, a label, a
-// person) filters as you type and takes the first match on Enter.
+// CommandPopover is a picker (CommandPick, its own listbox) in a popover
+// under a button: every picker that chooses from more than a handful of
+// values (a branch, a label, a person) filters as you type and takes the
+// first match on Enter.
 
 import {Command as K} from 'cmdk';
 import {Check, Minus, Search} from 'lucide-react';
 import {Dialog as D} from 'radix-ui';
-import {type ReactElement, type ReactNode, type Ref, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type ReactElement, type ReactNode, type Ref, useId, useLayoutEffect, useRef, useState} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {ItemBody} from './ItemBody.tsx';
@@ -92,32 +93,36 @@ export interface CommandInputProps {
   ref?: Ref<HTMLInputElement>;
 }
 
+// The parts' looks, shared by the cmdk lists (the palette) and CommandPick's own listbox.
+const inputRow = 'flex h-header items-center gap-2 border-b border-border px-3';
+const inputField = 'h-full min-w-0 flex-1 bg-transparent text-md text-fg outline-none placeholder:text-fg-subtle';
+const listBox = 'max-h-96 scroll-py-1 overflow-y-auto p-1';
+const emptyBox = 'px-2 py-6 text-center text-base text-fg-muted';
+
+function GroupHeading({children}: {children: ReactNode}) {
+  return <span className={cx(sectionLabel, 'block px-2 pt-2 pb-1')}>{children}</span>;
+}
+
 export function CommandInput({value, onValueChange, placeholder, ref}: CommandInputProps) {
   return (
-    <div className="flex h-header items-center gap-2 border-b border-border px-3">
+    <div className={inputRow}>
       <Icon icon={Search} className="text-fg-subtle"/>
-      <K.Input
-        ref={ref}
-        value={value}
-        onValueChange={onValueChange}
-        placeholder={placeholder}
-        className="h-full min-w-0 flex-1 bg-transparent text-md text-fg outline-none placeholder:text-fg-subtle"
-      />
+      <K.Input ref={ref} value={value} onValueChange={onValueChange} placeholder={placeholder} className={inputField}/>
     </div>
   );
 }
 
 export function CommandList({children}: {children: ReactNode}) {
-  return <K.List className="max-h-96 scroll-py-1 overflow-y-auto p-1">{children}</K.List>;
+  return <K.List className={listBox}>{children}</K.List>;
 }
 
 export function CommandEmpty({children}: {children: ReactNode}) {
-  return <K.Empty className="px-2 py-6 text-center text-base text-fg-muted">{children}</K.Empty>;
+  return <K.Empty className={emptyBox}>{children}</K.Empty>;
 }
 
 export function CommandGroup({heading, children}: {heading: string; children: ReactNode}) {
   return (
-    <K.Group heading={<span className={cx(sectionLabel, 'block px-2 pt-2 pb-1')}>{heading}</span>}>
+    <K.Group heading={<GroupHeading>{heading}</GroupHeading>}>
       {children}
     </K.Group>
   );
@@ -142,15 +147,26 @@ export interface CommandItemProps {
 
 // cmdk writes data-selected / data-disabled as "true" or "false".
 const item = cx(menuRow, 'text-fg data-muted:text-fg-subtle data-[selected=true]:bg-raised-hover data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-subtle');
+// CommandPick's options: the cursor is data-highlighted.
+const pickItem = cx(menuRow, 'text-fg data-highlighted:bg-raised-hover');
 
 export function CommandItem({value, onSelect, icon, leading, meta, shortcut, checked, muted, children}: CommandItemProps) {
   return (
     <K.Item value={value} onSelect={onSelect} className={item} aria-checked={checked} data-muted={muted ? true : undefined}>
+      <ItemContent icon={icon} leading={leading} meta={meta} shortcut={shortcut} checked={checked}>{children}</ItemContent>
+    </K.Item>
+  );
+}
+
+/** A command row's inside: the check slot (a choice), then icon, label, detail and shortcut. */
+function ItemContent({icon, leading, meta, shortcut, checked, children}: Omit<CommandItemProps, 'value' | 'onSelect' | 'muted'>) {
+  return (
+    <>
       {checked !== undefined && (
         <span className={iconSlot}>{checked && <Icon icon={checked === 'mixed' ? Minus : Check}/>}</span>
       )}
       <ItemBody icon={icon} leading={leading} meta={meta ?? ''} shortcut={shortcut}>{children}</ItemBody>
-    </K.Item>
+    </>
   );
 }
 
@@ -239,6 +255,13 @@ export interface CommandPickProps {
 /**
  * The list of a picker (in a CommandPopover, or a CommandDialog's `bare` content): type to narrow, Enter takes the
  * first match; it opens on the current choice, so Enter right away keeps it.
+ *
+ * Its own listbox, not cmdk's (QA #179): cmdk marks the keyboard cursor `aria-selected` (and finds its cursor by
+ * that attribute), so a screen reader heard the highlighted row as selected and could not tell which labels or
+ * reviewers were applied. Here the applied options are `aria-selected` (the listbox is multi-selectable when the
+ * choices stay open for more), and the cursor is only the combobox's `aria-activedescendant` and `data-highlighted`
+ * (`data-selected` too: cmdk's name for it, kept for its callers). The keys are cmdk's: ↑/↓ (looping), Home/End,
+ * ⌘↑/⌘↓ (first, last), Alt+↑/↓ (the previous or next group), Enter.
  */
 export function CommandPick({label, placeholder, options, empty, onClose, target, query: outer, onQueryChange, filtered}: CommandPickProps) {
   const [own, setOwn] = useState('');
@@ -264,20 +287,139 @@ export function CommandPick({label, placeholder, options, empty, onClose, target
     if (g) g.push(o);
     else groups.set(o.group ?? '', [o]);
   }
-  const item = (o: PickOption) => (
-    <CommandItem key={o.value} value={o.value} icon={o.icon} leading={o.leading} meta={o.meta} checked={o.checked} onSelect={() => {
-      o.onSelect();
-      if (!o.keepOpen) onClose();
-    }}>{o.label}</CommandItem>
-  );
+  // The rows in the order they are shown (by group), which the keys follow.
+  const rows = [...groups.values()].flat();
+  // The cursor stays on its option while that is listed, else it goes to the first one (as cmdk's did).
+  const cursor = rows.some((o) => o.value === selected) ? selected : rows[0]?.value ?? '';
+  const at = rows.findIndex((o) => o.value === cursor);
+  const id = useId();
+  const optionId = (i: number) => `${id}o${String(i)}`;
+  // The cursor's row in view (and its group's heading, for a group's first row), on opening and as it moves.
+  const scrolled = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (scrolled.current === cursor) return;
+    scrolled.current = cursor;
+    const el = at < 0 ? null : document.getElementById(optionId(at));
+    if (!el) return;
+    const group = el.parentElement;
+    const heading = group?.firstElementChild === el ? group.getAttribute('aria-labelledby') : null;
+    if (heading) document.getElementById(heading)?.scrollIntoView?.({block: 'nearest'});
+    el.scrollIntoView?.({block: 'nearest'});
+  });
+  // A choice that stays open (labels, assignees) makes the list one of several choices.
+  const multi = shown.some((o) => o.keepOpen && o.checked !== undefined);
+  const choose = (o: PickOption) => {
+    setSelected(o.value);
+    o.onSelect();
+    if (!o.keepOpen) onClose();
+  };
+  const go = (i: number) => {
+    const o = rows[i];
+    if (o) setSelected(o.value);
+  };
+  // Where each group's rows start in `rows` (Alt+↑/↓).
+  const groupStarts: number[] = [];
+  let start = 0;
+  for (const os of groups.values()) {
+    groupStarts.push(start);
+    start += os.length;
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.defaultPrevented || e.nativeEvent.isComposing || !rows.length) return;
+    const last = rows.length - 1;
+    const step = (d: 1 | -1) => {
+      if (e.metaKey) {
+        go(d > 0 ? last : 0);
+        return;
+      }
+      if (e.altKey) {
+        // The first row of the next (previous) group; without one, a plain step.
+        const g = groupStarts.findLastIndex((s) => s <= Math.max(at, 0));
+        const next = groupStarts[g + d];
+        if (next !== undefined) {
+          go(next);
+          return;
+        }
+      }
+      go(at < 0 ? (d > 0 ? 0 : last) : (at + d + rows.length) % rows.length);
+    };
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        step(1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        step(-1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        go(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        go(last);
+        break;
+      case 'Enter': {
+        e.preventDefault();
+        const o = rows[at];
+        if (o) choose(o);
+        break;
+      }
+    }
+  };
+  let n = 0;
+  const row = (o: PickOption) => {
+    const i = n++;
+    return <PickRow key={o.value} option={o} id={optionId(i)} highlighted={i === at} onPoint={() => {
+      if (o.value !== cursor) setSelected(o.value);
+    }} onChoose={() => {
+      choose(o);
+    }}/>;
+  };
   return (
-    <CommandRoot label={label} value={selected} onValueChange={setSelected}>
+    <div tabIndex={-1} onKeyDown={onKeyDown} className="outline-none">
+      <label htmlFor={`${id}input`} id={`${id}label`} className="sr-only">{label}</label>
       {target && <p className="truncate px-3 pt-2 text-sm text-fg-muted">{target}</p>}
-      <CommandInput value={query} onValueChange={setQuery} placeholder={placeholder}/>
-      <CommandList>
-        {!shown.length && <CommandEmpty>{options.length ? 'Nothing matches.' : empty}</CommandEmpty>}
-        {[...groups].map(([g, os]) => (g ? <CommandGroup key={g} heading={g}>{os.map(item)}</CommandGroup> : os.map(item)))}
-      </CommandList>
-    </CommandRoot>
+      <div className={inputRow}>
+        <Icon icon={Search} className="text-fg-subtle"/>
+        <input id={`${id}input`} type="text" role="combobox" aria-expanded aria-controls={`${id}list`} aria-labelledby={`${id}label`}
+          aria-autocomplete="list" aria-activedescendant={at < 0 ? undefined : optionId(at)} autoComplete="off" autoCorrect="off" spellCheck={false}
+          value={query} placeholder={placeholder} className={inputField} onChange={(e) => {
+            setQuery(e.target.value);
+          }}/>
+      </div>
+      <div id={`${id}list`} role="listbox" aria-label={label} aria-multiselectable={multi || undefined} tabIndex={-1} className={listBox}>
+        {!shown.length && <div role="presentation" className={emptyBox}>{options.length ? 'Nothing matches.' : empty}</div>}
+        {[...groups].map(([g, os], gi) => (g ?
+          <div key={`g:${g}`} role="presentation">
+            <div aria-hidden id={`${id}g${String(gi)}`}><GroupHeading>{g}</GroupHeading></div>
+            <div role="group" aria-labelledby={`${id}g${String(gi)}`}>{os.map(row)}</div>
+          </div> :
+          os.map(row)))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One option of a CommandPick: applied (checked) is `aria-selected` (some of several issues: not selected, said as
+ * "on some"); the keyboard cursor is `data-highlighted` only. The pointer moves the cursor; a press keeps the focus
+ * in the field.
+ */
+function PickRow({option: o, id, highlighted, onPoint, onChoose}: {
+  option: PickOption; id: string; highlighted: boolean; onPoint: () => void; onChoose: () => void;
+}) {
+  // An action (no check slot: "Add 2 selected issues", "Clear all filters") is not a choice that can be on.
+  return (
+    <div id={id} role="option" aria-selected={o.checked === undefined ? undefined : o.checked === true}
+      data-highlighted={highlighted ? '' : undefined} data-selected={highlighted ? 'true' : undefined} className={pickItem}
+      onPointerMove={onPoint} onMouseDown={(e) => {
+        e.preventDefault();
+      }} onClick={onChoose}>
+      <ItemContent icon={o.icon} leading={o.leading} meta={o.meta} checked={o.checked}>
+        {o.label}{o.checked === 'mixed' && <span className="sr-only"> (on some)</span>}
+      </ItemContent>
+    </div>
   );
 }

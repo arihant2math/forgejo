@@ -616,7 +616,7 @@ describe('conflict policies', () => {
     revoke?.(`repo:${String(REPO)}`);
     await world.settle(10);
     expect(tab.intents.pending).toBe(0);
-    expect([...tab.intents.drafts.values()].map((d) => [d.text, d.reason])).toEqual([['words', 'You no longer have access to this.']]);
+    expect([...tab.intents.drafts.values()].map((d) => [d.text, d.reason, d.refused])).toEqual([['words', 'You no longer have access to this.', true]]);
     world.close();
   });
 

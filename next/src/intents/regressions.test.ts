@@ -18,6 +18,26 @@ function must<T>(x: T | undefined): T {
 }
 
 describe('review regressions (data integrity)', () => {
+  test('a dropped issue refuses queued comments without offering a futile retry', async () => {
+    const server = new FakeForgejo();
+    server.online = false;
+    let drop: ((id: number) => void) | undefined;
+    const world = new World(server, 1, {onIssueDropped: (fn) => {
+      drop = fn;
+      return () => undefined;
+    }});
+    const tab = must(world.tabs[0]);
+    tab.setConnection('offline');
+    tab.intents.submit({...ref, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'keep me'});
+    await world.settle(10);
+    drop?.(1);
+    await world.settle(10);
+    expect([...tab.intents.drafts.values()].map((d) => [d.text, d.reason, d.refused])).toEqual([
+      ['keep me', 'The issue is not there any more, or you cannot see it.', true],
+    ]);
+    world.close();
+  });
+
   test('R1: a body edit that reverts an earlier queued body edit is dropped as "already on the server"', async () => {
     const server = new FakeForgejo();
     server.online = false;

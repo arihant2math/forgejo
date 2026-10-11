@@ -24,6 +24,7 @@ import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
 import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
 import {Ago, Sha, summary} from './bits.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
+import {CommitChecksSection, withChecks} from './commitChecks.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
@@ -123,7 +124,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   return (
     <>
       <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-        row={linkedCommitRow(owner, repo)}
+        row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-3">
@@ -199,6 +200,7 @@ function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repo
         {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}
       </p>
       <ContainedIn owner={owner} repo={repo} repoId={repoId} sha={c.sha}/>
+      <CommitChecksSection owner={owner} repo={repo} repoId={repoId} sha={c.sha}/>
     </>
   );
 }

@@ -111,7 +111,6 @@ describe('applySplash', () => {
 describe('inlined script', () => {
   test('is self-contained and behaves like applySplash', () => {
     localStorage.setItem('splash', JSON.stringify({theme: 'dark', user: '1', sidebarWidth: 250}));
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- runs the exact text inlined into index.html
     (new Function(splashScript()) as () => void)();
     expect(html.dataset.theme).toBe('dark');
     expect(html.dataset.shell).toBe('app');

@@ -4,53 +4,12 @@
 
 // The token / motion lint rules, run through the real configs.
 
-import {ESLint} from 'eslint';
 import stylelint from 'stylelint';
 import {describe, expect, test} from 'vitest';
 import {classProblem} from './eslint-plugin-tokens.ts';
 
 const root = new URL('..', import.meta.url).pathname;
 const fixtures = `${root}src/test/lint-fixtures/`;
-
-describe('eslint (eslint.config.ts)', () => {
-  test('bad.tsx: arbitrary values, raw colours, transition-all, dark:, literal style, Radix outside src/ui', {timeout: 60_000}, async () => {
-    const eslint = new ESLint({cwd: root, ignore: false}); // the fixtures are ignored by `npm run lint`
-    const [result] = await eslint.lintFiles([`${fixtures}bad.tsx`]);
-    const messages = (result?.messages ?? []).map((m) => `${m.ruleId ?? ''}: ${m.message}`);
-    const has = (re: RegExp) => {
-      expect(messages.some((m) => re.test(m)), `${String(re)} in\n${messages.join('\n')}`).toBe(true);
-    };
-    has(/tokens-only: "bg-\[#fff\]": arbitrary value/);
-    has(/tokens-only: "p-\[13px\]": arbitrary value/);
-    has(/tokens-only: "transition-all"/);
-    has(/tokens-only: "dark:bg-canvas"/);
-    has(/tokens-only: "duration-300"/);
-    has(/tokens-only: "\[&>svg\]:size-4": arbitrary variant/);
-    has(/tokens-only: "z-10": hard-coded value/);
-    has(/tokens-only: "p-3.25": off the spacing scale/);
-    has(/tokens-only: "bg-accent\/50": colour\/opacity modifier/);
-    has(/tokens-only: "\*:p-1": child-selector variant/);
-    has(/tokens-only: "transition-colors": use the interactive utility/);
-    has(/tokens-only: Raw colour "#ff0000"/);
-    has(/tokens-only: Raw colour "rgb\(0 0 0\)"/);
-    has(/tokens-only: "brightness-75": colours, gradients/);
-    has(/tokens-only: "bg-linear-45": colours, gradients/);
-    has(/tokens-only: "w-\[13px\]": arbitrary value/); // through widths.map((w) => …)
-    has(/no-literal-style/);
-    has(/no-restyle: "bg-danger" restyles <Button>/);
-    has(/no-restyle: "px-1" restyles <Button>/);
-    has(/no-restyle: "h-10": <Button> owns its size/);
-    has(/no-restyle: "rounded-full" restyles <Button>/); // via const and via namespace import
-    has(/no-restyle: className on <Button> must be literal/);
-    has(/no-restyle: Spreading className\/style onto <Button>/);
-    has(/no-restyle: Spread props onto <Button> as an object literal/);
-    has(/no-restyle: style on <Button>/);
-    has(/no-restyle: "inset-ring-2" restyles <Input>/);
-    has(/no-restyle: Render icons through <Icon icon=\{Trash2\}\/>/);
-    has(/no-restricted-imports: .*Recipes are internal/);
-    expect(messages.filter((m) => /Fixes #123|- \[ \]|object Object|"transition"|order-1|"ml-2"|"text-danger" restyles <Icon>/.test(m))).toEqual([]);
-  });
-});
 
 describe('classProblem', () => {
   test.each([

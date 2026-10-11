@@ -37,7 +37,7 @@ const TITLES: Record<PickerKind, string> = {
 const PLACEHOLDERS: Record<PickerKind, string> = {
   status: 'Change status to…', priority: 'Set priority to…', labels: 'Add or remove labels…', assignees: 'Assign to…', milestone: 'Move to milestone…',
   reviewers: 'Ask for a review from…', dependency: 'Blocked by the issue… (number or title)', project: 'Put it on a board…',
-  due: 'Due on… (a date, "tomorrow", "3 days", "2 weeks")',
+  due: 'Date or “3 days”…',
 };
 
 /** Issues offered as dependencies at most (the query narrows them). */
@@ -327,13 +327,12 @@ export function dueOptions(now: number): {label: string; day: string}[] {
   const d = new Date(now);
   const at = (days: number) => isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
   const day = d.getDay();
-  const toMonday = ((1 - day + 7) % 7) || 7;
   // The end of this week is a Friday still to come: not on Friday (it is today) or the weekend (it has passed; QA: on
-  // a Sunday it listed next week's Friday after "Next week").
+  // a Sunday it listed next week's Friday after "Next week"). "Next week" is a week from today.
   const endOfWeek = day >= 1 && day <= 4 ? [{label: 'End of this week', day: at(5 - day)}] : [];
   return [
     {label: 'Today', day: at(0)}, {label: 'Tomorrow', day: at(1)}, ...endOfWeek,
-    {label: 'Next week', day: at(toMonday)}, {label: 'In two weeks', day: at(14)},
+    {label: 'Next week', day: at(7)}, {label: 'In two weeks', day: at(14)},
     {label: 'In a month', day: isoDay(new Date(d.getFullYear(), d.getMonth() + 1, d.getDate()))},
   ];
 }

@@ -86,6 +86,7 @@ interface OrgPermissions {
 
 const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   const {data, userId} = useSession();
+  const navigate = useNavigate();
   const users = data.pool.model('User');
   const local = [...users.by('login', owner)][0] ?? [...users.all()].find((u) => u.get('login').toLowerCase() === owner.toLowerCase());
   const remote = useRemote<{id: number; login: string; full_name: string; avatar_url: string; description: string; website: string}>(`/users/${encodeURIComponent(owner)}`);
@@ -95,7 +96,11 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
     {...remote.value, org: local ? local.get('type') === 'organization' : orgCheck.state === 'ready'} :
     local ? {id: local.id, login: local.get('login'), full_name: local.get('full_name'), avatar_url: local.get('avatar_url'), description: local.get('description'), website: '', org: local.get('type') === 'organization'} :
       undefined;
-  const classic = `/${encodeURIComponent(owner)}`;
+  const login = info?.login;
+  useEffect(() => {
+    if (login && login !== owner) void navigate({to: '/$owner', params: {owner: login}, search: true, hash: true, replace: true});
+  }, [login, owner, navigate]);
+  const classic = `/${encodeURIComponent(login ?? owner)}`;
   if (!info) {
     return (
       <>

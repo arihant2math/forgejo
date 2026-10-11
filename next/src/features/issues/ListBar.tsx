@@ -106,11 +106,6 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       {saving && <SaveViewDialog path={path} search={viewSearch} onClose={() => {
         setSaving(false);
       }}/>}
-      {origin && <ViewMenu view={origin} changed={!saved} search={viewSearch} onSaveAs={() => {
-        setSaving(true);
-      }}/>}
-      <SelectionCount cursor={model.cursor}/>
-      <ResultCount model={model}/>
       {stateButtons && STATES.map((s) => (
         <Button key={s.state} size="sm" pressed={state === s.state} onClick={() => {
           setState(s.state);
@@ -165,6 +160,11 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
           }}>Save view…</MenuItem>
         </MenuContent>
       </Menu>
+      <SelectionCount cursor={model.cursor}/>
+      <ResultCount model={model}/>
+      {origin && <ViewMenu view={origin} changed={!saved} search={viewSearch} onSaveAs={() => {
+        setSaving(true);
+      }}/>}
     </>
   );
 });
@@ -199,7 +199,7 @@ function SearchField({inputRef, value, onChange, onSettle}: {inputRef: RefObject
     }, 300);
   };
   return (
-    <Input ref={inputRef} size="sm" icon={Search} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 min-w-24 shrink"
+    <Input ref={inputRef} size="sm" icon={Search} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 shrink-0"
       onChange={(e) => {
         change(e.target.value);
       }}

@@ -9,6 +9,8 @@ import {Link} from '@tanstack/react-router';
 import {File, FileSymlink, Folder, FolderGit2, GitBranch, GitCommitHorizontal, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
+import type {CommitInfo} from '../../code/source.ts';
+import {useLoad, useSource} from './hooks.ts';
 import type {RefKind} from '../../code/refs.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
 import {Icon, Panel, TextLink} from '../../ui/index.ts';
@@ -49,15 +51,20 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
   const pool = usePool();
   const b = kind === 'branch' ? [...pool.model('Branch').by('repo_id', repoId)].find((x) => x.get('name') === name && !x.get('is_deleted'))?.data : undefined;
   const commit = b?.commit_id ?? sha;
+  const src = useSource();
+  const key = `commit:${String(repoId)}:${commit}`;
+  const info = useLoad(b ? undefined : key, () => src.peek<CommitInfo>(key), () => src.commit(repoId, commit));
+  const message = b?.commit_message ?? (info.state === 'ready' ? info.value.message : undefined);
+  const date = b?.commit_time ?? (info.state === 'ready' ? info.value.date : undefined);
   return (
     <>
       {showRef && <>
         <Icon icon={kind === 'tag' ? Tag : kind === 'commit' ? GitCommitHorizontal : GitBranch} size="sm"/>
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
       </>}
-      {b ? <>
-        <span className="min-w-0 truncate"><TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${commit}/-`}}>{summary(b.commit_message)}</Link></TextLink></span>
-        <span className="shrink-0 tabular-nums"><Ago at={b.commit_time}/></span>
+      {message !== undefined ? <>
+        <span className="min-w-0 truncate"><TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${commit}/-`}}>{summary(message)}</Link></TextLink></span>
+        {date !== undefined && <span className="shrink-0 tabular-nums"><Ago at={date}/></span>}
       </> : kind !== 'commit' && <TextLink><Link to="/-/next/code/$owner/$repo/$" params={{owner, repo, _splat: `commit/${commit}/-`}}><Sha sha={commit}/></Link></TextLink>}
     </>
   );

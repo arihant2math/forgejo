@@ -60,7 +60,13 @@ export const ResolveButton = observer(function ResolveButton({root, issue}: {roo
   const resolved = useResolver(root) > 0;
   if (root.id <= 0 || (issue.get('poster_id') !== session.userId && !canWrite(session, issue.get('repo_id')))) return null;
   return (
-    <Button size="sm" variant="ghost" icon={resolved ? CircleDot : CircleCheck} onClick={() => {
+    <Button size="sm" variant="ghost" icon={resolved ? CircleDot : CircleCheck} onClick={(e) => {
+      const button = e.currentTarget;
+      const thread = button.parentElement?.parentElement;
+      requestAnimationFrame(() => {
+        if (button.isConnected) button.focus();
+        else thread?.querySelector<HTMLButtonElement>('button')?.focus();
+      });
       runInAction(() => {
         editing(app).intents.submit({kind: 'comment.resolve', issueId: issue.id, repoId: issue.get('repo_id'), commentId: root.id, resolved: !resolved});
       });

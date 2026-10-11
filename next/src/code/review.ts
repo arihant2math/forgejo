@@ -27,6 +27,17 @@ import {type Anchor, signedLine} from './anchor.ts';
 
 export type ReviewEvent = 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENT';
 
+/** Replies and pending reviews do not replace a reviewer's verdict. */
+export function reviewVerdicts(reviews: Iterable<{reviewer_id: number; state: string; created_at: string; dismissed: boolean}>) {
+  const latest = new Map<number, {state: string; at: string}>();
+  for (const d of reviews) {
+    if (!d.reviewer_id || d.dismissed || (d.state !== 'APPROVED' && d.state !== 'REQUEST_CHANGES')) continue;
+    const previous = latest.get(d.reviewer_id);
+    if (!previous || previous.at < d.created_at) latest.set(d.reviewer_id, {state: d.state, at: d.created_at});
+  }
+  return latest;
+}
+
 export interface ReviewDraft {
   key: string;
   anchor: Anchor;

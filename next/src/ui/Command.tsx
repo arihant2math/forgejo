@@ -11,7 +11,7 @@
 import {Command as K} from 'cmdk';
 import {Check, Minus, Search} from 'lucide-react';
 import {Dialog as D} from 'radix-ui';
-import {type ReactElement, type ReactNode, type Ref, useState} from 'react';
+import {type ReactElement, type ReactNode, type Ref, useLayoutEffect, useRef, useState} from 'react';
 import {cx} from './cx.ts';
 import {Icon, type LucideIcon} from './Icon.tsx';
 import {ItemBody} from './ItemBody.tsx';
@@ -63,14 +63,31 @@ export function CommandDialog({open, onOpenChange, label, bare = false, restoreF
  * The command list's root inside a `bare` CommandDialog, with the selection controlled: `value` is the
  * selected item's value (the caller picks the first one whenever the results change).
  */
-export function CommandRoot({label, value, onValueChange, loop = true, children}: {
+export function CommandRoot({label, value, onValueChange, loop = true, children, manualSelection = false}: {
   label: string; value: string; onValueChange: (v: string) => void;
   /** Whether the arrow keys wrap around (not in the palette, whose last row can be "Sign out"). */
   loop?: boolean;
-  children: ReactNode;
+  children: ReactNode; manualSelection?: boolean;
 }) {
   // No vim bindings: Ctrl+K is the palette's own key (it must close and reopen it, never move the selection).
-  return <K label={label} shouldFilter={false} loop={loop} vimBindings={false} value={value} onValueChange={onValueChange}>{children}</K>;
+  const interacting = useRef(false);
+  const [reset, setReset] = useState(false);
+  useLayoutEffect(() => {
+    if (reset) queueMicrotask(() => { setReset(false); });
+  }, [reset]);
+  const interaction = () => {
+    interacting.current = true;
+    queueMicrotask(() => { interacting.current = false; });
+  };
+  return <K label={label} shouldFilter={false} loop={loop} vimBindings={false} value={manualSelection ? reset ? 'none:reset' : value || 'none' : value}
+    onKeyDownCapture={(e) => {
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter'].includes(e.key)) interaction();
+    }} onPointerMoveCapture={interaction} onClickCapture={interaction}
+    onValueChange={(v) => {
+      if (!manualSelection || interacting.current) onValueChange(v);
+      // cmdk also selects the first item after an input change or item mount. Restore the caller's choice.
+      else if (v !== value) setReset(true);
+    }}>{children}</K>;
 }
 
 export interface CommandInputProps {

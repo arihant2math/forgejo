@@ -82,6 +82,7 @@ export interface ServerUser {
   id: number;
   login: string;
   fullName: string;
+  organization?: boolean;
 }
 
 /**
@@ -112,4 +113,23 @@ export async function searchServerUsers(app: App, query: string, signal: AbortSi
     out.push({id: u.id, login: u.login, fullName: typeof u.full_name === 'string' ? u.full_name : ''});
   }
   return out;
+}
+
+/** API v1 has no organization search: page through the visible organizations, not just memberships. */
+export async function searchServerOrgs(app: App, query: string, signal: AbortSignal, limit = 5): Promise<ServerUser[]> {
+  const words = query.trim().toLowerCase().split(/\s+/);
+  const out: ServerUser[] = [];
+  for (let page = 1; !signal.aborted; page++) {
+    const orgs = await online<{id: number; name: string; full_name?: string}[]>(app, {
+      api: 'v1', path: `/orgs?limit=50&page=${String(page)}`, signal, timeout: 10_000,
+    });
+    if (!Array.isArray(orgs)) break;
+    for (const org of orgs) {
+      if (typeof org.id !== 'number' || typeof org.name !== 'string') continue;
+      const name = `${org.name} ${org.full_name ?? ''}`.toLowerCase();
+      if (words.every((w) => name.includes(w))) out.push({id: org.id, login: org.name, fullName: org.full_name ?? '', organization: true});
+    }
+    if (out.length >= limit || orgs.length < 50) break;
+  }
+  return out.slice(0, limit);
 }

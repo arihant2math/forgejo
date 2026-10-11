@@ -9,10 +9,11 @@ import {sitePath} from '../../app/config.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {APIPrefix} from '../../protocol/types.gen.ts';
-import {Button, Callout, ConfirmDialog, ListRow, SectionHeading} from '../../ui/index.ts';
+import {Callout, ConfirmDialog, ListRow, SectionHeading} from '../../ui/index.ts';
 import {fullDate} from '../issues/format.ts';
 import type {CodeViewProps} from './CodePage.tsx';
 import {formatSize} from './tree.tsx';
+import {Button} from '@primer/react';
 
 export interface Artifact {
   id: number;
@@ -114,7 +115,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
     {!onlineNow && <p className="px-4 py-3 text-sm text-fg-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
     {!done && <p className="px-4 py-3 text-sm text-fg-muted">Artifacts will be available when this run finishes.</p>}
     {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-fg-muted">Loading artifacts…</p>}
-    {error && <Callout tone="danger" title="Artifacts not loaded">{error} <Button size="sm" disabled={!onlineNow} onClick={() => { setAttempt((n) => n + 1); }}>Retry</Button></Callout>}
+    {error && <Callout tone="danger" title="Artifacts not loaded">{error} <Button size="small" type="button" disabled={!onlineNow} onClick={() => { setAttempt((n) => n + 1); }}>Retry</Button></Callout>}
     {items?.length === 0 && <p className="px-4 py-3 text-sm text-fg-muted">No artifacts for this run.</p>}
     {items?.map((artifact) => {
       const expiry = artifactExpiry(artifact);
@@ -122,8 +123,8 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
       return <ListRow key={artifact.id} role="presentation" trailing={<>
         <span>{formatSize(artifact.size_in_bytes)}</span>
         <span title={fullDate(artifact.expires_at)}>{expiry}</span>
-        <Button size="sm" disabled={disabled} title={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : undefined} onClick={() => { void download(artifact); }}>Download</Button>
-        {canWrite(session, repoId) && <Button size="sm" variant="ghost" disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}>Delete</Button>}
+        <Button size="small" type="button" disabled={disabled} title={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : undefined} onClick={() => { void download(artifact); }}>Download</Button>
+        {canWrite(session, repoId) && <Button variant="invisible" size="small" type="button" disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}>Delete</Button>}
       </>}>{artifact.name}</ListRow>;
     })}
     <ConfirmDialog open={deleting !== undefined} onOpenChange={(open) => { if (!open && busy === undefined) setDeleting(undefined); }} title="Delete artifact?" description={`Delete ${deleting?.name ?? 'this artifact'}? This cannot be undone.`} confirmLabel="Delete artifact" busy={busy !== undefined} ready={onlineNow} error={deleteError || undefined} onConfirm={() => { void remove(); }}/>

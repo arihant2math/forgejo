@@ -10,11 +10,12 @@ import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {Button, CommandPopover, Input, ListRow, SegmentedControl} from '../../ui/index.ts';
+import {CommandPopover, Input, ListRow, SegmentedControl} from '../../ui/index.ts';
 import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
 
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 const labels: Record<Kind, string> = {code: 'Code', repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
@@ -88,10 +89,10 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   return <>
     <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
       <Input aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
-      <CommandPopover label="Sort results" placeholder="Sort…" trigger={<Button size="sm">{sorts.find((sort) => sort.value === search.sort)?.label}</Button>}
+      <CommandPopover label="Sort results" placeholder="Sort…" trigger={<Button size="small" type="button">{sorts.find((sort) => sort.value === search.sort)?.label}</Button>}
         options={sorts.filter((sort) => (sort.value !== 'stars' || search.type === 'repositories') && (sort.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((sort) => ({value: sort.value, label: sort.label, checked: search.sort === sort.value, onSelect: () => { patch({sort: sort.value}); }}))}/>
       {search.type === 'repositories' && <>
-        <CommandPopover label="Archived repositories" placeholder="Archived…" trigger={<Button size="sm" icon={FilterIcon}>{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</Button>}
+        <CommandPopover label="Archived repositories" placeholder="Archived…" trigger={<Button size="small" leadingVisual={FilterIcon} type="button">{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</Button>}
           options={[{value: '', label: 'All repositories'}, {value: 'false', label: 'Not archived'}, {value: 'true', label: 'Archived'}].map((option) => ({...option, checked: search.archived === option.value, onSelect: () => { patch({archived: option.value as DiscoverySearch['archived']}); }}))}/>
         <Input aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
       </>}
@@ -104,7 +105,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
     <PageBody ref={setScroller}>
       {!allowed && <p role="status" className="p-4 text-fg-muted">This discovery page is disabled by the instance administrator.</p>}
       {loading && <p role="status" className="p-4 text-fg-muted">Searching Forgejo…</p>}
-      {error && <div role="alert" className="p-4"><p>{error}</p><Button onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
+      {error && <div role="alert" className="p-4"><p>{error}</p><Button type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
       {allowed && page && !rows.length && <p role="status" className="p-4 text-fg-muted">No results found.</p>}
       <div role="listbox" aria-label="Search results" aria-activedescendant={rows[cursor] ? `discovery-${String(rows[cursor]?.id)}` : undefined} tabIndex={0} onKeyDown={(event) => {
         if (!rows.length || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -129,9 +130,9 @@ const DiscoveryResults = observer(function DiscoveryResults() {
         </div>
       </div>
       {page && page.total > 50 && <div className="flex items-center gap-2 p-4">
-        <Button disabled={search.page === 1} onClick={() => { patch({page: search.page - 1}); }}>Previous</Button>
+        <Button type="button" disabled={search.page === 1} onClick={() => { patch({page: search.page - 1}); }}>Previous</Button>
         <span className="text-sm text-fg-muted">Page {search.page} of {Math.ceil(page.total / 50)}</span>
-        <Button disabled={search.page * 50 >= page.total} onClick={() => { patch({page: search.page + 1}); }}>Next</Button>
+        <Button type="button" disabled={search.page * 50 >= page.total} onClick={() => { patch({page: search.page + 1}); }}>Next</Button>
       </div>}
     </PageBody>
   </>;

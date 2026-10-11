@@ -28,7 +28,7 @@ import type {Entity} from '../../data/entity.ts';
 import {issueState} from '../../intents/view.ts';
 import type {APIActivityAuthor, APICommitActivity, APIContributors} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Button, cx, EmptyState, Icon, ListRow, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger, NavItem, Panel,
+  Avatar, cx, EmptyState, Icon, ListRow, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger, NavItem, Panel,
   Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
@@ -44,6 +44,7 @@ import {
 } from './pulse.ts';
 import {GraphIcon, ChevronDownIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
@@ -130,7 +131,7 @@ function PeriodMenu({period}: {period: Period}) {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <Button size="sm" variant="ghost" aria-label={`Period: ${periodLabel(period)}`}>
+        <Button variant="invisible" size="small" type="button" aria-label={`Period: ${periodLabel(period)}`}>
           <span className="text-fg-muted">Period:</span>{periodLabel(period)}<ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       </MenuTrigger>
@@ -304,10 +305,10 @@ function List({id, icon, title, noun, items, authors, at, all, hint}: {
         {hint && <span className="truncate max-md:hidden">· {hint}</span>}
       </>} actions={items.length > shown.length ? (
         open ?
-          <Button size="sm" variant="ghost" asChild><a href={href} onClick={(e) => {
+          <LinkButton variant="invisible" size="small" href={href} onClick={(e) => {
             click(e, href);
-          }}>View in the list</a></Button> :
-          <Button size="sm" variant="ghost" onClick={() => {
+          }}>View in the list</LinkButton> :
+          <Button variant="invisible" size="small" type="button" onClick={() => {
             setOpen(true);
           }}>Show all {count(items.length)}</Button>
       ) : undefined}>

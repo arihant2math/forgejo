@@ -21,7 +21,7 @@ import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
 import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
 import {
-  Button, Callout, CommandPick, CommandPopover, Dialog, EditableHeading, IconButton, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
+  Callout, CommandPick, CommandPopover, Dialog, EditableHeading, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
   type PickOption, ProseSource, SkeletonText, TitleInput,
 } from '../../ui/index.ts';
 import {Missing} from '../../app/Missing.tsx';
@@ -36,6 +36,8 @@ import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
 import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
 export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
@@ -215,8 +217,8 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       }
     }}>
       {confirmCancel && <Dialog open size="sm" title="Discard this edit?" description="Your changes can be restored with Undo." onOpenChange={setConfirmCancel} footer={<>
-        <Button variant="ghost" onClick={() => { setConfirmCancel(false); }}>Keep editing</Button>
-        <Button variant="danger" onClick={() => {
+        <Button variant="invisible" type="button" onClick={() => { setConfirmCancel(false); }}>Keep editing</Button>
+        <Button variant="danger" type="button" onClick={() => {
           setConfirmCancel(false);
           cancel();
         }}>Discard</Button>
@@ -228,14 +230,14 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
         } : undefined} focusShortcut={focusShortcut}/>
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
-        {onCancel && <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>}
+        {onCancel && <Button variant="invisible" size="small" type="button" onClick={cancel}>Cancel</Button>}
         {stateAction && <span className="flex items-center gap-1">
-          <Button size="sm" disabled={hasPendingUploads(text)} onClick={() => {
+          <Button size="small" type="button" disabled={hasPendingUploads(text)} onClick={() => {
             act(stateAction.run);
           }}>{stateAction.label(Boolean(text.trim()))}</Button>
           {stateAction.more?.(act)}
         </span>}
-        <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} tooltip={`${saveLabel} (works offline)`} disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button>
+        <OptionalTooltip text={`${saveLabel} (works offline)`} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button></OptionalTooltip>
       </div>
     </div>
   );
@@ -278,8 +280,8 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     return (
       <div className="flex flex-col gap-2">
         <Callout tone="warning" title="Your edit conflicts with a newer change" actions={<>
-          <Button size="sm" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>
-          <Button size="sm" onClick={() => { resolveWith(intents, conflict.id, c.theirs); }}>Use theirs</Button>
+          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>
+          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, c.theirs); }}>Use theirs</Button>
         </>}>
           You edited the description while it changed on Forgejo, and both touched the same lines.
           Edit the merge below (between the markers: yours, then theirs), or keep one side.
@@ -329,7 +331,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
         } : undefined}/> : <p className="text-base text-fg-subtle">No description.</p>}
         {body.local && <NotSynced/>}
       </div>
-      {mayEdit && <IconButton ref={editButton} size="sm" icon={PencilIcon} label="Edit the description" shortcut={shortcutHint('issue.edit')} onClick={start}/>}
+      {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
     </div>
   );
 });
@@ -358,10 +360,10 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
       <Dialog open size="sm" returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : fallback.current} title="Delete this comment?" description="It is removed for everyone. This cannot be undone." onOpenChange={(o) => {
         if (!o) setConfirming(false);
       }} footer={<>
-        <Button variant="ghost" onClick={() => {
+        <Button variant="invisible" type="button" onClick={() => {
           setConfirming(false);
         }}>Cancel</Button>
-        <Button variant="danger" onClick={remove}>Delete</Button>
+        <Button variant="danger" type="button" onClick={remove}>Delete</Button>
       </>}/>
     )}
     <Menu onOpenChange={(open) => {
@@ -370,7 +372,7 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
       const card = triggerRef.current?.closest('article');
       selection.current = selected?.anchorNode && card?.contains(selected.anchorNode) ? selected.toString() : '';
     }}>
-      <MenuTrigger asChild><IconButton ref={triggerRef} size="sm" icon={KebabHorizontalIcon} label="Comment actions" className="ml-auto"/></MenuTrigger>
+      <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="Comment actions" type="button" ref={triggerRef} className="ml-auto"/></MenuTrigger>
       {/* After Edit the editor takes the focus once the menu is gone (while the menu is open its focus trap keeps the
           focus, and Radix would return it to the trigger); otherwise the trigger has it. */}
       <MenuContent align="end" onCloseAutoFocus={(e) => {
@@ -433,8 +435,8 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone, o
     return (
       <div className="flex flex-col gap-2">
         <Callout tone="warning" title="This comment changed while you edited it" actions={<>
-          <Button size="sm" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>
-          <Button size="sm" onClick={() => { resolveWith(intents, conflict.id, cf.theirs); }}>Use theirs</Button>
+          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>
+          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, cf.theirs); }}>Use theirs</Button>
         </>}>Edit the merge below, or keep one side.</Callout>
         <TextEditor key={conflict.id} draftKey={`text:conflict:${conflict.id}`} title="Resolving a comment" issueId={issueId} repoId={repoId}
           initial={cf.merged} label="Resolve the comment" saveLabel="Save" markers onSave={(t) => intents.resolve(conflict.id, t)}/>
@@ -449,7 +451,7 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone, o
       setSelected(selection?.anchorNode && e.currentTarget.contains(selection.anchorNode) ? selection.toString() : '');
     }}>
       <Rendered {...b}/>
-      {selected && <Button size="sm" variant="ghost" onClick={() => {
+      {selected && <Button variant="invisible" size="small" type="button" onClick={() => {
         window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId, text: selected}}));
         setSelected('');
       }}>Quote reply</Button>}
@@ -550,7 +552,7 @@ const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity
   const app = useApp();
   return (
     <CommandPopover label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" width="md" options={[]}
-      trigger={<Button size="sm" aria-label="Close with a reason" tooltip="Close as not planned or as a duplicate"><ChevronDownIcon size={12} className="shrink-0"/></Button>}
+      trigger={<OptionalTooltip text={'Close as not planned or as a duplicate'}><Button size="small" type="button" aria-label="Close with a reason"><ChevronDownIcon size={12} className="shrink-0"/></Button></OptionalTooltip>}
       render={(onClose) => <CloseReasonPick issue={issue} onClose={onClose} choose={(reason) => {
         act((text) => {
           const {issueId, repoId} = {issueId: issue.id, repoId: issue.get('repo_id')};
@@ -618,10 +620,10 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
         const words = overrideWords(app, o);
         return (
           <Callout key={o.id} title={words.title} actions={<>
-            <Button size="sm" onClick={() => {
+            <Button size="small" type="button" onClick={() => {
               intents.undoOverride(o.id);
             }}>Undo</Button>
-            <Button size="sm" variant="ghost" onClick={() => {
+            <Button variant="invisible" size="small" type="button" onClick={() => {
               intents.dismissOverride(o.id);
             }}>Dismiss</Button>
           </>}>{words.description}</Callout>

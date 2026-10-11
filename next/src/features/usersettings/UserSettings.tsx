@@ -23,7 +23,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, IconButton, Input, ListRow, Menu, MenuContent, MenuRadioGroup,
+  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, Input, ListRow, Menu, MenuContent, MenuRadioGroup,
   MenuRadioItem, MenuTrigger, MoreMenu, NavHeading, NavItem, Panel, SegmentedControl, Skeleton, TextArea,
 } from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
@@ -36,6 +36,8 @@ import {
 } from './payload.ts';
 import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button as PrimerButton, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
@@ -262,12 +264,12 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
           );
         })}
         <FormActions note={offline}>
-          {payload && <Button variant="ghost" disabled={saving} onClick={() => {
+          {payload && <PrimerButton variant="invisible" type="button" disabled={saving} onClick={() => {
             setDraft({});
             setErrors({});
             setFormError(undefined);
-          }}>Discard changes</Button>}
-          <Button type="submit" variant="primary" disabled={saving || Boolean(offline) || !payload}>{saving ? 'Saving…' : 'Save profile'}</Button>
+          }}>Discard changes</PrimerButton>}
+          <PrimerButton variant="primary" type="submit" disabled={saving || Boolean(offline) || !payload}>{saving ? 'Saving…' : 'Save profile'}</PrimerButton>
         </FormActions>
       </form>
     </FormSection>
@@ -331,8 +333,8 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
         <Avatar size="xl" name={login} src={shown}/>
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
-            <Button icon={UploadIcon} disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</Button>
-            <Button variant="ghost" icon={TrashIcon} disabled={busy || Boolean(offline)} onClick={remove}>Remove</Button>
+            <PrimerButton leadingVisual={UploadIcon} type="button" disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</PrimerButton>
+            <PrimerButton variant="invisible" leadingVisual={TrashIcon} type="button" disabled={busy || Boolean(offline)} onClick={remove}>Remove</PrimerButton>
           </div>
           {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <p className="text-sm text-fg-subtle">{offline ?? 'A square picture looks best.'}</p>}
         </div>
@@ -514,10 +516,10 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
             <ListRow key={e.email} role={undefined} leading={<MailIcon size={12} className="shrink-0"/>} trailing={<>
               {e.primary && <Badge tone="accent">Primary</Badge>}
               {e.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Unverified</Badge>}
-              {!e.primary && e.verified && <Button size="sm" variant="ghost" disabled={Boolean(offline)} tooltip={offline} onClick={() => {
+              {!e.primary && e.verified && <OptionalTooltip text={offline}><PrimerButton variant="invisible" size="small" type="button" disabled={Boolean(offline)} onClick={() => {
                 primary(e.email);
-              }}>Make primary</Button>}
-              {!e.primary && <IconButton size="sm" icon={TrashIcon} label={`Remove ${e.email}`} disabled={Boolean(offline)} onClick={() => {
+              }}>Make primary</PrimerButton></OptionalTooltip>}
+              {!e.primary && <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove ${e.email}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(e.email);
               }}/>}
             </>}>
@@ -577,7 +579,7 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
               setEmail(e.target.value);
               setError(undefined);
             }}/>
-          <Button type="submit" icon={PlusIcon} disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</Button>
+          <PrimerButton leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
         </div>
       </Field>
     </form>
@@ -596,11 +598,11 @@ function Confirm({title, description, action, onConfirm, onClose}: {title: strin
     <Dialog open size="sm" title={title} description={description} initialFocus="dialog" onOpenChange={(o) => {
       if (!o) onClose();
     }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="danger" onClick={() => {
+      <PrimerButton variant="invisible" type="button" onClick={onClose}>Cancel</PrimerButton>
+      <PrimerButton variant="danger" type="button" onClick={() => {
         onClose();
         onConfirm();
-      }}>{action}</Button>
+      }}>{action}</PrimerButton>
     </>}/>
   );
 }
@@ -630,9 +632,9 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
   const list = slot.state === 'ready' ? slot.value : undefined;
   return (
     <FormSection title="SSH keys" description="The keys that may push and pull over SSH as you."
-      actions={!adding && <Button size="sm" icon={PlusIcon} disabled={Boolean(offline)} tooltip={offline} onClick={() => {
+      actions={!adding && <OptionalTooltip text={offline}><PrimerButton size="small" leadingVisual={PlusIcon} type="button" disabled={Boolean(offline)} onClick={() => {
         setAdding(true);
-      }}>New SSH key</Button>}>
+      }}>New SSH key</PrimerButton></OptionalTooltip>}>
       {adding && <AddSshKey src={src} offline={offline} onDone={() => {
         setAdding(false);
       }}/>}
@@ -642,7 +644,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
             <ListRow key={k.id} role={undefined} leading={<KeyIcon size={12} className="shrink-0"/>} trailing={<>
               {k.verified && <Badge tone="success">Verified</Badge>}
               <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
-              <IconButton size="sm" icon={TrashIcon} label={`Delete ${k.title ?? 'this key'}`} disabled={Boolean(offline)} onClick={() => {
+              <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
               }}/>
             </>}>
@@ -709,8 +711,8 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
           }}/>
       </Field>
       <FormActions note={offline}>
-        <Button variant="ghost" onClick={onDone}>Cancel</Button>
-        <Button type="submit" variant="primary" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add SSH key'}</Button>
+        <PrimerButton variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
+        <PrimerButton variant="primary" type="submit" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add SSH key'}</PrimerButton>
       </FormActions>
     </form>
   );
@@ -725,9 +727,9 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
   const list = slot.state === 'ready' ? slot.value : undefined;
   return (
     <FormSection title="GPG keys" description="The keys whose signatures mark your commits as verified."
-      actions={!adding && <Button size="sm" icon={PlusIcon} disabled={Boolean(offline)} tooltip={offline} onClick={() => {
+      actions={!adding && <OptionalTooltip text={offline}><PrimerButton size="small" leadingVisual={PlusIcon} type="button" disabled={Boolean(offline)} onClick={() => {
         setAdding(true);
-      }}>New GPG key</Button>}>
+      }}>New GPG key</PrimerButton></OptionalTooltip>}>
       {adding && <AddGpgKey src={src} offline={offline} onDone={() => {
         setAdding(false);
       }}/>}
@@ -740,7 +742,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
                 {k.verified ? <Badge tone="success">Verified</Badge> : <Badge>Unverified</Badge>}
                 {expired(k.expires_at) && <Badge tone="warning">Expired</Badge>}
                 <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
-                <IconButton size="sm" icon={TrashIcon} label={`Delete the key ${k.key_id}`} disabled={Boolean(offline)} onClick={() => {
+                <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key ${k.key_id}`} type="button" disabled={Boolean(offline)} onClick={() => {
                   setRemoving(k);
                 }}/>
               </>}>
@@ -801,8 +803,8 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
           }}/>
       </Field>
       <FormActions note={offline}>
-        <Button variant="ghost" onClick={onDone}>Cancel</Button>
-        <Button type="submit" variant="primary" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add GPG key'}</Button>
+        <PrimerButton variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
+        <PrimerButton variant="primary" type="submit" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add GPG key'}</PrimerButton>
       </FormActions>
     </form>
   );

@@ -21,7 +21,7 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Button, Callout, Checkbox, Code, CommandPopover, EmptyState, IconButton, Input, MoreMenu, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {Callout, Checkbox, Code, CommandPopover, EmptyState, Input, MoreMenu, Skeleton, SkeletonText} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -38,6 +38,8 @@ import {
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
 interface Editing {
@@ -221,7 +223,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                   options={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
                     set({tag: t});
                   }}))}
-                  trigger={<Button size="sm" variant="ghost">Existing tag<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
+                  trigger={<Button variant="invisible" size="small" type="button">Existing tag<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
               )}
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
@@ -255,7 +257,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
               <PaperclipIcon size={12} className="shrink-0"/>
               <span className={gone ? 'text-fg-subtle line-through' : 'text-fg'}>{a.name}</span>
               <span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
-              <IconButton size="sm" icon={gone ? UndoIcon : XIcon} label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} onClick={() => {
+              <IconButton icon={gone ? UndoIcon : XIcon} variant="invisible" size="small" aria-label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} type="button" onClick={() => {
                 setRemoved((r) => (gone ? r.filter((x) => x !== a.id) : [...r, a.id]));
               }}/>
             </div>
@@ -265,7 +267,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
           <div key={`${f.name}:${String(i)}`} className="flex items-center gap-2 text-base">
             <PlusIcon size={12} className="shrink-0"/><span className="text-fg">{f.name}</span>
             <span className="text-sm text-fg-subtle tabular-nums">{formatSize(f.size)}</span>
-            <IconButton size="sm" icon={XIcon} label={`Do not upload ${f.name}`} onClick={() => {
+            <IconButton icon={XIcon} variant="invisible" size="small" aria-label={`Do not upload ${f.name}`} type="button" onClick={() => {
               setFiles((fs) => fs.filter((_, k) => k !== i));
             }}/>
           </div>
@@ -276,7 +278,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
             setFiles((fs) => [...fs, ...picked]);
             e.target.value = '';
           }}/>
-          <Button size="sm" variant="ghost" icon={PaperclipIcon} onClick={() => picker.current?.click()}>Attach files</Button>
+          <Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" onClick={() => picker.current?.click()}>Attach files</Button>
         </div>
       </section>
       <Checkbox label="This is a pre-release (not ready for production)" checked={fields.prerelease} onChange={(prerelease) => {
@@ -284,13 +286,13 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       }}/>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {block && <span className="mr-auto text-sm text-fg-subtle">{block}</span>}
-        <Button variant="ghost" onClick={back}>Cancel</Button>
-        {publishing && <Button aria-disabled={Boolean(block) || Boolean(busy)} tooltip={block ?? 'Only writers see a draft'} onClick={() => {
+        <Button variant="invisible" type="button" onClick={back}>Cancel</Button>
+        {publishing && <OptionalTooltip text={block ?? 'Only writers see a draft'}><Button type="button" aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(true);
-        }}>{busy?.draft ? busy.label : 'Save draft'}</Button>}
-        <Button variant="primary" shortcut={shortcutHint('submit')} aria-disabled={Boolean(block) || Boolean(busy)} tooltip={block} onClick={() => {
+        }}>{busy?.draft ? busy.label : 'Save draft'}</Button></OptionalTooltip>}
+        <OptionalTooltip text={block} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(false);
-        }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button>
+        }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button></OptionalTooltip>
       </div>
     </div>
   );

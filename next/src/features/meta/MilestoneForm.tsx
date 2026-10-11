@@ -15,12 +15,14 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Button, Callout, Field, Input, SkeletonText} from '../../ui/index.ts';
+import {Callout, Field, Input, SkeletonText} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
 import {createMilestone, editMilestone, type MilestoneChange, type RepoRef, viewMilestones} from './writes.ts';
 import {MilestoneIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export function NewMilestone() {
   return <FormPage edit={false}/>;
@@ -121,7 +123,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
                 <Input id={`${id}-due`} type="date" value={d.due} max={MAX_DUE} className="w-48" invalid={tried && Boolean(problems.due)} aria-describedby={`${id}-due-e`} onChange={(e) => {
                   setD({...d, due: e.target.value});
                 }}/>
-                {d.due && <Button size="sm" variant="ghost" onClick={() => {
+                {d.due && <Button variant="invisible" size="small" type="button" onClick={() => {
                   setD({...d, due: ''});
                 }}>Clear</Button>}
               </span>
@@ -133,10 +135,10 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
               }} onSubmit={save}/>
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={back}>Cancel</Button>
-              <Button variant="primary" type="submit" disabled={offline || !write} tooltip={offline ? onlineOnly('Saving a milestone') : undefined}>
+              <Button variant="invisible" type="button" onClick={back}>Cancel</Button>
+              <OptionalTooltip text={offline ? onlineOnly('Saving a milestone') : undefined}><Button variant="primary" type="submit" disabled={offline || !write}>
                 {milestone ? 'Save changes' : 'Create milestone'}
-              </Button>
+              </Button></OptionalTooltip>
             </div>
           </form>
         </PageColumn>

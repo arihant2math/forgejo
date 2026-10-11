@@ -13,7 +13,7 @@ import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
-import {Avatar, Button, Code, EmptyState, TextLink} from '../../ui/index.ts';
+import {Avatar, Code, EmptyState, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {reach} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
@@ -30,6 +30,7 @@ import {Unloaded} from './states.tsx';
 import {RefMenu} from './RefMenu.tsx';
 import {Breadcrumbs} from './Src.tsx';
 import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
@@ -38,7 +39,7 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
   const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
-    <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}><FileCodeIcon size={12} className="shrink-0"/>Browse files</CodeLink></Button>
+    <Button as={CodeLink} variant="invisible" size="small" leadingVisual={FileCodeIcon} owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}>Browse files</Button>
   </>;
   return (
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
@@ -128,8 +129,8 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-3">
-          {s.failed ? <span className="flex items-center gap-2 text-sm text-fg-subtle">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button size="sm" variant="ghost" onClick={s.failed.retry}>Retry</Button>}</span> :
-            <Button size="sm" variant="ghost" disabled={s.loading} onClick={more}>Load older commits</Button>}
+          {s.failed ? <span className="flex items-center gap-2 text-sm text-fg-subtle">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.retry}>Retry</Button>}</span> :
+            <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>
       )}
     </>
@@ -160,14 +161,14 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     return (
       <CodeFrame view={props} title={shortSha(sha)}>
         {() => <Unloaded loaded={info} what="This commit" action={
-          <Button asChild><CodeLink owner={owner} repo={repo} to="commits"><HistoryIcon size={12} className="shrink-0"/>All commits</CodeLink></Button>
+          <Button as={CodeLink} leadingVisual={HistoryIcon} owner={owner} repo={repo} to="commits">All commits</Button>
         }/>}
       </CodeFrame>
     );
   }
   return (
     <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={<><DiffSettings/>
-      <Button size="sm" variant="ghost" asChild><CodeLink owner={owner} repo={repo} to={`src/commit/${sha}`}><FileCodeIcon size={12} className="shrink-0"/>Browse files</CodeLink></Button>
+      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={FileCodeIcon} owner={owner} repo={repo} to={`src/commit/${sha}`}>Browse files</Button>
     </>}>
       {(scroller) => (
         <>

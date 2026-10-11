@@ -5,10 +5,11 @@
 
 import {runInAction} from 'mobx';
 import {useState} from 'react';
-import {Button, Dialog, DialogClose, SectionHeading, Shortcut} from '../../ui/index.ts';
+import {Dialog, DialogClose, SectionHeading, Shortcut} from '../../ui/index.ts';
 import {performSignOut} from '../session.ts';
 import {KEYMAP, SCOPE_LABELS, type Scope, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {useApp} from '../store.ts';
+import {Button} from '@primer/react';
 
 /** Every keyboard shortcut, by scope: the ones that work on this page first (marked), then the others. */
 export function ShortcutsDialog() {
@@ -36,7 +37,7 @@ export function ShortcutsDialog() {
   return (
     <Dialog open title="Keyboard shortcuts" initialFocus="dialog" scroll onOpenChange={(open) => {
       if (!open) close();
-    }} footer={<DialogClose asChild><Button>Close</Button></DialogClose>}>
+    }} footer={<DialogClose asChild><Button type="button">Close</Button></DialogClose>}>
       <div className="flex flex-col gap-3">
         {order.map((scope) => (
           <section key={scope} className="flex flex-col gap-1">
@@ -82,8 +83,8 @@ export function SignOutDialog({pending}: {pending: number}) {
       }}
       footer={
         <>
-          <Button onClick={cancel}>Cancel</Button>
-          <Button variant="danger" disabled={busy} onClick={() => {
+          <Button type="button" onClick={cancel}>Cancel</Button>
+          <Button variant="danger" type="button" disabled={busy} onClick={() => {
             setBusy(true);
             void performSignOut(app);
           }}>Sign out anyway</Button>

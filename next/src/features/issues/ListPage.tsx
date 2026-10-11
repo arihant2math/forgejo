@@ -13,13 +13,14 @@ import {PageBody, viewChange} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
-import {Button, EmptyState, ListRow, Skeleton} from '../../ui/index.ts';
+import {EmptyState, ListRow, Skeleton} from '../../ui/index.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel, type ListSource} from './list.ts';
 import type {Group} from './query.ts';
 import {SearchIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** Below this many rows a list that shows closed issues keeps loading older pages. */
 const SHORT = 60;
@@ -103,15 +104,15 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
         `The filter names a label that no longer exists (it was deleted), so no item can match. ${gone.length > 1 ? 'Drop those labels' : 'Drop it'} to see the list.` :
         'No item on this device matches these filters.'}
       action={<span className="flex flex-wrap justify-center gap-2">
-        {goneRequired && <Button variant="primary" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
-        {typed && <Button variant="primary" onClick={() => {
+        {goneRequired && <Button variant="primary" type="button" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
+        {typed && <Button variant="primary" type="button" onClick={() => {
           // The command menu searches the rest: other repositories, the index, and Forgejo itself.
           runInAction(() => {
             app.ui.paletteQuery = typed;
             app.ui.paletteOpen = true;
           });
         }}>Search everywhere</Button>}
-        <Button onClick={() => {
+        <Button type="button" onClick={() => {
         // Back to the list's default view (open items, no search, no filter; the grouping and order stay).
         const {group, sort} = model.search;
         const next = {...(group ? {group} : {}), ...(sort ? {sort} : {})};

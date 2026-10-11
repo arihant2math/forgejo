@@ -5,11 +5,12 @@
 // asking before it is deleted.
 import {useApp} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Button, Dialog} from '../../ui/index.ts';
+import {Dialog} from '../../ui/index.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {overdue} from './milestones.ts';
 import {deleteMilestone, type RepoRef} from './writes.ts';
 import {CalendarIcon, CheckCircleIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 const line = 'flex items-center gap-1';
 
@@ -35,8 +36,8 @@ export function DeleteMilestoneDialog({repo, milestone, onClose, onDeleted}: {re
       if (!o) onClose();
     }} description="Its issues and pull requests stay; they no longer have a milestone. This cannot be undone; closing it keeps it."
     footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="danger" onClick={() => {
+      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
+      <Button variant="danger" type="button" onClick={() => {
         onClose();
         void deleteMilestone(app, repo, milestone);
         onDeleted?.();

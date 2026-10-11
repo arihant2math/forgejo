@@ -30,8 +30,8 @@ import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
-  Badge, BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
-  ContextMenuSeparator, EmptyState, IconButton, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
+  Badge, BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
+  ContextMenuSeparator, EmptyState, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
   TextLink,
 } from '../../ui/index.ts';
 import {closedPager} from '../issues/closed.ts';
@@ -48,6 +48,8 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
 const lastCard = new Map<number, number>();
@@ -606,10 +608,9 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       </div>
       {editable && (
         <div className="flex flex-wrap gap-1">
-          <Button variant="ghost" icon={PlusIcon} onClick={onAdd}>Add existing issue…</Button>
+          <Button variant="invisible" leadingVisual={PlusIcon} type="button" onClick={onAdd}>Add existing issue…</Button>
           {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
-          <Button variant="ghost" icon={PencilIcon} aria-label={`New issue in “${column.title}”`}
-            tooltip="Cards are issues: a board holds no notes. The new issue goes in this column." onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button>
+          <OptionalTooltip text={'Cards are issues: a board holds no notes. The new issue goes in this column.'}><Button variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></OptionalTooltip>
         </div>
       )}
     </BoardColumn>
@@ -680,10 +681,10 @@ function ColumnDialog({model, state, onClose}: {model: BoardModel; state: Column
     <Dialog open title={`Delete “${column.title}”?`} description="Its cards move to the default column." onOpenChange={(o) => {
       if (!o) onClose(false);
     }} footer={<>
-      <Button variant="ghost" onClick={() => {
+      <Button variant="invisible" type="button" onClick={() => {
         onClose(false);
       }}>Cancel</Button>
-      <Button variant="danger" onClick={() => {
+      <Button variant="danger" type="button" onClick={() => {
         onClose(true);
         void deleteColumn(app, projectId, column.id);
       }}>Delete</Button>
@@ -708,7 +709,7 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
   return (
     <>
       <Menu>
-        <MenuTrigger asChild><IconButton size="sm" icon={KebabHorizontalIcon} label={`Column “${column.title}”`}/></MenuTrigger>
+        <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={`Column “${column.title}”`} type="button"/></MenuTrigger>
         <MenuContent align="end">
           {offline && <MenuItem disabled>{onlineOnly('Changing columns')}</MenuItem>}
           <MenuItem icon={PencilIcon} disabled={offline} onSelect={() => {
@@ -827,9 +828,9 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   }
   return (
     <div className="flex w-column shrink-0 flex-col">
-      <Button ref={button} variant="ghost" icon={PlusIcon} tooltip={tip} disabled={offline} onClick={() => {
+      <OptionalTooltip text={tip}><Button variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} disabled={offline} onClick={() => {
         setEditing(true);
-      }}>Add column</Button>
+      }}>Add column</Button></OptionalTooltip>
     </div>
   );
 });

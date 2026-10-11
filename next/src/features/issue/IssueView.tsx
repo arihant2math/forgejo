@@ -28,7 +28,7 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {Button, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
+import {Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
@@ -40,6 +40,7 @@ import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
 import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 // A pull request's code views (Files, Commits, Checks) and its merge box: their own chunk (code surfaces, F7).
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
@@ -250,7 +251,7 @@ const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: E
   return (
     <div className="flex flex-wrap items-center gap-2 @xl:hidden">
       <StatusCell issue={issue}/><PriorityCell issue={issue}/><LabelsCell issue={issue}/><AssigneesCell issue={issue}/>
-      <Button size="sm" variant="ghost" onClick={() => {
+      <Button variant="invisible" size="small" type="button" onClick={() => {
         const pane = document.getElementById(PROPERTIES);
         pane?.scrollIntoView({block: 'start'});
         pane?.focus({preventScroll: true});

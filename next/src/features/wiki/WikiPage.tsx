@@ -24,7 +24,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Button, Callout, Dialog, EmptyState, Input, MenuItem, MenuSeparator, MoreMenu, NavItem, Skeleton, SkeletonText, TextLink,
+  Callout, Dialog, EmptyState, Input, MenuItem, MenuSeparator, MoreMenu, NavItem, Skeleton, SkeletonText, TextLink,
 } from '../../ui/index.ts';
 import type {Loaded} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
@@ -37,6 +37,9 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 /** Pages listed in the side pane at most (the page list has them all). */
 const SIDE_PAGES = 40;
@@ -166,18 +169,12 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
   };
   return (
     <>
-      <Button size="sm" variant="ghost" asChild>
-        <Link to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}><ListUnorderedIcon size={12} className="shrink-0"/>Pages</Link>
-      </Button>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={ListUnorderedIcon} to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}>Pages</RouterLinkButton>
       {writable && exists && (
-        <Button size="sm" variant="ghost" asChild tooltip={offline ? onlineOnly('Editing a wiki page') : undefined}>
-          <Link to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}><PencilIcon size={12} className="shrink-0"/>Edit</Link>
-        </Button>
+        <OptionalTooltip text={offline ? onlineOnly('Editing a wiki page') : undefined}><RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}>Edit</RouterLinkButton></OptionalTooltip>
       )}
       {writable && (
-        <Button size="sm" variant="ghost" asChild>
-          <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}}><FileAddedIcon size={12} className="shrink-0"/>New page</Link>
-        </Button>
+        <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
       )}
       <MoreMenu label="More of this page">
         {writable && exists && (
@@ -193,10 +190,10 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
         <Dialog open size="sm" title={`Delete “${title}”?`} description="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." onOpenChange={(o) => {
           if (!o) setConfirming(false);
         }} footer={<>
-          <Button variant="ghost" onClick={() => {
+          <Button variant="invisible" type="button" onClick={() => {
             setConfirming(false);
           }}>Cancel</Button>
-          <Button variant="danger" autoFocus onClick={remove}>Delete</Button>
+          <Button variant="danger" type="button" autoFocus onClick={remove}>Delete</Button>
         </>}/>
       )}
     </>
@@ -280,9 +277,7 @@ const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writab
   if (list.state === 'loading') return <ArticleSkeleton/>;
   if (list.state === 'ready' && list.value.kind !== 'pages') return <NoWiki owner={owner} repo={repo} repoId={repoId} list={list.value} writable={writable}/>;
   const create = writable && page !== SIDEBAR && page !== FOOTER ? (
-    <Button variant="primary" asChild>
-      <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}><FileAddedIcon size={16} className="shrink-0"/>Create “{pageTitle(page)}”</Link>
-    </Button>
+    <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}>Create “{pageTitle(page)}”</RouterLinkButton>
   ) : undefined;
   return (
     <EmptyState icon={FileIcon} title={page === HOME ? 'This wiki has no Home page' : 'No such page'}
@@ -303,16 +298,14 @@ function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclud
     case 'external':
       return (
         <EmptyState icon={GlobeIcon} title="This wiki is elsewhere" description={list.url}
-          action={<Button asChild><a href={list.url} rel="noopener noreferrer"><GlobeIcon size={16} className="shrink-0"/>Open the wiki</a></Button>}/>
+          action={<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}/>
       );
     case 'empty':
       return (
         <EmptyState icon={BookIcon} title="This wiki has no pages yet"
           description={writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'}
           action={writable ? (
-            <Button variant="primary" asChild>
-              <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}><FileAddedIcon size={16} className="shrink-0"/>Create the first page</Link>
-            </Button>
+            <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}>Create the first page</RouterLinkButton>
           ) : undefined}/>
       );
   }
@@ -370,9 +363,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
   const controls = (
     <>
       {writable && (
-        <Button size="sm" variant="ghost" asChild>
-          <Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}}><FileAddedIcon size={12} className="shrink-0"/>New page</Link>
-        </Button>
+        <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
       )}
       <MoreMenu label="More of the wiki">
         <ClassicMenuItem to={classicWikiPath(owner, repo, {view: 'pages'})} icon={BrowserIcon}>This page</ClassicMenuItem>
@@ -515,8 +506,8 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
             }}/>
           <div className="flex items-center justify-end gap-2">
             {offline && <span className="text-sm text-fg-subtle">{onlineOnly(page ? 'Saving a wiki page' : 'Creating a wiki page')}</span>}
-            <Button variant="ghost" onClick={leave}>Cancel</Button>
-            <Button variant="primary" disabled={saving || offline} onClick={save}>{saving ? 'Saving…' : page ? 'Save' : 'Create page'}</Button>
+            <Button variant="invisible" type="button" onClick={leave}>Cancel</Button>
+            <Button variant="primary" type="button" disabled={saving || offline} onClick={save}>{saving ? 'Saving…' : page ? 'Save' : 'Create page'}</Button>
           </div>
         </PageColumn>
       </PageBody>

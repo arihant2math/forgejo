@@ -13,7 +13,7 @@ import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Avatar, Badge, Button, CommandPick, Entry, FormSection, IconButton, Popover, PopoverContent, PopoverTrigger, type PickOption, Select, SegmentedControl,
+  Avatar, Badge, CommandPick, Entry, FormSection, Popover, PopoverContent, PopoverTrigger, type PickOption, Select, SegmentedControl,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ResourceList, useOffline} from './bits.tsx';
@@ -22,6 +22,7 @@ import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator,
 import {settingsKey, useResource} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
 import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -81,7 +82,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
               <Select aria-label={`${c.login}’s role`} size="sm" value={c.role} disabled={offline} options={ROLES} onValueChange={(v) => {
                 if (v !== c.role) setRole(c, v);
               }}/>
-              <IconButton size="sm" icon={TrashIcon} label={`Remove ${c.login}`} disabled={offline} onClick={() => {
+              <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove ${c.login}`} type="button" disabled={offline} onClick={() => {
                 remove(c);
               }}/>
             </>}/>
@@ -98,7 +99,7 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
   const [role, setRole] = useState<Role>('write');
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild><Button size="sm" variant="primary" icon={PersonAddIcon} disabled={disabled}>Add people</Button></PopoverTrigger>
+      <PopoverTrigger asChild><Button variant="primary" size="small" leadingVisual={PersonAddIcon} type="button" disabled={disabled}>Add people</Button></PopoverTrigger>
       {/* The search field takes the focus (as in every picker): typing a name narrows the list at once. Radix would
           focus the first control, the role's. */}
       <PopoverContent width="md" align="end" onOpenAutoFocus={(e) => {

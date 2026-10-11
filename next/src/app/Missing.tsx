@@ -5,11 +5,9 @@
 // issue or a code page that does not exist or is not on this device). Online
 // it says what is missing and offers the classic page when Forgejo has one;
 // offline it lists what this device can show (PLAN §5.5: no dead ends).
-
-import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
-import {Button, EmptyState} from '../ui/index.ts';
+import {EmptyState} from '../ui/index.ts';
 import {AvailableOffline} from './Available.tsx';
 import {ClassicLink} from './ClassicLink.tsx';
 import {reach} from './online.ts';
@@ -17,6 +15,7 @@ import {useNotFound, usePageStatus} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
 import {CloudOfflineIcon, QuestionIcon, HomeIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {RouterLinkButton} from '../app/RouterLinkButton.tsx';
 
 export interface MissingProps {
   /** What is missing, as the subject of a sentence ("This repository"). */
@@ -67,7 +66,7 @@ export const Missing = observer(function Missing({what, title, description, icon
       action={
         <span className="flex flex-wrap justify-center gap-2">
           {classic && <ClassicLink to={classic} variant="primary">Open this page</ClassicLink>}
-          <Button asChild variant={classic ? 'secondary' : 'primary'}><Link to="/"><HomeIcon size={16} className="shrink-0"/>Go to Home</Link></Button>
+          <RouterLinkButton variant={classic ? 'default' : 'primary'} leadingVisual={HomeIcon} to="/">Go to Home</RouterLinkButton>
         </span>
       }
     />

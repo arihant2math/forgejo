@@ -23,7 +23,7 @@ import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
-  Badge, Button, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
+  Badge, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, TextLink,
 } from '../../ui/index.ts';
 import {PickerPopover} from '../issues/Picker.tsx';
@@ -33,6 +33,8 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
 import {ArrowRightIcon, BellIcon, BellSlashIcon, CalendarIcon, CheckCircleIcon, ClockIcon, FileDiffIcon, GitBranchIcon, GitPullRequestDraftIcon, LockIcon, UnlockIcon, CommentIcon, PinIcon, PinSlashIcon, UndoIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
@@ -204,9 +206,9 @@ const ReRequestReviews = observer(function ReRequestReviews({issue, write}: {iss
 const ReRequestButton = observer(function ReRequestButton({id, onClick}: {id: number; onClick: () => void}) {
   const name = useUser(id).name;
   return (
-    <Button size="sm" variant="ghost" icon={UndoIcon} aria-label={`Re-request review from ${name}`} tooltip={`Ask ${name} to review again`} onClick={onClick}>
+    <OptionalTooltip text={`Ask ${name} to review again`}><Button variant="invisible" size="small" leadingVisual={UndoIcon} type="button" aria-label={`Re-request review from ${name}`} onClick={onClick}>
       <span className="truncate">Re-request {name}</span>
-    </Button>
+    </Button></OptionalTooltip>
   );
 });
 

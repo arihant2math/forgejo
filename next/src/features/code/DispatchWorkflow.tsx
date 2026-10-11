@@ -7,11 +7,13 @@ import {useEffect, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
-import {Button, Dialog, Field, Input, Select, Switch} from '../../ui/index.ts';
+import {Dialog, Field, Input, Select, Switch} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {refTable} from './hooks.ts';
 import {RefPicker} from './RefMenu.tsx';
 import type {RefChoice} from './refWrite.ts';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export interface WorkflowFile {file: string; dispatchable: boolean}
 export interface WorkflowList {workflows: WorkflowFile[]; can_dispatch: boolean}
@@ -97,8 +99,8 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
     }).finally(() => { setBusy(false); });
   };
   return <Dialog open size="md" title="Run workflow" description={file} onOpenChange={(open) => { if (!open && !busy) onClose(); }} footer={<>
-    <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-    <Button variant="primary" disabled={busy || Boolean(block) || !schema?.dispatchable} tooltip={block} onClick={submit}>{busy ? 'Starting…' : 'Run workflow'}</Button>
+    <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
+    <OptionalTooltip text={block}><Button variant="primary" type="button" disabled={busy || Boolean(block) || !schema?.dispatchable} onClick={submit}>{busy ? 'Starting…' : 'Run workflow'}</Button></OptionalTooltip>
   </>}>
     <div className="flex flex-col gap-3">
       <RefPicker repoId={repoId} label="Run on" value={ref} onChange={(value) => { if (!busy && (value.kind !== ref.kind || value.ref !== ref.ref)) { setSchema(undefined); setError(undefined); setRef(value); } }}/>
@@ -115,7 +117,7 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
       })}
       {block && <p className="text-sm text-fg-muted">{block}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-      {error && !schema && connected && <Button size="sm" onClick={() => { setRetry((n) => n + 1); }}>Retry loading inputs</Button>}
+      {error && !schema && connected && <Button size="small" type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry loading inputs</Button>}
     </div>
   </Dialog>;
 });

@@ -16,7 +16,7 @@ import type {MilestoneSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Badge, Button, cx, EmptyState, Panel, PendingIcon, ProgressBar, Skeleton, TextLink} from '../../ui/index.ts';
+import {Badge, cx, EmptyState, Panel, PendingIcon, ProgressBar, Skeleton, TextLink} from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {PageSearch, SortMenu} from './controls.tsx';
@@ -26,6 +26,9 @@ import {excerpt, listMilestones, MILESTONE_SORT_NAMES, type MilestoneRow, milest
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.ts';
 import {CheckCircleIcon, IssueOpenedIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
@@ -70,9 +73,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && all.length === 0;
   const create = write && (
-    <Button size="sm" variant="primary" asChild tooltip={offline ? onlineOnly('Creating a milestone') : undefined}>
-      <Link to="/$owner/$repo/milestones/new" params={{owner, repo}}><MilestoneIcon size={12} className="shrink-0"/>New milestone</Link>
-    </Button>
+    <OptionalTooltip text={offline ? onlineOnly('Creating a milestone') : undefined}><RouterLinkButton variant="primary" size="small" leadingVisual={MilestoneIcon} to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></OptionalTooltip>
   );
   return (
     <>
@@ -91,10 +92,10 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
         <PageColumn wide>
           <Panel label="Milestones" title={
             <span className="flex items-center gap-1">
-              <Button size="sm" pressed={state === 'open'} icon={IssueOpenedIcon} onClick={() => {
+              <Button aria-pressed={state === 'open'} variant={state === 'open' ? 'default' : 'invisible'} size="small" leadingVisual={IssueOpenedIcon} type="button" onClick={() => {
                 go({state: undefined});
               }}><span className="tabular-nums">{open}</span> Open</Button>
-              <Button size="sm" pressed={state === 'closed'} icon={CheckCircleIcon} onClick={() => {
+              <Button aria-pressed={state === 'closed'} variant={state === 'closed' ? 'default' : 'invisible'} size="small" leadingVisual={CheckCircleIcon} type="button" onClick={() => {
                 go({state: 'closed'});
               }}><span className="tabular-nums">{closed}</span> Closed</Button>
             </span>
@@ -154,13 +155,12 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         </div>
         {write && !temp && (
           <div className="flex flex-wrap items-center gap-1">
-            <Button size="sm" variant="ghost" asChild><Link to="/$owner/$repo/milestone/$index/edit" params={params}><PencilIcon size={12} className="shrink-0"/>Edit</Link></Button>
-            <Button size="sm" variant="ghost" icon={m.state === 'closed' ? UndoIcon : CheckCircleIcon} disabled={offline}
-              tooltip={offline ? onlineOnly(m.state === 'closed' ? 'Reopening a milestone' : 'Closing a milestone') : undefined} onClick={() => {
+            <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/milestone/$index/edit" params={params}>Edit</RouterLinkButton>
+            <OptionalTooltip text={offline ? onlineOnly(m.state === 'closed' ? 'Reopening a milestone' : 'Closing a milestone') : undefined}><Button variant="invisible" size="small" leadingVisual={m.state === 'closed' ? UndoIcon : CheckCircleIcon} type="button" disabled={offline} onClick={() => {
                 const closing = m.state !== 'closed';
                 void editMilestone(app, r, m, {state: closing ? 'closed' : 'open'}, `${closing ? 'Closing' : 'Reopening'} the milestone “${m.title}”`);
-              }}>{m.state === 'closed' ? 'Reopen' : 'Close'}</Button>
-            <Button size="sm" variant="ghost" icon={TrashIcon} disabled={offline} tooltip={offline ? onlineOnly('Deleting a milestone') : undefined} onClick={onDelete}>Delete</Button>
+              }}>{m.state === 'closed' ? 'Reopen' : 'Close'}</Button></OptionalTooltip>
+            <OptionalTooltip text={offline ? onlineOnly('Deleting a milestone') : undefined}><Button variant="invisible" size="small" leadingVisual={TrashIcon} type="button" disabled={offline} onClick={onDelete}>Delete</Button></OptionalTooltip>
           </div>
         )}
       </div>

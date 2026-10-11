@@ -20,12 +20,14 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, IconButton, LineAction, LineNo, ListRow} from '../../ui/index.ts';
+import {CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, LineAction, LineNo, ListRow} from '../../ui/index.ts';
 import {useSource} from './hooks.ts';
 import {ImageDiff, isImageDiff} from './ImageDiff.tsx';
 import {useDiffSettings} from './DiffSettings.tsx';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
 import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** A file header row: the header (h-row, 32) after an 8 px gap. */
 export const FILE_ROW = 40;
@@ -399,7 +401,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
 
 /** A hunk header's expand action (mouse and keyboard: a real button, in the header's own row). */
 function ExpandButton({label, onClick, children}: {label: string; onClick: () => void; children: string}) {
-  return <Button size="sm" variant="ghost" tooltip={label} aria-label={label} onClick={onClick}>{children}</Button>;
+  return <OptionalTooltip text={label}><Button variant="invisible" size="small" type="button" aria-label={label} onClick={onClick}>{children}</Button></OptionalTooltip>;
 }
 
 function emptyReason(f: DiffFile): string {
@@ -415,7 +417,7 @@ const FileHeader = memo(function FileHeader({file, f, extras}: {file: DiffFile; 
     <CodeFileHeader path={filePath(file)} oldPath={file.status === 'renamed' ? file.oldPath : undefined} status={STATUS[file.status]}
       stat={<DiffStat additions={file.additions} deletions={file.deletions}/>}
       leading={extras ? (
-        <IconButton size="sm" icon={collapsed ? ChevronRightIcon : ChevronDownIcon} label={collapsed ? 'Expand the file' : 'Collapse the file'} aria-expanded={!collapsed} onClick={() => {
+        <IconButton icon={collapsed ? ChevronRightIcon : ChevronDownIcon} variant="invisible" size="small" aria-label={collapsed ? 'Expand the file' : 'Collapse the file'} type="button" aria-expanded={!collapsed} onClick={() => {
           extras.onToggle(f);
         }}/>
       ) : undefined}>
@@ -438,7 +440,7 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
   return (
     <section aria-label="Changed files" className="sticky left-0 w-view border-b border-border-subtle py-1">
       <div className="flex h-control items-center gap-2 px-4 text-sm text-fg-muted">
-        <IconButton size="sm" icon={open ? ChevronDownIcon : ChevronRightIcon} label={open ? 'Hide the files' : 'Show the files'} aria-expanded={open} onClick={() => {
+        <IconButton icon={open ? ChevronDownIcon : ChevronRightIcon} variant="invisible" size="small" aria-label={open ? 'Hide the files' : 'Show the files'} type="button" aria-expanded={open} onClick={() => {
           setOpen((o) => !o);
         }}/>
         <span className="text-fg">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>

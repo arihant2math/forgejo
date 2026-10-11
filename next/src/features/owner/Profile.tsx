@@ -7,13 +7,14 @@ import {useEffect, useRef, useState} from 'react';
 import {failureText, online, RequestFailed} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, Panel} from '../../ui/index.ts';
+import {Avatar, Panel} from '../../ui/index.ts';
 import {ContributionHeatmap} from '../activity/charts.tsx';
 import {FeedPage} from '../home/Feed.tsx';
 import {ResourceList} from '../settings/bits.tsx';
 import {allPages} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
 import {PeopleIcon, RepoIcon, PulseIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 export const Follow = observer(function Follow({owner}: {owner: string}) {
   const app = useApp();
@@ -34,7 +35,7 @@ export const Follow = observer(function Follow({owner}: {owner: string}) {
     } catch (err) { setError(failureText(err)); }
     finally { setBusy(false); }
   };
-  return <div><Button size="sm" disabled={!connected || !res.fresh || busy} onClick={() => { void change(); }}>{res.value ? 'Unfollow' : 'Follow'}</Button>{error && <p role="alert">{error}</p>}</div>;
+  return <div><Button size="small" type="button" disabled={!connected || !res.fresh || busy} onClick={() => { void change(); }}>{res.value ? 'Unfollow' : 'Follow'}</Button>{error && <p role="alert">{error}</p>}</div>;
 });
 
 interface Person {id: number; login: string; full_name: string; avatar_url: string}
@@ -44,7 +45,7 @@ export const People = observer(function People({owner, isOrg}: {owner: string; i
   const path = isOrg ? `/orgs/${encodeURIComponent(owner)}/members` : `/users/${encodeURIComponent(owner)}/${kind}`;
   const res = useResource(`profile-people:${path}`, (signal) => allPages<Person>(app, path, signal));
   return <Panel label="People" title={isOrg ? 'People' : 'Followers and following'}>
-    {!isOrg && <div className="flex gap-2 px-3 py-2"><Button size="sm" onClick={() => { setKind('followers'); }}>Followers</Button><Button size="sm" onClick={() => { setKind('following'); }}>Following</Button></div>}
+    {!isOrg && <div className="flex gap-2 px-3 py-2"><Button size="small" type="button" onClick={() => { setKind('followers'); }}>Followers</Button><Button size="small" type="button" onClick={() => { setKind('following'); }}>Following</Button></div>}
     <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
       {(people) => people.map((p) => <Link key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-3 px-3 py-2"><Avatar name={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-fg-muted">{p.login}</span></Link>)}
     </ResourceList>

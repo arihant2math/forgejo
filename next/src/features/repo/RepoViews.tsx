@@ -17,7 +17,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {observer} from 'mobx-react-lite';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
-import {Button, EmptyState} from '../../ui/index.ts';
+import {EmptyState} from '../../ui/index.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {CodeLink} from '../code/nav.tsx';
 import {loadPeople} from '../issues/people.ts';
@@ -26,6 +26,8 @@ import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import {IssueNav} from '../meta/IssueNav.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {IssueOpenedIcon, GitPullRequestIcon, PencilIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 const issuesApi = getRouteApi('/shell/$owner/$repo/issues');
 const pullsApi = getRouteApi('/shell/$owner/$repo/pulls');
@@ -57,9 +59,9 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
         {/* Creating from the list (C as well). A pull request starts from a comparison: its branches are chosen there. */}
         {pulls ?
           <NewPullButton owner={owner} repo={repo} repoId={repoId}/> :
-          <Button size="sm" icon={PencilIcon} aria-label="New issue" shortcut={shortcutHint('create')} tooltip="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
+          <OptionalTooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button size="small" leadingVisual={PencilIcon} type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
             openCreate(app, repoId);
-          }}><span className="@max-md:hidden">New issue</span></Button>}
+          }}><span className="@max-md:hidden">New issue</span></Button></OptionalTooltip>}
       </RepoHeader>
       <ListBody model={model} label={pulls ? 'Pull requests' : 'Issues'}
         empty={<EmptyState icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={`No open ${noun}`} description={`This repository has no open ${noun} on this device.`}/>}/>
@@ -75,12 +77,10 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
 function NewPullButton({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   return (
-    <Button size="sm" asChild tooltip="Choose the branches to merge">
-      <CodeLink owner={owner} repo={repo} to="compare" onPointerEnter={() => {
+    <OptionalTooltip text={'Choose the branches to merge'}><Button as={CodeLink} size="small" leadingVisual={GitPullRequestIcon} owner={owner} repo={repo} to="compare" onPointerEnter={() => {
         void preloadEditor().catch(() => undefined);
         loadPeople(app, repoId);
-      }}><GitPullRequestIcon size={12} className="shrink-0"/>New pull request</CodeLink>
-    </Button>
+      }}>New pull request</Button></OptionalTooltip>
   );
 }
 

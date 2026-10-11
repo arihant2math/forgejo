@@ -26,7 +26,7 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Button, CommandPick, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
+import {CommandPick, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
@@ -39,6 +39,8 @@ import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
 import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The dialog's draft in a repository. */
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
@@ -384,7 +386,7 @@ const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
       ...(set.config.blank_issues_enabled ? [{value: 'blank', label: 'Blank issue', onSelect: () => { form.choose(); }}] : []),
     ]}/>
     {set.config.contact_links.filter((l) => /^https?:\/\//i.test(l.url)).map((l) => <div key={l.url}>
-      <Button variant="ghost" asChild><a href={l.url} target="_blank" rel="noopener noreferrer">{l.name} ↗</a></Button>
+      <LinkButton variant="invisible" href={l.url} target="_blank" rel="noopener noreferrer">{l.name}↗</LinkButton>
       <p className="text-sm text-fg-muted">{l.about}</p>
     </div>)}
     <Properties form={form}/>
@@ -416,7 +418,7 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
         onCreate();
       }
     }}>
-      {form.templates?.templates.length ? <Button size="sm" variant="ghost" onClick={() => { runInAction(() => { form.choosing = true; }); }}>Change template</Button> : null}
+      {form.templates?.templates.length ? <Button variant="invisible" size="small" type="button" onClick={() => { runInAction(() => { form.choosing = true; }); }}>Change template</Button> : null}
       <Title form={form} onCreate={onCreate}/>
       {form.templates?.note && <p className="text-sm text-fg-muted">{form.templates.note}</p>}
       {form.template?.body?.length ? <TemplateFields fields={form.template.body} values={form.values} missing={form.fieldErrors} repoId={form.repoId} onChange={form.setValue}/> : <Description form={form} onCreate={onCreate}/>}
@@ -483,21 +485,21 @@ const Properties = observer(function Properties({form}: {form: Form}) {
         options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => {
           form.setRepo(r.id);
         }}))}
-        trigger={<Button size="sm" icon={RepoIcon}>{repo?.full_name ?? 'Repository'}</Button>}/>
+        trigger={<Button size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>}/>
       {writable ? <>
         <KindChip form={form} kind="status" labels={ofKind('status')}/>
         <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
         {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
         <PickerPopover kind="labels" draft={form}
           trigger={
-            <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={TagIcon}>
+            <Button variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
               {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
         <PickerPopover kind="assignees" draft={form}
-          trigger={<Button size="sm" variant={who.length ? 'secondary' : 'ghost'} icon={PersonIcon}>{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
+          trigger={<Button variant={who.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
         <PickerPopover kind="milestone" draft={form}
-          trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
+          trigger={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </> : repoId > 0 && <span className="px-1 text-sm text-fg-subtle">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
   );
@@ -512,7 +514,7 @@ const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; k
   return (
     <PickerPopover kind={kind} draft={form}
       trigger={
-        <Button size="sm" variant={chosen ? 'secondary' : 'ghost'} icon={chosen ? undefined : iconOf('')}>
+        <Button variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
           {chosen ? <><LabelIcon icon={iconOf(chosen.name)} color={chosen.color}/>{scopedValue(chosen.name)}</> : name}
         </Button>
       }/>
@@ -526,16 +528,16 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
     <>
       <span className="mr-auto flex items-center gap-1 self-center text-sm text-fg-subtle">
         {form.board && <BoardHint board={form.board}/>}
-        {form.restored && <>Draft restored<Button size="sm" variant="ghost" onClick={() => {
+        {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
           form.discard();
         }}>Discard</Button></>}
         {!connectivity.online && <span>Offline: it syncs when you are back.</span>}
       </span>
-      <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+      <Button variant="invisible" type="button" onClick={onCancel}>Cancel</Button>
       {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
-      {!form.choosing && <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} aria-disabled={!ready} onClick={onCreate}>
+      {!form.choosing && <OptionalTooltip text={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={!ready} onClick={onCreate}>
         Create issue
-      </Button>}
+      </Button></OptionalTooltip>}
     </>
   );
 });

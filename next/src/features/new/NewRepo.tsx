@@ -22,7 +22,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, Callout, Checkbox, CommandPopover, Input, SegmentedControl} from '../../ui/index.ts';
+import {Avatar, Callout, Checkbox, CommandPopover, Input, SegmentedControl} from '../../ui/index.ts';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -31,6 +31,8 @@ import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} f
 import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
 
@@ -156,7 +158,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                       setTemplate(t.id);
                     }})),
                   ]}
-                  trigger={<Button id="new-repo-template" variant="secondary" aria-describedby={hintOf('new-repo-template')}>{tpl?.full_name ?? 'No template'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
+                  trigger={<Button type="button" id="new-repo-template" aria-describedby={hintOf('new-repo-template')}>{tpl?.full_name ?? 'No template'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
               </div>
             </Field>
 
@@ -249,9 +251,9 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {!isOnline && <span className="mr-auto text-sm text-fg-subtle">Offline: creating a repository needs a connection.</span>}
                 {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a name). */}
-                <Button type="submit" variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? 'Create the repository'} aria-disabled={Boolean(why) || busy}>
+                <OptionalTooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" aria-disabled={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create repository'}
-                </Button>
+                </Button></OptionalTooltip>
               </div>
             </Section>
           </form>
@@ -304,7 +306,7 @@ export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[
         },
       }))}
       trigger={
-        <Button id="new-repo-owner" variant="secondary">
+        <Button type="button" id="new-repo-owner">
           {owner ? <><Avatar size="sm" name={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}<ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       }/>

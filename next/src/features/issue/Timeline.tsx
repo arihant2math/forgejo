@@ -15,7 +15,7 @@ import {createContext, lazy, type ReactNode, Suspense, useContext, useEffect, us
 import type {VirtuosoHandle} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Badge, type BadgeTone, Button, Code, CodeLine, cx, Icon, LabelChip, TextLink} from '../../ui/index.ts';
+import {Badge, type BadgeTone, Code, CodeLine, cx, Icon, LabelChip, TextLink} from '../../ui/index.ts';
 import {Link, useParams, useRouterState} from '@tanstack/react-router';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
@@ -41,6 +41,7 @@ import {blocking, IssueLink} from './Sidebar.tsx';
 import {conversationReplies, conversationRoot, replyOnlyReview, replyRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
 import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckCircleIcon, IssueOpenedIcon, ClockIcon, EyeIcon, GitBranchIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, LockIcon, UnlockIcon, CommentIcon, MilestoneIcon, PencilIcon, PinIcon, PinSlashIcon, ReplyIcon, ProjectIcon, TagIcon, PersonIcon, PersonAddIcon, XCircleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
@@ -375,14 +376,14 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
             closeReply();
           }}/>
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => {
+            <Button variant="invisible" size="small" type="button" onClick={() => {
               closeReply();
             }}>Cancel</Button>
-            <Button size="sm" variant="primary" disabled={!text.trim() || hasPendingUploads(text)} onClick={reply}>Reply</Button>
+            <Button variant="primary" size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={reply}>Reply</Button>
           </div>
         </div> :
         <div className="flex items-center gap-2">
-          <Button ref={replyButton} size="sm" variant="ghost" icon={ReplyIcon} onClick={() => {
+          <Button variant="invisible" size="small" leadingVisual={ReplyIcon} type="button" ref={replyButton} onClick={() => {
             setReplying(true);
           }}>Reply</Button>
           {root && issueEntity && <ResolveButton root={root} issue={issueEntity}/>}

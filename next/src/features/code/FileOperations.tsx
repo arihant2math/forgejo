@@ -10,7 +10,7 @@ import {reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/session.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
-import {Button, Dialog, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {Dialog, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
@@ -21,6 +21,7 @@ import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
+import {Button} from '@primer/react';
 
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
   owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined; children?: ReactNode;
@@ -122,19 +123,19 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
   };
   if (!allowed) return children;
   return <div onDragOver={(event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();}} onDrop={(event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));}}>
-    <Menu><MenuTrigger asChild><Button size="sm" variant="ghost" disabled={!online} title={blocked}>Add file</Button></MenuTrigger><MenuContent>
+    <Menu><MenuTrigger asChild><Button variant="invisible" size="small" type="button" disabled={!online} title={blocked}>Add file</Button></MenuTrigger><MenuContent>
       <MenuItem onSelect={() => {start('create');}}>Create new file</MenuItem>
       <MenuItem onSelect={() => {start('upload');}}>Upload files</MenuItem>
       {target && <MenuItem onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</MenuItem>}
     </MenuContent></Menu>
     {blocked && <p className="text-sm text-fg-muted">{blocked}</p>}
     {children}
-    {mode && !dialog && <Dialog open title={mode === 'create' ? 'Create new file' : 'Upload files'} size="lg" onOpenChange={(open) => {if (!open) setMode(undefined);}} footer={<Button disabled={Boolean(problem) || Boolean(blocked)} onClick={() => {setDialog(true);}}>Commit changes…</Button>}>
+    {mode && !dialog && <Dialog open title={mode === 'create' ? 'Create new file' : 'Upload files'} size="lg" onOpenChange={(open) => {if (!open) setMode(undefined);}} footer={<Button type="button" disabled={Boolean(problem) || Boolean(blocked)} onClick={() => {setDialog(true);}}>Commit changes…</Button>}>
       {mode === 'create' ? <><Input aria-label="File path" placeholder="dir/name.ext" value={path} onChange={(event) => {setPath(event.target.value); void intents.keepText({key: pathKey, title: 'New file path', issueId: 0, repoId, text: event.target.value});}}/><Suspense fallback={<p>Loading editor…</p>}><CodeEditor value={text} path={path} wrap onChange={(value) => {setText(value); void intents.keepText({key, title: `New file in ${dir || repo}`, issueId: 0, repoId, text: value});}}/></Suspense></> : <div className="flex flex-col gap-3">
         <p className="text-sm text-fg-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
         <input aria-label="Choose files" type="file" multiple onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         <input aria-label="Choose folder" type="file" multiple {...{webkitdirectory: ''}} onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
-        {files.map((item) => <ListRow role={undefined} key={item.path} trailing={<Button size="sm" variant="ghost" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</ListRow>)}
+        {files.map((item) => <ListRow role={undefined} key={item.path} trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</ListRow>)}
       </div>}
       {problem && <p className="text-sm text-fg-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Dialog>}

@@ -12,15 +12,16 @@ import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
 import {missingWords} from '../../app/Missing.tsx';
-import {Button, EmptyState, Skeleton} from '../../ui/index.ts';
+import {EmptyState, Skeleton} from '../../ui/index.ts';
 import type {Loaded} from './hooks.ts';
 import {FileOperations} from './FileOperations.tsx';
 import {CloudOfflineIcon, FileSubmoduleIcon, RedoIcon, SearchIcon, AlertIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** `action`: the way on from a "Not found" (the list it would be in). */
 export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
   const r = reach(useApp().session?.data.status.connection);
-  const retry = loaded.state !== 'loading' && loaded.retry ? <Button onClick={loaded.retry}><RedoIcon size={12} className="shrink-0"/>Retry</Button> : undefined;
+  const retry = loaded.state !== 'loading' && loaded.retry ? <Button type="button" onClick={loaded.retry}><RedoIcon size={12} className="shrink-0"/>Retry</Button> : undefined;
   switch (loaded.state) {
     case 'loading':
       return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><Skeleton className="h-3 w-64"/><Skeleton className="h-3 w-48"/></div>;

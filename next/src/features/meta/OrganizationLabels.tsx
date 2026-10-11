@@ -7,7 +7,7 @@ import {notify} from '../../app/notices.ts';
 import {onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Button, Dialog, IconButton, LabelPill, ListRow, Panel} from '../../ui/index.ts';
+import {Dialog, LabelPill, ListRow, Panel} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {useOrgPermissions} from '../owner/Teams.tsx';
 import {ResourceList, useOffline} from '../settings/bits.tsx';
@@ -16,6 +16,8 @@ import {useResource} from '../settings/resource.ts';
 import {LabelDialog} from './LabelDialog.tsx';
 import {type LabelDraft, normalizeColor} from './labels.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /**
  * An organization's labels (its page, and below a repository's own labels). Only the organization's owners and admins
@@ -54,7 +56,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       return false;
     } finally { setBusy(false); }
   };
-  return <Panel label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <Button size="sm" disabled={offline || busy} tooltip={offline ? onlineOnly('Creating an organization label') : undefined} onClick={() => { setEditing({}); }}>New organization label</Button>}>
+  return <Panel label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <OptionalTooltip text={offline ? onlineOnly('Creating an organization label') : undefined}><Button size="small" type="button" disabled={offline || busy} onClick={() => { setEditing({}); }}>New organization label</Button></OptionalTooltip>}>
     {managed && <p className="border-b border-border-subtle px-3 py-2 text-sm text-fg-muted">
       Managed by the owners and admins of {owner}: only they can change these labels. Every repository of the organization can use them.
     </p>}
@@ -62,15 +64,15 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       {(labels) => labels.map((l) => <ListRow key={l.id} role={undefined} trailing={<>
         {usage?.(l)}
         {editable && <span className="flex">
-          <IconButton icon={PencilIcon} label={offline ? onlineOnly('Editing an organization label') : `Edit organization label ${l.name}`} disabled={offline || busy} onClick={() => { setEditing({label: l}); }}/>
-          <IconButton icon={TrashIcon} label={offline ? onlineOnly('Deleting an organization label') : `Delete organization label ${l.name}`} disabled={offline || busy} onClick={() => { setDeleting(l); }}/>
+          <IconButton icon={PencilIcon} variant="invisible" aria-label={offline ? onlineOnly('Editing an organization label') : `Edit organization label ${l.name}`} type="button" disabled={offline || busy} onClick={() => { setEditing({label: l}); }}/>
+          <IconButton icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Deleting an organization label') : `Delete organization label ${l.name}`} type="button" disabled={offline || busy} onClick={() => { setDeleting(l); }}/>
         </span>}
       </>}><LabelPill name={l.name} color={l.color} scope={exclusiveScope(l) || undefined}/><span className="ml-3 text-fg-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></ListRow>)}
     </ResourceList>
     {editing && <LabelDialog repo={{owner, repo: '', repoId: 0}} label={editing.label} count={shown.value?.length ?? 0} onClose={() => { setEditing(undefined); }} onSave={(d) => send(editing.label ? 'PATCH' : 'POST', editing.label, d)}/>}
     {deleting && <Dialog open title={`Delete the label “${deleting.name}”?`} description="This removes the label from every issue and pull request in the organization. This cannot be undone." onOpenChange={(o) => { if (!o) setDeleting(undefined); }} footer={<>
-      <Button variant="ghost" onClick={() => { setDeleting(undefined); }}>Cancel</Button>
-      <Button variant="danger" disabled={busy || offline} onClick={() => { void send('DELETE', deleting).then((ok) => { if (ok) setDeleting(undefined); }); }}>Delete label</Button>
+      <Button variant="invisible" type="button" onClick={() => { setDeleting(undefined); }}>Cancel</Button>
+      <Button variant="danger" type="button" disabled={busy || offline} onClick={() => { void send('DELETE', deleting).then((ok) => { if (ok) setDeleting(undefined); }); }}>Delete label</Button>
     </>}/>}
   </Panel>;
 });

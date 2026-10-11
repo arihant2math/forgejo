@@ -10,10 +10,12 @@ import {observer} from 'mobx-react-lite';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Button, Checkbox, ColorPicker, Dialog, Field, Input, LabelPill} from '../../ui/index.ts';
+import {Checkbox, ColorPicker, Dialog, Field, Input, LabelPill} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The pill a draft makes (the form's preview), and a label's own: an exclusive scoped label shows its scope. */
 export function DraftPill({name, color, exclusive}: {name: string; color: string; exclusive: boolean}) {
@@ -59,10 +61,10 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
     <Dialog open title={label ? 'Edit label' : 'New label'} onOpenChange={(o) => {
       if (!o) onClose();
     }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={saving || !connectivity.online} tooltip={!connectivity.online ? onlineOnly('Saving a label') : undefined} onClick={() => {
+      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
+      <OptionalTooltip text={!connectivity.online ? onlineOnly('Saving a label') : undefined}><Button variant="primary" type="button" disabled={saving || !connectivity.online} onClick={() => {
         save();
-      }}>{label ? 'Save' : 'Create label'}</Button>
+      }}>{label ? 'Save' : 'Create label'}</Button></OptionalTooltip>
     </>}>
       <form className="flex flex-col gap-3" onSubmit={save}>
         <div className="flex min-h-control items-center"><DraftPill name={d.name.trim() || 'Label preview'} color={d.color} exclusive={d.exclusive}/></div>
@@ -110,8 +112,8 @@ export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; 
       if (!o) onClose();
     }} description={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`}
     footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="danger" onClick={() => {
+      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
+      <Button variant="danger" type="button" onClick={() => {
         onClose();
         void deleteLabel(app, repo, label);
       }}>Delete label</Button>

@@ -38,7 +38,7 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {
-  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, cx, EmptyState, Icon, IconButton, ListGroupHeader, ListRow,
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, cx, EmptyState, Icon, ListGroupHeader, ListRow,
   Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuSeparator, MenuTrigger, StatusDot,
 } from '../../ui/index.ts';
 import {AgoCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
@@ -52,6 +52,8 @@ import {InboxFilters} from './InboxFilters.tsx';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
 import {activityOf, type InboxResult, inboxRows, noteHash, togglePin} from './inbox.ts';
 import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, FileSubmoduleIcon, GitCommitIcon, InboxIcon, TasklistIcon, MailIcon, ReadIcon, KebabHorizontalIcon, PinIcon, PinSlashIcon, RowsIcon, SquareIcon, CheckboxIcon, XIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 const ROW = 32; // ListRow's h-row
 const route = getRouteApi('/shell/notifications');
@@ -228,21 +230,21 @@ export default observer(function Inbox() {
         <SelectionBar model={model}/>
         <InboxFilters search={shown} set={set}/>
         <SelectToggle model={model}/>
-        <Button size="sm" pressed={shown.filter === 'unread'} tooltip="Show unread notifications only (not the pinned ones)" onClick={() => {
+        <OptionalTooltip text={'Show unread notifications only (not the pinned ones)'}><Button aria-pressed={shown.filter === 'unread'} variant={shown.filter === 'unread' ? 'default' : 'invisible'} size="small" type="button" onClick={() => {
           set({filter: shown.filter === 'unread' ? undefined : 'unread'});
-        }}>Unread<UnreadCount/></Button>
-        <Button size="sm" pressed={shown.filter === 'all'} tooltip={shown.filter === 'all' ? 'Back to unread and pinned notifications' : 'Show read notifications too'} onClick={() => {
+        }}>Unread<UnreadCount/></Button></OptionalTooltip>
+        <OptionalTooltip text={shown.filter === 'all' ? 'Back to unread and pinned notifications' : 'Show read notifications too'}><Button aria-pressed={shown.filter === 'all'} variant={shown.filter === 'all' ? 'default' : 'invisible'} size="small" type="button" onClick={() => {
           set({filter: shown.filter === 'all' ? undefined : 'all'});
-        }}>All</Button>
+        }}>All</Button></OptionalTooltip>
         <Menu>
-          <MenuTrigger asChild><Button size="sm" variant="ghost" icon={RowsIcon}>Display</Button></MenuTrigger>
+          <MenuTrigger asChild><Button variant="invisible" size="small" leadingVisual={RowsIcon} type="button">Display</Button></MenuTrigger>
           <MenuContent>
             <MenuCheckboxItem checked={shown.group === 'repo'} onCheckedChange={(on) => {
               set({group: on ? 'repo' : undefined});
             }}>Group by repository</MenuCheckboxItem>
           </MenuContent>
         </Menu>
-        <Button size="sm" variant="ghost" icon={ChecklistIcon} shortcut={shortcutHint('inbox.readAll')} tooltip="Mark everything listed read" onClick={readAll}>Mark all read</Button>
+        <OptionalTooltip text={'Mark everything listed read'} keybindingHint={shortcutHint('inbox.readAll')}><Button variant="invisible" size="small" leadingVisual={ChecklistIcon} type="button" onClick={readAll}>Mark all read</Button></OptionalTooltip>
       </PageHeader>
       <InboxBody model={model} filter={shown.filter} byRepo={shown.group === 'repo'} filtered={[shown.reason, shown.repo, shown.type, shown.state].some((value) => value !== undefined)}/>
     </>
@@ -257,13 +259,12 @@ function sameView(a: InboxSearch, b: InboxSearch): boolean {
 const SelectToggle = observer(function SelectToggle({model}: {model: InboxModel}) {
   const on = model.selecting.get();
   return (
-    <Button size="sm" pressed={on} icon={TasklistIcon} shortcut={shortcutHint('list.select')}
-      tooltip={on ? 'Tap rows to select them; Esc or Select again to stop' : 'Select notifications to act on several at once (also Shift-click, or X on a row)'} onClick={() => {
+    <OptionalTooltip text={on ? 'Tap rows to select them; Esc or Select again to stop' : 'Select notifications to act on several at once (also Shift-click, or X on a row)'} keybindingHint={shortcutHint('list.select')}><Button aria-pressed={on} variant={on ? 'default' : 'invisible'} size="small" leadingVisual={TasklistIcon} type="button" onClick={() => {
         runInAction(() => {
           model.selecting.set(!on);
         });
         if (on) model.cursor.clearSelection();
-      }}>Select</Button>
+      }}>Select</Button></OptionalTooltip>
   );
 });
 
@@ -286,20 +287,15 @@ const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}
   return (
     <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-1">
       <span className="px-1 text-sm whitespace-nowrap text-fg-muted tabular-nums">{ids.length} selected</span>
-      <Button size="sm" variant="ghost" icon={ReadIcon} shortcut={shortcutHint('inbox.read')} tooltip="Mark the selected notifications read"
-        disabled={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button>
-      <Button size="sm" variant="ghost" icon={MailIcon} shortcut={shortcutHint('inbox.unread')} tooltip="Mark the selected notifications unread"
-        disabled={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button>
-      <Button size="sm" variant="ghost" icon={allPinned ? PinSlashIcon : PinIcon} shortcut={shortcutHint('inbox.pin')}
-        tooltip={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'}
-        onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button>
-      <Button size="sm" variant="ghost" icon={BellSlashIcon} shortcut={shortcutHint('inbox.unsubscribe')} tooltip={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'}
-        disabled={!!cannotUnsubscribe} onClick={() => {
+      <OptionalTooltip text={'Mark the selected notifications read'} keybindingHint={shortcutHint('inbox.read')}><Button variant="invisible" size="small" leadingVisual={ReadIcon} type="button" disabled={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button></OptionalTooltip>
+      <OptionalTooltip text={'Mark the selected notifications unread'} keybindingHint={shortcutHint('inbox.unread')}><Button variant="invisible" size="small" leadingVisual={MailIcon} type="button" disabled={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button></OptionalTooltip>
+      <OptionalTooltip text={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'} keybindingHint={shortcutHint('inbox.pin')}><Button variant="invisible" size="small" leadingVisual={allPinned ? PinSlashIcon : PinIcon} type="button" onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button></OptionalTooltip>
+      <OptionalTooltip text={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'} keybindingHint={shortcutHint('inbox.unsubscribe')}><Button variant="invisible" size="small" leadingVisual={BellSlashIcon} type="button" disabled={!!cannotUnsubscribe} onClick={() => {
           unsubscribe(app, untracked(() => model.cursor.selected.values()));
-        }}>Unsubscribe</Button>
-      <Button size="sm" variant="ghost" icon={XIcon} shortcut={formatKeys('escape')} tooltip="Clear the selection" onClick={() => {
+        }}>Unsubscribe</Button></OptionalTooltip>
+      <OptionalTooltip text={'Clear the selection'} keybindingHint={formatKeys('escape')}><Button variant="invisible" size="small" leadingVisual={XIcon} type="button" onClick={() => {
         model.cursor.clearSelection();
-      }}>Clear</Button>
+      }}>Clear</Button></OptionalTooltip>
     </div>
   );
 });
@@ -621,19 +617,17 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
   return (
     <div data-note={id} aria-hidden className="absolute inset-y-0 right-0 flex items-center pe-2">
       <div className="flex items-center gap-0.5 rounded-md border border-border bg-raised p-0.5">
-        <IconButton size="sm" tabIndex={-1} icon={unread ? ReadIcon : MailIcon} label={unread ? 'Mark read' : 'Mark unread'} shortcut={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')}
-          onMouseDown={keepFocus} onClick={() => {
+        <IconButton icon={unread ? ReadIcon : MailIcon} variant="invisible" size="small" aria-label={unread ? 'Mark read' : 'Mark unread'} keybindingHint={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], unread ? (st) => (st === 'unread' ? 'read' : undefined) : () => 'unread', unread ? 'read' : 'unread');
         }}/>
-        <IconButton size="sm" tabIndex={-1} icon={status === 'pinned' ? PinSlashIcon : PinIcon} label={status === 'pinned' ? 'Unpin' : 'Pin, to keep it for later'} shortcut={shortcutHint('inbox.pin')}
-          onMouseDown={keepFocus} onClick={() => {
+        <IconButton icon={status === 'pinned' ? PinSlashIcon : PinIcon} variant="invisible" size="small" aria-label={status === 'pinned' ? 'Unpin' : 'Pin, to keep it for later'} keybindingHint={shortcutHint('inbox.pin')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], togglePin, 'pin');
         }}/>
         <Menu onOpenChange={(o) => {
           model.menuFor = o ? id : undefined;
           if (!o) model.hover.clear();
         }}>
-          <MenuTrigger asChild><IconButton size="sm" tabIndex={-1} icon={KebabHorizontalIcon} label="More actions"/></MenuTrigger>
+          <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="More actions" type="button" tabIndex={-1}/></MenuTrigger>
           <MenuContent align="end" onCloseAutoFocus={(e) => {
             // Back to the list (its buttons are gone with the hover), not to the button.
             e.preventDefault();

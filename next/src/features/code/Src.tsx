@@ -26,7 +26,7 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  BlameCell, Button, CodeLine, CodeTokens, EmptyState, LineAction, LineNo, ListRow, Menu, MenuTrigger, MenuContent, MenuItem, SegmentedControl, Skeleton, TextLink,
+  BlameCell, CodeLine, CodeTokens, EmptyState, LineAction, LineNo, ListRow, Menu, MenuTrigger, MenuContent, MenuItem, SegmentedControl, Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
@@ -41,6 +41,7 @@ import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 
@@ -155,20 +156,14 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       {file && <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={entry ? {sha: entry.sha, folder: false} : undefined}/>}
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={at} view={blame ? 'blame' : 'src'}/>
       {at.kind === 'branch' && def && at.ref !== def && (
-        <Button size="sm" variant="ghost" asChild>
-          <CodeLink owner={owner} repo={repo} to={`compare/${def}...${at.ref}`}>Compare</CodeLink>
-        </Button>
+        <Button as={CodeLink} variant="invisible" size="small" owner={owner} repo={repo} to={`compare/${def}...${at.ref}`}>Compare</Button>
       )}
       {/* A tag: what the default branch has gained since it ("previous tag vs main"). */}
       {at.kind === 'tag' && def && (
-        <Button size="sm" variant="ghost" asChild>
-          <CodeLink owner={owner} repo={repo} to={`compare/${at.ref}...${def}`}>Compare</CodeLink>
-        </Button>
+        <Button as={CodeLink} variant="invisible" size="small" owner={owner} repo={repo} to={`compare/${at.ref}...${def}`}>Compare</Button>
       )}
-      <Button size="sm" variant="ghost" asChild>
-        <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><HistoryIcon size={12} className="shrink-0"/>Commits</CodeLink>
-      </Button>
-      <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
+      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={HistoryIcon} owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}>Commits</Button>
+      <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
@@ -178,9 +173,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       )}
       {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
       {file && (
-        <Button size="sm" variant="ghost" asChild>
-          <a href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</a>
-        </Button>
+        <LinkButton variant="invisible" size="small" href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</LinkButton>
       )}
     </>
   );
@@ -207,7 +200,7 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
   return (
     <Menu>
       <MenuTrigger asChild>
-        {line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button size="sm" variant="ghost" aria-label="File actions">…</Button>}
+        {line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button variant="invisible" size="small" type="button" aria-label="File actions">…</Button>}
       </MenuTrigger>
       <MenuContent align="end">
         <MenuItem onSelect={() => {
@@ -301,7 +294,7 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
   useShortcut('code.editFile', () => {setEditing(true);}, allowed && !editing);
   if (editing) return <Suspense fallback={<CodeSkeleton/>}><FileEditor owner={props.owner} repo={props.repo} repoId={props.repoId} at={props.at} sha={props.entry.sha} original={props.text} onCancel={() => {setEditing(false);}}/></Suspense>;
   return <>
-    {allowed && <div className="flex justify-end border-b border-border-subtle px-4 py-2"><Button size="sm" variant="ghost" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
+    {allowed && <div className="flex justify-end border-b border-border-subtle px-4 py-2"><Button variant="invisible" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
     {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-fg-muted">Fork this repository to edit this file.</p>}
     {props.text === '' ? <EmptyState icon={FileIcon} title="Empty file" description="This file has no content."/> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
   </>;

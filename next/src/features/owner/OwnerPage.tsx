@@ -17,7 +17,7 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, Button, EmptyState, Hint, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
+import {Avatar, Badge, EmptyState, Hint, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
@@ -26,6 +26,8 @@ import {OfflineNote} from '../settings/bits.tsx';
 import {useResource} from '../settings/resource.ts';
 import {Follow, Overview, People} from './Profile.tsx';
 import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
+import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 interface OwnerInfo {
   id: number;
@@ -172,7 +174,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
       {/* What only the classic UI has is in More, as on a repository's pages (buttons ran off a phone's edge). */}
       <PageHeader icon={isOrg ? OrganizationIcon : PersonIcon} title={info.login}>
         {isOrg && <>
-          <Button size="sm" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
+          <Button size="small" type="button" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
         </>}
         <MoreMenu label={isOrg ? 'More of this organization' : 'More of this user'}>
           {isOrg && <>
@@ -202,7 +204,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
           {info.location && <p className="text-sm text-fg-muted">{info.location}</p>}
           {info.website && /^https?:\/\//i.test(info.website) && <a className="text-sm text-accent" href={info.website} target="_blank" rel="noreferrer">{info.website}</a>}
           {!isOrg && <>
-            <div className="flex gap-3"><Button asChild size="sm" variant="ghost"><a href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0} followers · {info.following_count ?? 0} following</a></Button></div>
+            <div className="flex gap-3"><LinkButton variant="invisible" size="small" href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0}followers · {info.following_count ?? 0}following</LinkButton></div>
             {!me && <Follow owner={info.login}/>}
           </>}
           {section && <OfflineNote/>}
@@ -248,9 +250,7 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
   return (
     <Panel label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
       actions={canCreate && (
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}><RepoIcon size={12} className="shrink-0"/>New repository</Link>
-        </Button>
+        <RouterLinkButton variant="invisible" size="small" leadingVisual={RepoIcon} to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}>New repository</RouterLinkButton>
       )}>
       <LinkRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</LinkRows>
       {remote.state !== 'ready' && away ?
@@ -275,7 +275,7 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
     {remote.state === 'ready' ? <>
       <LinkRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</LinkRows>
       {!remote.value.length && <EmptyState title="No repositories"/>}
-      <div className="flex gap-2 px-3 py-2"><Button size="sm" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="sm" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
+      <div className="flex gap-2 px-3 py-2"><Button size="small" type="button" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="small" type="button" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
     </> : away ? <EmptyState title="Not available offline" description="Connect to load these repositories."/> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <EmptyState title="Could not load repositories"/>}
   </Panel>;
 });

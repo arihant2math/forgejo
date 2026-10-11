@@ -15,12 +15,13 @@ import {useApp} from '../../app/store.ts';
 import {online} from '../../app/api.ts';
 import type {CommitInfo} from '../../code/source.ts';
 import type {APICommitRefs} from '../../protocol/types.gen.ts';
-import {Button, Icon, TextLink} from '../../ui/index.ts';
+import {Icon, TextLink} from '../../ui/index.ts';
 import {commitRow, summary} from './bits.tsx';
 import {useLoad} from './hooks.ts';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {GitBranchIcon, TagIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** A piece of a message: text, or a reference to issue `index` of `repo` (owner/name; undefined: this repository). */
 export type MessagePart = {text: string} | {ref: string; repo: string | undefined; index: string};
@@ -105,7 +106,7 @@ function RefList({owner, repo, kind, names}: {owner: string; repo: string; kind:
       {shown.map((n) => (
         <TextLink key={n} accent><CodeLink owner={owner} repo={repo} to={`src/${kind}/${n}`}><span className="font-mono">{n}</span></CodeLink></TextLink>
       ))}
-      {names.length > shown.length && <Button size="sm" variant="ghost" onClick={() => {
+      {names.length > shown.length && <Button variant="invisible" size="small" type="button" onClick={() => {
         setAll(true);
       }}>{`Show all ${String(names.length)}`}</Button>}
     </p>

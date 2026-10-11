@@ -16,7 +16,7 @@ import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import type {Repository} from '../../protocol/types.gen.ts';
 import {
-  Button, Callout, CommandPopover, ConfirmDialog, Field, FormSection, hintId, Input, Select, SettingRow, Switch, TextArea,
+  Callout, CommandPopover, ConfirmDialog, Field, FormSection, hintId, Input, Select, SettingRow, Switch, TextArea,
 } from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -28,6 +28,7 @@ import {
 import {problemOf} from './problems.ts';
 import {deleteRepo, patchRepo, transferRepo} from './requests.ts';
 import {GitBranchIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 export const GeneralSettings = observer(function GeneralSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const pool = usePool();
@@ -128,8 +129,8 @@ function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Reposito
         </Field>
         {failure && <Callout tone="danger" title="Not saved">{failure}</Callout>}
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" disabled={!dirty || busy || offline}>{busy ? 'Saving…' : 'Save changes'}</Button>
-          {dirty && <Button variant="ghost" disabled={busy} onClick={() => {
+          <Button variant="primary" type="submit" disabled={!dirty || busy || offline}>{busy ? 'Saving…' : 'Save changes'}</Button>
+          {dirty && <Button variant="invisible" type="button" disabled={busy} onClick={() => {
             setForm(base);
             setErrors({});
             setFailure(undefined);
@@ -151,7 +152,7 @@ const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: 
     <FormSection id="settings-branch" title="Default branch" description="The branch the repository opens on, and the base of new pull requests.">
       <div className="flex items-center gap-2">
         <CommandPopover label="Default branch" placeholder="Find a branch…" empty={r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.'}
-          trigger={<Button icon={GitBranchIcon} disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
+          trigger={<Button leadingVisual={GitBranchIcon} type="button" disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
           options={branches.map((b) => ({value: b, label: b, checked: b === opt.shown, onSelect: () => {
             if (b === opt.shown) return;
             sendChange(app, opt, b, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: b}), `The default branch is ${b}`);
@@ -298,7 +299,7 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
     else if (!busy) close();
   };
   const button = (kind: Danger, label: string) => (
-    <Button variant="secondary" disabled={offline} onClick={() => {
+    <Button type="button" disabled={offline} onClick={() => {
       setOpen(kind);
     }}>{label}</Button>
   );
@@ -312,7 +313,7 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
       <SettingRow id="danger-transfer" title="Transfer ownership" description="Give it to another user or an organization you can create repositories in."
         control={button('transfer', 'Transfer')}/>
       <SettingRow id="danger-delete" title="Delete this repository" description="Its code, issues, pull requests, wiki and releases are deleted. This cannot be undone."
-        control={<Button variant="danger" disabled={offline} onClick={() => {
+        control={<Button variant="danger" type="button" disabled={offline} onClick={() => {
           setOpen('delete');
         }}>Delete</Button>}/>
 

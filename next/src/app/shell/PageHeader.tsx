@@ -5,13 +5,14 @@ import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {forgetRoute} from '../splash.ts';
 import {useApp} from '../store.ts';
-import {cx, Icon, IconButton} from '../../ui/index.ts';
+import {cx, Icon} from '../../ui/index.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import {HeaderBar, HeaderRow, HeaderStack, WhenSidebarAway} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
 import {ChevronRightIcon, SidebarExpandIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {IconButton} from '@primer/react';
 
 export interface PageHeaderProps {
   title: ReactNode;
@@ -136,7 +137,7 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
 
 /** The sidebar's toggle, while the sidebar is not beside the page. */
 function SidebarToggle() {
-  return <WhenSidebarAway><IconButton size="sm" icon={SidebarExpandIcon} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/></WhenSidebarAway>;
+  return <WhenSidebarAway><IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Show the sidebar" keybindingHint={shortcutHint('sidebar.toggle')} type="button" onClick={toggleSidebar}/></WhenSidebarAway>;
 }
 
 /** The page's icon before its title (wide panels). */

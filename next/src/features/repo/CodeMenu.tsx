@@ -12,8 +12,9 @@ import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {ARCHIVE_FORMATS, archivePath, httpsCloneUrl, sshCloneUrl} from '../../code/clone.ts';
-import {AsideLink, AsideLinks, Button, CopyField, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
+import {AsideLink, AsideLinks, CopyField, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
 import {ChevronDownIcon, CodeIcon, FileZipIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 type Protocol = 'https' | 'ssh';
 
@@ -72,7 +73,7 @@ export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; br
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="sm" icon={CodeIcon}>Code<ChevronDownIcon size={12} className="shrink-0"/></Button>
+        <Button size="small" leadingVisual={CodeIcon} type="button">Code<ChevronDownIcon size={12} className="shrink-0"/></Button>
       </PopoverTrigger>
       <PopoverContent width="md" align="end">
         <CodeMenuPanel https={httpsCloneUrl(app.config.app_url, owner, repo)} ssh={sshCloneUrl(app.config.ssh_clone_prefix, owner, repo)} archives={archives}

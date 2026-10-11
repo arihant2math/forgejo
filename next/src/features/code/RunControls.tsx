@@ -10,8 +10,9 @@ import {useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {finished} from '../../code/logs.ts';
 import type {ActionRun, ActionRunJob} from '../../protocol/types.gen.ts';
-import {Button, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {ChevronDownIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 type Operation = 'all' | 'failed' | 'job' | 'cancel';
 
@@ -61,13 +62,13 @@ export const RunControls = observer(function RunControls({owner, repo, run, jobs
   useShortcut('actions.rerunFailed', () => { void execute('failed'); }, palette && !job, () => !reason && complete && failed);
   useShortcut('actions.cancel', () => { void execute('cancel'); }, palette && !job, () => !reason && !complete);
   useShortcut('actions.rerunJob', () => { void execute('job'); }, palette && !!job, () => !reason && complete);
-  if (job) return <Button size="sm" variant="ghost" disabled={!!reason || !complete} title={reason ?? (!complete ? (run.need_approval ? 'This run waits for a maintainer’s approval.' : 'Wait for this job to finish.') : `Re-run ${job.name}`)} onClick={() => { void execute('job'); }}>{pending?.label ?? 'Re-run job'}</Button>;
+  if (job) return <Button variant="invisible" size="small" type="button" disabled={!!reason || !complete} title={reason ?? (!complete ? (run.need_approval ? 'This run waits for a maintainer’s approval.' : 'Wait for this job to finish.') : `Re-run ${job.name}`)} onClick={() => { void execute('job'); }}>{pending?.label ?? 'Re-run job'}</Button>;
   return <div className="flex items-center gap-1">
     {complete ? <>
-      <Button size="sm" disabled={!!reason} title={reason} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button>
-      <Menu><MenuTrigger asChild><Button size="sm" disabled={!!reason} title={reason} aria-label="Re-run options"><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
+      <Button size="small" type="button" disabled={!!reason} title={reason} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button>
+      <Menu><MenuTrigger asChild><Button size="small" type="button" disabled={!!reason} title={reason} aria-label="Re-run options"><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
         <MenuContent><MenuItem onSelect={() => { void execute('all'); }}>Re-run all jobs</MenuItem><MenuItem disabled={!failed} onSelect={() => { void execute('failed'); }}>Re-run failed jobs</MenuItem></MenuContent>
       </Menu>
-    </> : <Button size="sm" disabled={!!reason} title={reason} onClick={() => { void execute('cancel'); }}>{pending?.label ?? 'Cancel workflow'}</Button>}
+    </> : <Button size="small" type="button" disabled={!!reason} title={reason} onClick={() => { void execute('cancel'); }}>{pending?.label ?? 'Cancel workflow'}</Button>}
   </div>;
 });

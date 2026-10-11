@@ -17,11 +17,13 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Callout, Checkbox, Input} from '../../ui/index.ts';
+import {Callout, Checkbox, Input} from '../../ui/index.ts';
 import {creationScope, newOrgRequest, ORG_NAME_MAX, orgNameProblem, orgRefusal, type OrgVisibility, type Refusal, scopeAllows} from './forms.ts';
 import {loginTaken} from './owners.ts';
 import {Choice, Field, hintOf, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {OrganizationIcon, EyeClosedIcon, GlobeIcon, PeopleIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export const NewOrg = observer(function NewOrg() {
   const app = useApp();
@@ -113,9 +115,9 @@ export const NewOrg = observer(function NewOrg() {
               {refused?.field === 'form' && <Callout tone="danger" title="The organization was not created">{refused.text}</Callout>}
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {!isOnline && <span className="mr-auto text-sm text-fg-subtle">Offline: creating an organization needs a connection.</span>}
-                <Button type="submit" variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? 'Create the organization'} aria-disabled={Boolean(why) || busy}>
+                <OptionalTooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" aria-disabled={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create organization'}
-                </Button>
+                </Button></OptionalTooltip>
               </div>
             </Section>
           </form>

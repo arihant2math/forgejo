@@ -15,13 +15,15 @@ import {notify} from '../../app/notices.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {APIMergeActions, APIMergeCheck} from '../../protocol/types.gen.ts';
-import {Button, Callout, Code} from '../../ui/index.ts';
+import {Callout, Code} from '../../ui/index.ts';
 import type {Entity} from '../../data/entity.ts';
 import {poolHead} from '../../code/pull.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
 import {useLoad} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
 import {bumpMergeCheck, mergeCheckKey, mergeCheckPath} from './mergeCheck.ts';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 type Trust = 'once' | 'always' | 'deny' | 'revoke';
 
@@ -71,15 +73,15 @@ export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, 
   if (actions?.need_approval || (waiting && actions?.need_approval !== false)) {
     return (
       <Callout tone="warning" title={APPROVAL_TITLE} actions={can && <>
-        <Button size="sm" variant="primary" disabled={busy || !isOnline} tooltip={why ?? 'Run the waiting workflows on this commit; later pushes need approval again'} onClick={() => {
+        <OptionalTooltip text={why ?? 'Run the waiting workflows on this commit; later pushes need approval again'}><Button variant="primary" size="small" type="button" disabled={busy || !isOnline} onClick={() => {
           decide('once');
-        }}>Approve once</Button>
-        <Button size="sm" disabled={busy || !isOnline} tooltip={why ?? 'Run them, and trust this author’s pull requests from now on'} onClick={() => {
+        }}>Approve once</Button></OptionalTooltip>
+        <OptionalTooltip text={why ?? 'Run them, and trust this author’s pull requests from now on'}><Button size="small" type="button" disabled={busy || !isOnline} onClick={() => {
           decide('always');
-        }}>Approve always</Button>
-        <Button size="sm" variant="ghost" disabled={busy || !isOnline} tooltip={why ?? 'Cancel the waiting workflows'} onClick={() => {
+        }}>Approve always</Button></OptionalTooltip>
+        <OptionalTooltip text={why ?? 'Cancel the waiting workflows'}><Button variant="invisible" size="small" type="button" disabled={busy || !isOnline} onClick={() => {
           decide('deny');
-        }}>Deny</Button>
+        }}>Deny</Button></OptionalTooltip>
       </>}>
         The author of this pull request is not trusted to run workflows from a fork, so its <Code>pull_request</Code> workflows have not started.
         {can ? ' Check the changes first: approved workflows run with this repository’s runners.' : ' Someone with write access to this repository’s Actions must approve them.'}
@@ -90,9 +92,9 @@ export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, 
     return (
       <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
         The author of this pull request is always trusted to run workflows.
-        <Button size="sm" variant="ghost" disabled={busy || !isOnline} tooltip={why ?? 'Each of their runs will need approval again'} onClick={() => {
+        <OptionalTooltip text={why ?? 'Each of their runs will need approval again'}><Button variant="invisible" size="small" type="button" disabled={busy || !isOnline} onClick={() => {
           decide('revoke');
-        }}>Revoke</Button>
+        }}>Revoke</Button></OptionalTooltip>
       </p>
     );
   }

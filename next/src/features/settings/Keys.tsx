@@ -9,7 +9,7 @@ import {useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {Badge, Button, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, IconButton, Input, TextArea} from '../../ui/index.ts';
+import {Badge, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Input, TextArea} from '../../ui/index.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -18,6 +18,7 @@ import {fetchKeys, repoApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
 import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
 
 export const KeySettings = observer(function KeySettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -43,7 +44,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
   };
   return (
     <FormSection id="settings-keys" title="Deploy keys" description="SSH keys that can clone (and, with write access, push to) this repository only."
-      actions={<Button size="sm" variant="primary" icon={PlusIcon} disabled={offline} onClick={() => {
+      actions={<Button variant="primary" size="small" leadingVisual={PlusIcon} type="button" disabled={offline} onClick={() => {
         setAdding(true);
       }}>Add key</Button>}>
       <ResourceList res={res} what="The deploy keys" empty={{icon: KeyIcon, title: 'No deploy keys', description: 'Add one to let a server or a CI job clone this repository.'}}>
@@ -51,7 +52,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
           <Entry key={k.id} leading={<KeyIcon size={12} className="shrink-0"/>} title={k.title}
             meta={<time dateTime={k.created_at} title={fullDate(k.created_at)}>{shortDate(k.created_at)}</time>}
             description={<span className="flex flex-wrap items-center gap-1"><Badge tone={k.read_only ? 'neutral' : 'warning'}>{k.read_only ? 'Read' : 'Read and write'}</Badge><Code>{k.fingerprint}</Code></span>}
-            actions={<IconButton size="sm" icon={TrashIcon} label={`Delete the key “${k.title}”`} disabled={offline} onClick={() => {
+            actions={<IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key “${k.title}”`} type="button" disabled={offline} onClick={() => {
               setError(undefined);
               setDeleting(k);
             }}/>}/>
@@ -108,8 +109,8 @@ function KeyDialog({owner, repo, onClose, onSaved}: {owner: string; repo: string
     <Dialog open title="Add a deploy key" onOpenChange={(o) => {
       if (!o && !busy) onClose();
     }} footer={<>
-      <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Adding…' : 'Add key'}</Button>
+      <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
+      <Button variant="primary" type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Adding…' : 'Add key'}</Button>
     </>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();

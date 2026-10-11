@@ -14,9 +14,9 @@ import type {Pool} from '../../data/pool.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {editing} from '../../intents/session.ts';
 import {commentResolver} from '../../intents/view.ts';
-import {Button} from '../../ui/index.ts';
 import {useOverlay, UserName} from '../issues/cells.tsx';
 import {CheckCircleIcon, IssueOpenedIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** The first comment of the conversation `c` is in (the one Forgejo reads the resolution from); undefined for a draft. */
 export function conversationRoot(pool: Pool, c: Comment): Entity<'Comment'> | undefined {
@@ -88,7 +88,7 @@ export const ResolveButton = observer(function ResolveButton({root, issue}: {roo
   const resolved = useResolver(root) > 0;
   if (root.id <= 0 || (issue.get('poster_id') !== session.userId && !canWrite(session, issue.get('repo_id')))) return null;
   return (
-    <Button size="sm" variant="ghost" icon={resolved ? IssueOpenedIcon : CheckCircleIcon} onClick={(e) => {
+    <Button variant="invisible" size="small" leadingVisual={resolved ? IssueOpenedIcon : CheckCircleIcon} type="button" onClick={(e) => {
       const button = e.currentTarget;
       const thread = button.parentElement?.parentElement;
       requestAnimationFrame(() => {
@@ -108,7 +108,7 @@ export function ResolvedFold({resolver, onShow}: {resolver: number; onShow: () =
     <div className="flex items-center gap-2 text-sm text-fg-muted">
       <CheckCircleIcon size={12} className="shrink-0 text-success"/>
       <span>Resolved by <UserName id={resolver}/></span>
-      <Button size="sm" variant="ghost" onClick={onShow}>Show</Button>
+      <Button variant="invisible" size="small" type="button" onClick={onShow}>Show</Button>
     </div>
   );
 }

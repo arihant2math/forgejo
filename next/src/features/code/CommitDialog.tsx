@@ -1,7 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {useState} from 'react';
-import {Button, Dialog, Input, TextArea} from '../../ui/index.ts';
+import {Dialog, Input, TextArea} from '../../ui/index.ts';
+import {Button} from '@primer/react';
 
 export interface CommitFields {
   message: string;
@@ -27,8 +28,8 @@ export function CommitDialog({branch, defaultMessage, protectedBranch, busy, err
   const useNew = protectedBranch || newBranch;
   const why = blocked ?? (!message.trim() ? 'Add a commit message.' : useNew ? branchProblem(name.trim()) : undefined);
   return <Dialog open title="Commit changes" size="md" onOpenChange={(open) => {if (!open && !busy) onClose();}} footer={<>
-    <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-    <Button disabled={busy || Boolean(why)} onClick={() => {onCommit({message, description, ...(useNew ? {newBranch: name.trim()} : {}), openPull: useNew && pull && allowPull});}}>{busy ? 'Committing…' : 'Commit changes'}</Button>
+    <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
+    <Button type="button" disabled={busy || Boolean(why)} onClick={() => {onCommit({message, description, ...(useNew ? {newBranch: name.trim()} : {}), openPull: useNew && pull && allowPull});}}>{busy ? 'Committing…' : 'Commit changes'}</Button>
   </>}>
     <div className="flex flex-col gap-3">
       <Input aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>

@@ -16,7 +16,7 @@ import {editing} from '../../intents/session.ts';
 import {langOf} from '../../code/lang.ts';
 import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
-import {Button, CodeFileHeader, SegmentedControl} from '../../ui/index.ts';
+import {CodeFileHeader, SegmentedControl} from '../../ui/index.ts';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
 import {refTable, useSource} from './hooks.ts';
@@ -26,6 +26,7 @@ import {branchProtected} from './refOps.ts';
 import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {editableText, updateFileBody} from './fileWrite.ts';
+import {Button} from '@primer/react';
 
 /** Ctrl H (⌘ ⌥ F on a Mac), as in VS Code and Monaco: the search panel with the focus in its replace field. */
 function openReplace(view: EditorView): boolean {
@@ -158,10 +159,10 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
   };
   return <>
     <CodeFileHeader path={at.path}>
-      <Button size="sm" variant="ghost" onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
+      <Button variant="invisible" size="small" type="button" onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
       {/\.(md|markdown)$/i.test(at.path) && <SegmentedControl label="Editor mode" value={mode} onChange={setMode} options={[{value: 'edit', label: 'Edit'}, {value: 'preview', label: 'Preview'}]}/>}
-      <Button size="sm" variant="ghost" onClick={onCancel}>Close editor</Button>
-      <Button size="sm" onClick={() => {setDialog(true);}}>Commit changes…</Button>
+      <Button variant="invisible" size="small" type="button" onClick={onCancel}>Close editor</Button>
+      <Button size="small" type="button" onClick={() => {setDialog(true);}}>Commit changes…</Button>
     </CodeFileHeader>
     {mode === 'edit' ? <CodeEditor value={text} path={at.path} wrap={wrap} onChange={change}/> : <MarkdownPreview repoId={repoId} text={text}/>}
     {dialog && <CommitDialog branch={at.ref} defaultMessage={`Update ${at.path.split('/').at(-1) ?? at.path}`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={why} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false);}} onCommit={(fields) => {void commit(fields);}}/>}

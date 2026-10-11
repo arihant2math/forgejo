@@ -22,7 +22,7 @@ import {SaveViewDialog} from '../views/SaveView.tsx';
 import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
 import {
-  Avatar, Button, CommandPopover, IconButton, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  Avatar, CommandPopover, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
   MenuTrigger, type PickOption, PromptDialog,
 } from '../../ui/index.ts';
 import {ResultCount, SelectionCount, usePool} from './cells.tsx';
@@ -34,6 +34,7 @@ import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {ChevronDownIcon, FileSubmoduleIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -109,7 +110,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
         setSaving(false);
       }}/>}
       {stateButtons && STATES.map((s) => (
-        <Button key={s.state} size="sm" pressed={state === s.state} onClick={() => {
+        <Button aria-pressed={state === s.state} variant={state === s.state ? 'default' : 'invisible'} size="small" type="button" key={s.state} onClick={() => {
           setState(s.state);
         }}>{s.label}</Button>
       ))}
@@ -122,7 +123,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       <FilterMenu search={search} repoId={repoId} set={set} byMilestone={!hideGroups.includes('milestone')}/>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="ghost" icon={RowsIcon} pressed={modified} aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button>
+          <Button aria-pressed={modified} variant={modified ? 'default' : 'invisible'} size="small" leadingVisual={RowsIcon} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button>
         </MenuTrigger>
         <MenuContent>
           {!stateButtons && (
@@ -187,16 +188,16 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
       <SelectionCount cursor={cursor}/>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="secondary" icon={TasklistIcon}>Edit selected<ChevronDownIcon size={12} className="shrink-0"/></Button>
+          <Button size="small" leadingVisual={TasklistIcon} type="button">Edit selected<ChevronDownIcon size={12} className="shrink-0"/></Button>
         </MenuTrigger>
         <MenuContent>
           <SelectionActions ids={cursor.selected.values()} navigate={(path) => void navigate({to: path})}/>
         </MenuContent>
       </Menu>
-      {n < listed.length && <Button size="sm" variant="ghost" onClick={() => {
+      {n < listed.length && <Button variant="invisible" size="small" type="button" onClick={() => {
         cursor.selected.replace(listed);
       }}>Select all {listed.length}</Button>}
-      <IconButton size="sm" icon={XIcon} label="Clear the selection" shortcut="Esc" onClick={() => {
+      <IconButton icon={XIcon} variant="invisible" size="small" aria-label="Clear the selection" keybindingHint={'Esc'} type="button" onClick={() => {
         cursor.selected.clear();
       }}/>
     </>
@@ -409,7 +410,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
       }}
       trigger={
         // The filter in effect by name ("Label: bug"), the others counted.
-        <Button size="sm" variant={active.length ? 'secondary' : 'ghost'} icon={FilterIcon}>
+        <Button variant={active.length ? 'default' : 'invisible'} size="small" leadingVisual={FilterIcon} type="button">
           <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
         </Button>
       }/>
@@ -464,7 +465,7 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
     <>
       <Menu>
         <MenuTrigger asChild>
-          <Button size="sm" variant="ghost" icon={StackIcon} aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
+          <Button variant="invisible" size="small" leadingVisual={StackIcon} type="button" aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
             {view.name}{changed && <span className="text-fg-subtle">· changed</span>}<ChevronDownIcon size={12} className="shrink-0"/>
           </Button>
         </MenuTrigger>

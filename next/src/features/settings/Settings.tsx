@@ -17,7 +17,7 @@ import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {connectivity} from '../../app/online.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, EmptyState, SectionNav, SectionNavHeading, SectionNavLink, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {EmptyState, SectionNav, SectionNavHeading, SectionNavLink, Skeleton, SkeletonText} from '../../ui/index.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {OfflineNote} from './bits.tsx';
 import {BranchSettings} from './Branches.tsx';
@@ -26,6 +26,7 @@ import {GeneralSettings} from './General.tsx';
 import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
 import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
+import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -84,7 +85,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
   return (
     <EmptyState icon={LockIcon} title="Only administrators can change settings"
       description="You do not administer this repository. Its owner and administrators can give you access."
-      action={<Button asChild variant="primary"><Link to="/$owner/$repo" params={{owner, repo}}>Go to the repository</Link></Button>}/>
+      action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}/>
   );
 });
 

@@ -42,7 +42,7 @@ import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuLabel,
+  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, Input, ListRow, Menu, MenuContent, MenuItem, MenuLabel,
   MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger,
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
@@ -71,6 +71,8 @@ import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
+import {Button as PrimerButton, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export type PullTabName = 'files' | 'commits' | 'checks';
 
@@ -156,9 +158,9 @@ const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: T
     {(!view || unavailable) && <>
       <DiffSettings/>
       <Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/>
-      {range.kind !== 'all' && <div className="flex justify-center"><Button size="sm" onClick={() => {
+      {range.kind !== 'all' && <div className="flex justify-center"><PrimerButton size="small" type="button" onClick={() => {
         setRange(ALL);
-      }}>Show all changes</Button></div>}
+      }}>Show all changes</PrimerButton></div>}
     </>}
     {view && <div className={unavailable ? 'hidden' : 'contents'}>
       <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files} range={view.range} base={view.base} to={view.to}
@@ -339,11 +341,9 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
       const path = files[f] ? filePath(files[f]) : '';
       const on = viewed.paths.has(path);
       return (
-        <Button size="sm" pressed={on} icon={on ? CheckIcon : EyeIcon} shortcut={shortcutHint('diff.viewed')}
-          tooltip={viewed.older.has(path) ? 'Viewed at an earlier commit (not known whether it changed since)' : on ? 'Mark as not viewed' : 'Mark as viewed'}
-          onClick={() => {
+        <OptionalTooltip text={viewed.older.has(path) ? 'Viewed at an earlier commit (not known whether it changed since)' : on ? 'Mark as not viewed' : 'Mark as viewed'} keybindingHint={shortcutHint('diff.viewed')}><PrimerButton aria-pressed={on} variant={on ? 'default' : 'invisible'} size="small" leadingVisual={on ? CheckIcon : EyeIcon} type="button" onClick={() => {
             setViewed(f, !on);
-          }}>Viewed</Button>
+          }}>Viewed</PrimerButton></OptionalTooltip>
       );
     },
     onToggle: (f) => {
@@ -424,12 +424,12 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
   return (
     // Sticky: the pending count and Review stay in reach anywhere in a long diff.
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
-      <IconButton size="sm" icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
+      <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
       {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
       <DiffSettings/>
       {/* A merged or closed pull request takes no review. */}
-      {open && <span className="ml-auto"><Button data-review-button size="sm" variant="primary" shortcut={shortcutHint('review.start')} tooltip="Submit a review (works offline: sent when you are back)" onClick={onReview}>Review</Button></span>}
+      {open && <span className="ml-auto"><OptionalTooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}><PrimerButton variant="primary" size="small" type="button" data-review-button onClick={onReview}>Review</PrimerButton></OptionalTooltip></span>}
     </div>
   );
 });
@@ -555,32 +555,31 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
         <Card label={reply ? 'Reply' : 'New review comment'}>
           <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
           <div className="flex justify-end gap-2">
-            <Button size="sm" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
+            <PrimerButton size="small" type="button" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
               if (!file) return;
               const end = file.lines[l]?.n ?? 0;
               const start = file.lines[composing.start ?? l]?.n ?? end;
               const lines = file.lines.filter((line) => line.k !== 2 && line.n >= start && line.n <= end);
               edit(`${text}${text ? '\n\n' : ''}\`\`\`suggestion${end > start ? ` -${end - start}+0` : ''}\n${lines.map((line) => line.t).join('\n')}\n\`\`\``);
-            }}>Suggest change</Button>
-            <Button size="sm" variant="ghost" onClick={done}>Cancel</Button>
-            {reply && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Keep it with your review (sent with Review)" onClick={save}>Add to review</Button>}
+            }}>Suggest change</PrimerButton>
+            <PrimerButton variant="invisible" size="small" type="button" onClick={done}>Cancel</PrimerButton>
+            {reply && <OptionalTooltip text={'Keep it with your review (sent with Review)'}><PrimerButton size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={save}>Add to review</PrimerButton></OptionalTooltip>}
             {/* A first comment on a line: a single comment now (one step, as classic's "Add single comment"), or one
                 kept for the review (Start a review). */}
-            {!reply && !composing.key && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Post it now, on its own (works offline: sent when you are back)" onClick={replyNow}>Add single comment</Button>}
+            {!reply && !composing.key && <OptionalTooltip text={'Post it now, on its own (works offline: sent when you are back)'}><PrimerButton size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Add single comment</PrimerButton></OptionalTooltip>}
             {reply ?
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</Button> :
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)}
-                tooltip={composing.key ? undefined : reviewing ? 'Add it to your pending review (sent with Review)' : 'Keep it for a review (sent with Review)'} onClick={save}>
+              <PrimerButton variant="primary" size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</PrimerButton> :
+              <OptionalTooltip text={composing.key ? undefined : reviewing ? 'Add it to your pending review (sent with Review)' : 'Keep it for a review (sent with Review)'} keybindingHint={shortcutHint('submit')}><PrimerButton variant="primary" size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={save}>
                 {composing.key ? 'Update comment' : reviewing ? 'Add review comment' : 'Start a review'}
-              </Button>}
+              </PrimerButton></OptionalTooltip>}
           </div>
         </Card>
       )}
       {!composing && posted && (
         <div className="flex items-center gap-2">
-          <Button ref={replyButton} size="sm" variant="ghost" icon={ReplyIcon} onClick={() => {
+          <PrimerButton variant="invisible" size="small" leadingVisual={ReplyIcon} type="button" ref={replyButton} onClick={() => {
             setComposing({f, l, initial: ''});
-          }}>Reply</Button>
+          }}>Reply</PrimerButton>
           {root && <ResolveButton root={root} issue={issue}/>}
         </div>
       )}
@@ -611,8 +610,8 @@ function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: numbe
   return (
     <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Badge tone="accent">Draft</Badge>}
       actions={<>
-        {onEdit && <IconButton size="sm" icon={PencilIcon} label="Edit the comment" onClick={onEdit}/>}
-        <IconButton size="sm" icon={TrashIcon} label="Delete the comment" onClick={onDelete}/>
+        {onEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the comment" type="button" onClick={onEdit}/>}
+        <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the comment" type="button" onClick={onDelete}/>
       </>}>
       {/* Rendered as it will be posted (Forgejo's rendering online; the text as written offline). */}
       <MarkdownPreview repoId={repoId} text={d.text}/>
@@ -672,10 +671,10 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
     <Dialog returnFocus={returnFocus} open={open} onOpenChange={onOpenChange} size="md" title="Submit review"
       description={`On ${shortSha(head)}${drafts.length ? ` · ${String(drafts.length)} ${drafts.length === 1 ? 'comment' : 'comments'}` : ''}`}
       footer={<>
-        <Button variant="ghost" onClick={() => {
+        <PrimerButton variant="invisible" type="button" onClick={() => {
           onOpenChange(false);
-        }}>Cancel</Button>
-        <Button variant="primary" disabled={!ok} shortcut={shortcutHint('submit')} onClick={submit}>Submit review</Button>
+        }}>Cancel</PrimerButton>
+        <PrimerButton variant="primary" type="button" disabled={!ok} onClick={submit}>Submit review</PrimerButton>
       </>}>
       <div className="flex flex-col gap-3">
         {stale.length > 0 && (
@@ -884,14 +883,14 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
         <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
           The branch <Code>{pr.head_branch}</Code> can be deleted{pr.merged ? ': its work is merged' : ''}.
-          <Button size="sm" icon={TrashIcon} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+          <OptionalTooltip text={offlineWhy('Deleting the branch')}><PrimerButton size="small" leadingVisual={TrashIcon} type="button" disabled={!isOnline || busy} onClick={() => {
             setDeleteConfirm(true);
-          }}>Delete branch</Button>
+          }}>Delete branch</PrimerButton></OptionalTooltip>
         </p>
       )}
       {deleteConfirm && headRef.length === 2 && <Dialog open title="Delete branch" description={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} onOpenChange={setDeleteConfirm} footer={<>
-        <Button variant="ghost" onClick={() => { setDeleteConfirm(false); }}>Cancel</Button>
-        <Button variant="danger" icon={TrashIcon} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+        <PrimerButton variant="invisible" type="button" onClick={() => { setDeleteConfirm(false); }}>Cancel</PrimerButton>
+        <OptionalTooltip text={offlineWhy('Deleting the branch')}><PrimerButton variant="danger" leadingVisual={TrashIcon} type="button" disabled={!isOnline || busy} onClick={() => {
           setDeleteConfirm(false);
           setBusy(true);
           deleteBranch(app, {id: pr.head_repo_id, owner: headRef[0] ?? '', name: headRef[1] ?? ''}, pr.head_branch).then(() => {
@@ -902,7 +901,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           }).finally(() => {
             setBusy(false);
           });
-        }}>Delete branch</Button>
+        }}>Delete branch</PrimerButton></OptionalTooltip>
       </>}/>}
       {!pr.merged && !closed && <DraftControl issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
@@ -931,17 +930,17 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           </Menu>
           </div>
           {auto ?
-            <Button disabled={!isOnline || busy} tooltip={offlineWhy('Canceling the auto-merge')} onClick={() => {
+            <OptionalTooltip text={offlineWhy('Canceling the auto-merge')}><PrimerButton type="button" disabled={!isOnline || busy} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
-            }}>Cancel auto-merge</Button> :
-            checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMergeIcon} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
+            }}>Cancel auto-merge</PrimerButton></OptionalTooltip> :
+            checks === 'pending' && primary && <OptionalTooltip text={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'}><PrimerButton variant={changesRequested ? 'default' : 'primary'} leadingVisual={GitMergeIcon} type="button" disabled={!isOnline || busy || !!mergeWhy} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
-            }}>Merge when checks succeed</Button>}
+            }}>Merge when checks succeed</PrimerButton></OptionalTooltip>}
           {pr.commits_behind > 0 && <div className="flex items-center gap-1">
-            <Button disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {
+            <OptionalTooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton type="button" disabled={!isOnline || busy || conflict} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
-            }}>Update branch</Button>
+            }}>Update branch</PrimerButton></OptionalTooltip>
           {config && <Menu>
             <MenuTrigger asChild><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
             <MenuContent>
@@ -962,11 +961,11 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
       {rebaseConfirm && <Dialog open title="Update with rebase" description={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} onOpenChange={setRebaseConfirm} footer={<>
-        <Button variant="ghost" onClick={() => { setRebaseConfirm(false); }}>Cancel</Button>
-        <Button variant="primary" disabled={!isOnline || busy || conflict || !config || !options.rebaseUpdate} tooltip={offlineWhy('Updating the branch') ?? conflictWhy} onClick={() => {
+        <PrimerButton variant="invisible" type="button" onClick={() => { setRebaseConfirm(false); }}>Cancel</PrimerButton>
+        <OptionalTooltip text={offlineWhy('Updating the branch') ?? conflictWhy}><PrimerButton variant="primary" type="button" disabled={!isOnline || busy || conflict || !config || !options.rebaseUpdate} onClick={() => {
           setRebaseConfirm(false);
           run({done: `Rebased onto ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=rebase`});
-        }}>Rebase and force-push</Button>
+        }}>Rebase and force-push</PrimerButton></OptionalTooltip>
       </>}/>}
       {style && (
         <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} deletable={deletable} deleteDefault={deleteDefault} onClose={() => {
@@ -999,8 +998,8 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
     <Dialog open size="md" title={label} description={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} onOpenChange={(o) => {
       if (!o) onClose();
     }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" icon={GitMergeIcon} disabled={!!reason} tooltip={reason} onClick={merge}>Merge</Button>
+      <PrimerButton variant="invisible" type="button" onClick={onClose}>Cancel</PrimerButton>
+      <OptionalTooltip text={reason}><PrimerButton variant="primary" leadingVisual={GitMergeIcon} type="button" disabled={!!reason} onClick={merge}>Merge</PrimerButton></OptionalTooltip>
     </>}>
       <div className="flex flex-col gap-3">
         {reason && <Callout tone="warning" title={reason}/>}

@@ -18,7 +18,7 @@ import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
 import {codeSplat, shortSha} from '../../code/refs.ts';
 import {
-  AnsiText, Avatar, Badge, Button, Callout, CodeLine, CommandPopover, EmptyState, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
+  AnsiText, Avatar, Badge, Callout, CodeLine, CommandPopover, EmptyState, LineNo, ListRow, type PickOption, SegmentedControl, Status, StatusDot, type StatusTone, StepHeader, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
@@ -33,6 +33,8 @@ import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
 import {awaitsApproval} from '../pull/checks.ts';
 import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx';
 import {ChevronDownIcon, WorkflowIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
 export function duration(seconds: number): string {
@@ -188,10 +190,10 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
             setWorkflow(w);
           },
         }))}
-        trigger={<Button size="sm" variant="ghost" icon={WorkflowIcon}>{workflow ?? 'All workflows'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
+        trigger={<Button variant="invisible" size="small" leadingVisual={WorkflowIcon} type="button">{workflow ?? 'All workflows'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
     )}
-    {dispatchable && <Button size="sm" disabled={!connectivity.online} tooltip={!connectivity.online ? 'Running a workflow requires a connection.' : undefined} onClick={() => { setDispatchOpen(true); }}>Run workflow</Button>}
-    {workflowError && <Button size="sm" variant="ghost" tooltip={workflowError} onClick={retryWorkflows}>Retry loading workflows</Button>}
+    {dispatchable && <OptionalTooltip text={!connectivity.online ? 'Running a workflow requires a connection.' : undefined}><Button size="small" type="button" disabled={!connectivity.online} onClick={() => { setDispatchOpen(true); }}>Run workflow</Button></OptionalTooltip>}
+    {workflowError && <OptionalTooltip text={workflowError}><Button variant="invisible" size="small" type="button" onClick={retryWorkflows}>Retry loading workflows</Button></OptionalTooltip>}
     {dispatchOpen && workflow && <DispatchWorkflowDialog repoId={props.repoId} owner={props.owner} repo={props.repo} file={workflow} onClose={() => { setDispatchOpen(false); }} onRun={(number) => {
       setDispatchOpen(false);
       void navigate(codeTo(props.owner, props.repo, `actions/runs/${String(number)}`));
@@ -217,7 +219,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
         all.length ?
-          <EmptyState icon={WorkflowIcon} title="No runs match" description="No run of this repository matches the filter." action={<Button size="sm" onClick={() => {
+          <EmptyState icon={WorkflowIcon} title="No runs match" description="No run of this repository matches the filter." action={<Button size="small" type="button" onClick={() => {
             setFilter('all');
             setWorkflow(undefined);
           }}>Show all runs</Button>}/> :

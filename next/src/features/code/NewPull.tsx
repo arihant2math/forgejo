@@ -23,7 +23,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
-import {Avatar, Button, Card, Checkbox, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
+import {Avatar, Card, Checkbox, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
@@ -31,6 +31,8 @@ import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
 import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
 const SYNC_WAIT_MS = 5000;
@@ -207,19 +209,19 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         {!!wipPrefixes(app.config)[0] && <Checkbox label="Create draft pull request" checked={draft} onChange={setDraft}/>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="mr-auto flex items-center gap-1 text-sm text-fg-subtle">
-            {form.restored && <>Draft restored<Button size="sm" variant="ghost" onClick={() => {
+            {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
               form.discard();
             }}>Discard</Button></>}
             {!isOnline && <span>Offline: opening a pull request needs a connection.</span>}
           </span>
-          <Button variant="ghost" onClick={() => {
+          <Button variant="invisible" type="button" onClick={() => {
             form.flush();
             onCancel();
           }}>Cancel</Button>
           {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a title). */}
-          <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? `Merge ${head} into ${base}`} aria-disabled={Boolean(why) || form.busy} onClick={create}>
+          <OptionalTooltip text={why ?? `Merge ${head} into ${base}`} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={Boolean(why) || form.busy} onClick={create}>
             {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
-          </Button>
+          </Button></OptionalTooltip>
         </div>
       </div>
     </Card>
@@ -308,7 +310,7 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
             },
           }))}
           trigger={
-            <Button size="sm" variant={chosen.length ? 'secondary' : 'ghost'} icon={TagIcon}>
+            <Button variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
               {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
@@ -324,7 +326,7 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
               form.setMilestone(m.id);
             }})),
           ]}
-          trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
+          trigger={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
       {/* One's own review cannot be asked for. */}
       <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
@@ -346,7 +348,7 @@ function PeoplePick({label, placeholder, icon, people, me, chosen, onToggle}: {
           onToggle(u.id);
         },
       }))}
-      trigger={<Button size="sm" variant={names.length ? 'secondary' : 'ghost'} icon={icon}>{names.length > 2 ? `${String(names.length)} ${label.toLowerCase()}` : names.length ? names.join(', ') : label}</Button>}/>
+      trigger={<Button variant={names.length ? 'default' : 'invisible'} size="small" leadingVisual={icon} type="button">{names.length > 2 ? `${String(names.length)} ${label.toLowerCase()}` : names.length ? names.join(', ') : label}</Button>}/>
   );
 }
 

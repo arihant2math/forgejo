@@ -10,7 +10,7 @@ import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useEffect, useState} from 'react';
 import {groupId, groupKind} from '../../data/models.ts';
-import {Avatar, IconButton, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
+import {Avatar, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
 import {repoOfPath} from '../paths.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
 import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
@@ -21,6 +21,7 @@ import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, PencilIcon} from '@primer/octicons-react';
+import {IconButton} from '@primer/react';
 
 /** New issue (C): Linear's compose button, at the top. */
 function SidebarCreate() {
@@ -271,7 +272,7 @@ export function Sidebar() {
       <SidebarTop>
         <div className="flex min-w-0 items-center gap-1">
           <div className="min-w-0 flex-1"><AccountMenu/></div>
-          <IconButton size="sm" icon={SidebarExpandIcon} label="Hide the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/>
+          <IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Hide the sidebar" keybindingHint={shortcutHint('sidebar.toggle')} type="button" onClick={toggleSidebar}/>
         </div>
         <SidebarCreate/>
         <SidebarSearch/>

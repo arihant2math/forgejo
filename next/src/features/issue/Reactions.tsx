@@ -12,9 +12,10 @@ import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {viewMembers} from '../../intents/view.ts';
-import {ChipButton, IconButton, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {ChipButton, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {useOverlay, usePool} from '../issues/cells.tsx';
 import {SmileyIcon} from '@primer/octicons-react';
+import {IconButton} from '@primer/react';
 
 /** Forgejo's default [ui] REACTIONS; other (custom) ones show by name. */
 const EMOJI: Record<string, string> = {
@@ -80,7 +81,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
       )}
       {canReact && (
         <Menu>
-          <MenuTrigger asChild><IconButton ref={addButton} size="sm" icon={SmileyIcon} label="Add a reaction"/></MenuTrigger>
+          <MenuTrigger asChild><IconButton icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button" ref={addButton}/></MenuTrigger>
           <MenuContent>
             {DEFAULTS.map((c) => (
               <MenuItem key={c} onSelect={() => {

@@ -5,9 +5,10 @@
 // own chunk, loaded when the first notice shows.
 
 import {observer} from 'mobx-react-lite';
-import {Button, Notice} from '../../ui/index.ts';
+import {Notice} from '../../ui/index.ts';
 import {dismiss, pauseNotice, removeNotice, resumeNotice} from '../notices.ts';
 import {useApp} from '../store.ts';
+import {Button} from '@primer/react';
 
 export const Notices = observer(function Notices() {
   const app = useApp();
@@ -31,7 +32,7 @@ export const Notices = observer(function Notices() {
             else resumeNotice(app, n.id);
           }}
           action={n.action && (
-            <Button size="sm" onClick={() => {
+            <Button size="small" type="button" onClick={() => {
               n.action?.run();
               dismiss(app, n.id);
             }}>{n.action.label}</Button>

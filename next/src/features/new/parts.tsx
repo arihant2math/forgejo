@@ -13,9 +13,10 @@ import {useEffect, useState, type ReactNode} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import type {App} from '../../app/store.ts';
-import {Button, Callout, Code, CommandPick, CommandPopover, Icon, matchOptions, type PickOption} from '../../ui/index.ts';
+import {Callout, Code, CommandPick, CommandPopover, Icon, matchOptions, type PickOption} from '../../ui/index.ts';
 import {CheckIcon, ChevronDownIcon, AlertIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** The id of a field's hint or error (its control's aria-describedby). */
 export const hintOf = (id: string) => `${id}-hint`;
@@ -102,7 +103,7 @@ export function NamePicker({id, label, placeholder, names, chosen, onChange, mul
     <CommandPopover label={label} placeholder={placeholder} width="md"
       render={(onClose) => <LongPick label={label} placeholder={placeholder} names={names} chosen={chosen} multi={multi} empty={empty} none={none} onChange={onChange} onClose={onClose}/>}
       options={[]}
-      trigger={<Button id={id} variant="secondary" aria-describedby={hintOf(id)}>{shown || none}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
+      trigger={<Button type="button" id={id} aria-describedby={hintOf(id)}>{shown || none}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
   );
 }
 

@@ -7,10 +7,11 @@ import {failureText, online} from '../../app/api.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, ListRow, Panel, SectionHeading, Select} from '../../ui/index.ts';
+import {Avatar, ListRow, Panel, SectionHeading, Select} from '../../ui/index.ts';
 import {useSource} from '../code/hooks.ts';
 import {AgoCell, usePool} from '../issues/cells.tsx';
 import {feedDays, feedEntry, type FeedAction} from './feed.ts';
+import {Button} from '@primer/react';
 
 interface Org {username: string}
 interface SavedPage {at: string; page: number; keys: string[]; more: boolean}
@@ -131,8 +132,8 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
     </div>)}
     {connected && ready && !busy && !error && !actions.length && <p className="px-3 py-2 text-sm text-fg-muted">No recent activity. Watch repositories or follow people to see their updates here.</p>}
     {connected && <div className="px-3 py-2">
-      <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
-      {saved?.more && !error && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}
+      <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
+      {saved?.more && !error && <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}
     </div>}
   </div>;
 }

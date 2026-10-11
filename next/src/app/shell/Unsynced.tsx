@@ -15,10 +15,11 @@ import {discardable, type IntentRecord} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {DraftRecord} from '../../intents/store.ts';
-import {Button, Dialog, EmptyState, Entry, EntryList, IconButton, SectionHeading} from '../../ui/index.ts';
+import {Dialog, EmptyState, Entry, EntryList, SectionHeading} from '../../ui/index.ts';
 import {notify} from '../notices.ts';
 import {type App, useApp} from '../store.ts';
 import {AlertIcon, IssueDraftIcon, CheckCircleIcon, CopyIcon, GitMergeIcon, RedoIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
 
 export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const app = useApp();
@@ -40,7 +41,7 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
     <Dialog open size="lg" title="Unsynced changes" initialFocus="dialog" scroll onOpenChange={(open) => {
       if (!open) close();
     }} description={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'}
-    footer={<Button onClick={close}>Close</Button>}>
+    footer={<Button type="button" onClick={close}>Close</Button>}>
       {empty ? <EmptyState icon={CheckCircleIcon} tone="success" title="Everything is synced" description="Changes you make offline wait here until Forgejo has them."/> : (
         <div className="flex flex-col gap-4">
           {parked.length > 0 && (
@@ -141,14 +142,14 @@ function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: (
       meta={w.meta}
       description="You and someone else changed the same lines. Open it to resolve the conflict in the editor."
       actions={<>
-        {w.path && <Button size="sm" onClick={() => {
+        {w.path && <Button size="small" type="button" onClick={() => {
           onOpen();
           void navigate({to: w.path ?? '/'});
         }}>Resolve</Button>}
-        <IconButton size="sm" icon={CopyIcon} label="Copy your text" onClick={() => {
+        <IconButton icon={CopyIcon} variant="invisible" size="small" aria-label="Copy your text" type="button" onClick={() => {
           copy(app, intentText(rec.intent) ?? '');
         }}/>
-        <IconButton size="sm" icon={TrashIcon} label="Discard your change" onClick={() => {
+        <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Discard your change" type="button" onClick={() => {
           discardWithUndo(app, rec);
         }}/>
       </>}
@@ -166,13 +167,13 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
       meta={w.meta}
       description={excerpt(draft.text) ? <>{excerpt(draft.text)}<br/>{draft.reason}</> : draft.reason}
       actions={<>
-        {draft.intent && !draft.refused && <IconButton size="sm" icon={RedoIcon} label="Retry" onClick={() => {
+        {draft.intent && !draft.refused && <IconButton icon={RedoIcon} variant="invisible" size="small" aria-label="Retry" type="button" onClick={() => {
           intents.retry(draft.key);
         }}/>}
-        {draft.text !== undefined && <IconButton size="sm" icon={CopyIcon} label="Copy the text" onClick={() => {
+        {draft.text !== undefined && <IconButton icon={CopyIcon} variant="invisible" size="small" aria-label="Copy the text" type="button" onClick={() => {
           copy(app, draft.text ?? '');
         }}/>}
-        <IconButton size="sm" icon={TrashIcon} label="Discard" onClick={() => {
+        <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Discard" type="button" onClick={() => {
           void intents.discardDraft(draft.key).then(() => {
             notify(app, {tone: 'neutral', title: 'Discarded', description: draft.title, action: {label: 'Undo', run: () => {
               void intents.restoreDraft(draft);
@@ -206,7 +207,7 @@ function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline
       title={describeIntent(rec.intent, names(app))}
       meta={w.meta}
       description={text ? <>{text}<br/>{state}</> : state}
-      actions={discardable(rec) ? <IconButton size="sm" icon={TrashIcon} label={tried ? 'Stop sending (it may have reached Forgejo)' : 'Discard (not sent yet)'} onClick={() => {
+      actions={discardable(rec) ? <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={tried ? 'Stop sending (it may have reached Forgejo)' : 'Discard (not sent yet)'} type="button" onClick={() => {
         discardWithUndo(app, rec);
       }}/> : undefined}
     />

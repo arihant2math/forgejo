@@ -10,9 +10,9 @@ import {getThemePreference, setThemePreference} from '../../app/theme.ts';
 import type {ThemePreference} from '../../app/splash.ts';
 import {CodeMenuPanel} from '../../features/repo/CodeMenu.tsx';
 import {
-  AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Badge, Button, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
+  AsideLink, AsideLinks, AsideSection, ShareBar, Avatar, AvatarGroup, Badge, Callout, Entry, EntryList, Hint, LabelDot, LabelIcon, ListGroupHeader, Notice, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
-  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, EmptyState, IconButton, Input, LabelChip, ListRow, Menu,
+  ContextMenuTrigger, CopyField, Dialog, DialogClose, DialogTrigger, EmptyState, Input, LabelChip, ListRow, Menu,
   MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
   AnsiText, BlameCell, CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineNo, StepHeader, StatusDot, TabLink, TabNav,
   ConfirmDialog, FormSection, hintId, SectionNav, SectionNavHeading, SectionNavLink, Select, SettingRow, Switch,
@@ -21,6 +21,8 @@ import {
 } from '../../ui/index.ts';
 import {LABEL_PRESETS} from '../../features/meta/labels.ts';
 import {ArchiveIcon, ArrowUpRightIcon, ChevronDownIcon, IssueDraftIcon, CodeIcon, IssueOpenedIcon, CopyIcon, StarIcon, GraphBarVerticalIcon, FlagIcon, InboxIcon, MoonIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, SearchIcon, SunIcon, DeviceDesktopIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton, LinkButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** A colour field with its form field's frame (a label's colour). */
 function GalleryColor() {
@@ -83,10 +85,9 @@ export default function Gallery() {
         <header className="sticky top-0 z-sticky flex h-header items-center gap-2 border-b border-border bg-surface px-6">
           <h1 className="flex-1 text-md font-semibold">Primitives</h1>
           {themes.map(([t, icon]) => (
-            <Button key={t} size="sm" icon={icon} variant={theme === t ? 'secondary' : 'ghost'} aria-pressed={theme === t} onClick={() => {
+            <Button variant={theme === t ? 'default' : 'invisible'} size="small" leadingVisual={icon} type="button" key={t} aria-pressed={theme === t} onClick={() => {
               pick(t);
-            }}
-            >
+            }}>
               {t}
             </Button>
           ))}
@@ -102,18 +103,18 @@ export default function Gallery() {
         </Section>
 
         <Section title="Buttons">
-          <Button variant="primary" icon={PlusIcon} tooltip="Create issue" shortcut="C">New issue</Button>
-          <Button>Secondary</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="success" icon={CodeIcon}>Code</Button>
-          <Button variant="danger" icon={TrashIcon}>Delete</Button>
-          <Button disabled>Disabled</Button>
-          <Button size="sm" variant="primary">Small</Button>
-          <Button size="sm">Small</Button>
-          <Button asChild variant="ghost"><a href="#tokens">Link <ArrowUpRightIcon size={12} className="shrink-0"/></a></Button>
-          <IconButton icon={SearchIcon} label="Search" shortcut="/"/>
-          <IconButton icon={PlusIcon} label="Create issue" shortcut="C" variant="secondary"/>
-          <IconButton icon={PencilIcon} label="Edit" shortcut="E" size="sm"/>
+          <OptionalTooltip text={'Create issue'} keybindingHint={'C'}><Button variant="primary" leadingVisual={PlusIcon} type="button">New issue</Button></OptionalTooltip>
+          <Button type="button">Secondary</Button>
+          <Button variant="invisible" type="button">Ghost</Button>
+          <Button variant="primary" leadingVisual={CodeIcon} type="button">Code</Button>
+          <Button variant="danger" leadingVisual={TrashIcon} type="button">Delete</Button>
+          <Button type="button" disabled>Disabled</Button>
+          <Button variant="primary" size="small" type="button">Small</Button>
+          <Button size="small" type="button">Small</Button>
+          <LinkButton variant="invisible" href="#tokens">Link <ArrowUpRightIcon size={12} className="shrink-0"/></LinkButton>
+          <IconButton icon={SearchIcon} variant="invisible" aria-label="Search" keybindingHint={'/'} type="button"/>
+          <IconButton icon={PlusIcon} aria-label="Create issue" keybindingHint={'C'} type="button"/>
+          <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit" keybindingHint={'E'} type="button"/>
         </Section>
 
         <Section title="Inputs">
@@ -167,19 +168,19 @@ export default function Gallery() {
             </PropertyList>
           </div>
           <div className="relative h-40 w-96">
-            <Notice tone="danger" title="Adding the label “bug” failed" description="Forbidden. The change was undone." action={<Button size="sm">Retry</Button>} onDismiss={() => undefined}/>
+            <Notice tone="danger" title="Adding the label “bug” failed" description="Forbidden. The change was undone." action={<Button size="small" type="button">Retry</Button>} onDismiss={() => undefined}/>
           </div>
           <Notice tone="success" title="Link copied" onDismiss={() => undefined}/>
-          <Notice tone="warning" title="Your edit conflicts with a newer change" action={<Button size="sm">Review</Button>} onDismiss={() => undefined}/>
+          <Notice tone="warning" title="Your edit conflicts with a newer change" action={<Button size="small" type="button">Review</Button>} onDismiss={() => undefined}/>
           <div className="flex w-96 flex-col gap-2">
-            <Callout tone="warning" title="Your edit conflicts with a newer change" actions={<><Button size="sm">Keep mine</Button><Button size="sm">Use theirs</Button></>}>Both changed the same lines.</Callout>
-            <Callout title="You overrode @alice’s change to the status" actions={<Button size="sm">Undo</Button>}>Your change was applied last.</Callout>
+            <Callout tone="warning" title="Your edit conflicts with a newer change" actions={<><Button size="small" type="button">Keep mine</Button><Button size="small" type="button">Use theirs</Button></>}>Both changed the same lines.</Callout>
+            <Callout title="You overrode @alice’s change to the status" actions={<Button size="small" type="button">Undo</Button>}>Your change was applied last.</Callout>
             <Callout tone="danger" title="Not sent">Forbidden.</Callout>
             <ProseSource text={'Typed **markdown**, not synced yet.\n\nSecond paragraph.'}/>
           </div>
           <div className="w-96">
             <EntryList>
-              <Entry leading={<InboxIcon size={16} className="shrink-0"/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton size="sm" icon={SearchIcon} label="Discard"/>}/>
+              <Entry leading={<InboxIcon size={16} className="shrink-0"/>} title="Adding the label “bug”" meta="#12 · dev/big" description="Sent when you are back online." actions={<IconButton icon={SearchIcon} variant="invisible" size="small" aria-label="Discard" type="button"/>}/>
               <Entry title="Posting a comment" meta="#3 · dev/big" description="Forbidden."/>
             </EntryList>
           </div>
@@ -207,7 +208,7 @@ export default function Gallery() {
 
         <Section title="Menus, popover, dialog">
           <Menu>
-            <MenuTrigger asChild><Button icon={KebabHorizontalIcon}>Menu</Button></MenuTrigger>
+            <MenuTrigger asChild><Button leadingVisual={KebabHorizontalIcon} type="button">Menu</Button></MenuTrigger>
             <MenuContent>
               <MenuLabel>Issue</MenuLabel>
               <MenuItem icon={IssueOpenedIcon} shortcut="S">Change status</MenuItem>
@@ -230,13 +231,13 @@ export default function Gallery() {
             </MenuContent>
           </Menu>
           <Menu>
-            <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} label="More actions"/></MenuTrigger>
+            <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" aria-label="More actions" type="button"/></MenuTrigger>
             <MenuContent>
               <MenuItem icon={CopyIcon}>Copy link</MenuItem>
             </MenuContent>
           </Menu>
           <Popover>
-            <PopoverTrigger asChild><Button>Popover</Button></PopoverTrigger>
+            <PopoverTrigger asChild><Button type="button">Popover</Button></PopoverTrigger>
             <PopoverContent>
               <Input size="sm" placeholder="Set due date…" autoFocus/>
             </PopoverContent>
@@ -244,16 +245,16 @@ export default function Gallery() {
           <Dialog
             title="Archive repository?"
             description="Archived repositories are read-only. You can unarchive it later."
-            trigger={<DialogTrigger asChild><Button icon={ArchiveIcon}>Dialog</Button></DialogTrigger>}
+            trigger={<DialogTrigger asChild><Button leadingVisual={ArchiveIcon} type="button">Dialog</Button></DialogTrigger>}
             footer={(
               <>
-                <DialogClose asChild><Button variant="ghost">Cancel</Button></DialogClose>
-                <DialogClose asChild><Button variant="primary">Archive</Button></DialogClose>
+                <DialogClose asChild><Button variant="invisible" type="button">Cancel</Button></DialogClose>
+                <DialogClose asChild><Button variant="primary" type="button">Archive</Button></DialogClose>
               </>
             )}
           >
             <Menu>
-              <MenuTrigger asChild><Button size="sm" icon={TagIcon}>Labels</Button></MenuTrigger>
+              <MenuTrigger asChild><Button size="small" leadingVisual={TagIcon} type="button">Labels</Button></MenuTrigger>
               <MenuContent>
                 <MenuItem>bug</MenuItem>
                 <MenuItem>enhancement</MenuItem>
@@ -331,7 +332,7 @@ export default function Gallery() {
             <div className="max-w-sm">
               <TabNav label="Example tabs that overflow" more={(hidden) => (
                 <Menu>
-                  <MenuTrigger asChild><Button size="sm" variant="ghost" icon={KebabHorizontalIcon}>More</Button></MenuTrigger>
+                  <MenuTrigger asChild><Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} type="button">More</Button></MenuTrigger>
                   <MenuContent>
                     {OVERFLOW_TABS.filter((_, i) => hidden.includes(i)).map((t) => <MenuItem key={t}>{t}</MenuItem>)}
                     <MenuItem>This page in the classic UI</MenuItem>
@@ -342,7 +343,7 @@ export default function Gallery() {
               </TabNav>
             </div>
             <CodeFileHeader path="src/app.ts" oldPath="src/old.ts" status="renamed" stat={<DiffStat additions={12} deletions={3}/>}>
-              <Button size="sm" pressed>Viewed</Button>
+              <Button aria-pressed={true} variant="default" size="small" type="button">Viewed</Button>
             </CodeFileHeader>
             <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/></>}>@@ -1,3 +1,4 @@ function main()</CodeLine>
             <CodeLine gutter={<><LineNo n={1}/><LineNo n={1}/></>}><CodeTokens text="const answer = 42; // ok" hl={sampleHl} line={0}/></CodeLine>
@@ -380,7 +381,7 @@ export default function Gallery() {
                 }/>
               </FormSection>
               <FormSection id="gallery-danger" title="Danger zone" tone="danger">
-                <SettingRow id="gallery-delete" title="Delete this repository" description="This cannot be undone." control={<Button variant="danger" onClick={() => {
+                <SettingRow id="gallery-delete" title="Delete this repository" description="This cannot be undone." control={<Button variant="danger" type="button" onClick={() => {
                   setConfirm(true);
                 }}>Delete</Button>}/>
               </FormSection>
@@ -394,7 +395,7 @@ export default function Gallery() {
 
         <Section title="Code menu (the overview's file bar), copy field">
           <Popover>
-            <PopoverTrigger asChild><Button size="sm" variant="success" icon={CodeIcon}>Code<ChevronDownIcon size={12} className="shrink-0"/></Button></PopoverTrigger>
+            <PopoverTrigger asChild><Button variant="primary" size="small" leadingVisual={CodeIcon} type="button">Code<ChevronDownIcon size={12} className="shrink-0"/></Button></PopoverTrigger>
             <PopoverContent width="md" align="start">
               <CodeMenuPanel https="https://code.example/acme/website.git" ssh="git@code.example:acme/website.git" onCopy={() => undefined}
                 archives={[{format: 'zip', href: '#code'}, {format: 'tar.gz', href: '#code'}]}/>
@@ -414,7 +415,7 @@ export default function Gallery() {
             <Skeleton className="h-3 w-2/3"/>
           </div>
           <div className="flex-1">
-            <EmptyState icon={InboxIcon} title="Inbox zero" description="Notifications you receive show up here." action={<Button size="sm">Refresh</Button>}/>
+            <EmptyState icon={InboxIcon} title="Inbox zero" description="Notifications you receive show up here." action={<Button size="small" type="button">Refresh</Button>}/>
           </div>
         </Section>
       </div>

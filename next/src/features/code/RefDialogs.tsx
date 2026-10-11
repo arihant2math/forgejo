@@ -14,12 +14,14 @@ import {failureText} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Dialog, Input, TextArea} from '../../ui/index.ts';
+import {Dialog, Input, TextArea} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {refTable, useLoad} from './hooks.ts';
 import {branchProtected, createBranch, createTag, deleteBranch, deleteTag, repoRef} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {BRANCH_MAX, branchDeleteBlock, createBranchBody, createTagBody, type RefChoice, refNameProblem, TAG_MAX, tagDeleteBlock, writeBlock} from './refWrite.ts';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** Why the viewer cannot do `action` in the repository now (archived, a mirror's refs, offline), or undefined. Observes. */
 export function useWriteBlock(repoId: number, action: string, refsOnly: boolean): string | undefined {
@@ -101,8 +103,8 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
     <Dialog open size="md" title="New branch" onOpenChange={(o) => {
       if (!o) onClose();
     }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" aria-disabled={Boolean(block) || busy} tooltip={block} onClick={create}>{busy ? 'Creating…' : 'Create branch'}</Button>
+      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
+      <OptionalTooltip text={block}><Button variant="primary" type="button" aria-disabled={Boolean(block) || busy} onClick={create}>{busy ? 'Creating…' : 'Create branch'}</Button></OptionalTooltip>
     </>}>
       <div className="flex flex-col gap-3">
         <NameField label="Branch name" placeholder="feature/my-change" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={BRANCH_MAX} onEnter={create}/>
@@ -144,8 +146,8 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
     <Dialog open size="md" title="New tag" onOpenChange={(o) => {
       if (!o) onClose();
     }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" aria-disabled={Boolean(block) || busy} tooltip={block} onClick={create}>{busy ? 'Creating…' : 'Create tag'}</Button>
+      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
+      <OptionalTooltip text={block}><Button variant="primary" type="button" aria-disabled={Boolean(block) || busy} onClick={create}>{busy ? 'Creating…' : 'Create tag'}</Button></OptionalTooltip>
     </>}>
       <div className="flex flex-col gap-3">
         <NameField label="Tag name" placeholder="v1.0.0" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={TAG_MAX} onEnter={create}/>
@@ -184,8 +186,8 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
     <Dialog open size="sm" title={title} description={description} initialFocus={blocked ? 'dialog' : 'first'} onOpenChange={(o) => {
       if (!o) onClose();
     }} footer={<>
-      <Button variant="ghost" onClick={onClose}>{blocked ? 'Close' : 'Cancel'}</Button>
-      {!blocked && <Button variant="danger" autoFocus aria-disabled={busy || Boolean(pending)} onClick={remove}>{busy ? 'Deleting…' : 'Delete'}</Button>}
+      <Button variant="invisible" type="button" onClick={onClose}>{blocked ? 'Close' : 'Cancel'}</Button>
+      {!blocked && <Button variant="danger" type="button" autoFocus aria-disabled={busy || Boolean(pending)} onClick={remove}>{busy ? 'Deleting…' : 'Delete'}</Button>}
     </>}>
       {(blocked ?? pending ?? error) && (
         <div className="flex flex-col gap-1">

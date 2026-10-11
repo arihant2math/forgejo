@@ -12,7 +12,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Badge, Button, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, IconButton, Input, SegmentedControl, TextArea,
+  Badge, Callout, Checkbox, Code, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, TextArea,
 } from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -23,6 +23,7 @@ import {fetchRules, repoApi, ruleApi} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
 import {PencilIcon, ShieldCheckIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
 
 export const BranchSettings = observer(function BranchSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -49,7 +50,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
   };
   return (
     <FormSection id="settings-branches" title="Branch protection" description="Rules for branches whose name matches: who may push, what a pull request needs before it is merged."
-      actions={<Button size="sm" variant="primary" icon={ShieldCheckIcon} disabled={offline || res.value === undefined} onClick={() => {
+      actions={<Button variant="primary" size="small" leadingVisual={ShieldCheckIcon} type="button" disabled={offline || res.value === undefined} onClick={() => {
         setEditing('new');
       }}>Add rule</Button>}>
       <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
@@ -57,10 +58,10 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
           <Entry key={r.rule_name} leading={<ShieldCheckIcon size={12} className="shrink-0"/>} title={<Code>{r.rule_name}</Code>}
             description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Badge key={s}>{s}</Badge>)}</span>}
             actions={<>
-              <IconButton size="sm" icon={PencilIcon} label={`Edit the rule for ${r.rule_name}`} disabled={offline} onClick={() => {
+              <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={`Edit the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
                 setEditing(r);
               }}/>
-              <IconButton size="sm" icon={TrashIcon} label={`Remove the rule for ${r.rule_name}`} disabled={offline} onClick={() => {
+              <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
                 setError(undefined);
                 setDeleting(r);
               }}/>
@@ -147,8 +148,8 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
     <Dialog open size="lg" scroll title={creating ? 'Protect a branch' : `Rule for ${rule.rule_name}`} onOpenChange={(o) => {
       if (!o && !busy) onClose();
     }} footer={<>
-      <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Create rule' : 'Save rule'}</Button>
+      <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
+      <Button variant="primary" type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Create rule' : 'Save rule'}</Button>
     </>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();

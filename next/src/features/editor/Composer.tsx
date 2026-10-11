@@ -22,7 +22,7 @@ import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/inde
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {Button, EditorFrame, IconButton, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
+import {EditorFrame, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
 import type {EditMaker, Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
@@ -30,6 +30,8 @@ import {untracked} from 'mobx';
 import {loadPeople, repoPeople} from '../issues/people.ts';
 import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
 let Loaded: Editor | undefined;
@@ -313,15 +315,14 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
       if (v === 'write') requestAnimationFrame(() => editor.current?.focus());
     }} options={[{value: 'write', label: 'Write'}, {value: 'preview', label: 'Preview'}]}/>
     <span className="ml-auto flex items-center">
-      {allowed && <Button size="sm" variant="ghost" icon={PaperclipIcon} disabled={preview || !isOnline}
-        tooltip={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'} onClick={() => picker.current?.click()}>Attach files</Button>}
+      {allowed && <OptionalTooltip text={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'}><Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" disabled={preview || !isOnline} onClick={() => picker.current?.click()}>Attach files</Button></OptionalTooltip>}
       {FORMATS.map(([kind, icon, label, key]) => (
-        <IconButton key={kind} size="sm" icon={icon} label={label} shortcut={`${mod}${key}`} disabled={preview || !Editor} onClick={() => {
+        <IconButton icon={icon} variant="invisible" size="small" aria-label={label} keybindingHint={`${mod}${key}`} type="button" key={kind} disabled={preview || !Editor} onClick={() => {
           editor.current?.format(kind);
         }}/>
       ))}
       {tools?.map((tool) => (
-        <IconButton key={tool.id} size="sm" icon={tool.icon} label={tool.label} disabled={preview || !Editor} onClick={() => {
+        <IconButton icon={tool.icon} variant="invisible" size="small" aria-label={tool.label} type="button" key={tool.id} disabled={preview || !Editor} onClick={() => {
           editor.current?.edit(tool.edit);
         }}/>
       ))}

@@ -1,9 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {type ReactNode, useEffect} from 'react';
-import {Button, cx, EmptyState} from '../ui/index.ts';
+import {cx, EmptyState} from '../ui/index.ts';
 import {EARLY_SIGN_IN} from './splash.ts';
 import {SignInIcon} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
 
 /** A full-height screen with its content centred (logged-out, placeholders). */
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
@@ -56,13 +57,13 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
         action={
           <span className="flex flex-col items-center gap-3">
             {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}
-            <Button variant="primary" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
+            <Button variant="primary" type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
             {(boot ?? classic) && (
               // The first frame keeps their place (no shift when the app fills them in): their addresses need the app.
               <span className={cx('flex flex-wrap justify-center gap-x-3 text-sm', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
                 {/* Public pages read without an account in the classic UI; or this browser leaves the app. */}
-                {classic?.page && <Button size="sm" variant="ghost" asChild><a href={classic.page} data-classic="">View this page without signing in</a></Button>}
-                <Button size="sm" variant="ghost" asChild><a href={classic?.optOut} data-classic="">Turn off Forgejo Next</a></Button>
+                {classic?.page && <LinkButton variant="invisible" size="small" href={classic.page} data-classic="">View this page without signing in</LinkButton>}
+                <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>
               </span>
             )}
           </span>

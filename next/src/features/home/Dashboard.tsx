@@ -21,7 +21,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
-import {Button, EmptyState, Icon, ListRow, Panel, Shortcut, Skeleton} from '../../ui/index.ts';
+import {EmptyState, Icon, ListRow, Panel, Shortcut, Skeleton} from '../../ui/index.ts';
 import {activityOf} from '../inbox/inbox.ts';
 import {AgoCell, PendingCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
 import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
@@ -32,6 +32,8 @@ import {HomeSkeleton} from './Home.tsx';
 import Feed from './Feed.tsx';
 import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedIcon, CloudOfflineIcon, UploadIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
@@ -174,7 +176,7 @@ function Section({title, icon, items, all}: SectionProps) {
   return (
     <Panel label={title}
       title={<><Icon icon={icon} size="sm"/><span className="text-fg">{title}</span><span className="tabular-nums">{items.length}</span></>}
-      actions={href && <Button size="sm" variant="ghost" asChild><a href={href} onClick={(e) => click(e, href)}>View all</a></Button>}>
+      actions={href && <LinkButton variant="invisible" size="small" href={href} onClick={(e) => click(e, href)}>View all</LinkButton>}>
       {items.slice(0, ROWS).map((x) => (x.issue ?
         <Row key={x.issue.id} issue={x.issue} at={x.at}/> :
         x.note && <NoteRow key={`n${String(x.note.id)}`} note={x.note} at={x.at}/>))}
@@ -238,11 +240,11 @@ function Welcome() {
   return (
     <EmptyState icon={CommandPaletteIcon} title={config.app_name} description={<Hints/>}
       action={
-        <Button variant="primary" shortcut={shortcutHint('palette.open')} tooltip="Search repositories, issues and commands" onClick={() => {
+        <OptionalTooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
           runInAction(() => {
             ui.paletteOpen = true;
           });
-        }}>Open the command menu</Button>
+        }}>Open the command menu</Button></OptionalTooltip>
       }/>
   );
 }

@@ -17,7 +17,7 @@ import type {LabelSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Button, EmptyState, IconButton, LabelPill, ListRow, Panel, PendingIcon, Skeleton, TextLink} from '../../ui/index.ts';
+import {EmptyState, LabelPill, ListRow, Panel, PendingIcon, Skeleton, TextLink} from '../../ui/index.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import type {LabelCount} from './counts.ts';
@@ -28,6 +28,8 @@ import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts
 import {useRepoCounts} from './repoCounts.ts';
 import {isPending, type RepoRef, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, IconButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -74,9 +76,9 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && own.length === 0 && org.length === 0;
   const create = write && (
-    <Button size="sm" variant="primary" icon={TagIcon} disabled={offline} tooltip={offline ? onlineOnly('Creating a label') : undefined} onClick={() => {
+    <OptionalTooltip text={offline ? onlineOnly('Creating a label') : undefined}><Button variant="primary" size="small" leadingVisual={TagIcon} type="button" disabled={offline} onClick={() => {
       setEditing({});
-    }}>New label</Button>
+    }}>New label</Button></OptionalTooltip>
   );
   const rows = (ls: Label[], editable: boolean) => ls.map((l) => (
     <LabelRow key={l.id} r={r} label={l} count={counts.get(l.id)} editable={editable && write}
@@ -142,8 +144,8 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
       <LabelUsage r={r} label={label} count={count}/>
       {editable && (
         <span className="flex">
-          <IconButton size="sm" icon={PencilIcon} label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} disabled={offline || label.id < 0} onClick={onEdit}/>
-          <IconButton size="sm" icon={TrashIcon} label={offline ? onlineOnly('Deleting a label') : `Delete ${label.name}`} disabled={offline || label.id < 0} onClick={onDelete}/>
+          <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} type="button" disabled={offline || label.id < 0} onClick={onEdit}/>
+          <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={offline ? onlineOnly('Deleting a label') : `Delete ${label.name}`} type="button" disabled={offline || label.id < 0} onClick={onDelete}/>
         </span>
       )}
     </>}>

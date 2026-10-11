@@ -4,8 +4,9 @@
 import {useSyncExternalStore} from 'react';
 import {useLocation} from '@tanstack/react-router';
 import {useSession} from '../../app/store.ts';
-import {Checkbox, IconButton, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
+import {Checkbox, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
 import {GearIcon} from '@primer/octicons-react';
+import {IconButton} from '@primer/react';
 
 const listeners = new Set<() => void>();
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
@@ -36,7 +37,7 @@ export function useDiffSettings() {
 export function DiffSettings() {
   const s = useDiffSettings();
   return <Popover>
-    <PopoverTrigger asChild><IconButton icon={GearIcon} label="Diff settings"/></PopoverTrigger>
+    <PopoverTrigger asChild><IconButton icon={GearIcon} variant="invisible" aria-label="Diff settings" type="button"/></PopoverTrigger>
     <PopoverContent align="end">
       <div className="flex flex-col gap-3 p-3">
         <SegmentedControl label="Diff layout" value={s.split ? 'split' : 'unified'} options={[{value: 'unified', label: 'Unified'}, {value: 'split', label: 'Split'}]} onChange={(v) => { s.set(v === 'split', s.hide); }}/>

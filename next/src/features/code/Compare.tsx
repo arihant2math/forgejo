@@ -23,7 +23,7 @@ import {resolveName} from '../../code/refs.ts';
 import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
 import type {Pool} from '../../data/pool.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Callout, CommandPick, CommandPopover, EmptyState, type PickOption, SectionHeading, TextLink} from '../../ui/index.ts';
+import {Callout, CommandPick, CommandPopover, EmptyState, type PickOption, SectionHeading, TextLink} from '../../ui/index.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople} from '../issues/people.ts';
@@ -43,6 +43,9 @@ import {NewPull, OutlookLine} from './NewPull.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 import {ChevronDownIcon, GitBranchIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 /**
  * The merge base's candidates: the parents of the new commits that are not new
@@ -240,7 +243,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
           empty={side === 'head' ? 'No branch or tag of that name. A fork\u2019s branch: owner:branch.' : 'No branch or tag is on this device.'}/>
       )}
       trigger={
-        <Button size="sm" icon={GitBranchIcon} aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
+        <Button size="small" leadingVisual={GitBranchIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
           <span className="max-w-xs truncate font-mono">{value || 'Choose a branch'}</span><ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       }/>
@@ -266,19 +269,17 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
   const pr = openPullOf(pool, repoId, base, head);
   if (pr) {
     return (
-      <Button size="sm" variant="ghost" asChild>
-        <Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}><GitPullRequestIcon size={12} className="shrink-0"/>Pull request #{pr.number}</Link>
-      </Button>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitPullRequestIcon} to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}>Pull request #{pr.number}</RouterLinkButton>
     );
   }
   // Nothing to propose: not two branches, the same branch or commit, no commit that base lacks (or not known yet);
   // or the form is open already.
   if (open || !pair || info.state !== 'ready' || info.value.commits.length === 0) return null;
   return (
-    <Button size="sm" variant="primary" icon={GitPullRequestIcon} tooltip={`Propose merging ${head} into ${base}`} onPointerEnter={() => {
+    <OptionalTooltip text={`Propose merging ${head} into ${base}`}><Button variant="primary" size="small" leadingVisual={GitPullRequestIcon} type="button" onPointerEnter={() => {
       void preloadEditor().catch(() => undefined);
       loadPeople(app, repoId);
-    }} onClick={onOpen}>New pull request</Button>
+    }} onClick={onOpen}>New pull request</Button></OptionalTooltip>
   );
 });
 
@@ -293,11 +294,7 @@ const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, he
   return (
     <Callout title={`A pull request opened here stays in ${owner}/${repo}`}
       actions={
-        <Button size="sm" variant="primary" asChild>
-          <Link {...codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, head)))} {...(open ? {search: {expand: '1'} as never} : {})}>
-            <GitPullRequestIcon size={12} className="shrink-0"/>Compare with {upName}:{up.defaultBranch}
-          </Link>
-        </Button>
+        <RouterLinkButton variant="primary" size="small" leadingVisual={GitPullRequestIcon} {...codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, head)))} {...(open ? {search: {expand: '1'} as never} : {})}>Compare with {upName}:{up.defaultBranch}</RouterLinkButton>
       }>
       {`This repository is a fork of ${upName}. To propose ${head} to ${upName}, compare it with ${upName}:${up.defaultBranch}.`}
     </Callout>

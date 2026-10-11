@@ -11,12 +11,13 @@ import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {codeSplat, type RefKind, type RefTable, type Resolved, shortSha} from '../../code/refs.ts';
-import {Button, CommandPick, CommandPopover, type PickOption} from '../../ui/index.ts';
+import {CommandPick, CommandPopover, type PickOption} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {looksLikeSha, type RefChoice} from './refWrite.ts';
 import {ChevronDownIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** A repository's branches (the default one first) and tags (newest version first) as picker options. */
 function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): PickOption[] {
@@ -51,7 +52,7 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
     <CommandPopover width="md" label="Switch branch or tag" placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
       options={options}
       trigger={
-        <Button size="sm" icon={kindIcon(at.kind)} aria-label={`Ref: ${label}`}>
+        <Button size="small" leadingVisual={kindIcon(at.kind)} type="button" aria-label={`Ref: ${label}`}>
           <span className="max-w-xs truncate font-mono">{label}</span><ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       }/>
@@ -88,7 +89,7 @@ export const RefPicker = observer(function RefPicker({repoId, label, value, onCh
           empty={commits ? 'No branch or tag of that name. A commit: its SHA, seven characters at least.' : 'No branch or tag of that name is on this device.'}/>
       )}
       trigger={
-        <Button size="sm" icon={kindIcon(value.kind)} aria-label={`${label}: ${shown || 'none'}`}>
+        <Button size="small" leadingVisual={kindIcon(value.kind)} type="button" aria-label={`${label}: ${shown || 'none'}`}>
           <span className="max-w-xs truncate font-mono">{shown || 'Choose…'}</span><ChevronDownIcon size={12} className="shrink-0"/>
         </Button>
       }/>

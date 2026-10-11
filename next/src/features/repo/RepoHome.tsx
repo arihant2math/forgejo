@@ -24,7 +24,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {Badge, Button, EmptyState, ListRow, SkeletonText} from '../../ui/index.ts';
+import {Badge, EmptyState, ListRow, SkeletonText} from '../../ui/index.ts';
 import {codeSplat} from '../../code/refs.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {GoToFile} from '../code/FileFinder.tsx';
@@ -42,6 +42,8 @@ import {RepoActions, RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx'
 import {EmptyRepo} from '../code/states.tsx';
 import {FileOperations} from '../code/FileOperations.tsx';
 import {CodeIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, PencilIcon, TagIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -70,9 +72,9 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
               <Summary repoId={repoId}/>
               <div className="ms-auto flex flex-wrap items-center gap-2">
                 <RepoActions owner={owner} repo={repo} repoId={repoId}/>
-                <Button size="sm" variant="ghost" icon={PencilIcon} shortcut={shortcutHint('create')} tooltip="New issue in this repository" onClick={() => {
+                <OptionalTooltip text={'New issue in this repository'} keybindingHint={shortcutHint('create')}><Button variant="invisible" size="small" leadingVisual={PencilIcon} type="button" onClick={() => {
                   openCreate(app, repoId);
-                }}>New issue</Button>
+                }}>New issue</Button></OptionalTooltip>
               </div>
             </div>
             {repository?.fork && <Contribute owner={owner} repo={repo}/>}
@@ -127,18 +129,10 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   const toolbar = (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}} view="src"/>
-      <Button size="sm" variant="ghost" asChild>
-        <CodeLink owner={owner} repo={repo} to="branches">
-          <GitBranchIcon size={12} className="shrink-0"/><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span>
-        </CodeLink>
-      </Button>
-      <Button size="sm" variant="ghost" asChild>
-        <CodeLink owner={owner} repo={repo} to="tags">
-          <TagIcon size={12} className="shrink-0"/><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span>
-        </CodeLink>
-      </Button>
+      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={GitBranchIcon} owner={owner} repo={repo} to="branches"><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span></Button>
+      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={TagIcon} owner={owner} repo={repo} to="tags"><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span></Button>
       <div className="ms-auto flex flex-wrap items-center gap-2">
-        <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
+        <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
         <GoToFile owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha}}/>
         <CodeMenu owner={owner} repo={repo} branch={branch}/>
       </div>
@@ -147,9 +141,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   // The latest commit's bar, with the history on the right (API v1 has no commit count the pool holds: "History").
   const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha} showRef={false}/>;
   const history = (
-    <Button size="sm" variant="ghost" asChild>
-      <CodeLink owner={owner} repo={repo} to={codeSplat('commits', {kind: 'branch', ref: branch})}><HistoryIcon size={12} className="shrink-0"/>History</CodeLink>
-    </Button>
+    <Button as={CodeLink} variant="invisible" size="small" leadingVisual={HistoryIcon} owner={owner} repo={repo} to={codeSplat('commits', {kind: 'branch', ref: branch})}>History</Button>
   );
   return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title} toolbar={toolbar} actions={history}/>;
 });

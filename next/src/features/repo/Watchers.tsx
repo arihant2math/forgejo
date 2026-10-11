@@ -14,7 +14,7 @@ import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
-import {Avatar, Button, Callout, EmptyState, Entry, EntryList, Panel} from '../../ui/index.ts';
+import {Avatar, Callout, EmptyState, Entry, EntryList, Panel} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {ListSkeleton} from '../settings/bits.tsx';
@@ -22,6 +22,8 @@ import {repoApi} from '../settings/requests.ts';
 import {type Resource, settingsKey, useResource} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
 
@@ -98,9 +100,9 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
       <Body res={res} page={page} owner={owner} repo={repo}/>
       {(page > 1 || more) && (
         <nav aria-label="Pages" className="flex items-center gap-2 border-t border-border-subtle px-3 py-2">
-          {page > 1 ? <Button asChild size="sm"><Link {...to(page - 1)}>Previous</Link></Button> : <Button size="sm" disabled>Previous</Button>}
+          {page > 1 ? <RouterLinkButton size="small" {...to(page - 1)}>Previous</RouterLinkButton> : <Button size="small" type="button" disabled>Previous</Button>}
           <span className="text-sm text-fg-muted tabular-nums">{last === undefined ? `Page ${String(page)}` : `Page ${String(page)} of ${String(last)}`}</span>
-          {more ? <Button asChild size="sm"><Link {...to(page + 1)}>Next</Link></Button> : <Button size="sm" disabled>Next</Button>}
+          {more ? <RouterLinkButton size="small" {...to(page + 1)}>Next</RouterLinkButton> : <Button size="small" type="button" disabled>Next</Button>}
         </nav>
       )}
     </Panel>
@@ -113,14 +115,14 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
     if (res.state === 'loading') return <div className="px-3"><ListSkeleton/></div>;
     if (res.state === 'offline') return <EmptyState icon={EyeIcon} title="Not on this device yet" description="The watchers load when you are online."/>;
     return (
-      <Callout tone="danger" title="The watchers could not be loaded" actions={<Button size="sm" onClick={res.reload}>Try again</Button>}>
+      <Callout tone="danger" title="The watchers could not be loaded" actions={<Button size="small" type="button" onClick={res.reload}>Try again</Button>}>
         {res.error}
       </Callout>
     );
   }
   if (!v.users.length) {
     return page > 1 ?
-      <EmptyState icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<Button asChild size="sm"><Link to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</Link></Button>}/> :
+      <EmptyState icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}/> :
       <EmptyState icon={EyeIcon} title="No watchers" description="Nobody is watching this repository."/>;
   }
   return <div className="px-3"><EntryList>{v.users.map((u) => <WatcherCard key={u.id} u={u}/>)}</EntryList></div>;

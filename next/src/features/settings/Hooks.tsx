@@ -13,7 +13,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {
-  Badge, Button, Callout, Checkbox, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, IconButton, Input, SegmentedControl, Select, StatusDot,
+  Badge, Callout, Checkbox, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, Input, SegmentedControl, Select, StatusDot,
 } from '../../ui/index.ts';
 import {ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
@@ -22,6 +22,8 @@ import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
 import {PencilIcon, PlusIcon, PaperAirplaneIcon, TrashIcon, WebhookIcon} from '@primer/octicons-react';
+import {Button, IconButton, LinkButton} from '@primer/react';
+import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export const HookSettings = observer(function HookSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -56,7 +58,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
   const repoPath = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
     <FormSection id="settings-hooks" title="Webhooks" description="Forgejo sends a request to these addresses when something happens in the repository."
-      actions={<Button size="sm" variant="primary" icon={PlusIcon} disabled={offline} onClick={() => {
+      actions={<Button variant="primary" size="small" leadingVisual={PlusIcon} type="button" disabled={offline} onClick={() => {
         setEditing('new');
       }}>Add webhook</Button>}>
       <ResourceList res={res} what="The webhooks" empty={{icon: WebhookIcon, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
@@ -65,15 +67,15 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
             title={hookUrl(h)} meta={h.active ? undefined : 'inactive'}
             description={<span className="flex flex-wrap items-center gap-1"><Badge>{h.type}</Badge>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
             actions={<>
-              <IconButton size="sm" icon={PaperAirplaneIcon} label="Send a test delivery" disabled={offline} onClick={() => {
+              <IconButton icon={PaperAirplaneIcon} variant="invisible" size="small" aria-label="Send a test delivery" type="button" disabled={offline} onClick={() => {
                 test(h);
               }}/>
               {editableHook(h.type) ?
-                <IconButton size="sm" icon={PencilIcon} label="Edit the webhook" disabled={offline} onClick={() => {
+                <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the webhook" type="button" disabled={offline} onClick={() => {
                   setEditing(h);
                 }}/> :
-                <Button size="sm" variant="ghost" asChild tooltip="Opens in the classic Forgejo UI"><a href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</a></Button>}
-              <IconButton size="sm" icon={TrashIcon} label="Delete the webhook" disabled={offline} onClick={() => {
+                <OptionalTooltip text={'Opens in the classic Forgejo UI'}><LinkButton variant="invisible" size="small" href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</LinkButton></OptionalTooltip>}
+              <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the webhook" type="button" disabled={offline} onClick={() => {
                 setError(undefined);
                 setDeleting(h);
               }}/>
@@ -172,8 +174,8 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
     <Dialog open size="lg" scroll title={creating ? 'Add a webhook' : 'Edit the webhook'} onOpenChange={(o) => {
       if (!o && !busy) onClose();
     }} footer={<>
-      <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={busy || !ready} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Add webhook' : 'Save webhook'}</Button>
+      <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
+      <Button variant="primary" type="button" disabled={busy || !ready} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Add webhook' : 'Save webhook'}</Button>
     </>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();

@@ -10,9 +10,10 @@
 
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {Button, Status, type StatusTone, Tooltip} from '../../ui/index.ts';
+import {Status, type StatusTone, Tooltip} from '../../ui/index.ts';
 import {signInHere} from '../session.ts';
 import {useApp, useSession} from '../store.ts';
+import {Button} from '@primer/react';
 
 interface View {
   tone: StatusTone;
@@ -66,12 +67,12 @@ export const SyncIndicator = observer(function SyncIndicator() {
       {/* The live region: announces the connection, apart from the button (not every pending change). */}
       <span role="status" className="sr-only">{v.label}</span>
       {v.retry && (
-        <Button size="sm" variant="ghost" onClick={() => {
+        <Button variant="invisible" size="small" type="button" onClick={() => {
           data.retry();
         }}>Retry now</Button>
       )}
       {v.signIn && app.config.oauth && (
-        <Button size="sm" variant="primary" onClick={() => {
+        <Button variant="primary" size="small" type="button" onClick={() => {
           signInHere(app);
         }}>Sign in</Button>
       )}

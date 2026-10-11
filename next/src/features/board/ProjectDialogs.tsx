@@ -10,7 +10,8 @@ import {onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
-import {Button, Callout, ConfirmDialog, Dialog, Field, Input, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
+import {Callout, ConfirmDialog, Dialog, Field, Input, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
+import {Button} from '@primer/react';
 
 export interface BoardScope {repo_id: number; owner_id: number}
 export const pendingBoards = observable.map<string, BoardScope & {title: string}>();
@@ -24,7 +25,7 @@ export const NewBoard = observer(function NewBoard({scope}: {scope?: BoardScope 
   const session = useSession();
   const available = scope ? canEditBoard(session, scope) : true;
   if (!available) return null;
-  return <><Button size="sm" disabled={!connectivity.online} title={!connectivity.online ? onlineOnly('Creating a board') : undefined} onClick={() => { setOpen(true); }}>New board</Button>
+  return <><Button size="small" type="button" disabled={!connectivity.online} title={!connectivity.online ? onlineOnly('Creating a board') : undefined} onClick={() => { setOpen(true); }}>New board</Button>
     {open && <BoardForm scope={scope} onClose={() => { setOpen(false); }}/>}</>;
 });
 
@@ -86,8 +87,8 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
     }
   };
   return <Dialog open title={project ? 'Edit board' : 'New board'} onOpenChange={(o) => { if (!o && !busy) onClose(); }} footer={<>
-    <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-    <Button variant="primary" disabled={busy || !title.trim() || !connectivity.online} title={!connectivity.online ? onlineOnly('Saving a board') : undefined} onClick={() => void save()}>{busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board'}</Button>
+    <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
+    <Button variant="primary" type="button" disabled={busy || !title.trim() || !connectivity.online} title={!connectivity.online ? onlineOnly('Saving a board') : undefined} onClick={() => void save()}>{busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board'}</Button>
   </>}>
     <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
       {!scope && !project && <Field label="Location" htmlFor="board-location"><Select id="board-location" value={target} onValueChange={setTarget} options={choices} disabled={busy || !!created}/></Field>}
@@ -117,7 +118,7 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
   };
   const reason = !connectivity.online ? onlineOnly('Changing a board') : undefined;
   return <>
-    <Menu><MenuTrigger asChild><Button size="sm" disabled={busy || !connectivity.online} title={reason}>Board settings</Button></MenuTrigger><MenuContent>
+    <Menu><MenuTrigger asChild><Button size="small" type="button" disabled={busy || !connectivity.online} title={reason}>Board settings</Button></MenuTrigger><MenuContent>
       <MenuItem onSelect={() => { setEdit(true); }}>Edit board</MenuItem>
       <MenuItem onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</MenuItem>
       <MenuSeparator/><MenuItem danger onSelect={() => { setError(''); setRemove(true); }}>Delete board…</MenuItem>

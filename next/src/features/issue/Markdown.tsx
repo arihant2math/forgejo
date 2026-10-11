@@ -8,7 +8,7 @@
 // at the app's page (an @mention opens the person's page here, also in a new
 // tab) and navigate in place; everything else is a normal link.
 
-import {useRouter} from '@tanstack/react-router';
+import {useRouter, useRouterState} from '@tanstack/react-router';
 import {type MouseEvent, useEffect, useEffectEvent, useLayoutEffect, useRef} from 'react';
 import {nextPathOf} from '../../app/paths.ts';
 import {type App, useApp} from '../../app/store.ts';
@@ -24,6 +24,7 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
   const router = useRouter();
   const app = useApp();
   const tasks = Boolean(onTask);
+  const hash = useRouterState({select: (s) => s.location.hash});
   useLayoutEffect(() => {
     if (!ref.current) return;
     setMarkup(ref.current, html);
@@ -37,6 +38,10 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
       });
     }
   }, [app, html, tasks]);
+  useLayoutEffect(() => {
+    if (!hash || !ref.current) return;
+    scrollMarkdownAnchor(ref.current, hash);
+  }, [hash, html]);
   // A native listener: the checkboxes are not React's elements, and React's onChange for a checkbox is made from
   // the click on an element it renders, so on the container it never fired (QA round 2: ticks were never saved).
   const tick = useEffectEvent((i: number, checked: boolean) => {
@@ -76,6 +81,18 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     void router.navigate({href: `${sub}${path}${q ? `?${q}` : ''}${url.hash}`});
   };
   return <Prose ref={ref} onClick={onClick}/>;
+}
+
+export function scrollMarkdownAnchor(root: HTMLElement, hash: string): void {
+  let id: string;
+  try {
+    id = decodeURIComponent(hash.replace(/^#/, ''));
+  } catch {
+    return;
+  }
+  const targets = [...root.querySelectorAll<HTMLElement>('[id]')];
+  const target = targets.find((el) => el.id === id) ?? targets.find((el) => el.id === `user-content-${id}`);
+  target?.scrollIntoView({block: 'start'});
 }
 
 /**

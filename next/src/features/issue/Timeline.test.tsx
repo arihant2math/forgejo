@@ -5,7 +5,7 @@ import type {ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {Pool} from '../../data/pool.ts';
-import type {Comment, Issue, PullRequest, Repository} from '../../protocol/types.gen.ts';
+import type {Comment, Issue, Label, PullRequest, Repository} from '../../protocol/types.gen.ts';
 import {StatusEvent} from './Timeline.tsx';
 
 const state = vi.hoisted(() => ({pool: undefined as Pool | undefined}));
@@ -53,4 +53,28 @@ test('known closing pulls link alongside their merge commit, in the source repos
 test('a stale commit reference cannot attach to a manual close', () => {
   state.pool?.put('Comment', 19, 'issue:1', 1, event({id: 19, type: 'commit_ref', commit_id: 'abcdef1', created_at: '2025-01-01T00:00:00Z'}));
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
+});
+
+test('a close with the closer\'s "Duplicate of #N" comment reads as closed as a duplicate (#216)', () => {
+  state.pool?.put('Issue', 5, 'repo:1', 1, {id: 5, repo_id: 1, number: 119} as Issue);
+  state.pool?.put('Comment', 19, 'issue:1', 1, event({id: 19, type: 'comment', body: 'Duplicate of #119\n\nSame crash.'}));
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this as a duplicate of <a href="pulls/5">#5</a>');
+  // Not on this device: the number.
+  state.pool?.put('Comment', 19, 'issue:1', 2, event({id: 19, type: 'comment', body: 'duplicate of #7'}));
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this as a duplicate of #7');
+  // Someone else's comment, or one long before, is not a reason.
+  state.pool?.put('Comment', 19, 'issue:1', 3, event({id: 19, type: 'comment', body: 'Duplicate of #119', poster_id: 2}));
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
+  state.pool?.put('Comment', 19, 'issue:1', 4, event({id: 19, type: 'comment', body: 'Duplicate of #119', created_at: '2025-01-01T00:00:00Z'}));
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
+});
+
+test('a close with a canceled workflow status set by the closer reads as not planned (#216)', () => {
+  const label = (id: number, name: string) => ({id, repo_id: 1, name, exclusive: true}) as Label;
+  state.pool?.put('Label', 2, 'repo:1', 1, label(2, 'status/Canceled'));
+  state.pool?.put('Label', 3, 'repo:1', 1, label(3, 'status/Done'));
+  state.pool?.put('Comment', 18, 'issue:1', 1, event({id: 18, type: 'label', label_id: 3, body: '1'}));
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
+  state.pool?.put('Comment', 19, 'issue:1', 1, event({id: 19, type: 'label', label_id: 2, body: '1'}));
+  expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this as not planned');
 });

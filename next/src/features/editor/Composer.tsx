@@ -22,9 +22,9 @@ import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/inde
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {Bold, Italic, Link2, Paperclip} from 'lucide-react';
+import {Bold, Code2, Italic, Link2, Paperclip} from 'lucide-react';
 import {Button, EditorFrame, IconButton, type LucideIcon, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
-import type {Format} from './format.ts';
+import type {EditMaker, Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
 import {untracked} from 'mobx';
@@ -110,6 +110,16 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   focusShortcut?: ShortcutId | undefined;
   /** How Preview renders the text (default: as an issue's text in the repository; a wiki page renders as one). */
   render?: ((text: string) => Promise<string>) | undefined;
+  /** More toolbar buttons after the formatting ones (a review comment's suggestion, …). */
+  tools?: readonly EditorTool[] | undefined;
+}
+
+/** A toolbar button of a field: an edit of the selection (applied as one change, like the formatting buttons). */
+export interface EditorTool {
+  id: string;
+  icon: LucideIcon;
+  label: string;
+  edit: EditMaker;
 }
 
 /** Suggestions per trigger at most. */
@@ -145,7 +155,7 @@ function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
   return null;
 }
 
-export const MarkdownField = observer(function MarkdownField({repoId, attachmentIssueId, attachments = true, focusShortcut, render, insertion, ...props}: MarkdownFieldProps) {
+export const MarkdownField = observer(function MarkdownField({repoId, attachmentIssueId, attachments = true, focusShortcut, render, insertion, tools, ...props}: MarkdownFieldProps) {
   const [preview, setPreview] = useState(false);
   // The text area stands in until the editor's code is here and the page is idle (creating an editor costs a
   // frame or more on a slow device: not while the page opens), or at once when the field is wanted.
@@ -309,6 +319,11 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
           editor.current?.format(kind);
         }}/>
       ))}
+      {tools?.map((tool) => (
+        <IconButton key={tool.id} size="sm" icon={tool.icon} label={tool.label} disabled={preview || !Editor} onClick={() => {
+          editor.current?.edit(tool.edit);
+        }}/>
+      ))}
     </span>
   </>;
   return (
@@ -365,8 +380,10 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
   );
 });
 
-/** The formatting buttons (the editor's keys: ⌘B, ⌘I, ⌘K). */
-const FORMATS: [Format, LucideIcon, string, string][] = [['bold', Bold, 'Bold', 'B'], ['italic', Italic, 'Italic', 'I'], ['link', Link2, 'Link', 'K']];
+/** The formatting buttons (the editor's keys: ⌘B, ⌘I, ⌘K, ⌘E). Code: inline for a selection in a line, else a fenced block. */
+const FORMATS: [Format, LucideIcon, string, string][] = [
+  ['bold', Bold, 'Bold', 'B'], ['italic', Italic, 'Italic', 'I'], ['link', Link2, 'Link', 'K'], ['code', Code2, 'Code', 'E'],
+];
 
 /**
  * Markdown as Forgejo renders it (in a repository's context): the server's rendering online (batched, cached), the

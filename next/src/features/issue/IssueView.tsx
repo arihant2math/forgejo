@@ -110,7 +110,8 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
   const isPull = issue?.get('is_pull');
   useEffect(() => {
     if (isPull === undefined || index <= 0 || !routeId || !settled || isPull === onPulls) return;
-    void navigate({to: isPull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index', params: {owner, repo, index: String(index)}, replace: true});
+    // A permalink's comment (#comment-123) stays in the address.
+    void navigate({to: isPull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index', params: {owner, repo, index: String(index)}, hash: true, replace: true});
   }, [isPull, onPulls, routeId, settled, index, navigate, owner, repo]);
   if (!issue) return <NotHere owner={owner} repo={repo} repoId={repoId} index={index}/>;
   const pull = issue.get('is_pull') && index > 0;

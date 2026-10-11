@@ -26,6 +26,7 @@ import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
+import {Artifacts} from './Artifacts.tsx';
 import {CodeLink, useCodeRows} from './nav.tsx';
 import {RunControls} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
@@ -268,6 +269,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
               <EmptyState icon={Workflow} title="No such job"/>}
           </section>
           </div>
+          <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
         </div>)}
     </CodeFrame>
   );

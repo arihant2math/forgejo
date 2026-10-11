@@ -28,6 +28,7 @@ import {usePool} from '../issues/cells.tsx';
 import {loadPeople} from '../issues/people.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
+import {DiffSettings} from './DiffSettings.tsx';
 import {useDiff} from './History.tsx';
 import {Ago, commitRow, summary} from './bits.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
@@ -260,6 +261,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
           row={commitRow}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       </div>
+      <div className="sticky left-0 flex w-view justify-end px-4 py-1"><DiffSettings/></div>
       {from && diff.state === 'ready' ?
         <>
           <ChangedFiles files={diff.value} diff={diffRef}/>

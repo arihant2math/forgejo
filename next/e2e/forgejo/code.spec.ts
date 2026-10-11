@@ -68,6 +68,37 @@ test.afterAll(async () => {
   await api('DELETE', `/users/${USER}/tokens/f7-${RUN}`);
 });
 
+test('copy a selected range permalink and pin source and blame with Y', async ({page}) => {
+  await signIn(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {value: {writeText: (text: string) => {
+      document.documentElement.dataset.copiedLink = text;
+      return Promise.resolve();
+    }}});
+  });
+  await page.goto(code('src/branch/main/src/main.go'));
+  await page.getByRole('link', {name: 'Line 12', exact: true}).click();
+  await page.getByRole('link', {name: 'Line 20', exact: true}).click({modifiers: ['Shift']});
+  await page.getByRole('button', {name: 'Line actions'}).click();
+  await page.getByRole('menuitem', {name: 'Copy permalink', exact: true}).click();
+  await expect(page.getByText('Link copied', {exact: true})).toBeVisible();
+  const copied = await page.locator('html').getAttribute('data-copied-link');
+  expect(copied).toMatch(/\/src\/commit\/[a-f0-9]{40}\/src\/main\.go#L12-L20$/);
+  const sha = /\/commit\/([a-f0-9]{40})\//.exec(copied ?? '')?.[1];
+  await page.keyboard.press('y');
+  await expect(page).toHaveURL(new RegExp(`/src/commit/${sha}/src/main.go/-#L12-L20$`));
+  await page.goto(copied ?? '');
+  await expect(page).toHaveURL(copied ?? '');
+  // Read the canonical link's commit in Next too (canonical URLs may serve classic).
+  await page.goto(`${code(`src/commit/${sha}/src/main.go`)}#L12-L20`);
+  await expect(page.locator('#L12')).toHaveAttribute('data-linked', '');
+  await expect(page.locator('#L20')).toHaveAttribute('data-linked', '');
+  await page.goto(`${code('blame/branch/main/src/main.go')}#L12-L20`);
+  await expect(page.getByRole('button', {name: 'Line actions'})).toBeVisible();
+  await page.keyboard.press('y');
+  await expect(page).toHaveURL(new RegExp(`/blame/commit/${sha}/src/main.go/-#L12-L20$`));
+});
+
 const blobSha = (path: string, ref?: string) => blobShaIn(REPO, path, ref);
 const code = (rest: string) => codeUrl(REPO, rest);
 
@@ -207,6 +238,32 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
     const v = await (await fetch(`${BASE}/-/sync/api/issues/${String(issue.id)}/viewed`, {headers: {Authorization: `token ${token}`}})).json() as {files?: Record<string, string>};
     return Object.values(v.files ?? {}).filter((s) => s === 'viewed').length;
   }, {timeout: 30_000}).toBeGreaterThan(0);
+  const reviewComments = `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/reviews/${String(mine[0]?.id)}/comments`;
+  const posted = page.getByRole('article').filter({hasText: 'Offline nit: name this better.'}).last();
+  await expect(posted).toBeVisible();
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await posted.getByRole('button', {name: 'Comment actions'}).click();
+  await page.getByRole('menuitem', {name: 'Edit', exact: true}).click();
+  await posted.locator('.cm-content').fill('Corrected offline nit.');
+  await posted.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(posted).toHaveCount(0);
+  await expect(page.getByText('Corrected offline nit.', {exact: true})).toBeVisible();
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect.poll(async () => (await (await api('GET', reviewComments)).json() as {body: string}[]).map((c) => c.body), {timeout: 30_000}).toEqual(['Corrected offline nit.']);
+  await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(reviewPull.number)}`);
+  const corrected = page.getByRole('article').filter({hasText: 'Corrected offline nit.'}).last();
+  await expect(corrected).toBeVisible();
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await corrected.getByRole('button', {name: 'Comment actions'}).click();
+  await page.getByRole('menuitem', {name: 'Delete…'}).click();
+  await page.getByRole('dialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
+  await expect(page.getByText('Corrected offline nit.', {exact: true})).toHaveCount(0);
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect.poll(async () => (await (await api('GET', reviewComments)).json() as unknown[]).length, {timeout: 30_000}).toBe(0);
   await info.attach('offline-review.json', {body: JSON.stringify({review: mine[0], comments}), contentType: 'application/json'});
   expect(problems.filter((p) => !/Failed to fetch|ERR_INTERNET_DISCONNECTED|net::/.test(p))).toEqual([]);
 });
@@ -246,11 +303,23 @@ test('a job log streams live over the socket; the finished log opens offline', a
   await signIn(page);
   await changeFiles(REPO, {branch: 'main', message: 'CI', files: [{operation: 'create', path: '.forgejo/workflows/ci.yml', content: b64(`on: [push]\njobs:\n  build:\n    runs-on: ${label}\n    steps:\n      - run: echo hello\n`)}]});
   let taskId = 0;
+  let taskContext: {token: string; run_id: string} | undefined;
   await expect.poll(async () => {
-    const r = await runner.call<{task?: {id: string}}>('FetchTask', {tasksVersion: '0'});
-    if (r.task) taskId = Number(r.task.id);
+    const r = await runner.call<{task?: {id: string; context: {token: string; run_id: string}}}>('FetchTask', {tasksVersion: '0'});
+    if (r.task) {
+      taskId = Number(r.task.id);
+      taskContext = r.task.context;
+    }
     return taskId;
   }, {timeout: 60_000, intervals: [1000]}).toBeGreaterThan(0);
+  // Seed a real legacy artifact while the task's upload token is still valid.
+  if (!taskContext) throw new Error('Runner did not receive a task context');
+  const artifactPath = `/api/actions_pipeline/_apis/pipelines/workflows/${taskContext.run_id}/artifacts`;
+  const headers = {Authorization: `Bearer ${taskContext.token}`};
+  const created = await ok(await fetch(`${BASE}${artifactPath}`, {method: 'POST', headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify({Type: 'actions_storage', Name: 'build-output'})}), 'create artifact');
+  const upload = await created.json() as {fileContainerResourceUrl: string};
+  await ok(await fetch(`${upload.fileContainerResourceUrl}?itemPath=build-output/output.txt`, {method: 'PUT', headers: {...headers, 'Content-Range': 'bytes 0-4/5', 'x-tfs-filelength': '5'}, body: 'hello'}), 'upload artifact');
+  await ok(await fetch(`${BASE}${artifactPath}?artifactName=build-output`, {method: 'PATCH', headers}), 'confirm artifact');
   await page.goto(code('actions'));
   await page.getByRole('option', {name: /CI/}).first().click();
   const log = page.getByRole('list', {name: 'Log of build'});
@@ -270,6 +339,22 @@ test('a job log streams live over the socket; the finished log opens offline', a
   await info.attach('log-tail.json', {body: JSON.stringify({firstLinesMs: first}), contentType: 'application/json'});
   // Finished: the job's status arrives, the log is cached by (job, task); offline it opens from the cache.
   await expect(page.getByRole('navigation', {name: 'Jobs'}).getByText('Succeeded')).toBeVisible({timeout: 30_000});
+  const artifacts = page.getByRole('region', {name: 'Artifacts'});
+  await artifacts.scrollIntoViewIfNeeded();
+  await expect(artifacts.getByText('build-output', {exact: true})).toBeVisible({timeout: 30_000});
+  const downloaded = page.waitForEvent('download');
+  await artifacts.getByRole('button', {name: 'Download', exact: true}).click();
+  const archive = await downloaded;
+  expect(archive.suggestedFilename()).toBe('build-output.zip');
+  expect(await archive.failure()).toBeNull();
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(artifacts.getByRole('button', {name: 'Download', exact: true})).toBeDisabled();
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await artifacts.getByRole('button', {name: 'Delete', exact: true}).click();
+  await page.getByRole('dialog').getByRole('button', {name: 'Delete artifact', exact: true}).click();
+  await expect(artifacts.getByText('build-output', {exact: true})).toHaveCount(0);
   await expect.poll(() => cached(page, `log:${String(repoId)}:`), {timeout: 15_000}).toBe(true);
   const url = page.url();
   await context.setOffline(true);

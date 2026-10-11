@@ -338,29 +338,29 @@ export class CodeSource {
     });
   }
 
-  static diffKey(repoId: number, base: string, head: string): string {
-    return `diff:${String(repoId)}:${base}:${head}`;
+  static diffKey(repoId: number, base: string, head: string, whitespace = ''): string {
+    return `diff:${String(repoId)}:${base}:${head}${whitespace ? `:whitespace=${whitespace}` : ''}`;
   }
 
   /** The unified diff between two commits (base empty: a commit against its first parent). */
-  diffText(repoId: number, base: string, head: string, signal?: AbortSignal): Promise<string> {
-    return this.cached(CodeSource.diffKey(repoId, base, head), async () => {
-      const res = await this.request('sync', `/repos/${String(repoId)}/diff/${base ? `${base}/` : ''}${head}`, signal);
+  diffText(repoId: number, base: string, head: string, signal?: AbortSignal, whitespace = ''): Promise<string> {
+    return this.cached(CodeSource.diffKey(repoId, base, head, whitespace), async () => {
+      const res = await this.request('sync', `/repos/${String(repoId)}/diff/${base ? `${base}/` : ''}${head}${whitespace ? `?whitespace=${encodeURIComponent(whitespace)}` : ''}`, signal);
       return await readCapped(res, MAX_DIFF);
     });
   }
 
   /** Whether a diff is on this device (prefetched or seen; its text is not read). */
-  hasDiff(repoId: number, base: string, head: string): Promise<boolean> {
-    return this.cache.has(CodeSource.diffKey(repoId, base, head));
+  hasDiff(repoId: number, base: string, head: string, whitespace = ''): Promise<boolean> {
+    return this.cache.has(CodeSource.diffKey(repoId, base, head, whitespace));
   }
 
   /** The diff parsed (once per session and diff). */
-  diff(repoId: number, base: string, head: string): Promise<DiffFile[]> {
-    const key = CodeSource.diffKey(repoId, base, head);
+  diff(repoId: number, base: string, head: string, whitespace = ''): Promise<DiffFile[]> {
+    const key = CodeSource.diffKey(repoId, base, head, whitespace);
     let p = this.parsed.get(key);
     if (!p) {
-      p = this.diffText(repoId, base, head).then(parseDiff);
+      p = this.diffText(repoId, base, head, undefined, whitespace).then(parseDiff);
       p.then((files) => {
         this.parsedDone.set(key, files);
         // A few parsed diffs stay in memory.
@@ -378,16 +378,16 @@ export class CodeSource {
   }
 
   /** A diff parsed in this session, if it is in memory. */
-  peekDiff(repoId: number, base: string, head: string): DiffFile[] | undefined {
-    return this.parsedDone.get(CodeSource.diffKey(repoId, base, head));
+  peekDiff(repoId: number, base: string, head: string, whitespace = ''): DiffFile[] | undefined {
+    return this.parsedDone.get(CodeSource.diffKey(repoId, base, head, whitespace));
   }
 
   /** One file of a parsed diff, highlighted per diff line (null: plain). */
-  async diffHighlight(repoId: number, base: string, head: string, index: number): Promise<Highlight | null> {
-    const key = CodeSource.diffHlKey(repoId, base, head, index);
+  async diffHighlight(repoId: number, base: string, head: string, index: number, whitespace = ''): Promise<Highlight | null> {
+    const key = CodeSource.diffHlKey(repoId, base, head, index, whitespace);
     const hit = this.cache.peek<Highlight | null>(key);
     if (hit !== undefined) return hit;
-    const file = (await this.diff(repoId, base, head))[index];
+    const file = (await this.diff(repoId, base, head, whitespace))[index];
     const lang = file && langOf(filePath(file));
     if (!file || !lang) return null;
     let h: Highlight | null;
@@ -402,13 +402,13 @@ export class CodeSource {
     return h;
   }
 
-  static diffHlKey(repoId: number, base: string, head: string, index: number): string {
-    return `dhl:${String(repoId)}:${base}:${head}:${String(index)}`;
+  static diffHlKey(repoId: number, base: string, head: string, index: number, whitespace = ''): string {
+    return `dhl:${String(repoId)}:${base}:${head}:${String(index)}:${whitespace}`;
   }
 
   /** A diff file's highlighting already in memory. */
-  peekDiffHighlight(repoId: number, base: string, head: string, index: number): Highlight | null | undefined {
-    return this.cache.peek(CodeSource.diffHlKey(repoId, base, head, index));
+  peekDiffHighlight(repoId: number, base: string, head: string, index: number, whitespace = ''): Highlight | null | undefined {
+    return this.cache.peek(CodeSource.diffHlKey(repoId, base, head, index, whitespace));
   }
 
   static highlightKey(repoId: number, blobSha: string, lang: Lang): string {

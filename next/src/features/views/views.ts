@@ -9,7 +9,7 @@
 // later (the tracker: "local, synced later").
 
 import {observable, runInAction} from 'mobx';
-import {listSearch, type ListSearch, myListSearch} from '../../app/search.ts';
+import {inboxSearch, type InboxSearch, listSearch, type ListSearch, myListSearch} from '../../app/search.ts';
 import {LOCAL_PREFS} from '../../app/splash.ts';
 import {uuid} from '../../intents/intents.ts';
 
@@ -22,12 +22,12 @@ export interface SavedView {
   /** The list's site path: "/issues", "/pulls", "/{owner}/{repo}/issues", "/{owner}/{repo}/pulls". */
   path: string;
   /** Its search params (the list's view). */
-  search: ListSearch & {type?: string};
+  search: (ListSearch & {type?: string}) | InboxSearch;
 }
 
 /** Whether a path is a list page a view can be saved on (and only those: a stored view never navigates elsewhere). */
 export function isListPath(path: string): boolean {
-  return /^\/(?:issues|pulls)$/.test(path) || /^\/(?!-\/)[^/?#]+\/[^/?#]+\/(?:issues|pulls)$/.test(path);
+  return path === '/notifications' || /^\/(?:issues|pulls)$/.test(path) || /^\/(?!-\/)[^/?#]+\/[^/?#]+\/(?:issues|pulls)$/.test(path);
 }
 
 /** A stored view, checked (storage is shared with whatever else runs on the origin). */
@@ -36,7 +36,7 @@ export function parseView(v: unknown): SavedView | undefined {
   const o = v as Record<string, unknown>;
   if (typeof o.id !== 'string' || typeof o.name !== 'string' || typeof o.path !== 'string' || !isListPath(o.path)) return undefined;
   const raw = o.search && typeof o.search === 'object' ? o.search as Record<string, unknown> : {};
-  const search = /^\/(?:issues|pulls)$/.test(o.path) ? myListSearch(raw) : listSearch(raw);
+  const search = o.path === '/notifications' ? inboxSearch(raw) : /^\/(?:issues|pulls)$/.test(o.path) ? myListSearch(raw) : listSearch(raw);
   const name = o.name.trim().slice(0, 80);
   return name ? {id: o.id, name, path: o.path, search} : undefined;
 }

@@ -43,6 +43,7 @@ const (
 
 // NextConfig is the server configuration of the Next UI.
 type NextConfig struct {
+	WIPPrefixes *[]string `json:"wip_prefixes,omitempty"`
 	// AppURL is Forgejo's public URL (ends with "/"), AppSubURL its path
 	// ("" or "/sub", no trailing slash), Base the UI's base path
 	// (AppSubURL + "/-/next/").

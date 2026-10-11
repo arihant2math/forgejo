@@ -695,11 +695,13 @@ func etagMatches(header, tag string) bool {
 
 // nextConfig is the configuration inlined into index.html.
 func nextConfig() *protocol.NextConfig {
+	prefixes := append([]string{}, setting.Repository.PullRequest.WorkInProgressPrefixes...)
 	cfg := &protocol.NextConfig{
 		AppURL: setting.AppURL, AppSubURL: setting.AppSubURL, Base: setting.AppSubURL + nextBase,
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
 		SSHClonePrefix: sshClonePrefix(),
 		Explore:        &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
+		WIPPrefixes:    &prefixes,
 		Repository: &protocol.NextRepository{
 			DefaultBranch: setting.Repository.DefaultBranch, DefaultPrivate: setting.Repository.DefaultPrivate,
 			ForcePrivate: setting.Repository.ForcePrivate, ObjectFormats: objectFormats(),

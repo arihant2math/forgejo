@@ -8,7 +8,7 @@
 // contents, file names and logs never reach an HTML sink.
 
 import {Slot} from 'radix-ui';
-import {Children, isValidElement, type ReactElement, type ReactNode, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {Children, isValidElement, type ComponentProps, type ReactElement, type ReactNode, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {cx} from './cx.ts';
 import {Tooltip} from './Tooltip.tsx';
 
@@ -138,13 +138,13 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, actio
  * one per line as it scrolls (measured: those cost frames). Its label is its
  * accessible name and title.
  */
-export function LineAction({label, onClick}: {label: string; onClick: () => void}) {
+export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<'button'>) {
   return (
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
       {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
-      <button type="button" tabIndex={-1} aria-label={label} title={label} onClick={onClick}
+      <button type="button" tabIndex={-1} aria-label={label} title={label} {...props}
         className="interactive flex size-control-sm items-center justify-center rounded-sm bg-accent text-fg-on-accent hover:bg-accent-hover">
-        +
+        {children}
       </button>
     </span>
   );

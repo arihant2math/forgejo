@@ -338,12 +338,42 @@ func apiDiff(w http.ResponseWriter, req *http.Request) {
 		base = baseCommit.ID.String()
 		etag = base + ".." + head.ID.String()
 	}
-	if immutable(w, req, etag) {
+	whitespace := req.URL.Query().Get("whitespace")
+	flag, valid := diffWhitespaceFlag(whitespace)
+	if !valid {
+		a.error(http.StatusBadRequest, "whitespace must be ignore-all, ignore-change or ignore-eol")
+		return
+	}
+	if immutable(w, req, etag+":"+whitespace) {
 		return
 	}
 	a.stream("text/plain; charset=utf-8", func(out io.Writer) error {
-		return git.GetRepoRawDiffForFile(gitRepo, base, head.ID.String(), git.RawDiffNormal, "", out)
+		cmd := git.NewCommand(gitRepo.Ctx, "diff", "-M")
+		switch flag {
+		case "-w":
+			cmd.AddArguments("-w")
+		case "-b":
+			cmd.AddArguments("-b")
+		case "--ignore-space-at-eol":
+			cmd.AddArguments("--ignore-space-at-eol")
+		}
+		return cmd.AddDynamicArguments(base, head.ID.String()).AddArguments("--").Run(&git.RunOpts{Dir: gitRepo.Path, Stdout: out})
 	})
+}
+
+func diffWhitespaceFlag(value string) (string, bool) {
+	switch value {
+	case "":
+		return "", true
+	case "ignore-all":
+		return "-w", true
+	case "ignore-change":
+		return "-b", true
+	case "ignore-eol":
+		return "--ignore-space-at-eol", true
+	default:
+		return "", false
+	}
 }
 
 // stream answers an immutable response (its headers set) with what run

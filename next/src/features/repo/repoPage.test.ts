@@ -10,16 +10,16 @@ describe('tabOfPath', () => {
     for (const path of [
       '/acme/website',
       '/acme/website/',
-      '/-/next/code/acme/website/-',
-      '/-/next/code/acme/website/src/branch/main/-',
-      '/-/next/code/acme/website/src/branch/main/README.md/-',
-      '/-/next/code/acme/website/blame/branch/main/README.md/-',
-      '/-/next/code/acme/website/commits/branch/main/-',
-      '/-/next/code/acme/website/commit/0123456789abcdef0123456789abcdef01234567/-',
-      '/-/next/code/acme/website/compare/main...small/-',
-      '/-/next/code/acme/website/branches/-',
-      '/-/next/code/acme/website/tags/-',
-      '/-/next/code/acme/website/releases/-',
+      '/acme/website',
+      '/acme/website/src/branch/main',
+      '/acme/website/src/branch/main/README.md',
+      '/acme/website/blame/branch/main/README.md',
+      '/acme/website/commits/branch/main',
+      '/acme/website/commit/0123456789abcdef0123456789abcdef01234567',
+      '/acme/website/compare/main...small',
+      '/acme/website/branches',
+      '/acme/website/tags',
+      '/acme/website/releases',
     ]) expect(tabOfPath(path), path).toBe('code');
   });
 
@@ -28,8 +28,8 @@ describe('tabOfPath', () => {
     expect(tabOfPath('/acme/website/wiki/Home/-/edit')).toBe('wiki');
     expect(tabOfPath('/acme/website/issues')).toBe('issues');
     expect(tabOfPath('/acme/website/pulls')).toBe('pulls');
-    expect(tabOfPath('/-/next/code/acme/website/actions/-')).toBe('actions');
-    expect(tabOfPath('/-/next/code/acme/website/actions/runs/4/-')).toBe('actions');
+    expect(tabOfPath('/acme/website/actions')).toBe('actions');
+    expect(tabOfPath('/acme/website/actions/runs/4')).toBe('actions');
     expect(tabOfPath('/acme/website/settings')).toBe('settings');
     expect(tabOfPath('/acme/website/settings/hooks')).toBe('settings');
     for (const path of ['/acme/website/activity', '/acme/website/activity/monthly', '/acme/website/activity/contributors']) expect(tabOfPath(path), path).toBe('activity');
@@ -41,7 +41,7 @@ describe('tabOfPath', () => {
     expect(tabOfPath('/acme')).toBeUndefined();
     expect(tabOfPath('/')).toBeUndefined();
     expect(tabOfPath('/acme/website/forks')).toBeUndefined();
-    expect(tabOfPath('/-/next/code/acme/website/nonsense/-')).toBeUndefined();
+    expect(tabOfPath('/acme/website/nonsense')).toBeUndefined();
     expect(tabOfPath('/-/next/acme/website/settings')).toBeUndefined();
     expect(tabOfPath('/-/next/projects/3')).toBeUndefined();
   });

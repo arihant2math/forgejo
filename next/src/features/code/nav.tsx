@@ -1,10 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Links into the code views and the repository's tab bar. Code URLs live
-// below the UI's base (`/-/next/code/{owner}/{repo}/…`; B8's spaRoutes has no
-// canonical code routes yet): the part after the repository mirrors
-// Forgejo's own URL, so the classic page is the same path without the prefix.
+// Links into the code views and the repository's tab bar. Code views are at
+// Forgejo's own addresses (`/{owner}/{repo}/src/branch/main/README.md`,
+// `commit/<sha>`, `compare/a...b`, …: spa.go codeAddress serves the app for
+// them), so a code page's address is also its classic page's.
 // The repository's tab bar is features/repo/repoPage.tsx (every repository page).
 
 import {Link, type LinkProps, useNavigate} from '@tanstack/react-router';
@@ -12,19 +12,13 @@ import {sitePath} from '../../app/config.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import type {ReactNode} from 'react';
-import {withEnd} from '../../code/refs.ts';
+import {codeParams} from '../../code/refs.ts';
 
-export const CODE_ROUTE = '/-/next/code/$owner/$repo/$';
+export const CODE_ROUTE = '/$owner/$repo/$view/$';
 
-/**
- * Where a code path goes (router `to` + params). Code URLs end in a "-"
- * segment (code/refs.ts END): B8 answers 404 for a path below the UI's base
- * whose last segment has an extension (it takes it for a build asset), and a
- * file ("README.md") or a ref ("v1.2") would be one; Forgejo strips a
- * trailing slash before B8 sees it.
- */
+/** Where a code path goes (router `to` + params): `splat` is what follows the repository ("src/branch/main/README.md"). */
 export function codeTo(owner: string, repo: string, splat: string) {
-  return {to: CODE_ROUTE, params: {owner, repo, _splat: withEnd(splat)}} as const;
+  return {to: CODE_ROUTE, params: {owner, repo, ...codeParams(splat)}} as const;
 }
 
 export interface CodeLinkProps {

@@ -30,6 +30,6 @@ test('a commit keyword closes an issue and its timeline link opens the commit', 
   await expect(event).toBeVisible();
   const link = event.getByRole('link', {name: new RegExp(subject)});
   await link.click();
-  await expect(page).toHaveURL(/\/code\/[^/]+\/[^/]+\/commit\/[a-f0-9]+\/-/);
+  await expect(page).toHaveURL(/\/[^/]+\/[^/]+\/commit\/[a-f0-9]{40}$/);
   await expect(page.getByText(subject, {exact: true}).first()).toBeVisible();
 });

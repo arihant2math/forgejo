@@ -75,7 +75,7 @@ test('a pasted compare address opens the form with Forgejo\'s proposal; Create o
   const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
   await router.load();
   render(<App app={app} router={router}/>);
-  expect(router.state.location.pathname).toBe('/-/next/code/acme/website/compare/main...fix/footer/-');
+  expect(router.state.location.pathname).toBe('/acme/website/compare/main...fix/footer');
   // One commit: its summary is the title, the rest of its message the description.
   const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
   expect(title.value).toBe('Fix the footer links');
@@ -98,7 +98,7 @@ test('without a head: the branches to propose; an open pull request is linked in
   const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare']}));
   await router.load();
   const r = render(<App app={app} router={router}/>);
-  expect(router.state.location.pathname).toBe('/-/next/code/acme/website/compare/-');
+  expect(router.state.location.pathname).toBe('/acme/website/compare');
   // (The rows are virtualized: jsdom lays out none of them. headChoices orders them: proposal.test.ts.)
   expect(await screen.findByText('Choose a branch to merge into main')).toBeTruthy();
   expect(screen.getByRole('listbox', {name: 'Branches'})).toBeTruthy();

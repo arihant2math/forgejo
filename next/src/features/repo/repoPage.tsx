@@ -21,7 +21,6 @@ import {classicOfHere} from '../../app/session.ts';
 import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {withEnd} from '../../code/refs.ts';
 import {
   Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
 } from '../../ui/index.ts';
@@ -154,22 +153,18 @@ type Tab = 'code' | 'issues' | 'pulls' | 'actions' | 'activity' | 'wiki' | 'sett
 
 /**
  * The code views that are the Code tab, as GitHub's Code tab stays selected on a repository's files, history,
- * branches, tags and releases ("" and "-": the code route's root).
+ * branches, tags and releases.
  */
-const CODE_VIEWS = new Set(['', '-', 'src', 'blame', 'commit', 'commits', 'compare', 'branches', 'tags', 'releases']);
+const CODE_VIEWS = new Set(['src', 'blame', 'commit', 'commits', 'compare', 'branches', 'tags', 'releases']);
 
 /** Which tab a route belongs to (site path): the repository's home is the Code tab. */
 export function tabOfPath(path: string): Tab {
   const segs = path.split('/').filter(Boolean);
-  if (segs[0] === '-') {
-    if (segs[1] !== 'next' || segs[2] !== 'code' || segs.length < 5) return undefined;
-    const head = segs[5] ?? '';
-    if (head === 'actions') return 'actions';
-    return CODE_VIEWS.has(head) ? 'code' : undefined;
-  }
-  if (segs.length < 2) return undefined;
+  if (segs[0] === '-' || segs.length < 2) return undefined;
   const kind = segs[2];
   if (kind === undefined) return 'code';
+  if (kind === 'actions') return 'actions';
+  if (CODE_VIEWS.has(kind)) return 'code';
   // Labels and milestones are the Issues tab's (GitHub's).
   if (ISSUE_SECTIONS.has(kind)) return 'issues';
   return kind === 'issues' || kind === 'pulls' || kind === 'activity' || kind === 'wiki' || kind === 'settings' ? kind : undefined;
@@ -194,7 +189,7 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
   const navigate = useNavigate();
   const cur = (t: Tab) => ({'aria-current': tab === t ? 'page' as const : undefined, activeProps: {}, activeOptions: {exact: true, includeSearch: false}});
   const admin = repoId !== undefined && repoAccess(s, repoId) === 'admin';
-  const code = {to: '/-/next/code/$owner/$repo/$', params: {owner, repo, _splat: withEnd('actions')}} as const;
+  const code = {to: '/$owner/$repo/$view/$', params: {owner, repo, view: 'actions', _splat: ''}} as const;
   const projects: RepoTab = {
     key: 'projects',
     tab: <TabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></TabLink>,

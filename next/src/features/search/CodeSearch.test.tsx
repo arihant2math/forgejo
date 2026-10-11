@@ -29,9 +29,9 @@ test('repository results contain safe highlighted text and commit-pinned line li
   const router = await mount('/search?type=code&repoId=10&q=symbol');
   const row = await screen.findByRole('option', {name: 'alice/project / src/main.ts:7'});
   // The app's own code view, at the line: no rewrite of a classic address that could lose the anchor (#207).
-  expect(row.getAttribute('href')).toBe('/-/next/code/alice/project/src/commit/abcdef/src/main.ts/-#L7');
+  expect(row.getAttribute('href')).toBe('/alice/project/src/commit/abcdef/src/main.ts#L7');
   fireEvent.click(row);
-  await waitFor(() => { expect(router.state.location.pathname).toBe('/-/next/code/alice/project/src/commit/abcdef/src/main.ts/-'); });
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/alice/project/src/commit/abcdef/src/main.ts'); });
   expect(router.state.location.hash).toBe('L7');
   router.history.back();
   await screen.findByRole('option', {name: 'alice/project / src/main.ts:7'});

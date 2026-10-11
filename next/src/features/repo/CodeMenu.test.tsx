@@ -67,8 +67,8 @@ async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]} = {})
 describe('the overview\'s file bar', () => {
   test('the branch picker, branches and tags on the left; Go to file and Code on the right, at once', async () => {
     const {container} = await renderHome();
-    expect(screen.getByRole('link', {name: '1 branch'}).getAttribute('href')).toBe('/-/next/code/acme/website/branches/-');
-    expect(screen.getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/-/next/code/acme/website/tags/-');
+    expect(screen.getByRole('link', {name: '1 branch'}).getAttribute('href')).toBe('/acme/website/branches');
+    expect(screen.getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/acme/website/tags');
     const find = screen.getByRole('button', {name: 'Go to file'});
     const code = screen.getByRole('button', {name: 'Code'});
     // GitHub's green button (Button variant success).
@@ -146,7 +146,7 @@ describe('the overview\'s file bar', () => {
     });
     fireEvent.keyDown(input, {key: 'Enter'});
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/-/next/code/acme/website/src/branch/main/README.md/-');
+      expect(router.state.location.pathname).toBe('/acme/website/src/branch/main/README.md');
     });
   });
 

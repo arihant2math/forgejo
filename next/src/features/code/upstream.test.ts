@@ -6,9 +6,9 @@ import {proposalTarget} from './upstream.ts';
 
 test('a fork\'s new branch is proposed to its upstream; a repository\'s own, to the branch it came from', () => {
   expect(proposalTarget('alice', 'atlas', 'main', 'fix', {owner: 'acme', name: 'atlas', defaultBranch: 'trunk'})).toEqual({
-    to: {to: '/-/next/code/$owner/$repo/$', params: {owner: 'acme', repo: 'atlas', _splat: 'compare/trunk...alice:fix/-'}}, into: 'acme/atlas:trunk',
+    to: {to: '/$owner/$repo/$view/$', params: {owner: 'acme', repo: 'atlas', view: 'compare', _splat: 'trunk...alice:fix'}}, into: 'acme/atlas:trunk',
   });
   expect(proposalTarget('acme', 'atlas', 'dev', 'fix', undefined)).toEqual({
-    to: {to: '/-/next/code/$owner/$repo/$', params: {owner: 'acme', repo: 'atlas', _splat: 'compare/dev...fix/-'}}, into: 'dev',
+    to: {to: '/$owner/$repo/$view/$', params: {owner: 'acme', repo: 'atlas', view: 'compare', _splat: 'dev...fix'}}, into: 'dev',
   });
 });

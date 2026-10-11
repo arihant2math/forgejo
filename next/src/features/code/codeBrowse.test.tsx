@@ -77,7 +77,7 @@ test('a history whose request dropped once is asked again on its own, and shows 
     if (drop-- > 0) throw new TypeError('Failed to fetch');
     return {status: 200, json: [apiCommit(MAIN, 'Lower the timeout')]};
   });
-  await open('/-/next/code/alice/website/commits/branch/main/-');
+  await open('/alice/website/commits/branch/main');
   expect(await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 3000})).toBeTruthy();
   expect(screen.getByText('Lower the timeout')).toBeTruthy();
   expect(fetch.mock.calls.filter(([url]) => url.startsWith('/api/v1/repos/alice/website/commits?'))).toHaveLength(2);
@@ -92,7 +92,7 @@ test('a history that cannot be loaded while connected says so with a Retry, not 
     if (down) throw new TypeError('Failed to fetch');
     return {status: 200, json: [apiCommit(MAIN, 'Lower the timeout')]};
   });
-  await open('/-/next/code/alice/website/commits/branch/main/-');
+  await open('/alice/website/commits/branch/main');
   await vi.advanceTimersByTimeAsync(1100);
   await vi.advanceTimersByTimeAsync(3100);
   expect(await screen.findByText('Could not load')).toBeTruthy();
@@ -104,21 +104,21 @@ test('a history that cannot be loaded while connected says so with a Retry, not 
 
 test('a short commit SHA opens the commit at its full SHA (#186)', async () => {
   stubForgejo((url) => (url.startsWith('/api/v1/repos/alice/website/git/commits/abc1234567?') ? {status: 200, json: apiCommit(FULL, 'Lower the timeout')} : undefined));
-  const router = await open('/-/next/code/alice/website/commit/abc1234567/-');
+  const router = await open('/alice/website/commit/abc1234567');
   await waitFor(() => {
-    expect(router.state.location.pathname).toBe(`/-/next/code/alice/website/commit/${FULL}/-`);
+    expect(router.state.location.pathname).toBe(`/alice/website/commit/${FULL}`);
   });
   // The same for a file at a short SHA (its line kept).
-  router.history.push('/-/next/code/alice/website/src/commit/abc1234567/README.md/-#L3');
+  router.history.push('/alice/website/src/commit/abc1234567/README.md#L3');
   await waitFor(() => {
-    expect(router.state.location.pathname).toBe(`/-/next/code/alice/website/src/commit/${FULL}/README.md/-`);
+    expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${FULL}/README.md`);
   });
   expect(router.state.location.hash).toBe('L3');
 });
 
 test('a short SHA that names no commit says so, not "this address does not name a code view" (#186)', async () => {
   stubForgejo(() => undefined);
-  await open('/-/next/code/alice/website/commit/abc1234567/-');
+  await open('/alice/website/commit/abc1234567');
   expect(await screen.findByText('The commit abc1234567 does not exist, or you cannot see it.')).toBeTruthy();
   expect(screen.queryByText('This address does not name a code view.')).toBeNull();
 });
@@ -140,10 +140,10 @@ test('blame links each change to the blame before it, and Raw follows the branch
     }
     return undefined;
   });
-  await open('/-/next/code/alice/website/blame/branch/main/config.go/-');
+  await open('/alice/website/blame/branch/main/config.go');
   const prior = await screen.findByRole('link', {name: 'Blame prior to this change'}, {timeout: 3000});
   // The file by its name at the parent (it was renamed by the change).
-  expect(prior.getAttribute('href')).toBe(`/-/next/code/alice/website/blame/commit/${OLDER}/conf.go/-`);
+  expect(prior.getAttribute('href')).toBe(`/alice/website/blame/commit/${OLDER}/conf.go`);
   // The first commit has no earlier one: one such link.
   expect(screen.getAllByRole('link', {name: 'Blame prior to this change'})).toHaveLength(1);
   expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('href')).toBe('/alice/website/raw/branch/main/config.go');

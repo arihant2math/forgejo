@@ -107,23 +107,17 @@ function routePattern(href: string): string {
     out.push('-', 'next');
     const rest = segs.slice(2);
     if (rest[0] === 'code') {
-      // code/:owner/:repo/<view>[/<kind>[/<ref>[/…path]]]/-
+      // A former code address: code/:owner/:repo/<view>[/<kind>[/<ref>[/…path]]]/- (the app goes on to the code page).
       const [, , , view = '', ...tail] = rest;
-      const path = tail.filter((s) => s !== '-');
-      out.push('code', ':owner', ':repo', view);
-      if (['src', 'blame', 'commits'].includes(view) && ['branch', 'tag', 'commit'].includes(path[0] ?? '')) {
-        out.push(path[0] ?? '', ':ref');
-        const file = path.slice(2);
-        // A name with an extension is taken for a file (".forgejo", "Makefile" are taken for directories).
-        if (file.length) out.push(/^[^.].*\.\w+$/.test(file.at(-1) ?? '') ? ':file' : ':dir');
-      } else {
-        out.push(...path.map((s, i) => (view === 'compare' || (view === 'branches' && i === 0) ? ':refs' : word(s))));
-      }
+      out.push('code', ':owner', ':repo', ...codePattern(view, tail.filter((s) => s !== '-')));
     } else if (rest.length === 1 && !['boards', 'gallery'].includes(rest[0] ?? '')) {
       out.push(':owner');
     } else {
       out.push(...rest.map(word));
     }
+  } else if (segs.length > 2 && CODE_VIEWS.has(segs[2] ?? '')) {
+    // A code page: /:owner/:repo/<view>[/<kind>[/<ref>[/…path]]].
+    out.push(':owner', ':repo', ...codePattern(segs[2] ?? '', segs.slice(3)));
   } else if (segs.length >= 1 && !['notifications', 'issues', 'pulls'].includes(segs[0] ?? '')) {
     out.push(':owner', ...(segs.length > 1 ? [':repo'] : []), ...segs.slice(2).map(word));
   } else {
@@ -132,6 +126,20 @@ function routePattern(href: string): string {
   const keys = [...url.searchParams.keys()].filter((k) => k !== 'q').sort()
     .map((k) => (['tab', 'type', 'filter', 'state', 'group'].includes(k) ? `${k}=${url.searchParams.get(k) ?? ''}` : k));
   return `/${out.join('/')}${keys.length ? `?${keys.join('&')}` : ''}`;
+}
+
+/** The first segments after a repository that name a code page (spa.go codeAddress). */
+const CODE_VIEWS = new Set(['src', 'blame', 'commits', 'commit', 'branches', 'tags', 'releases', 'actions', 'compare']);
+
+/** A code page's path after the repository as a pattern: refs, SHAs and file paths become placeholders. */
+function codePattern(view: string, path: string[]): string[] {
+  const word = (s: string) => (/^\d+$/.test(s) ? ':n' : /^[\da-f]{40}$/.test(s) ? ':sha' : s);
+  if (['src', 'blame', 'commits'].includes(view) && ['branch', 'tag', 'commit'].includes(path[0] ?? '')) {
+    const file = path.slice(2);
+    // A name with an extension is taken for a file (".forgejo", "Makefile" are taken for directories).
+    return [view, path[0] ?? '', ':ref', ...(file.length ? [/^[^.].*\.\w+$/.test(file.at(-1) ?? '') ? ':file' : ':dir'] : [])];
+  }
+  return [view, ...path.map((s, i) => (view === 'compare' || (view === 'branches' && i === 0) ? ':refs' : word(s)))];
 }
 
 /** Whether a same-origin URL is a page of the app (SPA-only routes, or a canonical route not asking for the classic page). */
@@ -363,7 +371,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     }
     // The palette's navigation commands (once each).
     const path = new URL(url).pathname;
-    const inRepo = /^\/(?!-\/)[^/]+\/[^/]+/.test(path) || path.startsWith('/-/next/code/');
+    const inRepo = /^\/(?!-\/)[^/]+\/[^/]+/.test(path);
     const commands = [...PALETTE, ...(inRepo ? PALETTE_IN_REPO : [])];
     for (const label of commands) {
       if (patterns.has(`palette:${label}`) || depth >= MAX_DEPTH) continue;
@@ -467,7 +475,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     `/${USER}/${REPO}/issues/new`,
   ];
   // A repository's classic page comes back to that repository (its home, a tab, its boards), never to Home.
-  const repoPrefix = [`/${USER}/${REPO}`, `/-/next/code/${USER}/${REPO}/`, '/-/next/boards', '/-/next/projects/'];
+  const repoPrefix = [`/${USER}/${REPO}`, '/-/next/boards', '/-/next/projects/'];
   for (const path of classicPages) {
     await page.goto(new URL(path, BASE).href);
     await page.waitForLoadState('domcontentloaded');

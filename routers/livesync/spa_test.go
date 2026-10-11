@@ -146,7 +146,10 @@ func TestSPARoute(t *testing.T) {
 		"/user2/repo1/src/x":                                           false,
 		"/user2/repo1/commits/branch/master":                           true,
 		"/user2/repo1/commit/65f1bf27bc3bf70f64657658635e66094edbcb4d": true,
-		"/user2/repo1/commit/65f1bf2":                                  false,
+		"/user2/repo1/commit/65f1bf2":                                  true, // an abbreviation: the app looks it up
+		"/user2/repo1/commit/65f":                                      false,
+		"/user2/repo1/commit/master":                                   false,
+		"/user2/repo1/src/branch/master/issues/new":                    true, // a file named like a repository page
 		"/user2/repo1/branches":                                        true,
 		"/user2/repo1/branches/x":                                      false,
 		"/user2/repo1/releases":                                        true,

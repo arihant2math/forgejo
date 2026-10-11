@@ -110,13 +110,13 @@ test('a commit to a new branch without a pull request opens the file on that bra
   });
   expect(mocks.write.mock.calls[0]?.[1]).toMatchObject({method: 'PUT', body: {branch: 'main', new_branch: 'verify-nopr'}});
   expect(mocks.session.data.whenSynced).toHaveBeenCalledWith('repo:20', 41, expect.anything());
-  expect(mocks.navigate).toHaveBeenCalledWith({to: '/-/next/code/$owner/$repo/$', params: {owner: 'acme', repo: 'design', _splat: 'src/branch/verify-nopr/docs/spacing.md/-'}});
+  expect(mocks.navigate).toHaveBeenCalledWith({to: '/$owner/$repo/$view/$', params: {owner: 'acme', repo: 'design', view: 'src', _splat: 'branch/verify-nopr/docs/spacing.md'}});
   const notice = mocks.notify.mock.calls[0]?.[1] as {tone: string; title: string; action?: {label: string; run: () => void}};
   expect(notice).toMatchObject({tone: 'success', title: 'Committed to verify-nopr'});
   // The way on to a pull request, from the notice.
   expect(notice.action?.label).toBe('Open a pull request');
   notice.action?.run();
-  expect(mocks.navigate).toHaveBeenLastCalledWith(expect.objectContaining({params: {owner: 'acme', repo: 'design', _splat: 'compare/main...verify-nopr/-'}, search: {expand: '1'}}));
+  expect(mocks.navigate).toHaveBeenLastCalledWith(expect.objectContaining({params: {owner: 'acme', repo: 'design', view: 'compare', _splat: 'main...verify-nopr'}, search: {expand: '1'}}));
   mocks.branches.delete('verify-nopr');
 });
 
@@ -125,7 +125,7 @@ test('a direct commit lands on its branch; before the sync has it, on the commit
   mocks.write.mockResolvedValue({value: {commit: {sha: head}}, syncId: undefined});
   await commit(() => undefined);
   // The pool still has main at its old head: the file at the new commit, and the notice names the branch.
-  expect(mocks.navigate).toHaveBeenCalledWith({to: '/-/next/code/$owner/$repo/$', params: {owner: 'acme', repo: 'design', _splat: `src/commit/${head}/docs/spacing.md/-`}});
+  expect(mocks.navigate).toHaveBeenCalledWith({to: '/$owner/$repo/$view/$', params: {owner: 'acme', repo: 'design', view: 'src', _splat: `commit/${head}/docs/spacing.md`}});
   const notice = mocks.notify.mock.calls[0]?.[1] as {action?: unknown} | undefined;
   expect(notice).toMatchObject({tone: 'success', title: 'Committed to main'});
   expect(notice?.action).toBeUndefined();
@@ -159,7 +159,7 @@ test('in a fork, the new branch\'s pull request is proposed to the upstream, as 
   });
   // The upstream's comparison with the fork's branch (acme's own fork: owner/repo:branch), the form open.
   expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({
-    params: {owner: 'acme', repo: 'design-upstream', _splat: 'compare/trunk...acme/design:fix-typo/-'}, search: {expand: '1'},
+    params: {owner: 'acme', repo: 'design-upstream', view: 'compare', _splat: 'trunk...acme/design:fix-typo'}, search: {expand: '1'},
   }));
   expect(mocks.notify).not.toHaveBeenCalled();
   mocks.branches.delete('fix-typo');
@@ -182,7 +182,7 @@ test('in a fork, the notice\'s pull request action goes to the upstream (#173)',
   expect(notice.action?.label).toBe('Open a pull request into upstream-org/design:main');
   notice.action?.run();
   expect(mocks.navigate).toHaveBeenLastCalledWith(expect.objectContaining({
-    params: {owner: 'upstream-org', repo: 'design', _splat: 'compare/main...acme:later/-'}, search: {expand: '1'},
+    params: {owner: 'upstream-org', repo: 'design', view: 'compare', _splat: 'main...acme:later'}, search: {expand: '1'},
   }));
   mocks.branches.delete('later');
 });

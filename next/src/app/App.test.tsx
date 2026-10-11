@@ -248,11 +248,11 @@ describe('signed in', () => {
     const files = screen.getByRole('region', {name: 'Files'});
     expect(picker.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(files.contains(picker)).toBe(false);
-    expect(screen.getByRole('link', {name: '2 branches'}).getAttribute('href')).toBe('/-/next/code/acme/website/branches/-');
-    expect(screen.getByRole('link', {name: '0 tags'}).getAttribute('href')).toBe('/-/next/code/acme/website/tags/-');
+    expect(screen.getByRole('link', {name: '2 branches'}).getAttribute('href')).toBe('/acme/website/branches');
+    expect(screen.getByRole('link', {name: '0 tags'}).getAttribute('href')).toBe('/acme/website/tags');
     expect(files.contains(screen.getByRole('button', {name: 'Go to file'}))).toBe(false);
     expect(files.contains(screen.getByRole('button', {name: 'Code'}))).toBe(false);
-    expect(screen.getByRole('link', {name: 'History'}).getAttribute('href')).toBe('/-/next/code/acme/website/commits/branch/main/-');
+    expect(screen.getByRole('link', {name: 'History'}).getAttribute('href')).toBe('/acme/website/commits/branch/main');
     expect(screen.getByRole('link', {name: 'Tip of main'})).toBeTruthy();
     expect(screen.queryByRole('link', {name: 'Browse code'})).toBeNull();
   });
@@ -260,7 +260,7 @@ describe('signed in', () => {
   test('a repository\'s code address (spaRoutes {code}) opens the app\'s code view; a pull request\'s Files its tab', async () => {
     const s = signedIn();
     const code = await renderApp('/acme/website/src/branch/main/README.md', s);
-    expect(code.router.state.location.pathname).toBe('/-/next/code/acme/website/src/branch/main/README.md/-');
+    expect(code.router.state.location.pathname).toBe('/acme/website/src/branch/main/README.md');
     code.unmount();
     const files = await renderApp('/acme/website/pulls/3/files', s);
     expect(files.router.state.location.pathname).toBe('/acme/website/pulls/3');
@@ -382,7 +382,7 @@ describe('signed in', () => {
       id: 1, repo_id: 20, name: 'feature/x', commit_id: 'a'.repeat(40), commit_message: '', commit_time: '', pusher_id: 1,
       is_deleted: false, deleted_by_id: 0, created_at: '', updated_at: '',
     });
-    const {app} = await renderApp('/-/next/code/acme/website/src/branch/feature/x/-', session);
+    const {app} = await renderApp('/acme/website/src/branch/feature/x', session);
     await screen.findByRole('navigation', {name: 'Repository'});
     key('k', {ctrlKey: true});
     const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
@@ -422,7 +422,7 @@ describe('signed in', () => {
       fireEvent.change(reopened, {target: {value: 'branches'}});
       await waitFor(() => { expect(selected()).toContain('Go to Branches of acme/website'); });
       fireEvent.keyDown(reopened, {key: 'Enter'});
-      await waitFor(() => { expect(router.state.location.pathname).toBe('/-/next/code/acme/website/branches/-'); });
+      await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/branches'); });
     } finally {
       Reflect.deleteProperty(navigator, 'clipboard');
     }

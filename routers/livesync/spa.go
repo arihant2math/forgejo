@@ -122,10 +122,10 @@ var wikiReserved = map[string]bool{"raw": true, "search": true, "_pages": true, 
 var reTempIssue = regexp.MustCompile(`^new-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$`)
 
 // codeAddress reports whether the segments after a repository name a code
-// page the UI renders (its code views below the base mirror these paths:
+// page the UI renders (its code views are at these addresses:
 // next/src/code/refs.ts parseCodePath) or a pull request's Files or
-// Commits tab: a pasted /{owner}/{repo}/src/branch/main/README.md opens
-// the UI's page, as the issue and pull request addresses do. Keep in step
+// Commits tab: /{owner}/{repo}/src/branch/main/README.md is the UI's code
+// page, as the issue and pull request addresses are its pages. Keep in step
 // with isSpaRoute in next/src/sw/routes.ts.
 func codeAddress(rest []string) bool {
 	if len(rest) == 0 {
@@ -151,7 +151,9 @@ func codeAddress(rest []string) bool {
 		}
 		return false
 	case "commit":
-		return len(rest) == 2 && shaPattern.MatchString(rest[1])
+		// A full SHA, or an abbreviation (`git log --oneline`'s): the app
+		// looks it up and goes on to the full SHA's address.
+		return len(rest) == 2 && (shaPattern.MatchString(rest[1]) || abbrevPattern.MatchString(rest[1]))
 	case "branches", "tags":
 		return len(rest) == 1
 	case "releases":
@@ -203,8 +205,12 @@ func compareAddress(spec string) bool {
 	return !strings.HasSuffix(head, ".diff") && !strings.HasSuffix(head, ".patch")
 }
 
-// shaPattern is a full commit SHA (SHA-1 or SHA-256).
-var shaPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+// shaPattern is a full commit SHA (SHA-1 or SHA-256); abbrevPattern an
+// abbreviation of one (next/src/code/refs.ts abbreviatedCommit).
+var (
+	shaPattern    = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+	abbrevPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,63}$`)
+)
 
 // spaRoute reports whether p (normalised, without the sub-path) is a
 // route of spaRoutes.
@@ -951,8 +957,9 @@ func (s *spa) serveRoot(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-	// A missing root file is not found; a code view's address keeps its file's or ref's dots
-	// (/-/next/code/{owner}/{repo}/src/branch/main/README.md, compare/release/0.2...main).
+	// A missing root file is not found; a code view's former address keeps its file's or ref's dots
+	// (/-/next/code/{owner}/{repo}/src/branch/main/README.md, compare/release/0.2...main): the UI goes on
+	// to the code page's own address (/{owner}/{repo}/src/branch/main/README.md).
 	if path.Ext(p) != "" && !strings.HasPrefix(p, "code/") {
 		notFound(w, req)
 		return

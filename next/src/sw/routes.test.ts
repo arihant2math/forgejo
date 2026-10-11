@@ -16,6 +16,12 @@ test('canonical routes (B8 spaRoutes) and the rest', () => {
   for (const p of ['/acme/repo/compare/main..feature', '/acme/repo/compare/main...feature.diff', '/acme/repo/compare/feature.patch', '/acme/repo/compare/main...', '/acme/repo/compare/...x']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
+  // Code pages are at Forgejo's addresses (spa.go codeAddress), a commit by an abbreviated SHA too; a file is a file
+  // whatever its name.
+  for (const p of ['/acme/repo/src', '/acme/repo/src/branch/main/README.md', '/acme/repo/src/branch/main/issues/new', '/acme/repo/src/branch/main/-',
+    '/acme/repo/blame/tag/v1/a.go', '/acme/repo/commits/branch/main', `/acme/repo/commit/${'a'.repeat(40)}`, '/acme/repo/commit/65f1bf2', '/acme/repo/branches', '/acme/repo/tags',
+    '/acme/repo/actions', '/acme/repo/actions/runs/3/jobs/0', '/acme/repo/pulls/2/files']) expect(isSpaRoute(p), p).toBe(true);
+  for (const p of ['/acme/repo/src/x', '/acme/repo/commit/65f', '/acme/repo/commit/main', '/acme/repo/branches/x', '/acme/repo/src/branch/main/../../settings']) expect(isSpaRoute(p), p).toBe(false);
   // A writer's release form (spa.go codeAddress): a new release, a tag's release to edit; a release's page is classic.
   for (const p of ['/acme/repo/releases', '/acme/repo/releases/new', '/acme/repo/releases/edit/v1.0', '/acme/repo/releases/edit/release/1.0']) expect(isSpaRoute(p), p).toBe(true);
   for (const p of ['/acme/repo/releases/tag/v1', '/acme/repo/releases/edit', '/acme/repo/releases/new/x', '/acme/repo/releases/latest']) expect(isSpaRoute(p), p).toBe(false);

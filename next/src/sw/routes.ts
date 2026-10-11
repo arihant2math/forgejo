@@ -4,7 +4,7 @@
 // What the service worker (sw.ts) decides about a request, as pure
 // functions (tested in routes.test.ts against B8's spaRoutes table).
 
-import {parseCodePath} from '../code/refs.ts';
+import {abbreviatedCommit, parseCodePath} from '../code/refs.ts';
 import {parseWikiRest} from '../features/wiki/paths.ts';
 
 /** The service worker's caches are named with this prefix and the build version. */
@@ -124,7 +124,8 @@ function codeAddress(rest: string[]): boolean {
     if (rest.length === 1) return true;
     return (second === 'branch' || second === 'tag' || second === 'commit') && rest.length >= 3 && parseCodePath(rest.join('/')) !== undefined;
   }
-  return head !== undefined && head !== 'src' && parseCodePath(rest.join('/')) !== undefined;
+  // A commit by an abbreviation of its SHA too (the app looks it up).
+  return head !== undefined && head !== 'src' && (parseCodePath(rest.join('/')) !== undefined || (head === 'commit' && abbreviatedCommit(rest.join('/')) !== undefined));
 }
 
 /** The owner page's sections the app has (spa.go `appProfileTabs`): `/{owner}?tab=stars` is the app's. */

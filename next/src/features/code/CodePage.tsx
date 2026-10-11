@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The code views of a repository (PLAN §5.7, §7.1 Code), one route
-// (`/-/next/code/{owner}/{repo}/*`, its own chunk): source (directories,
+// (`/{owner}/{repo}/*`, Forgejo's addresses; its own chunk): source (directories,
 // files, blame), history (commits, one commit), branches, tags, releases,
 // compare, a writer's release form, and Actions (runs, jobs, live logs). Every git read is addressed
 // by SHA and cached (code/source.ts); refs resolve from the synced branches
@@ -12,8 +12,9 @@ import {useNavigate, useParams} from '@tanstack/react-router';
 import {Code2} from 'lucide-react';
 import {type ReactNode, useEffect, useState} from 'react';
 import {PageBody} from '../../app/shell/Frame.tsx';
-import {abbreviatedCommit, parseCodePath, shortSha} from '../../code/refs.ts';
+import {abbreviatedCommit, codeRestOf, parseCodePath, shortSha} from '../../code/refs.ts';
 import {Missing} from '../../app/Missing.tsx';
+import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {ActionsView, RunView} from './Actions.tsx';
 import {CompareView} from './Compare.tsx';
@@ -68,10 +69,19 @@ export function CodeFrame({view, title, controls, docTitle, children}: {
   );
 }
 
-export const CodePage = observer(function CodePage() {
+/**
+ * The code route's page (`/{owner}/{repo}/…`): a code view, or — for another address of a repository the app has no
+ * page for (`/acme/atlas/settings/units`) — the not-found page with the classic one.
+ */
+export function CodePage() {
+  const splat = codeRestOf(useParams({strict: false}));
+  return parseCodePath(splat) || abbreviatedCommit(splat) ? <CodeViews/> : <ShellNotFound/>;
+}
+
+const CodeViews = observer(function CodeViews() {
   const {owner, repo, repoId} = useRepoPage();
   const pool = usePool();
-  const {_splat: splat = ''} = useParams({strict: false});
+  const splat = codeRestOf(useParams({strict: false}));
   if (repoId === undefined) {
     return (
       <>
@@ -96,7 +106,7 @@ export const CodePage = observer(function CodePage() {
   if (!route) {
     return (
       <CodeFrame view={props} title="Code">
-        {() => <Missing what="This page" description="This address does not name a code view." classic={`/${[owner, repo, ...splat.replace(/\/?-$/, '').split('/').filter(Boolean)].map(encodeURIComponent).join('/')}`}/>}
+        {() => <Missing what="This page" description="This address does not name a code view." classic={`/${[owner, repo, ...splat.split('/').filter(Boolean)].map(encodeURIComponent).join('/')}`}/>}
       </CodeFrame>
     );
   }

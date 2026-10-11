@@ -1,10 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code URLs and refs (PLAN §3): everything below `/-/next/code/{owner}/{repo}/`
-// mirrors Forgejo's own URL shapes (`src/branch/main/dir/file`,
-// `commit/<sha>`, `compare/a...b`, …), so the canonical URL is the same path
-// without the prefix. The only mutable step, ref → SHA, is answered from the
+// Code URLs and refs (PLAN §3): the code views are at Forgejo's own addresses
+// (`/{owner}/{repo}/src/branch/main/dir/file`, `commit/<sha>`, `compare/a...b`,
+// …; spa.go codeAddress), parsed here from what follows the repository. The
+// former addresses below the base (`/-/next/code/{owner}/{repo}/…/-`) go on to
+// them (legacyCodeSplat). The only mutable step, ref → SHA, is answered from the
 // synced Branch and Release (tag) entities: offline too, and never stale
 // beyond the pool. Pure.
 
@@ -38,7 +39,6 @@ const ABBREVIATION = /^[0-9a-f]{4,63}$/i;
  */
 export function abbreviatedCommit(splat: string): {abbreviation: string; full: (sha: string) => string} | undefined {
   const segs = splat.split('/').filter((s) => s !== '');
-  if (segs.at(-1) === END) segs.pop();
   if (segs.some((s) => s === '.' || s === '..')) return undefined;
   // `commit/<abbr>`, or a view at a commit: `src|blame|commits/commit/<abbr>[/path]`.
   const at = segs[0] === 'commit' && segs.length === 2 ? 1 :
@@ -52,21 +52,37 @@ export function abbreviatedCommit(splat: string): {abbreviation: string; full: (
 }
 
 /**
- * The last segment of every code URL the UI makes: the server takes a path
- * below the UI's base ending in "name.ext" for a build file (404), and a file
- * or a ref ("v1.2") would end so. Exactly one final END is dropped when parsing.
+ * The last segment of the code views' former addresses below the base (`/-/next/code/{owner}/{repo}/…/-`: the
+ * server took a path there ending in "name.ext" for a build file). Such an address still opens: its splat without
+ * exactly one final END is the code path (a file named "-" keeps its own segment).
  */
 export const END = '-';
 
-/** A code path with its END segment. */
-export function withEnd(splat: string): string {
-  return `${splat.replace(/\/+$/, '')}/${END}`;
-}
-
-/** Parses the part of a code URL after `/-/next/code/{owner}/{repo}/` (the router's decoded splat). */
-export function parseCodePath(splat: string): CodeRoute | undefined {
+/** The code path of a former code address's splat (`src/branch/main/README.md/-` → `src/branch/main/README.md`). */
+export function legacyCodeSplat(splat: string): string {
   const segs = splat.split('/').filter((s) => s !== '');
   if (segs.at(-1) === END) segs.pop();
+  return segs.join('/');
+}
+
+/**
+ * What follows the repository in the code route's address (`/$owner/$repo/$view/$`: its first segment, then the
+ * rest), as one path ("src/branch/main/README.md").
+ */
+export function codeRestOf(params: {view?: string | undefined; _splat?: string | undefined}): string {
+  return [params.view ?? '', params._splat ?? ''].join('/').replace(/^\/+|\/+$/g, '');
+}
+
+/** The code route's params for a code path (codeRestOf's inverse). */
+export function codeParams(rest: string): {view: string; _splat: string} {
+  const path = rest.replace(/^\/+|\/+$/g, '');
+  const at = path.indexOf('/');
+  return at < 0 ? {view: path, _splat: ''} : {view: path.slice(0, at), _splat: path.slice(at + 1)};
+}
+
+/** Parses the part of a code URL after `/{owner}/{repo}/` (the router's decoded splat). */
+export function parseCodePath(splat: string): CodeRoute | undefined {
+  const segs = splat.split('/').filter((s) => s !== '');
   // "." and ".." would be resolved away when the path goes into a request URL (another repository, another
   // endpoint): never a code path (git refuses them as names too).
   if (segs.some((s) => s === '.' || s === '..')) return undefined;

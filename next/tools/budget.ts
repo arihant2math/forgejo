@@ -90,7 +90,18 @@ export function chunkCycles(manifest: Record<string, ManifestChunk>): string[] {
 export function cssProblems(sheet: string): string[] {
   const problems: string[] = [];
   // Primer's stylesheets give each token a fallback (var(--fgColor-default,#1f2328)): a token use, not a raw colour.
-  const css = sheet.replace(/,\s*#[\da-f]{3,8}(?=\s*\))/gi, '');
+  let css = sheet.replace(/,\s*#[\da-f]{3,8}(?=\s*\))/gi, '');
+  // Primer's component styles (the `primer` layer, tools/vite-plugin-primer-layer.ts) follow Primer's own motion
+  // rules (a few `transition: all`); the app's rules apply to the app's CSS.
+  for (let i = css.indexOf('@layer primer{'); i >= 0; i = css.indexOf('@layer primer{')) {
+    let depth = 0;
+    let j = i + '@layer primer'.length;
+    for (; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}' && --depth === 0) break;
+    }
+    css = css.slice(0, i) + css.slice(j + 1);
+  }
   // Custom properties are tokens; @property initial-values and #0000 (transparent) are Tailwind internals.
   for (const m of css.matchAll(/([\w-]+)\s*:\s*[^;{}]*?#(?!0000\b)[\da-f]{3,8}\b/gi)) {
     if (!m[1]?.startsWith('--') && m[1] !== 'initial-value') problems.push(`raw colour outside a token: ${m[0].slice(0, 80)}`);
@@ -167,7 +178,7 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
       seen.add(key);
       if (!loaded.has(chunk.file)) problems.push(`${chunk.file}: needed at boot but not preloaded`);
       // CSS of a boot chunk would be fetched late by the preload helper (only the page's own sheet is inlined).
-      for (const css of chunk.css ?? []) problems.push(`${css}: CSS of boot chunk ${chunk.file} is not inlined; import it from app.css`);
+      for (const css of chunk.css ?? []) if (!loaded.has(css)) problems.push(`${css}: CSS of boot chunk ${chunk.file} is neither inlined nor linked from the page; import it from app.css`);
       for (const dep of chunk.imports ?? []) visit(dep, seen);
     };
     const seen = new Set<string>();

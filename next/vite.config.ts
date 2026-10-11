@@ -39,9 +39,9 @@ export function vendorChunk(id: string): string | null {
   if (radix?.[1] && radixPrimitives.has(radix[1])) return `vendor-radix-ui-${radix[1]}`;
   if (pkg.startsWith('@radix-ui/')) return radixFocus.has(pkg.slice('@radix-ui/'.length)) ? 'vendor-radix-ui-focus' : 'vendor-radix-ui-internal';
   if (pkg.startsWith('@floating-ui/')) return 'vendor-floating-ui';
-  // Primer's components are split like the app's own modules: a component only a lazy route uses (and its
-  // stylesheet) loads with that route, not at boot.
-  if (pkg === '@primer/react') return null;
+  // Primer's components: one chunk (and one stylesheet), so that boot routes' components never bring a late
+  // stylesheet of their own.
+  if (pkg === '@primer/react') return 'vendor-primer-react';
   if (removeScroll.has(pkg)) return 'vendor-react-remove-scroll';
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
@@ -100,14 +100,15 @@ export default defineConfig({
             {name: vendorChunk, debugName: 'vendor'},
             // Only static entry dependencies: lazy views stay lazy. Include
             // Vite's preload helper so it cannot form a cycle through the entry.
-            // Primer's modules the boot route needs join it (left to the default splitting they land in the
-            // entry chunk, which app-boot then imports: a cycle).
-            {name: 'app-boot', test: (id) => (/[\\/]src[\\/]/.test(id) && !id.endsWith('/src/main.tsx')) || /[\\/]node_modules[\\/]@primer[\\/]react[\\/]/.test(id) || id.includes('vite/preload-helper'), tags: ['$initial']},
+            {name: 'app-boot', test: (id) => (/[\\/]src[\\/]/.test(id) && !id.endsWith('/src/main.tsx')) || id.includes('vite/preload-helper'), tags: ['$initial']},
           ],
         },
       },
     },
   },
+  // Primer's modules import their stylesheets: Vite (not Node) loads them when a module is rendered on the server
+  // (the boot shell, tools/vite-plugin-shell.ts).
+  ssr: {noExternal: [/@primer\/react/]},
   server: {
     port: 5173,
     strictPort: true,

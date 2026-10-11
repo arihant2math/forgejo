@@ -13,11 +13,10 @@
 
 import {readFileSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
-import {createElement} from 'react';
+import {type ComponentType, createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {minifySync, type Plugin} from 'vite';
+import {createServer, minifySync, type Plugin, type ViteDevServer} from 'vite';
 import type {OutputAsset, OutputBundle, OutputChunk} from 'rolldown';
-import {BootShell} from '../src/app/BootShell.tsx';
 import {applySplash} from '../src/app/splash.ts';
 
 export interface ShellOptions {
@@ -46,7 +45,27 @@ export function staticClosure(bundle: OutputBundle, start: OutputChunk): OutputC
   return [...seen.values()];
 }
 
+/**
+ * The boot shell component, loaded through Vite's SSR module loader: it renders Primer's components, whose modules
+ * import stylesheets (Node cannot import those; Vite turns them into nothing on the server).
+ */
+async function loadBootShell(root: string, server: ViteDevServer | undefined): Promise<ComponentType> {
+  const load = async (s: ViteDevServer) => (await s.ssrLoadModule('/src/app/BootShell.tsx') as {BootShell: ComponentType}).BootShell;
+  if (server) return load(server);
+  const tmp = await createServer({
+    root, configFile: false, logLevel: 'silent', appType: 'custom',
+    server: {middlewareMode: true, hmr: false, ws: false},
+    ssr: {noExternal: [/@primer\/react/]},
+  });
+  try {
+    return await load(tmp);
+  } finally {
+    await tmp.close();
+  }
+}
+
 export function shell({bootRoutes}: ShellOptions): Plugin {
+  let server: ViteDevServer | undefined;
   let base = '/';
   let root = '';
   let outDir = '';
@@ -58,9 +77,13 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
       root = config.root;
       outDir = resolve(config.root, config.build.outDir);
     },
+    configureServer(s) {
+      server = s;
+    },
     transformIndexHtml: {
       order: 'pre',
-      handler(html) {
+      async handler(html) {
+        const BootShell = await loadBootShell(root, server);
         return html
           .replace('<!--next:splash-->', () => `<script>${splashScript()}</script>`)
           .replace('<!--next:boot-shell-->', () => renderToStaticMarkup(createElement(BootShell)));
@@ -73,9 +96,11 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
         if (page?.type !== 'asset') return;
         let html = String(page.source);
 
-        // Inline the stylesheet(s) Vite linked from the page.
+        // Inline the stylesheet(s) Vite linked from the page, but Primer's component styles: one hashed, cached
+        // stylesheet (the same for every page, and a large one), linked.
         html = html.replace(/<link rel="stylesheet"[^>]*? href="([^"]+)"[^>]*>/g, (tag, href: string) => {
           const fileName = href.slice(base.length);
+          if (/^assets\/vendor-primer-react-[\w-]+\.css$/.test(fileName)) return tag;
           const css = bundle[fileName] as OutputAsset | undefined;
           if (css?.type !== 'asset') return tag;
           delete bundle[fileName]; // eslint-disable-line @typescript-eslint/no-dynamic-delete -- the bundle is a plain record

@@ -27,7 +27,7 @@ import type {Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
 import {Highlighter, type HighlightWorker, type Priority, TimedOut, workerHighlighter} from './highlighter.ts';
-import type {RefKind} from './refs.ts';
+import {isSha, type RefKind} from './refs.ts';
 import {type DiffFile, filePath, parseDiff} from './diff.ts';
 import {HIGHLIGHT_MAX_CHARS, type Lang, langOf} from './lang.ts';
 
@@ -551,6 +551,19 @@ export class CodeSource {
       const res = await this.request('v1', `${this.repoPath(repoId)}/git/commits/${sha}?stat=false&verification=false&files=false`);
       return commitInfo(await readJson(res) as ApiCommit);
     });
+  }
+
+  /**
+   * The full SHA of the commit an abbreviation names (`edac59f0a3`), asked of Forgejo every time (an abbreviation is
+   * no immutable address: a later commit can make it ambiguous). The commit goes into the cache by its full SHA.
+   */
+  async resolveCommit(repoId: number, abbreviation: string): Promise<string> {
+    if (!/^[0-9a-f]{4,64}$/i.test(abbreviation)) throw new RequestFailed(400, 'Not a commit SHA.');
+    const res = await this.request('v1', `${this.repoPath(repoId)}/git/commits/${abbreviation}?stat=false&verification=false&files=false`);
+    const info = commitInfo(await readJson(res) as ApiCommit);
+    if (!isSha(info.sha) || !info.sha.startsWith(abbreviation.toLowerCase())) throw new RequestFailed(404, 'No such commit.');
+    this.cache.put(`commit:${String(repoId)}:${info.sha}`, info);
+    return info.sha;
   }
 
   /** Commits on `head` not on `base` (both full SHAs). */

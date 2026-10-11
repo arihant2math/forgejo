@@ -8,11 +8,11 @@
 // by SHA and cached (code/source.ts); refs resolve from the synced branches
 // and tags, so what was seen once is there offline.
 
-import {useParams} from '@tanstack/react-router';
+import {useNavigate, useParams} from '@tanstack/react-router';
 import {Code2} from 'lucide-react';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import {PageBody} from '../../app/shell/Frame.tsx';
-import {parseCodePath, shortSha} from '../../code/refs.ts';
+import {abbreviatedCommit, parseCodePath, shortSha} from '../../code/refs.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {ActionsView, RunView} from './Actions.tsx';
@@ -21,7 +21,9 @@ import {CommitView, CommitsView} from './History.tsx';
 import {BranchesView, ReleasesView, TagsView} from './Refs.tsx';
 import {ReleaseFormView} from './ReleaseForm.tsx';
 import {SrcView} from './Src.tsx';
-import {EmptyRepo} from './states.tsx';
+import {EmptyRepo, Unloaded} from './states.tsx';
+import {useLoad, useSource} from './hooks.ts';
+import {codeTo} from './nav.tsx';
 import {observer} from 'mobx-react-lite';
 import {usePool} from '../issues/cells.tsx';
 
@@ -81,6 +83,16 @@ export const CodePage = observer(function CodePage() {
   const props: CodeViewProps = {owner, repo, repoId, splat};
   const repoEmpty = pool.model('Repository').get(repoId)?.get('empty') === true;
   const route = parseCodePath(splat);
+  // A commit named by an abbreviation of its SHA (`commit/edac59f`, `src/commit/edac59f/…`): looked up, then the
+  // address with the full SHA.
+  const short = abbreviatedCommit(splat);
+  if (short) {
+    return (
+      <CodeFrame view={props} title={short.abbreviation}>
+        {() => <ShortCommit {...props} key={splat} abbreviation={short.abbreviation} full={short.full}/>}
+      </CodeFrame>
+    );
+  }
   if (!route) {
     return (
       <CodeFrame view={props} title="Code">
@@ -116,3 +128,18 @@ export const CodePage = observer(function CodePage() {
       return <RunView {...props} key={`${String(repoId)}:${String(route.run)}`} run={route.run} job={route.job}/>;
   }
 });
+
+/**
+ * A code address with an abbreviated commit SHA (`commit/edac59f0a3`): Forgejo is asked for the full SHA, and the
+ * address becomes the one with it (replaced: Back does not return to the lookup). Offline, or no such commit: said.
+ */
+function ShortCommit({owner, repo, repoId, abbreviation, full}: CodeViewProps & {abbreviation: string; full: (sha: string) => string}) {
+  const src = useSource();
+  const navigate = useNavigate();
+  const sha = useLoad(`abbrev:${String(repoId)}:${abbreviation}`, () => undefined, () => src.resolveCommit(repoId, abbreviation));
+  const found = sha.state === 'ready' ? sha.value : undefined;
+  useEffect(() => {
+    if (found) void navigate({...codeTo(owner, repo, full(found)), hash: true, replace: true});
+  }, [found, navigate, owner, repo, full]);
+  return <Unloaded loaded={sha.state === 'ready' ? {state: 'loading'} : sha} what={`The commit ${abbreviation}`}/>;
+}

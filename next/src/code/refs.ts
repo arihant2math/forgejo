@@ -29,6 +29,28 @@ export function isSha(s: string): boolean {
   return SHA.test(s);
 }
 
+const ABBREVIATION = /^[0-9a-f]{4,63}$/i;
+
+/**
+ * A code path that names a commit by an abbreviation of its SHA (`commit/edac59f0a3`, `src/commit/edac59f/dir`), as
+ * `git log --oneline`, a merge message or a person writes it: not an address of the app's (B9 reads full SHAs only),
+ * but one the view resolves (`full`: the same path with the commit's full SHA). undefined for any other path.
+ */
+export function abbreviatedCommit(splat: string): {abbreviation: string; full: (sha: string) => string} | undefined {
+  const segs = splat.split('/').filter((s) => s !== '');
+  if (segs.at(-1) === END) segs.pop();
+  if (segs.some((s) => s === '.' || s === '..')) return undefined;
+  // `commit/<abbr>`, or a view at a commit: `src|blame|commits/commit/<abbr>[/path]`.
+  const at = segs[0] === 'commit' && segs.length === 2 ? 1 :
+    (segs[0] === 'src' || segs[0] === 'blame' || segs[0] === 'commits') && segs[1] === 'commit' && segs.length >= 3 ? 2 : -1;
+  const abbreviation = segs[at];
+  if (at < 0 || abbreviation === undefined || !ABBREVIATION.test(abbreviation) || isSha(abbreviation)) return undefined;
+  return {
+    abbreviation: abbreviation.toLowerCase(),
+    full: (sha) => [...segs.slice(0, at), sha, ...segs.slice(at + 1)].join('/'),
+  };
+}
+
 /**
  * The last segment of every code URL the UI makes: the server takes a path
  * below the UI's base ending in "name.ext" for a build file (404), and a file

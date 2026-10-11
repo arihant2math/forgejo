@@ -1,3 +1,6 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {observer} from 'mobx-react-lite';
 import {textOfMarkup} from '../../app/trusted.ts';
 import {useCallback, useEffect, useState} from 'react';
@@ -7,6 +10,7 @@ import {online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {codePath} from '../../app/paths.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {Button, Input, ListRow, EmptyState, CodeLine, SegmentedControl} from '../../ui/index.ts';
@@ -27,6 +31,7 @@ export default observer(function CodeSearch() {
   const repoId = Number(raw.repoId) || undefined;
   const page = Math.min(100, Math.max(1, Number(raw.page) || 1));
   const connected = connectivity.online;
+  const repoName = repoId === undefined ? undefined : app.session?.data.pool.model('Repository').get(repoId)?.data.full_name;
   const [query, setQuery] = useState(q);
   const [answer, setAnswer] = useState<Answer>();
   const [error, setError] = useState('');
@@ -54,10 +59,12 @@ export default observer(function CodeSearch() {
   const resultHref = (index: number) => {
     const row = rows[index];
     const name = row && answer?.repositories[String(row.hit.RepoID)];
-    return row && name ? hrefOf(app, `/${name.split('/').map(encodeURIComponent).join('/')}/src/commit/${row.hit.CommitID}/${row.hit.Filename.split('/').map(encodeURIComponent).join('/')}#L${row.line.Num}`) : undefined;
+    const [owner, repo] = name?.split('/') ?? [];
+    // The app's code view of the file at the searched commit, at the line (a classic address would be rewritten to it).
+    return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.Num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
-  return <><PageHeader title={repoId ? 'Search repository code' : 'Search code'}><Input aria-label="Search code" value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
+  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><Input aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2"><SegmentedControl label="Search type" value="code" onChange={(type) => { void navigate({to: '/search', search: discoverySearch({q, type})}); }} options={kinds.map((kind) => ({value: kind, label: kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}))}/>{repoId && <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}

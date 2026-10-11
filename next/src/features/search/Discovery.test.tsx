@@ -47,7 +47,7 @@ test('server results outside the pool are visible and the next page is reflected
   vi.mocked(discover).mockResolvedValue({rows: [{id: 999, title: 'outside/project', detail: '', path: '/outside/project'}], total: 75});
   const router = await mount();
   await screen.findByRole('option', {name: 'outside/project'});
-  fireEvent.click(screen.getByRole('button', {name: 'Next', exact: true}));
+  fireEvent.click(screen.getByRole('button', {name: 'Next'}));
   await waitFor(() => { expect(router.state.location.search).toMatchObject({page: '2'}); });
   await waitFor(() => { expect(vi.mocked(discover).mock.calls.some((call) => call[1].page === 2)).toBe(true); });
 });

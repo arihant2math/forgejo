@@ -38,12 +38,14 @@ export interface CodeLinkProps {
   onPointerEnter?: (() => void) | undefined;
   /** Active only on an exact match (tabs): "commits" is not active on "commit/…". */
   exact?: boolean;
+  /** The link's accessible name and tooltip, for a link whose content is an icon. */
+  label?: string;
 }
 
 /** A link to a code view (preloaded on intent like every router link). */
-export function CodeLink({owner, repo, to, children, className, hash, onPointerEnter, exact = false}: CodeLinkProps) {
+export function CodeLink({owner, repo, to, children, className, hash, onPointerEnter, exact = false, label}: CodeLinkProps) {
   const props: LinkProps = {...codeTo(owner, repo, to), ...(hash ? {hash} : {}), activeOptions: {exact, includeSearch: false}};
-  return <Link {...props} className={className} onPointerEnter={onPointerEnter}>{children}</Link>;
+  return <Link {...props} className={className} onPointerEnter={onPointerEnter} {...(label ? {'aria-label': label, title: label} : {})}>{children}</Link>;
 }
 
 /**

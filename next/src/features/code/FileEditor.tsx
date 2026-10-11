@@ -7,12 +7,14 @@ import {useNavigate} from '@tanstack/react-router';
 import {EditorState, Compartment} from '@codemirror/state';
 import {EditorView, Decoration, keymap, lineNumbers} from '@codemirror/view';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
+import {highlightSelectionMatches, openSearchPanel, search, searchKeymap} from '@codemirror/search';
 import {useApp, useSession} from '../../app/store.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
+import {notify} from '../../app/notices.ts';
 import {editing} from '../../intents/session.ts';
 import {langOf} from '../../code/lang.ts';
-import {codeSplat, type Resolved} from '../../code/refs.ts';
+import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
 import {Button, CodeFileHeader, SegmentedControl} from '../../ui/index.ts';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
@@ -23,6 +25,15 @@ import {branchProtected} from './refOps.ts';
 import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {editableText, updateFileBody} from './fileWrite.ts';
+
+/** Ctrl H (⌘ ⌥ F on a Mac), as in VS Code and Monaco: the search panel with the focus in its replace field. */
+function openReplace(view: EditorView): boolean {
+  openSearchPanel(view);
+  const field = view.dom.querySelector<HTMLInputElement>('.cm-search input[name="replace"]');
+  field?.focus();
+  field?.select();
+  return true;
+}
 
 export function CodeEditor({value, path, wrap, onChange}: {value: string; path: string; wrap: boolean; onChange: (text: string) => void}) {
   const host = useRef<HTMLDivElement>(null);
@@ -35,9 +46,16 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
   useEffect(() => {
     if (!host.current) return;
     const v = new EditorView({parent: host.current, state: EditorState.create({doc: value, extensions: [
-      history(), keymap.of([...defaultKeymap, ...historyKeymap]), lineNumbers(), paint.of([]), wrapping.of([]),
+      // Find and replace in the file (Ctrl/⌘ F opens the panel at the top; Enter / Shift Enter: next / previous; the
+      // panel's replace field and buttons; Escape closes it), as in GitHub's and the classic editor.
+      history(), search({top: true}), highlightSelectionMatches(), keymap.of([...searchKeymap, {key: 'Mod-h', mac: 'Mod-Alt-f', run: openReplace, preventDefault: true}, ...defaultKeymap, ...historyKeymap]), lineNumbers(), paint.of([]), wrapping.of([]),
       EditorView.contentAttributes.of({'aria-label': 'File contents'}),
-      EditorView.theme({'&': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'}}),
+      EditorView.theme({
+        '&': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'},
+        '.cm-panels': {backgroundColor: 'var(--color-surface)', color: 'var(--color-fg)'}, '.cm-panels-top': {borderBottom: '1px solid var(--color-border)'},
+        '.cm-panel.cm-search input, .cm-panel.cm-search button': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)', border: '1px solid var(--color-border)', borderRadius: '4px'},
+        '.cm-searchMatch': {backgroundColor: 'var(--color-accent-subtle)', outline: '1px solid var(--color-accent)'}, '.cm-searchMatch.cm-searchMatch-selected': {backgroundColor: 'var(--color-canvas-selected)'},
+      }),
       EditorView.updateListener.of((u) => { if (u.docChanged) callback.current(u.state.doc.toString()); }),
     ]})});
     view.current = v;
@@ -113,11 +131,21 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       const commitSha = result.value?.commit?.sha;
       if (!commitSha) throw new Error('Forgejo did not return the new commit. Check the branch before retrying.');
       await intents.discardDraft(key);
+      // The pool has the commit's branch once its sync arrives (the compare form and the branch's view resolve it).
+      if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
+      const branch = newBranch ?? at.ref;
       if (newBranch && openPull) {
-        if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
         await navigate({...codeTo(owner, repo, `compare/${at.ref}...${newBranch}`), search: {expand: '1'} as never});
+        return;
       }
-      else await navigate(codeTo(owner, repo, codeSplat('src', {kind: 'commit', ref: commitSha}, at.path)));
+      // Where the change went, said (a new branch is no longer the branch the file was opened on), and the file there:
+      // on its branch once the pool has the commit as the branch's head, else at the commit itself.
+      const landed = refTable(pool, repoId).branches.get(branch) === commitSha;
+      await navigate(codeTo(owner, repo, codeSplat('src', landed ? {kind: 'branch', ref: branch} : {kind: 'commit', ref: commitSha}, at.path)));
+      notify(app, {
+        tone: 'success', title: `Committed to ${branch}`, description: `${shortSha(commitSha)} · ${message}`,
+        ...(newBranch ? {action: {label: 'Open a pull request', run: () => { void navigate({...codeTo(owner, repo, `compare/${at.ref}...${newBranch}`), search: {expand: '1'} as never}); }}} : {}),
+      });
     } catch (err) {
       if (err instanceof RequestFailed && err.status === 409) setError('The file changed since you opened it. Your draft is safe. Reload the file and merge your changes before retrying.');
       else if (err instanceof RequestFailed && err.status === 403) {setProtected(true); setError('Forgejo refused a direct commit. Create a new branch instead, or check your write permission.');}

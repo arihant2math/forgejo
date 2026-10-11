@@ -16,10 +16,12 @@ import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
 import {Avatar, Button, Code, EmptyState, Icon, TextLink} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
+import {reach} from '../../app/online.ts';
+import {useSession} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
-import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
+import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
 import {Ago, commitRow, Sha, summary} from './bits.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
@@ -52,39 +54,66 @@ interface Pages {
   done: boolean;
   loading: boolean;
   /** The next page could not be loaded (offline: not on this device). */
-  failed: Exclude<Loaded<never>, {state: 'ready'}> | undefined;
+  failed: Extract<Loaded<never>, {state: 'offline' | 'error'}> | undefined;
 }
 
 /** The pages of a history, one at a time (each from memory, IndexedDB or the server). */
 function useCommitPages(repoId: number, sha: string, path: string) {
   const src = useSource();
   const [s, setS] = useState<Pages>({commits: [], pages: 0, done: false, loading: false, failed: undefined});
-  const at = useRef({pages: 0, busy: false, done: false});
-  const more = useCallback(() => {
+  const at = useRef({pages: 0, busy: false, done: false, tries: 0, gone: false, connected: true});
+  const connected = reach(useSession().data.status.connection) === 'online';
+  const more = useCallback(function more() {
     const st = at.current;
     if (st.busy || st.done) return;
     st.busy = true;
     const page = st.pages + 1;
-    setS((p) => ({...p, loading: true}));
+    setS((p) => ({...p, loading: true, failed: undefined}));
     src.commits(repoId, sha, page, path).then((list) => {
       st.busy = false;
+      st.tries = 0;
       st.pages = page;
       st.done = list.length < 50;
       setS((p) => ({commits: [...p.commits, ...list], pages: page, done: st.done, loading: false, failed: undefined}));
     }, (err: unknown) => {
       st.busy = false;
-      setS((p) => ({...p, loading: false, failed: err instanceof NotCached ? {state: 'offline'} : {state: 'error', message: err instanceof Error ? err.message : String(err), status: (err as {status?: number}).status ?? 0}}));
+      // Connected, and the failure may pass (a dropped request): asked again on its own a few times (useLoad's rule).
+      const pause = st.connected && transientFailure(err) ? AUTO_RETRY_MS[st.tries] : undefined;
+      if (pause !== undefined) {
+        st.tries++;
+        setTimeout(() => {
+          if (!st.gone) more();
+        }, pause);
+        return;
+      }
+      const retry = () => {
+        st.tries = 0;
+        more();
+      };
+      setS((p) => ({...p, loading: false, failed: err instanceof NotCached ? {state: 'offline', retry} : {state: 'error', message: err instanceof Error ? err.message : String(err), status: (err as {status?: number}).status ?? 0, ...(transientFailure(err) ? {retry} : {})}}));
     });
   }, [src, repoId, sha, path]);
   useEffect(() => {
+    const st = at.current;
+    st.gone = false;
     more();
+    return () => {
+      st.gone = true;
+    };
   }, [more]);
-  return {s, more};
+  // Back online after a page failed offline: asked again (once, on the change).
+  useEffect(() => {
+    const st = at.current;
+    const back = connected && !st.connected;
+    st.connected = connected;
+    if (back && s.failed?.state === 'offline') s.failed.retry?.();
+  }, [connected, s.failed]);
+  return {s, more, connected};
 }
 
-function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resolved; scroller: HTMLDivElement | null}) {
+const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resolved; scroller: HTMLDivElement | null}) {
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
-  const {s, more} = useCommitPages(repoId, at.sha, at.path);
+  const {s, more, connected} = useCommitPages(repoId, at.sha, at.path);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
     if (s.done) return <EmptyState icon={History} title="No commits"/>;
@@ -97,13 +126,13 @@ function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resol
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-3">
-          {s.failed ? <span className="text-sm text-fg-subtle">{s.failed.state === 'offline' ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}</span> :
+          {s.failed ? <span className="flex items-center gap-2 text-sm text-fg-subtle">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button size="sm" variant="ghost" onClick={s.failed.retry}>Retry</Button>}</span> :
             <Button size="sm" variant="ghost" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>
       )}
     </>
   );
-}
+});
 
 /** A diff between two commits, parsed in the worker (memory first). `base` "": the commit's first parent; `head` "": nothing yet. */
 export function useDiff(repoId: number, base: string, head: string): Loaded<DiffFile[]> {

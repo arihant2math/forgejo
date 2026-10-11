@@ -15,7 +15,6 @@ export class MetaCache {
   }
 
   /** A value, typed by the caller (meta values are whatever was set). */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names the stored type
   get<T>(key: string): T | undefined {
     const v: unknown = this.values.get(key);
     return v as T | undefined;

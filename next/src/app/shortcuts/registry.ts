@@ -210,7 +210,6 @@ export class ShortcutRegistry {
   /** Handles a keydown; returns whether a shortcut ran (or a sequence started). */
   handle(e: KeyboardEvent): boolean {
     // keyCode 229: a key the IME is handling (some browsers do not set isComposing).
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only IME signal some browsers give
     if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return false;
     const chord = chordOf(e, this.apple);
     if (!chord) return false;

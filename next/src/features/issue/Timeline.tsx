@@ -8,6 +8,7 @@
 // container; short ones render plainly. Every item is an observer of its
 // own entity.
 
+import {SuggestionCard} from '../pull/Suggestion.tsx';
 import {
   ArrowRightLeft, Bookmark, CalendarClock, CircleCheck, CircleDot, Clock, Eye, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, Link2,
   Lock, LockOpen, MessageSquare, Milestone, Pencil, Pin, PinOff, Reply, SquareKanban, Tag, UserCheck, UserMinus, UserPlus, XCircle,
@@ -209,12 +210,13 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
         }}/>}
       </>}
       footer={<Reactions issueId={c.get('issue_id')} commentId={c.id}/>}>
-      <CommentBody c={c} edit={edit} onEditDone={() => {
+      {type === 'code' && !edit && <SuggestionCard comment={c.data}/>}
+      {(edit || type !== 'code' || !/^```suggestion(?: -\d+\+\d+)?\r?\n[\s\S]*?\r?\n```$/.test(c.get('body').trim())) && <CommentBody c={c} edit={edit} onEditDone={() => {
         refocus.current = true;
         setEdit(false);
       }} onReopen={() => {
         setEdit(true);
-      }}/>
+      }}/> }
     </Card>
   );
 });

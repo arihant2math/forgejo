@@ -31,6 +31,7 @@ import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
 import {checksOf} from '../pull/checks.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
+import {repoLabels} from './candidates.ts';
 
 export function usePool(): Pool {
   const s = useApp().session;
@@ -170,6 +171,11 @@ export const StatusCell = observer(function StatusCell({issue}: {issue: Entity<'
   );
 });
 
+/** Whether a repository works with status labels (then an open issue without one has "No status" yet). */
+export function usesStatuses(pool: Pool, repoId: number): boolean {
+  return repoLabels(pool, repoId).some((l) => labelKind(l) === 'status');
+}
+
 /** The priority label's icon (an empty slot without one, so titles line up). */
 export const PriorityCell = observer(function PriorityCell({issue}: {issue: Entity<'Issue'>}) {
   const p = useLabelView(issue).priority;
@@ -217,14 +223,53 @@ export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked 
   return linked && u.login ? <Link to="/$owner" params={{owner: u.login}} aria-label={`Profile of ${u.login}`}>{avatar}</Link> : avatar;
 });
 
-/** The assignees' avatars (at most three). */
+/**
+ * The assignees' avatars (at most three, then "+N"), each named on hover like the row's other icons (an
+ * identicon alone says nobody's name); the hidden ones are named on the count's hover.
+ */
 export const AssigneesCell = observer(function AssigneesCell({issue}: {issue: Entity<'Issue'>}) {
-  const ids = issueAssigneeIds(usePool(), useOverlay(), issue.id).sort((a, b) => a - b);
+  const pool = usePool();
+  const ids = issueAssigneeIds(pool, useOverlay(), issue.id).sort((a, b) => a - b);
   if (!ids.length) return null;
+  const rest = ids.slice(3);
   return (
     <AvatarGroup>
-      {ids.slice(0, 3).map((id) => <UserAvatar key={id} id={id}/>)}
+      {ids.slice(0, 3).map((id) => <AssigneeAvatar key={id} id={id}/>)}
+      {rest.length > 0 && (
+        <span title={`Also assigned: ${rest.map((id) => userLabel(pool, id)).join(', ')}`} className="text-sm text-fg-subtle tabular-nums">+{rest.length}</span>
+      )}
     </AvatarGroup>
+  );
+});
+
+/** A person's name for a hint ("Alice Nakamura (alice)"). */
+function userLabel(pool: Pool, id: number): string {
+  const u = pool.model('User').get(id);
+  const login = u?.get('login') ?? '';
+  const full = u?.get('full_name') ?? '';
+  if (full && login && full !== login) return `${full} (${login})`;
+  return firstOf(full, login, `User ${String(id)}`);
+}
+
+/** One assignee's avatar, named on hover. */
+const AssigneeAvatar = observer(function AssigneeAvatar({id}: {id: number}) {
+  const name = userLabel(usePool(), id);
+  return <span title={`Assignee: ${name}`} className="flex shrink-0"><UserAvatar id={id}/></span>;
+});
+
+/**
+ * Who opened the issue or pull request (the classic list's "opened … by bob"): their login, named in full on
+ * hover; the row's accessible name reads "by bob".
+ */
+export const AuthorCell = observer(function AuthorCell({issue}: {issue: Entity<'Issue'>}) {
+  const pool = usePool();
+  const id = issue.get('poster_id');
+  const login = pool.model('User').get(id)?.get('login');
+  if (!id || !login) return null;
+  return (
+    <span title={`Opened by ${userLabel(pool, id)}`} className="max-w-28 truncate whitespace-nowrap">
+      <span className="sr-only">by </span>{login}
+    </span>
   );
 });
 

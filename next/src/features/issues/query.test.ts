@@ -105,10 +105,28 @@ describe('runQuery', () => {
   test('groups: status (labels, then Forgejo state), priority, assignee, milestone', () => {
     const c = ctx(FACTS);
     const g = (group: Query['group']) => runQuery(ISSUES, q({state: 'all'}, {group}), c).rows.map((r) => (r.type === 'group' ? `[${r.label} ${String(r.count)}]` : r.id));
-    expect(g('status')).toEqual(['[Backlog 1]', 2, '[Open 1]', 4, '[In Progress 1]', 1, '[Done 1]', 3]);
+    // An open issue without a status label has "No status" (first: the untriaged pile), not a stage called "Open"
+    // between Backlog and Todo (#192); a closed one without a label ended.
+    expect(g('status')).toEqual(['[No status 1]', 4, '[Backlog 1]', 2, '[In Progress 1]', 1, '[Done 1]', 3]);
     expect(g('priority')).toEqual(['[Urgent 1]', 1, '[Low 1]', 2, '[No priority 2]', 4, 3]);
-    expect(g('assignee')).toEqual(['[alice 1]', 2, '[dev 1]', 1, '[Unassigned 2]', 4, 3]);
+    // #2 is assigned to alice and dev: listed under both, each person's count is their load (#189).
+    expect(g('assignee')).toEqual(['[alice 1]', 2, '[dev 2]', 2, 1, '[Unassigned 2]', 4, 3]);
     expect(g('milestone')).toEqual(['[Cycle 42 1]', 1, '[Later 1]', 4, '[No milestone 2]', 3, 2]);
+  });
+
+  test('grouped by assignee, a shared issue is listed under each person once, and counted once in the ids', () => {
+    const r = runQuery(ISSUES, q({state: 'all'}, {group: 'assignee'}), ctx(FACTS));
+    // The ids (the cursor, the selection, "N results") list each issue once, where it first appears.
+    expect(r.ids).toEqual([2, 1, 4, 3]);
+    const issueRows = r.rows.filter((x) => x.type === 'issue');
+    expect(issueRows.filter((x) => x.id === 2)).toEqual([{type: 'issue', id: 2}, {type: 'issue', id: 2, copy: 'u1'}]);
+    // Row keys stay unique in the list (the virtualizer's keys, the rows' DOM ids).
+    const keys = issueRows.map((x) => (x.copy === undefined ? String(x.id) : `${String(x.id)}@${x.copy}`));
+    expect(new Set(keys).size).toBe(keys.length);
+    // Other groupings list an issue once.
+    for (const group of ['status', 'priority', 'milestone', 'none'] as const) {
+      expect(runQuery(ISSUES, q({state: 'all'}, {group}), ctx(FACTS)).rows.some((x) => x.type === 'issue' && x.copy !== undefined)).toBe(false);
+    }
   });
 
   test('10 000 issues: filter, group and sort in well under a frame', () => {

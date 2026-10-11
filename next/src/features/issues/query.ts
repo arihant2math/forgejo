@@ -62,11 +62,15 @@ export interface QueryContext {
 
 export type Row =
   | {type: 'group'; key: string; label: string; count: number; kind: Group; value: number}
-  | {type: 'issue'; id: number};
+  /**
+   * An issue. Grouped by assignee, an issue with several assignees is listed under each of them (each person's
+   * count is their load); `copy` is set on its rows after the first (the group's key: a row key unique in the list).
+   */
+  | {type: 'issue'; id: number; copy?: string | undefined};
 
 export interface QueryResult {
   rows: Row[];
-  /** The issues in display order. */
+  /** The issues in display order (each once: where it is first listed). */
   ids: number[];
 }
 
@@ -153,7 +157,14 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
     if (search.words.length && !matches(issue, search)) continue;
     if (filter.status !== undefined && !hasValue(issue, 'status', filter.status, run)) continue;
     if (filter.priority !== undefined && !hasValue(issue, 'priority', filter.priority, run)) continue;
-    items.push({issue, pin: ctx.pin?.(issue) ?? 0, sortKey: sortKey(issue, sort, run), group: group === 'none' ? undefined : groupOf(issue, group, state, run), order: 0});
+    const pin = ctx.pin?.(issue) ?? 0;
+    const key = sortKey(issue, sort, run);
+    if (group === 'assignee') {
+      // Under every assignee (GitHub Projects): a shared issue counts in each person's load.
+      for (const g of assigneeGroups(issue, run)) items.push({issue, pin, sortKey: key, group: g, order: 0});
+    } else {
+      items.push({issue, pin, sortKey: key, group: group === 'none' ? undefined : groupOf(issue, group, state, run), order: 0});
+    }
   }
   // The groups are ordered once (a handful of them), then the sort compares numbers only.
   if (group !== 'none') {
@@ -179,6 +190,8 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   });
   const rows: Row[] = [];
   const ids: number[] = [];
+  // Only a grouping by assignee lists an issue more than once.
+  const listed = group === 'assignee' ? new Set<number>() : undefined;
   let current: GroupKey | undefined;
   let header: Extract<Row, {type: 'group'}> | undefined;
   for (const it of items) {
@@ -188,8 +201,14 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
       rows.push(header);
     }
     if (header) header.count++;
-    rows.push({type: 'issue', id: it.issue.id});
-    ids.push(it.issue.id);
+    const id = it.issue.id;
+    if (listed?.has(id)) {
+      rows.push({type: 'issue', id, copy: it.group?.key});
+      continue;
+    }
+    listed?.add(id);
+    rows.push({type: 'issue', id});
+    ids.push(id);
   }
   return {rows, ids};
 }
@@ -293,11 +312,26 @@ export function kindLabel(issue: Issue, kind: ScopeKind, ctx: Pick<QueryContext,
   return undefined;
 }
 
+/** The groups of an issue's assignees (one per person; Unassigned without any). */
+function assigneeGroups(issue: Issue, run: Run): readonly GroupKey[] {
+  const as = run.ctx.assignees(issue);
+  if (!as.length) return UNASSIGNED_GROUPS;
+  return as.map((id) => interned(run, id, () => {
+    const name = userName(run, id);
+    return {key: `u${String(id)}`, label: name, rank: 0, name: name.toLowerCase(), value: id};
+  }));
+}
+
 // Groups that stand for nothing (shared by every run).
-const OPEN: GroupKey = {key: 'open', label: 'Open', rank: 1.5, name: '', value: 0};
+/**
+ * An open issue without a status label: "No status" (as "No priority"), not Forgejo's "Open", which read as one
+ * more workflow stage between Backlog and Todo; first, as the untriaged pile (QA #192).
+ */
+const NO_STATUS: GroupKey = {key: 'open', label: 'No status', rank: -1, name: '', value: 0};
 const CLOSED: GroupKey = {key: 'closed', label: 'Closed', rank: 4.5, name: '', value: 0};
 const NO_PRIORITY: GroupKey = {key: 'none', label: 'No priority', rank: 9, name: '', value: 0};
 const UNASSIGNED: GroupKey = {key: 'none', label: 'Unassigned', rank: 1, name: '', value: 0};
+const UNASSIGNED_GROUPS: readonly GroupKey[] = [UNASSIGNED];
 const NO_MILESTONE: GroupKey = {key: 'none', label: 'No milestone', rank: Number.MAX_SAFE_INTEGER, name: '', value: 0};
 const NONE: GroupKey = {key: '', label: '', rank: 0, name: '', value: 0};
 /** Milestone group ranks: a tier (open/closed, dated/undated) apart, beyond any due date (ms). */
@@ -309,8 +343,8 @@ function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey 
     case 'status': {
       const k = runKindLabel(issue, 'status', run);
       if (k) return interned(run, k.label.id, () => labelGroup(k));
-      // No status label: Forgejo's own state places it (before "in progress", or with "done").
-      return state === 'closed' ? CLOSED : OPEN;
+      // No status label: an open one has none yet; a closed one ended (with "done").
+      return state === 'closed' ? CLOSED : NO_STATUS;
     }
     case 'priority': {
       const k = runKindLabel(issue, 'priority', run);
@@ -318,18 +352,9 @@ function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey 
         interned(run, k.label.id, () => labelGroup(k)) :
         NO_PRIORITY;
     }
-    case 'assignee': {
-      // The first assignee by name.
-      let best = 0;
-      for (const id of ctx.assignees(issue)) {
-        if (!best || collator.compare(userName(run, id), userName(run, best)) < 0) best = id;
-      }
-      if (!best) return UNASSIGNED;
-      return interned(run, best, (id) => {
-        const name = userName(run, id);
-        return {key: `u${String(id)}`, label: name, rank: 0, name: name.toLowerCase(), value: id};
-      });
-    }
+    case 'assignee':
+      // runQuery lists the issue under each of them (assigneeGroups).
+      return assigneeGroups(issue, run)[0] ?? UNASSIGNED;
     case 'milestone': {
       const id = ctx.milestone(issue);
       const m = id ? ctx.milestoneOf(id) : undefined;

@@ -157,7 +157,8 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       for (const l of statuses) draft.toggleLabel(l, false, statuses);
     }});
     else options.push(
-      {value: 'open', label: 'Open', checked: anyStatus ? false : state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, onSelect: () => {
+      // Open without a status label (in a repository that has them) is no status yet, not a stage (QA #192).
+      {value: 'open', label: 'Open', meta: statuses.length && !anyStatus && state !== false ? 'no status' : undefined, checked: anyStatus ? false : state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, onSelect: () => {
         reopen(app, issues);
       }},
       {value: 'closed', label: 'Closed', checked: anyStatus ? false : closed, leading: <StateGlyph look={stateLook('closed', pull, false)}/>, onSelect: () => {
@@ -183,9 +184,29 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     // Priorities are exclusive scoped labels (PLAN §7.3): say so where there are none.
     empty = 'This repository has no priority labels (exclusive "priority/…" labels set them).';
   } else if (kind === 'labels' && repoId !== undefined) {
-    // Status and priority labels have their own pickers (S, P).
-    for (const l of repoLabels(pool, repoId)) if (!labelKind(l)) options.push(labelOption(l, undefined, true));
-    empty = 'This repository has no labels.';
+    // Status and priority labels have their own pickers (S, P) and are not listed here; but a search that names
+    // one ("status/Todo", "Todo", "prio": the Labels page lists them as labels) finds it under its field, which
+    // sets it (QA #215).
+    const all = repoLabels(pool, repoId);
+    const searching = query.trim() !== '';
+    for (const l of all) if (!labelKind(l)) options.push({...labelOption(l, undefined, true), group: searching ? 'Labels' : undefined});
+    if (searching) {
+      for (const kind of ['status', 'priority'] as const) {
+        const fields = all.filter((l) => labelKind(l) === kind).sort((a, b) => kindRank(kind, a.name) - kindRank(kind, b.name));
+        for (const l of fields) {
+          const o = labelOption(l, kind === 'status' ? statusIcon(l.name) : priorityIcon(l.name), true);
+          options.push({
+            ...o, group: kind === 'status' ? 'Status field (S)' : 'Priority field (P)', words: `${l.description} ${kind}`,
+            onSelect: kind === 'status' && !draft && o.checked !== true ? () => {
+              setWorkflowStatus(app, issues, l);
+            } : o.onSelect,
+          });
+        }
+      }
+    }
+    empty = all.length ?
+      'This repository has only status and priority labels: set them with Status (S) and Priority (P).' :
+      'This repository has no labels.';
   } else if (kind === 'assignees' && repoId !== undefined) {
     const current = draft?.assignees ?? issues.flatMap((i) => issueAssigneeIds(pool, overlay, i.id));
     for (const u of repoPeople(pool, repoId, s.userId, current)) {

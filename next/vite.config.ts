@@ -26,13 +26,12 @@ const removeScroll = new Set(['react-remove-scroll', 'react-remove-scroll-bar', 
 /**
  * Per-package vendor chunks (PLAN §1): a dependency update only invalidates its
  * own chunk, and a package only one lazy route uses loads with that route.
- * Icons are not grouped: each lucide icon stays with the route that draws it.
+ * Icons share one chunk rather than issuing a request per glyph.
  */
 export function vendorChunk(id: string): string | null {
   const m = /[\\/]node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id);
   if (!m?.[1]) return null;
   const pkg = m[1].replace('\\', '/');
-  if (pkg === 'lucide-react' && /[\\/]icons[\\/]/.test(id)) return null;
   // React's profiling build (localStorage.profile, app/profile.tsx) loads only when asked: never with react-dom.
   if (pkg === 'react-dom' && id.includes('profiling')) return 'vendor-react-dom-profiling';
   const radix = /^@radix-ui\/react-(.+)$/.exec(pkg);
@@ -92,7 +91,12 @@ export default defineConfig({
           // side-effect free ESM or lazily initialised CJS wrappers, so splitting
           // them apart cannot reorder side effects (the e2e boot test runs the build).
           includeDependenciesRecursively: false,
-          groups: [{name: vendorChunk, debugName: 'vendor'}],
+          groups: [
+            {name: vendorChunk, debugName: 'vendor'},
+            // Only static entry dependencies: lazy views stay lazy. Include
+            // Vite's preload helper so it cannot form a cycle through the entry.
+            {name: 'app-boot', test: (id) => (/[\\/]src[\\/]/.test(id) && !id.endsWith('/src/main.tsx')) || id.includes('vite/preload-helper'), tags: ['$initial']},
+          ],
         },
       },
     },

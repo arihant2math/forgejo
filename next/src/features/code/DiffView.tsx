@@ -38,7 +38,7 @@ export interface DiffExtras {
   thread: (f: number, l: number) => ReactNode;
   notesOf: (f: number) => ReactNode;
   /** Starts a comment on line l of file f (undefined: no comments here, e.g. offline without the head). */
-  onComment?: ((f: number, l: number) => void) | undefined;
+  onComment?: ((f: number, l: number, range?: boolean) => void) | undefined;
   fileActions: (f: number) => ReactNode;
   onToggle: (f: number) => void;
 }
@@ -331,7 +331,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       const comment = extras?.onComment;
       return (
         <CodeLine id={id} active={active} tone={l.k === ADD ? 'add' : l.k === DEL ? 'del' : 'none'}
-          gutter={<><LineNo n={l.o}/><LineNo n={l.n}/><span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
+          gutter={<><LineNo n={l.o}/><LineNo n={l.n} onPick={comment ? (_n, range) => {comment(row.f, row.l, range);} : undefined}/><span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
           action={comment && (
             <LineAction label={`Comment on line ${String(l.k === DEL ? l.o : l.n)}`} onClick={() => {
               comment(row.f, row.l);

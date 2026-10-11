@@ -118,6 +118,7 @@ interface Composing {
   l: number;
   key?: string | undefined;
   initial: string;
+  start?: number;
 }
 
 const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
@@ -231,8 +232,8 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
     setToggled((t) => new Map(t).set(f, on));
   }, [files, intents, overlay, issue.id, pr.base_repo_id, head, viewed]);
 
-  const startComment = useCallback((f: number, l: number) => {
-    setComposing({f, l, initial: ''});
+  const startComment = useCallback((f: number, l: number, range?: boolean) => {
+    setComposing((c) => ({f, l: range && c?.f === f ? Math.max(c.l, l) : l, start: range && c?.f === f ? Math.min(c.start ?? c.l, l) : l, initial: ''}));
   }, []);
   /** The composer closed: back to the diff's line cursor (focus never falls to the page). */
   const closeComposer = useCallback(() => {
@@ -444,6 +445,13 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
         <Card label={reply ? 'Reply' : 'New review comment'}>
           <MarkdownField repoId={pr.base_repo_id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
           <div className="flex justify-end gap-2">
+            <Button size="sm" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
+              if (!file) return;
+              const end = file.lines[l]?.n ?? 0;
+              const start = file.lines[composing.start ?? l]?.n ?? end;
+              const lines = file.lines.filter((line) => line.k !== 2 && line.n >= start && line.n <= end);
+              edit(`${text}${text ? '\n\n' : ''}\`\`\`suggestion${end > start ? ` -${end - start}+0` : ''}\n${lines.map((line) => line.t).join('\n')}\n\`\`\``);
+            }}>Suggest change</Button>
             <Button size="sm" variant="ghost" onClick={done}>Cancel</Button>
             {reply && <Button size="sm" disabled={!text.trim()} tooltip="Keep it with your review (sent with Review)" onClick={save}>Add to review</Button>}
             {/* A first comment on a line: a single comment now (one step, as classic's "Add single comment"), or one

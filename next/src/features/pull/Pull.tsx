@@ -20,6 +20,7 @@ import {observer} from 'mobx-react-lite';
 import {useLocation} from '@tanstack/react-router';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
+import type {BranchProtection} from '../settings/rules.ts';
 import {failureText, online, refused} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
@@ -656,8 +657,20 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const pr = pullOf(pool, issue.id);
   const [busy, setBusy] = useState(false);
   const [style, setStyle] = useState<MergeStyle | undefined>(undefined);
+  const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
+  const apiPath = repository ? `/repos/${encodeURIComponent(repository.owner_name)}/${encodeURIComponent(repository.name)}` : undefined;
+  const eligibility = useLoad(pr && apiPath ? `merge:${apiPath}:${String(pr.number)}:${pr.base_branch}:${poolHead(pool, pr)}:${[...pool.model('Review').by('issue_id', issue.id)].map((r) => `${r.id}:${r.data.state}:${r.data.dismissed}`).join(',')}` : undefined, () => undefined, async () => {
+    const pull = await online<{mergeable: boolean}>(app, {api: 'v1', path: `${apiPath}/pulls/${String(pr?.number)}`});
+    let protection: BranchProtection | undefined;
+    try {
+      protection = await online<BranchProtection>(app, {api: 'v1', path: `${apiPath}/branch_protections/${encodeURIComponent(pr?.base_branch ?? '')}`});
+    } catch (err) {
+      if ((err as {status?: number}).status !== 404) throw err;
+    }
+    return {pull, protection};
+  });
   if (!pr) return null;
-  const repo = pool.model('Repository').get(pr.base_repo_id)?.data;
+  const repo = repository;
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
   // A stalled network counts as offline: the request would only hang until its deadline.
   const isOnline = reach(session.data.status.connection) === 'online';
@@ -694,6 +707,17 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // with the reason (they were offered and then failed).
   const conflict = pr.status === 'conflict';
   const conflictWhy = conflict ? `It conflicts with ${pr.base_branch}: resolve the conflicts in the branch first.` : undefined;
+  const protection = eligibility.state === 'ready' ? eligibility.value.protection : undefined;
+  const viewer = pool.model('User').get(session.userId)?.data;
+  const outsideMergeList = protection?.enable_merge_whitelist && !(protection.merge_whitelist_teams?.length) && viewer && !(protection.merge_whitelist_usernames ?? []).includes(viewer.login);
+  const approvals = [...latest.values()].filter((r) => r.state === 'APPROVED').length;
+  const missingChecks = protection?.enable_status_check ? (protection.status_check_contexts ?? []).filter((context) => !sum?.statuses.some((s) => s.get('context') === context && s.get('state') === 'success')) : [];
+  const mergeWhy = conflictWhy ??
+    (outsideMergeList ? 'Only users on the branch’s merge allowlist can merge.' : undefined) ??
+    (protection?.block_on_rejected_reviews && changesRequested ? 'Blocked by a change request.' : undefined) ??
+    (protection && approvals < protection.required_approvals ? `Needs ${String(protection.required_approvals - approvals)} more approval(s).` : undefined) ??
+    (missingChecks.length ? `Required checks have not passed: ${missingChecks.join(', ')}.` : undefined) ??
+    (eligibility.state === 'ready' && eligibility.value.pull?.mergeable === false ? 'Forgejo says this pull request cannot be merged yet. Check the branch protection rules.' : undefined);
   let state: ReactNode;
   if (pr.merged) {
     state = (
@@ -705,6 +729,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   } else if (closed) state = 'Closed without merging';
   else if (conflict) state = <><StatusDot tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<Code>{f}</Code></Fragment>)}</> : ''}</>;
   else if (pr.status === 'checking') state = <><StatusDot tone="warning"/> Checking whether it can be merged…</>;
+  else if (mergeWhy) state = <><StatusDot tone="warning"/> {mergeWhy}</>;
   else if (checks === 'pending') state = <><StatusDot tone="warning"/> Checks are not done yet{behind}</>;
   else if (checks === 'failure') state = <><StatusDot tone="danger"/> Some checks failed{behind}</>;
   else state = <><StatusDot tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
@@ -718,8 +743,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           <Menu>
             <MenuTrigger asChild>
               {/* With checks running or failing, merging now is not the default (Merge when checks succeed is). */}
-              <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || conflict}
-                tooltip={offlineWhy('Merging') ?? conflictWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
+              <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy}
+                tooltip={offlineWhy('Merging') ?? mergeWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
                 {checks === 'pending' ? 'Merge now…' : 'Merge…'}<Icon icon={ChevronDown} size="sm"/>
               </Button>
             </MenuTrigger>
@@ -735,7 +760,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             <Button disabled={!isOnline || busy} tooltip={offlineWhy('Canceling the auto-merge')} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</Button> :
-            checks === 'pending' && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Scheduling the merge') ?? conflictWhy ?? 'Merge when all checks succeed'} onClick={() => {
+            checks === 'pending' && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed'},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: 'merge', merge_when_checks_succeed: true, ...seen}});
             }}>Merge when checks succeed</Button>}
@@ -749,7 +774,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         </div>
       )}
       {style && (
-        <MergeDialog pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} onClose={() => {
+        <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} onClose={() => {
           setStyle(undefined);
         }} onMerge={(body) => {
           setStyle(undefined);
@@ -763,8 +788,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
 type MergeStyle = typeof STYLES[number][0];
 
 /** Merging is not undone: the commit message and whether the branch goes, confirmed first. */
-function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge}: {
-  pr: PullRequest; title: string; style: MergeStyle; checks: string; unfinished: number; onClose: () => void; onMerge: (body: Record<string, unknown>) => void;
+function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge, reason}: {
+  reason: string | undefined; pr: PullRequest; title: string; style: MergeStyle; checks: string; unfinished: number; onClose: () => void; onMerge: (body: Record<string, unknown>) => void;
 }) {
   const label = STYLES.find(([s]) => s === style)?.[1] ?? style;
   const commit = style === 'merge' || style === 'squash' || style === 'rebase-merge';
@@ -779,9 +804,10 @@ function MergeDialog({pr, title, style, checks, unfinished, onClose, onMerge}: {
       if (!o) onClose();
     }} footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" icon={GitMerge} onClick={merge}>Merge</Button>
+      <Button variant="primary" icon={GitMerge} disabled={!!reason} tooltip={reason} onClick={merge}>Merge</Button>
     </>}>
       <div className="flex flex-col gap-3">
+        {reason && <Callout tone="warning" title={reason}/>}
         {checks === 'pending' && (
           <Callout tone="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`}>
             Merging now does not wait for {unfinished === 1 ? 'it' : 'them'}. “Merge when checks succeed” waits.

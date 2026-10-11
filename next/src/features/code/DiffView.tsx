@@ -23,6 +23,7 @@ import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
 import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, Icon, IconButton, LineAction, LineNo, ListRow} from '../../ui/index.ts';
 import {useSource} from './hooks.ts';
+import {ImageDiff, isImageDiff} from './ImageDiff.tsx';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
 
 /** A file header row: the header (h-row, 32) after an 8 px gap. */
@@ -275,12 +276,14 @@ export const DiffView = observer(function DiffView({repoId, base, head, files, s
             {items.map((it) => {
               const row = rows[it.index];
               if (!row) return null;
-              const measured = row.t === 'thread' || row.t === 'notes';
+              const file = files[row.f];
+              const image = row.t === 'empty' && file && isImageDiff(file);
+              const measured = row.t === 'thread' || row.t === 'notes' || image;
               return (
                 <div key={it.key} role="listitem" data-index={it.index} ref={measured ? v.measureElement : undefined}
                   className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
-                  <RowView row={row} id={`${listId}-${String(it.index)}`} active={it.index === cursor} file={files[row.f]} hl={row.t === 'extra' ? highlit.get(row.f) : hl[row.f]}
-                    extras={extras} onExpand={failed.has(row.f) ? undefined : expand}/>
+                  {image ? <ImageDiff repoId={repoId} base={base} head={head} file={file}/> : <RowView row={row} id={`${listId}-${String(it.index)}`} active={it.index === cursor} file={files[row.f]} hl={row.t === 'extra' ? highlit.get(row.f) : hl[row.f]}
+                    extras={extras} onExpand={failed.has(row.f) ? undefined : expand}/>}
                 </div>
               );
             })}

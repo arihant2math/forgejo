@@ -9,6 +9,56 @@ export interface FeedAction {
   content: string;
   ref_name: string;
   created: string;
+  /** The comment a comment or review action is about (API v1 loads it with the action; absent on older actions). */
+  comment_id?: number;
+  comment?: {id: number; body: string} | null;
+}
+
+/** Actions whose second content part is (the first line of) a comment, not a title. */
+const COMMENTS = new Set(['comment_issue', 'comment_pull', 'approve_pull_request', 'reject_pull_request']);
+
+/** A branch or tag name from an action's ref (Forgejo stores the full ref, older actions the short name). */
+function shortRef(ref: string): string {
+  return ref.replace(/^refs\/(?:heads|tags)\//, '');
+}
+
+/** A ref name as path segments (a name may have slashes: "release/1.0"). */
+function refPath(ref: string): string {
+  return ref.split('/').map(encodeURIComponent).join('/');
+}
+
+/** Markdown markers a plain-text preview drops (a list item's bullet, a heading's hashes, emphasis, code ticks). */
+function plainLine(line: string): string {
+  return line.replace(/^\s{0,3}(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/, '')
+    .replace(/(\*\*|__|~~|`)(.+?)\1/g, '$2')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A one-line plain-text preview of a comment's markdown: its own words first — a reply that starts by quoting
+ * someone shows what it says, not the quote — else the quote without its "> " markers. Fenced code is skipped.
+ */
+export function commentPreview(markdown: string, max = 200): string {
+  let fence = false;
+  let quoted = '';
+  for (const raw of markdown.split(/\r?\n/)) {
+    if (/^\s{0,3}(?:```|~~~)/.test(raw)) {
+      fence = !fence;
+      continue;
+    }
+    if (fence) continue;
+    const quote = /^\s{0,3}>/.test(raw);
+    const text = plainLine(quote ? raw.replace(/^(?:\s{0,3}>\s?)+/, '') : raw);
+    if (!text) continue;
+    if (!quote) return clip(text, max);
+    quoted ||= text;
+  }
+  return clip(quoted, max);
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
 const verbs: Record<string, string> = {
@@ -24,17 +74,36 @@ const verbs: Record<string, string> = {
   pull_review_dismissed: 'dismissed a review in', pull_request_ready_for_review: 'requested review in',
 };
 
+/** Branch and tag actions: what the row says (with the ref's name) and where it links in the repository. */
+const REFS: Record<string, ((ref: string, full: string) => [string, string]) | undefined> = {
+  push_tag: (ref) => [`created tag ${ref} in`, `/src/tag/${refPath(ref)}`],
+  delete_tag: (ref) => [`deleted tag ${ref} in`, '/tags'],
+  delete_branch: (ref) => [`deleted branch ${ref} in`, '/branches'],
+  mirror_sync_create: (ref, full) => full.startsWith('refs/tags/') ?
+    [`synced tag ${ref} in`, `/src/tag/${refPath(ref)}`] : [`synced branch ${ref} in`, `/src/branch/${refPath(ref)}`],
+  mirror_sync_delete: (ref, full) => full.startsWith('refs/tags/') ? [`removed tag ${ref} in`, '/tags'] : [`removed branch ${ref} in`, '/branches'],
+};
+
 export function feedEntry(a: FeedAction): {path: string; text: string} {
   const repo = `/${a.repo.full_name.split('/').map(encodeURIComponent).join('/')}`;
   let path = repo;
   let detail = '';
+  const refAction = REFS[a.op_type];
   if (/issue|pull/.test(a.op_type)) {
     let parts: string[];
     try { parts = JSON.parse(a.content) as string[]; } catch { parts = a.content.split('|'); }
     if (Array.isArray(parts) && /^\d+$/.test(parts[0] ?? '')) {
       // /issues/:number resolves pull requests as well (comment_issue includes PR comments).
       path = `${repo}/${a.op_type.includes('issue') ? 'issues' : 'pulls'}/${parts[0]}`;
-      detail = ` #${parts[0]}${parts[1] ? ` — ${parts[1]}` : ''}`;
+      let text = parts[1] ?? '';
+      if (COMMENTS.has(a.op_type)) {
+        // Forgejo keeps only the comment's first line with the action (a quote, when the reply starts with one):
+        // the comment itself, when it came along, says more. Either way as plain text, opening at the comment.
+        text = commentPreview(a.comment?.body ?? text);
+        const id = a.comment?.id ?? a.comment_id ?? 0;
+        if (id > 0) path += `#comment-${String(id)}`;
+      }
+      detail = ` #${parts[0]}${text ? ` — ${text}` : ''}`;
     }
   } else if (a.op_type === 'commit_repo' || a.op_type === 'mirror_sync_push') {
     try {
@@ -46,6 +115,11 @@ export function feedEntry(a: FeedAction): {path: string; text: string} {
   } else if (a.op_type === 'publish_release') {
     path = `${repo}/releases`;
     detail = ` — ${a.content || a.ref_name}`;
+  } else if (refAction && shortRef(a.ref_name)) {
+    // Which branch or tag: named, and linked to it (a created tag) or to the list it was in (a deleted one).
+    const ref = shortRef(a.ref_name);
+    const [verb, link] = refAction(ref, a.ref_name);
+    return {path: `${repo}${link}`, text: `${a.act_user.login} ${verb} ${a.repo.full_name}`};
   }
   return {path, text: `${a.act_user.login} ${verbs[a.op_type] ?? 'updated'} ${a.repo.full_name}${detail}`};
 }

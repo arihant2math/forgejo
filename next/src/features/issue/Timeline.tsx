@@ -15,11 +15,12 @@ import {
 } from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {lazy, type ReactNode, Suspense, useEffect, useRef, useState} from 'react';
+import {createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState} from 'react';
+import type {VirtuosoHandle} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Badge, type BadgeTone, Button, Code, CodeLine, Icon, LabelChip, type LucideIcon, TextLink} from '../../ui/index.ts';
-import {Link, useParams} from '@tanstack/react-router';
+import {Badge, type BadgeTone, Button, Code, CodeLine, cx, Icon, LabelChip, type LucideIcon, TextLink} from '../../ui/index.ts';
+import {Link, useParams, useRouterState} from '@tanstack/react-router';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
@@ -111,27 +112,79 @@ const Virtuoso = lazy(() => import('react-virtuoso').then((m) => ({default: m.Vi
  */
 const FIRST_PAINT = 8;
 
+/** The comment a page's address points at: `#comment-123` (the app's Copy link) or classic Forgejo's `#issuecomment-123`. */
+export function commentTarget(hash: string): number | undefined {
+  const m = /^#?(?:issue)?comment-([1-9]\d{0,15})$/.exec(hash);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** The comment the address points at, highlighted in its card. */
+const TargetContext = createContext<number | undefined>(undefined);
+
+/** How many frames the timeline looks for the linked comment (its group may still be loading, a long one rendering). */
+const SEEK_FRAMES = 120;
+
 export const Timeline = observer(function Timeline({issueId, scroller}: {issueId: number; scroller: HTMLDivElement | null}) {
   const items = useItems(issueId);
+  const pool = usePool();
   const [all, setAll] = useState(false);
-  const partial = !all && items.length > FIRST_PAINT;
+  // A permalink (#comment-123): the item holding that comment — its own, or its review's card.
+  const hash = useRouterState({select: (s) => s.location.hash});
+  const target = commentTarget(hash.startsWith('#') ? hash : `#${hash}`);
+  const reviewOf = target === undefined ? 0 : pool.model('Comment').get(target)?.get('review_id') ?? 0;
+  const targetIndex = target === undefined ? -1 :
+    items.findIndex((it) => it.kind === 'comment' ? it.id === target : reviewOf > 0 && it.id === reviewOf);
+  // A linked comment past the first frame's items: everything renders at once (it must be there to scroll to).
+  const partial = !all && items.length > FIRST_PAINT && targetIndex < FIRST_PAINT;
+  const virtual = items.length >= VIRTUALIZE_FROM && scroller !== null;
+  const virtuoso = useRef<VirtuosoHandle>(null);
+  const [highlight, setHighlight] = useState<number>();
+  /** The address already scrolled to (each permalink once: then the reader scrolls). */
+  const scrolled = useRef('');
   useEffect(() => {
     if (!partial) return;
     afterPaint(() => {
       setAll(true);
     });
   }, [partial]);
+  useEffect(() => {
+    if (target === undefined || targetIndex < 0 || scrolled.current === hash) return undefined;
+    let frame = 0;
+    let raf = 0;
+    let asked = false;
+    const seek = () => {
+      const card = document.getElementById(`comment-${String(target)}`);
+      if (card) {
+        scrolled.current = hash;
+        card.scrollIntoView({block: 'start'});
+        setHighlight(target);
+        return;
+      }
+      // A long timeline renders what is in view: brought into view first (once its code is here).
+      if (virtual && !asked && virtuoso.current) {
+        asked = true;
+        virtuoso.current.scrollToIndex({index: targetIndex, align: 'start'});
+      }
+      if (++frame < SEEK_FRAMES) raf = requestAnimationFrame(seek);
+    };
+    seek();
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+  }, [hash, target, targetIndex, virtual]);
   if (!items.length) return null;
   const render = (it: Item) => (it.kind === 'comment' ? <CommentItem id={it.id} swapFrom={it.swapFrom}/> : <ReviewItem id={it.id}/>);
   return (
-    <section aria-label="Activity" className="flex flex-col">
-      {items.length < VIRTUALIZE_FROM || !scroller ?
-        (partial ? items.slice(0, FIRST_PAINT) : items).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>) :
-        <Suspense fallback={items.slice(0, 20).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>)}>
-          <Virtuoso customScrollParent={scroller} data={items} increaseViewportBy={600}
-            computeItemKey={(_, it) => `${it.kind}${String(it.id)}`} itemContent={(_, it) => render(it)}/>
-        </Suspense>}
-    </section>
+    <TargetContext value={highlight}>
+      <section aria-label="Activity" className="flex flex-col">
+        {!virtual ?
+          (partial ? items.slice(0, FIRST_PAINT) : items).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>) :
+          <Suspense fallback={items.slice(0, 20).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>)}>
+            <Virtuoso ref={virtuoso} customScrollParent={scroller} data={items} increaseViewportBy={600}
+              computeItemKey={(_, it) => `${it.kind}${String(it.id)}`} itemContent={(_, it) => render(it)}/>
+          </Suspense>}
+      </section>
+    </TargetContext>
   );
 });
 
@@ -151,10 +204,12 @@ export function Edited({updated, version}: {updated: string; version: number}) {
   return <span className="text-sm text-fg-subtle" title={`Edited ${fullDate(updated)}`}>edited</span>;
 }
 
-/** A card: comments and reviews. */
-function Card({poster, original, at, badge, children, footer, id}: {poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string}) {
+/** A card: comments and reviews. `linked`: the comment the page's address points at (#comment-123), highlighted. */
+function Card({poster, original, at, badge, children, footer, id, linked}: {
+  poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string; linked?: boolean;
+}) {
   return (
-    <article id={id} className="flex gap-3 py-3">
+    <article id={id} aria-current={linked ? 'location' : undefined} className={cx('flex gap-3 py-3', linked && '-mx-2 rounded-md bg-accent-subtle px-2')}>
       <UserAvatar id={poster} size="lg" linked/>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <header className="flex flex-wrap items-center gap-x-2 text-base">
@@ -193,6 +248,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
     .filter((h) => h.comment_id === c.id && !h.is_first_created)
     .sort((a, b) => b.edited_at.localeCompare(a.edited_at) || b.id - a.id)[0];
   const deleted = commentBody(overlay, c).deleted;
+  const linked = useContext(TargetContext) === c.id;
   useEffect(() => {
     // Back to the comment's actions once its editor closes.
     if (!edit && refocus.current) actions.current?.focus();
@@ -200,7 +256,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
   }, [edit]);
   if (deleted) return null;
   return (
-    <Card id={`comment-${String(c.id)}`} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+    <Card id={`comment-${String(c.id)}`} linked={linked} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
       badge={<>
         {badge}
         <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>

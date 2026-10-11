@@ -96,7 +96,21 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   const [text, setText] = useState(restored?.text ?? initial);
   const [confirmCancel, setConfirmCancel] = useState(false);
   // The base the user started from: the restored draft's, else the one when the editor opened.
-  const [base] = useState(restored?.base ?? base0);
+  const [base, setBase] = useState(restored?.base ?? base0);
+  /** Typed in (or saved, or cancelled) since the editor opened: a draft read later never replaces that text. */
+  const touched = useRef(restored !== undefined);
+  // The drafts are read from IndexedDB at boot, and a page can open before that is done (QA #193: an offline reload
+  // showed an empty comment box, and typing then overwrote the kept text): one arriving while nothing was typed yet
+  // is what the editor shows.
+  const late = touched.current ? undefined : intents.drafts.get(draftKey);
+  useEffect(() => {
+    if (late?.kind !== 'text' || late.text === undefined || touched.current) return;
+    touched.current = true;
+    setText(late.text);
+    if (late.base) setBase(late.base);
+    onTextChange?.(late.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the kept draft arrives
+  }, [late]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   /** The keep that the debounce has not run yet (run at once when the editor goes: leaving the page loses nothing). */
   const pending = useRef<(() => void) | undefined>(undefined);
@@ -125,6 +139,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     };
   }, [draftKey]);
   const change = (t: string) => {
+    touched.current = true;
     setText(t);
     onTextChange?.(t);
     done.current = false;

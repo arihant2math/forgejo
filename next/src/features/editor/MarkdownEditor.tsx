@@ -23,7 +23,7 @@ import {Decoration, EditorView, keymap, MatchDecorator, placeholder as cmPlaceho
 import {classHighlighter} from '@lezer/highlight';
 import {continueList, markdown} from './markdown.ts';
 import {type Ref, useEffect, useImperativeHandle, useRef, useState} from 'react';
-import {type Format, formatEdit} from './format.ts';
+import {type EditMaker, type Format, formatEdit} from './format.ts';
 
 /** Tokens only (tokens.css): the frame draws the box; the editor draws text, caret and selection. */
 const theme = EditorView.theme({
@@ -106,8 +106,10 @@ export interface MarkdownEditorHandle {
   focus(): void;
   insert(text: string, position?: number): void;
   replace(placeholder: string, text: string): void;
-  /** Formats the selection (the toolbar; the keys are ⌘B, ⌘I, ⌘K). */
+  /** Formats the selection (the toolbar; the keys are ⌘B, ⌘I, ⌘E). */
   format(kind: Format): void;
+  /** Applies a caller's edit of the selection (a toolbar's own tool), as one change. */
+  edit(make: EditMaker): void;
 }
 
 export interface MarkdownEditorProps {
@@ -156,6 +158,12 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
     format: (kind) => {
       if (view.current) {
         applyFormat(view.current, kind);
+        view.current.focus();
+      }
+    },
+    edit: (make) => {
+      if (view.current) {
+        applyEdit(view.current, make);
         view.current.focus();
       }
     },
@@ -216,6 +224,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
             // Mod-K belongs to the global command menu, including while writing.
             {key: 'Mod-b', run: (v) => applyFormat(v, 'bold')},
             {key: 'Mod-i', run: (v) => applyFormat(v, 'italic')},
+            {key: 'Mod-e', run: (v) => applyFormat(v, 'code')},
             // Tab moves the focus on (as in a text area: no keyboard trap); lists indent with ⌘] / ⌘[ (defaultKeymap).
             {key: 'Enter', run: continueList},
             ...historyKeymap,
@@ -263,8 +272,13 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
 
 /** Formats the main selection as one change (one undo step). */
 function applyFormat(v: EditorView, kind: Format): boolean {
+  return applyEdit(v, (doc, from, to) => formatEdit(doc, from, to, kind));
+}
+
+/** Replaces the main selection by an edit made from it, as one change (one undo step). */
+function applyEdit(v: EditorView, make: EditMaker): boolean {
   const {from, to} = v.state.selection.main;
-  const e = formatEdit(v.state.doc.toString(), from, to, kind);
+  const e = make(v.state.doc.toString(), from, to);
   v.dispatch({changes: {from: e.from, to: e.to, insert: e.insert}, selection: {anchor: e.anchor, head: e.head}, userEvent: 'input.format'});
   return true;
 }

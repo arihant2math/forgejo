@@ -12,7 +12,7 @@ import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
 import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
-import {canWrite} from '../../app/access.ts';
+import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
@@ -358,10 +358,15 @@ const SubscribeValue = observer(function SubscribeValue({issue}: {issue: Entity<
 /** Forgejo's default lock reasons (setting.Repository.Issue.LockReasons; API v1 refuses any other). */
 const LOCK_REASONS = ['Too heated', 'Off-topic', 'Resolved', 'Spam'];
 
-/** Pinning (to the repository's issue list) and locking the conversation: writers only. */
+/**
+ * Pinning (to the repository's issue list) and locking the conversation: writers lock; only the repository's
+ * administrators pin (API v1 /pin is reqAdmin: a writer's pin is refused), so a writer sees the value, and why.
+ */
 const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
+  const session = useSession();
   const overlay = useOverlay();
+  const mayPin = repoAccess(session, issue.get('repo_id')) === 'admin';
   const pinned = issuePinned(overlay, issue);
   const locked = issueLocked(overlay, issue);
   const submit = (patch: {kind: 'issue.pin'; pinned: boolean} | {kind: 'issue.lock'; locked: boolean; reason: string}) => {
@@ -372,9 +377,14 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
   return (
     <>
       <Property label="Pinned">
-        <PropertyButton label={pinned ? 'Unpin' : 'Pin to the list'} onClick={() => {
-          submit({kind: 'issue.pin', pinned: !pinned});
-        }}><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton>
+        {mayPin ?
+          <PropertyButton label={pinned ? 'Unpin' : 'Pin to the list'} onClick={() => {
+            submit({kind: 'issue.pin', pinned: !pinned});
+          }}><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton> :
+          <PropertyValue tone="muted">
+            <span className="flex items-center gap-1"><Icon icon={pinned ? Pin : PinOff}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></span>
+            <span className="text-sm text-fg-subtle">Only repository administrators can pin issues.</span>
+          </PropertyValue>}
       </Property>
       <Property label="Conversation">
         {locked ?

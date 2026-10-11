@@ -66,6 +66,8 @@ func registerAPI(r *web.Route) {
 	r.Get(p+"/repos/{id}/diff/{base}/{head}", apiDiff)
 	r.Get(p+"/repos/{id}/activity/{commit}", apiCommitActivity)
 	r.Get(p+"/repos/{id}/contributors/{commit}", apiContributors)
+	r.Get(p+"/repos/{id}/artifacts/{artifact}/ticket", apiArtifactTicket)
+	r.Get(p+"/artifact-download", apiArtifactDownload)
 	r.Get(p+"/user/options", apiUserOptions)
 	r.Put(p+"/user/emails/primary", apiPrimaryEmail)
 }

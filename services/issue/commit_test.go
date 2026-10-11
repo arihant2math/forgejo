@@ -176,6 +176,9 @@ func TestUpdateIssuesCommit_Issue5957(t *testing.T) {
 	require.NoError(t, UpdateIssuesCommit(db.DefaultContext, user, repo, pushCommits, "non-existing-branch"))
 	unittest.AssertExistsAndLoadBean(t, commentBean)
 	unittest.AssertExistsAndLoadBean(t, issueBean, unittest.Cond("is_closed = ?", true))
+	unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{
+		IssueID: issueBean.ID, Type: issues_model.CommentTypeClose, CommitSHA: "abcdef1", RefRepoID: repo.ID,
+	})
 	unittest.CheckConsistencyFor(t, &activities_model.Action{})
 }
 

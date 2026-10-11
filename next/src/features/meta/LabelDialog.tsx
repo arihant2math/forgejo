@@ -6,6 +6,8 @@
 // (writes.ts), and is rolled back with a notice if Forgejo refuses it.
 
 import {type SyntheticEvent, useId, useState} from 'react';
+import {observer} from 'mobx-react-lite';
+import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Button, Checkbox, ColorPicker, Dialog, Field, Input, LabelPill} from '../../ui/index.ts';
@@ -20,10 +22,11 @@ export function DraftPill({name, color, exclusive}: {name: string; color: string
 }
 
 /** New (no `label`) or edit. `count`: the repository's labels, for the new one's colour. */
-export function LabelDialog({repo, label, count, onClose}: {repo: RepoRef; label?: Label | undefined; count: number; onClose: () => void}) {
+export const LabelDialog = observer(function LabelDialog({repo, label, count, onClose, onSave}: {repo: RepoRef; label?: Label | undefined; count: number; onClose: () => void; onSave?: (draft: LabelDraft) => Promise<boolean>}) {
   const app = useApp();
   const [d, setD] = useState<LabelDraft>(() => (label ? draftOf(label) : {name: '', description: '', color: nextPreset(count), exclusive: false, archived: false}));
   const [tried, setTried] = useState(false);
+  const [saving, setSaving] = useState(false);
   const id = useId();
   const problems = labelProblems(d);
   const set = (patch: Partial<LabelDraft>) => {
@@ -33,6 +36,15 @@ export function LabelDialog({repo, label, count, onClose}: {repo: RepoRef; label
     e?.preventDefault();
     if (!labelValid(d)) {
       setTried(true);
+      return;
+    }
+    if (saving || !connectivity.online) return;
+    if (onSave) {
+      setSaving(true);
+      void onSave(d).then((ok) => {
+        setSaving(false);
+        if (ok) onClose();
+      });
       return;
     }
     onClose();
@@ -48,7 +60,7 @@ export function LabelDialog({repo, label, count, onClose}: {repo: RepoRef; label
       if (!o) onClose();
     }} footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" onClick={() => {
+      <Button variant="primary" disabled={saving || !connectivity.online} tooltip={!connectivity.online ? onlineOnly('Saving a label') : undefined} onClick={() => {
         save();
       }}>{label ? 'Save' : 'Create label'}</Button>
     </>}>
@@ -88,7 +100,7 @@ export function LabelDialog({repo, label, count, onClose}: {repo: RepoRef; label
       </form>
     </Dialog>
   );
-}
+});
 
 /** Asks before a label is deleted (it leaves every issue and pull request that has it). */
 export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; label: Label; open: number; onClose: () => void}) {

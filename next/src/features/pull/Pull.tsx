@@ -19,7 +19,7 @@ import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest
 import {observer} from 'mobx-react-lite';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
-import {failureText, online, refused} from '../../app/api.ts';
+import {failureText, online, refused, RequestFailed} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
 import {onlineOnly, reach} from '../../app/online.ts';

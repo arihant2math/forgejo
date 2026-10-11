@@ -133,6 +133,8 @@ export class IssueListModel {
   private readonly defaultGroup: Group;
   /** Issues the server says belong to the list (mentioned, review requested); undefined: not asked. */
   private readonly serverIds = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
+  /** Whether the last question to the server went unanswered (offline, Forgejo not answering, an error status). */
+  private readonly serverFailed = observable.box(false);
   private serverAsked = '';
   readonly result: IComputedValue<QueryResult>;
   /** The keyboard cursor (J/K) and the selection (X). */
@@ -251,6 +253,16 @@ export class IssueListModel {
     return this.serverIds.get() !== undefined;
   }
 
+  /**
+   * Where the server's answer is (a list that needs one: serverAssisted); observable. `answered`: the list is what
+   * the server said (an empty list is really empty); `asking`: the question is on its way; `unanswered`: it could not
+   * be asked or got no answer (asked again once the browser is back online).
+   */
+  get serverStatus(): 'answered' | 'asking' | 'unanswered' {
+    if (this.serverFailed.get()) return 'unanswered';
+    return this.serverIds.get() === undefined ? 'asking' : 'answered';
+  }
+
   /** Whether the list needs the server's answer (mentioned, review requested). */
   get serverAssisted(): boolean {
     return this.source.kind === 'my' && (this.source.type === 'mentioned' || this.source.type === 'review_requested');
@@ -358,6 +370,9 @@ export class IssueListModel {
     this.serverAsked = key;
     const params = new URLSearchParams({type: this.source.pulls ? 'pulls' : 'issues', state, limit: '50'});
     params.set(this.source.type === 'mentioned' ? 'mentioned' : 'review_requested', 'true');
+    if (this.serverFailed.get()) runInAction(() => {
+      this.serverFailed.set(false);
+    });
     void (async () => {
       const ids = new Set<number>();
       let answered = false;
@@ -382,6 +397,9 @@ export class IssueListModel {
         // No answer is not an empty list ("nobody waits for your review"): the list stays unanswered (its page and
         // Home say it needs a connection) and asks again once the browser is back online.
         this.serverAsked = '';
+        runInAction(() => {
+          this.serverFailed.set(true);
+        });
         if (typeof window !== 'undefined') window.addEventListener('online', () => { this.askServer(); }, {once: true});
         return;
       }

@@ -453,11 +453,11 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         </ContextMenuContent>
       </ContextMenu>
       <DropIndicator ref={indicatorRef}/>
-      {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }} onCreate={() => {
+      {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }} onCreate={(title) => {
         setAddTo(undefined);
         focusColumn(addTo);
         // After the column has the focus again (focusColumn's frame): the create dialog gives it back there when it closes.
-        requestAnimationFrame(() => { newIssueIn(app, projectId, addTo); });
+        requestAnimationFrame(() => { newIssueIn(app, projectId, addTo, title); });
       }}/>}
       {columnDialog && <ColumnDialog model={model} state={columnDialog} onClose={(deleted) => {
         setColumnDialog(undefined);
@@ -747,9 +747,10 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
 
 /**
  * A new issue that goes on this board, in this column (the create dialog). Its repository: the board's; on an
- * organization's or a user's board, the one most of its cards come from (not the first by name).
+ * organization's or a user's board, the one most of its cards come from (not the first by name). `title`: the title
+ * it starts with (the text typed in "Add existing issues").
  */
-function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId: number): void {
+function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId: number, title?: string): void {
   const repoId = untracked(() => {
     const pool = app.session?.data.pool;
     if (!pool) return 0;
@@ -762,7 +763,7 @@ function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId:
     }
     return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
   });
-  openCreate(app, repoId, {projectId, columnId});
+  openCreate(app, repoId, {projectId, columnId}, title);
 }
 
 /** The lane after the last column: "Add column", then the new column's lane with its name field (online only). */

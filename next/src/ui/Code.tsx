@@ -316,10 +316,19 @@ export function shownTabs(widths: readonly (number | undefined)[], room: number,
   return shown.sort((a, b) => a - b);
 }
 
+/** How a bar shows its current tab: filled (default), or underlined on the bar's bottom edge (a repository's, GitHub's). */
+const currentTab = {
+  filled: 'aria-[current=page]:bg-selected',
+  // The tab (h-control) is centred in the bar (h-header, 16px taller): 6px below it is just above the bar's bottom
+  // border, inside the bar (which scrolls sideways: nothing may stick out of it).
+  underline: 'relative aria-[current=page]:font-medium after:pointer-events-none after:absolute after:inset-x-1 after:-bottom-1.5 after:h-0.5 ' +
+    'after:rounded-full aria-[current=page]:after:bg-accent',
+} as const;
+
 /** One tab: wraps a router <Link>, which sets aria-current="page" on the active route (`tooltip`: a hint on hover). */
-export function TabLink({children, tooltip}: {children: ReactElement; tooltip?: string | undefined}) {
+export function TabLink({children, tooltip, current = 'filled'}: {children: ReactElement; tooltip?: string | undefined; current?: keyof typeof currentTab}) {
   const tab = (
-    <Slot.Root className="interactive flex h-control shrink-0 items-center gap-1.5 rounded-md px-2.5 text-base whitespace-nowrap text-fg-muted hover:bg-hover hover:text-fg aria-[current=page]:bg-selected aria-[current=page]:text-fg">
+    <Slot.Root className={cx('interactive flex h-control shrink-0 items-center gap-1.5 rounded-md px-2.5 text-base whitespace-nowrap text-fg-muted hover:bg-hover hover:text-fg aria-[current=page]:text-fg', currentTab[current])}>
       {children}
     </Slot.Root>
   );

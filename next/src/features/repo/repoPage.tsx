@@ -12,7 +12,6 @@ import {Link, useLoaderData, useNavigate, useParams, useRouter, useRouterState} 
 import {AppWindow, BookOpen, ChartLine, ChevronRight, CircleDot, CirclePlay, Code2, GitPullRequest, KanbanSquare, Settings, Slash} from 'lucide-react';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {Slot} from 'radix-ui';
 import {Fragment, type ReactElement, type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
@@ -23,7 +22,7 @@ import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Badge, Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabNav, TextLink,
+  Badge, Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
 } from '../../ui/index.ts';
 
 import {ForkButton} from './ForkButton.tsx';
@@ -247,20 +246,9 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
   );
 });
 
-/**
- * One of the repository's tabs, as GitHub's: the current one is underlined on the bar's bottom edge (not filled).
- * The repository's own (ui/TabLink, the filled one, is every other tab bar's).
- */
+/** One of the repository's tabs, as GitHub's: the current one is underlined on the bar's bottom edge (not filled). */
 function RepoTabLink({children}: {children: ReactElement}) {
-  return (
-    <Slot.Root className={'interactive relative flex h-control shrink-0 items-center gap-1.5 rounded-md px-2.5 text-base whitespace-nowrap text-fg-muted ' +
-      'hover:bg-hover hover:text-fg aria-[current=page]:font-medium aria-[current=page]:text-fg ' +
-      // The underline: on the tab bar's bottom border (the tab is centred in the bar: half the difference below it).
-      'after:pointer-events-none after:absolute after:inset-x-1 after:bottom-[calc((var(--spacing-control)-var(--spacing-header)+1px)/2)] after:h-0.5 ' +
-      'after:rounded-full aria-[current=page]:after:bg-accent'}>
-      {children}
-    </Slot.Root>
-  );
+  return <TabLink current="underline">{children}</TabLink>;
 }
 
 /**

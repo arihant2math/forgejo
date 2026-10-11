@@ -77,7 +77,7 @@ describe('labels and milestones', () => {
     const s = session();
     const {router} = await renderApp('/acme/website/labels', s);
     expect(screen.getByRole('heading', {level: 1}).textContent).toBe('Labels');
-    expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: 'Issues'}).getAttribute('aria-current')).toBe('page');
+    expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: /^Issues/}).getAttribute('aria-current')).toBe('page');
     const own = screen.getByRole('region', {name: 'Labels'});
     expect(within(own).getByText('Something is broken')).toBeTruthy();
     // Two open issues have "bug" (the closed one does not count).

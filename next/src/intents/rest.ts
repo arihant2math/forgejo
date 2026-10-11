@@ -46,6 +46,11 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
       // Unread ones only (the default status-types): pinned notifications stay pinned.
       return {method: 'PUT', api: 'v1', path: `/notifications?${new URLSearchParams({last_read_at: i.lastReadAt, 'to-status': 'read'}).toString()}`};
     }
+    if (i.kind === 'issue.subscribe' && i.target) {
+      const {owner, repo, number} = i.target;
+      if ([owner, repo].some((n) => n === '.' || n === '..')) throw new UnsendableIntent('the repository name cannot be used in a request');
+      return {method: i.add ? 'PUT' : 'DELETE', api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${String(number)}/subscriptions/${encodeURIComponent(login(pool, i.userId))}`};
+    }
     const repo = pool.model('Repository').get(i.repoId)?.data;
     if (!repo) throw new NotReady('the repository is not on this device yet');
     // "." and ".." would be resolved away by the URL parser (Forgejo refuses such names; never send one).

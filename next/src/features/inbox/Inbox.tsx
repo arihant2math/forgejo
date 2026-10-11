@@ -39,7 +39,7 @@ import {
 import {AgoCell, RefCell, SelectionCount, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {ListCursor} from '../issues/flags.ts';
-import {readAll as markAllRead, setStatus} from './actions.ts';
+import {readAll as markAllRead, setStatus, unsubscribe, unsubscribeReason} from './actions.ts';
 import {reasonOf} from './reason.ts';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
 import {activityOf, type InboxResult, inboxRows, togglePin} from './inbox.ts';
@@ -346,6 +346,10 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   useShortcut('inbox.read', triage((st) => (st === 'unread' ? 'read' : undefined), 'read'));
   useShortcut('inbox.unread', triage(() => 'unread', 'unread'));
   useShortcut('inbox.pin', triage(togglePin, 'pin'));
+  useShortcut('inbox.unsubscribe', () => {
+    const targets = cursor.targets();
+    unsubscribe(app, targets.length ? targets : ids.slice(0, 1));
+  });
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return;
@@ -380,6 +384,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   // The row menu acts on the selection when the row is in it (and says how many), else on the row.
   const [menuIds, setMenuIds] = useState<number[]>([]);
   const menuStatus = menuIds.length === 1 && menuIds[0] !== undefined ? status(menuIds[0]) : undefined;
+  const cannotUnsubscribe = unsubscribeReason(app, menuIds);
   const many = menuIds.length > 1 ? ` (${String(menuIds.length)})` : '';
   return (
     <ContextMenu onOpenChange={(o) => {
@@ -444,6 +449,14 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
             <ContextMenuItem icon={Pin} shortcut={shortcutHint('inbox.pin')} onSelect={() => {
               triageIds(menuIds, togglePin, 'pin');
             }}>{menuStatus === 'pinned' ? 'Unpin' : `Pin${many}`}</ContextMenuItem>
+            <ContextMenuSeparator/>
+            <ContextMenuItem icon={BellOff} shortcut={shortcutHint('inbox.unsubscribe')} disabled={!!cannotUnsubscribe} onSelect={() => {
+              unsubscribe(app, menuIds);
+            }}>{`Unsubscribe${many}`}</ContextMenuItem>
+            <ContextMenuItem icon={BellOff} disabled={!!cannotUnsubscribe} onSelect={() => {
+              unsubscribe(app, menuIds, true);
+            }}>{`Unsubscribe and mark read${many}`}</ContextMenuItem>
+            {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-fg-subtle">{cannotUnsubscribe}</div>}
           </>
         )}
       </ContextMenuContent>

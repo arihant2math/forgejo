@@ -39,7 +39,7 @@ import {AboutSidebar} from './AboutSidebar.tsx';
 import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';
 import {Contribute} from './Contribute.tsx';
-import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
+import {RepoActions, RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {EmptyRepo} from '../code/states.tsx';
 import {FileOperations} from '../code/FileOperations.tsx';
 
@@ -61,15 +61,20 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
   const repository = usePool().model('Repository').get(repoId)?.data;
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Code2} title="Code" home>
-        <Button size="sm" variant="ghost" icon={SquarePen} shortcut={shortcutHint('create')} tooltip="New issue in this repository" onClick={() => {
-          openCreate(app, repoId);
-        }}>New issue</Button>
-      </RepoHeader>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={Code2} title="Code" home/>
       <PageBody>
         <div className="flex flex-col @xl:min-h-full @xl:flex-row">
           <PageColumn wide>
-            <Summary repoId={repoId}/>
+            {/* GitHub's repository title row: the name and its kind, the repository's actions at its end (only here: #252). */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Summary repoId={repoId}/>
+              <div className="ms-auto flex flex-wrap items-center gap-2">
+                <RepoActions owner={owner} repo={repo} repoId={repoId}/>
+                <Button size="sm" variant="ghost" icon={SquarePen} shortcut={shortcutHint('create')} tooltip="New issue in this repository" onClick={() => {
+                  openCreate(app, repoId);
+                }}>New issue</Button>
+              </div>
+            </div>
             {repository?.fork && <Contribute owner={owner} repo={repo}/>}
             <Files owner={owner} repo={repo} repoId={repoId}/>
           </PageColumn>

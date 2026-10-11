@@ -1,7 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// GitHub's green "Code" button (Button variant success) at the right of the overview's file bar: a
+// The "Code" button at the right of the overview's file bar (neutral, as its neighbours Search code and Go to
+// file: #254): a
 // popover with the clone URL over HTTPS or SSH (SSH only when the instance
 // has it on: NextConfig.ssh_clone_prefix), each with a copy button, and the
 // default branch's source archives. Everything is known at once (the
@@ -72,7 +73,7 @@ export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; br
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="success" icon={Code2}>Code<Icon icon={ChevronDown} size="sm"/></Button>
+        <Button size="sm" icon={Code2}>Code<Icon icon={ChevronDown} size="sm"/></Button>
       </PopoverTrigger>
       <PopoverContent width="md" align="end">
         <CodeMenuPanel https={httpsCloneUrl(app.config.app_url, owner, repo)} ssh={sshCloneUrl(app.config.ssh_clone_prefix, owner, repo)} archives={archives}

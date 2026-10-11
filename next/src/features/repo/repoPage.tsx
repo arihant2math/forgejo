@@ -22,7 +22,7 @@ import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
+  Badge, Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
 } from '../../ui/index.ts';
 
 import {ForkButton} from './ForkButton.tsx';
@@ -108,7 +108,7 @@ export interface RepoHeaderProps {
   /** The title row's title (on the home, which has no title row, only the tab's title when it is text). */
   title: ReactNode;
   icon?: LucideIcon | undefined;
-  /** The page's controls (filters, ref picker): in the title row; on the home at the end of the breadcrumb's row. */
+  /** The page's controls (filters, ref picker): in the title row (the home has none: its actions are in its body). */
   children?: ReactNode;
   /** The tab's title before the repository's name (default: the title when it is text). */
   docTitle?: string | undefined;
@@ -124,8 +124,9 @@ export interface RepoHeaderProps {
 /**
  * Every repository page's header, as GitHub's: the breadcrumb (owner / repository) and the sync indicator, the
  * repository's tabs, then the page's title and controls ("Issues", its filters and New issue; a file's path, its
- * ref picker and History). The home has no title row: the repository's name is its heading, and its actions end
- * the breadcrumb's row (GitHub's repository title row).
+ * ref picker and History). The home has no title row: the repository's name is its heading. The repository's
+ * actions (Star, Watch, Fork: RepoActions) are on the home only, in its own title row (GitHub's), never in the
+ * header (#252).
  *
  * A page without the repository's tabs keeps one row (breadcrumb › title, controls): an issue's or a pull
  * request's page (a pull request has tabs of its own: one row of tabs per page), and a repository that is not
@@ -140,13 +141,17 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
   }
   const tabTitle = page && !home ? `${page} · ${owner}/${repo}` : `${owner}/${repo}`;
   if (repoId === undefined || detail) {
-    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{repoId !== undefined && <RepoSocial owner={owner} repo={repo} repoId={repoId}/>} {children}</PageHeader>;
+    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{children}</PageHeader>;
   }
   return home ?
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} actions={<><RepoSocial owner={owner} repo={repo} repoId={repoId}/><ForkButton owner={owner} repo={repo} repoId={repoId}/>{children}</>}
-      tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} actions={<><RepoSocial owner={owner} repo={repo} repoId={repoId}/><ForkButton owner={owner} repo={repo} repoId={repoId}/></>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
       icon={icon} title={title} docTitle={tabTitle}>{children}</StackedPageHeader>;
+}
+
+/** The repository's actions (Star, Watch with its menu, Fork): the home's title row only, as GitHub's. */
+export function RepoActions({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
+  return <><RepoSocial owner={owner} repo={repo} repoId={repoId}/><ForkButton owner={owner} repo={repo} repoId={repoId}/></>;
 }
 
 type Tab = 'code' | 'issues' | 'pulls' | 'actions' | 'activity' | 'wiki' | 'settings' | undefined;
@@ -192,45 +197,45 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
   const code = {to: '/$owner/$repo/$view/$', params: {owner, repo, view: 'actions', _splat: ''}} as const;
   const projects: RepoTab = {
     key: 'projects',
-    tab: <TabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></TabLink>,
+    tab: <RepoTabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></RepoTabLink>,
     item: <MenuItem icon={KanbanSquare} onSelect={() => void navigate({to: '/-/next/boards', search: repoId ? {repoId} : {}})}>Projects</MenuItem>,
   };
   const tabs: RepoTab[] = [
     {
       key: 'code',
-      tab: <TabLink><Link to="/$owner/$repo" params={{owner, repo}} {...cur('code')}><Icon icon={Code2} size="sm"/>Code</Link></TabLink>,
+      tab: <RepoTabLink><Link to="/$owner/$repo" params={{owner, repo}} {...cur('code')}><Icon icon={Code2} size="sm"/>Code</Link></RepoTabLink>,
       item: <MenuItem icon={Code2} onSelect={() => void navigate({to: '/$owner/$repo', params: {owner, repo}})}>Code</MenuItem>,
     },
     {
       key: 'issues',
-      tab: <TabLink><Link to="/$owner/$repo/issues" params={{owner, repo}} {...cur('issues')}><Icon icon={CircleDot} size="sm"/>Issues</Link></TabLink>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/issues" params={{owner, repo}} {...cur('issues')}><Icon icon={CircleDot} size="sm"/>Issues<OpenCount repoId={repoId} pulls={false}/></Link></RepoTabLink>,
       item: <MenuItem icon={CircleDot} onSelect={() => void navigate({to: '/$owner/$repo/issues', params: {owner, repo}})}>Issues</MenuItem>,
     },
     {
       key: 'pulls',
-      tab: <TabLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} {...cur('pulls')}><Icon icon={GitPullRequest} size="sm"/>Pull requests</Link></TabLink>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} {...cur('pulls')}><Icon icon={GitPullRequest} size="sm"/>Pull requests<OpenCount repoId={repoId} pulls/></Link></RepoTabLink>,
       item: <MenuItem icon={GitPullRequest} onSelect={() => void navigate({to: '/$owner/$repo/pulls', params: {owner, repo}})}>Pull requests</MenuItem>,
     },
     {
       key: 'actions',
-      tab: <TabLink><Link {...code} {...cur('actions')}><Icon icon={CirclePlay} size="sm"/>Actions</Link></TabLink>,
+      tab: <RepoTabLink><Link {...code} {...cur('actions')}><Icon icon={CirclePlay} size="sm"/>Actions</Link></RepoTabLink>,
       item: <MenuItem icon={CirclePlay} onSelect={() => void navigate(code)}>Actions</MenuItem>,
     },
     projects,
     {
       key: 'wiki',
-      tab: <TabLink><Link to="/$owner/$repo/wiki" params={{owner, repo}} {...cur('wiki')}><Icon icon={BookOpen} size="sm"/>Wiki</Link></TabLink>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/wiki" params={{owner, repo}} {...cur('wiki')}><Icon icon={BookOpen} size="sm"/>Wiki</Link></RepoTabLink>,
       item: <MenuItem icon={BookOpen} onSelect={() => void navigate({to: '/$owner/$repo/wiki', params: {owner, repo}})}>Wiki</MenuItem>,
     },
     {
       key: 'activity',
       // Every activity page (the Pulse of any period, the graphs) is this tab.
-      tab: <TabLink><Link to="/$owner/$repo/activity" params={{owner, repo}} {...cur('activity')}><Icon icon={ChartLine} size="sm"/>Activity</Link></TabLink>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/activity" params={{owner, repo}} {...cur('activity')}><Icon icon={ChartLine} size="sm"/>Activity</Link></RepoTabLink>,
       item: <MenuItem icon={ChartLine} onSelect={() => void navigate({to: '/$owner/$repo/activity', params: {owner, repo}})}>Activity</MenuItem>,
     },
     ...admin ? [{
       key: 'settings',
-      tab: <TabLink><Link to="/$owner/$repo/settings" params={{owner, repo}} {...cur('settings')}><Icon icon={Settings} size="sm"/>Settings</Link></TabLink>,
+      tab: <RepoTabLink><Link to="/$owner/$repo/settings" params={{owner, repo}} {...cur('settings')}><Icon icon={Settings} size="sm"/>Settings</Link></RepoTabLink>,
       item: <MenuItem icon={Settings} onSelect={() => void navigate({to: '/$owner/$repo/settings', params: {owner, repo}})}>Settings</MenuItem>,
     }] : [],
   ];
@@ -240,6 +245,29 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
     </TabNav>
   );
 });
+
+/** One of the repository's tabs, as GitHub's: the current one is underlined on the bar's bottom edge (not filled). */
+function RepoTabLink({children}: {children: ReactElement}) {
+  return <TabLink current="underline">{children}</TabLink>;
+}
+
+/**
+ * How many issues (or pull requests) of the repository are open, after its tab's name as GitHub's; none when there
+ * are none. From the pool (the repository's open issues are synced): no request.
+ */
+const OpenCount = observer(function OpenCount({repoId, pulls}: {repoId: number | undefined; pulls: boolean}) {
+  const {data} = useSession();
+  if (repoId === undefined) return null;
+  const n = openCount(data.pool, repoId, pulls);
+  return n > 0 ? <Badge round>{n.toLocaleString()}</Badge> : null;
+});
+
+/** The open issues (or pull requests) of a repository in the pool. */
+export function openCount(pool: ReturnType<typeof useSession>['data']['pool'], repoId: number, pulls: boolean): number {
+  let n = 0;
+  for (const e of pool.model('Issue').by('repo_id', repoId)) if (e.get('is_pull') === pulls && e.get('state') === 'open') n++;
+  return n;
+}
 
 /** "More": the tabs that do not fit, and this page in the classic UI. */
 function RepoMore({overflow}: {overflow: RepoTab[]}) {

@@ -71,8 +71,10 @@ describe('the overview\'s file bar', () => {
     expect(screen.getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/acme/website/tags');
     const find = screen.getByRole('button', {name: 'Go to file'});
     const code = screen.getByRole('button', {name: 'Code'});
-    // GitHub's green button (Button variant success).
-    expect(code.className).toContain('bg-success-solid');
+    // Neutral, as its neighbours (Go to file, Search code): not green (#254).
+    expect(code.className).not.toContain('bg-success-solid');
+    expect(code.className).toBe(find.className);
+    expect(code.className).toContain('bg-surface');
     expect(screen.getByRole('link', {name: '2 tags'}).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(find.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Above the files panel, not in it.

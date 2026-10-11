@@ -200,16 +200,18 @@ describe('signed in', () => {
     expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/acme');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
     // GitHub's order; the home is the Code tab. Pages only the classic UI has are marked (data-classic).
-    expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Code', 'Issues', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity']);
+    expect(within(tabs).getAllByRole('link').map((a) => a.textContent)).toEqual(['Code', 'Issues1', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity']);
     expect(within(tabs).getByRole('link', {name: 'Code'}).getAttribute('aria-current')).toBe('page');
     // The home has no title row (GitHub's): its heading is the repository's crumb; the browser tab names the
-    // repository alone. Its actions end the breadcrumb's row, and the header's rows are breadcrumb, then tabs.
+    // repository alone. The header's rows are breadcrumb, then tabs; the repository's actions (New issue, Star, …)
+    // are in the home's own title row, not the header (#252).
     expect(screen.getByRole('heading', {level: 1}).textContent).toBe('website');
     expect(within(crumbs).getByRole('heading', {level: 1})).toBeTruthy();
     const header = crumbs.closest('header');
     expect(header?.contains(tabs)).toBe(true);
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(header ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
+    expect(within(header ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
+    expect(screen.getByRole('main').querySelector('h2')?.parentElement?.textContent).toContain('New issue');
     await waitFor(() => {
       expect(document.title).toBe('acme/website · Forgejo');
     });
@@ -222,7 +224,7 @@ describe('signed in', () => {
     expect(within(tabs).getByRole('button', {name: 'More of this repository'})).toBeTruthy();
     await router.navigate({to: '/$owner/$repo/issues', params: {owner: 'acme', repo: 'website'}});
     await waitFor(() => {
-      expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: 'Issues'}).getAttribute('aria-current')).toBe('page');
+      expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: /^Issues/}).getAttribute('aria-current')).toBe('page');
     });
     expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
   });

@@ -80,6 +80,8 @@ export const KEYMAP = {
   'board.moveUp': {keys: 'shift+k', label: 'Move the card up', scope: 'board'},
   'board.moveDown': {keys: 'shift+j', label: 'Move the card down', scope: 'board'},
   // Commands without keys (keys ''): the palette offers them on a board, the help does not list them.
+  'repo.star': {keys: '', label: 'Star repository', scope: 'global'},
+  'repo.watch': {keys: '', label: 'Watch repository', scope: 'global'},
   'board.addColumn': {keys: '', label: 'Add a column', scope: 'board'},
   'board.renameColumn': {keys: '', label: 'Rename the column', scope: 'board'},
   'board.removeCard': {keys: 'backspace', label: 'Remove card from board', scope: 'board'},

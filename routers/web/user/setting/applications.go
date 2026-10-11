@@ -13,17 +13,30 @@ import (
 	repo_model "forgejo.org/models/repo"
 	"forgejo.org/modules/base"
 	"forgejo.org/modules/setting"
+	"forgejo.org/modules/web/middleware"
 	"forgejo.org/services/context"
 )
 
 const (
 	tplSettingsApplications base.TplName = "user/settings/applications"
+
+	// flashNewAccessTokenKey is the one-time flash value with a new (or regenerated) access token: the
+	// applications page shows it in a box of its own (labelled, with a copy button), not as a generic message.
+	flashNewAccessTokenKey = "new_access_token"
 )
+
+// flashNewAccessToken shows a new access token's value once, on the next applications page.
+func flashNewAccessToken(ctx *context.Context, token string) {
+	ctx.Flash.Set(flashNewAccessTokenKey, token)
+}
 
 // Applications render manage access token page
 func Applications(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("settings.applications")
 	ctx.Data["PageIsSettingsApplications"] = true
+	if flash, ok := ctx.Data["Flash"].(*middleware.Flash); ok {
+		ctx.Data["NewAccessToken"] = flash.Get(flashNewAccessTokenKey)
+	}
 
 	loadApplicationsData(ctx)
 
@@ -68,6 +81,7 @@ func loadApplicationsData(ctx *context.Context) {
 	}
 
 	ctx.Data["TokensWithResources"] = tokensWithResources
+	ctx.Data["AccessTokenScopePublicOnly"] = string(auth_model.AccessTokenScopePublicOnly)
 	ctx.Data["EnableOAuth2"] = setting.OAuth2.Enabled
 	ctx.Data["IsAdmin"] = ctx.Doer.IsAdmin
 	if setting.OAuth2.Enabled {

@@ -144,9 +144,10 @@ test('User: Add access token', async ({browser}, workerInfo) => {
   await page.getByRole('radio', {name: /^All /}).click();
   await page.locator('#scoped-access-submit').click();
 
-  await expect(page.locator('.ui.info.message.flash-info')).toBeVisible();
-  const flashText = await page.locator('.ui.info.message.flash-info').textContent();
+  await expect(page.locator('#new-access-token')).toBeVisible();
+  const flashText = await page.locator('#new-access-token-value').textContent();
   expect(flashText?.trim()).toMatch(/^[0-9a-f]{40}$/);
+  await expect(page.getByRole('button', {name: 'Copy access token'})).toHaveAttribute('data-clipboard-text', String(flashText).trim());
   await page.getByText(tokenName).isVisible();
 });
 
@@ -211,9 +212,10 @@ test('User: Add specific repo access token', async ({browser}, workerInfo) => {
 
   // Create the token and check for success.
   await page.getByRole('button', {name: 'Generate token'}).click();
-  await expect(page.locator('.ui.info.message.flash-info')).toBeVisible();
-  const flashText = await page.locator('.ui.info.message.flash-info').textContent();
+  await expect(page.locator('#new-access-token')).toBeVisible();
+  const flashText = await page.locator('#new-access-token-value').textContent();
   expect(flashText?.trim()).toMatch(/^[0-9a-f]{40}$/);
+  await expect(page.getByRole('button', {name: 'Copy access token'})).toHaveAttribute('data-clipboard-text', String(flashText).trim());
   await page.getByText(tokenName).isVisible();
 });
 

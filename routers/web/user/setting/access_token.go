@@ -311,7 +311,7 @@ func AccessTokenCreatePost(ctx *context.Context) {
 	}
 
 	ctx.Flash.Success(ctx.Tr("settings.generate_token_success"))
-	ctx.Flash.Info(t.Token)
+	flashNewAccessToken(ctx, t.Token)
 
 	ctx.Redirect(setting.AppSubURL + "/user/settings/applications")
 }
@@ -338,7 +338,7 @@ func RegenerateAccessToken(ctx *context.Context) {
 		}
 	} else {
 		ctx.Flash.Success(ctx.Tr("settings.regenerate_token_success"))
-		ctx.Flash.Info(t.Token)
+		flashNewAccessToken(ctx, t.Token)
 	}
 
 	ctx.JSONRedirect(setting.AppSubURL + "/user/settings/applications")

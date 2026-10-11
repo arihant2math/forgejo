@@ -208,6 +208,16 @@ func testAPICompareCommits(t *testing.T, objectFormat git.ObjectFormat) {
 				b:    fmt.Sprintf("%s:%s", user4.Name, user4tag4),
 			},
 			{
+				name: "ExplicitFork",
+				a:    "master",
+				b:    fmt.Sprintf("%s/%s:%s", user4.Name, user2repo, user4branchName),
+			},
+			{
+				name: "ExplicitSameRepo",
+				a:    "master",
+				b:    fmt.Sprintf("%s/%s:%s", user2.Name, user2repo, user2branchName),
+			},
+			{
 				name: "SameRepo",
 				a:    "master",
 				b:    fmt.Sprintf("%s:%s", user2.Name, user2branchName),
@@ -232,6 +242,20 @@ func testAPICompareCommits(t *testing.T, objectFormat git.ObjectFormat) {
 				assert.Len(t, apiResp.Files, 1)
 			})
 		}
+
+		t.Run("ExplicitUnrelatedRepository", func(t *testing.T) {
+			req := NewRequestf(t, "GET", "/api/v1/repos/%s/%s/compare/master...%s/repo1:master", user2.Name, user2repo, user2.Name).
+				AddTokenAuth(user2Ctx.Token)
+			MakeRequest(t, req, http.StatusNotFound)
+		})
+
+		t.Run("ForkUnifiedDiff", func(t *testing.T) {
+			req := NewRequestf(t, "GET", "/api/v1/repos/%s/%s/compare/master...%s/%s:%s?diff=true", user2.Name, user2repo, user4.Name, user2repo, user4branchName).
+				AddTokenAuth(user2Ctx.Token)
+			resp := MakeRequest(t, req, http.StatusOK)
+			assert.Contains(t, resp.Header().Get("Content-Type"), "text/plain")
+			assert.Contains(t, resp.Body.String(), "+content user4branchfilename.txt")
+		})
 
 		t.Run("ForkUserDoesNotExist", func(t *testing.T) {
 			notUser := "notauser"

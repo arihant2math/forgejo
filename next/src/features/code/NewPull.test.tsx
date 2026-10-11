@@ -142,3 +142,32 @@ test('offline: Create says why and sends nothing', async () => {
     });
   }
 });
+
+test.each(['alice:fix/footer', 'acme/renamed:fix/footer'])('fork comparison %s opens upstream and saves the maintainer permission', async (head) => {
+  const s = session();
+  s.data.whenSynced = () => Promise.resolve();
+  const writes: {method: string; body: unknown}[] = [];
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    const json = (value: unknown) => Promise.resolve(new Response(JSON.stringify(value), {headers: {'Content-Type': 'application/json'}}));
+    if (init?.method === 'POST' || init?.method === 'PATCH') {
+      writes.push({method: init.method, body: JSON.parse(init.body as string) as unknown});
+      return json({number: 9});
+    }
+    if (url.endsWith('?diff=true')) return Promise.resolve(new Response(DIFF));
+    if (url.includes('/compare/')) return json({total_commits: 1, merge_base: BASE, head_commit_id: HEAD, head_repo_id: 20, commits: [commit(HEAD, 'Fix from fork', BASE)]});
+    if (url.includes('/assignees')) return json([]);
+    return json({});
+  }));
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: [`/acme/website/compare/main...${head}?expand=1`]}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  expect((await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'})).value).toBe('Fix from fork');
+  fireEvent.click(screen.getByRole('checkbox', {name: 'Allow edits by maintainers'}));
+  fireEvent.click(screen.getByRole('button', {name: /Create pull request/}));
+  await waitFor(() => { expect(writes).toHaveLength(2); });
+  expect(writes).toEqual([
+    {method: 'POST', body: {base: 'main', head, title: 'Fix from fork', body: ''}},
+    {method: 'PATCH', body: {allow_maintainer_edit: false}},
+  ]);
+});

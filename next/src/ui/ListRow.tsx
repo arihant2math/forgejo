@@ -68,6 +68,8 @@ export interface ListGroupHeaderProps {
   /** An icon or dot before the label. */
   leading?: ReactNode;
   label: ReactNode;
+  /** Said after the label, quieter (an assignee's login beside the full name). */
+  detail?: ReactNode;
   count: number;
 }
 
@@ -75,11 +77,11 @@ export interface ListGroupHeaderProps {
  * A group's header inside a list (grouped by status, assignee, …): a row of
  * the same height as ListRow, so virtualized lists keep a fixed row size.
  */
-export function ListGroupHeader({leading, label, count}: ListGroupHeaderProps) {
+export function ListGroupHeader({leading, label, detail, count}: ListGroupHeaderProps) {
   return (
     <div role="presentation" className={cx(rowBase, 'bg-canvas text-sm font-medium text-fg')}>
       {leading && <span className={cx(slot, 'text-fg-muted')}>{leading}</span>}
-      <span className="min-w-0 truncate">{label}</span>
+      <span className="min-w-0 truncate">{label}{detail !== undefined && <span className="ms-1.5 font-normal text-fg-subtle">{detail}</span>}</span>
       <span className="text-fg-subtle tabular-nums">{count}</span>
     </div>
   );

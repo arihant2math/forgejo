@@ -21,6 +21,14 @@ export interface Person {
   avatar: string | undefined;
 }
 
+/**
+ * The login shown beside a person's name, as classic's pickers do (search_name.tmpl): two people of the same full
+ * name ("Alice Nakamura") are told apart before one is assigned (QA #263). None when the name is the login.
+ */
+export function personLogin(p: {login: string; name: string}): string | undefined {
+  return p.login && p.login !== p.name ? p.login : undefined;
+}
+
 const remote = observable.map<number, Person[]>({}, {deep: false});
 const asked = new Set<number>();
 

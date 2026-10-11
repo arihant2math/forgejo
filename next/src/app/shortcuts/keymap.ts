@@ -81,6 +81,7 @@ export const KEYMAP = {
   // Commands without keys (keys ''): the palette offers them on a board, the help does not list them.
   'board.addColumn': {keys: '', label: 'Add a column', scope: 'board'},
   'board.renameColumn': {keys: '', label: 'Rename the column', scope: 'board'},
+  'board.removeCard': {keys: 'backspace', label: 'Remove card from board', scope: 'board'},
   'board.deleteColumn': {keys: '', label: 'Delete the column', scope: 'board'},
   'issue.state': {keys: 's', label: 'Change status', scope: 'issue'},
   'issue.labels': {keys: 'l', label: 'Labels', scope: 'issue'},

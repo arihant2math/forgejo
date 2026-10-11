@@ -339,6 +339,10 @@ func TestSPAServing(t *testing.T) {
 			}
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2/repo1", opted...).Code, "a repository's home")
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2?tab=repositories", opted...).Code, "an owner's page")
+			// The owner page's own sections, each at its address (the stars of a user, an organization's people).
+			for _, p := range []string{"/user2?tab=stars", "/user2?tab=watching", "/user2?tab=overview", "/org3?tab=people", "/org3?tab=teams", "/user2?tab=boards"} {
+				assert.Equal(t, http.StatusOK, get(t, h, sub+p, opted...).Code, p)
+			}
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user2/repo1/settings/hooks", opted...).Code, "a repository's settings")
 			for _, p := range []string{"/user2/repo1/wiki", "/user2/repo1/wiki/?action=_pages", "/user2/repo1/wiki/Home?action=_edit", "/user2/repo1/wiki/-/pages"} {
 				assert.Equal(t, http.StatusOK, get(t, h, sub+p, opted...).Code, p)
@@ -353,7 +357,7 @@ func TestSPAServing(t *testing.T) {
 			other := append([]string{"Referer", "https://example.com" + sub + "/user/settings/account"}, opted...)
 			assert.Equal(t, http.StatusOK, get(t, h, sub+"/user/settings/account", other...).Code, "from the app's page")
 			// A wiki page's revisions are the classic page's.
-			for _, p := range []string{"/api/v1/issues", "/user2/repo1/settings/units", "/user2/repo1/settings?ui=classic", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic", "/user2?tab=activity", "/user2?ui=classic", "/user2/repo1/wiki/Home?action=_revision", "/user/settings/applications", "/user/settings?ui=classic"} {
+			for _, p := range []string{"/api/v1/issues", "/user2/repo1/settings/units", "/user2/repo1/settings?ui=classic", "/user2/repo1/issues/1?ui=classic", "/user2/repo1?ui=classic", "/user2?tab=activity", "/user2?tab=followers", "/user2?tab=stars&ui=classic", "/user2?ui=classic", "/user2/repo1/wiki/Home?action=_revision", "/user/settings/applications", "/user/settings?ui=classic"} {
 				assert.Equal(t, 299, get(t, h, sub+p, opted...).Code, p)
 			}
 			req := httptest.NewRequest(http.MethodPost, sub+"/user2/repo1/issues/1", nil)

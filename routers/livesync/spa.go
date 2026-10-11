@@ -66,7 +66,7 @@ var spaRoutes = [][]string{
 	{"pulls"},             // the viewer's pull requests
 	{"repo", "create"},    // a new repository ("repo" and "org" are reserved user names: never an owner)
 	{"org", "create"},     // a new organization
-	{"{owner}"},           // an owner's repositories (the profile's other tabs stay classic: profileTab)
+	{"{owner}"},           // an owner's page (the profile's tabs the UI lacks stay classic: profileTab)
 	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
 	{"{owner}", "{repo}", "issues", "new"},
@@ -295,15 +295,22 @@ func classicReturn(req *http.Request) bool {
 	return normalizeSlashes(u.Path) == normalizeSlashes(req.URL.Path)
 }
 
+// appProfileTabs are the owner page's sections the UI has, each at
+// /{owner}?tab=… (the classic profile's parameter): its overview,
+// repositories, stars and watched repositories, boards, people and teams.
+var appProfileTabs = map[string]bool{
+	"": true, "repositories": true, "overview": true, "stars": true, "watching": true,
+	"boards": true, "people": true, "teams": true,
+}
+
 // profileTab reports whether req asks for a tab of an owner's classic
-// profile other than its repositories (/{owner}?tab=activity): the UI's
-// owner page shows the repositories only. Keep in step with next/src/sw/routes.ts.
+// profile that the UI's owner page does not have (/{owner}?tab=activity).
+// Keep in step with next/src/sw/routes.ts.
 func profileTab(p string, req *http.Request) bool {
 	if strings.Contains(strings.Trim(p, "/"), "/") {
 		return false
 	}
-	tab := req.URL.Query().Get("tab")
-	return tab != "" && tab != "repositories"
+	return !appProfileTabs[req.URL.Query().Get("tab")]
 }
 
 // wikiClassic reports whether req asks for a view of the wiki the UI does

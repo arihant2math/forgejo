@@ -39,6 +39,10 @@ test('canonical routes (B8 spaRoutes) and the rest', () => {
   expect(isSpaRoute('/acme/repo/issues', '?ui=classic')).toBe(false);
   expect(isSpaRoute('/acme', '?tab=activity')).toBe(false);
   expect(isSpaRoute('/acme', '?tab=repositories&q=x')).toBe(true);
+  // The tabs the app's owner page has are its own addresses (a user's stars: #203).
+  for (const tab of ['stars', 'watching', 'overview', 'boards', 'people', 'teams']) expect(isSpaRoute('/acme', `?tab=${tab}`), tab).toBe(true);
+  expect(isSpaRoute('/acme', '?tab=followers')).toBe(false);
+  expect(isSpaRoute('/acme', '?tab=stars&ui=classic')).toBe(false);
   // A wiki page's revisions are classic; its other ?action= views are the app's.
   expect(isSpaRoute('/acme/repo/wiki/Home', '?action=_revision')).toBe(false);
   expect(isSpaRoute('/acme/repo/wiki/', '?action=_pages')).toBe(true);

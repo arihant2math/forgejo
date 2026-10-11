@@ -1,8 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookPlus, Building2, Command, Compass, Import, Keyboard, LogOut, Monitor, Palette, Settings, User} from 'lucide-react';
+import {useNavigate, useRouter, useRouterState} from '@tanstack/react-router';
+import {AppWindow, BookPlus, Building2, Command, Compass, Import, Keyboard, LogOut, Monitor, Palette, Settings, Star, User} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ReactElement} from 'react';
@@ -10,6 +10,7 @@ import {
   Menu, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
 } from '../../ui/index.ts';
 import {ClassicMenuItem} from '../ClassicMenuItem.tsx';
+import {hrefOf} from '../links.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
 import {shortcutHint} from '../shortcuts/index.ts';
@@ -21,6 +22,7 @@ import {setThemePreference, themeState} from '../theme.ts';
 export const AccountMenuReal = observer(function AccountMenuReal({trigger, defaultOpen}: {trigger: ReactElement; defaultOpen: boolean}) {
   const app = useApp();
   const navigate = useNavigate();
+  const router = useRouter();
   const {path, search} = useRouterState({select: (st) => ({path: st.location.pathname, search: st.location.searchStr}), structuralSharing: true});
   const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
   const theme = themeState.preference;
@@ -34,6 +36,8 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
       <MenuTrigger asChild>{trigger}</MenuTrigger>
       <MenuContent>
         {login && <MenuItem icon={User} onSelect={() => void navigate({to: '/$owner', params: {owner: login}})}>Your profile and repositories</MenuItem>}
+        {/* The profile's Stars tab, at its own address (features/owner/OwnerPage.tsx). */}
+        {login && <MenuItem icon={Star} onSelect={() => void router.navigate({href: hrefOf(app, `/${encodeURIComponent(login)}?tab=stars`)})}>Your stars</MenuItem>}
         <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
         <MenuItem icon={BookPlus} onSelect={() => void navigate({to: '/repo/create'})}>New repository</MenuItem>
         <ClassicMenuItem to="/repo/migrate" icon={Import}>New migration</ClassicMenuItem>

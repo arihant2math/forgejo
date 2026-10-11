@@ -1,20 +1,21 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {Trash2, Users} from 'lucide-react';
+import {Link} from '@tanstack/react-router';
+import {Trash2, UserMinus, Users} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, CommandPick, Entry, IconButton, Panel, Popover, PopoverContent, PopoverTrigger} from '../../ui/index.ts';
+import {Avatar, Button, CommandPick, ConfirmDialog, Entry, IconButton, Panel, Popover, PopoverContent, PopoverTrigger} from '../../ui/index.ts';
 import {PeopleSearch} from '../settings/Collaborators.tsx';
 import {ResourceList, useOffline} from '../settings/bits.tsx';
 import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
 
-interface Team {id: number; name: string; description: string; permission: string}
+interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
 
 export function useOrgPermissions(owner: string) {
@@ -35,11 +36,72 @@ export const OrganizationTeams = observer(function OrganizationTeams({owner}: {o
   const [selected, setSelected] = useState<number>();
   return <Panel label="Teams" title="Teams">
     <ResourceList res={res} what="The teams" empty={{icon: Users, title: 'No teams', description: 'This organization has no teams you can see.'}}>
-      {(teams) => teams.map((team) => <Entry key={team.id} title={team.name} description={team.description} meta={team.permission}
+      {(teams) => teams.map((team) => <Entry key={team.id} title={team.name} meta={team.permission}
+        description={<>{team.description && <p>{team.description}</p>}<TeamRepos team={team}/></>}
         actions={<Button size="sm" onClick={() => { setSelected(selected === team.id ? undefined : team.id); }}>Members of {team.name}</Button>}/>)}
     </ResourceList>
     {selected !== undefined && <TeamMembers key={selected} id={selected} editable={editable}/>}
   </Panel>;
+});
+
+/**
+ * Everyone in the organization (API v1 lists all members to a member, the public ones to others); its owners may
+ * remove a person from the organization (from all of its teams), as on the classic Members page.
+ */
+export const OrganizationPeople = observer(function OrganizationPeople({owner}: {owner: string}) {
+  const app = useApp();
+  const offline = useOffline();
+  const perms = useOrgPermissions(owner);
+  const manage = perms.fresh && perms.value?.is_owner === true;
+  const path = `/orgs/${encodeURIComponent(owner)}/members`;
+  const res = useResource(`profile-people:${path}`, (signal) => allPages<Member>(app, path, signal));
+  const [removing, setRemoving] = useState<Member>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const remove = async (m: Member) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await online(app, {api: 'v1', method: 'DELETE', path: `${path}/${encodeURIComponent(m.login)}`});
+      setRemoving(undefined);
+      res.reload();
+      notify(app, {tone: 'success', title: `Removed ${m.login} from ${owner}`});
+    } catch (err) {
+      setError(failureText(err));
+    } finally { setBusy(false); }
+  };
+  return <Panel label="People" title="People">
+    <ResourceList res={res} what="The people" empty={{icon: Users, title: 'No people to show', description: 'None that you can see.'}}>
+      {(people) => people.map((m) => <Entry key={m.id} leading={<Avatar name={m.login} src={m.avatar_url}/>}
+        title={<Link to="/$owner" params={{owner: m.login}}>{m.full_name || m.login}</Link>} meta={m.full_name ? m.login : undefined}
+        actions={manage && <IconButton icon={UserMinus} label={offline ? onlineOnly('Removing a member') : `Remove ${m.login} from the organization`} disabled={offline || busy} onClick={() => {
+          setError(undefined);
+          setRemoving(m);
+        }}/>}/>)}
+    </ResourceList>
+    {manage && <p className="px-3 py-2 text-sm text-fg-muted">People join the organization through its teams (Teams: add a member).</p>}
+    <ConfirmDialog open={removing !== undefined} onOpenChange={(o) => {
+      if (!o && !busy) setRemoving(undefined);
+    }} title={`Remove ${removing?.login ?? ''} from ${owner}?`}
+    description="They leave every team of the organization and lose the access those teams gave them." confirmLabel="Remove from organization"
+    busy={busy} error={error} onConfirm={() => {
+      if (removing) void remove(removing);
+    }}/>
+  </Panel>;
+});
+
+/** Which repositories a team grants its permission on: all of the organization's, or the list (as far as the viewer may see it). */
+export const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
+  const app = useApp();
+  const all = team.includes_all_repositories === true;
+  const res = useResource(`team:${String(team.id)}:repos`, (signal) => (all ? Promise.resolve([]) : allPages<{id: number; full_name: string; name: string}>(app, `/teams/${String(team.id)}/repos`, signal)));
+  if (all) return <p>All repositories of the organization</p>;
+  // Only an owner or a member of the team may list them: nothing said otherwise.
+  if (!res.value) return null;
+  if (!res.value.length) return <p>No repositories</p>;
+  const names = res.value.slice(0, 10).map((r) => r.name).join(', ');
+  const more = res.value.length - 10;
+  return <p>{res.value.length === 1 ? 'Repository' : `${String(res.value.length)} repositories`}: {names}{more > 0 ? ` and ${String(more)} more` : ''}</p>;
 });
 
 const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; editable: boolean}) {

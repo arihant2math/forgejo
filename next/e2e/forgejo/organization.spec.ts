@@ -35,7 +35,7 @@ test('organization labels, team membership and repository access stay in-app', a
     await expect(page.getByText('triaged', {exact: true})).toHaveCount(0);
     expect(await apiJson<unknown[]>('GET', `/orgs/${ORG}/labels`)).toEqual([]);
 
-    await page.getByRole('button', {name: 'Teams', exact: true}).click();
+    await page.getByRole('link', {name: 'Teams', exact: true}).click();
     await page.getByRole('button', {name: 'Members of triage', exact: true}).click();
     await page.getByRole('button', {name: 'Add member', exact: true}).click();
     await page.getByRole('combobox').fill(USER);
@@ -54,7 +54,7 @@ test('organization labels, team membership and repository access stay in-app', a
     await expect(page.getByRole('button', {name: 'Remove team triage'})).toHaveCount(0);
     expect((await apiJson<{id: number}[]>('GET', `/repos/${ORG}/notes/teams`)).some((t) => t.id === team.id)).toBe(false);
     await page.goto(`${BASE}/${ORG}`);
-    await page.getByRole('button', {name: 'Teams', exact: true}).click();
+    await page.getByRole('link', {name: 'Teams', exact: true}).click();
     await page.getByRole('button', {name: 'Members of triage'}).click();
     await page.getByRole('button', {name: `Remove ${USER} from team`}).click();
     await expect(page.getByRole('button', {name: `Remove ${USER} from team`})).toHaveCount(0);

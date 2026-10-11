@@ -4,8 +4,8 @@
 // User profiles and organizations on the canonical /{owner} route.
 
 import {LinkRows} from '../../ui/LinkRows.tsx';
-import {Link, useNavigate, useParams} from '@tanstack/react-router';
-import {BookMarked, BookPlus, Building2, CloudOff, KanbanSquare, Lock, Settings, User as UserIcon} from 'lucide-react';
+import {Link, useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
+import {BookMarked, BookPlus, Building2, CloudOff, KanbanSquare, Lock, Settings, User as UserIcon, Users} from 'lucide-react';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -20,9 +20,9 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
-import {OrganizationTeams} from './Teams.tsx';
+import {OrganizationPeople, OrganizationTeams} from './Teams.tsx';
 import {OfflineNote} from '../settings/bits.tsx';
 import {useResource} from '../settings/resource.ts';
 import {Follow, Overview, People} from './Profile.tsx';
@@ -129,8 +129,34 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   return <OwnerBody key={isOrg ? 'org' : 'user'} info={info} isOrg={isOrg} me={me}/>;
 });
 
+/**
+ * The owner page's sections, each its own address (`/{owner}?tab=stars`, the classic profile's parameter; spa.go
+ * serves the app for these tabs and the classic page for the others).
+ */
+export type OwnerTab = 'overview' | 'repositories' | 'stars' | 'watching' | 'boards' | 'people' | 'teams';
+
+/** The section a `tab` parameter asks for, as far as this owner has it; its first section otherwise. */
+export function ownerTab(raw: unknown, isOrg: boolean, me: boolean): OwnerTab {
+  const shown: readonly OwnerTab[] = isOrg ? ['people', 'teams', 'boards', 'repositories'] :
+    ['overview', 'boards', 'repositories', 'stars', 'people', ...(me ? ['watching' as const] : [])];
+  return shown.find((t) => t === raw) ?? (isOrg ? 'repositories' : 'overview');
+}
+
+/** A section's address (the first section's is the bare profile). */
+function tabHref(app: ReturnType<typeof useApp>, owner: string, tab: OwnerTab, isOrg: boolean): string {
+  const first = isOrg ? 'repositories' : 'overview';
+  return hrefOf(app, `/${encodeURIComponent(owner)}${tab === first ? '' : `?tab=${tab}`}`);
+}
+
 const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInfo; isOrg: boolean; me: boolean}) {
-  const [tab, setTab] = useState<'overview' | 'repos' | 'stars' | 'watching' | 'boards' | 'people' | 'teams'>(isOrg ? 'repos' : 'overview');
+  const search = useSearch({strict: false}) as Record<string, unknown>;
+  const tab = ownerTab(search.tab, isOrg, me);
+  const app = useApp();
+  const click = useLinkClick();
+  const tabLink = (t: OwnerTab, label: string) => {
+    const href = tabHref(app, info.login, t, isOrg);
+    return <TabLink><a href={href} aria-current={tab === t ? 'page' : undefined} onClick={(e) => { click(e, href); }}>{label}</a></TabLink>;
+  };
   const {data, userId} = useSession();
   const viewer = data.pool.model('User').get(userId)?.get('login');
   const perms = useRemote<OrgPermissions>(isOrg && viewer ? `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(info.login)}/permissions` : undefined);
@@ -139,6 +165,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   const settings = isOrg ? p !== undefined && (p.is_owner || p.is_admin) : me;
   const create = isOrg ? p !== undefined && (p.can_create_repository || p.is_owner) : me;
   const navigate = useNavigate();
+  const router = useRouter();
   const [section, setSection] = useState<'labels'>();
   return (
     <>
@@ -148,11 +175,17 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
           <Button size="sm" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
         </>}
         <MoreMenu label={isOrg ? 'More of this organization' : 'More of this user'}>
+          {isOrg && <>
+            <MenuItem icon={Users} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'people', true)})}>People</MenuItem>
+            <MenuItem icon={Users} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'teams', true)})}>Teams</MenuItem>
+            <MenuSeparator/>
+          </>}
           {settings && !isOrg && <>
             <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
             <MenuSeparator/>
           </>}
           <MenuLabel>In the classic UI</MenuLabel>
+          {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/members`} icon={Users}>Members</ClassicMenuItem>}
           {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={Settings}>Settings</ClassicMenuItem>}
         </MoreMenu>
       </PageHeader>
@@ -169,26 +202,24 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
           {info.location && <p className="text-sm text-fg-muted">{info.location}</p>}
           {info.website && /^https?:\/\//i.test(info.website) && <a className="text-sm text-accent" href={info.website} target="_blank" rel="noreferrer">{info.website}</a>}
           {!isOrg && <>
-            <div className="flex gap-3"><Button size="sm" variant="ghost" onClick={() => { setTab('people'); }}>{info.followers_count ?? 0} followers · {info.following_count ?? 0} following</Button></div>
+            <div className="flex gap-3"><Button asChild size="sm" variant="ghost"><a href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0} followers · {info.following_count ?? 0} following</a></Button></div>
             {!me && <Follow owner={info.login}/>}
           </>}
           {section && <OfflineNote/>}
           {section === 'labels' && <OrganizationLabels owner={info.login}/>}
           <TabNav label="Profile sections">
-            {!isOrg && <TabLink><button aria-current={tab === 'overview' ? 'page' : undefined} onClick={() => { setTab('overview'); }}>Overview</button></TabLink>}
-            {isOrg && <>
-              <TabLink><button aria-current={tab === 'people' ? 'page' : undefined} onClick={() => { setTab('people'); }}>People</button></TabLink>
-              <TabLink><button aria-current={tab === 'teams' ? 'page' : undefined} onClick={() => { setTab('teams'); }}>Teams</button></TabLink>
-            </>}
-            <TabLink><button aria-current={tab === 'boards' ? 'page' : undefined} onClick={() => { setTab('boards'); }}>Boards</button></TabLink>
-            <TabLink><button aria-current={tab === 'repos' ? 'page' : undefined} onClick={() => { setTab('repos'); }}>Repositories</button></TabLink>
-            {!isOrg && <TabLink><button aria-current={tab === 'stars' ? 'page' : undefined} onClick={() => { setTab('stars'); }}>Stars</button></TabLink>}
-            {me && <TabLink><button aria-current={tab === 'watching' ? 'page' : undefined} onClick={() => { setTab('watching'); }}>Watching</button></TabLink>}
+            {!isOrg && tabLink('overview', 'Overview')}
+            {isOrg && tabLink('people', 'People')}
+            {isOrg && tabLink('teams', 'Teams')}
+            {tabLink('boards', 'Boards')}
+            {tabLink('repositories', 'Repositories')}
+            {!isOrg && tabLink('stars', 'Stars')}
+            {me && !isOrg && tabLink('watching', 'Watching')}
           </TabNav>
-          {tab === 'repos' && <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/>}
+          {tab === 'repositories' && <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/>}
           {tab === 'overview' && <Overview owner={info.login}/>}
           {tab === 'boards' && <Boards ownerId={info.id}/>}
-          {tab === 'people' && <People owner={info.login} isOrg={isOrg}/>}
+          {tab === 'people' && (isOrg ? <OrganizationPeople owner={info.login}/> : <People owner={info.login} isOrg={false}/>)}
           {tab === 'teams' && <OrganizationTeams owner={info.login}/>}
           {(tab === 'stars' || tab === 'watching') && <SocialRepos key={tab} owner={info.login} kind={tab}/>}
         </PageColumn>
@@ -240,6 +271,7 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
   const remote = useRemote<APIRepo[]>(`${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=50&page=${String(page)}`);
   const away = reach(data.status.connection) !== 'online';
   return <Panel label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
+    {kind === 'stars' && <p className="px-3 py-1 text-sm text-fg-muted">Most recently starred first.</p>}
     {remote.state === 'ready' ? <>
       <LinkRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</LinkRows>
       {!remote.value.length && <EmptyState title="No repositories"/>}
@@ -258,7 +290,7 @@ function RepoLine({r}: {r: RepoRow}) {
       trailing={<>
         {r.fork && <Badge>Fork</Badge>}
         {r.archived && <Badge tone="warning">Archived</Badge>}
-        <time dateTime={r.updated} title={fullDate(r.updated)}>{ago(r.updated)}</time>
+        <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
       </>}>
       <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-fg-subtle">{r.description}</span>}
     </ListRow>

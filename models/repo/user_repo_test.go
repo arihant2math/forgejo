@@ -4,15 +4,18 @@
 package repo_test
 
 import (
+	"context"
 	"testing"
 
 	"forgejo.org/models/db"
+	"forgejo.org/models/perm"
 	repo_model "forgejo.org/models/repo"
 	"forgejo.org/models/unittest"
 	user_model "forgejo.org/models/user"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"xorm.io/builder"
 )
 
 func TestRepoAssignees(t *testing.T) {
@@ -93,4 +96,47 @@ func GetWatchedRepoIDsOwnedBy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, repoIDs, 1)
 	assert.EqualValues(t, 1, repoIDs[0])
+}
+
+// allowAll is a RepositoryAuthorizationReducer that reduces nothing.
+type allowAll struct{}
+
+func (allowAll) ReduceRepoAccess(_ context.Context, _ *repo_model.Repository, mode perm.AccessMode) (perm.AccessMode, error) {
+	return mode, nil
+}
+func (allowAll) RepoReadAccessFilter() builder.Cond { return builder.NewCond() }
+
+func TestGetStarredReposOrder(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := db.DefaultContext
+	// User 2 stars repositories 2 (star 1) and 4 (star 2) in the fixtures; and now repository 1.
+	require.NoError(t, repo_model.StarRepo(ctx, 2, 1, true))
+	setStarred := func(repoID, unix int64) {
+		_, err := db.GetEngine(ctx).Exec("UPDATE `star` SET created_unix = ? WHERE uid = 2 AND repo_id = ?", unix, repoID)
+		require.NoError(t, err)
+	}
+	ids := func(opts db.ListOptions) []int64 {
+		repos, err := repo_model.GetStarredRepos(ctx, 2, true, opts, allowAll{})
+		require.NoError(t, err)
+		out := make([]int64, 0, len(repos))
+		for _, r := range repos {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+
+	// Most recently starred first.
+	setStarred(2, 300)
+	setStarred(4, 100)
+	setStarred(1, 200)
+	assert.Equal(t, []int64{2, 1, 4}, ids(db.ListOptions{}))
+	assert.Equal(t, []int64{2, 1}, ids(db.ListOptions{Page: 1, PageSize: 2}))
+	assert.Equal(t, []int64{4}, ids(db.ListOptions{Page: 2, PageSize: 2}))
+
+	// Starred at the same time: the later star first, so that pages are stable.
+	setStarred(2, 100)
+	setStarred(1, 100)
+	assert.Equal(t, []int64{1, 4, 2}, ids(db.ListOptions{}))
+	assert.Equal(t, []int64{1, 4}, ids(db.ListOptions{Page: 1, PageSize: 2}))
+	assert.Equal(t, []int64{2}, ids(db.ListOptions{Page: 2, PageSize: 2}))
 }

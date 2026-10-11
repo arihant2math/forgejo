@@ -35,6 +35,23 @@ export type ViewedState = typeof ViewedViewed | typeof ViewedUnviewed | typeof V
 // source: api.go
 
 /**
+ * APIUploadedAttachment is an online-only, unattached upload. Issue/PR and comment
+ * text writes claim local attachment URLs in the same transaction, restricted to
+ * the writer's unattached uploads in that repository. Removed draft links remain
+ * unattached, as in the classic composer. Uploads obey NextConfig.Attachments and
+ * the repository owner's quota. issue_id additionally checks locks and its unit.
+ */
+export interface APIUploadedAttachment {
+  uuid: string;
+  url: string;
+}
+/**
+ * APIAttachmentPermission lets the composer hide Attach when commenting is forbidden.
+ */
+export interface APIAttachmentPermission {
+  allowed: boolean;
+}
+/**
  * APIPrefix is the path prefix of the gap endpoints.
  */
 export const APIPrefix = "/-/sync/api";
@@ -1905,8 +1922,18 @@ export interface NextConfig {
    * settings and the Git in use); absent from older servers.
    */
   repository?: NextRepository;
+  attachments?: NextAttachments;
   code_indexer_enabled?: boolean;
   explore?: NextExplore;
+}
+/**
+ * NextAttachments describes the online-only composer upload limits.
+ */
+export interface NextAttachments {
+  enabled: boolean;
+  allowed_types: string;
+  max_size: number /* int64 */; // bytes
+  max_files: number /* int */;
 }
 /**
  * NextExplore describes the instance's discovery restrictions.

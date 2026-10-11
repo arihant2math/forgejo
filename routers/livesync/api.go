@@ -58,6 +58,8 @@ func registerAPI(r *web.Route) {
 	r.Get(p+"/issues/{id}/viewed", apiViewedGet)
 	r.Put(p+"/issues/{id}/viewed", apiViewedPut)
 	r.Put(p+"/issues/{id}/project", apiIssueProject)
+	r.Get(p+"/repos/{id}/attachments", apiAttachmentUpload)
+	r.Post(p+"/repos/{id}/attachments", apiAttachmentUpload)
 	r.Post(p+"/markdown", apiMarkdown)
 	r.Post(p+"/markup", apiMarkup)
 	r.Get(p+"/repos/{id}/workflows", apiWorkflows)

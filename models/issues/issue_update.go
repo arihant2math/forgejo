@@ -289,6 +289,10 @@ func ChangeIssueContent(ctx context.Context, issue *Issue, doer *user_model.User
 		return ErrIssueAlreadyChanged
 	}
 
+	if err := repo_model.LinkMarkdownAttachments(ctx, issue.RepoID, doer.ID, issue.ID, 0, content); err != nil {
+		return err
+	}
+
 	historyDate := timeutil.TimeStampNow()
 	if issue.NoAutoTime {
 		historyDate = issue.UpdatedUnix
@@ -394,6 +398,9 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 		return err
 	}
 
+	if err := repo_model.LinkMarkdownAttachments(ctx, opts.Issue.RepoID, doer.ID, opts.Issue.ID, 0, opts.Issue.Content); err != nil {
+		return err
+	}
 	if err := UpdateIssueAttachments(ctx, opts.Issue, opts.Attachments); err != nil {
 		return fmt.Errorf("UpdateIssueAttachments: %w", err)
 	}

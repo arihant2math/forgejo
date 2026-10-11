@@ -66,9 +66,18 @@ type NextConfig struct {
 	OAuth *NextOAuth `json:"oauth" tstype:"NextOAuth | null,required"`
 	// Repository is what a new repository starts from ([repository]
 	// settings and the Git in use); absent from older servers.
-	Repository         *NextRepository `json:"repository,omitempty"`
-	CodeIndexerEnabled bool            `json:"code_indexer_enabled,omitempty"`
-	Explore            *NextExplore    `json:"explore,omitempty"`
+	Repository         *NextRepository  `json:"repository,omitempty"`
+	Attachments        *NextAttachments `json:"attachments,omitempty"`
+	CodeIndexerEnabled bool             `json:"code_indexer_enabled,omitempty"`
+	Explore            *NextExplore     `json:"explore,omitempty"`
+}
+
+// NextAttachments describes the online-only composer upload limits.
+type NextAttachments struct {
+	Enabled      bool   `json:"enabled"`
+	AllowedTypes string `json:"allowed_types"`
+	MaxSize      int64  `json:"max_size"` // bytes
+	MaxFiles     int    `json:"max_files"`
 }
 
 // NextExplore describes the instance's discovery restrictions.

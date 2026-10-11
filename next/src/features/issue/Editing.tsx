@@ -29,6 +29,7 @@ import {Missing} from '../../app/Missing.tsx';
 import {reach} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
+import {hasPendingUploads} from '../editor/attachments.ts';
 import {useUser} from '../issues/cells.tsx';
 import {Markdown, toggleTask} from './Markdown.tsx';
 
@@ -148,7 +149,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     void intents.discardDraft(draftKey);
   };
   const save = () => {
-    if (blocked || (!dirty && !markers) || !text.trim()) return;
+    if (blocked || hasPendingUploads(text) || (!dirty && !markers) || !text.trim()) return;
     forget();
     onSave(text, base);
     if (!onCancel) setText('');
@@ -191,7 +192,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
           cancel();
         }}>Discard</Button>
       </>}/>}
-      <MarkdownField insertion={insertion} repoId={repoId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
+      <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
         onChange={change} onSubmit={save} onCancel={onCancel ? () => {
           if (dirty) setConfirmCancel(true);
           else cancel();
@@ -199,12 +200,13 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
         {onCancel && <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>}
-        {stateAction && <Button size="sm" onClick={() => {
+        {stateAction && <Button size="sm" disabled={hasPendingUploads(text)} onClick={() => {
+          if (hasPendingUploads(text)) return;
           forget();
           stateAction.run(text);
           change('');
         }}>{stateAction.label(Boolean(text.trim()))}</Button>}
-        <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} tooltip={`${saveLabel} (works offline)`} disabled={blocked || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button>
+        <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} tooltip={`${saveLabel} (works offline)`} disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button>
       </div>
     </div>
   );

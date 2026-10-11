@@ -24,6 +24,7 @@ import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
+import {hasPendingUploads} from '../editor/attachments.ts';
 import {shortSha} from '../../code/refs.ts';
 import {hunkLines} from '../../code/hunk.ts';
 import {CodeLink} from '../code/nav.tsx';
@@ -271,7 +272,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const files = issue && repo ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.number)}` : undefined;
   const lines = hunkLines(c.get('diff_hunk'), SNIPPET_LINES);
   const reply = () => {
-    if (!issue || !text.trim()) return;
+    if (!issue || !text.trim() || hasPendingUploads(text)) return;
     submitReview(editing(app).intents, {
       issueId: issue.id, repoId: issue.repo_id, head: c.get('commit_id'), event: 'COMMENT', body: '',
       drafts: [{key: `reply:${uuid()}`, anchor: commentAnchor(c.data), text, at: Date.now()}],
@@ -310,14 +311,14 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
       <CommentCard c={c} type="code"/>
       {issue && !c.get('invalidated') && (replying ?
         <div className="flex flex-col gap-2">
-          <MarkdownField repoId={issue.repo_id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {
+          <MarkdownField repoId={issue.repo_id} attachmentIssueId={issue.id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {
             closeReply();
           }}/>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => {
               closeReply();
             }}>Cancel</Button>
-            <Button size="sm" variant="primary" disabled={!text.trim()} onClick={reply}>Reply</Button>
+            <Button size="sm" variant="primary" disabled={!text.trim() || hasPendingUploads(text)} onClick={reply}>Reply</Button>
           </div>
         </div> :
         <div className="flex items-center gap-2">

@@ -507,7 +507,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
               }}/>
             {missing && !title.trim() && <p id="wiki-title-missing" role="alert" className="text-sm text-danger">A page needs a title.</p>}
           </div>
-          <MarkdownField repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
+          <MarkdownField attachments={false} repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
             onChange={setText} onSubmit={save} onCancel={leave} render={(t) => src.render(repoId, t)}/>
           <Input aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255}
             onChange={(e) => {

@@ -46,6 +46,7 @@ import {
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
+import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
@@ -411,7 +412,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
   };
   const save = () => {
     const a = file && lineAnchor(file, l, head);
-    if (!a || !text.trim()) return;
+    if (!a || !text.trim() || hasPendingUploads(text)) return;
     saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: composing?.key});
     done();
   };
@@ -426,7 +427,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
   const reply = composing !== undefined && composing.key === undefined && posted;
   const replyNow = () => {
     const a = file && lineAnchor(file, l, head);
-    if (!a || !text.trim()) return;
+    if (!a || !text.trim() || hasPendingUploads(text)) return;
     const id = submitReview(intents, {issueId: issue.id, repoId: pr.base_repo_id, head, event: 'COMMENT', body: '', drafts: [{key: `reply:${uuid()}`, anchor: a, text, at: Date.now()}]});
     done();
     notifyQueued(app, id, 'Reply queued');
@@ -451,7 +452,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
         }}/>))}
       {composing && (
         <Card label={reply ? 'Reply' : 'New review comment'}>
-          <MarkdownField repoId={pr.base_repo_id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
+          <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
           <div className="flex justify-end gap-2">
             <Button size="sm" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
               if (!file) return;
@@ -461,13 +462,13 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
               edit(`${text}${text ? '\n\n' : ''}\`\`\`suggestion${end > start ? ` -${end - start}+0` : ''}\n${lines.map((line) => line.t).join('\n')}\n\`\`\``);
             }}>Suggest change</Button>
             <Button size="sm" variant="ghost" onClick={done}>Cancel</Button>
-            {reply && <Button size="sm" disabled={!text.trim()} tooltip="Keep it with your review (sent with Review)" onClick={save}>Add to review</Button>}
+            {reply && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Keep it with your review (sent with Review)" onClick={save}>Add to review</Button>}
             {/* A first comment on a line: a single comment now (one step, as classic's "Add single comment"), or one
                 kept for the review (Start a review). */}
-            {!reply && !composing.key && <Button size="sm" disabled={!text.trim()} tooltip="Post it now, on its own (works offline: sent when you are back)" onClick={replyNow}>Add single comment</Button>}
+            {!reply && !composing.key && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Post it now, on its own (works offline: sent when you are back)" onClick={replyNow}>Add single comment</Button>}
             {reply ?
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={replyNow}>Reply</Button> :
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim()} onClick={save}>{composing.key ? 'Update comment' : 'Start a review'}</Button>}
+              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</Button> :
+              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)} onClick={save}>{composing.key ? 'Update comment' : 'Start a review'}</Button>}
           </div>
         </Card>
       )}
@@ -555,7 +556,7 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
   const own = issue.get('poster_id') === userId;
   const {stale} = partition(drafts, head);
   const needsBody = event === 'REQUEST_CHANGES' || (event === 'COMMENT' && !drafts.length);
-  const ok = !needsBody || body.trim() !== '';
+  const ok = !hasPendingUploads(body) && (!needsBody || body.trim() !== '');
   const submit = () => {
     if (!ok) return;
     const id = submitReview(intents, {issueId: issue.id, repoId: pr.base_repo_id, head, event, body, drafts});
@@ -578,7 +579,7 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
             They are added to the review's text with their file and line, since their lines may have moved.
           </Callout>
         )}
-        <MarkdownField repoId={pr.base_repo_id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
+        <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedControl label="Verdict" value={event} onChange={setEvent} options={EVENTS.map((e) => ({value: e.event, label: e.label, disabled: own && !e.own}))}/>
           {own && <span className="text-sm text-fg-subtle">Your own pull request: comment only.</span>}

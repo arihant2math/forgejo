@@ -703,6 +703,10 @@ func nextConfig() *protocol.NextConfig {
 		CodeIndexerEnabled: setting.Indexer.RepoIndexerEnabled,
 		Explore:            &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
 		WIPPrefixes:        &prefixes,
+		Attachments: &protocol.NextAttachments{
+			Enabled: setting.Attachment.Enabled, AllowedTypes: setting.Attachment.AllowedTypes,
+			MaxSize: setting.Attachment.MaxSize << 20, MaxFiles: setting.Attachment.MaxFiles,
+		},
 		Repository: &protocol.NextRepository{
 			DefaultBranch: setting.Repository.DefaultBranch, DefaultPrivate: setting.Repository.DefaultPrivate,
 			ForcePrivate: setting.Repository.ForcePrivate, ObjectFormats: objectFormats(),

@@ -2986,8 +2986,8 @@ does) **and** MySQL 8.0 (binlog on).
   - **Known gaps / for later.** (1) Log tails poll per tail (3 small queries per `LOG_TAIL_INTERVAL`); many viewers of one
     job each poll — a shared per-job poller (or a doorbell from the runner API's `UpdateLog`, which would be an upstream
     change) is the optimisation if needed (re-assessed with B8's burst fix, 2026-10-08: not cheap, left as is). Lines of a step summary (`renderStepSummaries`) are not sent. (2) No
-    crash-window dedupe for gap creates (columns). (3) No project create/edit/close endpoints (scope was columns, cards,
-    ordering; projects themselves are edited in the classic UI). (4) Tree entries' sizes cost one batch-check round trip
+    crash-window dedupe for gap creates (columns and projects). (3) Project lifecycle now uses livesync create/edit/state/delete
+    endpoints and online-only dialogs in Next (#101), including Forgejo's template columns. (4) Tree entries' sizes cost one batch-check round trip
     per blob (fine for directories of hundreds; immutable, so cached). Diffs and blobs are streamed without a size limit
     (the client should not fetch huge ones eagerly); an error mid-stream cuts the response (not under FastCGI; review
     round 1). (5) The markdown preview

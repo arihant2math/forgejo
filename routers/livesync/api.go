@@ -41,6 +41,10 @@ const maxAPIBody = 2 << 20
 // registerAPI adds the gap endpoints to livesync's router.
 func registerAPI(r *web.Route) {
 	p := protocol.APIPrefix
+	r.Post(p+"/projects", apiProjectCreate)
+	r.Patch(p+"/projects/{id}", apiProjectEdit)
+	r.Put(p+"/projects/{id}/state", apiProjectState)
+	r.Delete(p+"/projects/{id}", apiProjectDelete)
 	r.Post(p+"/projects/{id}/columns", apiColumnCreate)
 	r.Patch(p+"/projects/{id}/columns/{column}", apiColumnEdit)
 	r.Delete(p+"/projects/{id}/columns/{column}", apiColumnDelete)

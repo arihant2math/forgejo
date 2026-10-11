@@ -8,12 +8,11 @@
 // available here.
 
 import {Link, useLoaderData, useNavigate, useParams, useRouter, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookOpen, ChartLine, ChevronDown, ChevronRight, CircleDot, CirclePlay, Code2, GitPullRequest, KanbanSquare, Settings, Slash} from 'lucide-react';
+import {AppWindow, BookOpen, ChartLine, ChevronRight, CircleDot, CirclePlay, Code2, GitPullRequest, KanbanSquare, Settings, Slash} from 'lucide-react';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {Fragment, type ReactElement, type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
-import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
 import {ISSUE_SECTIONS} from '../../app/paths.ts';
@@ -23,7 +22,7 @@ import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {withEnd} from '../../code/refs.ts';
 import {
-  Icon, type LucideIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, MoreMenu, TabLink, TabNav, TextLink,
+  Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
 } from '../../ui/index.ts';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
@@ -189,36 +188,14 @@ interface RepoTab {
 export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner: string; repo: string; repoId: number | undefined}) {
   const tab = useRouterState({select: (st) => tabOfPath(st.location.pathname)});
   const s = useSession();
-  const app = useApp();
   const navigate = useNavigate();
   const cur = (t: Tab) => ({'aria-current': tab === t ? 'page' as const : undefined, activeProps: {}, activeOptions: {exact: true, includeSearch: false}});
-  const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const boards = repoId === undefined ? [] : [...s.data.pool.model('Project').by('repo_id', repoId)].filter((p) => !p.get('closed'))
-    .sort((a, b) => a.get('title').localeCompare(b.get('title')));
   const admin = repoId !== undefined && repoAccess(s, repoId) === 'admin';
   const code = {to: '/-/next/code/$owner/$repo/$', params: {owner, repo, _splat: withEnd('actions')}} as const;
-  const classic = (key: string, path: string, icon: LucideIcon, label: string): RepoTab => ({
-    key,
-    tab: <TabLink tooltip={CLASSIC_HINT}><a href={classicHref(app, path)} data-classic=""><Icon icon={icon} size="sm"/>{label}</a></TabLink>,
-    item: <ClassicMenuItem to={path} icon={icon}>{label}</ClassicMenuItem>,
-  });
-  const openBoard = (id: number) => {
-    void navigate({to: '/-/next/projects/$id', params: {id: String(id)}});
-  };
-  const boardItems = boards.map((b) => <MenuItem key={b.id} icon={KanbanSquare} onSelect={() => {
-    openBoard(b.id);
-  }}>{b.get('title')}</MenuItem>);
-  const allProjects = <ClassicMenuItem to={`${base}/projects`} icon={KanbanSquare}>All projects</ClassicMenuItem>;
-  // Projects: the classic list without open boards, the board itself when there is one, a menu of them otherwise.
-  const projects: RepoTab = boards.length === 0 ? classic('projects', `${base}/projects`, KanbanSquare, 'Projects') : {
+  const projects: RepoTab = {
     key: 'projects',
-    tab: boards.length === 1 && boards[0] ?
-      <TabLink><Link to="/-/next/projects/$id" params={{id: String(boards[0].id)}} activeProps={{}} activeOptions={{exact: true}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></TabLink> :
-      <Menu>
-        <TabLink><MenuTrigger><Icon icon={KanbanSquare} size="sm"/>Projects<Icon icon={ChevronDown} size="sm"/></MenuTrigger></TabLink>
-        <MenuContent>{boardItems}<MenuSeparator/>{allProjects}</MenuContent>
-      </Menu>,
-    item: <><MenuLabel>Projects</MenuLabel>{boardItems}{allProjects}</>,
+    tab: <TabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></TabLink>,
+    item: <MenuItem icon={KanbanSquare} onSelect={() => void navigate({to: '/-/next/boards', search: repoId ? {repoId} : {}})}>Projects</MenuItem>,
   };
   const tabs: RepoTab[] = [
     {

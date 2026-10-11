@@ -23,7 +23,8 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText} from '../../ui/index.ts';
+import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TextLink} from '../../ui/index.ts';
+import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 
 interface OwnerInfo {
@@ -218,9 +219,9 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   const {data} = useSession();
   const click = useLinkClick();
   const boards = [...data.pool.model('Project').by('owner_id', ownerId)].filter((p) => !p.get('repo_id') && !p.get('closed'));
-  if (!boards.length) return null;
   return (
-    <Panel label="Boards" title={<><Icon icon={KanbanSquare} size="sm"/>Boards</>}>
+    <Panel label="Boards" title={<><Icon icon={KanbanSquare} size="sm"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
+      <TextLink><Link to="/-/next/boards" search={{ownerId}}>All boards, including closed</Link></TextLink>
       {boards.map((b) => {
         const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
         return <ListRow key={b.id} role={undefined} href={href} onClick={(e) => click(e, href)} leading={<Icon icon={KanbanSquare} size="sm"/>}>{b.get('title')}</ListRow>;

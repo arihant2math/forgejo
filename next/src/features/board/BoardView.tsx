@@ -22,14 +22,12 @@ import {canEditBoard, confirmAccess} from '../../app/access.ts';
 import {sitePath} from '../../app/config.ts';
 import {classicHref} from '../../app/classic.ts';
 import {Missing} from '../../app/Missing.tsx';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {activeHint, formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {classicOfHere} from '../../app/session.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
@@ -49,6 +47,7 @@ import {BoardDnd, SLOT} from './dnd.ts';
 import {rememberBoard} from '../../app/lastBoard.ts';
 import {openCreate} from '../../app/create.ts';
 import {BoardModel} from './model.ts';
+import {BoardSettings} from './ProjectDialogs.tsx';
 
 /** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
 const lastCard = new Map<number, number>();
@@ -411,7 +410,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         {!editable && <span title={readOnlyReason}><Badge>Read-only</Badge></span>}
         {hidden > 0 && <Badge>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Badge>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
-        {editable && <ClassicLink size="sm" to={`${classicOfHere(app, `/-/next/projects/${String(project.id)}`)}/edit`}>Edit board</ClassicLink>}
+        {editable && <BoardSettings project={project.data}/>}
       </PageHeader>
       <ContextMenu onOpenChange={(o) => {
         if (!o) setMenuCard(undefined);

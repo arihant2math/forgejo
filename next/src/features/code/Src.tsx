@@ -10,6 +10,7 @@
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {File, Folder, FolderGit2, GitBranch, History} from 'lucide-react';
+import {Missing} from '../../app/Missing.tsx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
@@ -62,8 +63,7 @@ const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: b
   const loaded = hasRefs(pool, repoId);
   if (!loaded && data.status.loading > 0) return <ListSkeleton/>;
   return (
-    <EmptyState icon={GitBranch} title={named ? 'Branch or tag not found' : 'No code here'}
-      description={named ? 'It does not exist, was deleted, or is not on this device.' : loaded ? 'The default branch is not on this device.' : 'This repository is empty, or its code is not on this device.'}/>
+    <Missing icon={GitBranch} what={named ? 'This branch or tag' : 'This repository’s code'}/>
   );
 });
 
@@ -98,7 +98,7 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   if (!at.path || entry?.type === 'tree') {
     body = (scroller) => <DirView {...props} scroller={scroller}/>;
   } else if (tree.state !== 'ready') {
-    body = () => <Unloaded loaded={tree} what="This file"/>;
+    body = () => <Unloaded loaded={tree} what="This file or folder"/>;
   } else if (!entry) {
     body = () => <EmptyState icon={File} title="Not found" description={`There is no ${at.path} at ${shortSha(at.sha)}.`}/>;
   } else if (entry.type === 'commit') {
@@ -148,7 +148,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
         </Button>
       )}
       <Button size="sm" variant="ghost" asChild>
-        <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>History</CodeLink>
+        <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>Commits</CodeLink>
       </Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}

@@ -21,7 +21,7 @@ export interface LoggedOutProps {
   /** The instance's name (the title; the static first frame says "Forgejo"). */
   appName?: string | undefined;
   /** This address in the classic UI (public pages read without signing in), and the way to turn the app off. */
-  classic?: {page: string; optOut: string} | undefined;
+  classic?: {page?: string | undefined; optOut: string} | undefined;
 }
 
 /**
@@ -56,7 +56,7 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
               // The first frame keeps their place (no shift when the app fills them in): their addresses need the app.
               <span className={cx('flex flex-wrap justify-center gap-x-3 text-sm', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
                 {/* Public pages read without an account in the classic UI; or this browser leaves the app. */}
-                <Button size="sm" variant="ghost" asChild><a href={classic?.page} data-classic="">View this page without signing in</a></Button>
+                {classic?.page && <Button size="sm" variant="ghost" asChild><a href={classic.page} data-classic="">View this page without signing in</a></Button>}
                 <Button size="sm" variant="ghost" asChild><a href={classic?.optOut} data-classic="">Turn off Forgejo Next</a></Button>
               </span>
             )}

@@ -4,6 +4,8 @@
 import {type ErrorComponentProps, useRouterState} from '@tanstack/react-router';
 import {FileQuestion, RefreshCw} from 'lucide-react';
 import {useEffect} from 'react';
+import {observer} from 'mobx-react-lite';
+import {reach} from './online.ts';
 import {Button, EmptyState} from '../ui/index.ts';
 import {CenteredScreen} from './LoggedOut.tsx';
 import {lazyComponent} from './lazy.tsx';
@@ -53,17 +55,20 @@ function useClassicOfHere(): string | undefined {
  * page of a classic page that is not available offline: it says so, and
  * lists what is available; online it offers the classic page.
  */
-export function ShellNotFound() {
+export const ShellNotFound = observer(function ShellNotFound() {
   const classic = useClassicOfHere();
+  const app = useApp();
+  const r = reach(app.session?.data.status.connection);
+  const title = r === 'offline' ? 'Not available offline' : r === 'unreachable' ? 'Can’t reach Forgejo' : classic ? 'Not available here' : 'Not found';
   return (
     <>
-      <PageHeader icon={FileQuestion} title={classic ? 'Not available here' : 'Not found'}/>
+      <PageHeader icon={FileQuestion} title={title}/>
       <PageBody>
         <Missing what="This page" description={classic ? 'Forgejo Next has no page for this address yet. The classic UI has it.' : 'There is no page at this address.'} classic={classic}/>
       </PageBody>
     </>
   );
-}
+});
 
 /** The same outside the shell (no route matched at all, e.g. signed out). */
 export function RouteNotFound() {

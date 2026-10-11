@@ -28,7 +28,7 @@ export function previewConfig(): Plugin {
         const config: NextConfig = {
           app_url: `${origin}/`, app_sub_url: '', base, app_name: 'Forgejo', version: 'preview', protocol: ProtocolVersion,
           oauth: {
-            client_id: 'preview', redirect_uri: `${origin}${base}callback`, scope: 'write:issue write:repository read:user read:organization write:notification',
+            client_id: 'preview', redirect_uri: `${origin}${base}callback`, scope: 'write:issue write:repository write:user write:organization write:notification',
             authorize_url: '/login/oauth/authorize', token_url: '/login/oauth/access_token',
           },
         };

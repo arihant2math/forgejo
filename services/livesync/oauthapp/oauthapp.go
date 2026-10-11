@@ -50,15 +50,20 @@ const Name = "Forgejo Next"
 // notifications through API v1, and — since the settings pages
 // (next/src/features/usersettings) — the viewer's own account: the
 // profile, appearance, email addresses, SSH and GPG keys and picture
-// (write:user). A change of Scope makes Ensure revoke the old grants (one
-// forced sign-in, see the package documentation).
+// (write:user) — and, since the creation pages (next/src/features/new),
+// new repositories and organizations: API v1 wants write:user for one of
+// the viewer's own and write:organization for an organization's. A change
+// of Scope makes Ensure revoke the old grants (one forced sign-in, see the
+// package documentation).
 //
 // What the scope does and does not protect (corrected by the backend
 // audit; widened by the settings pages): with write:user a stolen token
 // can change the account itself — add an SSH key (push and pull as the
 // user, lasting after the token is revoked), add an email address (once
-// verified it receives password resets) or an OAuth2 application. It still
-// cannot touch organizations or their hooks (no write:organization). And
+// verified it receives password resets) or an OAuth2 application. With
+// write:organization it can change what the user may change in their
+// organizations: an owner's token can add organization webhooks, edit
+// teams and their members, or delete the organization. And
 // write:repository opens the whole /repos/{owner}/{repo} API group, so on
 // every repository the user administers a stolen token can add webhooks,
 // writable deploy keys and admin collaborators, start a transfer or set
@@ -75,7 +80,7 @@ const Name = "Forgejo Next"
 // REFRESH_TOKEN_EXPIRATION_TIME (users then sign in again more often).
 // Personal access tokens stay out of reach: API v1 creates and deletes
 // them with a password (basic authentication) only.
-const Scope = "write:issue write:repository write:user read:organization write:notification"
+const Scope = "write:issue write:repository write:user write:organization write:notification"
 
 // Meta names in livesync_meta.
 const (

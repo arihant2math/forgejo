@@ -94,10 +94,14 @@ describe('requests', () => {
 test('the scope a creation needs, and whether the UI\'s sign-in has it', () => {
   expect(creationScope(false)).toBe('write:user');
   expect(creationScope(true)).toBe('write:organization');
-  const ui = 'write:issue write:repository read:user read:organization write:notification';
-  expect(scopeAllows(ui, 'write:user')).toBe(false);
-  expect(scopeAllows(ui, 'write:organization')).toBe(false);
-  expect(scopeAllows(`${ui} write:user`, 'write:user')).toBe(true);
+  // A sign-in without them (an instance that has not upgraded yet), and the UI's own (oauthapp.Scope).
+  const old = 'write:issue write:repository read:user read:organization write:notification';
+  expect(scopeAllows(old, 'write:user')).toBe(false);
+  expect(scopeAllows(old, 'write:organization')).toBe(false);
+  const ui = 'write:issue write:repository write:user write:organization write:notification';
+  expect(scopeAllows(ui, 'write:user')).toBe(true);
+  expect(scopeAllows(ui, 'write:organization')).toBe(true);
+  expect(scopeAllows(`${old} write:user`, 'write:user')).toBe(true);
   expect(scopeAllows('all', 'write:organization')).toBe(true);
   expect(scopeAllows('write:user,write:organization', 'write:organization')).toBe(true);
   expect(scopeAllows(undefined, 'write:user')).toBe(true);

@@ -166,14 +166,19 @@ func TestLivesyncOAuth(t *testing.T) {
 			var userKey api.PublicKey
 			DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &userKey)
 			MakeRequest(t, NewRequest(t, "DELETE", fmt.Sprintf("/api/v1/user/keys/%d", userKey.ID)).AddTokenAuth(tokens.AccessToken), http.StatusNoContent)
-			// ...but not its access tokens (API v1 wants the password), nor
-			// organizations and their hooks.
+			// ...but not its access tokens (API v1 wants the password).
 			req = NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", map[string]any{"name": "from-next", "scopes": []string{"read:user"}}).AddTokenAuth(tokens.AccessToken)
 			MakeRequest(t, req, http.StatusUnauthorized)
-			req = NewRequestWithJSON(t, "POST", "/api/v1/orgs/org3/hooks", map[string]any{"type": "forgejo", "config": map[string]string{"url": "https://example.com/", "content_type": "json"}}).AddTokenAuth(tokens.AccessToken)
-			MakeRequest(t, req, http.StatusForbidden)
+			// Organizations are the user's to change too (write:organization,
+			// the creation pages: an organization's new repository, a new
+			// organization) — for an owner, their hooks as well, which the
+			// threat model in oauthapp.Scope names.
 			req = NewRequest(t, "GET", "/api/v1/orgs/org3").AddTokenAuth(tokens.AccessToken)
 			MakeRequest(t, req, http.StatusOK)
+			req = NewRequestWithJSON(t, "POST", "/api/v1/orgs/org3/hooks", map[string]any{"type": "forgejo", "config": map[string]string{"url": "https://example.com/", "content_type": "json"}}).AddTokenAuth(tokens.AccessToken)
+			var orgHook api.Hook
+			DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &orgHook)
+			MakeRequest(t, NewRequest(t, "DELETE", fmt.Sprintf("/api/v1/orgs/org3/hooks/%d", orgHook.ID)).AddTokenAuth(tokens.AccessToken), http.StatusNoContent)
 			// But write:repository opens all of /repos/{o}/{r} (backend
 			// audit): on a repository the user administers, the token can
 			// add webhooks, writable deploy keys and admin collaborators —

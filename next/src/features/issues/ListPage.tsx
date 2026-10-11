@@ -87,9 +87,24 @@ export const ListBody = observer(function ListBody({model, label, empty, showRep
     q.filter.label !== undefined || q.filter.repo !== undefined;
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
   const typed = q.filter.q?.trim();
+  // A label the filter requires that is gone (deleted; an old link or bookmark): nothing can have it, and the
+  // empty list says why, with a way to drop it (QA #158).
+  const gone = data.status.loading > 0 ? [] : q.filter.labels.filter((id) => !data.pool.model('Label').get(Math.abs(id)));
+  const goneRequired = gone.some((id) => id > 0);
+  const dropGone = () => {
+    const labels = q.filter.labels.filter((id) => !gone.includes(id)).join(',') || undefined;
+    const next = Object.fromEntries(Object.entries({...model.search, labels}).filter(([, v]) => v !== undefined)) as ListSearch;
+    const keep = viewChange();
+    model.setSearch(next);
+    void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...Object.fromEntries(Object.entries(prev).filter(([k]) => k !== 'labels')), ...(labels ? {labels} : {})})) as never});
+  };
   const none = loading ? <ListSkeleton/> : filtered ?
-    <EmptyState icon={SearchX} title="Nothing matches" description="No item on this device matches these filters."
+    <EmptyState icon={SearchX} title="Nothing matches"
+      description={goneRequired ?
+        `The filter names a label that no longer exists (it was deleted), so no item can match. ${gone.length > 1 ? 'Drop those labels' : 'Drop it'} to see the list.` :
+        'No item on this device matches these filters.'}
       action={<span className="flex flex-wrap justify-center gap-2">
+        {goneRequired && <Button variant="primary" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
         {typed && <Button variant="primary" onClick={() => {
           // The command menu searches the rest: other repositories, the index, and Forgejo itself.
           runInAction(() => {

@@ -27,7 +27,7 @@ import {
   PropertyValue, TextLink,
 } from '../../ui/index.ts';
 import {PickerPopover} from '../issues/Picker.tsx';
-import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, useUser} from '../issues/cells.tsx';
+import {isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
@@ -98,7 +98,16 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
   }
   // Merged says it all (a workflow label left at "In Review" is not news then).
   const merged = pull && isMerged(pool, issue.id);
-  return <><StateGlyph look={look}/><span>{look.label}</span>{status && !merged && <span className="truncate text-fg-subtle">({scopedValue(status.name)})</span>}</>;
+  // Open without a status label in a repository that has them: no status yet ("No priority" alike), not a stage
+  // called "Open" (QA #192).
+  const none = !status && !pull && state === 'open' && usesStatuses(pool, issue.get('repo_id'));
+  return (
+    <>
+      <StateGlyph look={look}/><span>{look.label}</span>
+      {status && !merged && <span className="truncate text-fg-subtle">({scopedValue(status.name)})</span>}
+      {none && <span className="truncate text-fg-subtle">· No status</span>}
+    </>
+  );
 });
 
 const PriorityValue = observer(function PriorityValue({issue}: {issue: Entity<'Issue'>}) {

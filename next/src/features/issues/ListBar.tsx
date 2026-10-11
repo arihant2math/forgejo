@@ -9,7 +9,7 @@
 // view is a link; the list recomputes locally on every change.
 
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
-import {ChevronDown, FolderGit2, Layers, ListFilter, Pencil, Rows3, Save, Search, Trash2, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
+import {ChevronDown, FolderGit2, Layers, ListChecks, ListFilter, Pencil, Rows3, Save, Search, Trash2, User, UserPen, X, Milestone as MilestoneIcon} from 'lucide-react';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type RefObject, useEffect, useRef, useState} from 'react';
@@ -23,10 +23,12 @@ import {SaveViewDialog} from '../views/SaveView.tsx';
 import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
 import {
-  Avatar, Button, CommandPopover, Icon, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
+  Avatar, Button, CommandPopover, Icon, IconButton, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
   MenuTrigger, type PickOption, PromptDialog,
 } from '../../ui/index.ts';
 import {ResultCount, SelectionCount, usePool} from './cells.tsx';
+import {issueActions} from './actions.ts';
+import {issuesOf} from './edits.ts';
 import {repoLabels} from './candidates.ts';
 import {priorityIcon, statusIcon} from './cells.tsx';
 import {kindRank, labelKind, scopedValue} from './labels.ts';
@@ -160,7 +162,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
           }}>Save view…</MenuItem>
         </MenuContent>
       </Menu>
-      <SelectionCount cursor={model.cursor}/>
+      <SelectionBar model={model}/>
       <ResultCount model={model}/>
       {origin && <ViewMenu view={origin} changed={!saved} search={viewSearch} onSaveAs={() => {
         setSaving(true);
@@ -168,6 +170,49 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
     </>
   );
 });
+
+/**
+ * What can be done with the selected rows, for the pointer (the keys: X, S/L/A/M/P, Esc): how many, the same
+ * actions as the rows' context menu (status, labels, assignees, milestone, …), select every listed row, clear.
+ * Nothing without a selection (the rows' check boxes start one).
+ */
+const SelectionBar = observer(function SelectionBar({model}: {model: IssueListModel}) {
+  const navigate = useNavigate();
+  const cursor = model.cursor;
+  const n = cursor.selected.size;
+  if (!n) return null;
+  const listed = model.result.get().ids;
+  return (
+    <>
+      <SelectionCount cursor={cursor}/>
+      <Menu>
+        <MenuTrigger asChild>
+          <Button size="sm" variant="secondary" icon={ListChecks}>Edit selected<Icon icon={ChevronDown} size="sm"/></Button>
+        </MenuTrigger>
+        <MenuContent>
+          <SelectionActions ids={cursor.selected.values()} navigate={(path) => void navigate({to: path})}/>
+        </MenuContent>
+      </Menu>
+      {n < listed.length && <Button size="sm" variant="ghost" onClick={() => {
+        cursor.selected.replace(listed);
+      }}>Select all {listed.length}</Button>}
+      <IconButton size="sm" icon={X} label="Clear the selection" shortcut="Esc" onClick={() => {
+        cursor.selected.clear();
+      }}/>
+    </>
+  );
+});
+
+/** The selection's actions (rendered while the menu is open). */
+function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (path: string) => void}) {
+  const app = useApp();
+  const actions = issueActions(app, issuesOf(app, ids), {navigate}).filter((a) => a.id !== 'open');
+  return actions.map((a) => (
+    <MenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && shortcutHint(a.shortcut)} onSelect={() => {
+      a.run();
+    }}>{a.label}</MenuItem>
+  ));
+}
 
 /** The search params a list's view owns (others, like the "my" list's type, are kept). */
 const LIST_KEYS = new Set(['state', 'q', 'labels', 'milestone', 'assignee', 'poster', 'sort', 'group', 'status', 'priority', 'label', 'repo']);
@@ -227,12 +272,15 @@ interface ActiveFilter {
   clear: () => void;
 }
 
-/** The filters in effect, each with a way to drop it. Observes the names it shows. */
-function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter): ActiveFilter[] {
+/**
+ * The filters in effect, each with a way to drop it. Observes the names it shows. A label that is not on this device
+ * once it has loaded was deleted (an old link or bookmark): said so, never its database id (QA #158).
+ */
+function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, loading: boolean): ActiveFilter[] {
   const out: ActiveFilter[] = [];
   const labels = parseLabels(search.labels);
   for (const id of labels) {
-    const name = pool.model('Label').get(Math.abs(id))?.get('name') ?? `#${String(Math.abs(id))}`;
+    const name = pool.model('Label').get(Math.abs(id))?.get('name') ?? (loading ? '…' : DELETED_LABEL);
     out.push({key: `l${String(id)}`, label: id < 0 ? `Label is not ${name}` : `Label: ${name}`, clear: () => {
       set({labels: labels.filter((x) => x !== id).join(',') || undefined});
     }});
@@ -264,6 +312,9 @@ function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set
   }});
   return out;
 }
+
+/** How a filter names a label that no longer exists. */
+export const DELETED_LABEL = '(deleted label)';
 
 /**
  * The viewer's lists across repositories: a label by name (the same name in every repository), a repository, an
@@ -320,7 +371,8 @@ function kindFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
     for (const [key, l] of seen) {
       const v = scopedValue(l.name);
       out.push({
-        value: `${kind}:${key}`, label: v, words: kind, group: kind === 'status' ? 'Status' : 'Priority', checked: current === key,
+        // Found by the label's full name too ("status/Todo", as the Labels page lists it).
+        value: `${kind}:${key}`, label: v, words: `${kind} ${l.name}`, group: kind === 'status' ? 'Status' : 'Priority', checked: current === key,
         leading: <LabelIcon icon={kind === 'status' ? statusIcon(l.name) : priorityIcon(l.name)} color={l.color}/>,
         onSelect: () => {
           set({[kind]: current === key ? undefined : v});
@@ -339,7 +391,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const pool = usePool();
   const app = useApp();
   const me = app.session?.userId ?? 0;
-  const active = activeFilters(pool, search, set);
+  const active = activeFilters(pool, search, set, (app.session?.data.status.loading ?? 0) > 0);
   const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: X, onSelect: f.clear}));
   if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: X, onSelect: () => {
     set({labels: undefined, assignee: undefined, poster: undefined, milestone: undefined, status: undefined, priority: undefined, label: undefined, repo: undefined});

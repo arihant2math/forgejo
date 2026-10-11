@@ -107,7 +107,7 @@ function pinOrder(overlay: Overlay, i: Issue): number {
 }
 
 function sameRow(x: Row | undefined, y: Row | undefined): boolean {
-  if (x?.type === 'issue') return y?.type === 'issue' && x.id === y.id;
+  if (x?.type === 'issue') return y?.type === 'issue' && x.id === y.id && x.copy === y.copy;
   if (x?.type === 'group') return y?.type === 'group' && x.key === y.key && x.count === y.count && x.label === y.label;
   return false;
 }

@@ -12,7 +12,10 @@
 //
 // Keyboard (PLAN §5.6): J/K (and ↑/↓ while the list has focus) move the
 // cursor, X selects, Enter opens, Esc clears the selection; S/L/A/M/P open
-// the pickers for the selection, or the cursor's issue. The listbox keeps
+// the pickers for the selection, or the cursor's issue. The pointer selects
+// with a row's check box (shown on hover, and on every row once something is
+// selected; Shift-click selects a range), and the list bar's selection
+// actions do the same as the keys for it. The listbox keeps
 // focus and points at the cursor with aria-activedescendant (rows come and
 // go as they scroll). Right click / Shift+F10 opens the same actions as the
 // palette.
@@ -36,7 +39,7 @@ import {
 } from '../../ui/index.ts';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {
-  AssigneesCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar,
+  AssigneesCell, AuthorCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar,
   usePool,
 } from './cells.tsx';
 import {issuePath, issuesOf} from './edits.ts';
@@ -74,7 +77,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   // Stable while the rows are (the virtualizer re-measures when it changes).
   const getItemKey = useCallback((i: number) => {
     const r = rows[i];
-    return r ? (r.type === 'issue' ? r.id : `g:${r.key}`) : i;
+    return r ? (r.type === 'issue' ? (r.copy === undefined ? r.id : `${String(r.id)}@${r.copy}`) : `g:${r.key}`) : i;
   }, [rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -112,6 +115,11 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     });
   }, [app]);
   // The listbox points at the cursor's row (set here: the list itself does not re-render when the cursor moves).
+  // Selecting (something is selected): every row shows its check box (CSS: in-data-selecting).
+  useEffect(() => autorun(() => {
+    const on = cursor.selected.size > 0;
+    listRef.current?.toggleAttribute('data-selecting', on);
+  }), [cursor, hasRows]);
   useEffect(() => autorun(() => {
     const [id] = cursor.active.values();
     const el = listRef.current;
@@ -154,7 +162,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
   }, [hasRows]);
   const move = (delta: number) => {
-    const ids = rows.filter((r): r is Extract<Row, {type: 'issue'}> => r.type === 'issue').map((r) => r.id);
+    // Each issue once (one with several assignees is listed under each; the cursor goes to where it is first).
     if (!ids.length) return;
     const at = cursor.activeId === undefined ? -1 : ids.indexOf(cursor.activeId);
     const next = ids[at < 0 ? (delta > 0 ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + delta))];
@@ -228,6 +236,15 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
         open(id, true);
       }
     },
+    check: (id, e) => {
+      if (e.shiftKey) cursor.selectRange(id, ids);
+      else {
+        cursor.selected.toggle(id);
+        cursor.setActive(id);
+      }
+      // The list keeps the focus (X, Esc and the pickers' keys go on from here).
+      listRef.current?.focus({preventScroll: true});
+    },
   };
   const [stable] = useState<RowHandlers>(() => ({
     click: (id, e) => {
@@ -235,6 +252,9 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     },
     aux: (id, e) => {
       handlers.current.aux(id, e);
+    },
+    check: (id, e) => {
+      handlers.current.check(id, e);
     },
   }));
 
@@ -275,9 +295,9 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
             const r = rows[it.index];
             if (!r) return null;
             return (
-              <div key={it.key} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
+              <div key={it.key} className="group absolute inset-x-0 top-0" style={{transform: `translateY(${String(it.start)}px)`}}>
                 {r.type === 'issue' ?
-                  <IssueRow id={r.id} cursor={cursor} handlers={stable} showRepo={showRepo}/> :
+                  <IssueRow id={r.id} copy={r.copy} cursor={cursor} handlers={stable} showRepo={showRepo}/> :
                   <GroupRow row={r}/>}
               </div>
             );
@@ -307,6 +327,8 @@ function MenuAction({action, separator}: {action: IssueAction; separator: boolea
 interface RowHandlers {
   click(id: number, e: MouseEvent): void;
   aux(id: number, e: MouseEvent): void;
+  /** The row's check box: toggles the row in the selection (Shift: the range from the cursor). */
+  check(id: number, e: MouseEvent): void;
 }
 
 /** Rows in a list's first commit (about half a screen; the rest renders right after). */
@@ -314,7 +336,9 @@ const FIRST_ROWS = 12;
 
 const rowId = (id: number) => `issue-row-${String(id)}`;
 
-const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {id: number; cursor: ListCursor; handlers: RowHandlers; showRepo: boolean}) {
+const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRepo}: {
+  id: number; copy?: string | undefined; cursor: ListCursor; handlers: RowHandlers; showRepo: boolean;
+}) {
   const app = useApp();
   const pool = usePool();
   // An issue created on this device and not synced yet is in the overlay (temporary, negative id).
@@ -327,7 +351,8 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
   return (
     <ListRow
       role="option"
-      id={rowId(id)}
+      // The cursor points at an issue's first row (aria-activedescendant); its other rows have their own ids.
+      id={copy === undefined ? rowId(id) : `${rowId(id)}-${copy}`}
       data-issue={id}
       active={active}
       selected={selected}
@@ -341,14 +366,14 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
       onAuxClick={(e) => {
         if (!path) handlers.aux(id, e);
       }}
-      leading={<><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
+      leading={<><SelectBox id={id} cursor={cursor} handlers={handlers}/><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
       // Labels give way first on a narrow list, then (a phone) the pin, due date and assignees: the title keeps its
       // room, and the row its state and age.
       trailing={<>
         <span className="contents @max-md:hidden"><PinCell issue={issue}/></span>
         <PullStateCell issue={issue}/>
         <span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span>
-        <span className="contents @max-md:hidden"><DueCell issue={issue}/><AssigneesCell issue={issue}/></span>
+        <span className="contents @max-md:hidden"><DueCell issue={issue}/><AssigneesCell issue={issue}/><AuthorCell issue={issue}/></span>
         <UpdatedCell issue={issue}/>
       </>}
     >
@@ -357,6 +382,28 @@ const IssueRow = observer(function IssueRow({id, cursor, handlers, showRepo}: {i
       </span>
       <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
     </ListRow>
+  );
+});
+
+/**
+ * A row's check box, for the pointer (GitHub's, Linear's): hidden until the row is hovered, shown on every row
+ * while something is selected (and always on a touch screen). Hidden from assistive technology: the row's
+ * aria-selected says the same, and X toggles it.
+ */
+const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: number; cursor: ListCursor; handlers: RowHandlers}) {
+  const on = cursor.selected.has(id);
+  return (
+    <input type="checkbox" aria-hidden tabIndex={-1} checked={on} data-select-row title={on ? 'Deselect (X)' : 'Select (X; Shift-click: a range)'}
+      className="invisible size-4 shrink-0 accent-accent group-hover:visible in-data-selecting:visible checked:visible pointer-coarse:visible"
+      // The row does not take it as a click (open), and the list keeps the focus.
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        handlers.check(id, e);
+      }}
+      readOnly/>
   );
 });
 

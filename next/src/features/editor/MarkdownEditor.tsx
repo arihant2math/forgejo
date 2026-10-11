@@ -136,6 +136,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
       parent,
       state: EditorState.create({
         doc: value,
+        selection: {anchor: value.length},
         extensions: [
           history(),
           autocompletion({override: [suggestions((t, q) => cb.current.complete?.(t, q) ?? [])], icons: false, activateOnTyping: true}),
@@ -146,14 +147,14 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
               cb.current.onSubmit?.();
               return Boolean(cb.current.onSubmit);
             }},
-            {key: 'Escape', run: () => {
-              cb.current.onCancel?.();
-              return Boolean(cb.current.onCancel);
+            {key: 'Escape', run: (v) => {
+              if (cb.current.onCancel) cb.current.onCancel();
+              else v.contentDOM.blur();
+              return true;
             }},
-            // Formatting (⌘K here is the link, not the command menu: the editor keeps it while it has the focus).
+            // Mod-K belongs to the global command menu, including while writing.
             {key: 'Mod-b', run: (v) => applyFormat(v, 'bold')},
             {key: 'Mod-i', run: (v) => applyFormat(v, 'italic')},
-            {key: 'Mod-k', run: (v) => applyFormat(v, 'link')},
             // Tab moves the focus on (as in a text area: no keyboard trap); lists indent with ⌘] / ⌘[ (defaultKeymap).
             {key: 'Enter', run: continueList},
             ...historyKeymap,

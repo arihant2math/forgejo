@@ -16,6 +16,7 @@ import {useEffect} from 'react';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {LOCAL_PREFS} from '../../app/splash.ts';
+import {LinkRows} from '../../ui/LinkRows.tsx';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -79,14 +80,14 @@ export default observer(function Dashboard() {
     {title: 'Your pull requests', icon: GitPullRequest, items: mine, all: '/pulls?type=created_by'},
   ].filter((x) => x.items.length);
   return (
-    <PageColumn>
+    <LinkRows><PageColumn>
       {pending.length > 0 && <Section title="Not synced yet" icon={CloudUpload} items={pending}/>}
       {/* Asked once the session holds a token (the server is asked as the signed-in user); its place is kept
           from the first frame, as tall as it was last time (nothing below moves when it arrives). */}
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
       {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
-    </PageColumn>
+    </PageColumn></LinkRows>
   );
 });
 

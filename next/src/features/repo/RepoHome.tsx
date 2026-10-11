@@ -10,6 +10,7 @@
 // the side pane (AboutSidebar.tsx: what it is, its releases and languages).
 // The tabs lead to everything else. Its own chunk.
 
+import {LinkRows} from '../../ui/LinkRows.tsx';
 import {Code2, Folder, FolderGit2, GitBranch, History, SquarePen, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo} from 'react';
@@ -165,7 +166,7 @@ function Tree({owner, repo, repoId, sha, branch, title, toolbar, actions}: {
   return (
     <>
       {toolbar}
-      <FilesPanel title={title} actions={actions}>
+      <LinkRows><FilesPanel title={title} actions={actions}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
           <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-3 py-3"><SkeletonText lines={5}/></div>}/>}
@@ -174,7 +175,7 @@ function Tree({owner, repo, repoId, sha, branch, title, toolbar, actions}: {
             {entries.length - MAX_ENTRIES} more
           </ListRow>
         )}
-      </FilesPanel>
+      </FilesPanel></LinkRows>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch, sha}}/>}
     </>
   );

@@ -122,6 +122,36 @@ func TestUpdateLastUsed(t *testing.T) {
 	assert.Equal(t, timeutil.TimeStampNow(), token.UpdatedUnix)
 }
 
+func TestAccessTokenActivity(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+
+	// Never used: no activity at all, although it was created less than 7 days ago.
+	token := &auth_model.AccessToken{UID: 3, Name: "Token never used"}
+	require.NoError(t, auth_model.NewAccessToken(db.DefaultContext, token))
+	loaded := unittest.AssertExistsAndLoadBean(t, &auth_model.AccessToken{ID: token.ID})
+	assert.Equal(t, loaded.CreatedUnix, loaded.UpdatedUnix)
+	assert.False(t, loaded.HasUsed)
+	assert.False(t, loaded.HasRecentActivity)
+
+	// Used a minute after its creation.
+	created := loaded.CreatedUnix.AsTime()
+	timeutil.MockSet(created.Add(time.Minute))
+	defer timeutil.MockUnset()
+	require.NoError(t, loaded.UpdateLastUsed(db.DefaultContext))
+
+	// Two days later: used within the last 7 days.
+	timeutil.MockSet(created.Add(48 * time.Hour))
+	loaded = unittest.AssertExistsAndLoadBean(t, &auth_model.AccessToken{ID: token.ID})
+	assert.True(t, loaded.HasUsed)
+	assert.True(t, loaded.HasRecentActivity)
+
+	// Ten days later: used, but not within the last 7 days.
+	timeutil.MockSet(created.Add(10 * 24 * time.Hour))
+	loaded = unittest.AssertExistsAndLoadBean(t, &auth_model.AccessToken{ID: token.ID})
+	assert.True(t, loaded.HasUsed)
+	assert.False(t, loaded.HasRecentActivity)
+}
+
 func TestDeleteAccessTokenByID(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 

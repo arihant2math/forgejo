@@ -3,9 +3,11 @@
 </h4>
 <div class="ui attached segment">
 	<div class="flex-list">
-		<div class="flex-item">
-			{{ctx.Locale.Tr "settings.authorized_oauth2_applications_description"}}
-		</div>
+		{{if .Grants}}
+			<div class="flex-item">
+				{{ctx.Locale.Tr "settings.authorized_oauth2_applications_description"}}
+			</div>
+		{{end}}
 		{{range .Grants}}
 			<div class="flex-item">
 				<div class="flex-item-leading">
@@ -23,6 +25,10 @@
 						{{ctx.Locale.Tr "settings.revoke_key"}}
 					</button>
 				</div>
+			</div>
+		{{else}}
+			<div class="flex-item">
+				<p class="tw-m-0 text grey">{{ctx.Locale.Tr "settings.oauth2_grants.none"}}</p>
 			</div>
 		{{end}}
 	</div>

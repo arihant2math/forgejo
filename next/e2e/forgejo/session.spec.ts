@@ -13,7 +13,7 @@
 
 import {type Browser, type BrowserContext, expect, type Page, test} from '@playwright/test';
 import {api} from '../lib/api.ts';
-import {sidebar, signIn, watch} from '../lib/app.ts';
+import {passConsent, sidebar, signIn, watch} from '../lib/app.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -205,9 +205,7 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible(); // render first
   expect((await idb(page)).tokens).toHaveLength(0);
   await page.getByRole('button', {name: 'Sign in'}).click();
-  await page.waitForURL(/\/login\/oauth\/authorize/); // the classic session is still there
-  await page.locator('#authorize-app').click();
-  await page.waitForURL(`${BASE}/`);
+  await passConsent(page); // the classic session is still there: no login form
   await expect(status(page)).toContainText('Live', {timeout: 20_000});
   await ctx.close();
 });

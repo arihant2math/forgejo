@@ -20,9 +20,16 @@
 //     order) fails with "a grant exists with different scope". So the SPA
 //     must send exactly Scope, and Ensure revokes the grants of this client
 //     that have another scope when Scope changes (users consent again).
-//   - Public clients get the consent page at every authorization (RFC 6749
-//     §10.2; only confidential clients with a grant are redirected at
-//     once): one consent per sign-in, not per token refresh.
+//   - Upstream, public clients get the consent page at every authorization
+//     (RFC 6749 §10.2; only confidential clients with a grant are
+//     redirected at once). The Next UI is not a third-party application but
+//     this site's own UI, so its exact sign-in request (App.IsOwnSignIn: its
+//     client, PKCE S256, its primary redirect URI below AppURL, its scope)
+//     skips the consent page (routers/web/auth AuthorizeOAuth): the code can
+//     only reach the site's own callback, where it is useless without the
+//     PKCE verifier of the tab that started the sign-in. Any other request
+//     for this client (another scope, a development server's redirect URI)
+//     still gets the consent page.
 package oauthapp
 
 import (
@@ -96,6 +103,20 @@ type App struct {
 	ClientID    string `json:"client_id"`
 	RedirectURI string `json:"redirect_uri"`
 	Scope       string `json:"scope"`
+}
+
+// IsOwnSignIn reports whether an authorization request is the Next UI's own
+// sign-in, which needs no consent (see the package documentation): the
+// instance-wide public application provisioned as a (its client id), with
+// PKCE S256, to a's redirect URI (the callback below AppURL, never one of
+// the extra development redirect URIs) and exactly a's scope. False for a
+// nil a (livesync not running, or no client provisioned).
+func (a *App) IsOwnSignIn(app *auth_model.OAuth2Application, redirectURI, scope, codeChallengeMethod string) bool {
+	return a != nil && app != nil && a.ClientID != "" && app.ClientID == a.ClientID &&
+		app.UID == 0 && !app.ConfidentialClient &&
+		codeChallengeMethod == "S256" &&
+		redirectURI == a.RedirectURI && redirectURI == setting.AppURL+CallbackPath && app.ContainsRedirectURI(redirectURI) &&
+		scope == a.Scope && scope == Scope
 }
 
 // ErrOAuth2Disabled is returned by Ensure when Forgejo's OAuth2 provider is

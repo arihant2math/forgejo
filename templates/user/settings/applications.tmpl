@@ -1,5 +1,16 @@
 {{template "user/settings/layout_head" (dict "ctxData" . "pageClass" "user settings applications")}}
 <div class="user-setting-content">
+	{{if .NewAccessToken}}
+		<div class="ui info message" id="new-access-token">
+			<div class="header">{{ctx.Locale.Tr "settings.access_token.new_value"}}</div>
+			<div class="tw-flex tw-flex-wrap tw-items-center tw-gap-2 tw-mt-2">
+				<p class="tw-m-0 tw-break-anywhere"><code id="new-access-token-value">{{.NewAccessToken}}</code></p>
+				<button type="button" class="ui basic tiny button" data-clipboard-text="{{.NewAccessToken}}" aria-label="{{ctx.Locale.Tr "settings.access_token.copy_value"}}">
+					{{svg "octicon-copy" 14 "tw-mr-1"}}{{ctx.Locale.Tr "copy"}}
+				</button>
+			</div>
+		</div>
+	{{end}}
 	<h4 class="ui top attached header">
 		{{ctx.Locale.Tr "settings.manage_access_token"}}
 		<div class="ui right">
@@ -46,19 +57,35 @@
 							</ul>
 						</details>
 						<div class="flex-item-body">
+							<p class="access-token-summary">
+								{{ctx.Locale.Tr "settings.repo_and_org_access"}}:
+								{{if .Token.ResourceAllRepos}}
+									{{if .Token.DisplayPublicOnly}}{{ctx.Locale.Tr "settings.permissions_public_only"}}{{else}}{{ctx.Locale.Tr "settings.permissions_access_all"}}{{end}}
+								{{else}}
+									{{ctx.Locale.TrPluralString (len .Repositories) "settings.access_token.specific_repositories" (len .Repositories)}}
+								{{end}}
+								— {{ctx.Locale.Tr "settings.permissions_list"}}
+								{{range .Token.Scope.StringSlice}}
+									{{if (ne . $.AccessTokenScopePublicOnly)}}<span class="ui mini basic label">{{.}}</span>{{end}}
+								{{end}}
+							</p>
 							<p>{{ctx.Locale.Tr "settings.added_on" (DateUtils.AbsoluteShort .Token.CreatedUnix)}} — {{svg "octicon-info"}} {{if .Token.HasUsed}}{{ctx.Locale.Tr "settings.last_used"}} <span {{if .Token.HasRecentActivity}}class="text green"{{end}}>{{DateUtils.AbsoluteShort .Token.UpdatedUnix}}</span>{{else}}{{ctx.Locale.Tr "settings.no_activity"}}{{end}}</p>
 						</div>
 					</div>
 					<div class="flex-item-trailing">
-							<button class="ui primary tiny button delete-button" data-modal-id="regenerate-token" data-url="{{$.Link}}/tokens/regenerate" data-id="{{.Token.ID}}">
+							<button class="ui primary tiny button delete-button" data-modal-id="regenerate-token" data-url="{{$.Link}}/tokens/regenerate" data-id="{{.Token.ID}}" data-name="{{.Token.Name}}">
 								{{svg "octicon-issue-reopened" 16 "tw-mr-1"}}
 								{{ctx.Locale.Tr "settings.regenerate_token"}}
 							</button>
-							<button class="ui red tiny button delete-button" data-modal-id="delete-token" data-url="{{$.Link}}/tokens/delete" data-id="{{.Token.ID}}">
+							<button class="ui red tiny button delete-button" data-modal-id="delete-token" data-url="{{$.Link}}/tokens/delete" data-id="{{.Token.ID}}" data-name="{{.Token.Name}}">
 								{{svg "octicon-trash" 16 "tw-mr-1"}}
 								{{ctx.Locale.Tr "settings.delete_token"}}
 							</button>
 					</div>
+				</div>
+			{{else}}
+				<div class="flex-item">
+					<p class="tw-m-0 text grey">{{ctx.Locale.Tr "settings.access_token.none"}}</p>
 				</div>
 			{{end}}
 		</div>
@@ -76,6 +103,7 @@
 		{{ctx.Locale.Tr "settings.access_token_regeneration"}}
 	</div>
 	<div class="content">
+		<p>{{ctx.Locale.Tr "settings.access_token.regenerate_target" (`<strong class="name"></strong>`|TrustHTML)}}</p>
 		<p>{{ctx.Locale.Tr "settings.access_token_regeneration_desc"}}</p>
 	</div>
 	{{template "base/modal_actions_confirm" (dict "ModalButtonColors" "primary")}}
@@ -87,6 +115,7 @@
 		{{ctx.Locale.Tr "settings.access_token_deletion"}}
 	</div>
 	<div class="content">
+		<p>{{ctx.Locale.Tr "settings.access_token.delete_target" (`<strong class="name"></strong>`|TrustHTML)}}</p>
 		<p>{{ctx.Locale.Tr "settings.access_token_deletion_desc"}}</p>
 	</div>
 	{{template "base/modal_actions_confirm"}}

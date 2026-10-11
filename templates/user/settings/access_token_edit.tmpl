@@ -12,17 +12,17 @@
 			</div>
 			<div class="field">
 				<fieldset>
-					<label>{{ctx.Locale.Tr "settings.repo_and_org_access"}}</label>
+					<label class="required">{{ctx.Locale.Tr "settings.repo_and_org_access"}}</label>
 					<div class="field">
 						<div class="field ui radio checkbox">
-							<input id="resource-all" class="enable-system" type="radio" name="resource" value="all" {{if eq .resource "all"}}checked{{end}}>
+							<input id="resource-all" class="enable-system" type="radio" name="resource" value="all" {{if eq .resource "all"}}checked{{end}} required>
 							<label for="resource-all">{{ctx.Locale.Tr "settings.permissions_access_all"}}</label>
 							<p class="help">{{ctx.Locale.Tr "settings.access_token.resource_all_help"}}</p>
 						</div>
 					</div>
 					<div class="field">
 						<div class="field ui radio checkbox">
-							<input id="resource-public-only" class="enable-system" type="radio" name="resource" value="public-only" {{if eq .resource "public-only"}}checked{{end}}>
+							<input id="resource-public-only" class="enable-system" type="radio" name="resource" value="public-only" {{if eq .resource "public-only"}}checked{{end}} required>
 							<label for="resource-public-only">{{ctx.Locale.Tr "settings.permissions_public_only"}}</label>
 							<p class="help">
 								{{ctx.Locale.Tr "settings.access_token.resource_public_only_help"}}
@@ -32,7 +32,7 @@
 					</div>
 					<div class="field">
 						<div class="field ui radio checkbox">
-							<input id="resource-repo-specific" class="enable-system" type="radio" name="resource" value="repo-specific" {{if eq .resource "repo-specific"}}checked{{end}}>
+							<input id="resource-repo-specific" class="enable-system" type="radio" name="resource" value="repo-specific" {{if eq .resource "repo-specific"}}checked{{end}} required>
 							<label for="resource-repo-specific">{{ctx.Locale.Tr "settings.permissions_access_specific_repositories"}}</label>
 							<p class="help">
 								{{ctx.Locale.Tr "settings.access_token.resource_specific_repo_help"}}

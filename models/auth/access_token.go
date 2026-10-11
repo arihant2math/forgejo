@@ -80,7 +80,8 @@ type AccessToken struct {
 // AfterLoad is invoked from XORM after setting the values of all fields of this object.
 func (t *AccessToken) AfterLoad() {
 	t.HasUsed = t.UpdatedUnix > t.CreatedUnix
-	t.HasRecentActivity = t.UpdatedUnix.AddDuration(7*24*time.Hour) > timeutil.TimeStampNow()
+	// A token that was never used has no activity, recent or not (its UpdatedUnix is its creation time).
+	t.HasRecentActivity = t.HasUsed && t.UpdatedUnix.AddDuration(7*24*time.Hour) > timeutil.TimeStampNow()
 }
 
 func init() {

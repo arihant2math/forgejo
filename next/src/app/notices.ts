@@ -41,7 +41,7 @@ const timers = new Map<number, {left: number; started: number; timer: ReturnType
  */
 export function notify(app: App, spec: Omit<NoticeSpec, 'id' | 'closing'>): number {
   const id = ++seq;
-  if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.action.run)};
+  if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.title, spec.action.run)};
   runInAction(() => {
     // The same series, or the same words: the new notice replaces the old one (one notice per message: a refusal
     // repeated by a second attempt does not stack).
@@ -116,12 +116,12 @@ export function dismissSeries(app: App, series: string): void {
 }
 
 /** Changes that can be undone, latest last (each notice with Undo): ⌘Z / Ctrl+Z undoes the latest. */
-const undos: {id: number; run: () => void}[] = [];
+const undos: {id: number; app: App; title: string; run: () => void}[] = [];
 const MAX_UNDOS = 20;
 
 /** The notice's Undo, also kept for ⌘Z (an Undo run either way is run once). */
-function undoable(app: App, id: number, run: () => void): {label: string; run: () => void} {
-  const entry = {id, run};
+function undoable(app: App, id: number, title: string, run: () => void): {label: string; run: () => void} {
+  const entry = {id, app, title, run};
   undos.push(entry);
   if (undos.length > MAX_UNDOS) undos.shift();
   return {label: 'Undo', run: () => {
@@ -135,11 +135,13 @@ function undoable(app: App, id: number, run: () => void): {label: string; run: (
 
 /** Undoes the latest change that can be undone (⌘Z / Ctrl+Z outside text fields); says so when there is none. */
 export function undoLatest(app: App): void {
-  const last = undos.pop();
+  const index = undos.findLastIndex((entry) => entry.app === app);
+  const last = index < 0 ? undefined : undos.splice(index, 1)[0];
   if (!last) {
     notify(app, {tone: 'neutral', title: 'Nothing to undo', series: 'undo'});
     return;
   }
   dismiss(app, last.id);
   last.run();
+  notify(app, {tone: 'neutral', title: `Undid: ${last.title}`, series: 'undo'});
 }

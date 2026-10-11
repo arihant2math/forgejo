@@ -132,7 +132,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
 
   const here = useRouterState({select: (st) => st.location.pathname});
   const open = (id: number, newTab = false) => {
-    const issue = untracked(() => app.session?.data.pool.model('Issue').get(id));
+    const issue = untracked(() => app.session?.data.pool.model('Issue').get(id) ?? (id < 0 ? editing(app).overlay.createdEntity('Issue', id) as Entity<'Issue'> | undefined : undefined));
     const path = issue && issuePath(app, issue);
     if (!path) return;
     if (newTab) window.open(sitePath(app.config, path), '_blank', 'noopener');

@@ -166,7 +166,7 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
       meta={w.meta}
       description={excerpt(draft.text) ? <>{excerpt(draft.text)}<br/>{draft.reason}</> : draft.reason}
       actions={<>
-        {draft.intent && <IconButton size="sm" icon={RotateCw} label="Retry" onClick={() => {
+        {draft.intent && !draft.refused && <IconButton size="sm" icon={RotateCw} label="Retry" onClick={() => {
           intents.retry(draft.key);
         }}/>}
         {draft.text !== undefined && <IconButton size="sm" icon={Copy} label="Copy the text" onClick={() => {

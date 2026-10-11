@@ -79,13 +79,14 @@ interface TextEditorProps {
   onReopen?: (() => void) | undefined;
   /** A shortcut that focuses the editor (R: the comment box). */
   focusShortcut?: ShortcutId | undefined;
+  onTextChange?: (text: string) => void;
 }
 
 /** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
 /** The draft keys of the editors open on this page. */
 const openEditors = new Set<string>();
 
-export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut}: TextEditorProps) {
+export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut, onTextChange}: TextEditorProps) {
   const app = useApp();
   const {intents} = editing(app);
   const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
@@ -111,6 +112,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   }, [draftKey]);
   const change = (t: string) => {
     setText(t);
+    onTextChange?.(t);
     done.current = false;
     clearTimeout(timer.current);
     // Kept while typing (never lost to a reload or a crash); forgotten once saved or cancelled.
@@ -367,12 +369,13 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
     return {text: b.text, version: b.local ? -1 : c.data.content_version, updated: c.data.updated_at};
   }));
   const draftKey = `text:comment:${String(c.id)}`;
+  const latestText = useRef(untracked(() => intents.drafts.get(draftKey))?.text ?? base.text);
   // Deleted on Forgejo while it was being edited: the editor goes with the comment, but the text is kept (the
   // editor's draft) and said, with a way to post it (QA verify3: it vanished without a word).
   useEffect(() => () => {
     setTimeout(() => {
       if (untracked(() => app.session?.data.pool.model('Comment').get(c.id))) return;
-      const text = untracked(() => intents.drafts.get(draftKey))?.text ?? '';
+      const text = latestText.current;
       if (!text.trim() || text === base.text) return;
       notify(app, {tone: 'warning', title: 'The comment you were editing was deleted', description: 'Someone deleted it on Forgejo. Your text is kept.', sticky: true,
         action: {label: 'Post it as a new comment', run: () => {
@@ -387,6 +390,7 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
   return (
     <TextEditor draftKey={draftKey} title="Editing a comment" issueId={issueId} repoId={repoId} initial={base.text} base={base}
       label="Comment" saveLabel="Save" autoFocus onCancel={onDone} onReopen={onReopen}
+      onTextChange={(text) => { latestText.current = text; }}
       onSave={(text, b0) => {
         const b = b0 ?? base;
         intents.submit({kind: 'comment.edit', issueId, repoId, commentId: c.id, text, baseText: b.text, baseVersion: b.version, baseUpdated: b.updated ?? ''});

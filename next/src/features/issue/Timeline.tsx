@@ -153,7 +153,7 @@ export function Edited({updated, version}: {updated: string; version: number}) {
 function Card({poster, original, at, badge, children, footer, id}: {poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string}) {
   return (
     <article id={id} className="flex gap-3 py-3">
-      <UserAvatar id={poster} size="lg"/>
+      <UserAvatar id={poster} size="lg" linked/>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <header className="flex flex-wrap items-center gap-x-2 text-base">
           <Who id={poster} fallback={original}/>

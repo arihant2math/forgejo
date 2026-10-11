@@ -39,12 +39,12 @@ import type {Entity} from '../../data/entity.ts';
 import {editing, notifyQueued} from '../../intents/session.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger, ProseSource,
+  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger,
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
-import {Markdown} from '../issue/Markdown.tsx';
-import {usePool, UserAvatar, UserName} from '../issues/cells.tsx';
+import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
+import {usePool} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {statusLook, statusTime} from '../code/Actions.tsx';
 import {checksOf, cleanDescription, unfinishedChecks} from './checks.ts';
@@ -477,12 +477,8 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
 }
 
 const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pending: boolean}) {
-  return (
-    <CardShell who={<><UserAvatar id={c.poster_id}/><UserName id={c.poster_id} fallback={c.original_author || 'Someone'}/></>} when={c.created_at}
-      badge={<>{pending && <Badge tone="warning">Pending</Badge>}{c.invalidated && <Badge>Outdated</Badge>}</>}>
-      {c.body_html ? <Markdown html={c.body_html}/> : <ProseSource text={c.body}/>}
-    </CardShell>
-  );
+  const entity = usePool().model('Comment').get(c.id);
+  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Badge tone="warning">Pending</Badge>}{c.invalidated && <Badge>Outdated</Badge>}</>}/> : null;
 });
 
 function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: number; onEdit?: (() => void) | undefined; onDelete: () => void}) {

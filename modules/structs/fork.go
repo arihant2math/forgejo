@@ -9,6 +9,10 @@ type CreateForkOption struct {
 	Organization *string `json:"organization"`
 	// name of the forked repository
 	Name *string `json:"name"`
+	// description of the fork; defaults to the source repository's description
+	Description *string `json:"description"`
+	// copy only the source repository's default branch
+	DefaultBranchOnly bool `json:"default_branch_only"`
 }
 
 // SyncForkInfo information about syncing a fork

@@ -4,8 +4,8 @@
 #
 # ci.sh — the one command that checks everything of Forgejo Next (F8):
 #
-#   1. install   npm ci in next/ (NEXT_CI_NO_INSTALL=1 skips it)
-#   2. check     pnpm run check: ESLint + Stylelint, tsgo typecheck, unit tests, build, budget
+#   1. install   pnpm install --frozen-lockfile in next/ (NEXT_CI_NO_INSTALL=1 skips it)
+#   2. check     pnpm run check: Oxlint + Stylelint, tsgo typecheck, build, unit tests, budget
 #   3. protocol  the generated protocol types are up to date (tools/gen-protocol.sh --check)
 #   4. browser   Playwright without a server: the boot shell against the build, the
 #                primitive gallery and the hydration benchmark (projects build, dev)
@@ -70,10 +70,10 @@ run() {
 
 for step in "${STEPS[@]}"; do
   case "$step" in
-  install) [ "${NEXT_CI_NO_INSTALL:-}" = 1 ] || run install npm ci --no-audit --no-fund ;;
+  install) [ "${NEXT_CI_NO_INSTALL:-}" = 1 ] || run install pnpm install --frozen-lockfile ;;
   check) run check pnpm run check ;;
   protocol) run protocol "$NEXT/tools/gen-protocol.sh" --check ;;
-  browser) run browser npx playwright test --project build --project dev ;;
+  browser) run browser pnpm exec playwright test --project build --project dev ;;
   conformance) run conformance "$NEXT/tools/dev-forgejo.sh" conformance "$DBS" ;;
   e2e) run e2e "$NEXT/tools/dev-forgejo.sh" e2e "$DBS" --grep-invert @crawl ;;
   crawl) run crawl "$NEXT/tools/dev-forgejo.sh" e2e "$DBS" --grep @crawl ;;

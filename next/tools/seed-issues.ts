@@ -45,7 +45,6 @@ async function api(method: string, path: string, body?: unknown, as = bearer): P
 }
 
 /** api() with the JSON answer typed by the caller (a seed script trusts its own server). */
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names the JSON shape
 async function apiAs<T>(method: string, path: string, body?: unknown): Promise<{status: number; json: T}> {
   const r = await api(method, path, body);
   return {status: r.status, json: r.json as T};

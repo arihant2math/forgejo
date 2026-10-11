@@ -86,7 +86,6 @@ const baseRoute = createRoute({
     const last = readSplash().route;
     const href = typeof to === 'string' ? sitePath(app.config, appPageOf(to)) :
       last && isLocalPath(app.config, last) && last !== app.config.base ? last : sitePath(app.config, '/');
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
     throw redirect({href, replace: true});
   },
   component: lazyView(() => import('../features/home/Home.tsx')),
@@ -159,7 +158,6 @@ async function repoLoader(app: App, params: {owner: string; repo: string}, locat
     const at = segs.findIndex((seg, i) => safeDecode(seg) === params.owner && safeDecode(segs[i + 1] ?? '') === params.repo);
     if (at > 0) {
       segs.splice(at, 2, ...full.split('/').map(encodeURIComponent));
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
       throw redirect({href: sitePath(app.config, `${segs.join('/')}${location.searchStr}${location.hash ? `#${location.hash}` : ''}`), replace: true});
     }
   }
@@ -248,7 +246,6 @@ function wikiAction(app: App, location: {pathname: string; searchStr: string; ha
   if (!to) return;
   q.delete('action');
   const rest = q.toString();
-  // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
   throw redirect({href: sitePath(app.config, `${to}${rest ? `?${rest}` : ''}${location.hash ? `#${location.hash}` : ''}`), replace: true});
 }
 
@@ -508,7 +505,6 @@ const nextOwnerRoute = createRoute({
     const known = untracked(() => [...app.session?.data.pool.model('User').all() ?? []].some((u) => u.data.login.toLowerCase() === login));
     if (!known) return;
     const q = new URLSearchParams(search).toString();
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
     throw redirect({href: sitePath(app.config, `/${encodeURIComponent(params.owner)}${q ? `?${q}` : ''}`), replace: true});
   },
   component: ShellNotFound,
@@ -522,7 +518,6 @@ const nextRepoRoute = createRoute({
     const rest = (params._splat ?? '').replace(/^\/+|\/+$/g, '');
     const to = nextPathOf(`/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}${rest ? `/${rest}` : ''}`);
     // An address that names no page of the app: the not-found page (with the classic page, if any).
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
     if (to) throw redirect({href: sitePath(app.config, to), replace: true});
   },
   component: ShellNotFound,
@@ -545,7 +540,6 @@ const notFoundRoute = createRoute({
     // The query goes along (a comparison's `?expand=1` opens its pull request form), unless the page's address has
     // its own (a pull request's tab).
     const query = to?.includes('?') ? '' : location.searchStr;
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack's redirect protocol
     if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}`), replace: true});
   },
   component: ShellNotFound,

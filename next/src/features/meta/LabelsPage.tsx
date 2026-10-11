@@ -6,14 +6,13 @@
 // to the lists filtered by it), an order and a search. Everything comes from
 // the pool (counts.ts: the issues on this device), so the page paints at
 // once, offline too. Writers create, edit and delete them (online: writes.ts);
-// the organization's labels are listed read-only.
+// organization labels use the same form, with organization permissions.
 
 import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {Pencil, Tag, Trash2} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
-import {repoAccess} from '../../app/access.ts';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {OrganizationLabels} from './OrganizationLabels.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import type {LabelSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
@@ -67,7 +66,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const shown = (ls: Label[]) => sortLabels(filterLabels(ls, q), sort, counts);
   const active = shown(own.filter((l) => !l.archived_at));
   const archived = shown(own.filter((l) => l.archived_at));
-  const orgActive = shown(org.filter((l) => !l.archived_at));
+  const isOrg = ownerId !== undefined && pool.model('User').get(ownerId)?.get('type') === 'organization';
   const go = (next: {q?: string | undefined; sort?: LabelSort | undefined}) => {
     const merged = {...search, ...next};
     void navigate({to: '.', replace: true, ...viewChange(), search: {...(merged.q ? {q: merged.q} : {}), ...(merged.sort && merged.sort !== 'alphabetically' ? {sort: merged.sort} : {})} as never});
@@ -109,15 +108,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
               <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
               <EmptyState icon={Tag} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
           </Panel>
-          {orgActive.length > 0 && (
-            <Panel label={`Labels of ${orgName}`} title={<span>Labels of the organization {orgName}</span>}
-              actions={repoAccess(s, repoId) === 'admin' && <ClassicLink size="sm" to={`/org/${encodeURIComponent(orgName)}/settings/labels`}>Manage</ClassicLink>}>
-              <p className="border-b border-border-subtle px-3 py-2 text-sm text-fg-muted">
-                Every repository of {orgName} can use these. They are managed in the organization’s settings.
-              </p>
-              {rows(orgActive, false)}
-            </Panel>
-          )}
+          {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName}/>}
           {archived.length > 0 && (
             <Panel label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
               <p className="border-b border-border-subtle px-3 py-2 text-sm text-fg-muted">They stay on their issues but are no longer offered in the pickers.</p>

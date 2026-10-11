@@ -11,7 +11,7 @@
 import {Trash2, UserPlus, Users} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {
@@ -88,10 +88,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
             </>}/>
         ))}
       </ResourceList>
-      {org && <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-        Teams of the organization get access in the classic UI.
-        <ClassicLink size="sm" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings/collaboration`}>Teams</ClassicLink>
-      </p>}
+      {org && <RepositoryTeams owner={owner} repo={repo} repoId={repoId}/>}
     </FormSection>
   );
 });
@@ -119,7 +116,7 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
   );
 }
 
-function PeopleSearch({members, onPick, onClose}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void}) {
+export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean}) {
   const app = useApp();
   const {userId} = useSession();
   const [query, setQuery] = useState('');
@@ -141,13 +138,13 @@ function PeopleSearch({members, onPick, onClose}: {members: ReadonlySet<number>;
     };
   }, [app, query]);
   const q = query.trim();
-  const options: PickOption[] = q && found.q === q ? found.users.filter((u) => u.id !== userId).map((u) => ({
+  const options: PickOption[] = q && found.q === q ? found.users.filter((u) => !excludeSelf || u.id !== userId).map((u) => ({
     value: String(u.id), label: u.name, words: u.login, leading: <Avatar size="sm" name={u.login} src={u.avatar || undefined}/>,
-    meta: members.has(u.id) ? <Badge>Collaborator</Badge> : u.name !== u.login ? u.login : undefined,
+    meta: members.has(u.id) ? <Badge>Already added</Badge> : u.name !== u.login ? u.login : undefined,
     onSelect: () => {
       if (!members.has(u.id)) onPick(u);
     },
   })) : [];
   const empty = !q ? 'Type a login or a name.' : found.q !== q ? 'Searching…' : found.error ?? 'Nobody by that name.';
-  return <CommandPick label="Add a collaborator" placeholder="Search people…" options={options} empty={empty} onClose={onClose} query={query} onQueryChange={setQuery} filtered/>;
+  return <CommandPick label={label} placeholder="Search people…" options={options} empty={empty} onClose={onClose} query={query} onQueryChange={setQuery} filtered/>;
 }

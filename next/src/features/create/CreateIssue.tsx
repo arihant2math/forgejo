@@ -27,11 +27,12 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, Button, CommandPopover, Dialog, Input, LabelDot, LabelIcon} from '../../ui/index.ts';
+import {Button, CommandPopover, Dialog, Input, LabelIcon} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
-import {loadPeople, repoPeople} from '../issues/people.ts';
+import {repoPeople} from '../issues/people.ts';
+import {PickerPopover} from '../issues/Picker.tsx';
 import {priorityIcon, statusIcon, usePool} from '../issues/cells.tsx';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels.ts';
 import {canWrite} from '../../app/access.ts';
@@ -105,7 +106,7 @@ class Form {
   title: string;
   body: string;
   labels: number[] = [];
-  assignee = 0;
+  assignees: number[] = [];
   milestone = 0;
   /** The text came back from a draft (the footer offers to discard it). */
   restored = false;
@@ -156,13 +157,13 @@ class Form {
     }
     this.repoId = id;
     this.labels = [];
-    this.assignee = 0;
+    this.assignees = [];
     this.milestone = 0;
     this.keep();
   }
 
-  setAssignee(id: number): void {
-    this.assignee = id;
+  setAssignee(id: number, on: boolean): void {
+    this.assignees = on ? [...new Set([...this.assignees, id])] : this.assignees.filter((x) => x !== id);
   }
 
   setMilestone(id: number): void {
@@ -226,7 +227,7 @@ class Form {
     const writable = s !== undefined && canWrite(s, this.repoId);
     intents.submit({
       kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: writable ? [...this.labels] : [],
-      assigneeIds: writable && this.assignee ? [this.assignee] : [], milestoneId: writable ? this.milestone : 0,
+      assigneeIds: writable ? [...this.assignees] : [], milestoneId: writable ? this.milestone : 0,
     });
     // On the board it was created from (sent once Forgejo has numbered the issue: it waits for the create).
     if (this.board) {
@@ -363,15 +364,10 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
   const ofKind = (k: 'status' | 'priority') => allLabels.filter((l) => labelKind(l) === k).sort((a, b) => kindRank(k, a.name) - kindRank(k, b.name));
   const plain = allLabels.filter((l) => labelKind(l) === undefined);
-  useEffect(() => {
-    if (repoId && writable) loadPeople(app, repoId);
-  }, [app, repoId, writable]);
-  const people = repoId ? repoPeople(pool, repoId, userId) : [];
-  const milestones = repoId ? [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).filter((m) => m.state === 'open')
-    .sort((a, b) => a.title.localeCompare(b.title)) : [];
+  const people = repoId ? repoPeople(pool, repoId, userId, form.assignees) : [];
   const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
-  const who = people.find((u) => u.id === form.assignee);
-  const ms = milestones.find((m) => m.id === form.milestone);
+  const who = people.filter((u) => form.assignees.includes(u.id));
+  const ms = pool.model('Milestone').get(form.milestone)?.data;
   // Every property filters as you type (a repository with many labels or people stays usable).
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -381,43 +377,18 @@ const Properties = observer(function Properties({form}: {form: Form}) {
         }}))}
         trigger={<Button size="sm" icon={BookMarked}>{repo?.full_name ?? 'Repository'}</Button>}/>
       {writable ? <>
-        <KindChip form={form} kind="status" labels={ofKind('status')} all={allLabels}/>
-        <KindChip form={form} kind="priority" labels={ofKind('priority')} all={allLabels}/>
+        <KindChip form={form} kind="status" labels={ofKind('status')}/>
+        <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
         {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
-        <CommandPopover label="Labels" placeholder="Add labels…" empty="This repository has no labels."
-          options={plain.map((l) => ({
-            value: String(l.id), label: l.name, words: l.description, leading: <LabelDot color={l.color}/>, checked: form.labels.includes(l.id), keepOpen: true,
-            onSelect: () => {
-              form.toggleLabel(l, !form.labels.includes(l.id), allLabels);
-            },
-          }))}
+        <PickerPopover kind="labels" draft={form}
           trigger={
             <Button size="sm" variant={chosenLabels.length > 0 ? 'secondary' : 'ghost'} icon={Tag}>
               {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
-        <CommandPopover label="Assignee" placeholder="Assign to…"
-          options={[
-            {value: '0', label: 'Nobody', checked: form.assignee === 0, onSelect: () => {
-              form.setAssignee(0);
-            }},
-            ...people.map((u) => ({
-              value: String(u.id), label: u.id === userId ? `${u.login} (you)` : u.login, words: u.name, leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
-              checked: u.id === form.assignee, onSelect: () => {
-                form.setAssignee(u.id);
-              },
-            })),
-          ]}
-          trigger={<Button size="sm" variant={who ? 'secondary' : 'ghost'} icon={User}>{who?.login ?? 'Assignee'}</Button>}/>
-        <CommandPopover label="Milestone" placeholder="Add to the milestone…"
-          options={[
-            {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
-              form.setMilestone(0);
-            }},
-            ...milestones.map((m) => ({value: String(m.id), label: m.title, checked: m.id === form.milestone, onSelect: () => {
-              form.setMilestone(m.id);
-            }})),
-          ]}
+        <PickerPopover kind="assignees" draft={form}
+          trigger={<Button size="sm" variant={who.length ? 'secondary' : 'ghost'} icon={User}>{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
+        <PickerPopover kind="milestone" draft={form}
           trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
       </> : repoId > 0 && <span className="px-1 text-sm text-fg-subtle">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
@@ -425,24 +396,13 @@ const Properties = observer(function Properties({form}: {form: Form}) {
 });
 
 /** The status or the priority of the new issue: one of the repository's exclusive labels of that kind, with its icon. */
-const KindChip = observer(function KindChip({form, kind, labels, all}: {form: Form; kind: 'status' | 'priority'; labels: Label[]; all: readonly Label[]}) {
+const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; kind: 'status' | 'priority'; labels: Label[]}) {
   if (!labels.length) return null;
   const chosen = labels.find((l) => form.labels.includes(l.id));
   const iconOf = kind === 'status' ? statusIcon : priorityIcon;
   const name = kind === 'status' ? 'Status' : 'Priority';
   return (
-    <CommandPopover label={name} placeholder={kind === 'status' ? 'Set the status…' : 'Set the priority…'}
-      options={[
-        {value: '0', label: kind === 'status' ? 'No status' : 'No priority', checked: !chosen, onSelect: () => {
-          if (chosen) form.toggleLabel(chosen, false, all);
-        }},
-        ...labels.map((l) => ({
-          value: String(l.id), label: scopedValue(l.name), leading: <LabelIcon icon={iconOf(l.name)} color={l.color}/>, checked: chosen?.id === l.id,
-          onSelect: () => {
-            form.toggleLabel(l, true, all);
-          },
-        })),
-      ]}
+    <PickerPopover kind={kind} draft={form}
       trigger={
         <Button size="sm" variant={chosen ? 'secondary' : 'ghost'} icon={chosen ? undefined : iconOf('')}>
           {chosen ? <><LabelIcon icon={iconOf(chosen.name)} color={chosen.color}/>{scopedValue(chosen.name)}</> : name}

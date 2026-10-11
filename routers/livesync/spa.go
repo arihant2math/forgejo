@@ -64,8 +64,7 @@ var spaRoutes = [][]string{
 	{"{owner}"},           // an owner's repositories (the profile's other tabs stay classic: profileTab)
 	{"{owner}", "{repo}"}, // a repository's home
 	{"{owner}", "{repo}", "issues"},
-	{"{owner}", "{repo}", "issues", "{index}"},
-	{"{owner}", "{repo}", "issues", "{temp}"},
+	{"{owner}", "{repo}", "issues", "{issue}"},
 	{"{owner}", "{repo}", "pulls"},
 	{"{owner}", "{repo}", "pulls", "{index}"},
 	{"{owner}", "{repo}", "settings"}, // a repository's settings (the app's sections; the others stay classic)
@@ -234,6 +233,10 @@ next:
 				}
 			case "{index}":
 				if n, err := strconv.ParseInt(seg, 10, 64); err != nil || n <= 0 {
+					continue next
+				}
+			case "{issue}":
+				if seg == "" || strings.Contains(seg, ".") {
 					continue next
 				}
 			case "{temp}":

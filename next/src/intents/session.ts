@@ -67,9 +67,9 @@ export function editing(app: App): Editing {
     names: () => names(s),
     onFailed: (d) => {
       notify(app, {
-        tone: 'danger', title: `${withIssue(d.title, d.issueNumber)} failed`,
+        tone: 'danger', title: `${withIssue(d.title, d.issueNumber)} failed`, series: `failed:${d.key}`,
         description: `${d.reason ?? ''} It was undone and kept in Unsynced changes.`.trim(),
-        // A refusal would be refused again: no Retry (the Unsynced panel still offers it, with the text).
+        // A refusal would be refused again: keep the text, but do not offer Retry.
         action: d.intent && !d.refused ? {label: 'Retry', run: () => {
           intents.retry(d.key);
         }} : {label: 'Review', run: () => {
@@ -124,6 +124,13 @@ export function editing(app: App): Editing {
     runInAction(() => {
       app.ui.unread = n;
     });
+  });
+  autorun(() => {
+    for (const notice of app.ui.notices) {
+      if (!notice.closing && notice.series?.startsWith('failed:') && !intents.drafts.has(notice.series.slice(7))) {
+        dismissSeries(app, notice.series);
+      }
+    }
   });
   // Back in the foreground: what other tabs did while this one slept (bfcache, frozen tabs).
   document.addEventListener('visibilitychange', () => {

@@ -14,7 +14,7 @@ import {Button, EmptyState, Icon, type LucideIcon} from '../ui/index.ts';
 import {AvailableOffline} from './Available.tsx';
 import {ClassicLink} from './ClassicLink.tsx';
 import {reach} from './online.ts';
-import {useNotFound} from './shell/PageHeader.tsx';
+import {useNotFound, usePageStatus} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
 
 export interface MissingProps {
@@ -49,6 +49,7 @@ export const Missing = observer(function Missing({what, title, description, icon
   const app = useApp();
   const r = reach(app.session?.data.status.connection);
   useNotFound(r === 'online' && !classic);
+  usePageStatus(r === 'offline' ? 'Not available offline' : r === 'unreachable' ? 'Can’t reach Forgejo' : undefined);
   if (r !== 'online') {
     return (
       <div className="flex flex-col items-center">

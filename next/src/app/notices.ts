@@ -41,7 +41,7 @@ const timers = new Map<number, {left: number; started: number; timer: ReturnType
  */
 export function notify(app: App, spec: Omit<NoticeSpec, 'id' | 'closing'>): number {
   const id = ++seq;
-  if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.action.run, spec.series)};
+  if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.title, spec.action.run, spec.series)};
   runInAction(() => {
     // The same series, or the same words: the new notice replaces the old one (one notice per message: a refusal
     // repeated by a second attempt does not stack).
@@ -120,12 +120,12 @@ export function dismissSeries(app: App, series: string): void {
 }
 
 /** Changes that can be undone, latest last (each notice with Undo): ⌘Z / Ctrl+Z undoes the latest. */
-const undos: {id: number; run: () => void; series: string | undefined}[] = [];
+const undos: {id: number; app: App; title: string; run: () => void; series: string | undefined}[] = [];
 const MAX_UNDOS = 20;
 
 /** The notice's Undo, also kept for ⌘Z (an Undo run either way is run once). */
-function undoable(app: App, id: number, run: () => void, series: string | undefined): {label: string; run: () => void} {
-  const entry = {id, run, series};
+function undoable(app: App, id: number, title: string, run: () => void, series: string | undefined): {label: string; run: () => void} {
+  const entry = {id, app, title, run, series};
   undos.push(entry);
   if (undos.length > MAX_UNDOS) undos.shift();
   return {label: 'Undo', run: () => {
@@ -146,18 +146,20 @@ export function undoDepth(): number {
  * A change ⌘Z undoes without a notice of its own (Linear: a property set from a picker says nothing, ⌘Z takes it
  * back; QA: "Nothing to undo").
  */
-export function quietUndo(run: () => void): void {
-  undos.push({id: 0, run, series: undefined});
+export function quietUndo(app: App, title: string, run: () => void): void {
+  undos.push({id: 0, app, title, run, series: undefined});
   if (undos.length > MAX_UNDOS) undos.shift();
 }
 
 /** Undoes the latest change that can be undone (⌘Z / Ctrl+Z outside text fields); says so when there is none. */
 export function undoLatest(app: App): void {
-  const last = undos.pop();
+  const index = undos.findLastIndex((entry) => entry.app === app);
+  const last = index < 0 ? undefined : undos.splice(index, 1)[0];
   if (!last) {
     notify(app, {tone: 'neutral', title: 'Nothing to undo', series: 'undo'});
     return;
   }
   if (last.id) dismiss(app, last.id);
   last.run();
+  notify(app, {tone: 'neutral', title: `Undid: ${last.title}`, series: 'undo'});
 }

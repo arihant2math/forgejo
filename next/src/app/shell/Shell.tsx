@@ -187,6 +187,23 @@ function AppShell({app}: {app: App}) {
 export function Shell() {
   const app = useApp();
   const {pathname, searchStr} = useRouterState({select: (st) => ({pathname: st.location.pathname, searchStr: st.location.searchStr}), structuralSharing: true});
+  const classicPage = classicOfLocation(pathname, searchStr);
+  const [publicPage, setPublicPage] = useState<string>();
+  useEffect(() => {
+    if (app.session) return;
+    // Verify anonymously: a repository visible to the previous account may be private.
+    const match = /^\/([^/]+)\/([^/]+)(?:\/(?:issues|pulls)\/[1-9]\d*)?\/?$/.exec(classicPage);
+    if (!match || searchStr) return;
+    const controller = new AbortController();
+    void fetch(sitePath(app.config, `/api/v1/repos/${match[1]}/${match[2]}`), {
+      credentials: 'omit', signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) return;
+      const repo: unknown = await response.json();
+      if (repo && typeof repo === 'object' && 'private' in repo && repo.private === false) setPublicPage(classicPage);
+    }).catch(() => undefined);
+    return () => { controller.abort(); };
+  }, [app, app.session, classicPage, searchStr]);
   if (!app.session) {
     // The classic page of this address (a public repository, an issue: readable without an account), and opting out.
     const classic = classicOfLocation(pathname, searchStr);
@@ -195,7 +212,7 @@ export function Shell() {
     return <LoggedOut appName={app.config.app_name} message={webSession} onSignIn={app.config.oauth ? () => {
       signInHere(app);
     } : undefined} classic={{
-      page: classicHref(app, classic),
+      page: publicPage === classicPage ? classicHref(app, classic) : undefined,
       optOut: `${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(sitePath(app.config, classic))}`,
     }}/>;
   }

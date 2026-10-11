@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookPlus, Building2, Command, Import, Keyboard, LogOut, Monitor, Palette, Settings, User} from 'lucide-react';
+import {AppWindow, BookPlus, Building2, Command, Compass, Import, Keyboard, LogOut, Monitor, Palette, Settings, User} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import type {ReactElement} from 'react';
@@ -55,7 +55,8 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
           </MenuRadioGroup>
         </MenuSub>
         <MenuSeparator/>
-        <ClassicMenuItem to={classicOfHere(app, path, search)} icon={AppWindow}>This page</ClassicMenuItem>
+        <ClassicMenuItem to="/explore/repos" icon={Compass}>Explore repositories, people and organizations</ClassicMenuItem>
+        <ClassicMenuItem to={classicOfHere(app, path, search)} icon={AppWindow}>Open this page in the classic UI</ClassicMenuItem>
         <MenuItem icon={Monitor} disabled={!connectivity.online} onSelect={() => {
           switchToClassic(app);
         }}>{connectivity.online ? 'Turn off Forgejo Next' : onlineOnly('The classic UI')}</MenuItem>

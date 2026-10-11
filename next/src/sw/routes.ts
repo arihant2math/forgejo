@@ -53,8 +53,6 @@ export function isOwnerName(s: string): boolean {
 /** A repository's settings sections the app renders (`/{owner}/{repo}/settings/{section}`; spa.go spaRoutes). */
 export const SETTINGS_SECTIONS: readonly string[] = ['collaboration', 'branches', 'hooks', 'keys'];
 
-/** The address segment of an issue created offline (spa.go reTempIssue). */
-const TEMP_ISSUE = /^new-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/;
 
 /**
  * Whether a site path (and its query) is a canonical route the app renders (B8 spaRoutes):
@@ -96,7 +94,7 @@ export function isSpaRoute(path: string, search = ''): boolean {
   if (kind === 'activity') return n === undefined || ACTIVITY_PAGES.has(n);
   if (kind !== 'issues' && kind !== 'pulls') return false;
   // An issue created offline is at "new-<uuid>" until Forgejo numbers it (features/issue/paths.ts TEMP_PATH).
-  return n === undefined || /^[1-9]\d{0,17}$/.test(n) || (kind === 'issues' && TEMP_ISSUE.test(n));
+  return n === undefined || (kind === 'issues' && !n.includes('.') && n !== '') || /^[1-9]\d{0,17}$/.test(n);
 }
 
 /** What may follow `/user/settings` in the app (spa.go spaRoutes): its account, appearance and keys pages. */

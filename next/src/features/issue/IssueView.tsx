@@ -10,6 +10,7 @@
 
 import {Link, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {CircleDot, GitPullRequest, Lock, SearchX} from 'lucide-react';
+import {openCreate} from '../../app/create.ts';
 import {canWrite} from '../../app/access.ts';
 import {issueLocked, issueTitle} from '../../intents/view.ts';
 import {runInAction, untracked} from 'mobx';
@@ -60,6 +61,13 @@ function indexLabel(index: number): string {
 export function IssueView() {
   const {owner, repo, repoId} = useRepoPage();
   const {index: raw = ''} = useParams({strict: false});
+  const app = useApp();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (raw !== 'new' || repoId === undefined) return;
+    openCreate(app, repoId);
+    void navigate({to: '/$owner/$repo/issues', params: {owner, repo}, replace: true});
+  }, [app, raw, repoId, owner, repo, navigate]);
   // An issue created offline is at "new-<tempId>" until Forgejo numbers it (then the URL is replaced).
   const temp = TEMP_PATH.exec(raw)?.[1];
   const index = temp ? tempNum(temp) : /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : 0;

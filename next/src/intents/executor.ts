@@ -246,7 +246,7 @@ export class Intents {
     }));
     if (env.onIssueDropped) {
       this.cleanups.push(env.onIssueDropped((issueId) => {
-        if (this.env.isLeader()) void this.dropped(`issue:${String(issueId)}`, 'The issue was deleted, or you can no longer see it.');
+        if (this.env.isLeader()) void this.dropped(`issue:${String(issueId)}`, 'The issue is not there any more, or you cannot see it.');
       }));
     }
     this.cleanups.push(reaction(() => [env.isLeader(), env.connection()] as const, ([leader, connection], prev) => {
@@ -699,7 +699,7 @@ export class Intents {
         if (target) parkedTargets.set(target, rec);
         // An edit parked on a comment that is gone (deleted on the server): it cannot be made, its text is kept.
         if (i.kind === 'comment.edit' && this.env.pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && !untracked(() => this.env.pool.model('Comment').get(i.commentId))) {
-          void this.fail(rec, 'The comment was deleted.');
+          void this.fail(rec, 'The comment was deleted.', true);
         }
         continue;
       }
@@ -1262,7 +1262,7 @@ export class Intents {
       const i = r.intent;
       if (`repo:${String(i.repoId)}` !== group && `issue:${String(i.issueId)}` !== group) continue;
       if (this.sending.has(r.id) || r.state === 'acked') continue;
-      await this.fail(r, reason);
+      await this.fail(r, reason, true);
     }
   }
 

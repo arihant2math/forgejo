@@ -26,6 +26,7 @@ export interface PageHeaderProps {
 
 /** How many not-found states are on screen: while one is, the tab says "Not found", whatever the page's header. */
 const notFound = observable.box(0);
+const pageStatuses = observable.array<string>();
 
 /** Whether the page on screen is a not-found state (the next boot does not resume it). */
 export function showingNotFound(): boolean {
@@ -36,6 +37,14 @@ export function showingNotFound(): boolean {
  * Marks the page as not found while `on`: the tab's title is "Not found" (an issue's page that names an issue
  * nobody has is not "#99999 · acme/atlas"), and the base URL does not resume it on the next boot.
  */
+export function usePageStatus(title: string | undefined): void {
+  useEffect(() => {
+    if (!title) return;
+    runInAction(() => { pageStatuses.push(title); });
+    return () => { runInAction(() => { pageStatuses.splice(pageStatuses.indexOf(title), 1); }); };
+  }, [title]);
+}
+
 export function useNotFound(on: boolean): void {
   useEffect(() => {
     if (!on) return;
@@ -48,7 +57,7 @@ export function useNotFound(on: boolean): void {
 /** The tab's title: the page's, then the instance's name ("Issues · acme/atlas · Forgejo"). */
 const DocumentTitle = observer(function DocumentTitle({text}: {text: string | undefined}) {
   const {config} = useApp();
-  const shown = showingNotFound() ? 'Not found' : text;
+  const shown = pageStatuses.at(-1) ?? (showingNotFound() ? 'Not found' : text);
   useEffect(() => {
     document.title = shown ? `${shown} · ${config.app_name}` : config.app_name;
   }, [shown, config.app_name]);
@@ -58,10 +67,9 @@ const DocumentTitle = observer(function DocumentTitle({text}: {text: string | un
 /**
  * Every page's header bar: where you are, the page's controls, and the sync
  * indicator. On a wide panel the breadcrumb gives way first (ellipsis), then
- * the controls; the title (up to max-w-sm) and the indicator stay. On a phone
- * the breadcrumb is a small row above, the title truncates beside the
- * indicator and the controls take a row of their own below, scrolling
- * sideways (every filter and menu stays reachable).
+ * the controls; the title (up to max-w-sm) and the indicator stay. On a narrow
+ * panel the breadcrumb takes a row above and the controls wrap below the title.
+ * Panel width, not viewport width, accounts for the space taken by the sidebar.
  */
 export function PageHeader({title, icon, context, children, docTitle}: PageHeaderProps) {
   return (
@@ -70,9 +78,9 @@ export function PageHeader({title, icon, context, children, docTitle}: PageHeade
       <SidebarToggle/>
       <PageIcon icon={icon}/>
       {context && (
-        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted max-md:order-first max-md:w-full max-md:pt-2 max-md:text-sm">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted @max-xl:order-first @max-xl:w-full @max-xl:pt-2 @max-xl:text-sm">
           {context}
-          <span className="flex max-md:hidden"><Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/></span>
+          <span className="flex @max-xl:hidden"><Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/></span>
         </nav>
       )}
       <TitleAndControls title={title}>{children}</TitleAndControls>
@@ -100,9 +108,8 @@ export interface StackedPageHeaderProps {
 /**
  * A header of rows, as GitHub's repository pages: where you are (and the sync indicator) on top, then the tabs,
  * then the page's title with its controls. Each row has the header bar's height and gutter; the title row ends
- * as the one-row header does (the controls give way on a narrow panel, and scroll in a row of their own under the
- * title on a phone). Without a title the page has no title row (a repository's home: its heading is the
- * breadcrumb's last crumb).
+ * as the one-row header does (the controls wrap below the title on a narrow panel). Without a title the page has
+ * no title row (a repository's home: its heading is the breadcrumb's last crumb).
  */
 export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle}: StackedPageHeaderProps) {
   return (
@@ -110,8 +117,8 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
       <HeaderRow>
         <SidebarToggle/>
-        {/* On a phone too the breadcrumb truncates beside the row's end (no line of its own: basis 0). */}
-        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-fg-muted max-md:flex-1 max-md:basis-0 max-md:py-2">
+        {/* Reserve the row's remaining width for the breadcrumb at every panel size. */}
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-fg-muted flex-1 basis-0 py-2">
           {context}
         </nav>
         <HeaderEnd before={actions}/>
@@ -134,23 +141,17 @@ function SidebarToggle() {
 
 /** The page's icon before its title (wide panels). */
 function PageIcon({icon}: {icon: LucideIcon | undefined}) {
-  return icon ? <span className="flex max-md:hidden"><Icon icon={icon} className="text-fg-subtle"/></span> : null;
+  return icon ? <span className="flex shrink-0 @max-xl:hidden"><Icon icon={icon} className="text-fg-subtle"/></span> : null;
 }
 
 /** The page's title and its controls. */
 function TitleAndControls({title, children}: {title: ReactNode; children?: ReactNode}) {
   return (
     <>
-      {/* With controls the title keeps up to max-w-sm beside them; without (an issue's page) it takes the free width. */}
-      <h1 className={cx('min-w-0 truncate text-base font-medium text-fg max-md:max-w-none max-md:flex-1 max-md:basis-0 max-md:py-2', children ? 'max-w-sm md:shrink-0' : 'md:shrink')}>{title}</h1>
-      {/* Controls give way on a narrow panel (the search narrows, then the rest scrolls sideways, no scrollbar) before
-          the title and the indicator do; on a phone they are a scrolling row under the title. The padding keeps their
-          focus rings inside the clip. */}
-      {/* The phone's line break before them: their negative margins would otherwise let them share the title's line
-          when nothing else is on it (a title row has no sync indicator). */}
-      {children && <span aria-hidden className="hidden max-md:order-last max-md:block max-md:w-full"/>}
+      <h1 className={cx('min-w-0 truncate text-base font-medium text-fg @max-xl:max-w-none @max-xl:flex-1 @max-xl:basis-0 @max-xl:py-2', children ? 'max-w-sm @xl:shrink-0' : '@xl:shrink')}>{title}</h1>
+      {children && <span aria-hidden className="hidden @max-xl:order-last @max-xl:block @max-xl:w-full"/>}
       {children && (
-        <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto p-1 scrollbar-none max-md:order-last max-md:-mx-2 max-md:w-full max-md:px-2">
+        <div className="flex min-w-0 shrink flex-wrap items-center gap-1 p-1 @max-xl:order-last @max-xl:w-full @max-xl:py-2">
           {children}
         </div>
       )}

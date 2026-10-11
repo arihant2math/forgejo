@@ -195,6 +195,15 @@ const repoIssuesRoute = createRoute({
   component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'RepoIssues'),
 });
 
+const newIssueRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/$owner/$repo/issues/new',
+  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  validateSearch: (s): {template?: string} => typeof s.template === 'string' ? {template: s.template} : {},
+  staticData: {skeleton: 'list', header: 'toolbar'},
+  component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'NewIssue'),
+});
+
 const repoPullsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/pulls',
@@ -570,7 +579,7 @@ const routeTree = rootRoute.addChildren([
   callbackRoute,
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute, newRepoRoute, newOrgRoute,
-    repoHomeRoute, repoIssuesRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, ...settingsRoutes, boardsRoute, boardRoute, codeRoute,
+    repoHomeRoute, repoIssuesRoute, newIssueRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, ...settingsRoutes, boardsRoute, boardRoute, codeRoute,
     repoActivityRoute, repoActivityPeriodRoute, repoContributorsRoute, repoCodeFrequencyRoute, repoRecentCommitsRoute,
     wikiHomeRoute, wikiPageRoute, wikiPagesRoute, wikiNewRoute, wikiEditRoute,
     settingsProfileRoute, settingsAccountRoute, settingsAppearanceRoute, settingsKeysRoute,

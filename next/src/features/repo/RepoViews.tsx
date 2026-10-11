@@ -8,6 +8,8 @@
 
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useEffect} from 'react';
+import {runInAction} from 'mobx';
+import {loadTemplates} from '../create/templates.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {CircleDot, GitPullRequest, SquarePen} from 'lucide-react';
@@ -27,6 +29,19 @@ import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 
 const issuesApi = getRouteApi('/shell/$owner/$repo/issues');
 const pullsApi = getRouteApi('/shell/$owner/$repo/pulls');
+const newIssueApi = getRouteApi('/shell/$owner/$repo/issues/new');
+
+export function NewIssue() {
+  const app = useApp();
+  const {owner, repo, repoId} = useRepoPage();
+  const {template} = newIssueApi.useSearch();
+  useEffect(() => {
+    if (!repoId) return;
+    runInAction(() => { app.ui.create = {repoId, ...(template ? {template} : {})}; });
+  }, [app, repoId, template]);
+  if (repoId === undefined) return <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>;
+  return <RepoListPage owner={owner} repo={repo} repoId={repoId} pulls={false} search={{}}/>;
+}
 
 /** One repository's list: the page owns the live query, which the header's controls and the list share. */
 const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls, search}: {owner: string; repo: string; repoId: number; pulls: boolean; search: ListSearch}) {
@@ -42,7 +57,7 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
         {/* Creating from the list (C as well). A pull request starts from a comparison: its branches are chosen there. */}
         {pulls ?
           <NewPullButton owner={owner} repo={repo} repoId={repoId}/> :
-          <Button size="sm" icon={SquarePen} aria-label="New issue" shortcut={shortcutHint('create')} tooltip="New issue" onClick={() => {
+          <Button size="sm" icon={SquarePen} aria-label="New issue" shortcut={shortcutHint('create')} tooltip="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
             openCreate(app, repoId);
           }}><span className="@max-md:hidden">New issue</span></Button>}
       </RepoHeader>

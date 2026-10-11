@@ -31,7 +31,7 @@ export interface UiState {
   /** Unread notifications as the user sees them (pending read/unread intents included); undefined until the queue started. */
   unread: number | undefined;
   /** The new-issue dialog (C): open, for which repository (0: the last one used), for which board column. */
-  create: {repoId: number; board?: {projectId: number; columnId: number}} | undefined;
+  create: {repoId: number; template?: string; board?: {projectId: number; columnId: number}} | undefined;
   /** The "Unsynced changes" panel is open. */
   unsyncedOpen: boolean;
   /** Transient notices (notices.ts), oldest first. */

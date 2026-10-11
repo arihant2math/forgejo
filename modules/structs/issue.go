@@ -188,14 +188,15 @@ const (
 // IssueTemplate represents an issue template for a repository
 // swagger:model
 type IssueTemplate struct {
-	Name     string              `json:"name" yaml:"name"`
-	Title    string              `json:"title" yaml:"title"`
-	About    string              `json:"about" yaml:"about"` // Using "description" in a template file is compatible
-	Labels   IssueTemplateLabels `json:"labels" yaml:"labels"`
-	Ref      string              `json:"ref" yaml:"ref"`
-	Content  string              `json:"content" yaml:"-"`
-	Fields   []*IssueFormField   `json:"body" yaml:"body"`
-	FileName string              `json:"file_name" yaml:"-"`
+	Name      string              `json:"name" yaml:"name"`
+	Title     string              `json:"title" yaml:"title"`
+	About     string              `json:"about" yaml:"about"` // Using "description" in a template file is compatible
+	Labels    IssueTemplateLabels `json:"labels" yaml:"labels"`
+	Assignees IssueTemplateLabels `json:"assignees" yaml:"assignees"`
+	Ref       string              `json:"ref" yaml:"ref"`
+	Content   string              `json:"content" yaml:"-"`
+	Fields    []*IssueFormField   `json:"body" yaml:"body"`
+	FileName  string              `json:"file_name" yaml:"-"`
 }
 
 type IssueTemplateLabels []string

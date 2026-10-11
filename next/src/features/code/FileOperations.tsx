@@ -10,7 +10,7 @@ import {reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/session.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
-import {Dialog, Input, ListRow, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {Dialog, Input, ListRow} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
@@ -21,7 +21,7 @@ import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
-import {Button} from '@primer/react';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
   owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined; children?: ReactNode;
@@ -123,11 +123,11 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
   };
   if (!allowed) return children;
   return <div onDragOver={(event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();}} onDrop={(event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));}}>
-    <Menu><MenuTrigger asChild><Button variant="invisible" size="small" type="button" disabled={!online} title={blocked}>Add file</Button></MenuTrigger><MenuContent>
-      <MenuItem onSelect={() => {start('create');}}>Create new file</MenuItem>
-      <MenuItem onSelect={() => {start('upload');}}>Upload files</MenuItem>
-      {target && <MenuItem onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</MenuItem>}
-    </MenuContent></Menu>
+    <ActionMenu><ActionMenu.Anchor><Button variant="invisible" size="small" type="button" disabled={!online} title={blocked}>Add file</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
+      <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
+      <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
+      {target && <ActionList.Item onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</ActionList.Item>}
+    </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-fg-muted">{blocked}</p>}
     {children}
     {mode && !dialog && <Dialog open title={mode === 'create' ? 'Create new file' : 'Upload files'} size="lg" onOpenChange={(open) => {if (!open) setMode(undefined);}} footer={<Button type="button" disabled={Boolean(problem) || Boolean(blocked)} onClick={() => {setDialog(true);}}>Commit changes…</Button>}>

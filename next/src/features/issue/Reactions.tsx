@@ -12,10 +12,10 @@ import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {viewMembers} from '../../intents/view.ts';
-import {ChipButton, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
+import {ChipButton} from '../../ui/index.ts';
 import {useOverlay, usePool} from '../issues/cells.tsx';
 import {SmileyIcon} from '@primer/octicons-react';
-import {IconButton} from '@primer/react';
+import {IconButton, ActionMenu, ActionList} from '@primer/react';
 
 /** Forgejo's default [ui] REACTIONS; other (custom) ones show by name. */
 const EMOJI: Record<string, string> = {
@@ -80,18 +80,18 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
         </ul>
       )}
       {canReact && (
-        <Menu>
-          <MenuTrigger asChild><IconButton icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button" ref={addButton}/></MenuTrigger>
-          <MenuContent>
+        <ActionMenu>
+          <ActionMenu.Anchor><IconButton icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button" ref={addButton}/></ActionMenu.Anchor>
+          <ActionMenu.Overlay><ActionList>
             {DEFAULTS.map((c) => (
-              <MenuItem key={c} onSelect={() => {
+              <ActionList.Item key={c} onSelect={() => {
                 toggle(c, !mine.has(c));
               }}>
                 <span aria-hidden>{EMOJI[c]}</span> {mine.has(c) ? `Remove ${NAMES[c] ?? c}` : NAMES[c] ?? c}
-              </MenuItem>
+              </ActionList.Item>
             ))}
-          </MenuContent>
-        </Menu>
+          </ActionList></ActionMenu.Overlay>
+        </ActionMenu>
       )}
     </div>
   );

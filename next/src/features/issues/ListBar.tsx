@@ -11,7 +11,7 @@
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type RefObject, useEffect, useRef, useState} from 'react';
+import {type RefObject, useEffect, useRef, useState, createElement} from 'react';
 import {afterPaint} from '../../app/paint.ts';
 import {viewChange} from '../../app/shell/Frame.tsx';
 import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLabels} from '../../app/search.ts';
@@ -22,8 +22,7 @@ import {SaveViewDialog} from '../views/SaveView.tsx';
 import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
 import {
-  Avatar, CommandPopover, Input, LabelDot, LabelIcon, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator,
-  MenuTrigger, type PickOption, PromptDialog,
+  Avatar, CommandPopover, Input, LabelDot, LabelIcon, type PickOption, PromptDialog,
 } from '../../ui/index.ts';
 import {ResultCount, SelectionCount, usePool} from './cells.tsx';
 import {issueActions} from './actions.ts';
@@ -34,7 +33,7 @@ import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {ChevronDownIcon, FileSubmoduleIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -121,48 +120,46 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
         updateUrl(model.search, viewChange());
       }}/>
       <FilterMenu search={search} repoId={repoId} set={set} byMilestone={!hideGroups.includes('milestone')}/>
-      <Menu>
-        <MenuTrigger asChild>
-          <Button aria-pressed={modified} variant={modified ? 'default' : 'invisible'} size="small" leadingVisual={RowsIcon} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button>
-        </MenuTrigger>
-        <MenuContent>
+      <ActionMenu>
+        <ActionMenu.Anchor><Button aria-pressed={modified} variant={modified ? 'default' : 'invisible'} size="small" leadingVisual={RowsIcon} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button></ActionMenu.Anchor>
+        <ActionMenu.Overlay><ActionList>
           {!stateButtons && (
             <>
-              <MenuLabel>Show</MenuLabel>
-              <MenuRadioGroup value={state} onValueChange={(v) => {
+              <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Show</ActionList.GroupHeading>
+              
+                {STATES.map((s) => <ActionList.Item key={s.state} selected={state === s.state} onSelect={() => { ((v) => {
                 afterPaint(() => {
                   setState(v as ListState);
                 });
-              }}>
-                {STATES.map((s) => <MenuRadioItem key={s.state} value={s.state}>{s.label}</MenuRadioItem>)}
-              </MenuRadioGroup>
-              <MenuSeparator/>
+              })(s.state); }}>{s.label}</ActionList.Item>)}
+              </ActionList.Group>
+              <ActionList.Divider/>
             </>
           )}
-          <MenuLabel>Grouping</MenuLabel>
+          <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Grouping</ActionList.GroupHeading>
           {/* The menu closes first; the list regroups or reorders after that frame (a long list takes a while). */}
-          <MenuRadioGroup value={group} onValueChange={(g) => {
+          <ActionList.Group selectionVariant="single">
+            {GROUPS.filter((g) => !hideGroups.includes(g.group)).map((g) => <ActionList.Item key={g.group} selected={group === g.group} onSelect={() => { ((g) => {
             afterPaint(() => {
               set({group: g});
             });
-          }}>
-            {GROUPS.filter((g) => !hideGroups.includes(g.group)).map((g) => <MenuRadioItem key={g.group} value={g.group}>{g.label}</MenuRadioItem>)}
-          </MenuRadioGroup>
-          <MenuSeparator/>
-          <MenuLabel>Ordering</MenuLabel>
-          <MenuRadioGroup value={sort} onValueChange={(v) => {
+          })(g.group); }}>{g.label}</ActionList.Item>)}
+          </ActionList.Group>
+          </ActionList.Group><ActionList.Divider/>
+          <ActionList.Group><ActionList.GroupHeading>Ordering</ActionList.GroupHeading>
+          
+            {SORTS.map((s) => <ActionList.Item key={s.sort} selected={sort === s.sort} onSelect={() => { ((v) => {
             afterPaint(() => {
               set({sort: v === 'newest' ? undefined : v});
             });
-          }}>
-            {SORTS.map((s) => <MenuRadioItem key={s.sort} value={s.sort}>{s.label}</MenuRadioItem>)}
-          </MenuRadioGroup>
-          <MenuSeparator/>
-          <MenuItem icon={StackIcon} shortcut={shortcutHint('view.save')} onSelect={() => {
+          })(s.sort); }}>{s.label}</ActionList.Item>)}
+          </ActionList.Group>
+          <ActionList.Divider/>
+          <ActionList.Item onSelect={() => {
             setSaving(true);
-          }}>Save view…</MenuItem>
-        </MenuContent>
-      </Menu>
+          }}><ActionList.LeadingVisual><StackIcon/></ActionList.LeadingVisual>Save view…<ActionList.TrailingVisual>{shortcutHint('view.save')}</ActionList.TrailingVisual></ActionList.Item>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
       <SelectionBar model={model}/>
       <ResultCount model={model}/>
       {origin && <ViewMenu view={origin} changed={!saved} search={viewSearch} onSaveAs={() => {
@@ -186,14 +183,12 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
   return (
     <>
       <SelectionCount cursor={cursor}/>
-      <Menu>
-        <MenuTrigger asChild>
-          <Button size="small" leadingVisual={TasklistIcon} type="button">Edit selected<ChevronDownIcon size={12} className="shrink-0"/></Button>
-        </MenuTrigger>
-        <MenuContent>
+      <ActionMenu>
+        <ActionMenu.Anchor><Button size="small" leadingVisual={TasklistIcon} type="button">Edit selected<ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+        <ActionMenu.Overlay><ActionList>
           <SelectionActions ids={cursor.selected.values()} navigate={(path) => void navigate({to: path})}/>
-        </MenuContent>
-      </Menu>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
       {n < listed.length && <Button variant="invisible" size="small" type="button" onClick={() => {
         cursor.selected.replace(listed);
       }}>Select all {listed.length}</Button>}
@@ -209,9 +204,9 @@ function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (p
   const app = useApp();
   const actions = issueActions(app, issuesOf(app, ids), {navigate}).filter((a) => a.id !== 'open');
   return actions.map((a) => (
-    <MenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && shortcutHint(a.shortcut)} onSelect={() => {
+    <ActionList.Item key={a.id} onSelect={() => {
       a.run();
-    }}>{a.label}</MenuItem>
+    }}><ActionList.LeadingVisual>{createElement(a.icon)}</ActionList.LeadingVisual>{a.label}<ActionList.TrailingVisual>{a.shortcut && shortcutHint(a.shortcut)}</ActionList.TrailingVisual></ActionList.Item>
   ));
 }
 
@@ -463,31 +458,29 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
   const [renaming, setRenaming] = useState(false);
   return (
     <>
-      <Menu>
-        <MenuTrigger asChild>
-          <Button variant="invisible" size="small" leadingVisual={StackIcon} type="button" aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
+      <ActionMenu>
+        <ActionMenu.Anchor><Button variant="invisible" size="small" leadingVisual={StackIcon} type="button" aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
             {view.name}{changed && <span className="text-fg-subtle">· changed</span>}<ChevronDownIcon size={12} className="shrink-0"/>
-          </Button>
-        </MenuTrigger>
-        <MenuContent>
-          <MenuItem icon={CheckIcon} disabled={!changed} onSelect={() => {
+          </Button></ActionMenu.Anchor>
+        <ActionMenu.Overlay><ActionList>
+          <ActionList.Item disabled={!changed} onSelect={() => {
             store.update(view.id, search);
             notify(app, {tone: 'neutral', title: `Updated the view “${view.name}”`});
-          }}>Update the view with these filters</MenuItem>
-          <MenuItem icon={StackIcon} onSelect={onSaveAs}>Save as a new view…</MenuItem>
-          <MenuSeparator/>
-          <MenuItem icon={PencilIcon} onSelect={() => {
+          }}><ActionList.LeadingVisual><CheckIcon/></ActionList.LeadingVisual>Update the view with these filters</ActionList.Item>
+          <ActionList.Item onSelect={onSaveAs}><ActionList.LeadingVisual><StackIcon/></ActionList.LeadingVisual>Save as a new view…</ActionList.Item>
+          <ActionList.Divider/>
+          <ActionList.Item onSelect={() => {
             setRenaming(true);
-          }}>Rename the view…</MenuItem>
-          <MenuItem icon={TrashIcon} danger onSelect={() => {
+          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename the view…</ActionList.Item>
+          <ActionList.Item variant="danger" onSelect={() => {
             const removed = view;
             store.remove(view.id);
             notify(app, {tone: 'neutral', title: `Removed the view “${removed.name}”`, action: {label: 'Undo', run: () => {
               store.save(removed.name, removed.path, removed.search);
             }}});
-          }}>Remove the view</MenuItem>
-        </MenuContent>
-      </Menu>
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Remove the view</ActionList.Item>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
       {renaming && <PromptDialog title="Rename the view" label="View name" initial={view.name} maxLength={80} onClose={() => {
         setRenaming(false);
       }} onSave={(name) => {

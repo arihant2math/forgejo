@@ -26,7 +26,7 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {
-  BlameCell, CodeLine, CodeTokens, EmptyState, LineAction, LineNo, ListRow, Menu, MenuTrigger, MenuContent, MenuItem, SegmentedControl, Skeleton, TextLink,
+  BlameCell, CodeLine, CodeTokens, EmptyState, LineAction, LineNo, ListRow, SegmentedControl, Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
@@ -41,7 +41,7 @@ import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 
@@ -198,18 +198,16 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
     });
   };
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        {line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button variant="invisible" size="small" type="button" aria-label="File actions">…</Button>}
-      </MenuTrigger>
-      <MenuContent align="end">
-        <MenuItem onSelect={() => {
+    <ActionMenu>
+      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button variant="invisible" size="small" type="button" aria-label="File actions">…</Button>}</ActionMenu.Anchor>
+      <ActionMenu.Overlay align="end"><ActionList>
+        <ActionList.Item onSelect={() => {
           copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
-        }}>Copy permalink</MenuItem>
-        {line ? <MenuItem onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</MenuItem> :
-          <MenuItem onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</MenuItem>}
-      </MenuContent>
-    </Menu>
+        }}>Copy permalink</ActionList.Item>
+        {line ? <ActionList.Item onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</ActionList.Item> :
+          <ActionList.Item onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</ActionList.Item>}
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
   );
 }
 

@@ -23,8 +23,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
 import {
-  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, Input, ListRow, Menu, MenuContent, MenuRadioGroup,
-  MenuRadioItem, MenuTrigger, MoreMenu, NavHeading, NavItem, Panel, SegmentedControl, Skeleton, TextArea,
+  Avatar, Badge, Button, Callout, Checkbox, Dialog, EmptyState, Input, ListRow, NavHeading, NavItem, Panel, SegmentedControl, Skeleton, TextArea,
 } from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
@@ -34,9 +33,9 @@ import {
   type ProfileField, keepUnsaved, profileOf, profilePayload, profileProblems, scopeRefused, type SettingsPatch, shownProfile, sortEmails, spacedKeyId, sshKeyProblem,
   sshKeyTitle, toBase64, type UserSettings,
 } from './payload.ts';
-import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon} from '@primer/octicons-react';
+import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
@@ -101,9 +100,9 @@ function SettingsPage({section, children}: {section: Section; children: ReactNod
   return (
     <>
       <PageHeader icon={GearIcon} title="Settings" docTitle={`${page?.label ?? 'Profile'} · Settings`}>
-        <MoreMenu label="More of the settings">
+        <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the settings">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
           <ClassicMenuItem to={page?.to ?? '/user/settings'} icon={BrowserIcon}>This page</ClassicMenuItem>
-        </MoreMenu>
+        </ActionList></ActionMenu.Overlay></ActionMenu>
       </PageHeader>
       <PageBody>
         <div className="flex min-h-full flex-col @xl:flex-row">
@@ -457,18 +456,16 @@ function ChoiceMenu({label, value, options, fallback, disabled, onChange}: {
 }) {
   const name = options.find((o) => o.id === value)?.name ?? (value !== '' ? value : fallback ?? '—');
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        <Button size="sm" aria-label={`${label}: ${name}`} disabled={Boolean(disabled)} tooltip={disabled}>{name}<ChevronDownIcon size={12} className="shrink-0"/></Button>
-      </MenuTrigger>
-      <MenuContent align="end">
-        <MenuRadioGroup value={value} onValueChange={(v) => {
+    <ActionMenu>
+      <ActionMenu.Anchor><Button size="sm" aria-label={`${label}: ${name}`} disabled={Boolean(disabled)} tooltip={disabled}>{name}<ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+      <ActionMenu.Overlay align="end"><ActionList>
+        <ActionList.Group selectionVariant="single">
+          {options.map((o) => <ActionList.Item key={o.id} selected={value === o.id} onSelect={() => { ((v) => {
           if (v !== value) onChange(v);
-        }}>
-          {options.map((o) => <MenuRadioItem key={o.id} value={o.id}>{o.name}</MenuRadioItem>)}
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
+        })(o.id); }}>{o.name}</ActionList.Item>)}
+        </ActionList.Group>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
   );
 }
 

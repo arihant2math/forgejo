@@ -10,9 +10,8 @@ import {useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {finished} from '../../code/logs.ts';
 import type {ActionRun, ActionRunJob} from '../../protocol/types.gen.ts';
-import {Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {ChevronDownIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 type Operation = 'all' | 'failed' | 'job' | 'cancel';
 
@@ -66,9 +65,9 @@ export const RunControls = observer(function RunControls({owner, repo, run, jobs
   return <div className="flex items-center gap-1">
     {complete ? <>
       <Button size="small" type="button" disabled={!!reason} title={reason} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button>
-      <Menu><MenuTrigger asChild><Button size="small" type="button" disabled={!!reason} title={reason} aria-label="Re-run options"><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
-        <MenuContent><MenuItem onSelect={() => { void execute('all'); }}>Re-run all jobs</MenuItem><MenuItem disabled={!failed} onSelect={() => { void execute('failed'); }}>Re-run failed jobs</MenuItem></MenuContent>
-      </Menu>
+      <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={!!reason} title={reason} aria-label="Re-run options"><ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+        <ActionMenu.Overlay><ActionList><ActionList.Item onSelect={() => { void execute('all'); }}>Re-run all jobs</ActionList.Item><ActionList.Item disabled={!failed} onSelect={() => { void execute('failed'); }}>Re-run failed jobs</ActionList.Item></ActionList></ActionMenu.Overlay>
+      </ActionMenu>
     </> : <Button size="small" type="button" disabled={!!reason} title={reason} onClick={() => { void execute('cancel'); }}>{pending?.label ?? 'Cancel workflow'}</Button>}
   </div>;
 });

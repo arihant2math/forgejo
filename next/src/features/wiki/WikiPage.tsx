@@ -24,7 +24,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {
-  Callout, Dialog, EmptyState, Input, MenuItem, MenuSeparator, MoreMenu, NavItem, Skeleton, SkeletonText, TextLink,
+  Callout, Dialog, EmptyState, Input, NavItem, Skeleton, SkeletonText, TextLink,
 } from '../../ui/index.ts';
 import type {Loaded} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
@@ -36,8 +36,8 @@ import {ago, agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
-import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
@@ -176,16 +176,16 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
       {writable && (
         <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
       )}
-      <MoreMenu label="More of this page">
+      <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this page">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
         {writable && exists && (
-          <MenuItem icon={TrashIcon} danger disabled={offline} hint={offline ? 'offline' : undefined} onSelect={() => {
+          <ActionList.Item variant="danger" disabled={offline} onSelect={() => {
             setConfirming(true);
-          }}>Delete page</MenuItem>
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete page<ActionList.TrailingVisual>{offline ? 'offline' : undefined}</ActionList.TrailingVisual></ActionList.Item>
         )}
         {exists && <ClassicMenuItem to={revisionsPath(owner, repo, page)} icon={HistoryIcon}>Revisions</ClassicMenuItem>}
-        {writable && exists && <MenuSeparator/>}
+        {writable && exists && <ActionList.Divider/>}
         <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem>
-      </MoreMenu>
+      </ActionList></ActionMenu.Overlay></ActionMenu>
       {confirming && (
         <Dialog open size="sm" title={`Delete “${title}”?`} description="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." onOpenChange={(o) => {
           if (!o) setConfirming(false);
@@ -365,9 +365,9 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
       {writable && (
         <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
       )}
-      <MoreMenu label="More of the wiki">
+      <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the wiki">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
         <ClassicMenuItem to={classicWikiPath(owner, repo, {view: 'pages'})} icon={BrowserIcon}>This page</ClassicMenuItem>
-      </MoreMenu>
+      </ActionList></ActionMenu.Overlay></ActionMenu>
     </>
   );
   let body: ReactNode;
@@ -479,7 +479,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
   const view: WikiView = page ? {view: 'edit', page: page.name} : {view: 'new'};
   return (
     <WikiFrame owner={owner} repo={repo} repoId={repoId} title={heading}
-      controls={<MoreMenu label="More of this page"><ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem></MoreMenu>}>
+      controls={<ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this page">More</ActionMenu.Button><ActionMenu.Overlay><ActionList><ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem></ActionList></ActionMenu.Overlay></ActionMenu>}>
       <PageBody>
         <PageColumn wide>
           {!writable && <Callout tone="warning" title="You cannot write this wiki">Forgejo will refuse the change.</Callout>}

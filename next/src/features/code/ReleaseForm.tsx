@@ -21,7 +21,7 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Callout, Checkbox, Code, CommandPopover, EmptyState, Input, MoreMenu, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {Callout, Checkbox, Code, CommandPopover, EmptyState, Input, Skeleton, SkeletonText} from '../../ui/index.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -37,8 +37,8 @@ import {
   targetCommit, TITLE_MAX,
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
-import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
@@ -61,7 +61,7 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
   const {owner, repo, repoId, tag} = props;
   const session = useSession();
   const title = tag === undefined ? 'New release' : `Edit ${tag}`;
-  const controls = <MoreMenu label="More of this page"><ClassicMenuItem to={classicForm(owner, repo, tag)} icon={BrowserIcon}>This page</ClassicMenuItem></MoreMenu>;
+  const controls = <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this page">More</ActionMenu.Button><ActionMenu.Overlay><ActionList><ClassicMenuItem to={classicForm(owner, repo, tag)} icon={BrowserIcon}>This page</ClassicMenuItem></ActionList></ActionMenu.Overlay></ActionMenu>;
   return (
     <CodeFrame view={props} title={title} controls={controls}>
       {() => (

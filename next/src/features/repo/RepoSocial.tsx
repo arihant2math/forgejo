@@ -19,9 +19,9 @@ import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Badge, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger} from '../../ui/index.ts';
+import {Badge, MenuTrigger} from '../../ui/index.ts';
 import {EyeIcon, StarIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 /** What a Watch row selects (livesync's Watch entity). */
 export interface WatchFlags {
@@ -214,16 +214,16 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
     <Button size="small" type="button" disabled={disabled} aria-pressed={s.starred} onClick={star}>
       <StarIcon size={12} className="shrink-0"/>{s.starred ? 'Unstar' : 'Star'}{s.stars !== undefined && <Badge>{s.stars}</Badge>}
     </Button>
-    <Menu><Button as={MenuTrigger} size="small" leadingVisual={EyeIcon} disabled={disabled}>{s.watching ? 'Watching' : 'Watch'}{s.watchers !== undefined && <Badge>{s.watchers}</Badge>}</Button><MenuContent>
-      <MenuLabel>Repository notifications</MenuLabel>
-      <MenuItem onSelect={() => { watch('none'); }}>Participating and mentions{mark(level === 'none')}</MenuItem>
-      <MenuItem onSelect={() => { watch('all'); }}>All activity{mark(level === 'all')}</MenuItem>
+    <ActionMenu><Button as={MenuTrigger} size="small" leadingVisual={EyeIcon} disabled={disabled}>{s.watching ? 'Watching' : 'Watch'}{s.watchers !== undefined && <Badge>{s.watchers}</Badge>}</Button><ActionMenu.Overlay><ActionList>
+      <ActionList.Group><ActionList.GroupHeading>Repository notifications</ActionList.GroupHeading>
+      <ActionList.Item onSelect={() => { watch('none'); }}>Participating and mentions{mark(level === 'none')}</ActionList.Item>
+      <ActionList.Item onSelect={() => { watch('all'); }}>All activity{mark(level === 'all')}</ActionList.Item>
       {/* A part only (releases, say) is set in the classic UI's watch dialog: API v1 watches all or nothing. */}
       <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}>{level === 'custom' ? `Custom: ${s.parts}${mark(true)}` : 'Custom (issues, pull requests or releases)…'}</ClassicMenuItem>
-      <MenuSeparator/>
-      <MenuItem icon={PeopleIcon} onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}>Watchers</MenuItem>
-      <MenuSeparator/>
-      <MenuLabel>New releases are announced by email only (when this server sends mail), not in the Inbox.</MenuLabel>
-    </MenuContent></Menu>
+      </ActionList.Group><ActionList.Divider/>
+      <ActionList.Item onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>Watchers</ActionList.Item>
+      <ActionList.Divider/>
+      <ActionList.Group><ActionList.GroupHeading>New releases are announced by email only (when this server sends mail), not in the Inbox.</ActionList.GroupHeading>
+    </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu>
   </div>;
 });

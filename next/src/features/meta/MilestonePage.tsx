@@ -8,13 +8,13 @@
 
 import {getRouteApi, useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {useState} from 'react';
+import {useState, createElement} from 'react';
 import {Missing} from '../../app/Missing.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {EmptyState, Menu, MenuContent, MenuItem, MenuTrigger, ProgressBar, ProseSource, SkeletonText} from '../../ui/index.ts';
+import {EmptyState, ProgressBar, ProseSource, SkeletonText} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
@@ -24,7 +24,7 @@ import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
 import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');
@@ -118,19 +118,17 @@ const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Mi
   return (
     <>
       <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}>Edit</RouterLinkButton>
-      <Menu>
-        <MenuTrigger asChild>
-          <Button variant="invisible" size="small" type="button" aria-label="Milestone actions">Milestone<ChevronDownIcon size={12} className="shrink-0"/></Button>
-        </MenuTrigger>
-        <MenuContent>
-          <MenuItem icon={closed ? UndoIcon : CheckCircleIcon} disabled={offline} hint={offline ? onlineOnly(closed ? 'Reopening a milestone' : 'Closing a milestone') : undefined} onSelect={() => {
+      <ActionMenu>
+        <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" aria-label="Milestone actions">Milestone<ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+        <ActionMenu.Overlay><ActionList>
+          <ActionList.Item disabled={offline} onSelect={() => {
             void editMilestone(app, r, m, {state: closed ? 'open' : 'closed'}, `${closed ? 'Reopening' : 'Closing'} the milestone “${m.title}”`);
-          }}>{closed ? 'Reopen the milestone' : 'Close the milestone'}</MenuItem>
-          <MenuItem icon={TrashIcon} danger disabled={offline} hint={offline ? onlineOnly('Deleting a milestone') : undefined} onSelect={() => {
+          }}><ActionList.LeadingVisual>{createElement(closed ? UndoIcon : CheckCircleIcon)}</ActionList.LeadingVisual>{closed ? 'Reopen the milestone' : 'Close the milestone'}<ActionList.TrailingVisual>{offline ? onlineOnly(closed ? 'Reopening a milestone' : 'Closing a milestone') : undefined}</ActionList.TrailingVisual></ActionList.Item>
+          <ActionList.Item variant="danger" disabled={offline} onSelect={() => {
             setDeleting(true);
-          }}>Delete the milestone…</MenuItem>
-        </MenuContent>
-      </Menu>
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete the milestone…<ActionList.TrailingVisual>{offline ? onlineOnly('Deleting a milestone') : undefined}</ActionList.TrailingVisual></ActionList.Item>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
       {deleting && <DeleteMilestoneDialog repo={r} milestone={m} onClose={() => {
         setDeleting(false);
       }} onDeleted={() => {

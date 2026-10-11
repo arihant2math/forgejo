@@ -31,7 +31,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {
   Badge, BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, Dialog, DropIndicator,
-  ContextMenuSeparator, EmptyState, Input, LabelDot, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, PromptDialog, Skeleton,
+  ContextMenuSeparator, EmptyState, Input, LabelDot, PromptDialog, Skeleton,
   TextLink,
 } from '../../ui/index.ts';
 import {closedPager} from '../issues/closed.ts';
@@ -48,7 +48,7 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
@@ -708,14 +708,14 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
   };
   return (
     <>
-      <Menu>
-        <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={`Column “${column.title}”`} type="button"/></MenuTrigger>
-        <MenuContent align="end">
-          {offline && <MenuItem disabled>{onlineOnly('Changing columns')}</MenuItem>}
-          <MenuItem icon={PencilIcon} disabled={offline} onSelect={() => {
+      <ActionMenu>
+        <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={`Column “${column.title}”`} type="button"/></ActionMenu.Anchor>
+        <ActionMenu.Overlay align="end"><ActionList>
+          {offline && <ActionList.Item disabled>{onlineOnly('Changing columns')}</ActionList.Item>}
+          <ActionList.Item disabled={offline} onSelect={() => {
             onDialog('rename');
-          }}>Rename…</MenuItem>
-          <MenuItem icon={StarIcon} disabled={offline || column.default} onSelect={() => {
+          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename…</ActionList.Item>
+          <ActionList.Item disabled={offline || column.default} onSelect={() => {
             const before = untracked(() => model.columns.find((c) => c.default));
             void editColumn(app, projectId, column.id, {default: true}).then((ok) => {
               if (!ok) return;
@@ -725,23 +725,23 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
                   void editColumn(app, projectId, before.id, {default: true});
                 }}} : {})});
             });
-          }}>{column.default ? 'The default column' : 'Make it the default'}</MenuItem>
-          <MenuItem icon={ArrowLeftIcon} disabled={offline || index === 0} onSelect={() => {
+          }}><ActionList.LeadingVisual><StarIcon/></ActionList.LeadingVisual>{column.default ? 'The default column' : 'Make it the default'}</ActionList.Item>
+          <ActionList.Item disabled={offline || index === 0} onSelect={() => {
             reorder(-1);
-          }}>Move left</MenuItem>
-          <MenuItem icon={ArrowRightIcon} disabled={offline || index === count - 1} onSelect={() => {
+          }}><ActionList.LeadingVisual><ArrowLeftIcon/></ActionList.LeadingVisual>Move left</ActionList.Item>
+          <ActionList.Item disabled={offline || index === count - 1} onSelect={() => {
             reorder(1);
-          }}>Move right</MenuItem>
-          <MenuSeparator/>
-          <MenuItem icon={PencilIcon} onSelect={() => {
+          }}><ActionList.LeadingVisual><ArrowRightIcon/></ActionList.LeadingVisual>Move right</ActionList.Item>
+          <ActionList.Divider/>
+          <ActionList.Item onSelect={() => {
             newIssueIn(app, model.projectId, column.id);
-          }}>New issue in this column…</MenuItem>
-          <MenuSeparator/>
-          <MenuItem icon={TrashIcon} danger disabled={offline || column.default} onSelect={() => {
+          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>New issue in this column…</ActionList.Item>
+          <ActionList.Divider/>
+          <ActionList.Item variant="danger" disabled={offline || column.default} onSelect={() => {
             onDialog('delete');
-          }}>Delete…</MenuItem>
-        </MenuContent>
-      </Menu>
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
     </>
   );
 });

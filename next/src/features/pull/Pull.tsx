@@ -42,8 +42,7 @@ import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {
-  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, Input, ListRow, Menu, MenuContent, MenuItem, MenuLabel,
-  MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger,
+  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, Input, ListRow, MenuLabel, MenuRadioItem,
   SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
 } from '../../ui/index.ts';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
@@ -71,7 +70,7 @@ import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 export type PullTabName = 'files' | 'commits' | 'checks';
@@ -443,26 +442,28 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
   const [menu, setMenu] = useState(false);
   const label = range.kind === 'all' ? 'All changes' : range.kind === 'review' ? 'Changes since your last review' : 'Changes in one commit';
   return (
-    <Menu open={menu} onOpenChange={setMenu}>
-      <MenuTrigger asChild>
-        <Button size="sm" variant="ghost" className="min-w-0" aria-label={`${label}: choose the changes shown`} tooltip="Choose the changes shown">
+    <ActionMenu open={menu} onOpenChange={setMenu}>
+      <ActionMenu.Anchor><Button size="sm" variant="ghost" className="min-w-0" aria-label={`${label}: choose the changes shown`} tooltip="Choose the changes shown">
           <span className="min-w-0 truncate">{label} <span className="text-fg-subtle">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
           <ChevronDownIcon size={12} className="shrink-0"/>
-        </Button>
-      </MenuTrigger>
-      <MenuContent>
-        <MenuRadioGroup value={rangeValue(range)} onValueChange={(v) => {
+        </Button></ActionMenu.Anchor>
+      <ActionMenu.Overlay><ActionList>
+        <ActionList.Group selectionVariant="single">
+          <ActionList.Item selected={rangeValue(range) === 'all'} onSelect={() => { ((v) => {
           if (v === 'all') onRange({kind: 'all'});
           else if (v === 'review' && lastReview) onRange({kind: 'review', base: lastReview});
           else if (v.startsWith('commit:')) onRange({kind: 'commit', sha: v.slice('commit:'.length)});
-        }}>
-          <MenuRadioItem value="all">All changes <span className="text-fg-subtle"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></MenuRadioItem>
+        })('all'); }}>All changes <span className="text-fg-subtle"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></ActionList.Item>
           {/* Only once the head moved past the viewer's last review (else there is nothing new to show). */}
-          {(lastReview ?? range.kind === 'review') && <MenuRadioItem value="review" disabled={!lastReview}>Changes since your last review</MenuRadioItem>}
+          {(lastReview ?? range.kind === 'review') && <ActionList.Item disabled={!lastReview} selected={rangeValue(range) === 'review'} onSelect={() => { ((v) => {
+          if (v === 'all') onRange({kind: 'all'});
+          else if (v === 'review' && lastReview) onRange({kind: 'review', base: lastReview});
+          else if (v.startsWith('commit:')) onRange({kind: 'commit', sha: v.slice('commit:'.length)});
+        })('review'); }}>Changes since your last review</ActionList.Item>}
           {menu && <RangeCommits pr={pr} base={pr.merge_base} head={head} lastReview={lastReview}/>}
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
+        </ActionList.Group>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
   );
 }
 
@@ -475,7 +476,7 @@ function RangeCommits({pr, base, head, lastReview}: {pr: PullRequest; base: stri
   const since = lastReview ? commitsSince(info.value.commits, head, lastReview) : undefined;
   return <>
     {since !== undefined && <MenuLabel>{since} {since === 1 ? 'commit' : 'commits'} since your last review</MenuLabel>}
-    <MenuSeparator/>
+    <ActionList.Divider/>
     <MenuLabel>One commit</MenuLabel>
     {info.value.commits.map((c) => (
       <MenuRadioItem key={c.sha} value={`commit:${c.sha}`}><span className="text-fg-subtle"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</MenuRadioItem>
@@ -913,21 +914,19 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             tooltip={offlineWhy('Merging') ?? mergeWhy} onClick={() => {
               if (primary) setStyle(primary.style as MergeStyle);
             }}>{primary?.label ?? 'Merge'}…</Button>
-          <Menu>
-            <MenuTrigger asChild>
-              <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
+          <ActionMenu>
+            <ActionMenu.Anchor><Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
                 aria-label="Choose merge method" tooltip={offlineWhy('Merging') ?? mergeWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
                 <ChevronDownIcon size={12} className="shrink-0"/>
-              </Button>
-            </MenuTrigger>
-            <MenuContent>
+              </Button></ActionMenu.Anchor>
+            <ActionMenu.Overlay><ActionList>
               {options.styles.map(({style: s, label}) => (
-                <MenuItem key={s} onSelect={() => {
+                <ActionList.Item key={s} onSelect={() => {
                   setStyle(s as MergeStyle);
-                }}>{label}…</MenuItem>
+                }}>{label}…</ActionList.Item>
               ))}
-            </MenuContent>
-          </Menu>
+            </ActionList></ActionMenu.Overlay>
+          </ActionMenu>
           </div>
           {auto ?
             <OptionalTooltip text={offlineWhy('Canceling the auto-merge')}><PrimerButton type="button" disabled={!isOnline || busy} onClick={() => {
@@ -941,17 +940,17 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             <OptionalTooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton type="button" disabled={!isOnline || busy || conflict} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
             }}>Update branch</PrimerButton></OptionalTooltip>
-          {config && <Menu>
-            <MenuTrigger asChild><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><ChevronDownIcon size={12} className="shrink-0"/></Button></MenuTrigger>
-            <MenuContent>
-              <MenuItem onSelect={() => {
+          {config && <ActionMenu>
+            <ActionMenu.Anchor><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+            <ActionMenu.Overlay><ActionList>
+              <ActionList.Item onSelect={() => {
                 run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
-              }}>Update with merge commit</MenuItem>
-              {options.rebaseUpdate && <MenuItem onSelect={() => {
+              }}>Update with merge commit</ActionList.Item>
+              {options.rebaseUpdate && <ActionList.Item onSelect={() => {
                 setRebaseConfirm(true);
-              }}>Update with rebase</MenuItem>}
-            </MenuContent>
-          </Menu>}
+              }}>Update with rebase</ActionList.Item>}
+            </ActionList></ActionMenu.Overlay>
+          </ActionMenu>}
           </div>}
           {!isOnline && <span className="text-sm text-fg-subtle">{onlineOnly('Merging')}</span>}
           {isOnline && conflictWhy && <span className="text-sm text-fg-subtle">{conflictWhy}</span>}

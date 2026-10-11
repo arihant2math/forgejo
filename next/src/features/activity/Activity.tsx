@@ -28,7 +28,7 @@ import type {Entity} from '../../data/entity.ts';
 import {issueState} from '../../intents/view.ts';
 import type {APIActivityAuthor, APICommitActivity, APIContributors} from '../../protocol/types.gen.ts';
 import {
-  Avatar, cx, EmptyState, Icon, ListRow, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger, NavItem, Panel,
+  Avatar, cx, EmptyState, Icon, ListRow, NavItem, Panel,
   Skeleton, TextLink,
 } from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
@@ -44,7 +44,7 @@ import {
 } from './pulse.ts';
 import {GraphIcon, ChevronDownIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
@@ -129,20 +129,18 @@ function PeriodMenu({period}: {period: Period}) {
   const navigate = useNavigate();
   const {owner = '', repo = ''} = useParams({strict: false});
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        <Button variant="invisible" size="small" type="button" aria-label={`Period: ${periodLabel(period)}`}>
+    <ActionMenu>
+      <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" aria-label={`Period: ${periodLabel(period)}`}>
           <span className="text-fg-muted">Period:</span>{periodLabel(period)}<ChevronDownIcon size={12} className="shrink-0"/>
-        </Button>
-      </MenuTrigger>
-      <MenuContent>
-        <MenuRadioGroup value={period} onValueChange={(v) => {
+        </Button></ActionMenu.Anchor>
+      <ActionMenu.Overlay><ActionList>
+        <ActionList.Group selectionVariant="single">
+          {PERIODS.map((p) => <ActionList.Item key={p.id} selected={period === p.id} onSelect={() => { ((v) => {
           void navigate({to: '/$owner/$repo/activity/$period', params: {owner, repo, period: v}, resetScroll: false});
-        }}>
-          {PERIODS.map((p) => <MenuRadioItem key={p.id} value={p.id}>{p.label}</MenuRadioItem>)}
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
+        })(p.id); }}>{p.label}</ActionList.Item>)}
+        </ActionList.Group>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
   );
 }
 

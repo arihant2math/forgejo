@@ -21,7 +21,7 @@ import {
 } from '../../ui/index.ts';
 import {LABEL_PRESETS} from '../../features/meta/labels.ts';
 import {ArchiveIcon, ArrowUpRightIcon, ChevronDownIcon, IssueDraftIcon, CodeIcon, IssueOpenedIcon, CopyIcon, StarIcon, GraphBarVerticalIcon, FlagIcon, InboxIcon, MoonIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, SearchIcon, SunIcon, DeviceDesktopIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, LinkButton} from '@primer/react';
+import {Button, IconButton, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 
 /** A colour field with its form field's frame (a label's colour). */
@@ -230,12 +230,12 @@ export default function Gallery() {
               <MenuItem icon={TrashIcon} danger>Delete</MenuItem>
             </MenuContent>
           </Menu>
-          <Menu>
-            <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" aria-label="More actions" type="button"/></MenuTrigger>
-            <MenuContent>
-              <MenuItem icon={CopyIcon}>Copy link</MenuItem>
-            </MenuContent>
-          </Menu>
+          <ActionMenu>
+            <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" aria-label="More actions" type="button"/></ActionMenu.Anchor>
+            <ActionMenu.Overlay><ActionList>
+              <ActionList.Item><ActionList.LeadingVisual><CopyIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
+            </ActionList></ActionMenu.Overlay>
+          </ActionMenu>
           <Popover>
             <PopoverTrigger asChild><Button type="button">Popover</Button></PopoverTrigger>
             <PopoverContent>
@@ -253,13 +253,13 @@ export default function Gallery() {
               </>
             )}
           >
-            <Menu>
-              <MenuTrigger asChild><Button size="small" leadingVisual={TagIcon} type="button">Labels</Button></MenuTrigger>
-              <MenuContent>
-                <MenuItem>bug</MenuItem>
-                <MenuItem>enhancement</MenuItem>
-              </MenuContent>
-            </Menu>
+            <ActionMenu>
+              <ActionMenu.Anchor><Button size="small" leadingVisual={TagIcon} type="button">Labels</Button></ActionMenu.Anchor>
+              <ActionMenu.Overlay><ActionList>
+                <ActionList.Item>bug</ActionList.Item>
+                <ActionList.Item>enhancement</ActionList.Item>
+              </ActionList></ActionMenu.Overlay>
+            </ActionMenu>
           </Dialog>
         </Section>
 
@@ -331,13 +331,13 @@ export default function Gallery() {
             {/* A repository's tabs in a narrow bar: what does not fit is in More (TabNav's `more`); the current one (Wiki) stays. */}
             <div className="max-w-sm">
               <TabNav label="Example tabs that overflow" more={(hidden) => (
-                <Menu>
-                  <MenuTrigger asChild><Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} type="button">More</Button></MenuTrigger>
-                  <MenuContent>
-                    {OVERFLOW_TABS.filter((_, i) => hidden.includes(i)).map((t) => <MenuItem key={t}>{t}</MenuItem>)}
-                    <MenuItem>This page in the classic UI</MenuItem>
-                  </MenuContent>
-                </Menu>
+                <ActionMenu>
+                  <ActionMenu.Anchor><Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} type="button">More</Button></ActionMenu.Anchor>
+                  <ActionMenu.Overlay><ActionList>
+                    {OVERFLOW_TABS.filter((_, i) => hidden.includes(i)).map((t) => <ActionList.Item key={t}>{t}</ActionList.Item>)}
+                    <ActionList.Item>This page in the classic UI</ActionList.Item>
+                  </ActionList></ActionMenu.Overlay>
+                </ActionMenu>
               )}>
                 {OVERFLOW_TABS.map((t, i) => <TabLink key={t}><a href="#code" aria-current={i === 5 ? 'page' : undefined}>{t}</a></TabLink>)}
               </TabNav>

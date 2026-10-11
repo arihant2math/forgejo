@@ -6,9 +6,8 @@ import {useShortcut} from '../../app/shortcuts/index.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueTitle} from '../../intents/view.ts';
-import {Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {draftPrefix, draftTitle, wipPrefixes} from './draft.ts';
-import {Button} from '@primer/react';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 export const DraftControl = observer(function DraftControl({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
@@ -29,5 +28,5 @@ export const DraftControl = observer(function DraftControl({issue}: {issue: Enti
   if (!allowed) return null;
   if (draft) return <Button variant="primary" type="button" onClick={toggle}>Ready for review</Button>;
   if (!prefixes[0]) return null;
-  return <Menu><MenuTrigger asChild><Button type="button">Pull request actions</Button></MenuTrigger><MenuContent><MenuItem onSelect={toggle}>Convert to draft</MenuItem></MenuContent></Menu>;
+  return <ActionMenu><ActionMenu.Anchor><Button type="button">Pull request actions</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList><ActionList.Item onSelect={toggle}>Convert to draft</ActionList.Item></ActionList></ActionMenu.Overlay></ActionMenu>;
 });

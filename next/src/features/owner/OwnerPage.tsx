@@ -17,7 +17,7 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Badge, EmptyState, Hint, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
+import {Avatar, Badge, EmptyState, Hint, ListRow, Panel, SkeletonText, TabNav, TabLink, TextLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
@@ -25,8 +25,8 @@ import {OrganizationPeople, OrganizationTeams} from './Teams.tsx';
 import {OfflineNote} from '../settings/bits.tsx';
 import {useResource} from '../settings/resource.ts';
 import {Follow, Overview, People} from './Profile.tsx';
-import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
 interface OwnerInfo {
@@ -176,20 +176,20 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
         {isOrg && <>
           <Button size="small" type="button" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
         </>}
-        <MoreMenu label={isOrg ? 'More of this organization' : 'More of this user'}>
+        <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label={isOrg ? 'More of this organization' : 'More of this user'}>More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
           {isOrg && <>
-            <MenuItem icon={PeopleIcon} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'people', true)})}>People</MenuItem>
-            <MenuItem icon={PeopleIcon} onSelect={() => void router.navigate({href: tabHref(app, info.login, 'teams', true)})}>Teams</MenuItem>
-            <MenuSeparator/>
+            <ActionList.Item onSelect={() => void router.navigate({href: tabHref(app, info.login, 'people', true)})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>People</ActionList.Item>
+            <ActionList.Item onSelect={() => void router.navigate({href: tabHref(app, info.login, 'teams', true)})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>Teams</ActionList.Item>
+            <ActionList.Divider/>
           </>}
           {settings && !isOrg && <>
-            <MenuItem icon={GearIcon} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
-            <MenuSeparator/>
+            <ActionList.Item onSelect={() => void navigate({to: '/user/settings'})}><ActionList.LeadingVisual><GearIcon/></ActionList.LeadingVisual>Settings</ActionList.Item>
+            <ActionList.Divider/>
           </>}
-          <MenuLabel>In the classic UI</MenuLabel>
+          <ActionList.Group><ActionList.GroupHeading>In the classic UI</ActionList.GroupHeading>
           {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/members`} icon={PeopleIcon}>Members</ClassicMenuItem>}
           {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={GearIcon}>Settings</ClassicMenuItem>}
-        </MoreMenu>
+        </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu>
       </PageHeader>
       <PageBody>
         <PageColumn>

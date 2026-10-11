@@ -10,8 +10,8 @@ import {onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
-import {Callout, ConfirmDialog, Dialog, Field, Input, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
-import {Button} from '@primer/react';
+import {Callout, ConfirmDialog, Dialog, Field, Input, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 export interface BoardScope {repo_id: number; owner_id: number}
 export const pendingBoards = observable.map<string, BoardScope & {title: string}>();
@@ -118,11 +118,11 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
   };
   const reason = !connectivity.online ? onlineOnly('Changing a board') : undefined;
   return <>
-    <Menu><MenuTrigger asChild><Button size="small" type="button" disabled={busy || !connectivity.online} title={reason}>Board settings</Button></MenuTrigger><MenuContent>
-      <MenuItem onSelect={() => { setEdit(true); }}>Edit board</MenuItem>
-      <MenuItem onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</MenuItem>
-      <MenuSeparator/><MenuItem danger onSelect={() => { setError(''); setRemove(true); }}>Delete board…</MenuItem>
-    </MenuContent></Menu>
+    <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={busy || !connectivity.online} title={reason}>Board settings</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
+      <ActionList.Item onSelect={() => { setEdit(true); }}>Edit board</ActionList.Item>
+      <ActionList.Item onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</ActionList.Item>
+      <ActionList.Divider/><ActionList.Item variant="danger" onSelect={() => { setError(''); setRemove(true); }}>Delete board…</ActionList.Item>
+    </ActionList></ActionMenu.Overlay></ActionMenu>
     {edit && <BoardForm project={project} onClose={() => { setEdit(false); }}/>}
     {error && !remove && <Callout tone="danger" title="Board not changed">{error}</Callout>}
     <ConfirmDialog open={remove} onOpenChange={setRemove} title="Delete board?" description="This permanently removes the board and its columns. Issues are not deleted." confirmLabel="Delete board" confirmText={project.title} busy={busy} error={error} ready={connectivity.online} onConfirm={() => void change(true)}/>

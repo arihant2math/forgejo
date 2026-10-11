@@ -24,7 +24,7 @@ import type {Branch, PullRequest, Release} from '../../protocol/types.gen.ts';
 import {Link} from '@tanstack/react-router';
 import {refTable, useLoad, useSource} from './hooks.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Badge, Button, EmptyState, MenuItem, MenuSeparator, MoreMenu, TextLink} from '../../ui/index.ts';
+import {Badge, Button, EmptyState, TextLink} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate, shortDate} from '../issues/format.ts';
@@ -39,8 +39,8 @@ import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './ref
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
-import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, LinkButton} from '@primer/react';
+import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {RouterLinkButton} from '../../app/RouterLinkButton.tsx';
 
@@ -90,9 +90,9 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
     <PrimerButton size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
       setDialog({kind: 'new'});
     }}>New branch</PrimerButton>
-    <MoreMenu label="More of the branches">
+    <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the branches">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ClassicMenuItem to={`/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/branches`} icon={UndoIcon}>Restore a deleted branch</ClassicMenuItem>
-    </MoreMenu>
+    </ActionList></ActionMenu.Overlay></ActionMenu>
   </>;
   return (
     <CodeFrame view={props} title="Branches" controls={controls}>
@@ -322,11 +322,11 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
           <OptionalTooltip text={block}><PrimerButton size="small" leadingVisual={PaperAirplaneIcon} type="button" aria-disabled={Boolean(block) || publish.busy} onClick={() => {
             if (!block) publish.run(d, false);
           }}>{publish.busy ? 'Publishing…' : 'Publish'}</PrimerButton></OptionalTooltip>
-          <MoreMenu label={`More of ${name}`}>
-            <MenuItem icon={TrashIcon} danger disabled={Boolean(block)} onSelect={() => {
+          <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label={`More of ${name}`}>More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+            <ActionList.Item variant="danger" disabled={Boolean(block)} onSelect={() => {
               setDeleting(true);
-            }}>Delete draft</MenuItem>
-          </MoreMenu>
+            }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete draft</ActionList.Item>
+          </ActionList></ActionMenu.Overlay></ActionMenu>
         </span>
       </header>
       {d.body.trim() && <MarkdownPreview repoId={repoId} text={d.body}/>}
@@ -368,16 +368,16 @@ const ReleaseControls = observer(function ReleaseControls({owner, repo, r}: {own
   return (
     <span className="ml-auto flex items-center gap-1">
       <PrimerButton as={CodeLink} variant="invisible" size="small" leadingVisual={PencilIcon} owner={owner} repo={repo} to={`releases/edit/${r.tag_name}`}>Edit</PrimerButton>
-      <MoreMenu label={`More of ${name}`}>
-        <MenuItem icon={UndoIcon} disabled={Boolean(block) || publish.busy} onSelect={() => {
+      <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label={`More of ${name}`}>More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+        <ActionList.Item disabled={Boolean(block) || publish.busy} onSelect={() => {
           publish.run(r, true);
-        }}>Back to draft</MenuItem>
-        <MenuItem icon={TrashIcon} danger disabled={Boolean(block)} onSelect={() => {
+        }}><ActionList.LeadingVisual><UndoIcon/></ActionList.LeadingVisual>Back to draft</ActionList.Item>
+        <ActionList.Item variant="danger" disabled={Boolean(block)} onSelect={() => {
           setDeleting(true);
-        }}>Delete release</MenuItem>
-        <MenuSeparator/>
+        }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete release</ActionList.Item>
+        <ActionList.Divider/>
         <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/tag/${r.tag_name.split('/').map(encodeURIComponent).join('/')}`} icon={BrowserIcon}>This release</ClassicMenuItem>
-      </MoreMenu>
+      </ActionList></ActionMenu.Overlay></ActionMenu>
       {deleting && <DeleteReleaseDialog repoId={r.repo_id} id={r.id} name={name} draft={false} onClose={() => {
         setDeleting(false);
       }}/>}

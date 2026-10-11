@@ -186,6 +186,10 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
   const actions = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
   const overlay = useOverlay();
+  const pool = usePool();
+  const lastEdit = [...pool.model('ContentHistory').by('comment_id', c.id)].map((e) => e.data)
+    .filter((h) => h.comment_id === c.id && !h.is_first_created)
+    .sort((a, b) => b.edited_at.localeCompare(a.edited_at) || b.id - a.id)[0];
   const deleted = commentBody(overlay, c).deleted;
   useEffect(() => {
     // Back to the comment's actions once its editor closes.
@@ -198,6 +202,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
       badge={<>
         {badge}
         <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
+        {c.get('content_version') > 0 && lastEdit && <span className="text-sm text-fg-subtle">by <Who id={lastEdit.poster_id}/></span>}
         {type === 'dismiss_review' ? <Badge tone="warning">dismissed a review</Badge> : type === 'code' ? <Badge>{c.get('path')}</Badge> : undefined}
         {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
           setEdit(true);

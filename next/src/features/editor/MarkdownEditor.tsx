@@ -82,6 +82,7 @@ function suggestions(complete: (trigger: '@' | '#', query: string) => Suggestion
 
 export interface MarkdownEditorHandle {
   focus(): void;
+  insert(text: string): void;
   /** Formats the selection (the toolbar; the keys are ⌘B, ⌘I, ⌘K). */
   format(kind: Format): void;
 }
@@ -114,6 +115,12 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
   });
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),
+    insert: (text) => {
+      const v = view.current;
+      if (!v) return;
+      v.dispatch(v.state.replaceSelection(text));
+      v.focus();
+    },
     format: (kind) => {
       if (view.current) {
         applyFormat(view.current, kind);

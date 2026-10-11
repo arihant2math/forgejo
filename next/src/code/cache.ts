@@ -156,7 +156,6 @@ export class CodeCache {
   }
 
   /** A value from memory only (synchronous: the first frame of a view). */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what it stored under the key
   peek<T>(key: string): T | undefined {
     return this.mem.get(key) as T | undefined;
   }

@@ -62,7 +62,7 @@ export const RunControls = observer(function RunControls({owner, repo, run, jobs
   useShortcut('actions.rerunFailed', () => { void execute('failed'); }, palette && !job, () => !reason && complete && failed);
   useShortcut('actions.cancel', () => { void execute('cancel'); }, palette && !job, () => !reason && !complete);
   useShortcut('actions.rerunJob', () => { void execute('job'); }, palette && !!job, () => !reason && complete);
-  if (job) return <Button size="sm" variant="ghost" disabled={!!reason || !complete} title={reason ?? (!complete ? 'Wait for this job to finish.' : `Re-run ${job.name}`)} onClick={() => { void execute('job'); }}>{pending?.label ?? 'Re-run job'}</Button>;
+  if (job) return <Button size="sm" variant="ghost" disabled={!!reason || !complete} title={reason ?? (!complete ? (run.need_approval ? 'This run waits for a maintainer’s approval.' : 'Wait for this job to finish.') : `Re-run ${job.name}`)} onClick={() => { void execute('job'); }}>{pending?.label ?? 'Re-run job'}</Button>;
   return <div className="flex items-center gap-1">
     {complete ? <>
       <Button size="sm" disabled={!!reason} title={reason} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button>

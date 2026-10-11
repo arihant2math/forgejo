@@ -109,6 +109,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			h.answer(w, req, func(w http.ResponseWriter, req *http.Request) { h.spa.serveIndex(w, req, true) })
 			return
 		}
+		if classicRequested(req) {
+			// A redirect to another of the UI's pages stays classic (classic_redirect.go).
+			w = keepClassic(w)
+		}
 		h.inner.ServeHTTP(w, req)
 		return
 	}

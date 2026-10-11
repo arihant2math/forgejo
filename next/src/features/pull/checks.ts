@@ -16,28 +16,41 @@ export interface Checks {
   statuses: Entity<'CommitStatus'>[];
   runs: Entity<'ActionRun'>[];
   summary: ChecksSummary;
+  /** Runs held until a maintainer approves them (a fork's pull request by an author not trusted with Actions). */
+  awaitingApproval: number;
 }
 
 const PENDING = new Set(['pending', 'waiting', 'running', 'blocked']);
 const FAILED = new Set(['failure', 'error', 'cancelled']);
 
-export function checksOf(pool: Pool, pr: PullRequest, head: string): Checks {
+/** The latest commit status per context at the head (Actions jobs' own statuses too: protection rules require those). */
+export function latestStatuses(pool: Pool, pr: PullRequest, head: string): Entity<'CommitStatus'>[] {
   const latest = new Map<string, Entity<'CommitStatus'>>();
   for (const s of pool.model('CommitStatus').by('sha', head)) {
     if (s.get('repo_id') !== pr.base_repo_id && s.get('repo_id') !== pr.head_repo_id) continue;
     const prev = latest.get(s.get('context'));
     if (!prev || s.get('index') > prev.get('index')) latest.set(s.get('context'), s);
   }
+  return [...latest.values()];
+}
+
+/** Whether a run is held until a maintainer approves it. */
+export function awaitsApproval(run: {need_approval: boolean; status: string}): boolean {
+  return run.need_approval && PENDING.has(run.status);
+}
+
+export function checksOf(pool: Pool, pr: PullRequest, head: string): Checks {
+  const latest = latestStatuses(pool, pr, head);
   const runs = [...pool.model('ActionRun').by('repo_id', pr.base_repo_id)].filter((r) => r.data.commit_sha === head).sort((a, b) => b.data.id - a.data.id);
   // The latest run per workflow (a re-run or a new sync of the same commit replaces the older one).
   const byWorkflow = new Map<string, Entity<'ActionRun'>>();
   for (const r of runs) if (!byWorkflow.has(r.data.workflow_id)) byWorkflow.set(r.data.workflow_id, r);
   const current = [...byWorkflow.values()];
   // An Actions job's own status points at its run: listed with the runs, not again as a status.
-  const statuses = [...latest.values()].filter((s) => !(current.length && /\/actions\/runs\/\d+/.test(s.get('target_url'))));
+  const statuses = latest.filter((s) => !(current.length && /\/actions\/runs\/\d+/.test(s.get('target_url'))));
   const states = [...statuses.map((s) => s.get('state')), ...current.map((r) => r.data.status)];
   const summary: ChecksSummary = !states.length ? 'none' : states.some((s) => FAILED.has(s)) ? 'failure' : states.some((s) => PENDING.has(s)) ? 'pending' : 'success';
-  return {statuses, runs: current, summary};
+  return {statuses, runs: current, summary, awaitingApproval: current.filter((r) => awaitsApproval(r.data)).length};
 }
 
 /**

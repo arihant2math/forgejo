@@ -31,7 +31,7 @@ import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
 import {Button, Icon, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
-import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
+import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -234,6 +234,8 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
     <>
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
       <span className="text-fg-subtle tabular-nums">{indexLabel(index)}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
+      {/* A pull request's draft, review and checks marks, as its row in the list shows them. */}
+      <span className="ml-2 inline-flex items-center gap-1 align-middle"><PullStateCell issue={issue}/></span>
     </>
   );
 });

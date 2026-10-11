@@ -64,6 +64,8 @@ type APIAttachmentPermission struct {
 //	GET    /-/sync/api/issues/{id}/viewed[?head={sha}]      → 200 APIViewedFiles (a pull request's issue)
 //	PUT    /-/sync/api/issues/{id}/viewed                   APIViewedUpdate → 200 APIViewedFiles (write:repository)
 //	PUT    /-/sync/api/issues/{id}/project                  APIIssueProject → 204              (write:issue)
+//	GET    /-/sync/api/issues/{id}/merge-check              → 200 APIMergeCheck (a pull request's issue)
+//	POST   /-/sync/api/issues/{id}/action-trust             APIActionTrust → 204; 403 may not decide (write:repository)
 //	GET    /-/sync/api/repos/{id}/attachments[?issue_id={id}] → 200 APIAttachmentPermission (write:issue)
 //	POST   /-/sync/api/repos/{id}/attachments[?issue_id={id}] multipart attachment → 201 APIUploadedAttachment; 400 type forbidden; 413 size/quota (write:issue)
 //	POST   /-/sync/api/markdown                             APIMarkdownRequest → 200 APIMarkdownResponse

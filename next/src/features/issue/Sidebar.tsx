@@ -8,9 +8,10 @@
 // shows.
 
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
+import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
-import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, Clock, FileDiff, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff, RotateCcw} from 'lucide-react';
+import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, Clock, FileDiff, GitBranch, GitPullRequestDraft, Lock, LockOpen, MessageSquare, Pin, PinOff, RotateCcw} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
@@ -21,7 +22,7 @@ import {online} from '../../app/api.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {
   Badge, Button, Code, CommandPopover, cx, Icon, LabelChip, LabelIcon, type LucideIcon, Property, PropertyButton, PropertyEmpty, PropertyList,
   PropertyValue, TextLink,
@@ -83,10 +84,16 @@ function Editable({write, label, shortcut, onClick, children}: {
 
 const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue'>}) {
   const pool = usePool();
-  const state = issueState(useOverlay(), issue);
+  const app = useApp();
+  const overlay = useOverlay();
+  const state = issueState(overlay, issue);
   const pull = issue.get('is_pull');
   const look = stateLook(state, pull, pull && isMerged(pool, issue.id));
   const {status} = useLabelView(issue);
+  // Merged says it all (a workflow label left at "In Review" is not news then).
+  const merged = pull && isMerged(pool, issue.id);
+  // An open draft pull request says so (as its row in the list does), not just "Open".
+  const draft = pull && !merged && state === 'open' && draftPrefix(issueTitle(overlay, issue), wipPrefixes(app.config)) !== undefined;
   // One status: the workflow label while open (or when it says the work ended); Forgejo's state otherwise,
   // with the label it was left at (a closed issue still labelled "In progress").
   if (status && (state === 'open' || terminal(status.name))) {
@@ -94,11 +101,11 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
       <>
         <LabelIcon icon={statusIcon(status.name)} color={status.color}/>
         <span>{scopedValue(status.name)}</span>
+        {draft && <Badge>Draft</Badge>}
       </>
     );
   }
-  // Merged says it all (a workflow label left at "In Review" is not news then).
-  const merged = pull && isMerged(pool, issue.id);
+  if (draft) return <><Icon icon={GitPullRequestDraft} className="text-fg-muted"/><span>Draft</span></>;
   // Open without a status label in a repository that has them: no status yet ("No priority" alike), not a stage
   // called "Open" (QA #192).
   const none = !status && !pull && state === 'open' && usesStatuses(pool, issue.get('repo_id'));
@@ -354,14 +361,19 @@ const BranchesValue = observer(function BranchesValue({issue}: {issue: Entity<'I
   const branches = [...pool.model('Branch').by('repo_id', pr.get('head_repo_id'))].map((b) => b.data);
   const head = branches.find((b) => b.name === pr.get('head_branch'));
   const deleted = branches.length > 0 && (head === undefined || head.is_deleted);
+  // From a fork: its owner names the head ("frank:docs"), as Forgejo writes it (a fork's runs may wait for approval).
+  const fork = pr.get('head_repo_id') !== pr.get('base_repo_id');
+  const headOwner = fork ? pool.model('Repository').get(pr.get('head_repo_id'))?.get('owner_name') : undefined;
+  const headName = headOwner ? `${headOwner}:${pr.get('head_branch')}` : pr.get('head_branch');
   return (
     <Property label="Branches">
       <PropertyValue tone="muted">
         {/* Head, then base, one per line: long names truncate inside the pane (the full name on hover). */}
         <span className="flex min-w-0 flex-col gap-1 text-sm">
-          <span className="flex min-w-0 items-center gap-1" title={deleted ? `${pr.get('head_branch')} (deleted)` : pr.get('head_branch')}>
+          <span className="flex min-w-0 items-center gap-1" title={deleted ? `${headName} (deleted)` : headName}>
             <Icon icon={GitBranch} size="sm"/>
-            <span className={deleted ? 'min-w-0 truncate line-through' : 'min-w-0 truncate'}><Code>{pr.get('head_branch')}</Code></span>
+            <span className={deleted ? 'min-w-0 truncate line-through' : 'min-w-0 truncate'}><Code>{headName}</Code></span>
+            {fork && <Badge>Fork</Badge>}
             {deleted && <Badge>Deleted</Badge>}
           </span>
           <span className="flex min-w-0 items-center gap-1" title={pr.get('base_branch')}><Icon icon={ArrowRight} size="sm"/><span className="min-w-0 truncate"><Code>{pr.get('base_branch')}</Code></span></span>

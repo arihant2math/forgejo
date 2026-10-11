@@ -153,6 +153,12 @@ lint/test/`GO_DIRS` tooling covers them, and upstream never touches them. Settin
 come from a `[livesync]` section read through `setting.CfgProvider.Section("livesync")`
 inside our own package. `modules/setting` stays untouched.
 
+Inside `next/`, `pnpm run typecheck` runs the pinned `@typescript/native-preview`
+(`tsgo`) against both `tsconfig.json` and `tsconfig.node.json`; `pnpm run check`
+and `tools/ci.sh check` use the same command. `typescript` remains installed for
+ESLint's type-aware rules. ESLint (including the custom token rules), Stylelint,
+Vitest, and Vite's Rolldown/Lightning CSS build are unchanged.
+
 ### 4.2 Upstream patch: one line
 
 ```go

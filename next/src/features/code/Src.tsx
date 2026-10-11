@@ -159,6 +159,12 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
           <CodeLink owner={owner} repo={repo} to={`compare/${def}...${at.ref}`}>Compare</CodeLink>
         </Button>
       )}
+      {/* A tag: what the default branch has gained since it ("previous tag vs main"). */}
+      {at.kind === 'tag' && def && (
+        <Button size="sm" variant="ghost" asChild>
+          <CodeLink owner={owner} repo={repo} to={`compare/${at.ref}...${def}`}>Compare</CodeLink>
+        </Button>
+      )}
       <Button size="sm" variant="ghost" asChild>
         <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>Commits</CodeLink>
       </Button>

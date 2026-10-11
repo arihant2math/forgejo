@@ -106,10 +106,27 @@ export function tagDeleteBlock(hasRelease: boolean): string | undefined {
 
 // ---- Releases ----
 
+/**
+ * What a release's target (`target_commitish`: a branch, a tag or a commit SHA, as API v1 and git resolve it) names:
+ * a branch or tag of the repository, else a commit when it looks like a SHA, else a branch (one not on this device).
+ */
+export function releaseTarget(target: string, refs: RefTable): RefChoice {
+  if (refs.branches.has(target)) return {kind: 'branch', ref: target};
+  if (refs.tags.has(target)) return {kind: 'tag', ref: target};
+  if (looksLikeSha(target.toLowerCase())) return {kind: 'commit', ref: target.toLowerCase()};
+  return {kind: 'branch', ref: target};
+}
+
+/** The commit a target is at now, as far as the device knows (a commit: its SHA as written; unknown: undefined). */
+export function targetCommit(choice: RefChoice, refs: RefTable): string | undefined {
+  if (choice.kind === 'commit') return choice.ref;
+  return (choice.kind === 'branch' ? refs.branches : refs.tags).get(choice.ref);
+}
+
 /** A release's form, as typed. */
 export interface ReleaseFields {
   tag: string;
-  /** The branch a new tag starts from (ignored for an existing tag). */
+  /** What a new tag is made at (refSpec of a branch, tag or commit; ignored for an existing tag). */
   target: string;
   title: string;
   notes: string;

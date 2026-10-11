@@ -25,6 +25,9 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {Avatar, Badge, Button, EmptyState, Hint, Icon, ListRow, MenuItem, MenuLabel, MenuSeparator, MoreMenu, Panel, SkeletonText, TabNav, TabLink} from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
+import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
+import {OrganizationTeams} from './Teams.tsx';
+import {OfflineNote} from '../settings/bits.tsx';
 
 interface OwnerInfo {
   id: number;
@@ -129,10 +132,15 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
   const settings = isOrg ? p !== undefined && (p.is_owner || p.is_admin) : me;
   const create = isOrg ? p !== undefined && (p.can_create_repository || p.is_owner) : me;
   const navigate = useNavigate();
+  const [section, setSection] = useState<'teams' | 'labels'>();
   return (
     <>
       {/* What only the classic UI has is in More, as on a repository's pages (buttons ran off a phone's edge). */}
       <PageHeader icon={isOrg ? Building2 : UserIcon} title={info.login}>
+        {isOrg && <>
+          <Button size="sm" icon={Users} onClick={() => { setSection(section === 'teams' ? undefined : 'teams'); }}>Teams</Button>
+          <Button size="sm" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
+        </>}
         <MoreMenu label={isOrg ? 'More of this organization' : 'More of this user'}>
           {settings && !isOrg && <>
             <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
@@ -140,7 +148,6 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
           </>}
           <MenuLabel>In the classic UI</MenuLabel>
           <ClassicMenuItem to={classic} icon={isOrg ? Building2 : UserIcon}>{isOrg ? 'Organization page' : 'Profile'}</ClassicMenuItem>
-          {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/teams`} icon={Users}>Teams</ClassicMenuItem>}
           {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={Settings}>Settings</ClassicMenuItem>}
         </MoreMenu>
       </PageHeader>
@@ -154,6 +161,9 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me, classic}: {info:
             </div>
           </div>
           {info.description && <p className="text-md text-fg-muted">{info.description}</p>}
+          {section && <OfflineNote/>}
+          {section === 'teams' && <OrganizationTeams owner={info.login}/>}
+          {section === 'labels' && <OrganizationLabels owner={info.login}/>}
           <TabNav label="Owner repositories">
             <TabLink><button aria-current={tab === 'repos' ? 'page' : undefined} onClick={() => { setTab('repos'); }}>Repositories</button></TabLink>
             {!isOrg && <TabLink><button aria-current={tab === 'stars' ? 'page' : undefined} onClick={() => { setTab('stars'); }}>Stars</button></TabLink>}

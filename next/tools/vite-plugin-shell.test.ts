@@ -19,7 +19,7 @@ describe('vendorChunk', () => {
     ['/x/node_modules/@radix-ui/primitive/dist/index.mjs', 'vendor-radix-ui-internal'],
     ['/x/node_modules/@floating-ui/dom/dist/x.mjs', 'vendor-floating-ui'],
     ['/x/node_modules/get-nonce/dist/es2015/index.js', 'vendor-react-remove-scroll'],
-    ['/x/node_modules/lucide-react/dist/esm/icons/plus.js', null],
+    ['/x/node_modules/lucide-react/dist/esm/icons/plus.js', 'vendor-lucide-react'],
     ['/x/node_modules/lucide-react/dist/esm/Icon.js', 'vendor-lucide-react'],
     ['/x/node_modules/@tanstack/react-router/dist/esm/index.js', 'vendor-tanstack-react-router'],
     ['/x/node_modules/a/node_modules/b/index.js', 'vendor-a'],

@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The app in a page: sign-in through the classic login and consent pages,
+// The app in a page: sign-in through the classic login (and consent) pages,
 // a watch on page errors and CSP / Trusted Types violations, and the
 // locators the specs share.
 
@@ -25,7 +25,21 @@ export function watch(page: Page): string[] {
   return problems;
 }
 
-/** Signs in through the classic login and consent pages; ends on the app, live. */
+/**
+ * The authorization step after the classic login: the site's own UI signs in without a consent page
+ * (routers/web/auth AuthorizeOAuth, oauthapp.App.IsOwnSignIn) when served by Forgejo; a development server's
+ * redirect URI still gets it. Ends on the app's home.
+ */
+export async function passConsent(page: Page): Promise<void> {
+  const home = `${BASE}/`;
+  await page.waitForURL((u) => u.href === home || u.pathname.endsWith('/login/oauth/authorize'));
+  if (page.url() !== home) {
+    await page.locator('#authorize-app').click();
+    await page.waitForURL(home);
+  }
+}
+
+/** Signs in through the classic login (and consent, where asked) pages; ends on the app, live. */
 export async function signIn(page: Page, user = DEV.user, password = DEV.password): Promise<void> {
   await page.goto(`${BASE}/-/next/`);
   await page.getByRole('button', {name: 'Sign in'}).click();
@@ -35,9 +49,7 @@ export async function signIn(page: Page, user = DEV.user, password = DEV.passwor
     await page.fill('#password', password);
     await page.click('form button.primary');
   }
-  await page.waitForURL(/\/login\/oauth\/authorize/);
-  await page.locator('#authorize-app').click();
-  await page.waitForURL(`${BASE}/`);
+  await passConsent(page);
   await expect(page.getByRole('status').filter({hasText: /Live|Catching up/})).toBeVisible({timeout: 20_000});
 }
 

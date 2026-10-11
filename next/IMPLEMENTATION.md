@@ -2505,7 +2505,14 @@ does) **and** MySQL 8.0 (binlog on).
     **Confirmed behaviour (`TestLivesyncOAuth`, both values of `ENABLE_ADDITIONAL_GRANT_SCOPES`):** the token's API scope is the
     grant's scope in both modes (the setting only affects the userinfo `groups` claim) — e.g. `GET /api/v1/packages/user2` is 403;
     PKCE is mandatory for public clients; **the consent page is shown at every authorization** of a public client (upstream, RFC
-    6749 §10.2: one consent per sign-in, not "one-time" as PLAN says); an authorization whose scope string differs from the user's
+    6749 §10.2: one consent per sign-in, not "one-time" as PLAN says) — **except, since QA #161, the Next UI's own sign-in**:
+    `oauthapp.App.IsOwnSignIn` (its provisioned client, instance-wide and public, PKCE S256, the primary redirect URI
+    `{AppURL}-/next/callback` — never an `OAUTH_REDIRECT_URIS` development URI — and exactly `oauthapp.Scope`) makes
+    `routers/web/auth` `AuthorizeOAuth` create the grant if needed and redirect with the code at once (the code only reaches the
+    site's own callback and is useless without the PKCE verifier of the tab that asked; every other request for the client still
+    gets the consent page; `TestAuthorizeOAuthNextUI`, `TestIsOwnSignIn`). The scope is now `write:issue write:repository
+    write:user write:organization write:notification` (widened by the settings and creation pages, see `oauthapp.Scope`'s
+    threat model); an authorization whose scope string differs from the user's
     existing grant fails ("a grant exists with different scope"), so `Ensure` deletes the client's grants with another scope when
     `oauthapp.Scope` changes (meta `oauth_scope`); refresh works without a secret; there is no revocation endpoint (logout forgets
     the tokens; the grant stays in the user's settings). The token passes livesync's scope rule (hello, `/-/sync/*`) and API v1.

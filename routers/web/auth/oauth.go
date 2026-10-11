@@ -38,6 +38,7 @@ import (
 	"forgejo.org/services/context"
 	"forgejo.org/services/externalaccount"
 	"forgejo.org/services/forms"
+	livesync_service "forgejo.org/services/livesync"
 	remote_service "forgejo.org/services/remote"
 	user_service "forgejo.org/services/user"
 
@@ -419,6 +420,9 @@ func IntrospectOAuth(ctx *context.Context) {
 	ctx.JSON(http.StatusOK, response)
 }
 
+// nextUIApp is the site's own Forgejo Next UI OAuth2 client (nil when livesync is not running).
+var nextUIApp = livesync_service.OAuthApp
+
 // AuthorizeOAuth manages authorize requests
 func AuthorizeOAuth(ctx *context.Context) {
 	form := web.GetForm(ctx).(*forms.AuthorizationForm)
@@ -525,6 +529,35 @@ func AuthorizeOAuth(ctx *context.Context) {
 	grant, err := app.GetGrantByUserID(ctx, ctx.Doer.ID)
 	if err != nil {
 		handleServerError(ctx, form.State, form.RedirectURI, err)
+		return
+	}
+
+	// The site's own Forgejo Next UI (services/livesync/oauthapp) is not a third-party application: its exact
+	// sign-in request (its client, PKCE, its callback below AppURL, its scope) is granted without the consent page.
+	if nextUIApp().IsOwnSignIn(app, form.RedirectURI, form.Scope, form.CodeChallengeMethod) &&
+		(grant == nil || grant.Scope == form.Scope) {
+		if grant == nil {
+			if grant, err = app.CreateGrant(ctx, ctx.Doer.ID, form.Scope); err != nil {
+				handleServerError(ctx, form.State, form.RedirectURI, err)
+				return
+			}
+		}
+		code, err := grant.GenerateNewAuthorizationCode(ctx, form.RedirectURI, form.CodeChallenge, form.CodeChallengeMethod)
+		if err != nil {
+			handleServerError(ctx, form.State, form.RedirectURI, err)
+			return
+		}
+		redirect, err := code.GenerateRedirectURI(form.State)
+		if err != nil {
+			handleServerError(ctx, form.State, form.RedirectURI, err)
+			return
+		}
+		if len(form.Nonce) > 0 {
+			if err := grant.SetNonce(ctx, form.Nonce); err != nil {
+				log.Error("Unable to update nonce: %v", err)
+			}
+		}
+		ctx.Redirect(redirect.String(), http.StatusSeeOther)
 		return
 	}
 

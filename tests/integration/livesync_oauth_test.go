@@ -38,8 +38,9 @@ type livesyncTokens struct {
 	TokenType    string `json:"token_type"`
 }
 
-// livesyncPKCE runs the Next UI's sign-in as a browser would: the classic
-// consent page, then the code exchange with the PKCE verifier (no secret).
+// livesyncPKCE runs the Next UI's sign-in as a browser would: the
+// authorization (no consent page for the site's own UI), then the code
+// exchange with the PKCE verifier (no secret).
 func livesyncPKCE(t *testing.T, user string, app *oauthapp.App) livesyncTokens {
 	t.Helper()
 	raw := make([]byte, 32)
@@ -53,12 +54,8 @@ func livesyncPKCE(t *testing.T, user string, app *oauthapp.App) livesyncTokens {
 		"client_id": {app.ClientID}, "redirect_uri": {app.RedirectURI}, "response_type": {"code"},
 		"code_challenge": {challenge}, "code_challenge_method": {"S256"}, "state": {"st8"}, "scope": {app.Scope},
 	}.Encode()
-	// A public client always gets the consent page (RFC 6749 §10.2).
-	resp := session.MakeRequest(t, NewRequest(t, "GET", authorize), http.StatusOK)
-	NewHTMLParser(t, resp.Body).AssertElement(t, "#authorize-app", true)
-	resp = session.MakeRequest(t, NewRequestWithValues(t, "POST", "/login/oauth/grant", map[string]string{
-		"client_id": app.ClientID, "redirect_uri": app.RedirectURI, "state": "st8", "scope": app.Scope, "granted": "true",
-	}), http.StatusSeeOther)
+	// The site's own UI signs in without the consent page (oauthapp.App.IsOwnSignIn): the code at once.
+	resp := session.MakeRequest(t, NewRequest(t, "GET", authorize), http.StatusSeeOther)
 	location, err := url.Parse(test.RedirectURL(resp))
 	require.NoError(t, err)
 	assert.Equal(t, app.RedirectURI, location.Scheme+"://"+location.Host+location.Path)
@@ -232,8 +229,16 @@ func TestLivesyncOAuth(t *testing.T) {
 			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &refreshed))
 			MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth(refreshed.AccessToken), http.StatusOK)
 
-			// Without PKCE a public client is refused (upstream rule).
+			// Any other request for this client gets the consent page: another
+			// scope, or a development server's redirect URI.
 			session := loginUser(t, "user2")
+			resp = session.MakeRequest(t, NewRequest(t, "GET", "/login/oauth/authorize?"+url.Values{
+				"client_id": {app.ClientID}, "redirect_uri": {app.RedirectURI}, "response_type": {"code"}, "state": {"x"},
+				"code_challenge": {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"}, "code_challenge_method": {"S256"}, "scope": {"read:user"},
+			}.Encode()), http.StatusOK)
+			NewHTMLParser(t, resp.Body).AssertElement(t, "#authorize-app", true)
+
+			// Without PKCE a public client is refused (upstream rule).
 			resp = session.MakeRequest(t, NewRequest(t, "GET", "/login/oauth/authorize?"+url.Values{
 				"client_id": {app.ClientID}, "redirect_uri": {app.RedirectURI}, "response_type": {"code"}, "state": {"x"},
 			}.Encode()), http.StatusSeeOther)

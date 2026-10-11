@@ -1,8 +1,22 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {expect, test} from 'vitest';
-import {parseServerHits, relevantHits} from './server.ts';
+import {expect, test, vi} from 'vitest';
+import {online} from '../../app/api.ts';
+import {createApp} from '../../app/store.ts';
+import {parseServerHits, relevantHits, searchServerOrgs} from './server.ts';
+
+vi.mock('../../app/api.ts', () => ({online: vi.fn()}));
+
+test('organization search finds names outside memberships and beyond the first page', async () => {
+  vi.mocked(online).mockResolvedValueOnce(Array.from({length: 50}, (_, id) => ({id, name: `unrelated${String(id)}`})))
+    .mockResolvedValueOnce([{id: 51, name: 'acme', full_name: 'Acme Corp'}, {id: 52, name: 'openlab', full_name: 'Open Laboratory'}]);
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, undefined);
+  expect(await searchServerOrgs(app, 'ACME Corp', new AbortController().signal)).toEqual([
+    {id: 51, login: 'acme', fullName: 'Acme Corp', organization: true},
+  ]);
+  expect(vi.mocked(online).mock.calls.map(([, options]) => options.path)).toEqual(['/orgs?limit=50&page=1', '/orgs?limit=50&page=2']);
+});
 
 test('parseServerHits keeps well-formed issues only', () => {
   expect(parseServerHits([

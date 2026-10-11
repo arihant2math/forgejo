@@ -140,6 +140,10 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const session = useSession();
   // Readers see the board; only those who may change it get drag and drop, moves and column edits.
   const editable = canEditBoard(session, project.data);
+  const owner = session.data.pool.model('User').get(project.get('owner_id'))?.get('login');
+  const readOnlyReason = project.get('repo_id') ? 'Changing this board needs write access to its repository.' :
+    project.get('type') === 3 ? 'Changing this board needs a team with write access to the organization’s projects.' :
+      `Only ${owner ?? 'the owner'} can change this board.`;
   const repoForAccess = boardRepo(session, project.get('repo_id'));
   useEffect(() => {
     if (repoForAccess) confirmAccess(app, repoForAccess.owner_name, repoForAccess.name, repoForAccess.id);
@@ -149,6 +153,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const boardRef = useRef<HTMLDivElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
   const handles = useRef(new Map<number, ColumnHandle>());
+  const activeColumn = useRef<number | undefined>(undefined);
   const register = useCallback((id: number, h: ColumnHandle | undefined) => {
     if (h) handles.current.set(id, h);
     else handles.current.delete(id);
@@ -186,8 +191,16 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const placed = useRef(false);
   useEffect(() => autorun(() => {
     if (placed.current) return;
-    const id = asked ?? lastCard.get(projectId);
-    if (id === undefined || model.cursor.activeId !== undefined) return;
+    const layout = model.layout.get();
+    const id = asked ?? lastCard.get(projectId) ?? layout.columns.map((c) => layout.cards.get(c.id)?.[0]).find((card) => card !== undefined);
+    if (id === undefined) {
+      if (layout.columns[0]) {
+        placed.current = true;
+        focusColumn(layout.columns[0].id);
+      }
+      return;
+    }
+    if (model.cursor.activeId !== undefined) return;
     if (findCard(model.layout.get(), id)) {
       placed.current = true;
       untracked(() => {
@@ -211,6 +224,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   };
   /** Puts the cursor on a card and shows it. */
   const show = (issueId: number) => {
+    activeColumn.current = findCard(untracked(() => model.layout.get()), issueId)?.column;
     model.cursor.setActive(issueId);
     // After the render that placed it (a move re-renders its column first).
     requestAnimationFrame(() => {
@@ -231,32 +245,33 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const step = (dCol: number, dRow: number) => {
     const layout = untracked(() => model.layout.get());
     const cur = here();
-    if (!cur?.at) {
+    if (!cur?.at && activeColumn.current === undefined) {
       const first = layout.columns.map((c) => layout.cards.get(c.id)?.[0]).find((x) => x !== undefined);
       if (first !== undefined) show(first);
       return;
     }
-    const ci = layout.columns.findIndex((c) => c.id === cur.at?.column);
+    const column = cur?.at?.column ?? activeColumn.current;
+    const ci = layout.columns.findIndex((c) => c.id === column);
     if (dCol) {
-      // The nearest column that has cards in that direction.
-      for (let i = ci + dCol; i >= 0 && i < layout.columns.length; i += dCol) {
-        const list = layout.cards.get(layout.columns[i]?.id ?? 0) ?? [];
-        const next = list[Math.min(cur.at.index, list.length - 1)];
-        if (next !== undefined) {
-          show(next);
-          return;
-        }
+      const target = layout.columns[ci + dCol];
+      if (!target) return;
+      const list = layout.cards.get(target.id) ?? [];
+      const next = list[Math.min(cur?.at?.index ?? 0, list.length - 1)];
+      if (next !== undefined) show(next);
+      else {
+        model.cursor.setActive(undefined);
+        focusColumn(target.id);
       }
       return;
     }
-    const list = layout.cards.get(cur.at.column) ?? [];
-    const next = list[Math.max(0, Math.min(list.length - 1, cur.at.index + dRow))];
+    const list = layout.cards.get(column ?? 0) ?? [];
+    const next = list[Math.max(0, Math.min(list.length - 1, (cur?.at?.index ?? -1) + dRow))];
     if (next !== undefined) show(next);
   };
   const shift = (dCol: number, dRow: number) => {
     if (!editable) {
       // Said, not ignored (QA verify3: a reader's Shift+L did nothing, silently).
-      notify(app, {tone: 'neutral', title: 'You can view this board, not change it', description: 'Moving cards needs write access to its issues.', series: 'board.readonly'});
+      notify(app, {tone: 'neutral', title: 'You can view this board, not change it', description: readOnlyReason, series: 'board.readonly'});
       return;
     }
     const cur = here();
@@ -326,7 +341,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   // Column commands (the palette): the cursor's column. Online only, as the column menu's.
   const [columnDialog, setColumnDialog] = useState<ColumnDialogState | undefined>();
   const [adding, setAdding] = useState(false);
-  const cursorColumn = () => untracked(here)?.at?.column;
+  const cursorColumn = () => untracked(here)?.at?.column ?? activeColumn.current;
   const columnOf = (id: number | undefined) => (id === undefined ? undefined : untracked(() => model.columns.find((c) => c.id === id)));
   useShortcut('board.addColumn', () => {
     setAdding(true);
@@ -343,14 +358,17 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const focusColumn = (id: number | undefined) => {
     requestAnimationFrame(() => {
       const target = id ?? untracked(() => model.columns.find((c) => c.default)?.id ?? model.columns[0]?.id);
-      if (target !== undefined) handles.current.get(target)?.focus();
+      if (target !== undefined) {
+        activeColumn.current = target;
+        handles.current.get(target)?.focus();
+        boardRef.current?.querySelector(`[data-column="${String(target)}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      }
     });
   };
   // C on a board (Linear): the new issue goes on this board, in the cursor's column (else the default one).
   useShortcut('create', () => {
     const layout = untracked(() => model.layout.get());
-    const at = here()?.at;
-    const column = at?.column ?? layout.columns.find((c) => c.default)?.id ?? layout.columns[0]?.id;
+    const column = cursorColumn() ?? layout.columns.find((c) => c.default)?.id ?? layout.columns[0]?.id;
     if (column === undefined || !editable) openCreate(app);
     else newIssueIn(app, projectId, column);
   });
@@ -390,6 +408,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     <>
       <PageHeader icon={KanbanSquare} context={<ProjectContext project={project}/>} title={project.get('title')}>
         {closed && <Badge tone="done">Closed</Badge>}
+        {!editable && <span title={readOnlyReason}><Badge>Read-only</Badge></span>}
         {hidden > 0 && <Badge>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Badge>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
         {editable && <ClassicLink size="sm" to={`${classicOfHere(app, `/-/next/projects/${String(project.id)}`)}/edit`}>Edit board</ClassicLink>}
@@ -415,7 +434,9 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
             }}>
             {columns.map((c, i) => (
               <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}
-                onDialog={(kind) => {
+                onFocus={() => {
+                  activeColumn.current = c.id;
+                }} onDialog={(kind) => {
                   setColumnDialog({kind, columnId: c.id});
                 }}/>
             ))}
@@ -512,9 +533,9 @@ interface CardHandlers {
 
 const cardDomId = (id: number) => `card-${String(id)}`;
 
-const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable, onDialog}: {
+const Column = observer(function Column({model, column, index, count, dragging, handlers, register, editable, onDialog, onFocus}: {
   model: BoardModel; column: ProjectColumn; index: number; count: number; dragging: KeyedFlags; handlers: CardHandlers;
-  register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean; onDialog: (kind: ColumnDialogState['kind']) => void;
+  register: (id: number, h: ColumnHandle | undefined) => void; editable: boolean; onFocus: () => void; onDialog: (kind: ColumnDialogState['kind']) => void;
 }) {
   const cards = model.cards(column.id);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -552,14 +573,15 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       // The default column (where new cards and the cards of a deleted column go) says so.
       badge={column.default ? <Badge>Default</Badge> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
-      <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative w-full outline-none"
+      <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative min-h-12 w-full"
         style={{height: virtualizer.getTotalSize()}}
         onFocus={(e) => {
           if (e.target !== e.currentTarget) return;
+          onFocus();
           const active = model.cursor.activeId;
           if (active === undefined || !cards.includes(active)) {
             const first = cards[0];
-            if (first !== undefined) model.cursor.setActive(first);
+            model.cursor.setActive(first);
           }
         }}>
         {items.map((it) => {

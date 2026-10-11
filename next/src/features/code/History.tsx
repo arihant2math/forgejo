@@ -6,7 +6,8 @@
 // API v1 by full SHA (cached: a page seen once is there offline); the diff
 // from B9 (cached, parsed and highlighted in the worker).
 
-import {Link} from '@tanstack/react-router';
+import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {Link, useNavigate} from '@tanstack/react-router';
 import {FileCode, GitCommitHorizontal, History} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
@@ -19,7 +20,7 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Ago, commitRow, Sha, summary} from './bits.tsx';
-import {CodeLink, useCodeRows} from './nav.tsx';
+import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 import {RefMenu} from './RefMenu.tsx';
@@ -111,6 +112,11 @@ export function useDiff(repoId: number, base: string, head: string): Loaded<Diff
 
 export const CommitView = observer(function CommitView(props: CodeViewProps & {sha: string}) {
   const {owner, repo, repoId, sha} = props;
+  const navigate = useNavigate();
+  useShortcutScope('code');
+  const back = () => { void navigate(codeTo(owner, repo, 'commits')); };
+  useShortcut('code.back', back);
+  useShortcut('code.up', back);
   const src = useSource();
   const info = useLoad(`commit:${String(repoId)}:${sha}`, () => src.peek<CommitInfo>(`commit:${String(repoId)}:${sha}`), () => src.commit(repoId, sha));
   const diff = useDiff(repoId, '', sha);
@@ -164,6 +170,7 @@ function CommitMeta({owner, repo, c}: {owner: string; repo: string; c: CommitInf
   const body = c.message.slice(summary(c.message).length).trim();
   return (
     <>
+      <h1 className="text-xl font-semibold text-fg"><MessageText owner={owner} repo={repo} text={summary(c.message)}/></h1>
       {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted"><MessageText owner={owner} repo={repo} text={body}/></pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
         <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-fg">{c.authorName}</span></span>

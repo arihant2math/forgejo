@@ -5,7 +5,7 @@
 # ci.sh — the one command that checks everything of Forgejo Next (F8):
 #
 #   1. install   npm ci in next/ (NEXT_CI_NO_INSTALL=1 skips it)
-#   2. check     npm run check: ESLint + Stylelint, typecheck, unit tests, build, budget
+#   2. check     pnpm run check: ESLint + Stylelint, tsgo typecheck, unit tests, build, budget
 #   3. protocol  the generated protocol types are up to date (tools/gen-protocol.sh --check)
 #   4. browser   Playwright without a server: the boot shell against the build, the
 #                primitive gallery and the hydration benchmark (projects build, dev)
@@ -27,7 +27,7 @@
 #   next/tools/ci.sh crawl           # the link crawler alone (both databases)
 #   NEXT_CI_DBS=pg next/tools/ci.sh  # conformance and e2e on one database
 #
-# Needs: Go, Node ≥ 22.18, the dev databases (tools/dev-db.sh, started here), a
+# Needs: Go, Node ≥ 22.18, npm (install), pnpm (check), the dev databases (tools/dev-db.sh, started here), a
 # Chromium for Playwright (PLAYWRIGHT_CHROMIUM, defaults to the sandbox's
 # /opt/pw-browsers/chromium when present). Takes ≈ 25 min here, most of it
 # the e2e suite's seeding and its two databases.
@@ -71,7 +71,7 @@ run() {
 for step in "${STEPS[@]}"; do
   case "$step" in
   install) [ "${NEXT_CI_NO_INSTALL:-}" = 1 ] || run install npm ci --no-audit --no-fund ;;
-  check) run check npm run check ;;
+  check) run check pnpm run check ;;
   protocol) run protocol "$NEXT/tools/gen-protocol.sh" --check ;;
   browser) run browser npx playwright test --project build --project dev ;;
   conformance) run conformance "$NEXT/tools/dev-forgejo.sh" conformance "$DBS" ;;

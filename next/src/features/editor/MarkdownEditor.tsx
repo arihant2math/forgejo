@@ -17,15 +17,13 @@
 import {autocompletion, type CompletionContext, type CompletionResult, completionKeymap} from '@codemirror/autocomplete';
 
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
-import {defineLanguageFacet, Language, LanguageSupport, syntaxHighlighting} from '@codemirror/language';
+import {syntaxHighlighting} from '@codemirror/language';
 import {Compartment, EditorState} from '@codemirror/state';
 import {EditorView, keymap, placeholder as cmPlaceholder} from '@codemirror/view';
 import {classHighlighter} from '@lezer/highlight';
-import {GFM, parser} from '@lezer/markdown';
+import {continueList, markdown} from './markdown.ts';
 import {type Ref, useEffect, useImperativeHandle, useRef, useState} from 'react';
 import {type Format, formatEdit} from './format.ts';
-
-const markdown = new LanguageSupport(new Language(defineLanguageFacet(), parser.configure([GFM]), [], 'markdown'));
 
 /** Tokens only (tokens.css): the frame draws the box; the editor draws text, caret and selection. */
 const theme = EditorView.theme({
@@ -157,6 +155,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
             {key: 'Mod-i', run: (v) => applyFormat(v, 'italic')},
             {key: 'Mod-k', run: (v) => applyFormat(v, 'link')},
             // Tab moves the focus on (as in a text area: no keyboard trap); lists indent with ⌘] / ⌘[ (defaultKeymap).
+            {key: 'Enter', run: continueList},
             ...historyKeymap,
             ...defaultKeymap,
           ]),

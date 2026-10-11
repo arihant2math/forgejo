@@ -349,7 +349,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files}: Tab
         {anchored.elsewhere.length > 0 && <div className="sticky left-0 w-view"><FileNotes items={anchored.elsewhere} title="Comments on files not in this diff" repoId={pr.base_repo_id}/></div>}
         <DiffView key={`${commits.base}:${head}`} ref={diffRef} repoId={pr.base_repo_id} base={commits.base} head={head} files={files} scroller={scroller} extras={extras} onFile={setCurrent} underBar/>
       </div>
-      <ReviewDialog returnFocus={() => scroller?.querySelector<HTMLButtonElement>('[data-review-button]')?.focus()} open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
+      <ReviewDialog returnFocus={() => scroller?.querySelector<HTMLButtonElement>('[data-review-button]') ?? null} open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
     </div>
   );
 });
@@ -527,7 +527,7 @@ const EVENTS: {event: ReviewEvent; label: string; own: boolean}[] = [
 
 /** Submit the review: one offline intent pinned to the head on screen, carrying the drafts. */
 const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, pr, head, drafts, returnFocus}: {
-  returnFocus: () => void; open: boolean; onOpenChange: (open: boolean) => void; issue: Entity<'Issue'>; pr: PullRequest; head: string; drafts: ReviewDraft[];
+  returnFocus: () => HTMLElement | null; open: boolean; onOpenChange: (open: boolean) => void; issue: Entity<'Issue'>; pr: PullRequest; head: string; drafts: ReviewDraft[];
 }) {
   const app = useApp();
   const {userId} = useSession();

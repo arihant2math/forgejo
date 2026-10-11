@@ -12,6 +12,7 @@ import {fakeSession, issue, repo, user} from '../test/fakeSession.ts';
 import {App} from './App.tsx';
 import {BootShell} from './BootShell.tsx';
 import {createAppRouter} from './router.tsx';
+import {notify} from './notices.ts';
 import {SKELETON_MAX_ROWS} from './splash.ts';
 import {createApp, type Session} from './store.ts';
 
@@ -67,6 +68,27 @@ function key(k: string, init: KeyboardEventInit = {}) {
     fireEvent.keyDown(document.body, {key: k, ...init});
   });
 }
+
+test('owner addresses use the known login spelling', async () => {
+  const {router} = await renderApp('/ALICE', signedIn());
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/alice'); });
+});
+
+test('Escape closes the phone drawer and returns focus to its opener', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn()})));
+  try {
+    await renderApp('/', signedIn());
+    const opener = await screen.findByRole('button', {name: 'Show the sidebar'});
+    opener.focus();
+    fireEvent.click(opener);
+    expect(document.documentElement.dataset.drawer).toBe('open');
+    key('Escape');
+    expect(document.documentElement.dataset.drawer).toBeUndefined();
+    expect(document.activeElement).toBe(opener);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 describe('boot', () => {
   test('the static boot shell has the full set of skeleton rows (the splash script hides extras)', () => {
@@ -284,7 +306,7 @@ describe('signed in', () => {
   });
 
   test('the palette selects its first row (never Sign out), and an exact reference first', async () => {
-    await renderApp('/', signedIn());
+    const {app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
     const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
     const selected = () => document.querySelector('[cmdk-item][data-selected="true"]')?.textContent ?? '';
@@ -293,7 +315,16 @@ describe('signed in', () => {
     await waitFor(() => {
       expect(screen.getByRole('option', {name: /Sign out/})).toBeTruthy();
     });
-    expect(selected()).not.toContain('Sign out');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect(selected()).toBe('');
+    fireEvent.keyDown(input, {key: 'Enter'});
+    expect(app.ui.paletteOpen).toBe(true);
+    fireEvent.keyDown(input, {key: 'ArrowDown'});
+    await waitFor(() => { expect(selected()).toContain('Sign out'); });
+    for (const [query, label] of [['?', 'Keyboard shortcuts'], ['undo', 'Undo the last change'], ['g i', 'Go to my issues']]) {
+      fireEvent.change(input, {target: {value: query}});
+      await waitFor(() => { expect(selected()).toContain(label); });
+    }
     fireEvent.change(input, {target: {value: 'sign out'}});
     await waitFor(() => {
       expect(selected()).toContain('Sign out');
@@ -317,6 +348,70 @@ describe('signed in', () => {
     await waitFor(() => {
       expect(selected()).toContain('Create an issue');
     });
+  });
+
+  test('the palette Undo runs the same pending change as Ctrl Z', async () => {
+    const {app} = await renderApp('/', signedIn());
+    const undo = vi.fn();
+    notify(app, {tone: 'success', title: 'Card moved', action: {label: 'Undo', run: undo}});
+    key('k', {ctrlKey: true});
+    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    fireEvent.change(input, {target: {value: 'undo'}});
+    await waitFor(() => { expect(screen.getByRole('option', {name: /Undo the last change/}).getAttribute('aria-selected')).toBe('true'); });
+    fireEvent.keyDown(input, {key: 'Enter'});
+    expect(undo).toHaveBeenCalledOnce();
+  });
+
+  test('the palette has one unavailable Up command at the code root, including slash-named refs', async () => {
+    const session = signedIn();
+    session.data.put('Branch', 'repo:20', {
+      id: 1, repo_id: 20, name: 'feature/x', commit_id: 'a'.repeat(40), commit_message: '', commit_time: '', pusher_id: 1,
+      is_deleted: false, deleted_by_id: 0, created_at: '', updated_at: '',
+    });
+    const {app} = await renderApp('/-/next/code/acme/website/src/branch/feature/x/-', session);
+    await screen.findByRole('navigation', {name: 'Repository'});
+    key('k', {ctrlKey: true});
+    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const up = screen.getAllByRole('option', {name: /Up a directory/});
+    expect(up).toHaveLength(1);
+    expect(up[0]?.textContent).toContain('Already at the repository root');
+    expect(up[0]?.textContent).toContain('or');
+    expect(up[0]?.getAttribute('aria-selected')).toBe('false');
+    fireEvent.change(input, {target: {value: 'up a directory'}});
+    fireEvent.click(screen.getByRole('option', {name: /Up a directory/}));
+    await waitFor(() => { expect(app.ui.notices.some((n) => n.title === 'Already at the repository root')).toBe(true); });
+  });
+
+  test('the palette ranks repository sections above global commands and can copy its clone URL', async () => {
+    const {app, router} = await renderApp('/', signedIn());
+    runInAction(() => { app.ui.repoOpen = 20; });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {value: {writeText}, configurable: true});
+    try {
+      key('k', {ctrlKey: true});
+      const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+      const selected = () => document.querySelector('[cmdk-item][data-selected="true"]')?.textContent ?? '';
+      for (const query of ['issues', 'pull requests', 'commits', 'branches', 'releases', 'actions', 'wiki']) {
+        fireEvent.change(input, {target: {value: query}});
+        await waitFor(() => { expect(selected().toLowerCase()).toContain(`go to ${query} of acme/website`); });
+      }
+      fireEvent.change(input, {target: {value: 'go to commits'}});
+      await waitFor(() => { expect(selected()).toContain('Go to Commits of acme/website'); });
+      fireEvent.change(input, {target: {value: 'g i'}});
+      await waitFor(() => { expect(selected()).toContain('Go to my issues'); });
+      fireEvent.change(input, {target: {value: 'clone'}});
+      await waitFor(() => { expect(selected()).toContain('Copy the clone URL'); });
+      fireEvent.keyDown(input, {key: 'Enter'});
+      await waitFor(() => { expect(writeText).toHaveBeenCalledWith('http://localhost/acme/website.git'); });
+      key('k', {ctrlKey: true});
+      const reopened = await screen.findByPlaceholderText(/^Search repositories, issues/);
+      fireEvent.change(reopened, {target: {value: 'branches'}});
+      await waitFor(() => { expect(selected()).toContain('Go to Branches of acme/website'); });
+      fireEvent.keyDown(reopened, {key: 'Enter'});
+      await waitFor(() => { expect(router.state.location.pathname).toBe('/-/next/code/acme/website/branches/-'); });
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   test('closing the palette gives focus back to where it was', async () => {

@@ -114,6 +114,7 @@
   }
 
   & :where(th, td) {
+    overflow-wrap: normal;
     border-style: solid;
     border-width: var(--hairline);
     border-color: var(--color-border);

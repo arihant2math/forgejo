@@ -645,6 +645,32 @@ export const WorkspaceAccess = "access";
 export const WorkspaceWatch = "watch";
 
 //////////
+// source: discovery.go
+
+/**
+ * APIDiscovery is GET /-/sync/api/discovery's response. This authenticated,
+ * read-only search uses Explore's repository and profile visibility rules.
+ * Query: type=repositories|users|organizations, q, page (1-based, 50 rows),
+ * sort=updated|created|alpha|stars (stars only for repositories). Repository
+ * filters: archived=true|false and language (the primary language's name).
+ * Disabled Explore categories answer 404; invalid page/sort/filter answers 400.
+ * Total counts all matching visible results, not just the current page.
+ */
+export interface APIDiscovery {
+  rows: APIDiscoveryRow[];
+  total: number /* int64 */;
+}
+/**
+ * APIDiscoveryRow links to a repository or profile. Path excludes AppSubURL.
+ */
+export interface APIDiscoveryRow {
+  id: number /* int64 */;
+  title: string;
+  detail: string;
+  path: string;
+}
+
+//////////
 // source: entities.go
 
 export const MaxBodyBytes = 64 << 10;
@@ -1879,6 +1905,15 @@ export interface NextConfig {
    * settings and the Git in use); absent from older servers.
    */
   repository?: NextRepository;
+  explore?: NextExplore;
+}
+/**
+ * NextExplore describes the instance's discovery restrictions.
+ */
+export interface NextExplore {
+  require_signin: boolean;
+  disable_users: boolean;
+  disable_organizations: boolean;
 }
 /**
  * NextRepository is the instance's defaults for a new repository (the

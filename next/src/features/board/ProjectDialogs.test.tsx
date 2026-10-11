@@ -31,7 +31,7 @@ async function boardPage(path: string) {
 }
 
 test('board settings edits and clears the description through livesync, and is disabled offline', async () => {
-  vi.mocked(onlineWrite).mockResolvedValue({value: undefined, syncId: 2});
+  vi.mocked(onlineWrite).mockResolvedValue({value: undefined, syncId: 2, totalCount: undefined});
   await boardPage('/-/next/projects/10');
   const settings = await screen.findByRole('button', {name: 'Board settings'});
   fireEvent.pointerDown(settings, {button: 0, ctrlKey: false});
@@ -47,7 +47,7 @@ test('board settings edits and clears the description through livesync, and is d
 });
 
 test('creation uses template and scope, and a delayed sync retry does not create twice', async () => {
-  vi.mocked(onlineWrite).mockResolvedValue({value: {id: 10}, syncId: 2});
+  vi.mocked(onlineWrite).mockResolvedValue({value: {id: 10}, syncId: 2, totalCount: undefined});
   const s = await boardPage('/-/next/boards');
   vi.spyOn(s.data, 'whenSynced').mockRejectedValueOnce(new Error('Sync timed out')).mockResolvedValue(undefined);
   const create = (await screen.findAllByRole('button', {name: 'New board'}))[0];

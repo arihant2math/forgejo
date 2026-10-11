@@ -53,6 +53,7 @@ test('sample URLs match a page (not the root\'s not-found)', () => {
   const r = router();
   for (const path of ['/', '/notifications', '/issues', '/pulls', '/acme/web.site', '/-/next/acme', '/-/next/acme/web.site', '/-/next/acme/web.site/', '/acme/web.site/issues', '/acme/web.site/issues/12', '/acme/api/pulls/3', '/-/next/', '/-/next/callback', '/acme/web.site/wiki', '/acme/web.site/wiki/', '/acme/web.site/wiki/Home', '/acme/web.site/wiki/-/pages', '/acme/web.site/wiki/-/new', '/acme/web.site/wiki/Home/-/edit',
     '/acme/api/labels', '/acme/api/milestones', '/acme/api/milestones/new', '/acme/api/milestone/4', '/acme/api/milestone/4/edit', '/repo/create', '/org/create',
+    '/search', '/explore', '/explore/repos', '/explore/users', '/explore/organizations',
     '/user/settings', '/user/settings/keys', '/user/settings/account', '/user/settings/appearance']) {
     const matches = r.matchRoutes(path, {});
     const leaf = matches.at(-1);

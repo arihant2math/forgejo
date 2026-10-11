@@ -211,9 +211,10 @@ export const UserName = observer(function UserName({id, fallback = 'Someone'}: {
   return <span className="font-medium"><TextLink wrap><Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}}>{u.name}</Link></TextLink></span>;
 });
 
-export const UserAvatar = observer(function UserAvatar({id, size = 'sm'}: {id: number; size?: 'sm' | 'md' | 'lg'}) {
+export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {
   const u = useUser(id);
-  return <Avatar name={u.name} src={u.avatar} size={size}/>;
+  const avatar = <Avatar name={u.name} src={u.avatar} size={size}/>;
+  return linked && u.login ? <Link to="/$owner" params={{owner: u.login}} aria-label={`Profile of ${u.login}`}>{avatar}</Link> : avatar;
 });
 
 /** The assignees' avatars (at most three). */

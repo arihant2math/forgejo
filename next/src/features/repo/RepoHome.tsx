@@ -38,6 +38,7 @@ import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {EmptyRepo} from '../code/states.tsx';
+import {FileOperations} from '../code/FileOperations.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -166,6 +167,7 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
   return (
     <>
       {toolbar}
+      <FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}}>
       <LinkRows><FilesPanel title={title} actions={actions}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
@@ -176,6 +178,7 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
           </ListRow>
         )}
       </FilesPanel></LinkRows>
+      </FileOperations>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch, sha}}/>}
     </>
   );

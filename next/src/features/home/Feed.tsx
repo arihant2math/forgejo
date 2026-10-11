@@ -52,7 +52,7 @@ export default observer(function Feed() {
   </Panel>;
 });
 
-function FeedPage({context, login, connected}: {context: string; login: string; connected: boolean}) {
+export function FeedPage({context, login, connected, performedOnly = false}: {context: string; login: string; connected: boolean; performedOnly?: boolean}) {
   const app = useApp();
   const session = useSession();
   const cache = useSource().cache;
@@ -64,7 +64,7 @@ function FeedPage({context, login, connected}: {context: string; login: string; 
   const [ready, setReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState(1);
-  const key = `home-feed:0:${context || login}`;
+  const key = `home-feed:0:${context || login}:${String(performedOnly)}`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -85,7 +85,7 @@ function FeedPage({context, login, connected}: {context: string; login: string; 
         }
         if (!connected) return;
         const path = context ? `/orgs/${encodeURIComponent(context)}/activities/feeds` : `/users/${encodeURIComponent(login)}/activities/feeds`;
-        const rows = await online<FeedAction[]>(app, {api: 'v1', path: `${path}?only-performed-by=false&page=${String(page)}&limit=${String(LIMIT)}`, signal: controller.signal}) ?? [];
+        const rows = await online<FeedAction[]>(app, {api: 'v1', path: `${path}?only-performed-by=${String(performedOnly)}&page=${String(page)}&limit=${String(LIMIT)}`, signal: controller.signal}) ?? [];
         if (!alive()) return;
         const next = {at: new Date().toISOString(), page, more: rows.length === LIMIT, keys: rows.map((r) => `home-action:${String(r.repo.id)}:${String(r.id)}`)};
         rows.forEach((r) => { cache.put(`home-action:${String(r.repo.id)}:${String(r.id)}`, r); });
@@ -106,7 +106,7 @@ function FeedPage({context, login, connected}: {context: string; login: string; 
       if (idle !== undefined) cancelIdleCallback(idle);
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [app, cache, connected, context, login, key, page, attempt]);
+  }, [app, cache, connected, context, login, key, page, attempt, performedOnly]);
 
   useEffect(() => session.data.on('revoked', ({group}) => {
     if (group.startsWith('repo:')) {

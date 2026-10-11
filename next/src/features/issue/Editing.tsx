@@ -107,7 +107,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   const [confirmCancel, setConfirmCancel] = useState(false);
   // The base the user started from: the restored draft's, else the one when the editor opened.
   const [base, setBase] = useState(restored?.base ?? base0);
-  /** Typed in (or saved, or cancelled) since the editor opened: a draft read later never replaces that text. */
+  /** Opened on a kept draft, or typed in since: a draft read later never replaces that text. */
   const touched = useRef(restored !== undefined);
   // The drafts are read from IndexedDB at boot, and a page can open before that is done (QA #193: an offline reload
   // showed an empty comment box, and typing then overwrote the kept text): one arriving while nothing was typed yet

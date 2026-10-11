@@ -27,7 +27,7 @@ test('a folder deletion sends every nested blob in one commit', async () => {
   ] : [{name: 'b.txt', type: 'blob', sha: 'b'}]}));
   mocks.write.mockResolvedValue({value: {commit: {sha: 'new-head'}}});
   render(<FileOperations {...props} target={{folder: true, sha: 'folder'}}/>);
-  fireEvent.pointerDown(screen.getByRole('button', {name: 'Add file'}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: 'Add file'}));
   fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete folder'}));
   const dialog = await screen.findByRole('dialog', {name: 'Commit changes'});
   await waitFor(() => {expect((within(dialog).getByRole('button', {name: 'Commit changes'}) as HTMLButtonElement).disabled).toBe(false);});
@@ -44,7 +44,7 @@ test('uploads preserve relative paths, can be removed, and commit base64 in one 
   mocks.write.mockClear();
   mocks.write.mockResolvedValue({value: {commit: {sha: 'uploaded'}}});
   render(<FileOperations {...props}/>);
-  fireEvent.pointerDown(screen.getByRole('button', {name: 'Add file'}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: 'Add file'}));
   fireEvent.click(await screen.findByRole('menuitem', {name: 'Upload files'}));
   const file = new File(['hello'], 'a.txt', {type: 'text/plain'});
   Object.defineProperty(file, 'webkitRelativePath', {value: 'folder/a.txt'});

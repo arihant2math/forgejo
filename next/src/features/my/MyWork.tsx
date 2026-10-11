@@ -6,11 +6,12 @@
 // from tables the sync engine does not track, so the server's issue search
 // names those issues (online) and the rows come from the pool.
 
-import {getRouteApi, Link} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {MyListSearch, MyListType} from '../../app/search.ts';
-import {Button, EmptyState} from '../../ui/index.ts';
+import {SegmentedControl} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
@@ -27,19 +28,18 @@ const issuesApi = getRouteApi('/shell/issues');
 const pullsApi = getRouteApi('/shell/pulls');
 
 function Types({to, current, extra}: {to: '/issues' | '/pulls'; current: MyListType | undefined; extra?: {type: MyListType; label: string} | undefined}) {
-  return (
-    <>
-      {[...TYPES, ...extra ? [extra] : []].map((t) => (
-        <Button key={t.label} asChild size="sm" variant={current === t.type ? 'secondary' : 'ghost'}>
-          {/* Exact search: "Your repositories" (no type) is not also current on a typed list (a subset match). */}
-          <Link to={to} search={(prev) => {
-            const {type: _type, ...rest} = prev as MyListSearch;
-            return t.type ? {...rest, type: t.type} : rest;
-          }} activeOptions={{exact: true}}>{t.label}</Link>
-        </Button>
-      ))}
-    </>
-  );
+  const navigate = useNavigate();
+  const types = [...TYPES, ...(extra ? [extra] : [])];
+  return <SegmentedControl aria-label="My work filter" size="small" onChange={(index) => {
+    const target = index === undefined ? undefined : types[index];
+    if (!target) return;
+    void navigate({to, search: (prev) => {
+      const {type: _type, ...rest} = prev as MyListSearch;
+      return target.type ? {...rest, type: target.type} : rest;
+    }});
+  }}>
+    {types.map((entry) => <SegmentedControl.Button key={entry.label} selected={current === entry.type}>{entry.label}</SegmentedControl.Button>)}
+  </SegmentedControl>;
 }
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -61,7 +61,7 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
         <ListControls model={model}/>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo
-        empty={<EmptyState icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title="All clear" description={DESCRIPTIONS[search.type ?? 'all']}/>}/>
+        empty={<Blankslate><Blankslate.Visual>{pulls ? <GitPullRequestIcon size={24}/> : <IssueOpenedIcon size={24}/>}</Blankslate.Visual><Blankslate.Heading>All clear</Blankslate.Heading><Blankslate.Description>{DESCRIPTIONS[search.type ?? 'all']}</Blankslate.Description></Blankslate>}/>
     </>
   );
 });

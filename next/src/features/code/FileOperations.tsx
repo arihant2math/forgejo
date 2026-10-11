@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {lazy, Suspense, useEffect, useState, type ReactNode} from 'react';
+import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
 import {useApp, useSession} from '../../app/store.ts';
@@ -10,7 +11,7 @@ import {reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/session.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
-import {ListRow} from '../../ui/index.ts';
+
 import {usePool} from '../issues/cells.tsx';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
@@ -130,12 +131,12 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
     </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
     {children}
-    {mode && !dialog && <Dialog title={mode === 'create' ? 'Create new file' : 'Upload files'} width="xlarge" onClose={() => { const open = false; if (!open) setMode(undefined); }} renderFooter={() => <Dialog.Footer>{<Button type="button" disabled={Boolean(problem) || Boolean(blocked)} onClick={() => {setDialog(true);}}>Commit changes…</Button>}</Dialog.Footer>}>
+    {mode && !dialog && <Dialog title={mode === 'create' ? 'Create new file' : 'Upload files'} width="xlarge" onClose={() => { setMode(undefined); }} footerButtons={[{content: 'Commit changes…', buttonType: 'primary', disabled: Boolean(problem) || Boolean(blocked), onClick: () => { setDialog(true); }}]}>
       {mode === 'create' ? <><TextInput aria-label="File path" placeholder="dir/name.ext" value={path} onChange={(event) => {setPath(event.target.value); void intents.keepText({key: pathKey, title: 'New file path', issueId: 0, repoId, text: event.target.value});}}/><Suspense fallback={<p>Loading editor…</p>}><CodeEditor value={text} path={path} wrap onChange={(value) => {setText(value); void intents.keepText({key, title: `New file in ${dir || repo}`, issueId: 0, repoId, text: value});}}/></Suspense></> : <div className="flex flex-col gap-3">
         <p className="text-sm text-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
         <input aria-label="Choose files" type="file" multiple onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         <input aria-label="Choose folder" type="file" multiple {...{webkitdirectory: ''}} onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
-        {files.map((item) => <ListRow role={undefined} key={item.path} trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</ListRow>)}
+        {files.map((item) => <CodeRow role={undefined} key={item.path} trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</CodeRow>)}
       </div>}
       {problem && <p className="text-sm text-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Dialog>}

@@ -4,7 +4,7 @@
 import './styles/app.css';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import {App} from './app/App.tsx';
+import {App, PrimerTheme} from './app/App.tsx';
 import {BootFailed} from './app/BootFailed.tsx';
 import {bootApp} from './app/boot.ts';
 import {resumeAfterSignIn} from './app/history.ts';
@@ -44,6 +44,6 @@ if (root) {
     // A chunk of an older build (deleted after a deploy), a network error, or
     // local storage that cannot be opened: reload once, then a Reload screen.
     console.error('booting failed', error);
-    if (!reloadOnce()) createRoot(root).render(<BootFailed/>);
+    if (!reloadOnce()) createRoot(root).render(<PrimerTheme><BootFailed/></PrimerTheme>);
   });
 }

@@ -7,7 +7,7 @@
 // offline it lists what this device can show (PLAN §5.5: no dead ends).
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
-import {EmptyState} from '../ui/index.ts';
+import {createElement} from 'react';
 import {AvailableOffline} from './Available.tsx';
 import {ClassicLink} from './ClassicLink.tsx';
 import {reach} from './online.ts';
@@ -60,16 +60,14 @@ export const Missing = observer(function Missing({what, title, description, icon
     );
   }
   return (
-    <EmptyState
-      icon={icon ?? QuestionIcon}
-      title={title ?? (classic ? 'Not available here' : 'Not found')}
-      description={description ?? missingWords(what).notFound}
-      action={
-        <span className="flex flex-wrap justify-center gap-2">
-          {classic && <ClassicLink to={classic} variant="primary">Open this page</ClassicLink>}
-          <RouterLinkButton variant={classic ? 'default' : 'primary'} leadingVisual={HomeIcon} to="/">Go to Home</RouterLinkButton>
-        </span>
-      }
-    />
+    <Blankslate>
+      <Blankslate.Visual>{createElement(icon ?? QuestionIcon, {size: 24})}</Blankslate.Visual>
+      <Blankslate.Heading>{title ?? (classic ? 'Not available here' : 'Not found')}</Blankslate.Heading>
+      <Blankslate.Description>{description ?? missingWords(what).notFound}</Blankslate.Description>
+      <div className="flex flex-wrap justify-center gap-2">
+        {classic && <ClassicLink to={classic} variant="primary">Open this page</ClassicLink>}
+        <RouterLinkButton variant={classic ? 'default' : 'primary'} leadingVisual={HomeIcon} to="/">Go to Home</RouterLinkButton>
+      </div>
+    </Blankslate>
   );
 });

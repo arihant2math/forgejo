@@ -9,7 +9,7 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {overdue} from './milestones.ts';
 import {deleteMilestone, type RepoRef} from './writes.ts';
 import {CalendarIcon, CheckCircleIcon} from '@primer/octicons-react';
-import {Button, Dialog} from '@primer/react';
+import {Dialog} from '@primer/react';
 
 const line = 'flex items-center gap-1';
 
@@ -31,13 +31,11 @@ export function DueLine({m}: {m: Milestone}) {
 export function DeleteMilestoneDialog({repo, milestone, onClose, onDeleted}: {repo: RepoRef; milestone: Milestone; onClose: () => void; onDeleted?: () => void}) {
   const app = useApp();
   return (
-    <Dialog title={`Delete the milestone “${milestone.title}”?`} subtitle="Its issues and pull requests stay; they no longer have a milestone. This cannot be undone; closing it keeps it." width="medium" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
-      <Button variant="danger" type="button" onClick={() => {
-        onClose();
-        void deleteMilestone(app, repo, milestone);
-        onDeleted?.();
-      }}>Delete milestone</Button>
-    </>}</Dialog.Footer>}></Dialog>
+    <Dialog title={`Delete the milestone “${milestone.title}”?`} subtitle="Its issues and pull requests stay; they no longer have a milestone. This cannot be undone; closing it keeps it." width="medium" onClose={onClose} footerButtons={[
+      {content: 'Cancel', onClick: onClose},
+      {content: 'Delete milestone', buttonType: 'danger', onClick: () => {
+        onClose(); void deleteMilestone(app, repo, milestone); onDeleted?.();
+      }},
+    ]}></Dialog>
   );
 }

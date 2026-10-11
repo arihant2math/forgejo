@@ -14,7 +14,7 @@
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type SyntheticEvent, useEffect, useState} from 'react';
+import {cloneElement, type SyntheticEvent, useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {onlineOnly, reach} from '../../app/online.ts';
@@ -22,7 +22,8 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Avatar, Callout, CommandPopover, SegmentedControl} from '../../ui/index.ts';
+import {Avatar, SegmentedControl} from '@primer/react';
+import {FilteredSelect} from '../create/FilteredSelect.tsx';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -32,7 +33,7 @@ import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Banner, Heading, Tooltip} from '@primer/react';
 
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
 
@@ -131,7 +132,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
   return (
     <>
       <PageHeader icon={RepoIcon} title="New repository">
-        <ClassicLink to="/repo/migrate" size="sm">New migration</ClassicLink>
+        <ClassicLink to="/repo/migrate" size="small">New migration</ClassicLink>
       </PageHeader>
       <PageBody>
         <PageColumn>
@@ -139,7 +140,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) create(e);
           }}>
             <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold text-default">Create a new repository</h2>
+              <Heading as="h2" variant="medium">Create a new repository</Heading>
               <p className="text-base text-muted">
                 A repository holds a project’s files and their history. Already have one elsewhere? Migrate it with “New migration”.
               </p>
@@ -149,16 +150,11 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
 
             <Field id="new-repo-template" label="Repository template" hint="Start from a template repository’s files and settings.">
               <div className="flex">
-                <CommandPopover label="Repository template" placeholder="Start from the template…" width="md" empty="No template repository is on this device."
-                  options={[
-                    {value: '0', label: 'No template', checked: template === 0, onSelect: () => {
-                      setTemplate(0);
-                    }},
-                    ...templates.map((t) => ({value: String(t.id), label: t.full_name, words: t.description, icon: StackIcon, checked: t.id === template, onSelect: () => {
-                      setTemplate(t.id);
-                    }})),
-                  ]}
-                  trigger={<Button type="button" id="new-repo-template" aria-describedby={hintOf('new-repo-template')}>{tpl?.full_name ?? 'No template'}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
+                <FilteredSelect id="new-repo-template" title="Repository template" placeholderText="Start from the template…"
+                  message={{title: 'No template repository is on this device.', body: '', variant: 'empty'}}
+                  items={[{id: 0, text: 'No template'}, ...templates.map((t) => ({id: t.id, text: t.full_name, description: t.description, leadingVisual: StackIcon}))]}
+                  selected={{id: template, text: tpl?.full_name ?? 'No template'}} onSelectedChange={(item) => { setTemplate(Number(item?.id ?? 0)); }}
+                  renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-template" aria-describedby={hintOf('new-repo-template')} trailingVisual={ChevronDownIcon}>{tpl?.full_name ?? 'No template'}</Button>, props)}/>
               </div>
             </Field>
 
@@ -227,8 +223,9 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               {!tpl && formats.length > 1 && (
                 <div className="flex flex-col gap-1">
                   <span className="text-base font-medium text-default">Object format</span>
-                  <div className="flex"><SegmentedControl label="Object format" value={format} onChange={setFormat}
-                    options={formats.map((f) => ({value: f, label: FORMAT_LABELS[f] ?? f}))}/></div>
+                  <div className="flex"><SegmentedControl aria-label="Object format" onChange={(index) => { setFormat(formats[index] ?? ''); }}>
+                    {formats.map((f) => <SegmentedControl.Button key={f} selected={format === f}>{FORMAT_LABELS[f] ?? f}</SegmentedControl.Button>)}
+                  </SegmentedControl></div>
                   <p className="text-sm text-muted">How Git names objects. SHA-256 cannot be changed later, and some tools do not support it yet.</p>
                 </div>
               )}
@@ -241,13 +238,13 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                   {`You are creating a ${priv || forced ? 'private' : 'public'} repository ${owner.org ? `in the organization ${owner.login}` : 'in your personal account'}.`}
                 </p>
               )}
-              {refused?.field === 'form' && <Callout tone="danger" title="The repository was not created">{refused.text}</Callout>}
+              {refused?.field === 'form' && <Banner variant="critical" title="The repository was not created" description={refused.text}/>}
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating a repository needs a connection.</span>}
                 {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a name). */}
-                <OptionalTooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" aria-disabled={Boolean(why) || busy}>
+                <Tooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create repository'}
-                </Button></OptionalTooltip>
+                </Button></Tooltip>
               </div>
             </Section>
           </form>
@@ -292,18 +289,17 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
 
 export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
   return (
-    <CommandPopover label="Owner" placeholder="Create for…" empty="Your account is not on this device yet."
-      options={owners.map((o) => ({
-        value: String(o.id), label: o.id === me ? `${o.login} (you)` : o.login, words: o.name, group: o.org ? 'Organizations' : undefined,
-        leading: <Avatar size="sm" name={o.login} src={o.avatar}/>, checked: o.id === owner?.id, onSelect: () => {
-          onChange(o.id);
-        },
+    <FilteredSelect id="new-repo-owner" title="Owner" placeholder="Owner" placeholderText="Create for…"
+      message={{title: 'Your account is not on this device yet.', body: '', variant: 'empty'}}
+      items={owners.map((o) => ({
+        id: o.id, text: o.id === me ? `${o.login} (you)` : o.login, description: o.name,
+        leadingVisual: () => <Avatar size={20} alt={o.login} src={o.avatar}/>,
       }))}
-      trigger={
-        <Button type="button" id="new-repo-owner">
-          {owner ? <><Avatar size="sm" name={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}<ChevronDownIcon size={12} className="shrink-0"/>
-        </Button>
-      }/>
+      selected={owner ? {id: owner.id, text: owner.login} : undefined}
+      onSelectedChange={(item) => { if (item) onChange(Number(item.id)); }}
+      renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-owner" trailingVisual={ChevronDownIcon}>
+        {owner ? <><Avatar size={20} alt={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}
+      </Button>, props)}/>
   );
 }
 

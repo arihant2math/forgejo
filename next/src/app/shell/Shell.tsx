@@ -14,7 +14,7 @@ import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
 import {classicOfLocation, publicPageRepo} from '../paths.ts';
 import {claimClassicHandoff} from '../gate.ts';
-import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
+
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
 import {goToCode} from '../goto.ts';
@@ -26,6 +26,7 @@ import {signInHere} from '../session.ts';
 import {shortcuts, useShortcut} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {ShellFrame} from './Frame.tsx';
+import {NoticeViewport} from './NoticeViewport.tsx';
 import {Sidebar} from './Sidebar.tsx';
 import {closeDrawer, drawerOpen, toggleSidebar} from './sidebar.ts';
 
@@ -186,13 +187,13 @@ function AppShell({app}: {app: App}) {
     });
   }, [app]);
   return (
-    <TooltipProvider>
+    <>
       <GlobalShortcuts app={app}/>
       <ShellFrame sidebar={<Sidebar/>} onBackdrop={() => { closeDrawer(true); }}>
         <Outlet/>
       </ShellFrame>
       <Overlays app={app}/>
-    </TooltipProvider>
+    </>
   );
 }
 

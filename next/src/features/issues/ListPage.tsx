@@ -13,7 +13,7 @@ import {PageBody, viewChange} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
-import {ListRow, Skeleton} from '../../ui/index.ts';
+import {IssueRowFrame} from './IssueRowFrame.tsx';
 import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
@@ -145,9 +145,9 @@ function ListSkeleton() {
   return (
     <div role="presentation">
       {widths.map((w) => (
-        <ListRow key={w} role="presentation" leading={<><SkeletonBox className="size-4"/><SkeletonBox className="size-4"/></>} trailing={<SkeletonBox className="h-3 w-12"/>}>
-          <Skeleton className={`h-3 ${w}`}/>
-        </ListRow>
+        <IssueRowFrame key={w} role="presentation" leading={<><SkeletonBox className="size-4"/><SkeletonBox className="size-4"/></>} trailing={<SkeletonBox className="h-3 w-12"/>}>
+          <SkeletonBox className={`h-3 ${w}`}/>
+        </IssueRowFrame>
       ))}
     </div>
   );

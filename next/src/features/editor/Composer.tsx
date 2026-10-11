@@ -18,20 +18,18 @@ import {canWrite} from '../../app/access.ts';
 import {notify} from '../../app/notices.ts';
 import {uuid} from '../../intents/intents.ts';
 import {attachmentMarkdown, hasPendingUploads, replaceUpload, stripUploadPlaceholders, uploadPlaceholder} from './attachments.ts';
-import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
+import {type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {EditorFrame, PendingIcon, ProseSource, SegmentedControl, TextArea} from '../../ui/index.ts';
 import type {EditMaker, Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
 import {untracked} from 'mobx';
 import {loadPeople, repoPeople} from '../issues/people.ts';
-import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon} from '@primer/octicons-react';
+import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon, ClockIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Button, IconButton, SegmentedControl, Textarea, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
@@ -307,18 +305,20 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
   };
   const complete = useSuggestions(repoId);
   const Editor = ready ? Loaded : undefined;
-  const mod = formatKeys('mod+b').replace(/B$/, '');
   // The box stays the same between Write and Preview (the tabs on top, the text where it was): only its body
   // changes, at least as tall as the editor's rows.
   const header = <>
-    <SegmentedControl label="Editor mode" value={preview ? 'preview' : 'write'} onChange={(v) => {
-      setPreview(v === 'preview');
-      if (v === 'write') requestAnimationFrame(() => editor.current?.focus());
-    }} options={[{value: 'write', label: 'Write'}, {value: 'preview', label: 'Preview'}]}/>
+    <SegmentedControl aria-label="Editor mode" size="small" onChange={(index) => {
+      setPreview(index === 1);
+      if (index === 0) requestAnimationFrame(() => editor.current?.focus());
+    }}>
+      <SegmentedControl.Button selected={!preview}>Write</SegmentedControl.Button>
+      <SegmentedControl.Button selected={preview}>Preview</SegmentedControl.Button>
+    </SegmentedControl>
     <span className="ml-auto flex items-center">
-      {allowed && <OptionalTooltip text={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'}><Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" disabled={preview || !isOnline} onClick={() => picker.current?.click()}>Attach files</Button></OptionalTooltip>}
+      {allowed && <Tooltip text={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'}><Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" inactive={preview || !isOnline} aria-disabled={preview || !isOnline} onClick={() => { if (!preview && isOnline) picker.current?.click(); }}>Attach files</Button></Tooltip>}
       {FORMATS.map(([kind, icon, label, key]) => (
-        <IconButton icon={icon} variant="invisible" size="small" aria-label={label} keybindingHint={`${mod}${key}`} type="button" key={kind} disabled={preview || !Editor} onClick={() => {
+        <IconButton icon={icon} variant="invisible" size="small" aria-label={label} description={`Format as ${label.toLowerCase()}`} keybindingHint={`Mod+${key.toLowerCase()}`} type="button" key={kind} disabled={preview || !Editor} onClick={() => {
           editor.current?.format(kind);
         }}/>
       ))}
@@ -342,7 +342,8 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
           else area.current?.focus();
         });
       }}/>}
-      <EditorFrame invalid={props.invalid} header={header}>
+      <div className={props.invalid ? 'rounded-md border border-danger-emphasis focus-ring-within' : 'rounded-md border border-default focus-ring-within'}>
+        <div className="flex flex-wrap items-center gap-2 border-b border-default bg-muted p-2">{header}</div>
         {preview ?
           <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region" className="outline-none"
             style={{minHeight: `calc(var(--text-md--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 3)`}}>
@@ -350,8 +351,8 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
           </div> :
           Editor ?
             <Editor {...props} ref={editor} onFiles={attach} onSubmit={props.onSubmit ? () => { if (!hasPendingUploads(text.current)) props.onSubmit?.(); } : undefined} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
-            <TextArea bare ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
-              value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} invalid={props.invalid}
+            <Textarea block ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
+              value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} {...(props.invalid ? {validationStatus: 'error' as const} : {})}
               onPaste={(e) => {
                 const files = [...e.clipboardData.files];
                 if (files.length) { e.preventDefault(); attach(files); }
@@ -377,8 +378,8 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
                   props.onCancel();
                 }
               }}/>}
-      </EditorFrame>
-      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><PendingIcon label="Uploading attachments" now/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
+      </div>
+      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><ClockIcon aria-label="Uploading attachments" size={16}/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
     </div>
   );
 });
@@ -414,7 +415,7 @@ export const MarkdownPreview = observer(function MarkdownPreview({repoId, text, 
     return (
       <div className="flex flex-col gap-2 px-2 py-1.5">
         <p className="text-sm text-muted">The preview needs a connection (Forgejo renders it). Your text as written:</p>
-        <ProseSource text={text}/>
+        <div className="markdown-body whitespace-pre-wrap">{text}</div>
       </div>
     );
   }

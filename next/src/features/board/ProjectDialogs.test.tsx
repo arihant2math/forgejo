@@ -34,7 +34,7 @@ test('board settings edits and clears the description through livesync, and is d
   vi.mocked(onlineWrite).mockResolvedValue({value: undefined, syncId: 2, totalCount: undefined});
   await boardPage('/-/next/projects/10');
   const settings = await screen.findByRole('button', {name: 'Board settings'});
-  fireEvent.pointerDown(settings, {button: 0, ctrlKey: false});
+  fireEvent.click(settings);
   fireEvent.click(await screen.findByRole('menuitem', {name: 'Edit board'}));
   fireEvent.change(await screen.findByRole('textbox', {name: 'Title'}), {target: {value: 'Renamed'}});
   fireEvent.change(screen.getByRole('textbox', {name: /Description/}), {target: {value: ''}});
@@ -42,8 +42,8 @@ test('board settings edits and clears the description through livesync, and is d
   await waitFor(() => { expect(onlineWrite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({method: 'PATCH', api: 'sync', path: '/projects/10', body: {title: 'Renamed', description: '', card_type: 'text_only'}})); });
   await waitFor(() => { expect(screen.queryByRole('dialog', {name: 'Edit board'})).toBeNull(); });
   runInAction(() => { connectivity.online = false; });
-  await waitFor(() => { expect((settings as HTMLButtonElement).disabled).toBe(true); });
-  expect(settings.title).toContain('not queued offline');
+  await waitFor(() => { expect(settings.getAttribute('data-inactive')).toBe('true'); });
+  expect(screen.getByText(/Changing a board.*not queued offline/)).toBeTruthy();
 });
 
 test('creation uses template and scope, and a delayed sync retry does not create twice', async () => {
@@ -54,7 +54,7 @@ test('creation uses template and scope, and a delayed sync retry does not create
   if (!create) throw new Error('New board button is missing');
   fireEvent.click(create);
   fireEvent.change(await screen.findByRole('textbox', {name: 'Title'}), {target: {value: 'Triage'}});
-  fireEvent.click(screen.getByRole('radio', {name: 'Bug triage'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Bug triage'}));
   fireEvent.click(screen.getByRole('button', {name: 'Create board'}));
   await screen.findByText('Board created; sync is still catching up');
   expect(onlineWrite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({method: 'POST', path: '/projects', body: {repo_id: 0, owner_id: 1, title: 'Triage', description: '', card_type: 'text_only', template_type: 'bug_triage'}}));
@@ -67,7 +67,7 @@ test('boards list separates closed boards and offers creation even without an op
   await boardPage('/-/next/boards');
   await screen.findByRole('link', {name: 'Planning'});
   expect(screen.queryByRole('link', {name: 'Done'})).toBeNull();
-  fireEvent.click(screen.getByRole('radio', {name: 'Closed'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Closed'}));
   await screen.findByRole('link', {name: 'Done'});
   expect(screen.queryByRole('link', {name: 'Planning'})).toBeNull();
   const create = screen.getAllByRole('button', {name: 'New board'})[0];
@@ -75,5 +75,5 @@ test('boards list separates closed boards and offers creation even without an op
   fireEvent.click(create);
   await screen.findByRole('dialog', {name: 'New board'});
   expect(screen.getByRole('textbox', {name: 'Title'})).toBeTruthy();
-  expect(screen.getByRole('radio', {name: 'Bug triage'})).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Bug triage'})).toBeTruthy();
 });

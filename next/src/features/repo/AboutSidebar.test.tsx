@@ -93,16 +93,16 @@ describe('the repository home\'s side pane', () => {
     expect(within(within(about).getByRole('list', {name: 'Topics'})).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['web', 'docs']);
     expect(within(about).getByRole('link', {name: 'acme/upstream'}).getAttribute('href')).toBe('/acme/upstream');
     const links = within(about).getByRole('list', {name: 'Repository'});
-    expect(within(links).getAllByRole('link').map((a) => a.textContent)).toEqual(['Readme', 'View license', 'Activity', '12stars', '3watching', '1fork']);
+    expect(within(links).getAllByRole('link').map((a) => a.textContent)).toEqual(['Readme', 'View license', 'Activity', '12 stars', '3 watching', '1 fork']);
     expect(within(links).getByRole('link', {name: 'Readme'}).getAttribute('href')).toBe('#readme');
     expect(within(links).getByRole('link', {name: 'View license'}).getAttribute('href')).toBe('/acme/website/src/branch/main/LICENSE');
     // Activity and the watchers are the app's pages (#255); the stargazers and forks are classic.
-    for (const [name, path] of [['Activity', 'activity'], ['3watching', 'watchers']] as const) {
+    for (const [name, path] of [['Activity', 'activity'], ['3 watching', 'watchers']] as const) {
       const a = within(links).getByRole('link', {name});
       expect(a.getAttribute('href')).toBe(`/acme/website/${path}`);
       expect(a.hasAttribute('data-classic')).toBe(false);
     }
-    for (const [name, path] of [['12stars', 'stars'], ['1fork', 'forks']] as const) {
+    for (const [name, path] of [['12 stars', 'stars'], ['1 fork', 'forks']] as const) {
       const a = within(links).getByRole('link', {name});
       expect(a.getAttribute('href')).toBe(`/acme/website/${path}`);
       expect(a.hasAttribute('data-classic')).toBe(true);
@@ -119,21 +119,22 @@ describe('the repository home\'s side pane', () => {
   test('Releases: the count, the latest (not a pre-release) and the rest; Tags with its count; both lead to their views', async () => {
     const {pane} = await renderHome(session());
     const rel = within(pane).getByRole('region', {name: 'Releases'});
-    expect(within(rel).getByRole('heading').textContent).toBe('Releases3');
+    expect(within(rel).getByRole('heading').textContent).toBe('Releases');
+    expect(within(rel).getByText('3', {selector: '[data-component="CounterLabel"]'})).toBeTruthy();
     expect(within(rel).getByRole('link', {name: 'Releases'}).getAttribute('href')).toBe('/acme/website/releases');
     const latest = within(rel).getByRole('link', {name: /Second/});
     expect(latest.textContent).toContain('Latest');
     expect(latest.getAttribute('href')).toBe('/acme/website/releases');
     expect(within(rel).getByRole('link', {name: '+ 2 releases'}).getAttribute('href')).toBe('/acme/website/releases');
     // Tags: the three releases and the bare tag.
-    expect(within(rel).getByRole('link', {name: '4tags'}).getAttribute('href')).toBe('/acme/website/tags');
+    expect(within(rel).getByRole('link', {name: '4 tags'}).getAttribute('href')).toBe('/acme/website/tags');
   });
 
   test('Languages: the bar and its legend from the code cache, largest first', async () => {
     const {pane} = await renderHome(session({}, {languages: {TypeScript: 250, Go: 750}}));
     const langs = within(pane).getByRole('region', {name: 'Languages'});
-    const legend = within(within(langs).getByRole('figure', {name: 'Languages'})).getAllByRole('listitem').map((li) => li.textContent);
-    expect(legend).toEqual(['Go75.0%', 'TypeScript25.0%']);
+    const legend = within(within(langs).getByRole('list', {name: 'Language shares'})).getAllByRole('listitem').map((li) => li.textContent);
+    expect(legend).toEqual(['Go 75.0%', 'TypeScript 25.0%']);
   });
 
   test('nothing known yet: no Languages section, no Readme or License; nothing provided says so; no releases', async () => {
@@ -152,14 +153,14 @@ describe('the repository home\'s side pane', () => {
     const parts = session();
     const {pane} = await renderHome(parts);
     const links = within(pane).getByRole('list', {name: 'Repository'});
-    const stars = within(links).getByRole('link', {name: '12stars'});
+    const stars = within(links).getByRole('link', {name: '12 stars'});
     act(() => {
       parts.s.data.put('Repository', 'repo:20', repo(20, user(2, 'acme', 'organization'), 'website', {
         description: 'The public website.', website: 'https://example.com/', topics: ['web', 'docs'],
         stars_count: 13, watchers_count: 3, forks_count: 1, fork: true, parent_id: 22,
       }));
     });
-    expect(stars.textContent).toBe('13stars');
+    expect(stars.textContent).toBe('13 stars');
   });
 });
 
@@ -169,15 +170,15 @@ describe('the header\'s Star and Watch buttons', () => {
     await renderHome(parts);
     const star = screen.getByRole('button', {name: /^(Star|Unstar)/});
     const watch = screen.getByRole('button', {name: /^(Watch|Watching)/});
-    expect(star.textContent).toMatch(/12$/);
-    expect(watch.textContent).toMatch(/3$/);
+    expect(star.querySelector('[data-component="CounterLabel"]')?.textContent).toBe('12');
+    expect(watch.querySelector('[data-component="CounterLabel"]')?.textContent).toBe('3');
     act(() => {
       parts.s.data.put('Repository', 'repo:20', repo(20, user(2, 'acme', 'organization'), 'website', {
         description: 'The public website.', stars_count: 11, watchers_count: 4, forks_count: 1, fork: true, parent_id: 22,
       }));
     });
-    expect(star.textContent).toMatch(/11$/);
-    expect(watch.textContent).toMatch(/4$/);
+    expect(star.querySelector('[data-component="CounterLabel"]')?.textContent).toBe('11');
+    expect(watch.querySelector('[data-component="CounterLabel"]')?.textContent).toBe('4');
   });
 
   test('a releases-only watch is shown as such, never as "All activity"; releases are said to come by email (#198, #201)', async () => {
@@ -193,13 +194,13 @@ describe('the header\'s Star and Watch buttons', () => {
       parts.s.data.put('Watch', 'user:1', {id: 1, user_id: 1, repo_id: 20, automatic: false, issues: false, pull_requests: false, releases: true, created_at: T, updated_at: T});
       await renderHome(parts);
       const watch = screen.getByRole('button', {name: /^Watching/});
-      expect(watch.textContent).toMatch(/3$/);
+      expect(watch.querySelector('[data-component="CounterLabel"]')?.textContent).toBe('3');
       await waitFor(() => { expect((watch as HTMLButtonElement).disabled).toBe(false); });
-      fireEvent.pointerDown(watch, {button: 0, ctrlKey: false});
+      fireEvent.click(watch);
       const custom = await screen.findByRole('menuitem', {name: /^Custom: releases ✓/});
       expect(custom.getAttribute('href')).toBe('/acme/website?ui=classic');
-      expect(screen.getByRole('menuitem', {name: 'All activity'})).toBeTruthy();
-      expect(screen.getByRole('menuitem', {name: 'Participating and mentions'})).toBeTruthy();
+      expect(screen.getByRole('menuitemradio', {name: 'All activity'})).toBeTruthy();
+      expect(screen.getByRole('menuitemradio', {name: 'Participating and mentions'})).toBeTruthy();
       expect(screen.getByText(/New releases are announced by email only/)).toBeTruthy();
     } finally { vi.unstubAllGlobals(); }
   });

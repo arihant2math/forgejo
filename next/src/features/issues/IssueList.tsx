@@ -3,7 +3,7 @@
 
 // A virtualized issue list (TanStack Virtual) over an IssueListModel.
 //
-// Rendering: fixed-height rows (ListRow's h-row; group headers too), so
+// Rendering: fixed-height feature rows (group headers too), so
 // nothing is measured; only the rows in view (plus overscan) exist, each a
 // memoized observer that takes ids and stable references, and whose cells
 // observe their own fields (cells.tsx). Scrolling renders the rows that come
@@ -25,7 +25,7 @@ import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type MouseEvent, type ReactNode, createElement, useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {pageListRect} from '../../app/shell/Frame.tsx';
@@ -33,9 +33,9 @@ import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/i
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
-import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, LabelIcon, ListGroupHeader, ListRow,
-} from '../../ui/index.ts';
+import {ActionMenu, ActionList, Checkbox, CounterLabel, Heading} from '@primer/react';
+import {IssueRowFrame} from './IssueRowFrame.tsx';
+import {LabelGlyph} from './cells.tsx';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {
   AssigneesCell, AuthorCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar,
@@ -47,7 +47,7 @@ import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
 import {IssueDraftIcon, FileSubmoduleIcon, PersonIcon} from '@primer/octicons-react';
 
-const ROW = 32; // ListRow's h-row (tokens.css --spacing-row)
+const ROW = 40; // Fixed-height feature rows (h-10), including group headers.
 
 export interface IssueListProps {
   model: IssueListModel;
@@ -72,6 +72,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   const cursor = model.cursor;
   const listRef = useRef<HTMLDivElement>(null);
   const [menuIds, setMenuIds] = useState<number[]>([]);
+  const menuAnchorRef = useRef<HTMLElement>(null);
 
   const hasRows = rows.length > 0;
   // Stable while the rows are (the virtualizer re-measures when it changes).
@@ -203,7 +204,14 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      const id = cursor.activeId;
+      if (id === undefined) return;
+      menuAnchorRef.current = document.getElementById(rowId(id)) ?? listRef.current;
+      const selected = untracked(() => cursor.selected.values());
+      setMenuIds(selected.includes(id) ? selected : [id]);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       move(e.key === 'ArrowDown' ? 1 : -1);
     } else if (e.key === 'Enter' && cursor.activeId !== undefined) {
@@ -262,10 +270,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
 
   const actions: IssueAction[] = menuIds.length ? issueActions(app, issuesOf(app, menuIds), {navigate: (path) => void navigate({to: path})}) : [];
   return (
-    <ContextMenu onOpenChange={(o) => {
-      if (!o) setMenuIds([]);
-    }}>
-      <ContextMenuTrigger asChild>
+    <>
         <div
           ref={listRef}
           role="listbox"
@@ -284,6 +289,8 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
             const el = (e.target as Element).closest('[data-issue]');
             const id = el ? Number(el.getAttribute('data-issue')) : cursor.activeId;
             if (id === undefined) return;
+            e.preventDefault();
+            menuAnchorRef.current = el as HTMLElement | null ?? listRef.current;
             const sel = untracked(() => cursor.selected.values());
             setMenuIds(sel.includes(id) ? sel : [id]);
             if (!sel.includes(id)) cursor.setActive(id);
@@ -303,23 +310,28 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
             );
           })}
         </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ActionMenu open={menuIds.length > 0} anchorRef={menuAnchorRef} onOpenChange={(open) => {
+        if (open) return;
+        setMenuIds([]);
+        requestAnimationFrame(() => {focusList(listRef.current);});
+      }}>
+      <ActionMenu.Overlay><ActionList>
         {actions.map((a, i) => (
           <MenuAction key={a.id} action={a} separator={i > 0 && (a.id === 'copy-link' || a.id === 'state')}/>
         ))}
-      </ContextMenuContent>
-    </ContextMenu>
+      </ActionList></ActionMenu.Overlay></ActionMenu>
+    </>
   );
 });
 
 function MenuAction({action, separator}: {action: IssueAction; separator: boolean}) {
   return (
     <>
-      {separator && <ContextMenuSeparator/>}
-      <ContextMenuItem icon={action.icon} shortcut={action.shortcut && shortcutHint(action.shortcut)} onSelect={() => {
-        action.run();
-      }}>{action.label}</ContextMenuItem>
+      {separator && <ActionList.Divider/>}
+      <ActionList.Item onSelect={action.run}>
+        <ActionList.LeadingVisual>{createElement(action.icon)}</ActionList.LeadingVisual>{action.label}
+        {action.shortcut && <ActionList.TrailingVisual>{shortcutHint(action.shortcut)}</ActionList.TrailingVisual>}
+      </ActionList.Item>
     </>
   );
 }
@@ -347,9 +359,9 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
   const path = issue && issuePath(app, issue);
   const active = cursor.active.has(id);
   const selected = cursor.selected.has(id);
-  if (!issue) return <ListRow role="presentation"> </ListRow>;
+  if (!issue) return <IssueRowFrame role="presentation" leading={null} trailing={null}> </IssueRowFrame>;
   return (
-    <ListRow
+    <IssueRowFrame
       role="option"
       // The cursor points at an issue's first row (aria-activedescendant); its other rows have their own ids.
       id={copy === undefined ? rowId(id) : `${rowId(id)}-${copy}`}
@@ -381,7 +393,7 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
       <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
-    </ListRow>
+    </IssueRowFrame>
   );
 });
 
@@ -393,8 +405,8 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
 const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: number; cursor: ListCursor; handlers: RowHandlers}) {
   const on = cursor.selected.has(id);
   return (
-    <input type="checkbox" aria-hidden tabIndex={-1} checked={on} data-select-row title={on ? 'Deselect (X)' : 'Select (X; Shift-click: a range)'}
-      className="invisible size-4 shrink-0 accent-accent group-hover:visible in-data-selecting:visible checked:visible pointer-coarse:visible"
+    <span className={on ? 'inline-flex shrink-0' : 'invisible inline-flex shrink-0 group-hover:visible in-data-selecting:visible pointer-coarse:visible'}>
+    <Checkbox aria-hidden tabIndex={-1} checked={on} data-select-row title={on ? 'Deselect (X)' : 'Select (X; Shift-click: a range)'}
       // The row does not take it as a click (open), and the list keeps the focus.
       onMouseDown={(e) => {
         e.preventDefault();
@@ -403,7 +415,7 @@ const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: numbe
         e.stopPropagation();
         handlers.check(id, e);
       }}
-      readOnly/>
+      readOnly/></span>
   );
 });
 
@@ -417,7 +429,7 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
   let leading: ReactNode = null;
   if ((row.kind === 'status' || row.kind === 'priority') && row.value) {
     const l = pool.model('Label').get(row.value);
-    if (l) leading = <LabelIcon icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
+    if (l) leading = <LabelGlyph icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
   } else if (row.kind === 'status') {
     leading = <IssueDraftIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'assignee') {
@@ -425,5 +437,7 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
   } else if (row.kind === 'repo') {
     leading = <FileSubmoduleIcon size={16} className="shrink-0"/>;
   }
-  return <ListGroupHeader leading={leading} label={row.label} count={row.count}/>;
+  return <div className="flex h-10 items-center gap-2 border-b border-default bg-muted px-3">
+    {leading}<Heading as="h3" variant="small" className="min-w-0 truncate">{row.label}</Heading><CounterLabel>{row.count}</CounterLabel>
+  </div>;
 });

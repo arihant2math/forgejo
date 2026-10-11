@@ -8,7 +8,7 @@
 // any width). Pointing at a column shows its value in the caption line.
 
 import {type PointerEvent, type ReactNode, useState} from 'react';
-import {cx} from '../../ui/index.ts';
+import {clsx} from 'clsx';
 import {niceMax} from './pulse.ts';
 
 export interface Column {
@@ -77,7 +77,7 @@ export function ColumnChart({label, columns, caption, unit, start, end, size = '
         <span className="truncate">{pointed ? `${pointed.label}: ${pointed.value.toLocaleString()} ${unit}` : caption}</span>
         <span className="shrink-0 text-muted">{max.toLocaleString()}</span>
       </figcaption>
-      <svg role="img" aria-label={label} viewBox={`0 0 ${String(w)} ${String(H)}`} preserveAspectRatio="none" className={cx('w-full touch-none', heights[size])} {...hover}>
+      <svg role="img" aria-label={label} viewBox={`0 0 ${String(w)} ${String(H)}`} preserveAspectRatio="none" className={clsx('w-full touch-none', heights[size])} {...hover}>
         <path d={`M0 ${String(H)}H${String(w)}`} className="stroke-default" vectorEffect="non-scaling-stroke"/>
         {at !== undefined && <rect x={at * STEP} y={0} width={STEP} height={H} className="fill-control-transparent-hover"/>}
         <path d={barsPath(values, max, H, -1, H)} className="fill-accent"/>

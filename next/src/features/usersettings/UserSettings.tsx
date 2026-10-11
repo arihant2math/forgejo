@@ -1,6 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {AccountList, AccountRow} from './AccountList.tsx';
+import {Banner, SegmentedControl, Avatar, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
+
 // The viewer's settings (the classic /user/settings pages at their own
 // addresses, laid out like GitHub's settings): a side list of the pages
 // beside the page — Profile, Account (email addresses), Appearance, SSH and
@@ -22,9 +25,6 @@ import type {ThemePreference} from '../../app/splash.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
-import {
-  Avatar, Button, Callout, ListRow, NavHeading, NavItem, Panel, SegmentedControl
-} from '../../ui/index.ts';
 import {ago, fullDate} from '../issues/format.ts';
 import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
 import {describedBy, Field, FormActions, FormSection, SettingRow} from './form.tsx';
@@ -33,11 +33,9 @@ import {
   type ProfileField, keepUnsaved, profileOf, profilePayload, profileProblems, scopeRefused, type SettingsPatch, shownProfile, sortEmails, spacedKeyId, sshKeyProblem,
   sshKeyTitle, toBase64, type UserSettings,
 } from './payload.ts';
-import {BrowserIcon, VerifiedIcon, OrganizationIcon, ChevronDownIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {BrowserIcon, VerifiedIcon, OrganizationIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Checkbox, FormControl, Label, Dialog, Textarea, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {Blankslate, SkeletonBox, SkeletonAvatar} from '@primer/react/experimental';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
@@ -108,35 +106,33 @@ function SettingsPage({section, children}: {section: Section; children: ReactNod
       <PageBody>
         <div className="flex min-h-full flex-col @xl:flex-row">
           <SideNav section={section}/>
-          <div className="flex w-full min-w-0 max-w-lg flex-col gap-8 px-4 py-4 @xl:px-8 @xl:py-6">{children}</div>
+          <div className="flex w-full min-w-0 max-w-xl flex-col gap-8 px-4 py-4 @xl:px-8 @xl:py-6"><UserOfflineNote/>{children}</div>
         </div>
       </PageBody>
     </>
   );
 }
 
+const UserOfflineNote = observer(function UserOfflineNote() {
+  return connectivity.online ? null : <Banner variant="warning" title="You are offline" description={onlineOnly('Changing account settings')}/>;
+});
+
 /** The settings pages (GitHub's settings list). Pointing at one starts loading what it shows. */
 function SideNav({section}: {section: Section}) {
   const app = useApp();
   const src = useSource();
   return (
-    <nav aria-label="Settings pages" className="flex shrink-0 flex-col gap-px border-b border-default p-2 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
-      {SECTIONS.map((s) => (
-        <NavItem key={s.id} asChild icon={s.icon} label={s.label} onPointerEnter={() => {
-          src.prefetch(...s.kinds);
-        }} onFocus={() => {
-          src.prefetch(...s.kinds);
-        }}>
-          <Link to={s.to} aria-current={s.id === section ? 'page' : undefined} activeProps={{}} activeOptions={{exact: true}}/>
-        </NavItem>
-      ))}
-      <NavHeading>In the classic UI</NavHeading>
-      {CLASSIC.map((c) => (
-        <NavItem key={c.to} asChild icon={c.icon} label={c.label}>
-          <a href={classicHref(app, c.to)} data-classic=""/>
-        </NavItem>
-      ))}
-    </nav>
+    <NavList aria-label="Settings pages" className="shrink-0 @xl:w-64 @xl:self-start">
+      {SECTIONS.map((page) => <NavList.Item key={page.id} as={Link} to={page.to} aria-current={page.id === section ? 'page' : false}
+        activeOptions={{exact: true}} onPointerEnter={() => { src.prefetch(...page.kinds); }} onFocus={() => { src.prefetch(...page.kinds); }}>
+        <NavList.LeadingVisual><page.icon/></NavList.LeadingVisual>{page.label}
+      </NavList.Item>)}
+      <NavList.Group title="In the classic UI">
+        {CLASSIC.map((page) => <NavList.Item key={page.to} href={classicHref(app, page.to)} data-classic="">
+          <NavList.LeadingVisual><page.icon/></NavList.LeadingVisual>{page.label}
+        </NavList.Item>)}
+      </NavList.Group>
+    </NavList>
   );
 }
 
@@ -144,7 +140,7 @@ function SideNav({section}: {section: Section}) {
 function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; skeleton: ReactNode}) {
   if (slot.state === 'loading') return <>{skeleton}</>;
   if (slot.state === 'offline') return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`${what} are not on this device`}</Blankslate.Heading><Blankslate.Description>Connect to load them.</Blankslate.Description></Blankslate>;
-  if (slot.state === 'error') return <Callout tone="danger" title={`${what} could not be loaded`}>{slot.message}</Callout>;
+  if (slot.state === 'error') return <Banner variant="critical" title={`${what} could not be loaded`} description={slot.message}/>;
   return null;
 }
 
@@ -240,7 +236,7 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
         e.preventDefault();
         save();
       }}>
-        {formError !== undefined && <Callout tone="danger" title="Not saved">{formError}</Callout>}
+        {formError !== undefined && <Banner variant="critical" title="Not saved" description={<>{formError}</>}/>}
         {PROFILE_FIELDS.map((f) => {
           const id = `${base}-${f}`;
           const hint = HINTS[f];
@@ -249,7 +245,7 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
           return (
             <Field key={f} id={id} label={LABELS[f]} hint={hint} error={errors[f]}>
               {f === 'description' ?
-                <Textarea id={id} value={shown[f]} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
+                <Textarea value={shown[f]} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
                   edit(f, e.target.value);
                 }} onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -257,7 +253,7 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
                     save();
                   }
                 }} block {...(errors[f] ? {validationStatus: 'error' as const} : {})}/> :
-                <TextInput id={id} value={shown[f]} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
+                <TextInput value={shown[f]} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
                   edit(f, e.target.value);
                 }} {...(errors[f] ? {validationStatus: 'error' as const} : {})}/>}
             </Field>
@@ -330,7 +326,7 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
   return (
     <FormSection title="Profile picture">
       <div className="flex flex-wrap items-center gap-4">
-        <Avatar size="xl" name={login} src={shown}/>
+        {shown ? <Avatar size={96} alt={login} src={shown}/> : <SkeletonAvatar size={96}/>}
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             <PrimerButton leadingVisual={UploadIcon} type="button" disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</PrimerButton>
@@ -359,7 +355,7 @@ const PrivacySection = observer(function PrivacySection({src, settings, slot, vi
   return (
     <FormSection title="Privacy">
       <SettingRow title="Visibility" description={VISIBILITY[visibility] ?? 'Who sees your profile.'}>
-        <ClassicLink to="/user/settings" size="sm" variant="secondary">Change</ClassicLink>
+        <ClassicLink to="/user/settings" size="small" variant="default">Change</ClassicLink>
       </SettingRow>
       {settings ? (
         <div className="flex flex-col gap-3">
@@ -379,11 +375,12 @@ const Toggle = observer(function Toggle({src, settings, field, label, hint, offl
   offline: string | undefined;
 }) {
   const change = useChange(src);
+  const id = useId();
   return (
-    <div className="flex flex-col gap-0.5">
-      <FormControl disabled={Boolean(offline)}><Checkbox checked={settings[field]} onChange={(event) => { const v = event.target.checked; change({[field]: v}, label); }}/><FormControl.Label>{label}</FormControl.Label></FormControl>
-      <span className="pl-6 text-sm text-muted">{hint}</span>
-    </div>
+    <SettingRow id={id} title={label} description={hint}>
+      <ToggleSwitch aria-labelledby={`${id}-label`} aria-describedby={`${id}-description`} checked={settings[field]} disabled={Boolean(offline)}
+ onChange={(on) => { change({[field]: on}, label); }}/>
+    </SettingRow>
   );
 });
 
@@ -416,7 +413,10 @@ const AppearanceView = observer(function AppearanceView() {
     <>
       <FormSection title="Forgejo Next" description="How this app looks on this device.">
         <SettingRow title="Theme" description="System follows your device's light or dark mode.">
-          <SegmentedControl label="Theme" value={themeState.preference} options={NEXT_THEMES} onChange={setThemePreference}/>
+          <SegmentedControl aria-label="Theme" onChange={(index) => {
+            const theme = NEXT_THEMES[index ?? -1];
+            if (theme) setThemePreference(theme.value);
+          }}>{NEXT_THEMES.map((theme) => <SegmentedControl.Button key={theme.value} selected={themeState.preference === theme.value}>{theme.label}</SegmentedControl.Button>)}</SegmentedControl>
         </SettingRow>
       </FormSection>
       <FormSection title="Your account" description="Saved with your account: the classic UI and Forgejo's emails use them.">
@@ -434,10 +434,9 @@ const AppearanceView = observer(function AppearanceView() {
             </SettingRow>
             <SettingRow title="Diff view" description="How the classic UI shows a change.">
               {offline ? <span className="text-sm text-muted">{diffStyleOf(settings.diff_view_style) === 'split' ? 'Split' : 'Unified'}</span> :
-                <SegmentedControl label="Diff view" value={diffStyleOf(settings.diff_view_style)} options={[{value: 'unified', label: 'Unified'}, {value: 'split', label: 'Split'}]}
-                  onChange={(v) => {
-                    change({diff_view_style: v}, 'Diff view');
-                  }}/>}
+                <SegmentedControl aria-label="Diff view" onChange={(index) => {
+                  if (index !== undefined) change({diff_view_style: index === 0 ? 'unified' : 'split'}, 'Diff view');
+                }}><SegmentedControl.Button selected={diffStyleOf(settings.diff_view_style) === 'unified'}>Unified</SegmentedControl.Button><SegmentedControl.Button selected={diffStyleOf(settings.diff_view_style) === 'split'}>Split</SegmentedControl.Button></SegmentedControl>}
             </SettingRow>
             <Toggle src={src} settings={settings} field="enable_repo_unit_hints" label="Hints for a repository's unused features"
               hint="The classic UI suggests adding what a repository you own does not use yet (a wiki, releases)." offline={offline}/>
@@ -456,12 +455,12 @@ function ChoiceMenu({label, value, options, fallback, disabled, onChange}: {
   const name = options.find((o) => o.id === value)?.name ?? (value !== '' ? value : fallback ?? '—');
   return (
     <ActionMenu>
-      <ActionMenu.Anchor><Button size="sm" aria-label={`${label}: ${name}`} disabled={Boolean(disabled)} tooltip={disabled}>{name}<ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+      <ActionMenu.Button size="small" aria-label={`${label}: ${name}`} inactive={Boolean(disabled)}>{name}</ActionMenu.Button>
       <ActionMenu.Overlay align="end"><ActionList>
         <ActionList.Group selectionVariant="single">
-          {options.map((o) => <ActionList.Item key={o.id} selected={value === o.id} onSelect={() => { ((v) => {
-          if (v !== value) onChange(v);
-        })(o.id); }}>{o.name}</ActionList.Item>)}
+          {options.map((o) => <ActionList.Item key={o.id} selected={value === o.id} onSelect={() => {
+            if (o.id !== value) onChange(o.id);
+          }}>{o.name}</ActionList.Item>)}
         </ActionList.Group>
       </ActionList></ActionMenu.Overlay>
     </ActionMenu>
@@ -477,10 +476,11 @@ const AccountView = observer(function AccountView() {
     <>
       <EmailsSection src={src}/>
       <FormSection title="Password" description="Change your password, or set one for an account that signs in elsewhere.">
-        <div><ClassicLink to="/user/settings/account" variant="secondary">Change your password</ClassicLink></div>
+        <div><ClassicLink to="/user/settings/account" variant="default">Change your password</ClassicLink></div>
       </FormSection>
-      <FormSection title="Delete your account" description="Your repositories, organizations you alone own and everything you wrote go with it.">
-        <div><ClassicLink to="/user/settings/account" variant="secondary">Delete your account</ClassicLink></div>
+      <FormSection title="Delete your account">
+        <Banner variant="critical" title="Deleting your account is permanent" description="Your repositories, organizations you alone own and everything you wrote go with it."/>
+        <div><ClassicLink to="/user/settings/account" variant="default">Delete your account</ClassicLink></div>
       </FormSection>
     </>
   );
@@ -507,22 +507,22 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
   return (
     <FormSection title="Email addresses" description="Forgejo sends notifications to your primary address. Any verified address links your commits to you.">
       {list ? (
-        <Panel title={`${String(list.length)} ${list.length === 1 ? 'address' : 'addresses'}`}>
+        <AccountList title={`${String(list.length)} ${list.length === 1 ? 'address' : 'addresses'}`}>
           {list.map((e) => (
-            <ListRow key={e.email} role={undefined} leading={<MailIcon size={12} className="shrink-0"/>} trailing={<>
+            <AccountRow key={e.email} leading={<MailIcon size={12} className="shrink-0"/>} trailing={<>
               {e.primary && <Label variant="accent">Primary</Label>}
               {e.verified ? <Label variant="success">Verified</Label> : <Label variant="attention">Unverified</Label>}
-              {!e.primary && e.verified && <OptionalTooltip text={offline}><PrimerButton variant="invisible" size="small" type="button" disabled={Boolean(offline)} onClick={() => {
+              {!e.primary && e.verified && <PrimerButton variant="invisible" size="small" type="button" inactive={Boolean(offline)} onClick={() => {
                 primary(e.email);
-              }}>Make primary</PrimerButton></OptionalTooltip>}
+              }}>Make primary</PrimerButton>}
               {!e.primary && <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove ${e.email}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(e.email);
               }}/>}
             </>}>
               <span title={e.email}>{e.email}</span>
-            </ListRow>
+            </AccountRow>
           ))}
-        </Panel>
+        </AccountList>
       ) : <SlotState slot={slot} what="Your email addresses" skeleton={<RowsSkeleton/>}/>}
       {list?.some((e) => !e.verified) && (
         <p className="text-sm text-muted">An unverified address waits for the link Forgejo mailed to it. <TextClassic to="/user/settings/account">Send it again in the classic UI</TextClassic>.</p>
@@ -570,7 +570,7 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
     }}>
       <Field id={id} label="Add an email address" error={error} hint={offline}>
         <div className="flex gap-2">
-          <TextInput id={id} type="email" autoComplete="email" placeholder="you@example.com" value={email} className="min-w-0 flex-1" aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
+          <TextInput type="email" autoComplete="email" placeholder="you@example.com" value={email} className="min-w-0 flex-1" aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
               setEmail(e.target.value);
               setError(undefined);
             }} {...(error ? {validationStatus: 'error' as const} : {})}/>
@@ -584,19 +584,16 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
 /** A link to a classic page inside a sentence. */
 function TextClassic({to, children}: {to: string; children: ReactNode}) {
   const app = useApp();
-  return <a href={classicHref(app, to)} data-classic="" className="text-accent hover:underline">{children}</a>;
+  return <PrimerLink href={classicHref(app, to)} data-classic="">{children}</PrimerLink>;
 }
 
 /** Asks before a delete. */
 function Confirm({title, description, action, onConfirm, onClose}: {title: string; description: ReactNode; action: string; onConfirm: () => void; onClose: () => void}) {
   return (
-    <Dialog title={title} subtitle={description} width="medium" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <PrimerButton variant="invisible" type="button" onClick={onClose}>Cancel</PrimerButton>
-      <PrimerButton variant="danger" type="button" onClick={() => {
-        onClose();
-        onConfirm();
-      }}>{action}</PrimerButton>
-    </>}</Dialog.Footer>}></Dialog>
+    <ConfirmationDialog title={title} confirmButtonContent={action} confirmButtonType="danger" onClose={(gesture) => {
+      onClose();
+      if (gesture === 'confirm') onConfirm();
+    }}>{description}</ConfirmationDialog>
   );
 }
 
@@ -625,16 +622,16 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
   const list = slot.state === 'ready' ? slot.value : undefined;
   return (
     <FormSection title="SSH keys" description="The keys that may push and pull over SSH as you."
-      actions={!adding && <OptionalTooltip text={offline}><PrimerButton size="small" leadingVisual={PlusIcon} type="button" disabled={Boolean(offline)} onClick={() => {
+      actions={!adding && <PrimerButton size="small" leadingVisual={PlusIcon} type="button" inactive={Boolean(offline)} onClick={() => {
         setAdding(true);
-      }}>New SSH key</PrimerButton></OptionalTooltip>}>
+      }}>New SSH key</PrimerButton>}>
       {adding && <AddSshKey src={src} offline={offline} onDone={() => {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <Panel title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
+        <AccountList title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
           {list.map((k) => (
-            <ListRow key={k.id} role={undefined} leading={<KeyIcon size={12} className="shrink-0"/>} trailing={<>
+            <AccountRow key={k.id} leading={<KeyIcon size={12} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
               <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
@@ -643,9 +640,9 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
             </>}>
               <span className="font-medium">{k.title}</span>
               {k.fingerprint && <span className="ml-3 font-mono text-sm text-muted" title={k.fingerprint}>{k.fingerprint}</span>}
-            </ListRow>
+            </AccountRow>
           ))}
-        </Panel>
+        </AccountList>
       ) : !adding && <Blankslate><Blankslate.Visual><KeyIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No SSH keys</Blankslate.Heading><Blankslate.Description>Add one to push and pull over SSH.</Blankslate.Description></Blankslate>) :
         <SlotState slot={slot} what="Your SSH keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
@@ -692,12 +689,12 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
       add();
     }}>
       <Field id={`${base}-title`} label="Title" hint="Optional: the key's comment, else its type.">
-        <TextInput id={`${base}-title`} value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
+        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
           setTitle(e.target.value);
         }}/>
       </Field>
       <Field id={`${base}-key`} label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
-        <Textarea id={`${base}-key`} value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
+        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
           }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
@@ -719,18 +716,18 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
   const list = slot.state === 'ready' ? slot.value : undefined;
   return (
     <FormSection title="GPG keys" description="The keys whose signatures mark your commits as verified."
-      actions={!adding && <OptionalTooltip text={offline}><PrimerButton size="small" leadingVisual={PlusIcon} type="button" disabled={Boolean(offline)} onClick={() => {
+      actions={!adding && <PrimerButton size="small" leadingVisual={PlusIcon} type="button" inactive={Boolean(offline)} onClick={() => {
         setAdding(true);
-      }}>New GPG key</PrimerButton></OptionalTooltip>}>
+      }}>New GPG key</PrimerButton>}>
       {adding && <AddGpgKey src={src} offline={offline} onDone={() => {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <Panel title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
+        <AccountList title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
           {list.map((k) => {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (
-              <ListRow key={k.id} role={undefined} leading={<LockIcon size={12} className="shrink-0"/>} trailing={<>
+              <AccountRow key={k.id} leading={<LockIcon size={12} className="shrink-0"/>} trailing={<>
                 {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
                 {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
                 <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
@@ -740,10 +737,10 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
               </>}>
                 <span className="font-mono font-medium">{spacedKeyId(k.key_id)}</span>
                 {emails && <span className="ml-3 text-muted" title={emails}>{emails}</span>}
-              </ListRow>
+              </AccountRow>
             );
           })}
-        </Panel>
+        </AccountList>
       ) : !adding && <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No GPG keys</Blankslate.Heading><Blankslate.Description>Add one to have your signed commits verified.</Blankslate.Description></Blankslate>) :
         <SlotState slot={slot} what="Your GPG keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
@@ -788,7 +785,7 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
       add();
     }}>
       <Field id={id} label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
-        <Textarea id={id} value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" aria-describedby={describedBy(id, error, true)} onChange={(e) => {
+        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" aria-describedby={describedBy(id, error, true)} onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
           }} block {...(error ? {validationStatus: 'error' as const} : {})}/>

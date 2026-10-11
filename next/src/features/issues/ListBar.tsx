@@ -21,10 +21,10 @@ import {useApp, useSession} from '../../app/store.ts';
 import {SaveViewDialog} from '../views/SaveView.tsx';
 import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
-import {
-  Avatar, CommandPopover, Input, LabelDot, LabelIcon, type PickOption, PromptDialog,
-} from '../../ui/index.ts';
-import {ResultCount, SelectionCount, usePool} from './cells.tsx';
+import {panelGroups, panelItems, selectedItems, matchOptions, type PickOption} from './pickerItems.tsx';
+import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
+import {labelColor, LabelGlyph} from './cells.tsx';
+import {ResultCount, SelectionCount, UserAvatar, usePool} from './cells.tsx';
 import {issueActions} from './actions.ts';
 import {issuesOf} from './edits.ts';
 import {repoLabels} from './candidates.ts';
@@ -33,7 +33,7 @@ import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {ChevronDownIcon, FileSubmoduleIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {IssueLabelToken, SelectPanel, SegmentedControl, TextInput, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -103,16 +103,18 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
   });
   // Display marks a grouping or an ordering other than the list's default (the list looks different for a reason).
   const modified = search.group !== undefined || search.sort !== undefined;
+  const chooseState = (value: ListState) => {afterPaint(() => {setState(value);});};
+  const chooseGroup = (value: ListGroup) => {afterPaint(() => {set({group: value});});};
+  const chooseSort = (value: ListSort) => {afterPaint(() => {set({sort: value === 'newest' ? undefined : value});});};
   return (
     <>
       {saving && <SaveViewDialog path={path} search={viewSearch} onClose={() => {
         setSaving(false);
       }}/>}
-      {stateButtons && STATES.map((s) => (
-        <Button aria-pressed={state === s.state} variant={state === s.state ? 'default' : 'invisible'} size="small" type="button" key={s.state} onClick={() => {
-          setState(s.state);
-        }}>{s.label}</Button>
-      ))}
+      {stateButtons && <SegmentedControl aria-label="Issue state" size="small" onChange={(index) => {
+        const choice = index === undefined ? undefined : STATES[index];
+        if (choice) setState(choice.state);
+      }}>{STATES.map((choice) => <SegmentedControl.Button key={choice.state} selected={state === choice.state}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
       <SearchField inputRef={searchRef} value={search.q ?? ''} onChange={(q) => {
         // The list filters as you type; the URL follows a moment later.
         set({q: q.trim() ? q : undefined}, false);
@@ -121,38 +123,24 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       }}/>
       <FilterMenu search={search} repoId={repoId} set={set} byMilestone={!hideGroups.includes('milestone')}/>
       <ActionMenu>
-        <ActionMenu.Anchor><Button aria-pressed={modified} variant={modified ? 'default' : 'invisible'} size="small" leadingVisual={RowsIcon} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button></ActionMenu.Anchor>
+        <ActionMenu.Anchor><Button variant={modified ? 'default' : 'invisible'} size="small" leadingVisual={RowsIcon} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
           {!stateButtons && (
             <>
               <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Show</ActionList.GroupHeading>
               
-                {STATES.map((s) => <ActionList.Item key={s.state} selected={state === s.state} onSelect={() => { ((v) => {
-                afterPaint(() => {
-                  setState(v as ListState);
-                });
-              })(s.state); }}>{s.label}</ActionList.Item>)}
+                {STATES.map((s) => <ActionList.Item key={s.state} selected={state === s.state} onSelect={() => {chooseState(s.state);}}>{s.label}</ActionList.Item>)}
               </ActionList.Group>
               <ActionList.Divider/>
             </>
           )}
           <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Grouping</ActionList.GroupHeading>
-          {/* The menu closes first; the list regroups or reorders after that frame (a long list takes a while). */}
-          <ActionList.Group selectionVariant="single">
-            {GROUPS.filter((g) => !hideGroups.includes(g.group)).map((g) => <ActionList.Item key={g.group} selected={group === g.group} onSelect={() => { ((g) => {
-            afterPaint(() => {
-              set({group: g});
-            });
-          })(g.group); }}>{g.label}</ActionList.Item>)}
-          </ActionList.Group>
+          {/* Close first; defer expensive list updates until the next paint. */}
+            {GROUPS.filter((g) => !hideGroups.includes(g.group)).map((g) => <ActionList.Item key={g.group} selected={group === g.group} onSelect={() => {chooseGroup(g.group);}}>{g.label}</ActionList.Item>)}
           </ActionList.Group><ActionList.Divider/>
-          <ActionList.Group><ActionList.GroupHeading>Ordering</ActionList.GroupHeading>
+          <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Ordering</ActionList.GroupHeading>
           
-            {SORTS.map((s) => <ActionList.Item key={s.sort} selected={sort === s.sort} onSelect={() => { ((v) => {
-            afterPaint(() => {
-              set({sort: v === 'newest' ? undefined : v});
-            });
-          })(s.sort); }}>{s.label}</ActionList.Item>)}
+            {SORTS.map((s) => <ActionList.Item key={s.sort} selected={sort === s.sort} onSelect={() => {chooseSort(s.sort);}}>{s.label}</ActionList.Item>)}
           </ActionList.Group>
           <ActionList.Divider/>
           <ActionList.Item onSelect={() => {
@@ -240,7 +228,7 @@ function SearchField({inputRef, value, onChange, onSettle}: {inputRef: RefObject
     }, 300);
   };
   return (
-    <Input ref={inputRef} size="sm" icon={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 shrink-0"
+    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 shrink-0"
       onChange={(e) => {
         change(e.target.value);
       }}
@@ -327,7 +315,7 @@ function workspaceFilters(pool: ReturnType<typeof usePool>, search: ListSearch, 
   }
   const current = search.label?.toLowerCase();
   for (const [key, l] of [...names].sort((a, b) => a[0].localeCompare(b[0]))) {
-    out.push({value: `n:${key}`, label: l.name, words: 'label', group: 'Labels', leading: <LabelDot color={l.color}/>, checked: current === key, onSelect: () => {
+    out.push({value: `n:${key}`, label: l.name, words: 'label', group: 'Labels', leading: <IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/>, checked: current === key, onSelect: () => {
       set({label: current === key ? undefined : l.name});
     }});
   }
@@ -369,7 +357,7 @@ function kindFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
       out.push({
         // Found by the label's full name too ("status/Todo", as the Labels page lists it).
         value: `${kind}:${key}`, label: v, words: `${kind} ${l.name}`, group: kind === 'status' ? 'Status' : 'Priority', checked: current === key,
-        leading: <LabelIcon icon={kind === 'status' ? statusIcon(l.name) : priorityIcon(l.name)} color={l.color}/>,
+        leading: <LabelGlyph icon={kind === 'status' ? statusIcon(l.name) : priorityIcon(l.name)} color={l.color}/>,
         onSelect: () => {
           set({[kind]: current === key ? undefined : v});
         },
@@ -387,6 +375,8 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const pool = usePool();
   const app = useApp();
   const me = app.session?.userId ?? 0;
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const active = activeFilters(pool, search, set, (app.session?.data.status.loading ?? 0) > 0);
   const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
   if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {
@@ -397,19 +387,23 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
   // Read untracked: the menu does not re-render on every issue of the workspace (it is built again when it renders).
   else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
-  return (
-    <CommandPopover label="Filter" placeholder="Filter by…"
-      width="md" options={options} empty="Nothing to filter by is on this device."
-      onOpenChange={(open) => {
-        if (open && repoId !== undefined) loadPeople(app, repoId);
-      }}
-      trigger={
-        // The filter in effect by name ("Label: bug"), the others counted.
-        <Button variant={active.length ? 'default' : 'invisible'} size="small" leadingVisual={FilterIcon} type="button">
-          <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
-        </Button>
-      }/>
-  );
+  const closeFilter = () => {setOpen(false); setQuery('');};
+  const visible = matchOptions(options, query);
+  const items = panelItems(visible, closeFilter);
+  return <SelectPanel title="Filter" aria-label="Filter" inputLabel="Filter" placeholderText="Filter by…"
+    open={open} onOpenChange={(next) => {
+      if (next) setOpen(true);
+      else closeFilter();
+      if (next && repoId !== undefined) loadPeople(app, repoId);
+    }}
+    items={items} selected={selectedItems(visible, items)} onSelectedChange={() => undefined}
+    {...(visible.length <= 50 && visible.some((option) => option.group) ? {groupMetadata: panelGroups(visible)} : {})}
+    filterValue={query} onFilterChange={setQuery} showSelectedOptionsFirst={false} virtualized={items.length > 50} loading={false}
+    {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No matches', body: 'Nothing to filter by is on this device.'}} : {})}
+    renderAnchor={(props) => <Button {...{...props}} variant={active.length ? 'default' : 'invisible'} size="small" leadingVisual={FilterIcon} type="button">
+      <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
+    </Button>}/>;
+
 });
 
 /** The values a repository's list filters by, grouped (observes the repository's labels, people and milestones). */
@@ -419,7 +413,7 @@ function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
   const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).sort((a, b) => a.title.localeCompare(b.title));
   // Status and priority labels are their own groups (kindFilters).
   const out: PickOption[] = repoLabels(pool, repoId).filter((l) => !labelKind(l)).map((l) => ({
-    value: `l:${String(l.id)}`, label: l.name, words: 'label', group: 'Labels', leading: <LabelDot color={l.color}/>, checked: chosen.has(l.id), keepOpen: true,
+    value: `l:${String(l.id)}`, label: l.name, words: 'label', group: 'Labels', leading: <IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/>, checked: chosen.has(l.id), keepOpen: true,
     onSelect: () => {
       const next = new Set(chosen);
       if (next.has(l.id)) next.delete(l.id);
@@ -431,7 +425,7 @@ function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
   out.push({value: 'a:-1', label: 'Nobody', words: 'assignee unassigned', group: 'Assignee', icon: PersonIcon, checked: search.assignee === -1, onSelect: () => {
     set({assignee: search.assignee === -1 ? undefined : -1});
   }});
-  for (const u of users) out.push({value: `a:${String(u.id)}`, label: person(u), words: `assignee ${u.name}`, group: 'Assignee', leading: <Avatar name={u.name} src={u.avatar} size="sm"/>, checked: search.assignee === u.id, onSelect: () => {
+  for (const u of users) out.push({value: `a:${String(u.id)}`, label: person(u), words: `assignee ${u.name}`, group: 'Assignee', leading: <UserAvatar id={u.id}/>, checked: search.assignee === u.id, onSelect: () => {
     set({assignee: search.assignee === u.id ? undefined : u.id});
   }});
   for (const u of users) out.push({value: `p:${String(u.id)}`, label: person(u), words: `author ${u.name}`, group: 'Author', icon: PersonIcon, checked: search.poster === u.id, onSelect: () => {
@@ -481,7 +475,7 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
           }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Remove the view</ActionList.Item>
         </ActionList></ActionMenu.Overlay>
       </ActionMenu>
-      {renaming && <PromptDialog title="Rename the view" label="View name" initial={view.name} maxLength={80} onClose={() => {
+      {renaming && <ViewNameDialog title="Rename the view" initial={view.name} onClose={() => {
         setRenaming(false);
       }} onSave={(name) => {
         store.rename(view.id, name);

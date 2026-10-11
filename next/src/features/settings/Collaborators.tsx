@@ -1,6 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {SkeletonAvatar} from '@primer/react/experimental';
+
+import type {SelectPanelItemInput} from '@primer/react';
+import {SelectPanel, Select, SegmentedControl, Avatar, Button, IconButton, ConfirmationDialog} from '@primer/react';
+import {SettingsEntry} from './SettingsEntry.tsx';
+import {FormSection} from '../usersettings/form.tsx';
+
 // A repository's collaborators (/{owner}/{repo}/settings/collaboration):
 // the pool's Collaboration rows paint the list at once (an administrator
 // reads "write" there: the sync scope does not say who administers), API
@@ -8,13 +15,10 @@
 // (a people search), changing a role and removing apply at once and are
 // undone if Forgejo refuses; removing offers Undo.
 import {observer} from 'mobx-react-lite';
-import {useEffect, useState} from 'react';
+import {type ReactElement, useEffect, useRef, useState} from 'react';
 import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {
-  Avatar, CommandPick, Entry, FormSection, Popover, PopoverContent, PopoverTrigger, type PickOption, Select, SegmentedControl,
-} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ResourceList, useOffline} from './bits.tsx';
 import {problemOf} from './problems.ts';
@@ -22,12 +26,12 @@ import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator,
 import {settingsKey, useResource} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
 import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button, IconButton, Label} from '@primer/react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   const pool = usePool();
   const offline = useOffline();
+  const [removing, setRemoving] = useState<Collaborator | undefined>(undefined);
   const res = useResource(settingsKey(repoId, 'collaborators'), (signal) => fetchCollaborators(app, owner, repo, signal));
   // Before the first answer: the pool's rows (instant), with the role the pool knows.
   const fromPool: Collaborator[] = [];
@@ -76,18 +80,23 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
       actions={<AddPerson disabled={offline} members={members} onAdd={add}/>}>
       <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
-          <Entry key={c.id} leading={<Avatar name={c.login} src={c.avatar || undefined}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
+          <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={32}/> : <SkeletonAvatar size={32}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
             description={c.approximate ? 'Checking the exact role…' : undefined}
             actions={<>
-              <Select aria-label={`${c.login}’s role`} size="sm" value={c.role} disabled={offline} options={ROLES} onValueChange={(v) => {
-                if (v !== c.role) setRole(c, v);
-              }}/>
+              <Select aria-label={`${c.login}’s role`} value={c.role} disabled={offline} onChange={(event) => {
+                const role = event.target.value as Role;
+                if (role !== c.role) setRole(c, role);
+              }}>{ROLES.map((role) => <Select.Option key={role.value} value={role.value}>{role.label}</Select.Option>)}</Select>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove ${c.login}`} type="button" disabled={offline} onClick={() => {
-                remove(c);
+                setRemoving(c);
               }}/>
             </>}/>
         ))}
       </ResourceList>
+      {removing && <ConfirmationDialog title={`Remove ${removing.login}?`} confirmButtonContent="Remove collaborator" confirmButtonType="danger" onClose={(gesture) => {
+        if (gesture === 'confirm' && !offline) remove(removing);
+        setRemoving(undefined);
+      }}>They will lose their collaborator access to this repository.</ConfirmationDialog>}
       {org && <RepositoryTeams owner={owner} repo={repo} repoId={repoId}/>}
     </FormSection>
   );
@@ -97,34 +106,30 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
 function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: ReadonlySet<number>; onAdd: (u: FoundUser, role: Role) => void}) {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<Role>('write');
+  const button = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (!open && wasOpen.current) button.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild><Button variant="primary" size="small" leadingVisual={PersonAddIcon} type="button" disabled={disabled}>Add people</Button></PopoverTrigger>
-      {/* The search field takes the focus (as in every picker): typing a name narrows the list at once. Radix would
-          focus the first control, the role's. */}
-      <PopoverContent width="md" align="end" onOpenAutoFocus={(e) => {
-        const field = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>('input');
-        if (!field) return;
-        e.preventDefault();
-        field.focus();
-      }}>
-        <div className="flex items-center justify-between gap-2 border-b border-default px-3 py-2">
-          <span className="text-sm text-muted">Role</span>
-          <SegmentedControl label="Role" value={role} onChange={setRole} options={ROLES}/>
-        </div>
-        <PeopleSearch members={members} onPick={(u) => {
+    <>
+      <Button ref={button} variant="primary" size="small" leadingVisual={PersonAddIcon} disabled={disabled} onClick={() => { setOpen(true); }}>Add people</Button>
+      {open && <PeopleSearch members={members} subtitle={<SegmentedControl aria-label="Role" onChange={(index) => {
+        const choice = ROLES[index ?? -1];
+        if (choice) setRole(choice.value);
+      }}>{ROLES.map((choice) => <SegmentedControl.Button key={choice.value} selected={role === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
+        onPick={(user) => {
           setOpen(false);
-          onAdd(u, role);
-        }} onClose={() => {
-          setOpen(false);
-        }}/>
-      </PopoverContent>
-    </Popover>
+          onAdd(user, role);
+        }} onClose={() => { setOpen(false); }}/>}
+    </>
   );
 }
 
-export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean}) {
+export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true, subtitle}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean; subtitle?: ReactElement}) {
   const app = useApp();
+  const anchor = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const {userId} = useSession();
   const [query, setQuery] = useState('');
   const [found, setFound] = useState<{q: string; users: FoundUser[]; error?: string}>({q: '', users: []});
@@ -145,13 +150,19 @@ export function PeopleSearch({members, onPick, onClose, label = 'Add a collabora
     };
   }, [app, query]);
   const q = query.trim();
-  const options: PickOption[] = q && found.q === q ? found.users.filter((u) => !excludeSelf || u.id !== userId).map((u) => ({
-    value: String(u.id), label: u.name, words: u.login, leading: <Avatar size="sm" name={u.login} src={u.avatar || undefined}/>,
-    meta: members.has(u.id) ? <Label>Already added</Label> : u.name !== u.login ? u.login : undefined,
-    onSelect: () => {
-      if (!members.has(u.id)) onPick(u);
-    },
-  })) : [];
+  const users = q && found.q === q ? found.users.filter((user) => !excludeSelf || user.id !== userId) : [];
   const empty = !q ? 'Type a login or a name.' : found.q !== q ? 'Searching…' : found.error ?? 'Nobody by that name.';
-  return <CommandPick label={label} placeholder="Search people…" options={options} empty={empty} onClose={onClose} query={query} onQueryChange={setQuery} filtered/>;
+  return <SelectPanel title={label} {...(subtitle ? {subtitle} : {})} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
+    renderAnchor={null} anchorRef={anchor} selected={undefined} filterValue={query} onFilterChange={setQuery}
+    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > 50}
+    {...(users.length ? {} : {message: {title: empty, variant: found.error ? 'error' as const : 'empty' as const, body: ''}})}
+    items={users.map((user) => ({
+      id: user.id, text: user.name, description: members.has(user.id) ? 'Already added' : user.login,
+      disabled: members.has(user.id), leadingVisual: () => user.avatar ? <Avatar size={24} alt={user.login} src={user.avatar}/> : <SkeletonAvatar size={24}/>,
+    }))}
+    onSelectedChange={(item: SelectPanelItemInput | undefined) => {
+      if (!item) return;
+      const user = users.find((user) => user.id === item.id);
+      if (user && !members.has(user.id)) onPick(user);
+    }}/>;
 }

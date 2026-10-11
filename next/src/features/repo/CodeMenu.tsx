@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The "Code" button at the right of the overview's file bar (neutral, as its neighbours Search code and Go to
-// file: #254): a
+// The primary "Code" action at the right of the overview's file bar: a
 // popover with the clone URL over HTTPS or SSH (SSH only when the instance
 // has it on: NextConfig.ssh_clone_prefix), each with a copy button, and the
 // default branch's source archives. Everything is known at once (the
@@ -12,9 +11,8 @@ import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {ARCHIVE_FORMATS, archivePath, httpsCloneUrl, sshCloneUrl} from '../../code/clone.ts';
-import {AsideLink, AsideLinks, CopyField, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
-import {ChevronDownIcon, CodeIcon, FileZipIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {ChevronDownIcon, CodeIcon, FileZipIcon, CopyIcon} from '@primer/octicons-react';
+import {Button, Heading, TextInput, IconButton, ActionList, SegmentedControl, AnchoredOverlay} from '@primer/react';
 
 type Protocol = 'https' | 'ssh';
 
@@ -40,26 +38,24 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
   const shown: Protocol = ssh === undefined ? 'https' : protocol;
   const url = shown === 'ssh' && ssh !== undefined ? ssh : https;
   return (
-    <div className="flex flex-col gap-3 p-1">
+    <div className="flex flex-col gap-3 p-3">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-md font-semibold text-default">Clone</h2>
+          <Heading as="h2" variant="small">Clone</Heading>
           {ssh !== undefined && (
-            <SegmentedControl label="Clone over" value={shown} onChange={setProtocol} options={[{value: 'https', label: 'HTTPS'}, {value: 'ssh', label: 'SSH'}]}/>
+            <SegmentedControl aria-label="Clone over" onChange={(index) => { setProtocol(index === 1 ? 'ssh' : 'https'); }}><SegmentedControl.Button selected={shown === 'https'}>HTTPS</SegmentedControl.Button><SegmentedControl.Button selected={shown === 'ssh'}>SSH</SegmentedControl.Button></SegmentedControl>
           )}
         </div>
-        <CopyField value={url} label={`Clone URL (${shown === 'ssh' ? 'SSH' : 'HTTPS'})`} copyLabel="Copy the clone URL" onCopy={() => {
-          onCopy(url);
-        }}/>
+        <div className="flex items-center gap-2"><TextInput readOnly monospace block value={url} aria-label={`Clone URL (${shown === 'ssh' ? 'SSH' : 'HTTPS'})`}/><IconButton icon={CopyIcon} aria-label="Copy the clone URL" onClick={() => { onCopy(url); }}/></div>
         <p className="text-sm text-muted">{HINTS[shown]}</p>
       </div>
       {archives.length > 0 && (
         <div className="border-t border-default pt-3">
-          <AsideLinks label="Download">
+          <ActionList aria-label="Download">
             {archives.map((a) => (
-              <AsideLink key={a.format} icon={FileZipIcon}><a href={a.href} download>{ARCHIVE_LABELS[a.format]}</a></AsideLink>
+              <ActionList.LinkItem key={a.format} href={a.href} download><ActionList.LeadingVisual><FileZipIcon/></ActionList.LeadingVisual>{ARCHIVE_LABELS[a.format]}</ActionList.LinkItem>
             ))}
-          </AsideLinks>
+          </ActionList>
         </div>
       )}
     </div>
@@ -69,13 +65,10 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
 /** The button and its popover, for a repository and its default branch ("" when it has none: no archives). */
 export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; branch: string}) {
   const app = useApp();
+  const [open, setOpen] = useState(false);
   const archives = branch ? ARCHIVE_FORMATS.map((format) => ({format, href: sitePath(app.config, archivePath(owner, repo, branch, format))})) : [];
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button size="small" leadingVisual={CodeIcon} type="button">Code<ChevronDownIcon size={12} className="shrink-0"/></Button>
-      </PopoverTrigger>
-      <PopoverContent width="md" align="end">
+    <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} align="end" width="medium" overlayProps={{role: 'dialog', 'aria-label': 'Clone repository'}} renderAnchor={(props) => <Button {...{...props}} variant="primary" size="small" leadingVisual={CodeIcon} trailingVisual={ChevronDownIcon}>Code</Button>}>
         <CodeMenuPanel https={httpsCloneUrl(app.config.app_url, owner, repo)} ssh={sshCloneUrl(app.config.ssh_clone_prefix, owner, repo)} archives={archives}
           onCopy={(url) => {
             void navigator.clipboard.writeText(url).then(() => {
@@ -84,7 +77,6 @@ export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; br
               notify(app, {tone: 'neutral', title: 'Could not copy', description: 'Select the URL and copy it.'});
             });
           }}/>
-      </PopoverContent>
-    </Popover>
+      </AnchoredOverlay>
   );
 }

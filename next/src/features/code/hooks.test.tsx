@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 import {act, render, screen, waitFor} from '@testing-library/react';
 import {observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';

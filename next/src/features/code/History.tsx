@@ -7,13 +7,16 @@
 // from B9 (cached, parsed and highlighted in the worker).
 
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {Avatar, Link as PrimerLink} from '@primer/react';
+
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
-import {Avatar, Code, TextLink} from '../../ui/index.ts';
+
 import {usePool} from '../issues/cells.tsx';
 import {reach} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
@@ -40,7 +43,7 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
   const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
-    <Button as={CodeLink} variant="invisible" size="small" leadingVisual={FileCodeIcon} owner={props.owner} repo={props.repo} to={codeSplat('src', r, r.path)}>Browse files</Button>
+    <RouterLinkButton variant="invisible" size="small" leadingVisual={FileCodeIcon} {...codeTo(props.owner, props.repo, codeSplat('src', r, r.path))}>Browse files</RouterLinkButton>
   </>;
   return (
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
@@ -162,14 +165,14 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     return (
       <CodeFrame view={props} title={shortSha(sha)}>
         {() => <Unloaded loaded={info} what="This commit" action={
-          <Button as={CodeLink} leadingVisual={HistoryIcon} owner={owner} repo={repo} to="commits">All commits</Button>
+          <RouterLinkButton leadingVisual={HistoryIcon} {...codeTo(owner, repo, "commits")}>All commits</RouterLinkButton>
         }/>}
       </CodeFrame>
     );
   }
   return (
     <CodeFrame view={props} title={c ? summary(c.message) : shortSha(sha)} controls={<><DiffSettings/>
-      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={FileCodeIcon} owner={owner} repo={repo} to={`src/commit/${sha}`}>Browse files</Button>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={FileCodeIcon} {...codeTo(owner, repo, `src/commit/${sha}`)}>Browse files</RouterLinkButton>
     </>}>
       {(scroller) => (
         <>
@@ -196,10 +199,10 @@ function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repo
       <h1 className="text-xl font-semibold text-default"><CommitMessage owner={owner} repo={repo} text={summary(c.message)}/></h1>
       {body && <pre className="font-mono text-code whitespace-pre-wrap text-muted"><CommitMessage owner={owner} repo={repo} text={body}/></pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-        <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-default">{c.authorName}</span></span>
+        <span className="flex items-center gap-1.5">{c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : null}<span className="text-default">{c.authorName}</span></span>
         <Ago at={c.date}/>
-        <span className="flex items-center gap-1"><GitCommitIcon size={12} className="shrink-0"/><Code>{c.sha}</Code></span>
-        {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}
+        <span className="flex items-center gap-1"><GitCommitIcon size={12} className="shrink-0"/><code>{c.sha}</code></span>
+        {c.parents.map((p) => <span key={p}>parent <PrimerLink as={CodeLink} owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></PrimerLink></span>)}
       </p>
       <ContainedIn owner={owner} repo={repo} repoId={repoId} sha={c.sha}/>
       <CommitChecksSection owner={owner} repo={repo} repoId={repoId} sha={c.sha}/>

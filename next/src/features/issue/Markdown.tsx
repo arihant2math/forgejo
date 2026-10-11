@@ -13,7 +13,7 @@ import {type MouseEvent, useEffect, useEffectEvent, useLayoutEffect, useRef} fro
 import {nextPathOf} from '../../app/paths.ts';
 import {type App, useApp} from '../../app/store.ts';
 import {setMarkup} from '../../app/trusted.ts';
-import {paintTokens, Prose} from '../../ui/index.ts';
+import {paintTokens} from '../../code/parts.tsx';
 
 /**
  * `onTask`: the task-list checkboxes can be ticked (the viewer may edit the text): called with the task's index
@@ -80,7 +80,7 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     const q = search.toString();
     void router.navigate({href: `${sub}${path}${q ? `?${q}` : ''}${url.hash}`});
   };
-  return <Prose ref={ref} onClick={onClick}/>;
+  return <div className="markdown-body" ref={ref} onClick={onClick}/>;
 }
 
 export function scrollMarkdownAnchor(root: HTMLElement, hash: string): void {

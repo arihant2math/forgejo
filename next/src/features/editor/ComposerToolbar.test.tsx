@@ -7,7 +7,7 @@ import {useState} from 'react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {AppContext, createApp, type App, type Session} from '../../app/store.ts';
-import {TooltipProvider} from '../../ui/Tooltip.tsx';
+import {BaseStyles, ThemeProvider} from '@primer/react';
 import {type EditorTool, MarkdownField} from './Composer.tsx';
 import MarkdownEditor from './MarkdownEditor.tsx';
 import {QuoteIcon} from '@primer/octicons-react';
@@ -24,9 +24,9 @@ function app(): App {
 
 function Field({initial, tools}: {initial: string; tools?: EditorTool[]}) {
   const [value, setValue] = useState(initial);
-  return <AppContext value={app()}><TooltipProvider>
+  return <AppContext value={app()}><ThemeProvider><BaseStyles>
     <MarkdownField repoId={0} label="Description" value={value} onChange={setValue} tools={tools} autoFocus/>
-  </TooltipProvider><output data-testid="text">{value}</output></AppContext>;
+  </BaseStyles></ThemeProvider><output data-testid="text">{value}</output></AppContext>;
 }
 
 async function editorView(): Promise<EditorView> {

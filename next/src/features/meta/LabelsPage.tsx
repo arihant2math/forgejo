@@ -17,8 +17,7 @@ import type {LabelSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {LabelPill, ListRow, Panel, PendingIcon, Skeleton} from '../../ui/index.ts';
-import {exclusiveScope} from '../issues/labels.ts';
+import {MetadataSection, LabelListRow, SavingIndicator} from './LabelList.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import type {LabelCount} from './counts.ts';
 import {PageSearch, SortMenu} from './controls.tsx';
@@ -28,8 +27,8 @@ import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts
 import {useRepoCounts} from './repoCounts.ts';
 import {isPending, type RepoRef, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {IssueLabelToken, Button, IconButton} from '@primer/react';
+import {Tooltip} from '@primer/react';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
@@ -78,9 +77,9 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && own.length === 0 && org.length === 0;
   const create = write && (
-    <OptionalTooltip text={offline ? onlineOnly('Creating a label') : undefined}><Button variant="primary" size="small" leadingVisual={TagIcon} type="button" disabled={offline} onClick={() => {
+    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" leadingVisual={TagIcon} type="button" inactive={offline} onClick={() => {
       setEditing({});
-    }}>New label</Button></OptionalTooltip>
+    }}>New label</Button></Tooltip>
   );
   const rows = (ls: Label[], editable: boolean) => ls.map((l) => (
     <LabelRow key={l.id} r={r} label={l} count={counts.get(l.id)} editable={editable && write}
@@ -106,18 +105,18 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <Panel label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
+          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
               <Blankslate><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
               <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
-          </Panel>
+          </MetadataSection>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
-            <Panel label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
+            <MetadataSection label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
               <p className="border-b border-muted px-3 py-2 text-sm text-muted">They stay on their issues but are no longer offered in the pickers.</p>
               {rows(archived, true)}
-            </Panel>
+            </MetadataSection>
           )}
         </PageColumn>
       </PageBody>
@@ -139,21 +138,20 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
 }) {
   const pending = isPending('Label', label.id);
   const offline = !connectivity.online;
-  const scope = exclusiveScope(label);
   return (
-    <ListRow role={undefined} trailing={<>
-      {pending && <PendingIcon label="Saving to Forgejo"/>}
+    <LabelListRow role={undefined} trailing={<>
+      {pending && <SavingIndicator label="Saving to Forgejo"/>}
       <LabelUsage r={r} label={label} count={count}/>
       {editable && (
         <span className="flex">
-          <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} type="button" disabled={offline || label.id < 0} onClick={onEdit}/>
-          <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={offline ? onlineOnly('Deleting a label') : `Delete ${label.name}`} type="button" disabled={offline || label.id < 0} onClick={onDelete}/>
+          <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={offline ? onlineOnly('Editing a label') : `Edit ${label.name}`} type="button" inactive={offline || label.id < 0} onClick={onEdit}/>
+          <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={offline ? onlineOnly('Deleting a label') : `Delete ${label.name}`} type="button" inactive={offline || label.id < 0} onClick={onDelete}/>
         </span>
       )}
     </>}>
-      <LabelPill name={label.name} color={label.color} scope={scope || undefined}/>
+      <IssueLabelToken text={label.name} fillColor={label.color}/>
       {label.description && <span className="ml-3 text-muted">{label.description}</span>}
-    </ListRow>
+    </LabelListRow>
   );
 });
 
@@ -176,5 +174,5 @@ const widths = ['w-16', 'w-24', 'w-20', 'w-28', 'w-12'];
 
 /** The rows' shape while the repository's labels load for the first time. */
 function LabelsSkeleton() {
-  return <>{widths.map((w) => <ListRow key={w} role="presentation" trailing={<SkeletonBox className="h-3 w-20"/>}><Skeleton round="full" className={`h-5 ${w}`}/></ListRow>)}</>;
+  return <>{widths.map((w) => <LabelListRow key={w} role="presentation" trailing={<SkeletonBox className="h-3 w-20"/>}><SkeletonBox className={`h-5 ${w}`}/></LabelListRow>)}</>;
 }

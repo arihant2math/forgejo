@@ -7,8 +7,9 @@
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {runInAction, untracked} from 'mobx';
-import {type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
-import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandRoot} from '../../ui/Command.tsx';
+import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
+import {Dialog} from '@primer/react';
+import {PaletteList, type PaletteRow} from './PaletteList.tsx';
 import {classicHref} from '../classic.ts';
 import {canGoToCode, GO_CODE_WHY, goToCode} from '../goto.ts';
 import {openCreate} from '../create.ts';
@@ -21,7 +22,7 @@ import {codeTo} from '../../features/code/nav.tsx';
 import {repoAccess} from '../access.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
-import {activeHint, KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
+import {KEYMAP, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference, themeState} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
@@ -162,42 +163,30 @@ class Searcher {
   }
 }
 
-/** The dialog stays mounted once opened (it fades out); each opening starts with an empty query. */
+/** Unmount on close: every opening starts with a fresh query and immediately focused input. */
 export function Palette({open}: {open: boolean}) {
   const app = useApp();
-  const [opened, setOpened] = useState({open, n: 0});
-  if (open !== opened.open) setOpened({open, n: open ? opened.n + 1 : opened.n});
-  // A row was chosen: the focus goes to the page it led to, not back to the sidebar's Search (and its tooltip).
-  const chose = useRef(-1);
-  const n = opened.n;
+  return open ? <OpenPalette app={app}/> : null;
+}
+
+function OpenPalette({app}: {app: App}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const returnFocusRef = useRef<HTMLElement>(document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
+  const close = () => {
+    runInAction(() => { app.ui.paletteOpen = false; });
+  };
   return (
-    // Keyed by the opening: Ctrl+K while the last one still fades out opens a new one at once, its input focused
-    // (QA round 2: reopened mid-fade, the old one kept no focus, and typing ran the page's shortcuts).
-    <CommandDialog key={opened.n} open={open} onOpenChange={(o) => {
-      runInAction(() => {
-        app.ui.paletteOpen = o;
-      });
-    }} label="Command menu" bare restoreFocus={() => chose.current !== n}>
-      <PaletteBody key={opened.n} app={app} onChoose={() => {
-        chose.current = n;
+    <Dialog title="Command menu" width="xlarge" align="top" onClose={close} initialFocusRef={inputRef} returnFocusRef={returnFocusRef}>
+      <PaletteBody app={app} inputRef={inputRef} onChoose={() => {
+        // Navigation owns the next focus. Body is deliberately not a focusable trigger, so the Dialog's cleanup
+        // cannot steal focus from a new page (or reopen the Search button's tooltip).
+        returnFocusRef.current = document.body;
       }}/>
-    </CommandDialog>
+    </Dialog>
   );
 }
 
-/** One row of the palette. */
-interface Row {
-  value: string;
-  label: ReactNode;
-  icon?: OcticonType | undefined;
-  meta?: ReactNode;
-  shortcut?: string | undefined;
-  /** Never selected by default. */
-  destructive?: boolean | undefined;
-  /** Cannot run now (its meta says why). */
-  muted?: boolean | undefined;
-  run: () => void;
-}
+type Row = PaletteRow;
 
 /** A group of rows and how well it matched (groups are ordered by it; ties keep the listed order). */
 interface Group {
@@ -215,7 +204,7 @@ function commandLabel(c: PaletteCommand): string {
   return c.label ?? (c.shortcut ? KEYMAP[c.shortcut].label : c.id);
 }
 
-function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
+function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void; inputRef: React.RefObject<HTMLInputElement | null>}) {
   const navigate = useNavigate();
   const pathname = useRouterState({select: (st) => st.location.pathname});
   // Opened with a query (a list's "Search everywhere"): taken once.
@@ -273,7 +262,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   const targetName = untracked(() => (target.length === 1 ? `#${String(target[0]?.data.number)} ${target[0]?.data.title ?? ''}` : `${String(target.length)} selected`));
   add(targetName, words.length ? actionRank(best(actionList.map((x) => x.s))) : 90, actionList.map(({a}) => ({
     // Closing or reopening is never the default (Enter right after ⌘K on an issue must not close it).
-    value: `act:${a.id}`, icon: a.icon, shortcut: a.shortcut && activeHint(a.shortcut), label: a.label, destructive: a.id === 'state' && !words.length, run: () => {
+    value: `act:${a.id}`, icon: a.icon, shortcut: a.shortcut && !shortcuts.shadowed(a.shortcut) ? KEYMAP[a.shortcut].keys : undefined, label: a.label, destructive: a.id === 'state' && !words.length, run: () => {
       a.run();
     },
   })));
@@ -293,7 +282,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     value: `page:${id}`, icon: ArrowRightIcon,
     muted: id === 'code.up' && atCodeRoot,
     meta: id === 'code.up' && atCodeRoot ? 'Already at the repository root' : undefined,
-    shortcut: id === 'code.up' ? `${shortcutHint(id)} or ${shortcutHint('code.upAlt')}` : shortcutHint(id), label: KEYMAP[id].label,
+    shortcut: KEYMAP[id].keys, alternateShortcut: id === 'code.up' ? KEYMAP['code.upAlt'].keys : undefined, label: KEYMAP[id].label,
     // After the palette closed (focus back on the page), as the key would.
     run: () => requestAnimationFrame(() => {
       if (id === 'code.up' && atCodeRoot) {
@@ -428,7 +417,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   add('Commands', words.length ? best(commands.map((x) => (named(x.c) ? 100 : x.s >= whole ? COMMAND_RANK + x.s : x.s >= 0 ? x.s + NAMED_BONUS : x.k))) : 60, commands.map(({c, label}) => {
     const why = untracked(() => c.unavailable?.(app));
     return {
-      value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && shortcutHint(c.shortcut), label, destructive: c.destructive && !named(c),
+      value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && KEYMAP[c.shortcut].keys, label, destructive: c.destructive && !named(c),
       meta: why ?? (c.classic ? 'classic UI' : undefined), muted: why !== undefined,
       run: why !== undefined ? () => {
         // Listed with its reason (not left out, so that Enter never opens something else instead): Enter says it again.
@@ -454,23 +443,24 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     selected = first;
     setSel({sig, value: first});
   }
+  // Search links participate in arrow navigation, but never replace a deliberately empty default (Sign out).
+  const searchRows: Row[] = query.trim() ? [
+    {value: 'search:all', label: 'See all results', run: () => {
+      void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }},
+    ...repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${query.trim()}`, run: () => {
+      void navigate({to: '/search', search: {q: query.trim(), type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }}] : [],
+    {value: 'search:code', label: `Search code for ${query.trim()}`, run: () => {
+      void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }},
+  ] : [];
   return (
-    <CommandRoot manualSelection label="Command menu" value={selected} onValueChange={(v) => {
-      setSel({sig, value: v});
-    }}>
-      <CommandInput value={query} onValueChange={setQuery} placeholder="Search repositories, issues, files, people and commands…"/>
-      <CommandList>
-        {!groups.length && <CommandEmpty>{!words.length || !more.asked ? 'Nothing found on this device.' : more.answered ? 'Nothing found on this device or on Forgejo.' : 'Nothing on this device. Asking Forgejo…'}</CommandEmpty>}
-        {groups.map((g) => (
-          <CommandGroup key={g.heading} heading={g.heading}>
-            {g.rows.map((r) => (
-              <CommandItem key={r.value} value={r.value} icon={r.icon} meta={r.meta} shortcut={r.shortcut} muted={r.muted} onSelect={r.muted ? r.run : run(r.run)}>{r.label}</CommandItem>
-            ))}
-          </CommandGroup>
-        ))}
-        {query.trim() && <CommandGroup heading="Search"><CommandItem value="search:all" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>See all results</CommandItem>{repo && <CommandItem value="search:repo-code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code in {repo.full_name} for {query.trim()}</CommandItem>}<CommandItem value="search:code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code for {query.trim()}</CommandItem></CommandGroup>}
-      </CommandList>
-    </CommandRoot>
+    <PaletteList inputRef={inputRef} query={query} onQueryChange={setQuery} selected={selected}
+      onSelectedChange={(value) => { setSel({sig, value}); }}
+      onChoose={(r) => { (r.muted ? r.run : run(r.run))(); }}
+      groups={[...groups, ...searchRows.length ? [{heading: 'Search', rows: searchRows}] : []]}
+      empty={!groups.length ? !words.length || !more.asked ? 'Nothing found on this device.' : more.answered ? 'Nothing found on this device or on Forgejo.' : 'Nothing on this device. Asking Forgejo…' : null}/>
   );
 
   function openIssue(issue: Issue, repo: Repository | undefined) {

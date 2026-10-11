@@ -22,8 +22,6 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
     scrolled.push(this);
   };
-  Element.prototype.scrollTo ??= () => undefined;
-  vi.stubGlobal('scrollTo', () => undefined);
   // API v1 (the viewer's permissions) is not asked here: the pool's access rows decide.
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
 });
@@ -64,12 +62,12 @@ test('a writer who is not an administrator sees the pin state and why it cannot 
   expect(screen.getByText('Not pinned')).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Not pinned/})).toBeNull();
   // Locking stays a writer's.
-  expect(screen.getByRole('button', {name: /Open to comments/})).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
 });
 
 test('an administrator can pin (#226)', async () => {
   await open('/acme/website/issues/7', session('admin'));
-  expect(await screen.findByRole('button', {name: /Not pinned/})).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Pin to the list'})).toBeTruthy();
   expect(screen.queryByText('Only repository administrators can pin issues.')).toBeNull();
 });
 

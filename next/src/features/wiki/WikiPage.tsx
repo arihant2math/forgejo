@@ -10,7 +10,7 @@
 // a page seen before paints at once and offline. Links to other pages fetch
 // them on hover. Writers only see the writing controls; the server decides.
 
-import {Link, useNavigate, useParams, useSearch} from '@tanstack/react-router';
+import {createLink, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type PointerEvent, type ReactNode, useEffect, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
@@ -23,9 +23,6 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {
-  Callout, NavItem, TextLink,
-} from '../../ui/index.ts';
 import type {Loaded} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
 import {RowList} from '../code/RowList.tsx';
@@ -37,10 +34,11 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, LinkButton, ActionMenu, ActionList, Dialog, Link as PrimerLink, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {Banner, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
+import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
+
+const WikiNavItem = createLink(NavList.Item);
 
 /** Pages listed in the side pane at most (the page list has them all). */
 const SIDE_PAGES = 40;
@@ -172,7 +170,7 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
     <>
       <RouterLinkButton variant="invisible" size="small" leadingVisual={ListUnorderedIcon} to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}>Pages</RouterLinkButton>
       {writable && exists && (
-        <OptionalTooltip text={offline ? onlineOnly('Editing a wiki page') : undefined}><RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}>Edit</RouterLinkButton></OptionalTooltip>
+        <Tooltip text={offline ? onlineOnly('Editing a wiki page') : 'Edit this page'}><RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}>Edit</RouterLinkButton></Tooltip>
       )}
       {writable && (
         <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
@@ -188,12 +186,7 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
         <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem>
       </ActionList></ActionMenu.Overlay></ActionMenu>
       {confirming && (
-        <Dialog title={`Delete “${title}”?`} subtitle="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." width="medium" onClose={() => { const o = false; if (!o) setConfirming(false); }} renderFooter={() => <Dialog.Footer>{<>
-          <Button variant="invisible" type="button" onClick={() => {
-            setConfirming(false);
-          }}>Cancel</Button>
-          <Button variant="danger" type="button" autoFocus onClick={remove}>Delete</Button>
-        </>}</Dialog.Footer>}></Dialog>
+        <Dialog title={`Delete “${title}”?`} subtitle="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." width="medium" onClose={() => { setConfirming(false); }} footerButtons={[{content: 'Cancel', onClick: () => { setConfirming(false); }}, {content: 'Delete', buttonType: 'danger', onClick: remove}]}></Dialog>
       )}
     </>
   );
@@ -316,29 +309,24 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
         <section aria-label="Wiki sidebar" className="flex flex-col gap-2">
           <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={sidebar}/>
           {writable && (
-            <TextLink><Link to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} className="text-sm">Edit the sidebar</Link></TextLink>
+            <RouterLink to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} className="text-sm">Edit the sidebar</RouterLink>
           )}
         </section>
       )}
-      <nav aria-label="Pages" className="flex flex-col">
-        <h2 className="flex h-control items-center justify-between px-2 text-sm font-medium text-muted">
-          <span>Pages</span>
-          {pages.length > 0 && <span className="tabular-nums text-muted">{pages.length}</span>}
-        </h2>
+      <NavList aria-label="Pages">
+        <NavList.Group>
+        <NavList.GroupHeading as="h2" auxiliaryText={pages.length > 0 ? String(pages.length) : ''}>Pages</NavList.GroupHeading>
         {list.state === 'loading' && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
         {pages.slice(0, SIDE_PAGES).map((p) => (
-          <NavItem key={p.name} label={p.title} asChild>
-            <Link to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : undefined} activeProps={{}}/>
-          </NavItem>
+          <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}}>{p.title}</WikiNavItem>
         ))}
         {pages.length > SIDE_PAGES && (
-          <NavItem label={`All ${String(pages.length)} pages`} asChild>
-            <Link to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}/>
-          </NavItem>
+          <WikiNavItem to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}>{`All ${String(pages.length)} pages`}</WikiNavItem>
         )}
-      </nav>
+        </NavList.Group>
+      </NavList>
       {list.state === 'ready' && list.value.kind === 'pages' && writable && !sidebar && (
-        <TextLink><Link to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: SIDEBAR}} className="px-2 text-sm">Add a custom sidebar</Link></TextLink>
+        <RouterLink to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: SIDEBAR}} className="px-2 text-sm">Add a custom sidebar</RouterLink>
       )}
     </aside>
   );
@@ -475,9 +463,10 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
       controls={<ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this page">More</ActionMenu.Button><ActionMenu.Overlay><ActionList><ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem></ActionList></ActionMenu.Overlay></ActionMenu>}>
       <PageBody>
         <PageColumn wide>
-          {!writable && <Callout tone="warning" title="You cannot write this wiki">Forgejo will refuse the change.</Callout>}
-          {error !== undefined && <Callout tone="danger" title="Not saved">{error}</Callout>}
-          <div className="flex flex-col gap-1">
+          {!writable && <Banner variant="warning" title="You cannot write this wiki" description="Forgejo will refuse the change."/>}
+          {error !== undefined && <Banner variant="critical" title="Not saved" description={error}/>}
+          <FormControl required>
+            <FormControl.Label>Title</FormControl.Label>
             <TextInput aria-label="Title" placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} aria-describedby={missing && !title.trim() ? 'wiki-title-missing' : undefined} onChange={(e) => {
                 setTitle(e.target.value);
               }} onKeyDown={(e) => {
@@ -486,13 +475,17 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
                   save();
                 }
               }} {...(missing && !title.trim() ? {validationStatus: 'error' as const} : {})}/>
-            {missing && !title.trim() && <p id="wiki-title-missing" role="alert" className="text-sm text-danger">A page needs a title.</p>}
-          </div>
+            {missing && !title.trim() && <FormControl.Validation id="wiki-title-missing" variant="error">A page needs a title.</FormControl.Validation>}
+          </FormControl>
           <MarkdownField attachments={false} repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
             onChange={setText} onSubmit={save} onCancel={leave} render={(t) => src.render(repoId, t)}/>
-          <TextInput aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
+          <FormControl>
+            <FormControl.Label>Commit message</FormControl.Label>
+            <TextInput aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
               setMessage(e.target.value);
             }}/>
+            <FormControl.Caption>Optional description of this change.</FormControl.Caption>
+          </FormControl>
           <div className="flex items-center justify-end gap-2">
             {offline && <span className="text-sm text-muted">{onlineOnly(page ? 'Saving a wiki page' : 'Creating a wiki page')}</span>}
             <Button variant="invisible" type="button" onClick={leave}>Cancel</Button>
@@ -503,3 +496,4 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
     </WikiFrame>
   );
 });
+

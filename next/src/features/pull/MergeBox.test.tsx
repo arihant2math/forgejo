@@ -7,13 +7,19 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import type {APIMergeCheck, ActionRun, CommitStatus, NextConfig, PullRequest, RepoUnit} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
-import {TooltipProvider} from '../../ui/index.ts';
 import {MergeBox} from './Pull.tsx';
+
+// The merge box does not render standalone code pages; avoid loading their repository route shell.
+vi.mock('../code/CodePage.tsx', () => ({CodeFrame: () => null}));
 
 const mocks = vi.hoisted(() => ({online: vi.fn(), deleteBranch: vi.fn()}));
 vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), online: mocks.online}));
 vi.mock('../code/refOps.ts', async (original) => ({...await original<object>(), deleteBranch: mocks.deleteBranch}));
 vi.mock('../code/nav.tsx', async (original) => ({...await original<object>(), CodeLink: ({children}: {children: ReactNode}) => <a href="#code">{children}</a>}));
+vi.mock('../../app/routerLinks.tsx', () => ({
+  RouterLink: ({children, search}: {children: ReactNode; search?: {tab?: string}}) => <a href={`#tab=${search?.tab ?? ''}`}>{children}</a>,
+  RouterLinkButton: ({children}: {children: ReactNode}) => <a href="#link">{children}</a>,
+}));
 vi.mock('@tanstack/react-router', async (original) => ({
   ...await original<object>(),
   Link: ({children, search}: {children: ReactNode; search?: {tab?: string}}) => <a href={`#tab=${search?.tab ?? ''}`}>{children}</a>,
@@ -63,13 +69,21 @@ function setup(opts: {pr?: Partial<PullRequest>; title?: string; state?: string;
   const app = createApp(config, s);
   const entity = s.data.pool.model('Issue').get(100);
   if (!entity) throw new Error('no issue');
-  render(<AppContext.Provider value={app}><TooltipProvider><MergeBox issue={entity}/></TooltipProvider></AppContext.Provider>);
+  render(<AppContext.Provider value={app}><MergeBox issue={entity}/></AppContext.Provider>);
   return {s, app};
 }
 
-/** Whether a button is disabled (and why, by its tooltip's accessible description when it has one). */
+function button(name: string | RegExp): HTMLButtonElement {
+  // Banner actions have two responsive groups (only one is visible once Primer CSS loads).
+  const first = screen.getAllByRole('button', {name})[0];
+  if (!(first instanceof HTMLButtonElement)) throw new Error(`No button: ${String(name)}`);
+  return first;
+}
+
+/** Primer keeps unavailable actions focusable with `inactive` so their reason remains discoverable. */
 function disabled(name: string | RegExp): boolean {
-  return (screen.getByRole('button', {name}) as HTMLButtonElement).disabled;
+  const action = button(name);
+  return action.disabled || action.getAttribute('aria-disabled') === 'true' || action.hasAttribute('data-inactive');
 }
 
 beforeEach(() => {
@@ -86,7 +100,7 @@ test('#172: a writer gets the protection rule from the merge check (no admin-onl
     required_approvals: 2, granted_approvals: 0, blocked_by_approvals: true, blocked_by_rejection: false, blocked_by_official_review_requests: false,
     blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: [],
   }})});
-  expect(await screen.findByText(/Needs 2 more approvals \(0 of 2\)/)).toBeTruthy();
+  expect(await screen.findByText(/Needs 2 more approvals \(0 of 2\)/, {selector: ':not([role="tooltip"])'})).toBeTruthy();
   expect(disabled(/Create a merge commit/)).toBe(true);
   const paths = mocks.online.mock.calls.map((c) => (c[1] as {path: string}).path);
   expect(paths).toEqual(['/issues/100/merge-check']);
@@ -98,7 +112,7 @@ test('#172: a merge allowlist without the viewer and unmet required checks are s
     required_approvals: 0, granted_approvals: 0, blocked_by_approvals: false, blocked_by_rejection: false, blocked_by_official_review_requests: false,
     blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: ['ci/*'],
   }})});
-  expect(await screen.findByText('Only users on the merge allowlist of main can merge.')).toBeTruthy();
+  expect(await screen.findByText('Only users on the merge allowlist of main can merge.', {selector: ':not([role="tooltip"])'})).toBeTruthy();
   expect(disabled(/Create a merge commit/)).toBe(true);
 });
 
@@ -111,7 +125,7 @@ test('#172: when the merge check fails the box still offers what the pool knows 
 
 test('#157: a draft with failing checks says the checks failed on the Conversation tab, with a way to them', async () => {
   setup({title: 'WIP: Add the footer', statuses: [{context: 'ci/test', state: 'failure'}]});
-  expect(await screen.findByText(/Draft pull requests cannot be merged/)).toBeTruthy();
+  expect(await screen.findByText(/Draft pull requests cannot be merged/, {selector: ':not([role="tooltip"])'})).toBeTruthy();
   expect(screen.getByText('Some checks failed')).toBeTruthy();
   expect(screen.getByRole('link', {name: 'View checks'}).getAttribute('href')).toBe('#tab=checks');
 });
@@ -142,6 +156,16 @@ test('#184: without the repository default the box stays unticked', async () => 
   const dialog = await screen.findByRole('dialog');
   const box = within(dialog).getByRole('checkbox', {name: 'Delete the branch feat afterwards'});
   expect(box.getAttribute('aria-checked') ?? String((box as HTMLInputElement).checked)).toBe('false');
+});
+
+test('merge methods use a Primer menu and only offer repository-approved methods', async () => {
+  setup({unit: {AllowRebase: false, AllowRebaseMerge: false, AllowFastForwardOnly: false, DefaultMergeStyle: 'squash'}});
+  await waitFor(() => { expect(disabled(/Squash/)).toBe(false); });
+  fireEvent.click(screen.getByRole('button', {name: 'Choose merge method'}));
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Create a merge commit…', 'Squash…']);
+  fireEvent.click(within(menu).getByRole('menuitem', {name: 'Create a merge commit…'}));
+  expect(await screen.findByRole('dialog', {name: 'Create a merge commit'})).toBeTruthy();
 });
 
 test('#185: a merged pull request whose branch is still there offers "Delete branch"', async () => {
@@ -186,7 +210,7 @@ test('#197/#200: runs waiting for approval are said in the merge box, and a main
   await waitFor(() => {
     expect(disabled('Approve once')).toBe(false);
   });
-  fireEvent.click(screen.getByRole('button', {name: 'Approve once'}));
+  fireEvent.click(button('Approve once'));
   await waitFor(() => {
     expect(mocks.online.mock.calls.some((c) => (c[1] as {path: string}).path === '/issues/100/action-trust')).toBe(true);
   });

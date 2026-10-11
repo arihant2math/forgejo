@@ -18,6 +18,8 @@ import {describe, expect, test} from 'vitest';
 const src = new URL('..', import.meta.url).pathname;
 // Marker classes that only exist for variants (group-data-…).
 const markers = new Set(['group', 'peer']);
+// Classes of Primer's own stylesheets (@primer/css, imported by app.css): GitHub's rendered-markdown styles.
+const primerCss = new Set(['markdown-body']);
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, {withFileTypes: true}).flatMap((e) => {
@@ -28,13 +30,11 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * Class strings: className attributes and cx() arguments (following same-file
- * consts, `table[key]` and `list.map((x) => …)` parameters), and module-level
- * constants in src/ui (recipes, variant tables).
+ * Class strings: className attributes and clsx() arguments (following same-file
+ * consts, `table[key]` and `list.map((x) => …)` parameters).
  */
 export function classStrings(file: string, text: string): string[] {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const tables = relative(src, file).startsWith('ui/');
   const followed = new Set<string>();
   const topLevel = new Map<string, ts.Expression>();
   for (const st of sf.statements) {
@@ -69,7 +69,7 @@ export function classStrings(file: string, text: string): string[] {
     } else if (ts.isObjectLiteralExpression(node)) {
       for (const p of node.properties) if (ts.isPropertyAssignment(p)) collect(p.initializer);
     } else if (ts.isArrayLiteralExpression(node)) node.elements.forEach(collect);
-    else if (ts.isCallExpression(node) && node.expression.getText(sf) === 'cx') node.arguments.forEach(collect);
+    else if (ts.isCallExpression(node) && node.expression.getText(sf) === 'clsx') node.arguments.forEach(collect);
     else if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node)) collect(node.expression);
     else if (ts.isIdentifier(node)) follow(node);
   };
@@ -93,10 +93,8 @@ export function classStrings(file: string, text: string): string[] {
   };
   const visit = (node: ts.Node) => {
     if (ts.isJsxAttribute(node) && node.name.getText(sf) === 'className' && node.initializer) collect(node.initializer);
-    else if (ts.isCallExpression(node) && node.expression.getText(sf) === 'cx') node.arguments.forEach(collect);
-    else if (tables && ts.isVariableStatement(node) && ts.isSourceFile(node.parent)) {
-      for (const d of node.declarationList.declarations) if (d.initializer) collect(d.initializer);
-    } else ts.forEachChild(node, visit);
+    else if (ts.isCallExpression(node) && node.expression.getText(sf) === 'clsx') node.arguments.forEach(collect);
+    else ts.forEachChild(node, visit);
   };
   visit(sf);
   return out.filter((c) => c.trim());
@@ -112,7 +110,7 @@ describe('classes', () => {
       }
     }
     expect(used.size).toBeGreaterThan(100);
-    const classes = [...used.keys()].filter((c) => !markers.has(c));
+    const classes = [...used.keys()].filter((c) => !markers.has(c) && !primerCss.has(c));
     const css = ds.candidatesToCss(classes);
     const unknown = classes.filter((_, i) => css[i] === null).map((c) => `${c} (${used.get(c) ?? ''})`);
     expect(unknown).toEqual([]);
@@ -143,8 +141,8 @@ describe('classes', () => {
   test('unknown classes are detected', async () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     expect(ds.candidatesToCss(['bg-white', 'text-red-500', 'font-bold', 'shadow-sm', 'bg-default'])).toEqual([null, null, null, null, expect.any(String)]);
-    expect(classStrings(join(src, 'ui/X.tsx'), 'const a = {x: "bg-x"}; <A className={cx("p-1", y ? "m-1" : `h-3 ${w}`)}/>')).toEqual(['bg-x', 'p-1', 'm-1', 'h-3 ']);
-    // Outside src/ui: consts and map parameters reached from a class context.
+    expect(classStrings(join(src, 'app/X.tsx'), 'const a = {x: "bg-x"}; <A className={clsx("p-1", y ? "m-1" : `h-3 ${w}`)}/>')).toEqual(['p-1', 'm-1', 'h-3 ']);
+    // Consts and map parameters reached from a class context.
     expect(classStrings(join(src, 'app/X.tsx'), 'const data = ["Sync log"]; const ws = ["w-big"]; const row = "h-row"; <>{ws.map((w) => <A className={`${row} ${w}`}/>)}</>')).toEqual(['h-row', 'w-big']);
   });
 });

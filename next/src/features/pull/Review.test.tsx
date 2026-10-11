@@ -38,8 +38,6 @@ beforeEach(() => {
   // jsdom lays nothing out: a view's size for the virtualized diff, so that its rows mount.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200);
-  Object.assign(Element.prototype, {scrollTo: () => undefined});
-  vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'diffHighlight').mockResolvedValue(null);
   fetches = [];
@@ -153,7 +151,7 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   await lineRow('three');
   expect(screen.getByText('two')).toBeTruthy(); // all changes: the removed line
   const trigger = screen.getByRole('button', {name: 'All changes: choose the changes shown'});
-  fireEvent.pointerDown(trigger, {button: 0, ctrlKey: false});
+  fireEvent.click(trigger);
   expect(await screen.findByText('1 commit since your last review')).toBeTruthy();
   fireEvent.click(screen.getByRole('menuitemradio', {name: 'Changes since your last review'}));
   await waitFor(() => {
@@ -164,7 +162,7 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   // The head's lines still take comments.
   expect(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'})).toBeTruthy();
   // One commit's own changes: read-only (its lines are not the head's).
-  fireEvent.pointerDown(screen.getByRole('button', {name: /choose the changes shown/}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: /choose the changes shown/}));
   fireEvent.click(await screen.findByRole('menuitemradio', {name: /Uppercase two/}));
   await waitFor(() => {
     expect(screen.queryByText('three')).toBeNull();
@@ -177,7 +175,7 @@ test('"since your last review" follows a newer review, and shows all the changes
   s.data.put('Review', 'issue:300', review(40, 1, 'COMMENT', MID, '2026-10-02T00:00:00Z'));
   await open(s, '/acme/website/pulls/4?tab=files');
   await lineRow('three');
-  fireEvent.pointerDown(screen.getByRole('button', {name: /choose the changes shown/}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: /choose the changes shown/}));
   fireEvent.click(await screen.findByRole('menuitemradio', {name: 'Changes since your last review'}));
   expect(await screen.findByRole('button', {name: 'Changes since your last review: choose the changes shown'})).toBeTruthy();
   act(() => {

@@ -9,7 +9,8 @@
 import {lazyComponent} from '../../app/lazy.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
-import {ListRow, Panel, Skeleton} from '../../ui/index.ts';
+import {DenseRow} from './DenseRow.tsx';
+import {DashboardSection} from './DashboardSection.tsx';
 import {HomeIcon} from '@primer/octicons-react';
 import {SkeletonBox} from '@primer/react/experimental';
 
@@ -22,13 +23,13 @@ export function HomeSkeleton() {
     <PageColumn>
       <div aria-busy aria-label="Loading" className="flex flex-col gap-4">
         {['w-24', 'w-32', 'w-28'].map((w) => (
-          <Panel key={w} label="Loading" title={<Skeleton className={`h-3 ${w}`}/>}>
+          <DashboardSection key={w} label="Loading" title={<SkeletonBox className={`h-3 ${w}`}/>}>
             {['w-72', 'w-56', 'w-64'].map((r) => (
-              <ListRow key={r} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}>
-                <Skeleton className={`h-3 ${r}`}/>
-              </ListRow>
+              <DenseRow key={r} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}>
+                <SkeletonBox className={`h-3 ${r}`}/>
+              </DenseRow>
             ))}
-          </Panel>
+          </DashboardSection>
         ))}
       </div>
     </PageColumn>

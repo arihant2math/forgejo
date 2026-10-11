@@ -8,7 +8,7 @@ import {loadRepo} from '../../app/repo.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
-import {CommandDialog, CommandPick, type PickOption} from '../../ui/index.ts';
+import {SelectPanel, type SelectPanelItemInput as ItemInput} from '@primer/react';
 import {searchServer, type ServerHit} from '../search/server.ts';
 import type {BoardModel} from './model.ts';
 import {PencilIcon} from '@primer/octicons-react';
@@ -24,6 +24,7 @@ export const AddExisting = observer(function AddExisting({model, project, column
   const app = useApp();
   const {data} = useSession();
   const pool = data.pool;
+  const anchorRef = useRef<HTMLElement>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<ServerHit[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
@@ -53,12 +54,11 @@ export const AddExisting = observer(function AddExisting({model, project, column
     candidates.set(hit.id, {id: hit.id, number: hit.number, title: hit.title, repoId: repo?.id ?? 0, hit});
   }
   const words = query.toLowerCase().replace(/^#/, '').split(/\s+/).filter(Boolean);
-  const options: PickOption[] = [...candidates.values()].filter((c) =>
+  const options: ItemInput[] = [...candidates.values()].filter((c) =>
     issueProject(pool, editing(app).overlay, c.id).project !== project.id &&
     words.every((w) => `${c.number} ${c.title}`.toLowerCase().includes(w)),
   ).map((c) => ({
-    value: String(c.id), label: c.title, meta: `#${c.number}`, checked: selected.includes(c.id), keepOpen: true,
-    onSelect: () => { setSelected((ids) => ids.includes(c.id) ? ids.filter((id) => id !== c.id) : [...ids, c.id]); },
+    id: c.id, text: c.title, trailingVisual: `#${c.number}`,
   }));
   const matches = options.length;
   const add = () => {
@@ -75,20 +75,25 @@ export const AddExisting = observer(function AddExisting({model, project, column
       }
     }
   };
-  // Only once something is picked: an "Add 0" row would be the first (Enter's) choice, and do nothing. Choosing it
-  // closes the dialog (CommandPick).
-  if (selected.length) options.unshift({value: 'add', label: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, onSelect: add});
+  // Keep Enter's first choice useful: offer Add only after something is selected.
+  if (selected.length) options.unshift({id: 'add', text: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, onAction: (_, event) => { event.preventDefault(); add(); onClose(); }});
   // Typed text is not a card: where nothing matches it says so, and Enter makes a new issue in this column instead,
   // titled with that text (a number searched for is no title).
   const typed = query.trim();
   const none = typed !== '' && matches === 0;
   const title = /^#?\d+$/.test(typed) ? '' : typed;
   options.push({
-    value: 'new', label: title ? `New issue “${title}” in this column…` : 'New issue in this column…', icon: PencilIcon, keepOpen: true, onSelect: () => { onCreate(title); },
-    ...(none ? {group: connectivity.online ? 'No issue matches' : 'No issue on this device matches'} : {}),
+    id: 'new', text: title ? `New issue “${title}” in this column…` : 'New issue in this column…', leadingVisual: PencilIcon,
+    onAction: (_, event) => { event.preventDefault(); onCreate(title); },
   });
-  return <CommandDialog open label="Add existing issues" bare onOpenChange={(open) => { if (!open) onClose(); }}>
-    <CommandPick label="Add existing issues" placeholder="Search by number or title…" query={query} onQueryChange={setQuery} filtered options={options} empty="No issues to add."
-      target="Cards are issues: pick existing ones, or create a new issue in this column." onClose={onClose}/>
-  </CommandDialog>;
+  return <SelectPanel open variant="modal" renderAnchor={null} anchorRef={anchorRef} title="Add existing issues"
+    subtitle="Cards are issues: pick existing ones, or create a new issue in this column."
+    placeholderText="Search by number or title…" inputLabel="Search existing issues"
+    filterValue={query} onFilterChange={setQuery} items={options}
+    selected={selected.map((id) => ({id, text: candidates.get(id)?.title ?? String(id)}))}
+    onSelectedChange={(items: ItemInput[]) => { setSelected(items.flatMap((item) => typeof item.id === 'number' ? [item.id] : [])); }}
+    onOpenChange={(open, gesture) => { if (!open) { if (gesture === 'selection') add(); onClose(); } }}
+    onCancel={onClose} showSelectedOptionsFirst={false} virtualized={options.length > 50}
+    {...(none ? {notice: {variant: 'info' as const, text: connectivity.online ? 'No issue matches' : 'No issue on this device matches'}} : {})}
+  />;
 });

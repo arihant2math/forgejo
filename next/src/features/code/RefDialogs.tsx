@@ -19,8 +19,7 @@ import {refTable, useLoad} from './hooks.ts';
 import {branchProtected, createBranch, createTag, deleteBranch, deleteTag, repoRef} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {BRANCH_MAX, branchDeleteBlock, createBranchBody, createTagBody, type RefChoice, refNameProblem, TAG_MAX, tagDeleteBlock, writeBlock} from './refWrite.ts';
-import {Button, Dialog, TextInput, Textarea} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Dialog, FormControl, TextInput, Textarea} from '@primer/react';
 
 /** Why the viewer cannot do `action` in the repository now (archived, a mirror's refs, offline), or undefined. Observes. */
 export function useWriteBlock(repoId: number, action: string, refsOnly: boolean): string | undefined {
@@ -59,7 +58,8 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
 }) {
   const bad = shown && problem !== undefined;
   return (
-    <div className="flex flex-col gap-1">
+    <FormControl>
+      <FormControl.Label>{label}</FormControl.Label>
       <TextInput aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off" onChange={(e) => {
           onChange(e.target.value);
         }} onKeyDown={(e) => {
@@ -69,7 +69,7 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
           }
         }} {...(bad ? {validationStatus: 'error' as const} : {})}/>
       {bad && <Problem id="ref-name-problem">{problem}</Problem>}
-    </div>
+    </FormControl>
   );
 }
 
@@ -96,10 +96,10 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
     });
   };
   return (
-    <Dialog title="New branch" width="large" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
-      <OptionalTooltip text={block}><Button variant="primary" type="button" aria-disabled={Boolean(block) || busy} onClick={create}>{busy ? 'Creating…' : 'Create branch'}</Button></OptionalTooltip>
-    </>}</Dialog.Footer>}>
+    <Dialog title="New branch" width="large" onClose={() => { if (!busy) onClose(); }} footerButtons={[
+      {content: 'Cancel', disabled: busy, onClick: onClose},
+      {content: busy ? 'Creating…' : 'Create branch', buttonType: 'primary', inactive: Boolean(block) || busy, 'aria-disabled': Boolean(block) || busy, onClick: create},
+    ]}>
       <div className="flex flex-col gap-3">
         <NameField label="Branch name" placeholder="feature/my-change" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={BRANCH_MAX} onEnter={create}/>
         <div className="flex flex-wrap items-center gap-2 text-base text-muted">
@@ -137,10 +137,10 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
     });
   };
   return (
-    <Dialog title="New tag" width="large" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
-      <OptionalTooltip text={block}><Button variant="primary" type="button" aria-disabled={Boolean(block) || busy} onClick={create}>{busy ? 'Creating…' : 'Create tag'}</Button></OptionalTooltip>
-    </>}</Dialog.Footer>}>
+    <Dialog title="New tag" width="large" onClose={onClose} footerButtons={[
+      {content: 'Cancel', disabled: busy, onClick: onClose},
+      {content: busy ? 'Creating…' : 'Create tag', buttonType: 'primary', inactive: Boolean(block) || busy, onClick: create},
+    ]}>
       <div className="flex flex-col gap-3">
         <NameField label="Tag name" placeholder="v1.0.0" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={TAG_MAX} onEnter={create}/>
         <div className="flex flex-wrap items-center gap-2 text-base text-muted">
@@ -175,10 +175,10 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
     run(onDelete, onClose);
   };
   return (
-    <Dialog title={title} subtitle={description} width="medium" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={onClose}>{blocked ? 'Close' : 'Cancel'}</Button>
-      {!blocked && <Button variant="danger" type="button" autoFocus aria-disabled={busy || Boolean(pending)} onClick={remove}>{busy ? 'Deleting…' : 'Delete'}</Button>}
-    </>}</Dialog.Footer>}>
+    <Dialog title={title} subtitle={description} width="medium" onClose={onClose} footerButtons={[
+      {content: blocked ? 'Close' : 'Cancel', disabled: busy, onClick: onClose},
+      ...(!blocked ? [{content: busy ? 'Deleting…' : 'Delete', buttonType: 'danger' as const, autoFocus: true, disabled: busy || Boolean(pending), onClick: remove}] : []),
+    ]}>
       {(blocked ?? pending ?? error) && (
         <div className="flex flex-col gap-1">
           {blocked && <p role="alert" className="text-base text-default">{blocked}</p>}

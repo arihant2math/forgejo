@@ -10,9 +10,11 @@
 // the side pane (AboutSidebar.tsx: what it is, its releases and languages).
 // The tabs lead to everything else. Its own chunk.
 
+import {DataRow, ResourceRows} from './layout.tsx';
+import {Label, Tooltip} from '@primer/react';
+
 import {useNavigate} from '@tanstack/react-router';
 import {discoverySearch} from '../search/params.ts';
-import {LinkRows} from '../../ui/LinkRows.tsx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo} from 'react';
 import {whenIdle} from '../../app/lazy.tsx';
@@ -24,7 +26,6 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {Badge, ListRow} from '../../ui/index.ts';
 import {codeSplat} from '../../code/refs.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {GoToFile} from '../code/FileFinder.tsx';
@@ -43,7 +44,6 @@ import {EmptyRepo} from '../code/states.tsx';
 import {FileOperations} from '../code/FileOperations.tsx';
 import {CodeIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, PencilIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
 import {Blankslate, SkeletonText} from '@primer/react/experimental';
 
 export function RepoHome() {
@@ -73,9 +73,9 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
               <Summary repoId={repoId}/>
               <div className="ms-auto flex flex-wrap items-center gap-2">
                 <RepoActions owner={owner} repo={repo} repoId={repoId}/>
-                <OptionalTooltip text={'New issue in this repository'} keybindingHint={shortcutHint('create')}><Button variant="invisible" size="small" leadingVisual={PencilIcon} type="button" onClick={() => {
+                <Tooltip text={'New issue in this repository'} keybindingHint={shortcutHint('create')}><Button variant="invisible" size="small" leadingVisual={PencilIcon} type="button" onClick={() => {
                   openCreate(app, repoId);
-                }}>New issue</Button></OptionalTooltip>
+                }}>New issue</Button></Tooltip>
               </div>
             </div>
             {repository?.fork && <Contribute owner={owner} repo={repo}/>}
@@ -98,7 +98,7 @@ const Summary = observer(function Summary({repoId}: {repoId: number}) {
   return (
     <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-default">
       {r.name}
-      {flags.map((f) => <Badge key={f} tone={f === 'Archived' ? 'warning' : 'neutral'} round>{f}</Badge>)}
+      {flags.map((f) => <Label key={f} variant={f === 'Archived' ? 'attention' : 'default'}>{f}</Label>)}
     </h2>
   );
 });
@@ -178,16 +178,16 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
     <>
       {toolbar}
       <FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}}>
-      <LinkRows><FilesPanel title={title} actions={actions}>
+      <ResourceRows><FilesPanel title={title} actions={actions}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
           <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-3 py-3"><SkeletonText lines={5}/></div>}/>}
         {entries.length > MAX_ENTRIES && (
-          <ListRow role={undefined} href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={12} className="shrink-0"/>}>
+          <DataRow href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={12} className="shrink-0"/>}>
             {entries.length - MAX_ENTRIES} more
-          </ListRow>
+          </DataRow>
         )}
-      </FilesPanel></LinkRows>
+      </FilesPanel></ResourceRows>
       </FileOperations>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={{kind: 'branch', ref: branch, sha}}/>}
     </>
@@ -200,8 +200,9 @@ function EntryRow({owner, repo, branch, entry}: {owner: string; repo: string; br
   const href = hrefOf(app, codePath(owner, repo, `src/branch/${branch}/${entry.name}`));
   const parts = entryParts(entry);
   return (
-    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={parts.leading} trailing={parts.trailing}>
+    <DataRow href={href} onClick={(e) => click(e, href)} leading={parts.leading} trailing={parts.trailing}>
       {parts.main}
-    </ListRow>
+    </DataRow>
   );
 }
+

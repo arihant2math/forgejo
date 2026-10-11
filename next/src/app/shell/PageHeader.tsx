@@ -5,14 +5,14 @@ import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {forgetRoute} from '../splash.ts';
 import {useApp} from '../store.ts';
-import {cx, Icon} from '../../ui/index.ts';
-import {shortcutHint} from '../shortcuts/index.ts';
-import {HeaderBar, HeaderRow, HeaderStack, WhenSidebarAway} from './Frame.tsx';
+
+import {KEYMAP} from '../shortcuts/index.ts';
+import {WhenSidebarAway} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
-import {ChevronRightIcon, SidebarExpandIcon} from '@primer/octicons-react';
+import {SidebarExpandIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {IconButton} from '@primer/react';
+import {IconButton, PageHeader as PrimerPageHeader} from '@primer/react';
 
 export interface PageHeaderProps {
   title: ReactNode;
@@ -74,19 +74,20 @@ const DocumentTitle = observer(function DocumentTitle({text}: {text: string | un
  */
 export function PageHeader({title, icon, context, children, docTitle}: PageHeaderProps) {
   return (
-    <HeaderBar>
+    <header className="shrink-0 border-b border-default px-4 py-3">
+    <PrimerPageHeader>
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      <SidebarToggle/>
-      <PageIcon icon={icon}/>
-      {context && (
-        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-muted @max-xl:order-first @max-xl:w-full @max-xl:pt-2 @max-xl:text-sm">
-          {context}
-          <span className="flex @max-xl:hidden"><ChevronRightIcon size={12} className="shrink-0 text-muted"/></span>
-        </nav>
-      )}
-      <TitleAndControls title={title}>{children}</TitleAndControls>
-      <HeaderEnd/>
-    </HeaderBar>
+      {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
+      <PrimerPageHeader.TitleArea>
+        <PrimerPageHeader.LeadingAction><SidebarToggle/></PrimerPageHeader.LeadingAction>
+        {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+        <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+      </PrimerPageHeader.TitleArea>
+      <PrimerPageHeader.Actions className="flex flex-wrap items-center gap-2">
+        {children}<SyncIndicator/>
+      </PrimerPageHeader.Actions>
+    </PrimerPageHeader>
+    </header>
   );
 }
 
@@ -114,53 +115,44 @@ export interface StackedPageHeaderProps {
  */
 export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle}: StackedPageHeaderProps) {
   return (
-    <HeaderStack>
+    <header className="shrink-0">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      <HeaderRow>
-        <SidebarToggle/>
-        {/* Reserve the row's remaining width for the breadcrumb at every panel size. */}
-        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-muted flex-1 basis-0 py-2">
-          {context}
-        </nav>
-        <HeaderEnd before={actions}/>
-      </HeaderRow>
+      <div className="px-4 py-3">
+      <PrimerPageHeader>
+        <PrimerPageHeader.ContextBar hidden={false}>
+          <PrimerPageHeader.ContextArea hidden={false}>
+            <div className="flex min-w-0 items-center gap-2">
+              <SidebarToggle/>
+              <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav>
+            </div>
+          </PrimerPageHeader.ContextArea>
+          <PrimerPageHeader.ContextAreaActions hidden={false}>
+            <div className="flex items-center gap-2">{actions}<SyncIndicator/></div>
+          </PrimerPageHeader.ContextAreaActions>
+        </PrimerPageHeader.ContextBar>
+      </PrimerPageHeader>
+      </div>
       {tabs}
       {title !== undefined && (
-        <HeaderRow>
-          <PageIcon icon={icon}/>
-          <TitleAndControls title={title}>{children}</TitleAndControls>
-        </HeaderRow>
+        <div className="border-b border-default px-4 py-3">
+        <PrimerPageHeader>
+          <PrimerPageHeader.TitleArea variant="subtitle">
+            {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+            <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+          </PrimerPageHeader.TitleArea>
+          {children && <PrimerPageHeader.Actions className="flex flex-wrap items-center gap-2">{children}</PrimerPageHeader.Actions>}
+        </PrimerPageHeader>
+        </div>
       )}
-    </HeaderStack>
+    </header>
   );
 }
 
 /** The sidebar's toggle, while the sidebar is not beside the page. */
 function SidebarToggle() {
-  return <WhenSidebarAway><IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Show the sidebar" keybindingHint={shortcutHint('sidebar.toggle')} type="button" onClick={toggleSidebar}/></WhenSidebarAway>;
+  return <WhenSidebarAway><IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Show the sidebar" description="Show the sidebar" keybindingHint={KEYMAP['sidebar.toggle'].keys} type="button" onClick={toggleSidebar}/></WhenSidebarAway>;
 }
 
-/** The page's icon before its title (wide panels). */
-function PageIcon({icon}: {icon: OcticonType | undefined}) {
-  return icon ? <span className="flex shrink-0 @max-xl:hidden"><Icon icon={icon} className="text-muted"/></span> : null;
-}
-
-/** The page's title and its controls. */
-function TitleAndControls({title, children}: {title: ReactNode; children?: ReactNode}) {
-  return (
-    <>
-      <h1 className={cx('min-w-0 truncate text-base font-medium text-default @max-xl:max-w-none @max-xl:flex-1 @max-xl:basis-0 @max-xl:py-2', children ? 'max-w-sm @xl:shrink-0' : '@xl:shrink')}>{title}</h1>
-      {children && <span aria-hidden className="hidden @max-xl:order-last @max-xl:block @max-xl:w-full"/>}
-      {children && (
-        <div className="flex min-w-0 shrink flex-wrap items-center gap-1 p-1 @max-xl:order-last @max-xl:w-full @max-xl:py-2">
-          {children}
-        </div>
-      )}
-    </>
-  );
-}
-
-/** The header's right end: the sync indicator, `before` it a page's actions. */
-function HeaderEnd({before}: {before?: ReactNode}) {
-  return <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">{before}<SyncIndicator/></div>;
+function pageIcon(Icon: OcticonType) {
+  return <Icon size={16}/>;
 }

@@ -1,6 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type {SelectPanelItemInput} from '@primer/react';
+import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {FormSection, SettingRow} from '../usersettings/form.tsx';
+import {Banner, ToggleSwitch, Select, SelectPanel, Button, TextInput, FormControl, Textarea} from '@primer/react';
+
 // A repository's general settings (/{owner}/{repo}/settings), all from the
 // pool (instant, offline too): name, description and website (one form,
 // saved together); the default branch, the features, the template flag and
@@ -15,9 +20,6 @@ import {useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import type {Repository} from '../../protocol/types.gen.ts';
-import {
-  Callout, CommandPopover, ConfirmDialog, FormSection, hintId, Select, SettingRow, Switch
-} from '../../ui/index.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
 import {sendChange, useOffline, useOptimistic} from './bits.tsx';
@@ -28,7 +30,6 @@ import {
 import {problemOf} from './problems.ts';
 import {deleteRepo, patchRepo, transferRepo} from './requests.ts';
 import {GitBranchIcon} from '@primer/octicons-react';
-import {Button, TextInput, FormControl, Textarea} from '@primer/react';
 
 export const GeneralSettings = observer(function GeneralSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const pool = usePool();
@@ -38,7 +39,7 @@ export const GeneralSettings = observer(function GeneralSettings({owner, repo, r
   const pulls = [...pool.model('RepoUnit').by('repo_id', repoId)].find((u) => u.get('type') === 'pulls')?.data.config;
   return (
     <>
-      {r.archived && <Callout tone="warning" title="This repository is archived">It is read-only. Unarchive it in the danger zone below to change it again.</Callout>}
+      {r.archived && <Banner variant="warning" title="This repository is archived" description={<>It is read-only. Unarchive it in the danger zone below to change it again.</>}/>}
       <DetailsForm owner={owner} repo={repo} r={r}/>
       <DefaultBranch owner={owner} repo={repo} r={r}/>
       <Features owner={owner} repo={repo} r={r} units={units}/>
@@ -51,7 +52,7 @@ export const GeneralSettings = observer(function GeneralSettings({owner, repo, r
 const DETAIL_FIELDS: Record<string, keyof Details> = {name: 'name', 'repo name': 'name', description: 'description', website: 'website'};
 
 /** Name, description, website: one form, saved together (only what changed is sent). */
-function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
+const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
   const offline = useOffline();
@@ -76,6 +77,7 @@ function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Reposito
     if (errors[k]) setErrors({...errors, [k]: undefined});
   };
   const save = async () => {
+    if (offline || busy) return;
     const errs = validateDetails(form);
     setErrors(errs);
     setFailure(undefined);
@@ -109,21 +111,21 @@ function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Reposito
         void save();
       }}>
         <FormControl id="repo-name"><FormControl.Label>Repository name</FormControl.Label>
-          <TextInput id="repo-name" className="w-full" value={form.name} maxLength={100} autoComplete="off" spellCheck={false} aria-describedby={hintId('repo-name')} onChange={(e) => {
+          <TextInput className="w-full" value={form.name} maxLength={100} autoComplete="off" spellCheck={false} onChange={(e) => {
               edit('name', e.target.value);
             }} {...(errors.name ? {validationStatus: 'error' as const} : {})}/>
         <FormControl.Caption>{form.name.trim() !== base.name ? 'Renaming changes its address; Forgejo redirects the old one.' : undefined}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
         <FormControl id="repo-description"><FormControl.Label>Description</FormControl.Label>
-          <Textarea id="repo-description" rows={3} value={form.description} aria-describedby={hintId('repo-description')} onChange={(e) => {
+          <Textarea rows={3} value={form.description} onChange={(e) => {
               edit('description', e.target.value);
             }} block {...(errors.description ? {validationStatus: 'error' as const} : {})}/>
         {errors.description && <FormControl.Validation variant="error">{errors.description}</FormControl.Validation>}</FormControl>
         <FormControl id="repo-website"><FormControl.Label>Website</FormControl.Label>
-          <TextInput id="repo-website" type="url" className="w-full" placeholder="https://" value={form.website} aria-describedby={hintId('repo-website')} onChange={(e) => {
+          <TextInput type="url" className="w-full" placeholder="https://" value={form.website} onChange={(e) => {
               edit('website', e.target.value);
             }} {...(errors.website ? {validationStatus: 'error' as const} : {})}/>
         {errors.website && <FormControl.Validation variant="error">{errors.website}</FormControl.Validation>}</FormControl>
-        {failure && <Callout tone="danger" title="Not saved">{failure}</Callout>}
+        {failure && <Banner variant="critical" title="Not saved" description={<>{failure}</>}/>}
         <div className="flex items-center gap-2">
           <Button variant="primary" type="submit" disabled={!dirty || busy || offline}>{busy ? 'Saving…' : 'Save changes'}</Button>
           {dirty && <Button variant="invisible" type="button" disabled={busy} onClick={() => {
@@ -135,24 +137,31 @@ function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Reposito
       </form>
     </FormSection>
   );
-}
+});
 
 /** The default branch: a picker over the repository's branches (pool), applied on choice. */
 const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const pool = usePool();
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
   const offline = useOffline();
   const opt = useOptimistic(r.default_branch);
   const branches = [...refTable(pool, r.id).branches.keys()].sort((a, b) => (a === r.default_branch ? -1 : b === r.default_branch ? 1 : a.localeCompare(b)));
   return (
     <FormSection id="settings-branch" title="Default branch" description="The branch the repository opens on, and the base of new pull requests.">
       <div className="flex items-center gap-2">
-        <CommandPopover label="Default branch" placeholder="Find a branch…" empty={r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.'}
-          trigger={<Button leadingVisual={GitBranchIcon} type="button" disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
-          options={branches.map((b) => ({value: b, label: b, checked: b === opt.shown, onSelect: () => {
-            if (b === opt.shown) return;
-            sendChange(app, opt, b, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: b}), `The default branch is ${b}`);
-          }}))}/>
+        <SelectPanel title="Default branch" open={open} onOpenChange={setOpen} filterValue={filter} onFilterChange={setFilter} placeholderText="Find a branch…" loading={false} virtualized={branches.length > 50}
+          {...(branches.length ? {} : {message: {title: r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.', variant: 'empty' as const, body: ''}})}
+          items={branches.filter((b) => b.toLowerCase().includes(filter.toLowerCase())).map((b) => ({id: b, text: b}))}
+          selected={opt.shown ? {id: opt.shown, text: opt.shown} : undefined}
+          renderAnchor={(props) => <Button {...{...props}} leadingVisual={GitBranchIcon} disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
+          onSelectedChange={(item: SelectPanelItemInput | undefined) => {
+            if (!item || item.id === opt.shown) return;
+            const branch = String(item.id);
+            sendChange(app, opt, branch, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: branch}), `The default branch is ${branch}`);
+            setOpen(false);
+          }}/>
       </div>
     </FormSection>
   );
@@ -171,39 +180,39 @@ function Features({owner, repo, r, units}: {owner: string; repo: string; r: Repo
   );
 }
 
-function FeatureRow({owner, repo, feature: f, state, archived}: {owner: string; repo: string; feature: Feature; state: {on: boolean; external: boolean}; archived: boolean}) {
+const FeatureRow = observer(function FeatureRow({owner, repo, feature: f, state, archived}: {owner: string; repo: string; feature: Feature; state: {on: boolean; external: boolean}; archived: boolean}) {
   const app = useApp();
   const offline = useOffline();
   const opt = useOptimistic(state.on);
   const id = `feature-${f.unit}`;
   const description = state.external ? `${f.description} It uses an external ${f.unit === 'wiki' ? 'wiki' : 'tracker'}: change that in the classic UI (Units).` : f.description;
   return (
-    <SettingRow id={id} title={f.label} description={description} control={
-      <Switch id={id} checked={opt.shown} disabled={offline || state.external || archived} describedBy={hintId(id)} onCheckedChange={(on) => {
+    <SettingRow id={id} title={f.label} description={description}>
+      <ToggleSwitch aria-labelledby={`${id}-label`} checked={opt.shown} disabled={offline || state.external || archived} aria-describedby={`${id}-description`} onChange={(on) => {
         sendChange(app, opt, on, f.label, () => patchRepo(app, owner, repo, {[f.key]: on}));
       }}/>
-    }/>
+      </SettingRow>
   );
-}
+});
 
 /** A flag of the repository applied at once (template). */
-function FlagRow({owner, repo, id, title, description, field, value, archived}: {
+const FlagRow = observer(function FlagRow({owner, repo, id, title, description, field, value, archived}: {
   owner: string; repo: string; id: string; title: string; description: string; field: 'template'; value: boolean; archived: boolean;
 }) {
   const app = useApp();
   const offline = useOffline();
   const opt = useOptimistic(value);
   return (
-    <SettingRow id={id} title={title} description={description} control={
-      <Switch id={id} checked={opt.shown} disabled={offline || archived} describedBy={hintId(id)} onCheckedChange={(on) => {
+    <SettingRow id={id} title={title} description={description}>
+      <ToggleSwitch aria-labelledby={`${id}-label`} checked={opt.shown} disabled={offline || archived} aria-describedby={`${id}-description`} onChange={(on) => {
         sendChange(app, opt, on, title, () => patchRepo(app, owner, repo, {[field]: on}));
       }}/>
-    }/>
+      </SettingRow>
   );
-}
+});
 
 /** Pull requests: the merge styles offered, the default one, and the defaults of a new pull request. */
-function PullRequests({owner, repo, config}: {owner: string; repo: string; config: Record<string, unknown>}) {
+const PullRequests = observer(function PullRequests({owner, repo, config}: {owner: string; repo: string; config: Record<string, unknown>}) {
   const app = useApp();
   const offline = useOffline();
   const opt = useOptimistic<PullSettings>(pullSettingsOf(config));
@@ -226,42 +235,43 @@ function PullRequests({owner, repo, config}: {owner: string; repo: string; confi
     <FormSection id="settings-pulls" title="Pull requests" description="How pull requests can be merged, and what a new one starts with.">
       <div className="flex flex-col">
         {MERGE_STYLES.map((m) => (
-          <SettingRow key={m.style} id={`merge-${m.style}`} title={m.label} description={m.description} control={
-            <Switch id={`merge-${m.style}`} checked={s.allowed[m.style]} disabled={offline} describedBy={hintId(`merge-${m.style}`)} onCheckedChange={(on) => {
+          <SettingRow key={m.style} id={`merge-${m.style}`} title={m.label} description={m.description}>
+            <ToggleSwitch aria-labelledby={`merge-${m.style}-label`} checked={s.allowed[m.style]} disabled={offline} aria-describedby={`merge-${m.style}-description`} onChange={(on) => {
               toggle(m.style, on);
             }}/>
-          }/>
+      </SettingRow>
         ))}
-        <SettingRow id="merge-default" title="Default merge style" description="Preselected in the merge box." control={
-          <Select id="merge-default" value={s.defaultStyle} disabled={offline} options={defaultStyleChoices(s).map((m) => ({value: m.style, label: m.label}))}
-            onValueChange={(v) => {
-              apply({...s, defaultStyle: v}, {default_merge_style: v}, 'The default merge style');
-            }}/>
-        }/>
-        <SettingRow id="merge-delete" title="Delete the branch after merging" description="Preselected when a pull request is merged." control={
-          <Switch id="merge-delete" checked={s.deleteBranch} disabled={offline} describedBy={hintId('merge-delete')} onCheckedChange={(on) => {
+        <SettingRow id="merge-default" title="Default merge style" description="Preselected in the merge box.">
+          <Select id="merge-default" aria-labelledby="merge-default-label" value={s.defaultStyle} disabled={offline}
+            onChange={(event) => {
+              const style = event.target.value as MergeStyle;
+              apply({...s, defaultStyle: style}, {default_merge_style: style}, 'The default merge style');
+            }}>{defaultStyleChoices(s).map((m) => <Select.Option key={m.style} value={m.style}>{m.label}</Select.Option>)}</Select>
+      </SettingRow>
+        <SettingRow id="merge-delete" title="Delete the branch after merging" description="Preselected when a pull request is merged.">
+          <ToggleSwitch aria-labelledby="merge-delete-label" checked={s.deleteBranch} disabled={offline} aria-describedby="merge-delete-description" onChange={(on) => {
             flag('deleteBranch', 'default_delete_branch_after_merge', on, 'Deleting branches after merging');
           }}/>
-        }/>
-        <SettingRow id="merge-rebase-update" title="Update branches by rebasing" description="Offer to bring a pull request up to date by rebasing it, besides merging." control={
-          <Switch id="merge-rebase-update" checked={s.rebaseUpdate} disabled={offline} describedBy={hintId('merge-rebase-update')} onCheckedChange={(on) => {
+      </SettingRow>
+        <SettingRow id="merge-rebase-update" title="Update branches by rebasing" description="Offer to bring a pull request up to date by rebasing it, besides merging.">
+          <ToggleSwitch aria-labelledby="merge-rebase-update-label" checked={s.rebaseUpdate} disabled={offline} aria-describedby="merge-rebase-update-description" onChange={(on) => {
             flag('rebaseUpdate', 'allow_rebase_update', on, 'Updating by rebase');
           }}/>
-        }/>
-        <SettingRow id="merge-maintainer" title="Allow edits from maintainers" description="Preselected for new pull requests from forks." control={
-          <Switch id="merge-maintainer" checked={s.maintainerEdit} disabled={offline} describedBy={hintId('merge-maintainer')} onCheckedChange={(on) => {
+      </SettingRow>
+        <SettingRow id="merge-maintainer" title="Allow edits from maintainers" description="Preselected for new pull requests from forks.">
+          <ToggleSwitch aria-labelledby="merge-maintainer-label" checked={s.maintainerEdit} disabled={offline} aria-describedby="merge-maintainer-description" onChange={(on) => {
             flag('maintainerEdit', 'default_allow_maintainer_edit', on, 'Edits from maintainers');
           }}/>
-        }/>
+      </SettingRow>
       </div>
     </FormSection>
   );
-}
+});
 
 type Danger = 'visibility' | 'archive' | 'transfer' | 'delete';
 
 /** Visibility, archiving, transfer and deletion: each asks first; deleting and transferring ask for the name. */
-function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
+const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
   const offline = useOffline();
@@ -278,6 +288,7 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
     setNewOwner('');
   };
   const run = async (fn: () => Promise<void>) => {
+    if (offline || busy) return;
     setBusy(true);
     setError(undefined);
     try {
@@ -300,20 +311,21 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
     }}>{label}</Button>
   );
   return (
-    <FormSection id="settings-danger" title="Danger zone" tone="danger">
+    <FormSection id="settings-danger" title="Danger zone">
+      <Banner variant="critical" title="Repository danger zone" description="These operations affect access, ownership or permanently delete repository data."/>
       <SettingRow id="danger-visibility" title="Visibility" description={priv.shown ? 'Private: only people with access see it.' : 'Public: everyone can see it.'}
-        control={button('visibility', priv.shown ? 'Make public' : 'Make private')}/>
+        >{button('visibility', priv.shown ? 'Make public' : 'Make private')}</SettingRow>
       <SettingRow id="danger-archive" title={archived.shown ? 'Unarchive this repository' : 'Archive this repository'}
         description={archived.shown ? 'Make it writable again.' : 'Make it read-only: no pushes, issues or pull requests; it can be unarchived.'}
-        control={button('archive', archived.shown ? 'Unarchive' : 'Archive')}/>
+        >{button('archive', archived.shown ? 'Unarchive' : 'Archive')}</SettingRow>
       <SettingRow id="danger-transfer" title="Transfer ownership" description="Give it to another user or an organization you can create repositories in."
-        control={button('transfer', 'Transfer')}/>
+        >{button('transfer', 'Transfer')}</SettingRow>
       <SettingRow id="danger-delete" title="Delete this repository" description="Its code, issues, pull requests, wiki and releases are deleted. This cannot be undone."
-        control={<Button variant="danger" type="button" disabled={offline} onClick={() => {
+        children={<Button variant="danger" type="button" disabled={offline} onClick={() => {
           setOpen('delete');
         }}>Delete</Button>}/>
 
-      <ConfirmDialog open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}
+      <RepositoryConfirmation open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}
         description={priv.shown ? 'Everyone will see its code, issues and pull requests.' : 'Only its owner, collaborators and teams with access will see it. Stars and watchers without access are removed.'}
         confirmLabel={priv.shown ? 'Make public' : 'Make private'} confirmText={priv.shown ? full : undefined}
         onConfirm={() => void run(async () => {
@@ -328,7 +340,7 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
           }
           notify(app, {tone: 'success', title: to ? `${full} is private` : `${full} is public`});
         })}/>
-      <ConfirmDialog open={open === 'archive'} onOpenChange={change('archive')} busy={busy} error={error} tone={archived.shown ? 'primary' : 'danger'} title={archived.shown ? `Unarchive ${full}?` : `Archive ${full}?`}
+      <RepositoryConfirmation open={open === 'archive'} onOpenChange={change('archive')} busy={busy} error={error} tone={archived.shown ? 'primary' : 'danger'} title={archived.shown ? `Unarchive ${full}?` : `Archive ${full}?`}
         description={archived.shown ? 'Pushes, issues and pull requests are possible again.' : 'It becomes read-only for everyone, you included, until it is unarchived.'}
         confirmLabel={archived.shown ? 'Unarchive' : 'Archive'}
         onConfirm={() => void run(async () => {
@@ -343,7 +355,7 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
           }
           notify(app, {tone: 'success', title: to ? `${full} is archived` : `${full} is no longer archived`});
         })}/>
-      <ConfirmDialog open={open === 'transfer'} onOpenChange={change('transfer')} busy={busy} error={error} title={`Transfer ${full}`} confirmLabel="Transfer" confirmText={full} ready={'owner' in target}
+      <RepositoryConfirmation open={open === 'transfer'} onOpenChange={change('transfer')} busy={busy} error={error} title={`Transfer ${full}`} confirmLabel="Transfer" confirmText={full} ready={'owner' in target}
         description="The new owner gets every issue, pull request and setting. A user has to accept the transfer first."
         onConfirm={() => void run(async () => {
           if (!('owner' in target)) return;
@@ -357,12 +369,12 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
           }
         })}>
         <FormControl id="transfer-owner"><FormControl.Label>New owner</FormControl.Label>
-          <TextInput id="transfer-owner" className="w-full" value={newOwner} autoComplete="off" spellCheck={false} placeholder="A user or organization" aria-describedby={hintId('transfer-owner')} onChange={(e) => {
+          <TextInput className="w-full" value={newOwner} autoComplete="off" spellCheck={false} placeholder="A user or organization" onChange={(e) => {
               setNewOwner(e.target.value);
             }}/>
         {(newOwner.trim() && 'error' in target ? target.error : undefined) && <FormControl.Validation variant="error">{newOwner.trim() && 'error' in target ? target.error : undefined}</FormControl.Validation>}</FormControl>
-      </ConfirmDialog>
-      <ConfirmDialog open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
+      </RepositoryConfirmation>
+      <RepositoryConfirmation open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
         description="Its code, issues, pull requests, wiki, releases and packages are deleted for good."
         onConfirm={() => void run(async () => {
           await deleteRepo(app, owner, repo);
@@ -371,4 +383,4 @@ function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repositor
         })}/>
     </FormSection>
   );
-}
+});

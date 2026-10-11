@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // Contributing from a fork in the app: a fork's comparison of its own
 // branches says that a pull request opened there stays in the fork and
 // offers the upstream instead; its branches propose to the upstream; the

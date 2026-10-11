@@ -129,9 +129,9 @@ describe('boot', () => {
     const links = / invisible" aria-hidden="true"/;
     expect(panel?.outerHTML).toMatch(links);
     // Inline styles (an octicon's vertical-align) serialize with spaces from the DOM, without from React's markup.
-    const styles = (html = '') => html.replace(/style="([^"]*)"/g, (_, css: string) => `style="${css.replace(/\s+|;$/g, '')}"`);
+    const styles = (html = '') => html.replace(/ href="[^"]*"/g, '').replace(/style="([^"]*)"/g, (_, css: string) => `style="${css.replace(/\s+|;$/g, '')}"`);
     expect(styles(panel?.outerHTML.replace('hidden logged-out:flex', 'flex').replace(links, '"')))
-      .toBe(styles(appRoot(container)?.outerHTML.replace(/<a href="[^"]*"/g, '<a')));
+      .toBe(styles(appRoot(container)?.outerHTML));
   });
 
   test('without OAuth2 on the server, signing in is unavailable (and says so)', async () => {
@@ -145,12 +145,6 @@ describe('boot', () => {
     expect(screen.getByRole('button', {name: 'Sign in'})).toBeTruthy();
   });
 
-  test('the gallery route is available in dev', async () => {
-    await renderApp('/-/next/gallery');
-    expect(screen.getByRole('heading', {name: 'Primitives'})).toBeTruthy();
-    // The gallery renders every primitive and variant: none may set a property twice.
-    expect(classConflicts(document.body)).toEqual([]);
-  });
 });
 
 describe('signed in', () => {
@@ -159,7 +153,7 @@ describe('signed in', () => {
     await renderApp('/', s);
     const sidebar = screen.getByRole('complementary', {name: 'Sidebar'});
     expect(within(sidebar).getAllByRole('button', {name: 'alice'}).filter((b) => b.getAttribute('aria-haspopup') === 'menu')).toHaveLength(1);
-    expect(within(sidebar).getByRole('link', {name: /Inbox/}).textContent).toBe('Inbox1');
+    expect(within(within(sidebar).getByRole('link', {name: /Inbox/})).getByText('1')).toBeTruthy();
     const groups = within(sidebar).getAllByRole('group');
     // The viewer first, then the organizations; repositories by name.
     expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['alice', 'acme']);
@@ -277,11 +271,11 @@ describe('signed in', () => {
   test('a collapsed owner stays collapsed (persisted)', async () => {
     const s = signedIn();
     const first = await renderApp('/', s);
-    fireEvent.click(screen.getByRole('button', {name: 'Fold acme'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Collapse acme'}));
     expect(screen.queryByRole('link', {name: 'website'})).toBeNull();
     first.unmount();
     await renderApp('/', s);
-    expect(screen.getByRole('button', {name: 'Unfold acme'}).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByRole('button', {name: 'Expand acme'}).getAttribute('aria-expanded')).toBe('false');
   });
 
   test('G then I/P/N navigate; typing in a field does not', async () => {
@@ -330,7 +324,7 @@ describe('signed in', () => {
     const {app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
     const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
-    const selected = () => document.querySelector('[cmdk-item][data-selected="true"]')?.textContent ?? '';
+    const selected = () => document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? '';
     // Never by default; typed out by name, Enter runs it (signing out still asks when changes are unsynced).
     fireEvent.change(input, {target: {value: 'sign'}});
     await waitFor(() => {
@@ -411,7 +405,7 @@ describe('signed in', () => {
     try {
       key('k', {ctrlKey: true});
       const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
-      const selected = () => document.querySelector('[cmdk-item][data-selected="true"]')?.textContent ?? '';
+      const selected = () => document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? '';
       for (const query of ['issues', 'pull requests', 'commits', 'branches', 'releases', 'actions', 'wiki']) {
         fireEvent.change(input, {target: {value: query}});
         await waitFor(() => { expect(selected().toLowerCase()).toContain(`go to ${query} of acme/website`); });
@@ -481,7 +475,7 @@ describe('signed in', () => {
     const title = screen.getByRole('heading', {level: 1, name: 'Issues'});
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tabs.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(title.parentElement ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
+    expect(within(title.closest('[data-component="PageHeader"]') ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
     expect(within(crumbs.parentElement ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
     expect(s.data.held.get('repo:20')).toBe(1);
     await act(() => router.navigate({to: '/'}));
@@ -590,8 +584,8 @@ describe('signed in', () => {
     expect(within(dialog).getByText('Go to my issues')).toBeTruthy();
     expect(within(dialog).getByText('Go to Home')).toBeTruthy();
     expect(within(dialog).getByText('Next item')).toBeTruthy();
-    expect(within(dialog).getAllByRole('heading', {level: 3}).map((h) => h.textContent)[0]).toBe('Lists · on this page');
-    fireEvent.click(within(dialog).getByRole('button', {name: 'Close'}));
+    expect(within(dialog).getAllByRole('heading', {level: 2}).map((h) => h.textContent)[0]).toBe('Lists · on this page');
+    fireEvent.click(within(dialog).getAllByRole('button', {name: 'Close'}).at(-1) ?? dialog);
     await waitFor(() => {
       expect(screen.queryByRole('dialog', {name: 'Keyboard shortcuts'})).toBeNull();
     });

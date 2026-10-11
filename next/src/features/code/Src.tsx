@@ -25,9 +25,8 @@ import {useApp, useSession} from '../../app/store.ts';
 import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha} from '../../code/refs.ts';
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {
-  BlameCell, CodeLine, CodeTokens, LineAction, LineNo, ListRow, SegmentedControl, Skeleton, TextLink,
-} from '../../ui/index.ts';
+import {BlameCell, CodeLine, CodeTokens, LineAction, LineNo} from '../../code/parts.tsx';
+import {FileSurface} from '../../code/FileSurface.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -41,7 +40,7 @@ import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon} from '@primer/octicons-react';
-import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
+import {Button, LinkButton, Link, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
@@ -80,7 +79,7 @@ const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: b
 function ListSkeleton() {
   return (
     <div className="flex flex-col" aria-busy>
-      {Array.from({length: 8}, (_, i) => <ListRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>}><SkeletonBox className="h-3 w-48"/></ListRow>)}
+      {Array.from({length: 8}, (_, i) => <div key={i} className="flex items-center gap-2 px-4 py-2"><SkeletonBox className="size-4"/><SkeletonBox className="h-3 w-48"/></div>)}
     </div>
   );
 }
@@ -134,12 +133,12 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
   const root = view === 'src' ? 'Code' : 'Commits';
   return (
     <span className="flex min-w-0 items-center gap-1">
-      {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink></TextLink> : <span>{root}</span>}
+      {parts.length ? <Link as={CodeLink} owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</Link> : <span>{root}</span>}
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
           <span className="text-muted">/</span>
           {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
-            <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
+            <Link as={CodeLink} owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</Link>}
         </span>
       ))}
     </span>
@@ -168,9 +167,9 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
-        <SegmentedControl label="Show the file as" value={blame ? 'blame' : 'src'} onChange={(v) => {
-          void navigate({...codeTo(owner, repo, codeSplat(v, at, at.path)), hash: true});
-        }} options={[{value: 'src', label: 'Source'}, {value: 'blame', label: 'Blame'}]}/>
+        <SegmentedControl aria-label="Show the file as" onChange={(index) => {
+          void navigate({...codeTo(owner, repo, codeSplat(index === 1 ? 'blame' : 'src', at, at.path)), hash: true});
+        }}><SegmentedControl.Button selected={!blame}>Source</SegmentedControl.Button><SegmentedControl.Button selected={blame}>Blame</SegmentedControl.Button></SegmentedControl>
       )}
       {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
       {file && (
@@ -304,7 +303,7 @@ const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-5
 export function CodeSkeleton() {
   return (
     <div className="flex flex-col gap-2 px-4 py-3" aria-busy>
-      {SKELETON_LINES.map((c, i) => <Skeleton key={i} className={c}/>)}
+      {SKELETON_LINES.map((c, i) => <SkeletonBox key={i} className={c}/>)}
     </div>
   );
 }
@@ -317,7 +316,7 @@ function PreviewableFile(props: FileProps & {text: string}) {
   const toggle = (
     <span className="ml-auto">
       {/* "Markup", not a second "Source": the header's Source / Blame switch is beside it. */}
-      <SegmentedControl label="Show the file" value={mode} onChange={setMode} options={[{value: 'preview', label: 'Preview'}, {value: 'source', label: 'Markup'}]}/>
+      <SegmentedControl aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
     </span>
   );
   if (mode === 'source') return <TextFile {...props} text={text} toolbar={toggle}/>;
@@ -353,7 +352,13 @@ export function hashRange(hash: string): [number, number] | undefined {
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
-const TextFile = observer(function TextFile({owner, repo, repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
+function TextFile(props: FileProps & {text: string; toolbar?: ReactNode}) {
+  return typeof Worker === 'undefined' ? <LinkedTextFile {...props}/> : <FileSurface name={props.at.path} text={props.text} scroller={props.scroller} cacheKey={props.entry.sha} fallback={<LinkedTextFile {...props}/>}>
+    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.toolbar}</FileMeta>
+  </FileSurface>;
+}
+
+const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
   const {range, view, initial, pick} = useLineLinks();
@@ -469,7 +474,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
                 </CodeLink>
               )}
               <span className="shrink-0 text-default @max-xl:hidden">{commit.author_name}</span>
-              <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink></TextLink>
+              <Link as={CodeLink} owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</Link>
             </span>
           )}
         </BlameCell>

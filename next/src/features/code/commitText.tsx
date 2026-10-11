@@ -8,12 +8,14 @@
 // classic commit page's load-branches-and-tags, from the sync API (refs
 // move: asked for online, not cached).
 import {observer} from 'mobx-react-lite';
+import {BranchName} from '@primer/react';
+import {Link as PrimerLink} from '@primer/react';
 import {useState} from 'react';
 import {useApp} from '../../app/store.ts';
 import {online} from '../../app/api.ts';
 import type {CommitInfo} from '../../code/source.ts';
 import type {APICommitRefs} from '../../protocol/types.gen.ts';
-import {Icon, TextLink} from '../../ui/index.ts';
+
 import {commitRow, summary} from './bits.tsx';
 import {useLoad} from './hooks.ts';
 import {CodeLink} from './nav.tsx';
@@ -99,9 +101,9 @@ function RefList({owner, repo, kind, names}: {owner: string; repo: string; kind:
   const what = kind === 'tag' ? (names.length === 1 ? 'tag' : 'tags') : (names.length === 1 ? 'branch' : 'branches');
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="flex items-center gap-1"><Icon icon={kind === 'tag' ? TagIcon : GitBranchIcon} size="sm"/>{`In ${String(names.length)} ${what}:`}</span>
+      <span className="flex items-center gap-1">{kind === 'tag' ? <TagIcon size={16}/> : <GitBranchIcon size={16}/>}{`In ${String(names.length)} ${what}:`}</span>
       {shown.map((n) => (
-        <TextLink key={n} accent><CodeLink owner={owner} repo={repo} to={`src/${kind}/${n}`}><span className="font-mono">{n}</span></CodeLink></TextLink>
+        <PrimerLink as={CodeLink} key={n} owner={owner} repo={repo} to={`src/${kind}/${n}`}><BranchName as="span">{n}</BranchName></PrimerLink>
       ))}
       {names.length > shown.length && <Button variant="invisible" size="small" type="button" onClick={() => {
         setAll(true);

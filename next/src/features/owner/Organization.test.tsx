@@ -3,7 +3,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {afterAll, afterEach, expect, test, vi} from 'vitest';
+import {afterAll, afterEach, expect, onTestFinished, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
@@ -54,6 +54,10 @@ test('organization management loads on open, writes organization labels and team
   expect(calls.find((c) => c.method === 'POST' && c.path.endsWith('/orgs/acme/labels'))?.body).toMatchObject({name: 'priority', exclusive: false, is_archived: false});
   fireEvent.click(screen.getByRole('link', {name: 'Teams'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Members of triage'}));
+  // Primer's virtualized picker needs a viewport size; jsdom has no layout.
+  const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(320);
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(640);
+  onTestFinished(() => { height.mockRestore(); width.mockRestore(); });
   fireEvent.click(await screen.findByRole('button', {name: 'Add member'}));
   fireEvent.change(screen.getByRole('combobox'), {target: {value: 'bob'}});
   fireEvent.click(await screen.findByRole('option', {name: /bob/}));

@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {type ReactNode, useEffect} from 'react';
-import {cx} from '../ui/index.ts';
+import {clsx} from 'clsx';
 import {EARLY_SIGN_IN} from './splash.ts';
 import {SignInIcon} from '@primer/octicons-react';
 import {Button, LinkButton} from '@primer/react';
@@ -10,7 +10,7 @@ import {Blankslate} from '@primer/react/experimental';
 /** A full-height screen with its content centred (logged-out, placeholders). */
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
   // In the boot shell the splash attribute decides whether it shows.
-  return <div className={cx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-inset')}>{children}</div>;
+  return <div className={clsx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-inset')}>{children}</div>;
 }
 
 /**
@@ -56,7 +56,7 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
             <Button variant="primary" type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
             {(boot ?? classic) && (
               // The first frame keeps their place (no shift when the app fills them in): their addresses need the app.
-              <span className={cx('flex flex-wrap justify-center gap-x-3 text-sm', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
+              <span className={clsx('flex flex-wrap justify-center gap-x-3 text-sm', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
                 {/* Public pages read without an account in the classic UI; or this browser leaves the app. */}
                 {classic?.page && <LinkButton variant="invisible" size="small" href={classic.page} data-classic="">View this page without signing in</LinkButton>}
                 <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>

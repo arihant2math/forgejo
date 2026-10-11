@@ -7,16 +7,14 @@
 // the live "is this name free" check, and going to what was created once
 // the pool holds it.
 //
-// (Local to these forms: a settings Field/Select/Switch set for src/ui is
-// under review separately; these move there once it lands.)
-import {useEffect, useState, type ReactNode} from 'react';
+import {cloneElement, useEffect, useState, type ReactNode} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import type {App} from '../../app/store.ts';
-import {Callout, Code, CommandPick, CommandPopover, Icon, matchOptions, type PickOption} from '../../ui/index.ts';
-import {CheckIcon, ChevronDownIcon, AlertIcon} from '@primer/octicons-react';
+import {FilteredSelect} from '../create/FilteredSelect.tsx';
+import {CheckIcon, ChevronDownIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Banner, Button, FormControl, Heading, Radio, RadioGroup, type ButtonProps} from '@primer/react';
 
 /** The id of a field's hint or error (its control's aria-describedby). */
 export const hintOf = (id: string) => `${id}-hint`;
@@ -26,16 +24,12 @@ export function Field({id, label, required, optional, hint, error, children}: {
   id: string; label: string; required?: boolean; optional?: boolean; hint?: ReactNode; error?: string | undefined; children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={id} className="text-base font-medium text-default">
-        {label}{required && <span className="text-danger" aria-hidden> *</span>}
-        {optional && <span className="font-normal text-muted"> (optional)</span>}
-      </label>
+    <FormControl id={id} required={Boolean(required)} className="min-w-0">
+      <FormControl.Label>{label}{optional ? ' (optional)' : ''}</FormControl.Label>
       {children}
-      {error ?
-        <p id={hintOf(id)} role="alert" className="flex items-center gap-1 text-sm text-danger"><AlertIcon size={12} className="shrink-0"/>{error}</p> :
-        hint && <div id={hintOf(id)} className="text-sm text-muted">{hint}</div>}
-    </div>
+      {error ? <FormControl.Validation id={hintOf(id)} variant="error">{error}</FormControl.Validation> :
+        hint && <FormControl.Caption id={hintOf(id)}>{hint}</FormControl.Caption>}
+    </FormControl>
   );
 }
 
@@ -45,7 +39,7 @@ export function Section({title, description, children}: {title?: string; descrip
     <section className="flex min-w-0 flex-col gap-3 border-t border-muted pt-4">
       {title && (
         <div className="flex flex-col gap-0.5">
-          <h2 className="text-md font-semibold text-default">{title}</h2>
+          <Heading as="h2" variant="small">{title}</Heading>
           {description && <p className="text-sm text-muted">{description}</p>}
         </div>
       )}
@@ -68,27 +62,17 @@ export function Choice<V extends string>({name, label, value, options, onChange}
   name: string; label: string; value: V; options: readonly ChoiceOption<V>[]; onChange: (v: V) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex flex-col gap-2">
-      {options.map((o) => (
-        <label key={o.value} className="flex items-start gap-3 has-disabled:opacity-disabled">
-          <input type="radio" name={name} value={o.value} checked={value === o.value} disabled={Boolean(o.disabled)} className="mt-0.5 size-4 accent-accent"
-            aria-describedby={`${name}-${o.value}-hint`}
-            onChange={() => {
-              onChange(o.value);
-            }}/>
-          <Icon icon={o.icon} className="mt-0.5 text-muted"/>
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-base font-medium text-default">{o.label}</span>
-            <span id={`${name}-${o.value}-hint`} className="text-sm text-muted">{o.disabled ?? o.description}</span>
-          </span>
-        </label>
-      ))}
-    </div>
+    <RadioGroup name={name} onChange={(selected) => { if (selected) onChange(selected as V); }}>
+      <RadioGroup.Label>{label}</RadioGroup.Label>
+      {options.map((o) => <FormControl key={o.value} disabled={Boolean(o.disabled)}>
+        <Radio value={o.value} checked={value === o.value}/>
+        <FormControl.LeadingVisual><o.icon/></FormControl.LeadingVisual>
+        <FormControl.Label>{o.label}</FormControl.Label>
+        <FormControl.Caption>{o.disabled ?? o.description}</FormControl.Caption>
+      </FormControl>)}
+    </RadioGroup>
   );
 }
-
-/** How many matches a long picker lists (type to narrow: there are hundreds of licenses). */
-const LONG_LIST = 80;
 
 /**
  * A choice from a long list of names, under a button that shows it ("None" first). `multi`: several (the
@@ -99,31 +83,19 @@ export function NamePicker({id, label, placeholder, names, chosen, onChange, mul
   multi?: boolean; empty: string; none?: string;
 }) {
   const shown = chosen.length > 2 ? `${chosen.slice(0, 2).join(', ')} +${String(chosen.length - 2)}` : chosen.join(', ');
-  return (
-    <CommandPopover label={label} placeholder={placeholder} width="md"
-      render={(onClose) => <LongPick label={label} placeholder={placeholder} names={names} chosen={chosen} multi={multi} empty={empty} none={none} onChange={onChange} onClose={onClose}/>}
-      options={[]}
-      trigger={<Button type="button" id={id} aria-describedby={hintOf(id)}>{shown || none}<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
-  );
-}
-
-function LongPick({label, placeholder, names, chosen, multi, empty, none, onChange, onClose}: {
-  label: string; placeholder: string; names: readonly string[]; chosen: readonly string[]; multi: boolean; empty: string; none: string;
-  onChange: (names: string[]) => void; onClose: () => void;
-}) {
-  const [query, setQuery] = useState('');
-  const options: PickOption[] = [
-    {value: '\u0000none', label: none, checked: chosen.length === 0, onSelect: () => {
-      onChange([]);
-    }},
-    ...names.map((n) => ({value: n, label: n, checked: chosen.includes(n), keepOpen: multi, onSelect: () => {
-      onChange(multi ? (chosen.includes(n) ? chosen.filter((c) => c !== n) : [...chosen, n]) : [n]);
-    }})),
-  ];
-  const matches = matchOptions(options, query);
-  // The chosen ones stay listed (to take them away), then the first matches.
-  const shown = [...matches.filter((o) => o.checked === true), ...matches.filter((o) => o.checked !== true).slice(0, LONG_LIST)];
-  return <CommandPick label={label} placeholder={placeholder} options={shown} empty={empty} onClose={onClose} query={query} onQueryChange={setQuery} filtered/>;
+  const items = [{id: '\u0000none', text: none}, ...names.map((n) => ({id: n, text: n}))];
+  const selected = items.filter((item) => chosen.length ? chosen.includes(item.id) : item.id === '\u0000none');
+  const update = (ids: (string | number | undefined)[]) => {
+    // Selecting None clears a multi-selection; selecting a name replaces None.
+    onChange(ids.includes('\u0000none') && chosen.length ? [] : ids.filter((id) => id !== '\u0000none').map(String));
+  };
+  const common = {
+    id, title: label, placeholderText: placeholder, items,
+    message: {title: empty, body: '', variant: 'empty' as const},
+    renderAnchor: (props: ButtonProps) => cloneElement(<Button type="button" id={id} aria-describedby={hintOf(id)} trailingVisual={ChevronDownIcon}>{shown || none}</Button>, props),
+  };
+  return multi ? <FilteredSelect {...common} selected={selected} onSelectedChange={(next) => { update(next.map((item) => item.id)); }}/> :
+    <FilteredSelect {...common} selected={selected[0]} onSelectedChange={(next) => { if (next) update([next.id]); }}/>;
 }
 
 export type Availability = 'unknown' | 'checking' | 'free' | 'taken';
@@ -169,10 +141,9 @@ export function NameStatus({availability, free, idle}: {availability: Availabili
  */
 export function ScopeNote({scope, what, classic}: {scope: string; what: string; classic: string}) {
   return (
-    <Callout tone="warning" title={`Forgejo Next cannot create ${what} yet`} actions={<ClassicLink to={classic} size="sm" variant="secondary">Use the classic form</ClassicLink>}>
-      Forgejo asks for the <Code>{scope}</Code> scope for this, and Forgejo Next’s sign-in does not have it: its token gets no write access to
-      your account or organizations, so that one taken from the browser could not add SSH keys or organization hooks.
-    </Callout>
+    <Banner variant="warning" title={`Forgejo Next cannot create ${what} yet`} primaryAction={<ClassicLink to={classic} size="small" variant="default">Use the classic form</ClassicLink>}
+      description={<>Forgejo asks for the <code>{scope}</code> scope for this, and Forgejo Next’s sign-in does not have it: its token gets no write access to
+      your account or organizations, so that one taken from the browser could not add SSH keys or organization hooks.</>}/>
   );
 }
 

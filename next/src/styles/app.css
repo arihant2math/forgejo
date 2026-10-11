@@ -36,7 +36,7 @@
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "./tokens.css";
 @import "./base.css" layer(base);
-@import "./prose.css";
+@import "@primer/css/dist/markdown.css" layer(primer);
 
 @source "../";
 @source not "../dev";

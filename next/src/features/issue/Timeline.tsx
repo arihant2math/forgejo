@@ -11,11 +11,11 @@
 import {SuggestionCard} from '../pull/Suggestion.tsx';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState} from 'react';
+import {createElement, createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState} from 'react';
 import type {VirtuosoHandle} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Badge, type BadgeTone, Code, CodeLine, cx, Icon, LabelChip, TextLink} from '../../ui/index.ts';
+import {clsx} from 'clsx';
 import {useParams, useRouterState} from '@tanstack/react-router';
 import {commentAnchor} from '../../code/anchor.ts';
 import {submitReview} from '../../code/review.ts';
@@ -41,7 +41,7 @@ import {blocking, IssueLink} from './Sidebar.tsx';
 import {conversationReplies, conversationRoot, replyOnlyReview, replyRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
 import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckCircleIcon, IssueOpenedIcon, ClockIcon, EyeIcon, GitBranchIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, LockIcon, UnlockIcon, CommentIcon, MilestoneIcon, PencilIcon, PinIcon, PinSlashIcon, ReplyIcon, ProjectIcon, TagIcon, PersonIcon, PersonAddIcon, XCircleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, Label} from '@primer/react';
+import {Button, IssueLabelToken, Label} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
 /** Above this many items the timeline is virtualized. */
@@ -211,16 +211,16 @@ function Card({poster, original, at, badge, children, footer, id, linked}: {
   poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string; linked?: boolean;
 }) {
   return (
-    <article id={id} aria-current={linked ? 'location' : undefined} className={cx('flex gap-3 py-3', linked && '-mx-2 rounded-md bg-accent-muted px-2')}>
+    <article id={id} aria-current={linked ? 'location' : undefined} className={clsx('flex gap-3 py-3', linked && '-mx-2 rounded-md bg-accent-muted px-2')}>
       <UserAvatar id={poster} size="lg" linked/>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <header className="flex flex-wrap items-center gap-x-2 text-base">
+      <div className="flex min-w-0 flex-1 flex-col rounded-md border border-default">
+        <header className="flex flex-wrap items-center gap-x-2 rounded-t-md border-b border-default bg-muted px-3 py-2 text-base">
           <Who id={poster} fallback={original}/>
           <When at={at}/>
           {badge}
         </header>
-        {children}
-        {footer}
+        <div className="p-3">{children}</div>
+        {footer && <div className="px-3 pb-3">{footer}</div>}
       </div>
     </article>
   );
@@ -280,24 +280,24 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
   );
 });
 
-const REVIEW_LOOK: Record<string, {tone: BadgeTone; text: string}> = {
+const REVIEW_LOOK: Record<string, {tone: 'success' | 'danger' | 'secondary'; text: string}> = {
   APPROVED: {tone: 'success', text: 'approved'},
   REQUEST_CHANGES: {tone: 'danger', text: 'requested changes'},
-  COMMENT: {tone: 'neutral', text: 'reviewed'},
+  COMMENT: {tone: 'secondary', text: 'reviewed'},
 };
 
 const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   const pool = usePool();
   const r = pool.model('Review').get(id);
   if (!r) return null;
-  const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'neutral' as const, text: 'reviewed'};
+  const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'secondary' as const, text: 'reviewed'};
   const summary = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
   const html = r.get('body_html');
   // Replies to conversations started in an earlier review show in those threads.
   const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code' && !replyRoot(pool, c));
   return (
     <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')}
-      badge={<Badge tone={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Badge>}>
+      badge={<Label variant={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Label>}>
       {/* A review without a summary (only line comments, or only a verdict) has no empty "No text." card. */}
       {summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review"/> : html && <Markdown html={html}/>}
       {codes.map((c) => <CodeComment key={c.id} c={c}/>)}
@@ -344,7 +344,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   if (resolver > 0 && !shown && !replying) {
     return (
       <div className="flex flex-col gap-1 rounded-md border border-default p-3">
-        <span className="text-sm text-muted"><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</span>
+        <span className="text-sm text-muted"><code>{c.get('path')}</code> line {Math.abs(c.get('line'))}</span>
         <ResolvedFold resolver={resolver} onShow={() => {
           setShown(true);
         }}/>
@@ -355,17 +355,17 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
     <div className="flex flex-col gap-1 rounded-md border border-default p-3">
       <span className="text-sm text-muted">
         <Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on{' '}
-        {files ? <RouterLink to={files} search={{tab: 'files'}} hash={`review-thread-${String(c.id)}`} muted className="min-w-0 truncate"><Code>{c.get('path')}</Code>line {Math.abs(c.get('line'))}</RouterLink> :
-          <><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</>}
+        {files ? <RouterLink to={files} search={{tab: 'files'}} hash={`review-thread-${String(c.id)}`} muted className="min-w-0 truncate"><code>{c.get('path')}</code>line {Math.abs(c.get('line'))}</RouterLink> :
+          <><code>{c.get('path')}</code> line {Math.abs(c.get('line'))}</>}
         {c.get('invalidated') && <> · <Label>Outdated</Label></>}
       </span>
       {lines.length > 0 && (
         <div className="overflow-x-auto rounded-sm border border-muted" role="presentation">
           {lines.map((l, i) => (
-            <CodeLine key={i} tone={l.startsWith('+') ? 'add' : l.startsWith('-') ? 'del' : 'none'}
-              gutter={<span className="w-6 shrink-0 text-center text-muted select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>}>
-              {l.slice(1)}
-            </CodeLine>
+            <div key={i} className={clsx('flex font-mono text-sm', l.startsWith('+') ? 'bg-diff-addition-line' : l.startsWith('-') && 'bg-diff-deletion-line')}>
+              <span className="w-6 shrink-0 text-center text-muted select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>
+              <span className="code-text pr-3">{l.slice(1)}</span>
+            </div>
           ))}
         </div>
       )}
@@ -399,7 +399,7 @@ const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: 
   const ev = swapFrom === undefined ? describeEvent(d) : {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
   return (
     <div className="flex min-h-control items-center gap-3 py-1 text-base text-muted">
-      <span className="flex size-6 shrink-0 items-center justify-center"><Icon icon={ev.icon} size="sm"/></span>
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-neutral-muted">{createElement(ev.icon, {size: 16})}</span>
       <span className="min-w-0">
         <Who id={d.poster_id} fallback={d.original_author}/> {ev.text} <When at={d.created_at}/>
       </span>
@@ -416,7 +416,7 @@ const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const {owner, repo} = useParams({strict: false});
   if (!l) return <span>a label</span>;
   const kind = labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
-  const chip = <LabelChip name={kind ? scopedValue(l.get('name')) : l.get('name')} color={l.get('color')}/>;
+  const chip = <IssueLabelToken text={kind ? scopedValue(l.get('name')) : l.get('name')} fillColor={`#${l.get('color')}`}/>;
   // The chip opens the repository's issues with that label (GitHub's).
   if (!owner || !repo) return chip;
   return <RouterLink to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(id)}} muted>{chip}</RouterLink>;
@@ -471,9 +471,9 @@ export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
     return <>closed this as a duplicate of {original ? <IssueRef id={original.id} from={d.issue_id}/> : `#${String(reason.duplicateOf)}`}</>;
   }
   if (reason?.notPlanned) return <>closed this as not planned</>;
-  return <>{action}{sha && repo && <> in <TextLink wrap><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
+  return <>{action}{sha && repo && <> in <span><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
     <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
-  </CodeLink></TextLink></>}{pull && <> in <IssueRef id={pull.get('issue_id')} from={d.issue_id}/></>}
+  </CodeLink></span></>}{pull && <> in <IssueRef id={pull.get('issue_id')} from={d.issue_id}/></>}
   {!pull && d.ref_is_pull && d.ref_issue_id > 0 && <> in <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>}</>;
 });
 
@@ -508,9 +508,9 @@ const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
   const message = d.body_html ? textOfMarkup(d.body_html).trim().split('\n')[0] ?? '' : '';
   if (!sha || !r) return <>referenced this in a commit</>;
   return (
-    <>referenced this in <TextLink wrap><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}>
+    <>referenced this in <span><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}>
       <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
-    </CodeLink></TextLink></>
+    </CodeLink></span></>
   );
 });
 
@@ -529,7 +529,7 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   }
   const ids = Array.isArray(push.commit_ids) ? push.commit_ids.filter((x): x is string => typeof x === 'string') : [];
   const link = (sha: string) => (r ?
-    <TextLink wrap key={sha}><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}><span className="font-mono">{shortSha(sha)}</span></CodeLink></TextLink> :
+    <span key={sha}><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}><span className="font-mono">{shortSha(sha)}</span></CodeLink></span> :
     <span key={sha} className="font-mono">{shortSha(sha)}</span>);
   if (push.is_force_push === true && ids.length === 2) return <>force-pushed from {link(ids[0] ?? '')} to {link(ids[1] ?? '')}</>;
   if (!ids.length) return <>pushed commits</>;
@@ -634,9 +634,9 @@ function describeEvent(d: Comment): {icon: OcticonType; text: ReactNode} {
     case 'unpin':
       return {icon: PinSlashIcon, text: 'unpinned this'};
     case 'delete_branch':
-      return {icon: GitBranchIcon, text: <>deleted the branch <Code>{d.old_ref}</Code></>};
+      return {icon: GitBranchIcon, text: <>deleted the branch <code>{d.old_ref}</code></>};
     case 'change_target_branch':
-      return {icon: ArrowSwitchIcon, text: <>changed the target branch from <Code>{d.old_ref}</Code> to <Code>{d.new_ref}</Code></>};
+      return {icon: ArrowSwitchIcon, text: <>changed the target branch from <code>{d.old_ref}</code> to <code>{d.new_ref}</code></>};
     case 'pull_push':
       return {icon: GitPullRequestIcon, text: <PushEvent d={d}/>};
     case 'project':

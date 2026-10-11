@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {useEffect, useRef, useState} from 'react';
+import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
 import {online} from '../../app/api.ts';
 import {sitePath} from '../../app/config.ts';
@@ -8,7 +9,7 @@ import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {netSignal} from '../../sync/net.ts';
 import {parseDiff, type DiffFile} from '../../code/diff.ts';
-import {Callout} from '../../ui/index.ts';
+
 import {ChangedFiles, DiffView, type DiffHandle} from './DiffView.tsx';
 import {NewPull} from './NewPull.tsx';
 import type {CodeViewProps} from './CodePage.tsx';
@@ -44,8 +45,8 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
     })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(err instanceof Error ? err.message : 'Could not compare these branches.'); });
     return () => { ctl.abort(); };
   }, [app, props.owner, props.repo, props.base, props.head, connected, session]);
-  if (!connected) return <Callout title="Online only">Comparing forks and opening pull requests requires a connection.</Callout>;
-  if (error) return <Callout tone="danger" title="Comparison failed">{error}</Callout>;
+  if (!connected) return <Banner title="Online only" description={<>Comparing forks and opening pull requests requires a connection.</>}/>;
+  if (error) return <Banner variant="critical" title="Comparison failed" description={<>{error}</>}/>;
   if (!result) return <Blankslate><Blankslate.Heading>Loading comparison…</Blankslate.Heading></Blankslate>;
   if (!result.total) return <Blankslate><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>This branch has no commits that the base lacks.</Blankslate.Description></Blankslate>;
   return <>

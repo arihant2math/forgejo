@@ -10,7 +10,6 @@ import type {CommitInfo} from '../../code/source.ts';
 import {useLoad, useSource} from './hooks.ts';
 import type {RefKind} from '../../code/refs.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
-import {Icon, Panel} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {Ago, Sha, summary} from './bits.tsx';
 import {codeTo} from './nav.tsx';
@@ -35,7 +34,7 @@ export function treeOrder(entries: readonly APITreeEntry[]): APITreeEntry[] {
 /** An entry as a row: its icon, its name, a file's size. */
 export function entryParts(e: APITreeEntry): RowParts {
   return {
-    leading: <Icon icon={ENTRY_ICON[e.type as keyof typeof ENTRY_ICON]} size="sm"/>,
+    leading: (() => {const EntryIcon = ENTRY_ICON[e.type as keyof typeof ENTRY_ICON] ?? FileIcon; return <EntryIcon size={16}/>;})(),
     main: e.name,
     trailing: e.type === 'blob' ? <span className="tabular-nums">{formatSize(e.size)}</span> : undefined,
   };
@@ -59,7 +58,7 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
   return (
     <>
       {showRef && <>
-        <Icon icon={kind === 'tag' ? TagIcon : kind === 'commit' ? GitCommitIcon : GitBranchIcon} size="sm"/>
+        {kind === 'tag' ? <TagIcon size={16}/> : kind === 'commit' ? <GitCommitIcon size={16}/> : <GitBranchIcon size={16}/>}
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-default">{name}</span>}
       </>}
       {message !== undefined ? <>
@@ -72,5 +71,5 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
 
 /** A directory's listing panel (the header: RefCommit; actions: e.g. the overview's History link). */
 export function FilesPanel({title, actions, children}: {title: ReactNode; actions?: ReactNode; children: ReactNode}) {
-  return <Panel label="Files" title={title} actions={actions}>{children}</Panel>;
+  return <section aria-label="Files" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default bg-muted px-4 py-3"><div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>{actions}</div>{children}</section>;
 }

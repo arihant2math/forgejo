@@ -12,10 +12,9 @@ import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {viewMembers} from '../../intents/view.ts';
-import {ChipButton} from '../../ui/index.ts';
 import {useOverlay, usePool} from '../issues/cells.tsx';
 import {SmileyIcon} from '@primer/octicons-react';
-import {IconButton, ActionMenu, ActionList} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 /** Forgejo's default [ui] REACTIONS; other (custom) ones show by name. */
 const EMOJI: Record<string, string> = {
@@ -67,13 +66,12 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
             const names = [...(g.mine ? ['you'] : []), ...g.others.filter(Boolean)].join(', ');
             return (
               <li key={g.content}>
-                <ChipButton pressed={g.mine} disabled={!canReact} label={`${names} reacted with ${NAMES[g.content] ?? g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
+                <Button size="small" count={g.count} aria-pressed={g.mine} disabled={!canReact} aria-label={`${names} reacted with ${NAMES[g.content] ?? g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
                   if (g.mine && g.count === 1) addButton.current?.focus({preventScroll: true});
                   toggle(g.content, !g.mine);
                 }}>
                   <span aria-hidden>{EMOJI[g.content] ?? `:${g.content}:`}</span>
-                  {g.count}
-                </ChipButton>
+                </Button>
               </li>
             );
           })}

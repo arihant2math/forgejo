@@ -3,7 +3,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {afterEach, beforeAll, describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp, type Session} from '../../app/store.ts';
@@ -12,11 +12,6 @@ import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
 
 afterEach(() => {
   localStorage.clear();
-});
-
-beforeAll(() => {
-  // jsdom has no scrolling (a view change scrolls the page to its top: viewChange).
-  if (!('scrollTo' in Element.prototype)) Object.assign(Element.prototype, {scrollTo: () => undefined});
 });
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -84,7 +79,7 @@ describe('labels and milestones', () => {
     expect(within(own).getByRole('link', {name: '2 open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=1');
     expect(within(own).getByRole('link', {name: 'No open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=2');
     // An exclusive scoped label shows its scope.
-    expect(within(own).getByText('kind /')).toBeTruthy();
+    expect(within(own).getByText('kind/docs')).toBeTruthy();
     expect(within(screen.getByRole('region', {name: 'Labels of acme'})).getByText('security')).toBeTruthy();
     // A reader gets no write controls.
     expect(screen.queryByRole('button', {name: 'New label'})).toBeNull();
@@ -94,7 +89,7 @@ describe('labels and milestones', () => {
     expect(await within(own).findByRole('link', {name: '1 pull request'})).toBeTruthy();
     expect(within(own).getByRole('link', {name: '1 pull request'}).getAttribute('href')).toBe('/acme/website/pulls?labels=2');
     await act(() => router.navigate({to: '/$owner/$repo/labels', params: {owner: 'acme', repo: 'website'}, search: {q: 'broken'}}));
-    expect(within(screen.getByRole('region', {name: 'Labels'})).queryByText('kind /')).toBeNull();
+    expect(within(screen.getByRole('region', {name: 'Labels'})).queryByText('kind/docs')).toBeNull();
     expect(within(screen.getByRole('region', {name: 'Labels'})).getByText('Something is broken')).toBeTruthy();
   });
 
@@ -121,10 +116,10 @@ describe('labels and milestones', () => {
     });
     expect(within(org).getByRole('link', {name: 'No open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=4');
     // Their own colours (a filled pill, not the grey fallback chip), the scope shown.
-    const urgent = within(org).getByText('Urgent').closest<HTMLElement>('span:not(.truncate)');
-    expect(urgent?.style.getPropertyValue('--label-color')).toBe('#e11d21');
-    expect(urgent?.className).toContain('bg-label');
-    expect(within(org).getByText('priority /')).toBeTruthy();
+    const urgent = within(org).getByText('priority/Urgent').closest<HTMLElement>('[data-size]');
+    expect(urgent?.style.getPropertyValue('--label-r')).toBe('225');
+    expect(urgent?.style.getPropertyValue('--label-g')).toBe('29');
+    expect(urgent?.style.getPropertyValue('--label-b')).toBe('33');
     vi.unstubAllGlobals();
   });
 
@@ -134,7 +129,7 @@ describe('labels and milestones', () => {
     expect(within(panel).getByRole('link', {name: 'v1.0'}).getAttribute('href')).toBe('/acme/website/milestone/5');
     expect(within(panel).getByText('Overdue')).toBeTruthy();
     expect(within(panel).getByText('50% complete')).toBeTruthy();
-    expect(within(panel).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1');
+    expect(within(panel).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
     expect(within(panel).getByRole('link', {name: '1 closed'}).getAttribute('href')).toBe('/acme/website/milestone/5?state=closed');
     expect(within(panel).queryByText('v0.9')).toBeNull();
     fireEvent.click(within(panel).getByRole('button', {name: /Closed/}));

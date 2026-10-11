@@ -31,6 +31,17 @@ test('opening a board focuses its card; arrows can enter and leave an empty colu
   const empty = screen.getByRole('listbox', {name: 'Empty'});
   await waitFor(() => { expect(document.activeElement).toBe(todo); });
   expect(todo.getAttribute('aria-activedescendant')).toBe('card-30');
+  // Both keyboard menu keys and pointer context menus use Primer's portalled ActionMenu.
+  fireEvent.keyDown(todo, {key: 'F10', shiftKey: true});
+  const keyboardMenu = await screen.findByRole('menu');
+  expect(within(keyboardMenu).getByText('Open', {exact: true})).toBeTruthy();
+  fireEvent.keyDown(keyboardMenu, {key: 'Escape'});
+  await waitFor(() => { expect(document.activeElement).toBe(todo); });
+  expect(fireEvent.contextMenu(todo, {clientX: 120, clientY: 160})).toBe(false);
+  const pointerMenu = await screen.findByRole('menu');
+  expect(within(pointerMenu).getByText('Move to', {exact: true})).toBeTruthy();
+  fireEvent.keyDown(pointerMenu, {key: 'Escape'});
+  await waitFor(() => { expect(document.activeElement).toBe(todo); });
   fireEvent.keyDown(todo, {key: 'ArrowRight'});
   await waitFor(() => { expect(document.activeElement).toBe(empty); });
   expect(app.ui.issueTarget).toEqual([]);
@@ -43,7 +54,7 @@ test('opening a board focuses its card; arrows can enter and leave an empty colu
   fireEvent.keyDown(empty, {key: 'ArrowLeft'});
   await waitFor(() => { expect(document.activeElement).toBe(todo); });
   expect(app.ui.issueTarget).toEqual([30]);
-  fireEvent.pointerDown(screen.getByRole('button', {name: 'Column “Empty”'}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: 'Column “Empty”'}));
   fireEvent.click(await screen.findByRole('menuitem', {name: 'New issue in this column…'}));
   const dialog = await screen.findByRole('dialog', {name: 'New issue'});
   fireEvent.keyDown(dialog, {key: 'Escape'});
@@ -91,12 +102,13 @@ test('adding existing issues: no "Add 0" row, what is picked is added, typed tex
 
   // Text that matches no issue: said, and Enter makes a new issue in this column (not a silent no-op).
   fireEvent.click(screen.getByRole('button', {name: 'Add existing issue…'}));
-  const input = await screen.findByRole('combobox');
+  const input = await screen.findByRole('combobox', {name: 'Search existing issues'});
 
   fireEvent.change(input, {target: {value: 'Placeholder: tile docs refresh'}});
   expect(await screen.findByText(/^No issue (on this device )?matches$/)).toBeTruthy();
   expect(names()).toEqual(['New issue “Placeholder: tile docs refresh” in this column…']);
   fireEvent.keyDown(input, {key: 'Enter'});
+  fireEvent.keyPress(input, {key: 'Enter', charCode: 13});
   await waitFor(() => { expect(app.ui.create).toEqual({repoId: 20, board: {projectId: 10, columnId: 11}, title: 'Placeholder: tile docs refresh'}); });
   expect(screen.queryByRole('dialog', {name: 'Add existing issues'})).toBeNull();
   const dialog = await screen.findByRole('dialog', {name: 'New issue'});
@@ -126,10 +138,11 @@ test('a card from the board in three keys: typed text that matches no issue, Ent
   await new Promise((r) => { setTimeout(r, 50); });
   const submit = vi.spyOn(editing(app).intents, 'submit');
   fireEvent.click(screen.getAllByRole('button', {name: 'Add existing issue…'})[1] as HTMLElement);
-  const input = await screen.findByRole('combobox');
+  const input = await screen.findByRole('combobox', {name: 'Search existing issues'});
   fireEvent.change(input, {target: {value: 'Quick note check'}});
   await screen.findByRole('option', {name: 'New issue “Quick note check” in this column…'});
   fireEvent.keyDown(input, {key: 'Enter'});
+  fireEvent.keyPress(input, {key: 'Enter', charCode: 13});
   // The create dialog: titled with what was typed, on this board's column.
   const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
   expect(title.value).toBe('Quick note check');

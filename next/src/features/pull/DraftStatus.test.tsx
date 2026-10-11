@@ -7,7 +7,6 @@ import {expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
-import {TooltipProvider} from '../../ui/index.ts';
 import {IssueSidebar} from '../issue/Sidebar.tsx';
 import {PullStateCell} from '../issues/cells.tsx';
 
@@ -34,7 +33,7 @@ function setup(title: string, pr: Partial<PullRequest> = {}) {
   const app = createApp(config, s);
   const entity = s.data.pool.model('Issue').get(100);
   if (!entity) throw new Error('no issue');
-  return {s, app, entity, wrap: (node: ReactNode) => render(<AppContext.Provider value={app}><TooltipProvider>{node}</TooltipProvider></AppContext.Provider>)};
+  return {s, app, entity, wrap: (node: ReactNode) => render(<AppContext.Provider value={app}>{node}</AppContext.Provider>)};
 }
 
 test('#178: a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
@@ -43,7 +42,7 @@ test('#178: a draft pull request\'s Status says Draft, and its header marks carr
   const status = screen.getByText('Status').parentElement;
   expect(status?.textContent).toContain('Draft');
   expect(status?.textContent).not.toContain('Open');
-  expect(within(screen.getByRole('heading')).getByText('Draft')).toBeTruthy();
+  expect(within(screen.getByRole('heading', {level: 1})).getByText('Draft')).toBeTruthy();
 });
 
 test('#178: a ready pull request stays Open', () => {

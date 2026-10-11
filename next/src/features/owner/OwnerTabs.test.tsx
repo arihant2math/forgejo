@@ -103,7 +103,7 @@ test('an organization\'s People: every member, removable by an owner; its More m
   });
   await router.load();
   render(<App app={app} router={router}/>);
-  fireEvent.pointerDown(await screen.findByRole('button', {name: 'More of this organization'}), {button: 0, ctrlKey: false});
+  fireEvent.click(await screen.findByRole('button', {name: 'More of this organization'}));
   expect((await screen.findByRole('menuitem', {name: /^Members/})).getAttribute('href')).toBe('/org/acme/members');
   fireEvent.click(screen.getByRole('menuitem', {name: 'People'}));
   await waitFor(() => { expect(router.state.location.search).toEqual({tab: 'people'}); });

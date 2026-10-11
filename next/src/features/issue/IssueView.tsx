@@ -8,10 +8,10 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {Link, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
+import {createLink, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {openCreate} from '../../app/create.ts';
 import {canWrite} from '../../app/access.ts';
-import {issueLocked, issueTitle} from '../../intents/view.ts';
+import {issueLocked, issueTitle, issueState} from '../../intents/view.ts';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -28,9 +28,8 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
-import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
+import {isMerged, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -40,7 +39,7 @@ import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
 import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, StateLabel, UnderlineNav} from '@primer/react';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 // A pull request's code views (Files, Commits, Checks) and its merge box: their own chunk (code surfaces, F7).
@@ -129,21 +128,21 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
   );
 });
 
+const PullTabLink = createLink(UnderlineNav.Item);
+
 const PULL_TABS: [PullTabName | undefined, string][] = [[undefined, 'Conversation'], ['files', 'Files'], ['commits', 'Commits'], ['checks', 'Checks']];
 
 /** Conversation (the issue page), and the pull request's code views. */
 function PullTabs({owner, repo, index, tab}: {owner: string; repo: string; index: string; tab: PullTabName | undefined}) {
   return (
-    <TabNav label="Pull request">
+    <UnderlineNav aria-label="Pull request">
       {PULL_TABS.map(([t, label]) => (
-        <TabLink key={label}>
-          <Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : undefined}
+        <PullTabLink key={label} to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : false}
             activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
               void PullTab.preload().catch(() => undefined);
-            }}>{label}</Link>
-        </TabLink>
+            }}>{label}</PullTabLink>
       ))}
-    </TabNav>
+    </UnderlineNav>
   );
 }
 
@@ -262,14 +261,19 @@ const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: E
 });
 
 const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
-
+  const state = issueState(editing(useApp()).overlay, issue);
+  const merged = isMerged(usePool(), issue.id);
+  const pull = issue.get('is_pull');
+  const status = merged ? 'pullMerged' : pull ? state === 'open' ? 'pullOpened' : 'pullClosed' : state === 'open' ? 'issueOpened' : 'issueClosed';
   const at = issue.get('created_at');
-
   return (
-    <p className="text-base text-muted">
+    <div className="flex flex-wrap items-center gap-2">
+      <StateLabel status={status}>{merged ? 'Merged' : state === 'open' ? 'Open' : 'Closed'}</StateLabel>
+      <p className="text-base text-muted">
       <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
-    </p>
+      </p>
+    </div>
   );
 });
 

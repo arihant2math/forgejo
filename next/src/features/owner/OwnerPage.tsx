@@ -3,7 +3,9 @@
 
 // User profiles and organizations on the canonical /{owner} route.
 
-import {LinkRows} from '../../ui/LinkRows.tsx';
+import {ResourceSection, DataRow, ResourceRows} from '../repo/layout.tsx';
+import {Avatar, UnderlineNav} from '@primer/react';
+
 import {useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {observer} from 'mobx-react-lite';
@@ -17,7 +19,6 @@ import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Hint, ListRow, Panel, TabNav, TabLink} from '../../ui/index.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
@@ -158,7 +159,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   const click = useLinkClick();
   const tabLink = (t: OwnerTab, label: string) => {
     const href = tabHref(app, info.login, t, isOrg);
-    return <TabLink><a href={href} aria-current={tab === t ? 'page' : undefined} onClick={(e) => { click(e, href); }}>{label}</a></TabLink>;
+    return <UnderlineNav.Item href={href} aria-current={tab === t ? 'page' : false} onClick={(e) => { click(e, href); }}>{label}</UnderlineNav.Item>;
   };
   const {data, userId} = useSession();
   const viewer = data.pool.model('User').get(userId)?.get('login');
@@ -195,7 +196,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
       <PageBody>
         <PageColumn>
           <div className="flex items-center gap-3">
-            <Avatar size="lg" name={info.login} src={info.avatar_url}/>
+            <Avatar size={64} alt={info.login} src={info.avatar_url}/>
             <div className="flex min-w-0 flex-col">
               <h2 className="truncate text-xl font-semibold text-default">{info.full_name || info.login}</h2>
               <p className="truncate text-base text-muted">{info.full_name ? `${info.login} · ` : ''}{isOrg ? 'Organization' : 'User'}</p>
@@ -210,7 +211,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
           </>}
           {section && <OfflineNote/>}
           {section === 'labels' && <OrganizationLabels owner={info.login}/>}
-          <TabNav label="Profile sections">
+          <UnderlineNav aria-label="Profile sections">
             {!isOrg && tabLink('overview', 'Overview')}
             {isOrg && tabLink('people', 'People')}
             {isOrg && tabLink('teams', 'Teams')}
@@ -218,7 +219,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
             {tabLink('repositories', 'Repositories')}
             {!isOrg && tabLink('stars', 'Stars')}
             {me && !isOrg && tabLink('watching', 'Watching')}
-          </TabNav>
+          </UnderlineNav>
           {tab === 'repositories' && <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/>}
           {tab === 'overview' && <Overview owner={info.login}/>}
           {tab === 'boards' && <Boards ownerId={info.id}/>}
@@ -249,18 +250,18 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
   }
   const list = [...rows.values()].sort((a, b) => b.updated.localeCompare(a.updated));
   return (
-    <Panel label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
+    <ResourceSection label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
       actions={canCreate && (
         <RouterLinkButton variant="invisible" size="small" leadingVisual={RepoIcon} to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}>New repository</RouterLinkButton>
       )}>
-      <LinkRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</LinkRows>
+      <ResourceRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</ResourceRows>
       {remote.state !== 'ready' && away ?
         list.length ? <p className="px-3 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
           <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
         list.length ? null :
           remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
             <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
-    </Panel>
+    </ResourceSection>
   );
 });
 
@@ -271,14 +272,14 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
   const [page, setPage] = useState(1);
   const remote = useRemote<APIRepo[]>(`${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=50&page=${String(page)}`);
   const away = reach(data.status.connection) !== 'online';
-  return <Panel label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
+  return <ResourceSection label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
     {kind === 'stars' && <p className="px-3 py-1 text-sm text-muted">Most recently starred first.</p>}
     {remote.state === 'ready' ? <>
-      <LinkRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</LinkRows>
+      <ResourceRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</ResourceRows>
       {!remote.value.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
       <div className="flex gap-2 px-3 py-2"><Button size="small" type="button" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="small" type="button" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
     </> : away ? <Blankslate><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>Connect to load these repositories.</Blankslate.Description></Blankslate> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <Blankslate><Blankslate.Heading>Could not load repositories</Blankslate.Heading></Blankslate>}
-  </Panel>;
+  </ResourceSection>;
 });
 
 function RepoLine({r}: {r: RepoRow}) {
@@ -287,14 +288,14 @@ function RepoLine({r}: {r: RepoRow}) {
   const href = hrefOf(app, `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
   return (
     // Every row leads with an icon (a lock for a private one), so that the names line up.
-    <ListRow role={undefined} href={href} onClick={(e) => click(e, href)} leading={r.private ? <Hint label="Private"><LockIcon size={12} className="shrink-0"/></Hint> : <RepoIcon size={12} className="shrink-0"/>}
+    <DataRow href={href} onClick={(e) => click(e, href)} leading={r.private ? <span title="Private" aria-label="Private"><LockIcon size={12} className="shrink-0"/></span> : <RepoIcon size={12} className="shrink-0"/>}
       trailing={<>
         {r.fork && <Label>Fork</Label>}
         {r.archived && <Label variant="attention">Archived</Label>}
         <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
       </>}>
       <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-muted">{r.description}</span>}
-    </ListRow>
+    </DataRow>
   );
 }
 
@@ -305,14 +306,15 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   const click = useLinkClick();
   const boards = [...data.pool.model('Project').by('owner_id', ownerId)].filter((p) => !p.get('repo_id') && !p.get('closed'));
   return (
-    <Panel label="Boards" title={<><ProjectIcon size={12} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
+    <ResourceSection label="Boards" title={<><ProjectIcon size={12} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
       <RouterLink to="/-/next/boards" search={{ownerId}} muted className="min-w-0 truncate">All boards, including closed</RouterLink>
       {!boards.length && <Blankslate><Blankslate.Heading>No boards on this device</Blankslate.Heading><Blankslate.Description>Boards appear here after they have been synced.</Blankslate.Description></Blankslate>}
       {boards.map((b) => {
         const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
-        return <ListRow key={b.id} role={undefined} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={12} className="shrink-0"/>}>{b.get('title')}</ListRow>;
+        return <DataRow key={b.id} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={12} className="shrink-0"/>}>{b.get('title')}</DataRow>;
       })}
-    </Panel>
+    </ResourceSection>
   );
 });
+
 

@@ -11,6 +11,7 @@
 // (refOps.ts drafts: drafts are not synced).
 
 import {useNavigate} from '@tanstack/react-router';
+import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -21,7 +22,8 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Callout, Code, CommandPopover} from '../../ui/index.ts';
+
+import {ChoicePanel} from './ChoicePanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -39,7 +41,7 @@ import {
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Tooltip} from '@primer/react';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
@@ -208,21 +210,21 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         save(false);
       }
     }}>
-      {error && <Callout tone="danger" title="Not saved">{error}</Callout>}
+      {error && <Banner variant="critical" title="Not saved" description={<>{error}</>}/>}
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
-          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
+          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
           <>
             <div className="flex flex-wrap items-center gap-2">
               <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
                   set({tag: e.target.value});
                 }} {...(tagBad ? {validationStatus: 'error' as const} : {})}/>
               {freeTags.length > 0 && (
-                <CommandPopover width="md" label="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
-                  options={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
+                <ChoicePanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
+                  choices={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
                     set({tag: t});
                   }}))}
-                  trigger={<Button variant="invisible" size="small" type="button">Existing tag<ChevronDownIcon size={12} className="shrink-0"/></Button>}/>
+                  anchor={<Button variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
               )}
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
@@ -238,9 +240,9 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                 </div>)}
           </>}
       </section>
-      <TextInput aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} className="w-full" maxLength={TITLE_MAX} onChange={(e) => {
+      <FormControl><FormControl.Label>Title</FormControl.Label><TextInput aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} block maxLength={TITLE_MAX} onChange={(e) => {
           set({title: e.target.value});
-        }}/>
+        }}/></FormControl>
       <MarkdownField attachments={false} repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}
         onChange={(notes) => {
           set({notes});
@@ -283,12 +285,12 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       <div className="flex flex-wrap items-center justify-end gap-2">
         {block && <span className="mr-auto text-sm text-muted">{block}</span>}
         <Button variant="invisible" type="button" onClick={back}>Cancel</Button>
-        {publishing && <OptionalTooltip text={block ?? 'Only writers see a draft'}><Button type="button" aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
+        {publishing && <Tooltip text={block ?? 'Only writers see a draft'}><Button type="button" inactive={Boolean(block) || Boolean(busy)} aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(true);
-        }}>{busy?.draft ? busy.label : 'Save draft'}</Button></OptionalTooltip>}
-        <OptionalTooltip text={block} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
+        }}>{busy?.draft ? busy.label : 'Save draft'}</Button></Tooltip>}
+        <Tooltip text={block ?? ''} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(block) || Boolean(busy)} aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(false);
-        }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button></OptionalTooltip>
+        }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button></Tooltip>
       </div>
     </div>
   );

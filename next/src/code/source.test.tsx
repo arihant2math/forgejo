@@ -10,7 +10,7 @@ import {IDBFactory} from 'fake-indexeddb';
 import {afterEach, expect, test, vi} from 'vitest';
 import type {App, Session} from '../app/store.ts';
 import {openDatabase} from '../data/idb.ts';
-import {CodeLine, CodeTokens, LineNo} from '../ui/index.ts';
+import {CodeLine, CodeTokens, LineNo} from './parts.tsx';
 import {highlight as realHighlight} from '../workers/highlight.ts';
 import type {HighlightWorker, WorkerApi} from './highlighter.ts';
 import {CodeSource} from './source.ts';

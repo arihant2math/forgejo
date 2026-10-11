@@ -10,7 +10,8 @@ import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {CommandPopover, ListRow, SegmentedControl} from '../../ui/index.ts';
+import {DenseRow} from '../home/DenseRow.tsx';
+import {ActionList, ActionMenu, SegmentedControl} from '@primer/react';
 import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
 
 import CodeSearch from './CodeSearch.tsx';
@@ -89,17 +90,37 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   return <>
     <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
       <TextInput aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
-      <CommandPopover label="Sort results" placeholder="Sort…" trigger={<Button size="small" type="button">{sorts.find((sort) => sort.value === search.sort)?.label}</Button>}
-        options={sorts.filter((sort) => (sort.value !== 'stars' || search.type === 'repositories') && (sort.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((sort) => ({value: sort.value, label: sort.label, checked: search.sort === sort.value, onSelect: () => { patch({sort: sort.value}); }}))}/>
+      <ActionMenu>
+        <ActionMenu.Button size="small">{sorts.find((sort) => sort.value === search.sort)?.label}</ActionMenu.Button>
+        <ActionMenu.Overlay><ActionList selectionVariant="single" aria-label="Sort results">
+          {sorts.filter((sort) => (sort.value !== 'stars' || search.type === 'repositories') && (sort.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((sort) =>
+            <ActionList.Item key={sort.value} selected={search.sort === sort.value} onSelect={() => { patch({sort: sort.value}); }}>{sort.label}</ActionList.Item>)}
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
       {search.type === 'repositories' && <>
-        <CommandPopover label="Archived repositories" placeholder="Archived…" trigger={<Button size="small" leadingVisual={FilterIcon} type="button">{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</Button>}
-          options={[{value: '', label: 'All repositories'}, {value: 'false', label: 'Not archived'}, {value: 'true', label: 'Archived'}].map((option) => ({...option, checked: search.archived === option.value, onSelect: () => { patch({archived: option.value as DiscoverySearch['archived']}); }}))}/>
+        <ActionMenu>
+          <ActionMenu.Button size="small" leadingVisual={FilterIcon}>{search.archived === 'true' ? 'Archived' : search.archived === 'false' ? 'Not archived' : 'Archived: all'}</ActionMenu.Button>
+          <ActionMenu.Overlay><ActionList selectionVariant="single" aria-label="Archived repositories">
+            {([{value: '', label: 'All repositories'}, {value: 'false', label: 'Not archived'}, {value: 'true', label: 'Archived'}] as const).map((option) =>
+              <ActionList.Item key={option.value} selected={search.archived === option.value} onSelect={() => { patch({archived: option.value}); }}>{option.label}</ActionList.Item>)}
+          </ActionList></ActionMenu.Overlay>
+        </ActionMenu>
         <TextInput aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
       </>}
-      {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl label="State" value={search.state} onChange={(state) => { patch({state}); }} options={[{value: 'all', label: 'All'}, {value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>}
+      {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl aria-label="State" onChange={(index) => {
+        const state = index === undefined ? undefined : (['all', 'open', 'closed'] as const)[index];
+        if (state) patch({state});
+      }}>{(['all', 'open', 'closed'] as const).map((state) =>
+        <SegmentedControl.Button key={state} selected={search.state === state}>{state.slice(0, 1).toUpperCase() + state.slice(1)}</SegmentedControl.Button>)}</SegmentedControl>}
     </PageHeader>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2">
-      <SegmentedControl label={explore ? 'Explore type' : 'Search type'} value={search.type} onChange={(type) => { patch({type}); }} options={available.map((kind) => ({value: kind, label: kind === 'code' ? labels[kind] : `${labels[kind]} (${connected ? counts[kind] ?? '…' : localDiscovery(app, discoverySearch({...search, type: kind, page: 1})).total})`}))}/>
+      <SegmentedControl aria-label={explore ? 'Explore type' : 'Search type'} variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
+        const type = index === undefined ? undefined : available[index];
+        if (type) patch({type});
+      }}>{available.map((kind) => <SegmentedControl.Button key={kind} selected={search.type === kind}
+          {...(kind === 'code' ? {} : {count: connected ? counts[kind] ?? '…' : localDiscovery(app, discoverySearch({...search, type: kind, page: 1})).total})}>
+          {labels[kind]}
+        </SegmentedControl.Button>)}</SegmentedControl>
     </div>
     {!connected && <p role="note" className="px-4 py-2 text-sm text-muted">Offline — showing results on this device only. Language filtering and people sort by activity are unavailable offline.</p>}
     <PageBody ref={setScroller}>
@@ -124,7 +145,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
             if (!row) return null;
             const href = hrefOf(app, row.path);
             return <div key={row.id} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(item.start)}px)`}}>
-              <ListRow id={`discovery-${String(row.id)}`} role="option" href={href} active={cursor === item.index} selected={cursor === item.index} tabIndex={-1} trailing={<span className="max-w-64 truncate">{row.detail}</span>} onClick={(event) => { setCursor(item.index); click(event, href); }}>{row.title}</ListRow>
+              <DenseRow id={`discovery-${String(row.id)}`} role="option" href={href} active={cursor === item.index} selected={cursor === item.index} tabIndex={-1} trailing={<span className="max-w-64 truncate">{row.detail}</span>} onClick={(event) => { setCursor(item.index); click(event, href); }}>{row.title}</DenseRow>
             </div>;
           })}
         </div>

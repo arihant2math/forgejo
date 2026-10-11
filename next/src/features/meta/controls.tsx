@@ -5,9 +5,8 @@
 // filters as you type (the URL follows; "/" focuses it) and an order menu.
 import {useEffect, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {Input} from '../../ui/index.ts';
 import {ArrowSwitchIcon, SearchIcon} from '@primer/octicons-react';
-import {Button, ActionMenu, ActionList} from '@primer/react';
+import {Button, TextInput, ActionMenu, ActionList} from '@primer/react';
 
 /** The page's search: `onChange` on every keystroke (the page filters), the URL a moment later (`onSettle`). */
 export function PageSearch({value, label, onChange, onSettle}: {value: string; label: string; onChange: (q: string) => void; onSettle: (q: string) => void}) {
@@ -42,7 +41,7 @@ export function PageSearch({value, label, onChange, onSettle}: {value: string; l
     }, 300);
   };
   return (
-    <Input ref={ref} size="sm" icon={SearchIcon} type="search" aria-label={label} placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 min-w-24 shrink"
+    <TextInput ref={ref} size="small" leadingVisual={SearchIcon} type="search" aria-label={label} placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 min-w-24 shrink"
       onChange={(e) => {
         change(e.target.value);
       }}
@@ -63,9 +62,7 @@ export function SortMenu<S extends string>({value, names, onChange}: {value: S; 
       <ActionMenu.Overlay><ActionList>
         <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Sort</ActionList.GroupHeading>
         
-          {(Object.keys(names) as S[]).map((s) => <ActionList.Item key={s} selected={value === s} onSelect={() => { ((v) => {
-          onChange(v as S);
-        })(s); }}>{names[s]}</ActionList.Item>)}
+          {(Object.keys(names) as S[]).map((s) => <ActionList.Item key={s} selected={value === s} onSelect={() => { onChange(s); }}>{names[s]}</ActionList.Item>)}
         </ActionList.Group>
       </ActionList></ActionMenu.Overlay>
     </ActionMenu>

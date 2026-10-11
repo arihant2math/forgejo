@@ -71,7 +71,7 @@ describe('the repository header', () => {
     if (!row) throw new Error('no title row');
     for (const name of actionNames) expect(within(row).getByRole('button', {name})).toBeTruthy();
     // The counts are still the live ones (#202).
-    expect(within(row).getByRole('button', {name: /^(Star|Unstar)/}).textContent).toMatch(/12$/);
+    expect(within(row).getByRole('button', {name: /^(Star|Unstar)/}).querySelector('[data-component="CounterLabel"]')?.textContent).toBe('12');
     expect(top.contains(row)).toBe(false);
   });
 
@@ -88,11 +88,11 @@ describe('the repository header', () => {
   test('the tabs: open counts after Issues and Pull requests; the current tab underlined, not filled', async () => {
     const {container} = await open('/acme/website/issues');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
-    const issues = within(tabs).getByRole('link', {name: /^Issues\s?2$/});
-    expect(within(tabs).getByRole('link', {name: /^Pull requests\s?1$/})).toBeTruthy();
+    const issues = within(tabs).getByRole('link', {name: /^Issues\s?\(2\)$/});
+    expect(within(tabs).getByRole('link', {name: /^Pull requests\s?\(1\)$/})).toBeTruthy();
     expect(within(tabs).getByRole('link', {name: 'Code'})).toBeTruthy();
     expect(issues.getAttribute('aria-current')).toBe('page');
-    expect(issues.className).toContain('aria-[current=page]:after:bg-accent-emphasis');
+    expect(issues.className).toContain('UnderlineItem');
     expect(issues.className).not.toContain('bg-control-transparent-selected');
     expect(classConflicts(container)).toEqual([]);
   });

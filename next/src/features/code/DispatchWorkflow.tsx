@@ -7,13 +7,13 @@ import {useEffect, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
-import {Select, Switch} from '../../ui/index.ts';
+import {Select, ToggleSwitch} from '@primer/react';
 import {usePool} from '../issues/cells.tsx';
 import {refTable} from './hooks.ts';
 import {RefPicker} from './RefMenu.tsx';
 import type {RefChoice} from './refWrite.ts';
 import {Button, Dialog, TextInput, FormControl} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+
 
 export interface WorkflowFile {file: string; dispatchable: boolean}
 export interface WorkflowList {workflows: WorkflowFile[]; can_dispatch: boolean}
@@ -98,10 +98,10 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
       setError(failureText(err));
     }).finally(() => { setBusy(false); });
   };
-  return <Dialog title="Run workflow" subtitle={file} width="large" onClose={() => { const open = false; if (!open && !busy) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-    <Button variant="invisible" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
-    <OptionalTooltip text={block}><Button variant="primary" type="button" disabled={busy || Boolean(block) || !schema?.dispatchable} onClick={submit}>{busy ? 'Starting…' : 'Run workflow'}</Button></OptionalTooltip>
-  </>}</Dialog.Footer>}>
+  return <Dialog title="Run workflow" subtitle={file} width="large" onClose={() => { if (!busy) onClose(); }} footerButtons={[
+    {content: 'Cancel', disabled: busy, onClick: onClose},
+    {content: busy ? 'Starting…' : 'Run workflow', buttonType: 'primary', disabled: busy || Boolean(block) || !schema?.dispatchable, onClick: submit},
+  ]}>
     <div className="flex flex-col gap-3">
       <RefPicker repoId={repoId} label="Run on" value={ref} onChange={(value) => { if (!busy && (value.kind !== ref.kind || value.ref !== ref.ref)) { setSchema(undefined); setError(undefined); setRef(value); } }}/>
       {!schema && !error && !block && <p className="text-sm text-muted">Loading inputs…</p>}
@@ -109,9 +109,9 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
       {schema?.inputs?.map((input) => {
         const id = `dispatch-${input.name}`;
         const change = (value: string) => { setValues((prev) => ({...prev, [input.name]: value})); };
-        return <FormControl key={input.name} id={id}><FormControl.Label>{input.name}</FormControl.Label>
-          {input.type === 'boolean' ? <Switch id={id} label={input.name} checked={values[input.name] === 'true'} disabled={busy} onCheckedChange={(checked) => { change(String(checked)); }}/> :
-            input.type === 'choice' ? <Select id={id} value={values[input.name] ?? ''} disabled={busy} onValueChange={change} options={[{value: '', label: 'Choose…'}, ...(input.options ?? []).map((value) => ({value, label: value}))]}/> :
+        return <FormControl key={input.name} id={id}><FormControl.Label id={`${id}-label`}>{input.name}</FormControl.Label>
+          {input.type === 'boolean' ? <ToggleSwitch id={id} aria-labelledby={`${id}-label`} checked={values[input.name] === 'true'} disabled={busy} onChange={(checked) => { change(String(checked)); }}/> :
+            input.type === 'choice' ? <Select id={id} value={values[input.name] ?? ''} disabled={busy} onChange={(event) => { change(event.target.value); }}><Select.Option value="">Choose…</Select.Option>{input.options?.map((value) => <Select.Option key={value} value={value}>{value}</Select.Option>)}</Select> :
               <TextInput id={id} className="w-full" type={input.type === 'number' ? 'number' : 'text'} step="any" required={input.required} disabled={busy} value={values[input.name] ?? ''} onChange={(event) => { change(event.target.value); }}/>}
         <FormControl.Caption>{input.description}</FormControl.Caption></FormControl>;
       })}

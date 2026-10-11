@@ -5,7 +5,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {afterEach, beforeAll, describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp, type Session} from '../../app/store.ts';
@@ -17,11 +17,6 @@ import {pickerOptions, type PickerDraft} from './Picker.tsx';
 
 afterEach(() => {
   localStorage.clear();
-});
-
-beforeAll(() => {
-  // jsdom has no scrolling (a view change scrolls the page to its top: viewChange).
-  if (!('scrollTo' in Element.prototype)) Object.assign(Element.prototype, {scrollTo: () => undefined});
 });
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -132,7 +127,7 @@ describe('selection for the pointer (#205)', () => {
     expect(screen.queryByRole('button', {name: /Edit selected/})).toBeNull();
     const box = checkBox(r);
     expect(box.getAttribute('aria-hidden')).toBe('true');
-    expect(box.className).toContain('group-hover:visible');
+    expect(box.parentElement?.className).toContain('group-hover:visible');
     fireEvent.click(box);
     expect(router.state.location.pathname).toBe('/acme/website/issues');
     await waitFor(() => {
@@ -148,7 +143,7 @@ describe('selection for the pointer (#205)', () => {
     expect(screen.queryByRole('button', {name: /Select all/})).toBeNull();
     // The selection's actions: the milestone picker for the three issues.
     const edit = screen.getByRole('button', {name: /Edit selected/});
-    fireEvent.pointerDown(edit, {button: 0, ctrlKey: false});
+    fireEvent.click(edit);
     fireEvent.click(await screen.findByRole('menuitem', {name: /Set milestone/}));
     expect(app.ui.picker?.kind).toBe('milestone');
     expect([...(app.ui.picker?.issueIds ?? [])].sort()).toEqual([100, 102, 103]);
@@ -223,9 +218,10 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
     const list = await screen.findByRole('listbox', {name: 'Change labels'});
     expect(list.getAttribute('aria-multiselectable')).toBe('true');
     const bug = within(list).getByRole('option', {name: 'bug'});
-    // The cursor opens on "bug" (not applied): highlighted, the combobox's active descendant, not selected.
-    expect(bug.hasAttribute('data-highlighted')).toBe(true);
-    expect(screen.getByRole('combobox', {name: 'Change labels'}).getAttribute('aria-activedescendant')).toBe(bug.id);
+    // Primer separates keyboard focus from applied values; focusing an option never applies it.
+    bug.focus();
+    expect(document.activeElement).toBe(bug);
+    expect(screen.getByRole('combobox', {name: 'Change labels'})).toBeTruthy();
     expect(bug.getAttribute('aria-selected')).toBe('false');
     expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['docs']);
     // Applying "bug" makes it selected.

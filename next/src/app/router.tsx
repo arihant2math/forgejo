@@ -619,7 +619,6 @@ function hashOf(location: {hash: string}): string {
 // they and their chunks are not shipped.
 const devRoutes = import.meta.env.DEV ?
   [
-    createRoute({getParentRoute: () => rootRoute, path: '/-/next/gallery', component: lazyView(() => import('../dev/gallery/Gallery.tsx'))}),
     createRoute({getParentRoute: () => rootRoute, path: '/-/next/dev/hydrate', component: lazyView(() => import('../dev/bench/HydrateBench.tsx'))}),
   ] :
   [];

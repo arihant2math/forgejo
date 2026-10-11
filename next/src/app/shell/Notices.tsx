@@ -1,44 +1,38 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The notices the app posted (notices.ts), inside the shell's viewport. Its
-// own chunk, loaded when the first notice shows.
-
 import {observer} from 'mobx-react-lite';
-import {Notice} from '../../ui/index.ts';
-import {dismiss, pauseNotice, removeNotice, resumeNotice} from '../notices.ts';
-import {useApp} from '../store.ts';
-import {Button} from '@primer/react';
+import {useRef} from 'react';
+import {Banner, Button} from '@primer/react';
+import {dismiss, pauseNotice, resumeNotice} from '../notices.ts';
+import {useApp, type App} from '../store.ts';
+
+type NoticeRecord = App['ui']['notices'][number];
+const NoticeBanner = observer(function NoticeBanner({app, notice}: {app: App; notice: NoticeRecord}) {
+  const hovered = useRef(false);
+  const focused = useRef(false);
+  const hold = (held: boolean) => {
+    if (held) pauseNotice(notice.id);
+    else resumeNotice(app, notice.id);
+  };
+  return (
+    <div className="pointer-events-auto"
+      onPointerEnter={() => { hovered.current = true; hold(true); }}
+      onPointerLeave={() => { hovered.current = false; if (!focused.current) hold(false); }}
+      onFocus={() => { focused.current = true; hold(true); }}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        focused.current = false;
+        if (!hovered.current) hold(false);
+      }}>
+      <Banner variant={notice.tone === 'danger' ? 'critical' : notice.tone === 'neutral' ? 'info' : notice.tone}
+        title={notice.title} description={notice.description} onDismiss={() => { dismiss(app, notice.id); }}
+        primaryAction={notice.action && <Button size="small" onClick={() => { notice.action?.run(); dismiss(app, notice.id); }}>{notice.action.label}</Button>}/>
+    </div>
+  );
+});
 
 export const Notices = observer(function Notices() {
   const app = useApp();
-  return (
-    <>
-      {app.ui.notices.map((n) => (
-        <Notice
-          key={n.id}
-          tone={n.tone}
-          title={n.title}
-          description={n.description}
-          closing={n.closing}
-          onDismiss={() => {
-            dismiss(app, n.id);
-          }}
-          onClosed={() => {
-            removeNotice(app, n.id);
-          }}
-          onHold={(held) => {
-            if (held) pauseNotice(n.id);
-            else resumeNotice(app, n.id);
-          }}
-          action={n.action && (
-            <Button size="small" type="button" onClick={() => {
-              n.action?.run();
-              dismiss(app, n.id);
-            }}>{n.action.label}</Button>
-          )}
-        />
-      ))}
-    </>
-  );
+  return <>{app.ui.notices.map((notice) => <NoticeBanner key={notice.id} app={app} notice={notice}/>)}</>;
 });

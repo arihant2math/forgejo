@@ -20,14 +20,15 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, LineAction, LineNo, ListRow} from '../../ui/index.ts';
+import {CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineAction, LineNo} from '../../code/parts.tsx';
+import {clsx} from 'clsx';
+import {ReviewSurface} from '../../code/ReviewSurface.tsx';
 import {useSource} from './hooks.ts';
 import {ImageDiff, isImageDiff} from './ImageDiff.tsx';
 import {useDiffSettings} from './DiffSettings.tsx';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
 import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-react';
-import {Button, IconButton} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Button, IconButton, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 
 /** A file header row: the header (h-row, 32) after an 8 px gap. */
@@ -60,7 +61,7 @@ export interface DiffHandle {
   focus(): void;
 }
 
-interface DiffViewProps {
+export interface DiffViewProps {
   repoId: number;
   base: string;
   head: string;
@@ -139,7 +140,10 @@ function useExpansion(repoId: number, head: string, files: readonly DiffFile[]) 
 
 export const DiffView = observer(function DiffView(props: DiffViewProps) {
   const {whitespace} = useDiffSettings();
-  return <DiffBody key={`${props.base}:${props.head}:${whitespace}`} {...props}/>;
+  // Without workers (including a cached view in a restricted browser), keep the
+  // plain, accessible line renderer; never start Shiki on the main thread.
+  return typeof Worker === 'undefined' ? <DiffBody key={`${props.base}:${props.head}:${whitespace}`} {...props}/> :
+    <ReviewSurface key={`${props.base}:${props.head}:${whitespace}`} {...props} fallback={(ref) => <DiffBody {...props} ref={ref}/>}/>;
 });
 
 const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller, extras, onFile, underBar = false, ref}: DiffViewProps) {
@@ -271,7 +275,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     <div ref={place} className="relative min-w-code font-mono" style={{'--code-chars': split ? chars * 2 : chars} as CSSProperties}>
       {/* The file in view, over the rows (it takes no space), pinned to the view's left edge. */}
       {floating && (
-        <div className={cx('sticky z-sticky h-0', underBar ? 'top-control' : 'top-0')}>
+        <div className={clsx('sticky z-sticky h-0', underBar ? 'top-control' : 'top-0')}>
           <div className="sticky left-0 w-view font-sans"><FileHeader file={floating} f={current} extras={extras} floating/></div>
         </div>
       )}
@@ -402,7 +406,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
 
 /** A hunk header's expand action (mouse and keyboard: a real button, in the header's own row). */
 function ExpandButton({label, onClick, children}: {label: string; onClick: () => void; children: string}) {
-  return <OptionalTooltip text={label}><Button variant="invisible" size="small" type="button" aria-label={label} onClick={onClick}>{children}</Button></OptionalTooltip>;
+  return <Tooltip text={label}><Button variant="invisible" size="small" type="button" aria-label={label} onClick={onClick}>{children}</Button></Tooltip>;
 }
 
 function emptyReason(f: DiffFile): string {
@@ -448,14 +452,13 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
         <DiffStat additions={additions} deletions={deletions}/>
       </div>
       {open && files.map((f, i) => (
-        <ListRow role="presentation" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`} leading={<FileDiffIcon size={12} className="shrink-0"/>}
-          trailing={<DiffStat additions={f.additions} deletions={f.deletions}/>}
+        <a className="flex items-center gap-2 px-4 py-2 text-default hover:bg-control-transparent-hover" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`}
           onClick={(e) => {
             e.preventDefault();
             diff.current?.toFile(i);
           }}>
-          <span title={filePath(f)}>{filePath(f)}</span>
-        </ListRow>
+          <FileDiffIcon size={16}/><span className="min-w-0 flex-1 truncate" title={filePath(f)}>{filePath(f)}</span><DiffStat additions={f.additions} deletions={f.deletions}/>
+        </a>
       ))}
     </section>
   );

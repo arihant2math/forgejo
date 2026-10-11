@@ -19,12 +19,11 @@ import type {Project} from '../../protocol/types.gen.ts';
 import {useSession} from '../../app/store.ts';
 import {useHold} from '../../app/repo.ts';
 import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
-import {Entry, EntryList, Panel, SegmentedControl} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
-import {Label} from '@primer/react';
+import {Heading, Label, SegmentedControl, Text} from '@primer/react';
 
 interface Place {
   key: string;
@@ -103,26 +102,29 @@ export const BoardsList = observer(function BoardsList() {
   return (
     <>
       <PageHeader icon={ProjectIcon} title="Boards">
-        <SegmentedControl label="Board state" value={state} onChange={setState} options={[{value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>
+        <SegmentedControl aria-label="Board state" onChange={(index) => { setState(index === 1 ? 'closed' : 'open'); }}>
+          <SegmentedControl.Button selected={state === 'open'}>Open</SegmentedControl.Button>
+          <SegmentedControl.Button selected={state === 'closed'}>Closed</SegmentedControl.Button>
+        </SegmentedControl>
         <NewBoard scope={scope}/>
       </PageHeader>
       <PageBody>
-        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <Entry key={key} title={p.title} meta="Creating board…" leading={<ProjectIcon size={16} className="shrink-0"/>}/>)}
+        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <div key={key} className="flex items-center gap-3 p-3" aria-busy><ProjectIcon size={16}/><Text>{p.title}</Text><Text size="small">Creating board…</Text></div>)}
         {sorted.length === 0 ?
           <Blankslate><Blankslate.Visual><ProjectIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{state === 'closed' ? 'No closed boards' : 'No open boards'}</Blankslate.Heading><Blankslate.Description>Projects of your repositories and organizations show here.</Blankslate.Description></Blankslate> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
-              <Panel key={pl.key} label={pl.key || 'Other'} padded
-                title={pl.repo ?
+              <section key={pl.key} aria-label={pl.key || 'Other'} className="rounded-md border border-default">
+                <header className="flex items-center justify-between gap-3 border-b border-default bg-muted p-3"><Heading as="h2" variant="small">{pl.repo ?
                   <RouterLink to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.key}</RouterLink> :
-                  pl.owner ? <RouterLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.owner}</RouterLink> : 'Other'}
-                actions={pl.owner && <NewBoard scope={pl.scope}/>}>
-                <EntryList>
+                  pl.owner ? <RouterLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.owner}</RouterLink> : 'Other'}</Heading>
+                {pl.owner && <NewBoard scope={pl.scope}/>}</header>
+                <ul>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
                     rememberRow(LIST, p.id);
                   }}/>)}
-                </EntryList>
-              </Panel>
+                </ul>
+              </section>
             ))}
           </PageColumn>}
       </PageBody>
@@ -135,15 +137,14 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
   const columns = pool.model('ProjectColumn').by('project_id', project.id).size;
   const cards = pool.model('ProjectIssue').by('project_id', project.id).size;
   return (
-    <Entry
-      id={`board-${String(project.id)}`}
-      active={active}
-      leading={<ProjectIcon size={16} className="shrink-0"/>}
-      title={<RouterLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} muted className="min-w-0 truncate">{project.title}</RouterLink>}
-      // A board known by reference loads when opened: its columns and cards are not counted here yet.
-      meta={project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}
-      description={project.description || undefined}
-      actions={project.closed ? <Label variant="done">Closed</Label> : undefined}
-    />
+    <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-start gap-3 border-b border-muted p-3 last:border-b-0 data-active:bg-accent-muted">
+      <ProjectIcon size={16} className="shrink-0 text-muted"/>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <RouterLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate">{project.title}</RouterLink>
+        <Text size="small">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</Text>
+        {project.description && <Text size="small">{project.description}</Text>}
+      </div>
+      {project.closed && <Label variant="done">Closed</Label>}
+    </li>
   );
 });

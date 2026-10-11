@@ -15,7 +15,7 @@ import {discardable, type IntentRecord} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {DraftRecord} from '../../intents/store.ts';
-import {Entry, EntryList, SectionHeading} from '../../ui/index.ts';
+import {Heading, Text} from '@primer/react';
 import {notify} from '../notices.ts';
 import {type App, useApp} from '../store.ts';
 import {AlertIcon, IssueDraftIcon, CheckCircleIcon, CopyIcon, GitMergeIcon, RedoIcon, TrashIcon} from '@primer/octicons-react';
@@ -39,7 +39,7 @@ export const UnsyncedPanel = observer(function UnsyncedPanel() {
   const empty = !records.length && !drafts.length;
   const offline = app.session?.data.status.connection !== 'live';
   return (
-    <Dialog title="Unsynced changes" subtitle={empty ? undefined : 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'} width="xlarge" onClose={() => { const open = false; if (!open) close(); }} renderFooter={() => <Dialog.Footer>{<Button type="button" onClick={close}>Close</Button>}</Dialog.Footer>}>
+    <Dialog title="Unsynced changes" {...(!empty ? {subtitle: 'Changes made here that Forgejo does not have yet. Nothing is dropped without you deciding.'} : {})} width="xlarge" onClose={close} footerButtons={[{content: 'Close', onClick: close}]}>
       {empty ? <Blankslate><Blankslate.Visual><CheckCircleIcon size={24} className="text-success"/></Blankslate.Visual><Blankslate.Heading>Everything is synced</Blankslate.Heading><Blankslate.Description>Changes you make offline wait here until Forgejo has them.</Blankslate.Description></Blankslate> : (
         <div className="flex flex-col gap-4">
           {parked.length > 0 && (
@@ -72,9 +72,26 @@ function Section({title, children}: {title: string; children: ReactNode}) {
   const id = useId();
   return (
     <section aria-labelledby={id} className="flex flex-col gap-1">
-      <SectionHeading id={id}>{title}</SectionHeading>
-      <EntryList>{children}</EntryList>
+      <Heading as="h3" variant="small" id={id}>{title}</Heading>
+      <ul className="flex flex-col">{children}</ul>
     </section>
+  );
+}
+
+/** A non-navigation queue row: text stays readable while actions remain separate keyboard targets. */
+function Entry({leading, title, meta, description, actions}: {
+  leading: ReactNode; title: ReactNode; meta: ReactNode; description: ReactNode; actions: ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3 border-b border-muted py-3">
+      <span className="shrink-0 pt-1">{leading}</span>
+      <div className="min-w-0 flex-1">
+        <Text weight="semibold">{title}</Text>
+        <div><Text size="small">{meta}</Text></div>
+        <div className="text-muted"><Text size="small">{description}</Text></div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">{actions}</div>
+    </li>
   );
 }
 

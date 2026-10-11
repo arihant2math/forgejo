@@ -1,0 +1,108 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {afterEach, expect, test, vi} from 'vitest';
+import {Button} from '@primer/react';
+import {runInAction} from 'mobx';
+import {UnsyncedPanel} from './Unsynced.tsx';
+import {createMemoryHistory, createRootRoute, createRouter, RouterProvider} from '@tanstack/react-router';
+import type {NextConfig} from '../../protocol/types.gen.ts';
+import {fakeSession, user} from '../../test/fakeSession.ts';
+import {AppContext, createApp} from '../store.ts';
+import {PrimerTheme} from '../App.tsx';
+import {notify, removeNotice} from '../notices.ts';
+import {PageHeader, StackedPageHeader} from './PageHeader.tsx';
+import {NoticeViewport} from './NoticeViewport.tsx';
+import {Notices} from './Notices.tsx';
+import {AccountMenuReal} from './AccountMenuReal.tsx';
+import {SidebarSplitter} from './SidebarSplitter.tsx';
+
+const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
+
+afterEach(() => { vi.useRealTimers(); });
+
+test('Primer page headers keep heading, breadcrumb, controls and live status', () => {
+  const session = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: []}});
+  const app = createApp(config, session);
+  const view = render(<AppContext value={app}><PrimerTheme><PageHeader title="Issues" context={<span>dev / atlas</span>}><Button>New issue</Button></PageHeader></PrimerTheme></AppContext>);
+  const title = screen.getByRole('heading', {level: 1, name: 'Issues'});
+  expect(title.closest('[data-component="PageHeader"]')).toBeTruthy();
+  expect(screen.getByRole('navigation', {name: 'Breadcrumb'}).textContent).toBe('dev / atlas');
+  expect(screen.getByRole('status').textContent).toBe('Live');
+  expect(screen.getByRole('button', {name: 'New issue'})).toBeTruthy();
+  expect(document.title).toBe('Issues · Forgejo');
+  act(() => { runInAction(() => { session.data.status.connection = 'offline'; app.ui.pendingIntents = 3; }); });
+  expect(screen.getByRole('status').textContent).toBe('Offline');
+  const pending = screen.getByRole('button', {name: /Offline · 3 pending: show unsynced changes/});
+  fireEvent.click(pending);
+  expect(app.ui.unsyncedOpen).toBe(true);
+  view.rerender(<AppContext value={app}><PrimerTheme><StackedPageHeader context={<span>dev / atlas</span>} tabs={<nav aria-label="Repository">Code</nav>} title="Commits"><Button>Filter</Button></StackedPageHeader></PrimerTheme></AppContext>);
+  const tabs = screen.getByRole('navigation', {name: 'Repository'});
+  const commits = screen.getByRole('heading', {level: 1, name: 'Commits'});
+  expect(tabs.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(commits.closest('[data-component="PageHeader"]') ?? document.body).getByRole('button', {name: 'Filter'})).toBeTruthy();
+});
+
+test('Banner notices announce, pause while either hovered or focused, and dismiss immediately', () => {
+  vi.useFakeTimers();
+  const app = createApp(config, undefined);
+  const action = vi.fn();
+  const id = notify(app, {tone: 'success', title: 'Saved', action: {label: 'Undo', run: action}});
+  const view = render(<AppContext value={app}><PrimerTheme><NoticeViewport><Notices/></NoticeViewport></PrimerTheme></AppContext>);
+  const region = screen.getByRole('region', {name: 'Saved'});
+  expect(region.closest('[aria-live="polite"]')).toBeTruthy();
+  const row = region.parentElement ?? region;
+  // Banner has responsive copies of its action; jsdom does not evaluate Primer's media-query CSS.
+  const undo = within(region).getAllByRole('button', {name: 'Undo'})[0];
+  expect(undo).toBeTruthy();
+  if (!undo) throw new Error('Missing Undo action');
+  fireEvent.pointerEnter(row);
+  fireEvent.focus(undo);
+  fireEvent.pointerLeave(row);
+  act(() => { vi.advanceTimersByTime(20000); });
+  expect(screen.getByRole('region', {name: 'Saved'})).toBeTruthy();
+  fireEvent.click(undo);
+  expect(action).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('region', {name: 'Saved'})).toBeNull();
+  removeNotice(app, id);
+  view.unmount();
+});
+
+test('the account theme submenu uses Primer radio menu items', async () => {
+  const session = fakeSession();
+  session.data.put('User', 'profile:1', user(1, 'alice'));
+  const app = createApp(config, session);
+  // Supply router hooks without loading feature pages (the account menu does not read their data).
+  const route = createRootRoute({component: () => <AccountMenuReal trigger={<Button>alice</Button>} defaultOpen/>});
+  const router = createRouter({routeTree: route, history: createMemoryHistory({initialEntries: ['/']})});
+  await router.load();
+  render(<AppContext value={app}><PrimerTheme><RouterProvider router={router}/></PrimerTheme></AppContext>);
+  await waitFor(() => { expect(screen.getByRole('menuitem', {name: 'Theme'})).toBeTruthy(); });
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Theme'}));
+  expect(await screen.findByRole('menuitemradio', {name: 'Dark'})).toBeTruthy();
+});
+
+test('empty unsynced changes uses a Primer dialog with a working Close action', () => {
+  const app = createApp(config, fakeSession());
+  runInAction(() => { app.ui.unsyncedOpen = true; });
+  render(<AppContext value={app}><PrimerTheme><UnsyncedPanel/></PrimerTheme></AppContext>);
+  const dialog = screen.getByRole('dialog', {name: 'Unsynced changes'});
+  expect(within(dialog).getByRole('heading', {name: 'Everything is synced'})).toBeTruthy();
+  // Primer provides both a header close icon and our footer action.
+  fireEvent.click(within(dialog).getAllByRole('button', {name: 'Close'}).at(-1) ?? dialog);
+  expect(app.ui.unsyncedOpen).toBe(false);
+});
+
+test('sidebar separator preserves bounded keyboard resizing', () => {
+  const resize = vi.fn();
+  const commit = vi.fn();
+  render(<SidebarSplitter label="Resize the sidebar" value={232} min={180} max={480} onResize={resize} onCommit={commit}/>);
+  const separator = screen.getByRole('separator', {name: 'Resize the sidebar'});
+  fireEvent.keyDown(separator, {key: 'ArrowRight'});
+  expect(commit).toHaveBeenLastCalledWith(248);
+  fireEvent.keyDown(separator, {key: 'Home'});
+  expect(commit).toHaveBeenLastCalledWith(180);
+  fireEvent.keyDown(separator, {key: 'End'});
+  expect(commit).toHaveBeenLastCalledWith(480);
+});

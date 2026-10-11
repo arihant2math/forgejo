@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import react from '@vitejs/plugin-react';
+import {fileURLToPath} from 'node:url';
 import {defineConfig} from 'vitest/config';
 
 // Keep pure tests in Node, without paying for a fresh jsdom per file.
@@ -38,6 +39,9 @@ export default defineConfig({
         test: {
           name: 'unit-dom',
           environment: 'jsdom',
+          // Primer announces through @primer/live-region-element, whose Node build (what Vitest would resolve)
+          // never defines the <live-region> element: the browser build does, and jsdom runs it.
+          alias: {'@primer/live-region-element': fileURLToPath(new URL('node_modules/@primer/live-region-element/dist/esm/index.js', import.meta.url))},
           maxWorkers: 4,
           include: domTests,
           setupFiles: ['src/test/setup.ts'],

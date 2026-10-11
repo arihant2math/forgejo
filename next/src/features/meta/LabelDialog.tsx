@@ -10,17 +10,15 @@ import {observer} from 'mobx-react-lite';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {ColorPicker, LabelPill} from '../../ui/index.ts';
-import {exclusiveScope} from '../issues/labels.ts';
+import {ColorPicker} from './ColorPicker.tsx';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
-import {Button, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Checkbox, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
 
-/** The pill a draft makes (the form's preview), and a label's own: an exclusive scoped label shows its scope. */
+/** Primer's issue-label preview keeps the complete scoped name and the label's own colour. */
 export function DraftPill({name, color, exclusive}: {name: string; color: string; exclusive: boolean}) {
-  const scope = exclusiveScope({name, exclusive});
-  return <LabelPill name={name} color={normalizeColor(color) ?? color} scope={scope || undefined}/>;
+  const fillColor = normalizeColor(color);
+  return <IssueLabelToken text={name} {...(fillColor ? {fillColor} : {})} title={exclusive ? 'Exclusive within its scope' : name}/>;
 }
 
 /** New (no `label`) or edit. `count`: the repository's labels, for the new one's colour. */
@@ -58,29 +56,28 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
     if (change) void editLabel(app, repo, label, change);
   };
   return (
-    <Dialog title={label ? 'Edit label' : 'New label'} width="large" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
-      <OptionalTooltip text={!connectivity.online ? onlineOnly('Saving a label') : undefined}><Button variant="primary" type="button" disabled={saving || !connectivity.online} onClick={() => {
-        save();
-      }}>{label ? 'Save' : 'Create label'}</Button></OptionalTooltip>
-    </>}</Dialog.Footer>}>
+    <Dialog title={label ? 'Edit label' : 'New label'} width="large" onClose={onClose} footerButtons={[
+      {content: 'Cancel', onClick: onClose},
+      {content: label ? 'Save' : 'Create label', buttonType: 'primary', disabled: saving || !connectivity.online, onClick: () => { save(); }},
+    ]}>
       <form className="flex flex-col gap-3" onSubmit={save}>
+        {!connectivity.online && <p role="status">{onlineOnly('Saving a label')}</p>}
         <div className="flex min-h-control items-center"><DraftPill name={d.name.trim() || 'Label preview'} color={d.color} exclusive={d.exclusive}/></div>
         <FormControl id={`${id}-name`}><FormControl.Label>Name</FormControl.Label>
           <TextInput id={`${id}-name`} value={d.name} autoFocus maxLength={NAME_MAX} placeholder="bug, kind/feature, …" className="w-full" aria-describedby={`${id}-name-e`} onChange={(e) => {
               set({name: e.target.value});
             }} {...(tried && Boolean(problems.name) ? {validationStatus: 'error' as const} : {})}/>
-        {(tried ? problems.name : undefined) && <FormControl.Validation variant="error">{tried ? problems.name : undefined}</FormControl.Validation>}</FormControl>
+        {(tried ? problems.name : undefined) && <FormControl.Validation id={`${id}-name-e`} variant="error">{tried ? problems.name : undefined}</FormControl.Validation>}</FormControl>
         <FormControl id={`${id}-desc`}><FormControl.Label>Description</FormControl.Label>
           <TextInput id={`${id}-desc`} value={d.description} maxLength={DESCRIPTION_MAX} placeholder="What it is for (optional)" className="w-full" aria-describedby={`${id}-desc-e`} onChange={(e) => {
               set({description: e.target.value});
             }}/>
-        {problems.description && <FormControl.Validation variant="error">{problems.description}</FormControl.Validation>}</FormControl>
+        {problems.description && <FormControl.Validation id={`${id}-desc-e`} variant="error">{problems.description}</FormControl.Validation>}</FormControl>
         <FormControl id={`${id}-color`}><FormControl.Label>Colour</FormControl.Label>
-          <ColorPicker id={`${id}-color`} label="Colour" value={d.color} presets={LABEL_PRESETS} invalid={tried && Boolean(problems.color)} onChange={(color) => {
+          <ColorPicker id={`${id}-color`} value={d.color} presets={LABEL_PRESETS} invalid={tried && Boolean(problems.color)} onChange={(color) => {
             set({color});
           }}/>
-        {(tried ? problems.color : undefined) && <FormControl.Validation variant="error">{tried ? problems.color : undefined}</FormControl.Validation>}</FormControl>
+        {(tried ? problems.color : undefined) && <FormControl.Validation id={`${id}-color-e`} variant="error">{tried ? problems.color : undefined}</FormControl.Validation>}</FormControl>
         <div className="flex flex-col gap-1">
           <FormControl><Checkbox checked={d.exclusive} onChange={(event) => { const exclusive = event.target.checked; set({exclusive}); }}/><FormControl.Label>Exclusive within its scope</FormControl.Label></FormControl>
           <p className="text-sm text-muted">
@@ -100,12 +97,9 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
 export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; label: Label; open: number; onClose: () => void}) {
   const app = useApp();
   return (
-    <Dialog title={`Delete the label “${label.name}”?`} subtitle={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`} width="medium" onClose={() => { const o = false; if (!o) onClose(); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={onClose}>Cancel</Button>
-      <Button variant="danger" type="button" onClick={() => {
-        onClose();
-        void deleteLabel(app, repo, label);
-      }}>Delete label</Button>
-    </>}</Dialog.Footer>}></Dialog>
+    <Dialog title={`Delete the label “${label.name}”?`} subtitle={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`} width="medium" onClose={onClose} footerButtons={[
+      {content: 'Cancel', onClick: onClose},
+      {content: 'Delete label', buttonType: 'danger', onClick: () => { onClose(); void deleteLabel(app, repo, label); }},
+    ]}></Dialog>
   );
 }

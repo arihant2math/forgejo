@@ -1,13 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 import {render, screen, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import type {ActionRun, ActionRunJob, CommitStatus, NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
-import {TooltipProvider} from '../../ui/index.ts';
+
 import {commitRow} from './bits.tsx';
 import {apiCommitChecks, checkTarget, CommitCheckMark, CommitChecksSection, poolCommitChecks, resetCommitChecks, withChecks} from './commitChecks.tsx';
 
@@ -55,7 +54,7 @@ function failedRun(s: ReturnType<typeof session>) {
 
 function show(s: ReturnType<typeof session>, node: ReactNode) {
   const app = createApp(config, s);
-  return render(<AppContext.Provider value={app}><TooltipProvider>{node}</TooltipProvider></AppContext.Provider>);
+  return render(<AppContext.Provider value={app}>{node}</AppContext.Provider>);
 }
 
 beforeEach(() => {

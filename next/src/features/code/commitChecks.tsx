@@ -11,6 +11,8 @@
 // made for the rows that stay on screen (the lists are virtualized), at most
 // FETCH_CONCURRENCY at a time, once per commit and session.
 import {observable, runInAction} from 'mobx';
+import {Heading, Link as PrimerLink} from '@primer/react';
+import {CheckStatus} from './CheckStatus.tsx';
 import {observer} from 'mobx-react-lite';
 import {type MouseEvent, useEffect} from 'react';
 import {online} from '../../app/api.ts';
@@ -18,7 +20,7 @@ import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
-import {Hint, Icon, SectionHeading, StatusDot, TextLink} from '../../ui/index.ts';
+
 import {usePool} from '../issues/cells.tsx';
 import {type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
 import {runLook, statusLook} from './Actions.tsx';
@@ -202,13 +204,14 @@ export const CommitCheckMark = observer(function CommitCheckMark({owner, repo, r
   const c = useCommitChecks(owner, repo, repos, sha);
   if (!c || c === 'error' || c.summary === 'none') return null;
   const summary = c.summary;
+  const Mark = ICON[summary];
   const target = firstTarget(c);
   const label = `${WORDS[summary]}${target ? `: ${target.name}` : ''}`;
   // Its own link inside the row's: a click opens it, not the row (as a summary's references).
   return (
     <span className="flex" onClick={stop}>
       <CodeLink owner={owner} repo={repo} to={target?.code ?? `commit/${sha}`} {...(target?.code ? {} : {hash: 'checks'})} label={label}>
-        <Hint label={label}><Icon icon={ICON[summary]} size="sm" className={TONE[summary]}/></Hint>
+        <span title={label} role="img" aria-label={label}><Mark size={16} className={TONE[summary]}/></span>
       </CodeLink>
     </span>
   );
@@ -221,15 +224,15 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
   if (!c || c.summary === 'none') return null;
   return (
     <section id="checks" aria-label="Checks" className="flex flex-col gap-1">
-      <SectionHeading>{`Checks · ${WORDS[c.summary]}`}</SectionHeading>
+      <Heading as="h2" variant="small">{`Checks · ${WORDS[c.summary]}`}</Heading>
       <ul className="flex flex-col gap-1 text-sm">
         {c.items.map((it) => {
           const look = it.approval ? {tone: 'warning' as const, text: 'Needs approval'} : statusLook(it.state);
-          const name = it.code ? <TextLink><CodeLink owner={owner} repo={repo} to={it.code}>{it.name}</CodeLink></TextLink> :
+          const name = it.code ? <PrimerLink as={CodeLink} owner={owner} repo={repo} to={it.code}>{it.name}</PrimerLink> :
             it.href ? <Link href={it.href} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{it.name}</Link> : it.name;
           return (
             <li key={it.key} className="flex flex-wrap items-center gap-2">
-              <StatusDot tone={look.tone}/>{name}
+              <CheckStatus tone={look.tone}/>{name}
               <span className="text-muted">{look.text}{it.description ? ` · ${it.description}` : ''}</span>
             </li>
           );

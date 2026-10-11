@@ -11,7 +11,6 @@ import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
 import {CodeSource, type FileContent} from '../../code/source.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
-import {Panel} from '../../ui/index.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import {useLoad, useSource} from './hooks.ts';
 import {Unloaded} from './states.tsx';
@@ -78,7 +77,7 @@ export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: AP
   const body = renderable(entry.name) === 'markup' ?
     <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
     <PlainReadme repoId={repoId} entry={entry} path={path}/>;
-  return <Panel id={README_ID} label="README" title={<><BookIcon size={12} className="shrink-0"/>{entry.name}</>} padded>{body}</Panel>;
+  return <section id={README_ID} aria-label="README" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default bg-muted px-4 py-3"><BookIcon size={16}/>{entry.name}</div><div className="p-4">{body}</div></section>;
 }
 
 /** A markup file at a commit, rendered by the server from the repository (renderedAt). */

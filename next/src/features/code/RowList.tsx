@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The one list of the code views (files of a directory, commits, branches,
-// tags, workflow runs): ListRow rows in the page's scroll container,
+// tags, workflow runs): CodeRow rows in the page's scroll container,
 // virtualized (fixed row height, nothing measured), a listbox with a
 // keyboard cursor (J/K or the arrows, Enter opens), hover/cursor prefetch.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
+import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useRouterState} from '@tanstack/react-router';
 import {type KeyboardEvent, type ReactNode, useCallback, useId, useLayoutEffect, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {plainClick} from '../../app/links.ts';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
-import {ListRow} from '../../ui/index.ts';
+
 import {useScrollMargin} from './Lines.tsx';
 
 export const ROW = 32;
@@ -47,14 +48,14 @@ interface RowListProps<T> {
 function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void}) {
   return (
     <div className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(start)}px)`}}>
-      <ListRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
+      <CodeRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
         onClick={(e) => {
           if (href !== undefined && !plainClick(e)) return;
           e.preventDefault();
           onClick();
         }} onPointerEnter={onEnter}>
         {parts.main}
-      </ListRow>
+      </CodeRow>
     </div>
   );
 }

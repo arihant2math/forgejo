@@ -29,10 +29,7 @@ import {activeHint, formatKeys, shortcutHint, useShortcut, useShortcutScope} fro
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
-import {
-  BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuTrigger, DropIndicator,
-  ContextMenuSeparator, LabelDot, PromptDialog
-} from '../../ui/index.ts';
+import {BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, DropIndicator} from './BoardParts.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {issueActions, openPicker} from '../issues/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StatusCell, TitleCell, usePool} from '../issues/cells.tsx';
@@ -47,8 +44,7 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
@@ -176,6 +172,17 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     model.dispose();
   }, [dnd, model]);
   const [menuCard, setMenuCard] = useState<number | undefined>();
+  const menuAnchor = useRef<HTMLSpanElement>(null);
+  const menuReturnFocus = useRef<HTMLElement>(null);
+  const [menuPoint, setMenuPoint] = useState({x: 0, y: 0});
+  const openCardMenu = (id: number, target: HTMLElement, x = 0, y = 0) => {
+    const list = target.closest('[data-column]')?.querySelector<HTMLElement>('[role="listbox"]');
+    menuReturnFocus.current = list ?? target;
+    const rect = target.closest('[data-card]')?.getBoundingClientRect() ?? target.getBoundingClientRect();
+    setMenuPoint(x || y ? {x, y} : {x: rect.left, y: rect.top});
+    model.cursor.setActive(id);
+    setMenuCard(id);
+  };
   const columns = model.columns;
   const closed = project.get('closed');
 
@@ -399,6 +406,13 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const onKeyDown = (e: KeyboardEvent) => {
     // Only a column's own keys (not Enter in the new column's name field, or in a menu).
     if ((e.target as Element).getAttribute('role') !== 'listbox') return;
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      if (model.cursor.activeId !== undefined) {
+        e.preventDefault();
+        openCardMenu(model.cursor.activeId, e.target as HTMLElement);
+      }
+      return;
+    }
     const arrows: Record<string, [number, number]> = {ArrowDown: [0, 1], ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0]};
     const dir = arrows[e.key];
     if (dir && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -420,41 +434,35 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
         <ClosedTierBadge repoId={project.get('repo_id')}/>
         {editable && <BoardSettings project={project.data}/>}
       </PageHeader>
-      <ContextMenu onOpenChange={(o) => {
-        if (!o) setMenuCard(undefined);
-      }}>
-        <ContextMenuTrigger asChild>
-          <BoardLanes ref={boardRef} onKeyDown={onKeyDown}
-            onContextMenuCapture={(e) => {
-              // On a card, or (Shift+F10 / the menu key on a column) the cursor's card; elsewhere no menu.
-              const el = (e.target as Element).closest('[data-card]');
-              const fromKeys = (e.target as Element).getAttribute('role') === 'listbox' ? model.cursor.activeId : undefined;
-              const id = el ? Number(el.getAttribute('data-card')) : fromKeys;
-              if (id === undefined) {
-                // The browser's own menu stays in text fields and on selected text.
-                const t = e.target as HTMLElement;
-                if (!t.closest('input,textarea,[contenteditable="true"]') && !document.getSelection()?.toString()) e.preventDefault();
-                return;
-              }
-              setMenuCard(id);
-              model.cursor.setActive(id);
-            }}>
-            {columns.map((c, i) => (
-              <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}
-                onAdd={() => { setAddTo(c.id); }} onFocus={() => {
-                  activeColumn.current = c.id;
-                }} onDialog={(kind) => {
-                  setColumnDialog({kind, columnId: c.id});
-                }}/>
-            ))}
-            {columns.length === 0 && <Blankslate><Blankslate.Visual><ColumnsIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No columns yet</Blankslate.Heading><Blankslate.Description>Add a column to start the board.</Blankslate.Description></Blankslate>}
-            {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
-          </BoardLanes>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {menuCard !== undefined && <CardMenu model={model} issueId={menuCard} open={open} editable={editable}/>}
-        </ContextMenuContent>
-      </ContextMenu>
+      <span ref={menuAnchor} aria-hidden className="pointer-events-none fixed" style={{left: menuPoint.x, top: menuPoint.y}}/>
+      <BoardLanes ref={boardRef} onKeyDown={onKeyDown}
+        onContextMenuCapture={(e) => {
+          const target = e.target as HTMLElement;
+          const card = target.closest('[data-card]');
+          const id = card ? Number(card.getAttribute('data-card')) : target.getAttribute('role') === 'listbox' ? model.cursor.activeId : undefined;
+          if (id === undefined) {
+            if (!target.closest('input,textarea,[contenteditable="true"]') && !document.getSelection()?.toString()) e.preventDefault();
+            return;
+          }
+          e.preventDefault();
+          openCardMenu(id, target, e.clientX, e.clientY);
+        }}>
+        {columns.map((c, i) => (
+          <Column key={c.id} model={model} column={c} index={i} count={columns.length} dragging={dragging} handlers={cardHandlers} register={register} editable={editable}
+            onAdd={() => { setAddTo(c.id); }} onFocus={() => {
+              activeColumn.current = c.id;
+            }} onDialog={(kind) => {
+              setColumnDialog({kind, columnId: c.id});
+            }}/>
+        ))}
+        {columns.length === 0 && <Blankslate><Blankslate.Visual><ColumnsIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No columns yet</Blankslate.Heading><Blankslate.Description>Add a column to start the board.</Blankslate.Description></Blankslate>}
+        {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
+      </BoardLanes>
+      <ActionMenu open={menuCard !== undefined} anchorRef={menuAnchor} onOpenChange={(open) => { if (!open) setMenuCard(undefined); }}>
+        <ActionMenu.Overlay returnFocusRef={menuReturnFocus} side="outside-bottom">
+          <ActionList>{menuCard !== undefined && <CardMenu model={model} issueId={menuCard} open={open} editable={editable} onClose={() => { setMenuCard(undefined); }}/>}</ActionList>
+        </ActionMenu.Overlay>
+      </ActionMenu>
       <DropIndicator ref={indicatorRef}/>
       {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }} onCreate={(title) => {
         setAddTo(undefined);
@@ -485,7 +493,7 @@ function boardRepo(s: ReturnType<typeof useSession>, repoId: number) {
 }
 
 /** A card's menu: the issue's actions (as in lists and the palette) and moves to other columns (touch included). */
-function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void; editable: boolean}) {
+function CardMenu({model, issueId, open, editable, onClose}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void; editable: boolean; onClose: () => void}) {
   const app = useApp();
   const layout = untracked(() => model.layout.get());
   const at = findCard(layout, issueId);
@@ -495,6 +503,7 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
   // One rule for every move to another column, by key or by menu: the card keeps its rank among the column's cards.
   const moveTo = (columnId: number) => {
     model.move(issueId, columnId, model.rankIn(issueId, columnId));
+    onClose();
   };
   const moveBy = (d: number) => {
     const col = layout.columns[ci + d];
@@ -502,37 +511,42 @@ function CardMenu({model, issueId, open, editable}: {model: BoardModel; issueId:
   };
   return (
     <>
-      <ContextMenuItem icon={LinkExternalIcon} shortcut={formatKeys('enter')} onSelect={() => {
-        open(issueId);
-      }}>Open</ContextMenuItem>
+      <ActionList.Item onSelect={() => { open(issueId); }}>
+        <ActionList.LeadingVisual><LinkExternalIcon/></ActionList.LeadingVisual>
+        Open<ActionList.TrailingVisual>{formatKeys('enter')}</ActionList.TrailingVisual>
+      </ActionList.Item>
       {editable && <>
-      <ContextMenuSeparator/>
-      <ContextMenuItem icon={ArrowLeftIcon} shortcut={shortcutHint('board.moveLeft')} disabled={ci <= 0} onSelect={() => {
-        moveBy(-1);
-      }}>Move to the previous column</ContextMenuItem>
-      <ContextMenuItem icon={ArrowRightIcon} shortcut={shortcutHint('board.moveRight')} disabled={ci < 0 || ci >= layout.columns.length - 1} onSelect={() => {
-        moveBy(1);
-      }}>Move to the next column</ContextMenuItem>
-      <ContextMenuSub label="Move to" icon={ColumnsIcon}>
-        {layout.columns.map((c) => (
-          <ContextMenuItem key={c.id} disabled={c.id === at?.column} onSelect={() => {
-            moveTo(c.id);
-          }}>{c.title}</ContextMenuItem>
-        ))}
-      </ContextMenuSub>
+        <ActionList.Divider/>
+        <ActionList.Item disabled={ci <= 0} onSelect={() => { moveBy(-1); }}>
+          <ActionList.LeadingVisual><ArrowLeftIcon/></ActionList.LeadingVisual>
+          Move to the previous column<ActionList.TrailingVisual>{shortcutHint('board.moveLeft')}</ActionList.TrailingVisual>
+        </ActionList.Item>
+        <ActionList.Item disabled={ci < 0 || ci >= layout.columns.length - 1} onSelect={() => { moveBy(1); }}>
+          <ActionList.LeadingVisual><ArrowRightIcon/></ActionList.LeadingVisual>
+          Move to the next column<ActionList.TrailingVisual>{shortcutHint('board.moveRight')}</ActionList.TrailingVisual>
+        </ActionList.Item>
+        <ActionMenu>
+          <ActionMenu.Anchor><ActionList.Item>
+            <ActionList.LeadingVisual><ColumnsIcon/></ActionList.LeadingVisual>Move to
+            <ActionList.TrailingVisual><ChevronRightIcon/></ActionList.TrailingVisual>
+          </ActionList.Item></ActionMenu.Anchor>
+          <ActionMenu.Overlay side="outside-right"><ActionList>
+            {layout.columns.map((c) => <ActionList.Item key={c.id} disabled={c.id === at?.column} onSelect={() => { moveTo(c.id); }}>{c.title}</ActionList.Item>)}
+          </ActionList></ActionMenu.Overlay>
+        </ActionMenu>
       </>}
-      {actions.length > 0 && <ContextMenuSeparator/>}
-      {actions.map((a) => (
-        <ContextMenuItem key={a.id} icon={a.icon} shortcut={a.shortcut && activeHint(a.shortcut)} onSelect={() => {
-          a.run();
-        }}>{a.label}</ContextMenuItem>
-      ))}
-      {issue && editable && (
-        <>
-          <ContextMenuSeparator/>
-          <ContextMenuItem icon={DashIcon} shortcut={shortcutHint('board.removeCard')} onSelect={() => { model.setProject(issueId, 0, 0); }}>Remove from board</ContextMenuItem>
-        </>
-      )}
+      {actions.length > 0 && <ActionList.Divider/>}
+      {actions.map((a) => <ActionList.Item key={a.id} onSelect={() => { a.run(); }}>
+        <ActionList.LeadingVisual><a.icon/></ActionList.LeadingVisual>{a.label}
+        {a.shortcut && <ActionList.TrailingVisual>{activeHint(a.shortcut)}</ActionList.TrailingVisual>}
+      </ActionList.Item>)}
+      {issue && editable && <>
+        <ActionList.Divider/>
+        <ActionList.Item onSelect={() => { model.setProject(issueId, 0, 0); }}>
+          <ActionList.LeadingVisual><DashIcon/></ActionList.LeadingVisual>Remove from board
+          <ActionList.TrailingVisual>{shortcutHint('board.removeCard')}</ActionList.TrailingVisual>
+        </ActionList.Item>
+      </>}
     </>
   );
 }
@@ -582,7 +596,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
   const items = virtualizer.getVirtualItems();
   return (
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
-      leading={column.color ? <LabelDot color={column.color}/> : null}
+      leading={column.color ? <span aria-hidden className="size-2 shrink-0 rounded-full border border-default" style={{backgroundColor: /^(?:#?[\da-f]{6})$/i.test(column.color) ? `#${column.color.replace(/^#/, '')}` : 'var(--fgColor-muted)'}}/> : null}
       // The default column (where new cards and the cards of a deleted column go) says so.
       badge={column.default ? <Label>Default</Label> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
@@ -611,7 +625,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
         <div className="flex flex-wrap gap-1">
           <Button variant="invisible" leadingVisual={PlusIcon} type="button" onClick={onAdd}>Add existing issue…</Button>
           {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
-          <OptionalTooltip text={'Cards are issues: a board holds no notes. The new issue goes in this column.'}><Button variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></OptionalTooltip>
+          <Tooltip text="Cards are issues: a board holds no notes. The new issue goes in this column."><Button variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></Tooltip>
         </div>
       )}
     </BoardColumn>
@@ -668,27 +682,34 @@ function ColumnDialog({model, state, onClose}: {model: BoardModel; state: Column
   const app = useApp();
   const projectId = model.projectId;
   const column = untracked(() => model.columns.find((c) => c.id === state.columnId));
+  const [title, setTitle] = useState(column?.title ?? '');
+  const field = useRef<HTMLInputElement>(null);
   if (!column) return null;
+  const close = () => { onClose(false); };
+  const save = () => {
+    const name = title.trim();
+    if (!name) return;
+    close();
+    if (name !== column.title) void editColumn(app, projectId, column.id, {title: name});
+  };
   if (state.kind === 'rename') {
-    return (
-      <PromptDialog title="Rename the column" label="Column name" initial={column.title} onClose={() => {
-        onClose(false);
-      }} onSave={(title) => {
-        void editColumn(app, projectId, column.id, {title});
-      }}/>
-    );
+    return <Dialog title="Rename the column" initialFocusRef={field} onClose={close} footerButtons={[
+      {content: 'Cancel', onClick: close},
+      {content: 'Save', buttonType: 'primary', disabled: !title.trim(), onClick: save},
+    ]}>
+      <form onSubmit={(e) => { e.preventDefault(); save(); }}>
+        <FormControl>
+          <FormControl.Label>Column name</FormControl.Label>
+          <TextInput ref={field} block value={title} maxLength={100} onFocus={(e) => { e.currentTarget.select(); }}
+            onChange={(e) => { setTitle(e.target.value); }}/>
+        </FormControl>
+      </form>
+    </Dialog>;
   }
-  return (
-    <Dialog title={`Delete “${column.title}”?`} subtitle="Its cards move to the default column." width="large" onClose={() => { const o = false; if (!o) onClose(false); }} renderFooter={() => <Dialog.Footer>{<>
-      <Button variant="invisible" type="button" onClick={() => {
-        onClose(false);
-      }}>Cancel</Button>
-      <Button variant="danger" type="button" onClick={() => {
-        onClose(true);
-        void deleteColumn(app, projectId, column.id);
-      }}>Delete</Button>
-    </>}</Dialog.Footer>}></Dialog>
-  );
+  return <Dialog title={`Delete “${column.title}”?`} subtitle="Its cards move to the default column." width="large" onClose={close} footerButtons={[
+    {content: 'Cancel', onClick: close},
+    {content: 'Delete', buttonType: 'danger', onClick: () => { onClose(true); void deleteColumn(app, projectId, column.id); }},
+  ]}/>;
 }
 
 const ColumnMenu = observer(function ColumnMenu({model, column, index, count, onDialog}: {
@@ -824,9 +845,9 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   }
   return (
     <div className="flex w-column shrink-0 flex-col">
-      <OptionalTooltip text={tip}><Button variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} disabled={offline} onClick={() => {
+      <Tooltip text={tip}><Button variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} inactive={offline} onClick={() => {
         setEditing(true);
-      }}>Add column</Button></OptionalTooltip>
+      }}>Add column</Button></Tooltip>
     </div>
   );
 });

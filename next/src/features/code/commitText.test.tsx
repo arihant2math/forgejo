@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // Which release has a fix: the commit page lists the tags and branches that
 // contain the commit, and issue references in commit messages are visible
 // links — on the commit page and in a comparison's commit rows.

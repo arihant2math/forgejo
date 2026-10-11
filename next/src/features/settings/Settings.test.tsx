@@ -8,6 +8,8 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {runInAction} from 'mobx';
+import {connectivity} from '../../app/online.ts';
 import {afterAll, afterEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -19,6 +21,7 @@ const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base:
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  runInAction(() => { connectivity.online = true; });
   localStorage.clear();
 });
 
@@ -84,9 +87,9 @@ test('the general settings paint from the pool; a save sends only what changed',
   expect(within(nav).getByRole('link', {name: /Units and trackers/}).getAttribute('href')).toBe('/alice/notes/settings/units');
   expect(within(nav).getByRole('link', {name: /More options/}).getAttribute('href')).toBe('/alice/notes/settings?ui=classic');
   // Features from the units: issues and pull requests on, the wiki off.
-  expect(screen.getByRole('switch', {name: 'Issues'}).getAttribute('aria-checked')).toBe('true');
-  expect(screen.getByRole('switch', {name: 'Wiki'}).getAttribute('aria-checked')).toBe('false');
-  expect(screen.getByRole('switch', {name: 'Squash'}).getAttribute('aria-checked')).toBe('true');
+  expect(screen.getByRole('button', {name: 'Issues'}).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('button', {name: 'Wiki'}).getAttribute('aria-pressed')).toBe('false');
+  expect(screen.getByRole('button', {name: 'Squash'}).getAttribute('aria-pressed')).toBe('true');
 
   const save = screen.getByRole('button', {name: 'Save changes'});
   expect(save.hasAttribute('disabled')).toBe(true);
@@ -109,13 +112,13 @@ test('the general settings paint from the pool; a save sends only what changed',
 test('a switch applies at once, and goes back when Forgejo refuses', async () => {
   const calls = stub((c) => (c.method === 'PATCH' ? {status: 422, body: {message: 'wiki is disabled on this instance'}} : undefined));
   await open('/alice/notes/settings');
-  const wiki = screen.getByRole('switch', {name: 'Wiki'});
+  const wiki = screen.getByRole('button', {name: 'Wiki'});
   act(() => {
     fireEvent.click(wiki);
   });
-  expect(wiki.getAttribute('aria-checked')).toBe('true');
+  expect(wiki.getAttribute('aria-pressed')).toBe('true');
   await waitFor(() => {
-    expect(wiki.getAttribute('aria-checked')).toBe('false');
+    expect(wiki.getAttribute('aria-pressed')).toBe('false');
   });
   expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({has_wiki: true});
   expect(await screen.findByText('Wiki was not changed')).toBeTruthy();
@@ -136,4 +139,20 @@ test('someone who does not administer the repository gets the refusal once Forge
   await open('/acme/website/settings');
   expect(await screen.findByText('Only administrators can change settings')).toBeTruthy();
   expect(screen.queryByRole('textbox', {name: 'Repository name'})).toBeNull();
+});
+
+test('going offline keeps drafts and disables online-only repository controls immediately', async () => {
+  const calls = stub(() => undefined);
+  await open('/alice/notes/settings');
+  fireEvent.change(screen.getByRole('textbox', {name: 'Repository name'}), {target: {value: 'draft-name'}});
+  const save = screen.getByRole<HTMLButtonElement>('button', {name: 'Save changes'});
+  expect(save.disabled).toBe(false);
+  act(() => { runInAction(() => { connectivity.online = false; }); });
+  expect(screen.getByText('You are offline')).toBeTruthy();
+  expect(save.disabled).toBe(true);
+  expect(screen.getByRole('button', {name: 'Wiki'}).getAttribute('aria-disabled')).toBe('true');
+  expect(screen.getByRole<HTMLInputElement>('textbox', {name: 'Repository name'}).value).toBe('draft-name');
+  expect(calls.some((call) => call.method === 'PATCH')).toBe(false);
+  act(() => { runInAction(() => { connectivity.online = true; }); });
+  expect(save.disabled).toBe(false);
 });

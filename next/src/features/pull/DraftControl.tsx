@@ -1,3 +1,6 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {observer} from 'mobx-react-lite';
 import {runInAction} from 'mobx';
 import {canWrite} from '../../app/access.ts';
@@ -28,5 +31,14 @@ export const DraftControl = observer(function DraftControl({issue}: {issue: Enti
   if (!allowed) return null;
   if (draft) return <Button variant="primary" type="button" onClick={toggle}>Ready for review</Button>;
   if (!prefixes[0]) return null;
-  return <ActionMenu><ActionMenu.Anchor><Button type="button">Pull request actions</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList><ActionList.Item onSelect={toggle}>Convert to draft</ActionList.Item></ActionList></ActionMenu.Overlay></ActionMenu>;
+  return (
+    <ActionMenu>
+      <ActionMenu.Button>Pull request actions</ActionMenu.Button>
+      <ActionMenu.Overlay>
+        <ActionList>
+          <ActionList.Item onSelect={toggle}>Convert to draft</ActionList.Item>
+        </ActionList>
+      </ActionMenu.Overlay>
+    </ActionMenu>
+  );
 });

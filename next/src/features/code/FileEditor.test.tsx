@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // The in-browser file editor: find and replace in the file (#175), and where a commit lands — the file on the branch
 // it went to, said in a notice (#181).
 

@@ -21,17 +21,34 @@ import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, AvatarGroup, Hint, Icon, LabelChip, LabelIcon, PendingIcon} from '../../ui/index.ts';
+import {Avatar, AvatarStack, IssueLabelToken} from '@primer/react';
+import {SkeletonAvatar} from '@primer/react/experimental';
+import {createElement, type ReactNode} from 'react';
+import {clsx} from 'clsx';
 import {Link} from '@tanstack/react-router';
 import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
 import {checksOf} from '../pull/checks.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
 import {repoLabels} from './candidates.ts';
-import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, StopIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
-import type {Icon as OcticonType, IconProps as OcticonProps} from '@primer/octicons-react';
+import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLink} from '../../app/routerLinks.tsx';
 import {Label as PrimerLabel} from '@primer/react';
+
+export function labelColor(color: string): string {
+  return color.startsWith('#') ? color : `#${color}`;
+}
+
+/** Native titles avoid a tooltip mount for each virtualized cell. */
+function Hint({label, children}: {label: string; children: ReactNode}) {
+  return <span title={label} aria-label={label} className="inline-flex shrink-0">{children}</span>;
+}
+
+/** A workflow field's color is repository data, not a theme override. */
+export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
+  return <span className="inline-flex shrink-0" style={{color: labelColor(color)}}>{createElement(icon, {size: 16})}</span>;
+}
 
 export function usePool(): Pool {
   const s = useApp().session;
@@ -99,29 +116,9 @@ export function statusIcon(name: string): OcticonType {
   return stage ? STAGE_ICONS[stage] : CircleIcon;
 }
 
-/**
- * Priority as bars (Linear's look): the filled bars say the level, the others stay faint, so Low is one bar
- * of three rather than lucide's lone short bar (which reads as a stray mark at 16 px).
- */
-function bars(name: string, filled: number): OcticonType {
-  // Drawn like an octicon (a 16 px grid, currentColor), so it sits wherever an octicon does.
-  function Bars({size = 16, className, 'aria-label': label}: OcticonProps) {
-    const px = typeof size === 'number' ? size : size === 'small' ? 16 : size === 'medium' ? 32 : 64;
-    return (
-      <svg viewBox="0 0 24 24" width={px} height={px} className={className} fill="currentColor" role={label ? 'img' : undefined}
-        aria-label={label} aria-hidden={label ? undefined : true}>
-        {[0, 1, 2].map((i) => <rect key={i} x={3 + i * 7} y={14 - i * 5} width={4} height={6 + i * 5} rx={1} opacity={i < filled ? undefined : 0.3}/>)}
-      </svg>
-    );
-  }
-  Bars.displayName = name;
-  return Bars;
-}
-
-/** No priority: the three bars, all faint (lucide's SignalZero is a lone dot, a stray mark in a menu). */
-export const NoPriorityIcon = bars('priority-none', 0);
-
-const PRIORITY_ICONS: OcticonType[] = [StopIcon, bars('priority-high', 3), bars('priority-medium', 2), bars('priority-low', 1), NoPriorityIcon];
+/** Priority uses the same octicons as the rest of the interface. */
+export const NoPriorityIcon = DashIcon;
+const PRIORITY_ICONS: OcticonType[] = [AlertIcon, ArrowUpIcon, DashIcon, ArrowDownIcon, NoPriorityIcon];
 
 export function priorityIcon(name: string): OcticonType {
   return PRIORITY_ICONS[Math.min(4, Math.max(0, Math.round(kindRank('priority', name))))] ?? GraphBarVerticalIcon;
@@ -146,7 +143,7 @@ export function stateLook(state: string, pull: boolean, merged: boolean): StateL
 
 /** The icon of a state look in its colour. */
 export function StateGlyph({look}: {look: StateLook}) {
-  return <Icon icon={look.icon} className={STATE_TONES[look.tone]}/>;
+  return createElement(look.icon, {size: 16, className: STATE_TONES[look.tone], "aria-label": look.label});
 }
 
 /** Whether a pull request is merged (its PullRequest entity). */
@@ -174,7 +171,7 @@ export const StatusCell = observer(function StatusCell({issue}: {issue: Entity<'
   // A pull request always reads as one (open, draft, merged, closed): its review and checks say where it is.
   if (!status || issue.get('is_pull') || (!open && !terminal(status.name))) return <StateIcon issue={issue}/>;
   return (
-    <Hint label={scopedValue(status.name)}><LabelIcon icon={statusIcon(status.name)} color={status.color}/></Hint>
+    <Hint label={scopedValue(status.name)}><LabelGlyph icon={statusIcon(status.name)} color={status.color}/></Hint>
   );
 });
 
@@ -188,7 +185,7 @@ export const PriorityCell = observer(function PriorityCell({issue}: {issue: Enti
   const p = useLabelView(issue).priority;
   if (!p) return <span aria-hidden className="size-4 shrink-0"/>;
   return (
-    <Hint label={`Priority: ${scopedValue(p.name)}`}><LabelIcon icon={priorityIcon(p.name)} color={p.color}/></Hint>
+    <Hint label={`Priority: ${scopedValue(p.name)}`}><LabelGlyph icon={priorityIcon(p.name)} color={p.color}/></Hint>
   );
 });
 
@@ -199,7 +196,7 @@ export const LabelsCell = observer(function LabelsCell({issue, max = 3}: {issue:
   const shown = labels.slice(0, max);
   return (
     <span className="flex min-w-0 items-center gap-1">
-      {shown.map((l) => <LabelChip key={l.id} name={l.name} color={l.color}/>)}
+      {shown.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelColor(l.color)}/>)}
       {labels.length > max && <span title={labels.slice(max).map((l) => l.name).join(', ')} className="text-sm text-muted tabular-nums">+{labels.length - max}</span>}
     </span>
   );
@@ -226,7 +223,8 @@ export const UserName = observer(function UserName({id, fallback = 'Someone'}: {
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {
   const u = useUser(id);
-  const avatar = <Avatar name={u.name} src={u.avatar} size={size}/>;
+  const pixels = {sm: 20, md: 32, lg: 40}[size];
+  const avatar = u.avatar ? <Avatar alt={u.name} src={u.avatar} size={pixels}/> : <span aria-label={u.name}><SkeletonAvatar size={pixels}/></span>;
   return linked && u.login ? <Link to="/$owner" params={{owner: u.login}} aria-label={`Profile of ${u.login}`}>{avatar}</Link> : avatar;
 });
 
@@ -240,12 +238,14 @@ export const AssigneesCell = observer(function AssigneesCell({issue}: {issue: En
   if (!ids.length) return null;
   const rest = ids.slice(3);
   return (
-    <AvatarGroup>
-      {ids.slice(0, 3).map((id) => <AssigneeAvatar key={id} id={id}/>)}
+    <span className="flex items-center gap-1">
+      <AvatarStack disableExpand>
+        {ids.slice(0, 3).map((id) => <AssigneeAvatar key={id} id={id}/>)}
+      </AvatarStack>
       {rest.length > 0 && (
         <span title={`Also assigned: ${rest.map((id) => userLabel(pool, id)).join(', ')}`} className="text-sm text-muted tabular-nums">+{rest.length}</span>
       )}
-    </AvatarGroup>
+    </span>
   );
 });
 
@@ -259,9 +259,9 @@ function userLabel(pool: Pool, id: number): string {
 }
 
 /** One assignee's avatar, named on hover. */
-const AssigneeAvatar = observer(function AssigneeAvatar({id}: {id: number}) {
+const AssigneeAvatar = observer(function AssigneeAvatar({id, className}: {id: number; className?: string}) {
   const name = userLabel(usePool(), id);
-  return <span title={`Assignee: ${name}`} className="flex shrink-0"><UserAvatar id={id}/></span>;
+  return <span title={`Assignee: ${name}`} className={clsx('flex shrink-0', className)}><UserAvatar id={id}/></span>;
 });
 
 /**
@@ -336,7 +336,7 @@ export const PullStateCell = observer(function PullStateCell({issue}: {issue: En
       {draft && <PrimerLabel>Draft</PrimerLabel>}
       {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
       {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
-      {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}><Icon icon={CHECK_ICON[checks]} size="sm" className={CHECK_TONE[checks]}/></Hint>}
+      {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 12, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint>}
     </>
   );
 });
@@ -386,7 +386,8 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   const app = useApp();
   const n = editing(app).intents.pendingOn(issueId);
   if (!n) return null;
-  return <PendingIcon label={`${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet`} now={reach(app.session?.data.status.connection) !== 'online'}/>;
+  const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
+  return <span title={label}><DotFillIcon aria-label={label} className="text-attention"/></span>;
 });
 
 /** How many rows of a list are selected (X), with the way out; nothing without a selection (lists, the inbox). */

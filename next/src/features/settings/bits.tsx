@@ -1,6 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {Banner, Button} from '@primer/react';
+
 // What the settings sections share: a change shown before Forgejo confirms
 // it (optimistic), the "you are offline" note, a list's placeholder rows and
 // the lists' rows.
@@ -10,11 +12,9 @@ import {type ReactNode, useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import type {App} from '../../app/store.ts';
-import {Callout, EmptyState, EntryList} from '../../ui/index.ts';
 import {problemOf} from './problems.ts';
 import type {Resource} from './resource.ts';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button} from '@primer/react';
 import {SkeletonAvatar, SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 function same(a: unknown, b: unknown): boolean {
@@ -76,20 +76,20 @@ export function useOffline(): boolean {
 /** Said at the top of a settings page while offline: its changes are not queued. */
 export const OfflineNote = observer(function OfflineNote() {
   if (connectivity.online) return null;
-  return <Callout tone="warning" title="You are offline">{onlineOnly('Changing settings')} What this device knows is shown.</Callout>;
+  return <Banner variant="warning" title="You are offline" description={<>{onlineOnly('Changing settings')} What this device knows is shown.</>}/>;
 });
 
 /** A list's rows before its first answer: the rows' own geometry. */
 export function ListSkeleton({rows = 3}: {rows?: number}) {
   return (
-    <EntryList>
+    <ul className="flex flex-col">
       {Array.from({length: rows}, (_, i) => (
         <li key={i} aria-hidden className="flex items-center gap-3 border-b border-muted py-2 last:border-b-0">
           <SkeletonAvatar size={20}/>
           <span className="flex flex-1 flex-col gap-1.5"><SkeletonBox className="h-3 w-40"/><SkeletonBox className="h-3 w-24"/></span>
         </li>
       ))}
-    </EntryList>
+    </ul>
   );
 }
 
@@ -108,12 +108,10 @@ export function ResourceList<T>({res, what, empty, children}: {
     if (res.state === 'loading') return <ListSkeleton/>;
     if (res.state === 'offline') return <Blankslate><Blankslate.Heading>Not on this device yet</Blankslate.Heading><Blankslate.Description>{`${what} load when you are online.`}</Blankslate.Description></Blankslate>;
     return (
-      <Callout tone="danger" title={`${what} could not be loaded`} actions={<Button size="small" type="button" onClick={res.reload}>Try again</Button>}>
-        {res.status === 403 ? 'Forgejo refused: this instance may have turned the feature off.' : res.error}
-      </Callout>
+      <Banner variant="critical" title={`${what} could not be loaded`} primaryAction={<Button size="small" type="button" onClick={res.reload}>Try again</Button>} description={res.status === 403 ? 'Forgejo refused: this instance may have turned the feature off.' : res.error}/>
     );
   }
-  if (!res.value.length) return <EmptyState icon={empty.icon} title={empty.title} description={empty.description} action={empty.action}/>;
-  return <EntryList>{children(res.value)}</EntryList>;
+  if (!res.value.length) return <Blankslate><Blankslate.Visual><empty.icon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty.title}</Blankslate.Heading><Blankslate.Description>{empty.description}</Blankslate.Description>{empty.action}</Blankslate>;
+  return <ul className="flex flex-col">{children(res.value)}</ul>;
 }
 

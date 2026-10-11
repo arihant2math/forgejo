@@ -10,7 +10,7 @@ export function getThemePreference(): ThemePreference {
   return readSplash().theme ?? 'system';
 }
 
-/** The preference, observable: every control showing it follows every change (menu, palette, gallery). */
+/** The preference, observable: every control showing it follows every change (menu, palette). */
 export const themeState = observable({preference: getThemePreference()});
 
 /** Applies a theme by swapping the token set on <html>, and remembers it for the next boot. */

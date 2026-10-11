@@ -17,13 +17,12 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Callout} from '../../ui/index.ts';
 import {creationScope, newOrgRequest, ORG_NAME_MAX, orgNameProblem, orgRefusal, type OrgVisibility, type Refusal, scopeAllows} from './forms.ts';
 import {loginTaken} from './owners.ts';
 import {Choice, Field, hintOf, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {OrganizationIcon, EyeClosedIcon, GlobeIcon, PeopleIcon} from '@primer/octicons-react';
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {Banner, Heading, Tooltip} from '@primer/react';
 
 export const NewOrg = observer(function NewOrg() {
   const app = useApp();
@@ -79,7 +78,7 @@ export const NewOrg = observer(function NewOrg() {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) create(e);
           }}>
             <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold text-default">Create a new organization</h2>
+              <Heading as="h2" variant="medium">Create a new organization</Heading>
               <p className="text-base text-muted">An organization owns repositories together: its members work in teams, each with its own access.</p>
             </div>
             {scopeMissing && <ScopeNote scope={scope} what="organizations" classic="/org/create"/>}
@@ -109,12 +108,12 @@ export const NewOrg = observer(function NewOrg() {
             </Section>
 
             <Section>
-              {refused?.field === 'form' && <Callout tone="danger" title="The organization was not created">{refused.text}</Callout>}
+              {refused?.field === 'form' && <Banner variant="critical" title="The organization was not created" description={refused.text}/>}
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating an organization needs a connection.</span>}
-                <OptionalTooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" aria-disabled={Boolean(why) || busy}>
+                <Tooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create organization'}
-                </Button></OptionalTooltip>
+                </Button></Tooltip>
               </div>
             </Section>
           </form>

@@ -20,10 +20,6 @@ import {uuid} from '../../intents/intents.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
 import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
-import {
-  Callout, CommandPick, CommandPopover, Dialog, EditableHeading, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
-  type PickOption, ProseSource, TitleInput,
-} from '../../ui/index.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {reach} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
@@ -35,14 +31,13 @@ import {repoLabels} from '../issues/candidates.ts';
 import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
-import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, Dialog as PrimerDialog} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon, ClockIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, Banner, Button, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
 export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
-  if (local) return <ProseSource text={text}/>;
+  if (local) return <div className="markdown-body whitespace-pre-wrap">{text}</div>;
   return html ? <Markdown html={html} onTask={onTask}/> : <p className="text-base text-muted">No text.</p>;
 }
 
@@ -54,7 +49,7 @@ function resolveWith(intents: ReturnType<typeof editing>['intents'], id: string,
 
 /** Marks text that Forgejo does not have yet. */
 export function NotSynced() {
-  return <PendingBadge label="Not synced yet: Forgejo renders it once it has it">Not synced</PendingBadge>;
+  return <PrimerLabel><ClockIcon size={12}/> <span title="Not synced yet: Forgejo renders it once it has it">Not synced</span></PrimerLabel>;
 }
 
 /** What an edit is based on: the text the user started from, its content_version (-1: an unsynced edit's text) and updated_at. */
@@ -217,13 +212,11 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
         act(stateAction.run);
       }
     }}>
-      {confirmCancel && <PrimerDialog title="Discard this edit?" subtitle="Your changes can be restored with Undo." width="medium" onClose={() => { setConfirmCancel(false); }} renderFooter={() => <PrimerDialog.Footer>{<>
-        <Button variant="invisible" type="button" onClick={() => { setConfirmCancel(false); }}>Keep editing</Button>
-        <Button variant="danger" type="button" onClick={() => {
-          setConfirmCancel(false);
-          cancel();
-        }}>Discard</Button>
-      </>}</PrimerDialog.Footer>}></PrimerDialog>}
+      {confirmCancel && <Dialog title="Discard this edit?" subtitle="Your changes can be restored with Undo." width="medium"
+        onClose={() => { setConfirmCancel(false); }} footerButtons={[
+          {content: 'Keep editing', onClick: () => { setConfirmCancel(false); }},
+          {content: 'Discard', buttonType: 'danger', onClick: () => { setConfirmCancel(false); cancel(); }},
+        ]}/>}
       <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
         onChange={change} onSubmit={save} onCancel={onCancel ? () => {
           if (dirty) setConfirmCancel(true);
@@ -238,7 +231,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
           }}>{stateAction.label(Boolean(text.trim()))}</Button>
           {stateAction.more?.(act)}
         </span>}
-        <OptionalTooltip text={`${saveLabel} (works offline)`} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button></OptionalTooltip>
+        <Tooltip text={`${saveLabel} (works offline)`} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button></Tooltip>
       </div>
     </div>
   );
@@ -280,13 +273,10 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     const mine = conflict.intent.kind === 'issue.body' ? conflict.intent.text : '';
     return (
       <div className="flex flex-col gap-2">
-        <Callout tone="warning" title="Your edit conflicts with a newer change" actions={<>
-          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>
-          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, c.theirs); }}>Use theirs</Button>
-        </>}>
-          You edited the description while it changed on Forgejo, and both touched the same lines.
-          Edit the merge below (between the markers: yours, then theirs), or keep one side.
-        </Callout>
+        <Banner variant="warning" title="Your edit conflicts with a newer change"
+          primaryAction={<Button size="small" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>}
+          secondaryAction={<Button size="small" onClick={() => { resolveWith(intents, conflict.id, c.theirs); }}>Use theirs</Button>}
+          description="You edited the description while it changed on Forgejo, and both touched the same lines. Edit the merge below (between the markers: yours, then theirs), or keep one side."/>
         <TextEditor key={conflict.id} draftKey={`text:conflict:${conflict.id}`} title="Resolving the description" issueId={issue.id} repoId={repoId}
           initial={c.merged} label="Resolve the description" saveLabel="Save" markers rows={12} onSave={(t) => intents.resolve(conflict.id, t)}/>
       </div>
@@ -332,7 +322,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
         } : undefined}/> : <p className="text-base text-muted">No description.</p>}
         {body.local && <NotSynced/>}
       </div>
-      {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
+      {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" description="Edit the issue description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
     </div>
   );
 });
@@ -341,77 +331,63 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
 export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
   const app = useApp();
   const session = useSession();
-  const {userId} = session;
   const {intents} = editing(app);
-  /** Edit was chosen: the editor that opens keeps the focus. */
-  const chose = useRef(false);
-  const quoted = useRef(false);
+  const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const fallback = useRef<HTMLElement | null>(null);
-  const mayEdit = c.get('poster_id') === userId || canWrite(session, repoOf(app, c.get('issue_id')));
   const selection = useRef('');
+  const fallback = useRef<HTMLElement | null>(null);
+  const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
   const remove = () => {
     setConfirming(false);
     const {issue_id: issueId} = untracked(() => c.data);
     intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
+    requestAnimationFrame(() => { fallback.current?.focus(); });
   };
-  return (
-    <>
-    {confirming && (
-      <Dialog open size="sm" returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : fallback.current} title="Delete this comment?" description="It is removed for everyone. This cannot be undone." onOpenChange={(o) => {
-        if (!o) setConfirming(false);
-      }} footer={<>
-        <Button variant="invisible" type="button" onClick={() => {
-          setConfirming(false);
-        }}>Cancel</Button>
-        <Button variant="danger" type="button" onClick={remove}>Delete</Button>
-      </>}/>
-    )}
-    <Menu onOpenChange={(open) => {
-      if (!open) return;
+  const setMenuOpen = (next: boolean) => {
+    if (next) {
       const selected = window.getSelection();
       const card = triggerRef.current?.closest('article');
       selection.current = selected?.anchorNode && card?.contains(selected.anchorNode) ? selected.toString() : '';
-    }}>
-      <MenuTrigger asChild><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="Comment actions" type="button" ref={triggerRef} className="ml-auto"/></MenuTrigger>
-      {/* After Edit the editor takes the focus once the menu is gone (while the menu is open its focus trap keeps the
-          focus, and Radix would return it to the trigger); otherwise the trigger has it. */}
-      <MenuContent align="end" onCloseAutoFocus={(e) => {
-        if (quoted.current) e.preventDefault();
-        quoted.current = false;
-        if (chose.current) {
-          e.preventDefault();
-          const card = triggerRef.current?.closest('article');
+    }
+    setOpen(next);
+  };
+  return <>
+    {confirming && <Dialog title="Delete this comment?" subtitle="It is removed for everyone. This cannot be undone." width="small"
+      returnFocusRef={triggerRef} onClose={() => { setConfirming(false); }} footerButtons={[
+        {content: 'Cancel', onClick: () => { setConfirming(false); }},
+        {content: 'Delete', buttonType: 'danger', onClick: remove},
+      ]}/>}
+    <ActionMenu open={open} onOpenChange={setMenuOpen}>
+      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="Comment actions" type="button" ref={triggerRef} className="ml-auto"/></ActionMenu.Anchor>
+      <ActionMenu.Overlay align="end"><ActionList>
+        <ActionList.Item onSelect={() => {
+          setOpen(false);
           requestAnimationFrame(() => {
-            card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus();
+            window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
           });
-        }
-        chose.current = false;
-      }}>
-        <MenuItem icon={QuoteIcon} onSelect={() => {
-          quoted.current = true;
-          window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
-        }}>Quote reply</MenuItem>
-        {mayEdit && <MenuItem icon={PencilIcon} onSelect={() => {
-          chose.current = true;
+        }}><ActionList.LeadingVisual><QuoteIcon/></ActionList.LeadingVisual>Quote reply</ActionList.Item>
+        {mayEdit && <ActionList.Item onSelect={() => {
+          setOpen(false);
           onEdit();
-        }}>Edit</MenuItem>}
-        {mayEdit && c.get('type') !== 'review' && <MenuItem icon={TrashIcon} danger onSelect={() => {
+          const card = triggerRef.current?.closest('article');
+          requestAnimationFrame(() => { card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus(); });
+        }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Edit</ActionList.Item>}
+        {mayEdit && c.get('type') !== 'review' && <ActionList.Item variant="danger" onSelect={() => {
           fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
+          setOpen(false);
           setConfirming(true);
-        }}>Delete…</MenuItem>}
-        <MenuItem icon={LinkIcon} onSelect={() => {
+        }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>}
+        <ActionList.Item onSelect={() => {
           const url = new URL(window.location.href);
           if (c.get('type') === 'code') {
             url.searchParams.set('tab', 'files');
             url.hash = `review-thread-${String(c.id)}`;
           } else url.hash = `comment-${String(c.id)}`;
           void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
-        }}>Copy link</MenuItem>
-      </MenuContent>
-    </Menu>
-    </>
-  );
+        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
+  </>;
 });
 
 /** The repository of an issue (one created offline included). */
@@ -435,10 +411,9 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone, o
     const mine = conflict.intent.text;
     return (
       <div className="flex flex-col gap-2">
-        <Callout tone="warning" title="This comment changed while you edited it" actions={<>
-          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>
-          <Button size="small" type="button" onClick={() => { resolveWith(intents, conflict.id, cf.theirs); }}>Use theirs</Button>
-        </>}>Edit the merge below, or keep one side.</Callout>
+        <Banner variant="warning" title="This comment changed while you edited it" description="Edit the merge below, or keep one side."
+          primaryAction={<Button size="small" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>}
+          secondaryAction={<Button size="small" onClick={() => { resolveWith(intents, conflict.id, cf.theirs); }}>Use theirs</Button>}/>
         <TextEditor key={conflict.id} draftKey={`text:conflict:${conflict.id}`} title="Resolving a comment" issueId={issueId} repoId={repoId}
           initial={cf.merged} label="Resolve the comment" saveLabel="Save" markers onSave={(t) => intents.resolve(conflict.id, t)}/>
       </div>
@@ -551,27 +526,9 @@ const DUPLICATE_CHOICES = 30;
  */
 const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity<'Issue'>; act: (run: (text: string) => void) => void}) {
   const app = useApp();
-  return (
-    <CommandPopover label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" width="md" options={[]}
-      trigger={<OptionalTooltip text={'Close as not planned or as a duplicate'}><Button size="small" type="button" aria-label="Close with a reason"><ChevronDownIcon size={12} className="shrink-0"/></Button></OptionalTooltip>}
-      render={(onClose) => <CloseReasonPick issue={issue} onClose={onClose} choose={(reason) => {
-        act((text) => {
-          const {issueId, repoId} = {issueId: issue.id, repoId: issue.get('repo_id')};
-          runInAction(() => {
-            const body = reason.duplicateOf ? duplicateComment(reason.duplicateOf, text) : text;
-            if (body.trim()) editing(app).intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
-            if (reason.status) setWorkflowStatus(app, [issue], reason.status);
-            else changeState(app, [issue], 'closed');
-          });
-        });
-      }}/>}/>
-  );
-});
-
-const CloseReasonPick = observer(function CloseReasonPick({issue, onClose, choose}: {
-  issue: Entity<'Issue'>; onClose: () => void; choose: (reason: {status?: Label | undefined; duplicateOf?: number}) => void;
-}) {
   const pool = usePool();
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const repoId = issue.get('repo_id');
   const canceled = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status' && statusStage(scopedValue(l.name)) === 'canceled')
@@ -581,27 +538,37 @@ const CloseReasonPick = observer(function CloseReasonPick({issue, onClose, choos
   const others = [...pool.model('Issue').by('repo_id', repoId)].map((e) => e.data)
     .filter((i) => i.id !== issue.id && !i.is_pull && i.number > 0)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  const options: PickOption[] = [];
-  if (notPlanned) {
-    options.push(...matchOptions([{value: 'not-planned', label: 'Not planned', words: `${scopedValue(notPlanned.name)} wontfix canceled`, group: 'Close as',
-      icon: SkipIcon, meta: `status: ${scopedValue(notPlanned.name)}`, onSelect: () => {
-        choose({status: notPlanned});
-      }}], query));
+  interface Choice {id: string; text: string; description?: string; leadingVisual: typeof SkipIcon; status?: Label | undefined; duplicateOf?: number}
+  const items: Choice[] = [];
+  const q = query.trim().replace(/^#/, '').toLowerCase();
+  if (notPlanned && (!q || `not planned ${scopedValue(notPlanned.name)} wontfix canceled`.toLowerCase().includes(q))) {
+    items.push({id: 'not-planned', text: 'Not planned', description: `status: ${scopedValue(notPlanned.name)}`, leadingVisual: SkipIcon, status: notPlanned});
   }
-  const q = query.trim().replace(/^#/, '');
   const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
-  // A number not on this device is still a reference Forgejo resolves (an older closed issue).
   if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) {
-    options.push({value: `number-${String(exact)}`, label: `#${String(exact)}`, group: 'Duplicate of', icon: CopyIcon, onSelect: () => {
-      choose({status: duplicateStatus, duplicateOf: exact});
-    }});
+    items.push({id: `number-${String(exact)}`, text: `#${String(exact)}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: exact});
   }
-  options.push(...matchOptions(others.map((i) => ({value: `issue-${String(i.id)}`, label: `#${String(i.number)} ${i.title}`, group: 'Duplicate of',
-    icon: CopyIcon, meta: i.state === 'closed' ? 'closed' : undefined, onSelect: () => {
-      choose({status: duplicateStatus, duplicateOf: i.number});
-    }})), q).slice(0, DUPLICATE_CHOICES));
-  return <CommandPick label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" options={options} filtered query={query} onQueryChange={setQuery}
-    empty="No issue matches. Type its number." onClose={onClose}/>;
+  items.push(...others.filter((i) => !q || `#${String(i.number)} ${i.title}`.toLowerCase().includes(q)).slice(0, DUPLICATE_CHOICES)
+    .map((i) => ({id: `issue-${String(i.id)}`, text: `#${String(i.number)} ${i.title}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: i.number})));
+  return <SelectPanel title="Close with a reason" open={open} onOpenChange={setOpen} selected={undefined}
+    placeholderText="Not planned, or duplicate of… (number or title)" filterValue={query} onFilterChange={setQuery} items={items}
+    message={{variant: 'empty', title: 'No issue matches', body: 'Type its number.'}}
+    anchorRef={anchorRef} renderAnchor={({id, onClick, onKeyDown, "aria-expanded": expanded, "aria-haspopup": hasPopup}) => <IconButton ref={anchorRef} id={id} onClick={onClick} onKeyDown={onKeyDown} aria-expanded={expanded} aria-haspopup={hasPopup} icon={ChevronDownIcon} size="small" aria-label="Close with a reason"
+      description="Close as not planned or as a duplicate"/>}
+    onSelectedChange={(item: SelectPanelItemInput | undefined) => {
+      const reason = items.find((option) => option.id === item?.id);
+      if (!reason) return;
+      setOpen(false);
+      act((text) => {
+        const issueId = issue.id;
+        runInAction(() => {
+          const body = reason.duplicateOf ? duplicateComment(reason.duplicateOf, text) : text;
+          if (body.trim()) editing(app).intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
+          if (reason.status) setWorkflowStatus(app, [issue], reason.status);
+          else changeState(app, [issue], 'closed');
+        });
+      });
+    }}/>;
 });
 
 /** Changes of yours that overrode someone's newer value (last writer wins), with one-click undo. */
@@ -620,14 +587,9 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
       {mine.map((o) => {
         const words = overrideWords(app, o);
         return (
-          <Callout key={o.id} title={words.title} actions={<>
-            <Button size="small" type="button" onClick={() => {
-              intents.undoOverride(o.id);
-            }}>Undo</Button>
-            <Button variant="invisible" size="small" type="button" onClick={() => {
-              intents.dismissOverride(o.id);
-            }}>Dismiss</Button>
-          </>}>{words.description}</Callout>
+          <Banner key={o.id} title={words.title} description={words.description} variant="info"
+            primaryAction={<Button size="small" onClick={() => { intents.undoOverride(o.id); }}>Undo</Button>}
+            secondaryAction={<Button variant="invisible" size="small" onClick={() => { intents.dismissOverride(o.id); }}>Dismiss</Button>}/>
         );
       })}
     </div>
@@ -643,10 +605,11 @@ export const TitleSection = observer(function TitleSection({issue}: {issue: Enti
   const title = issueTitle(overlay, issue);
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
   if (text === undefined) {
-    if (!mayEdit) return <h2 className="text-xl font-semibold text-default">{title}</h2>;
-    return <EditableHeading label="Rename" onEdit={() => {
-      setText(title);
-    }}>{title}</EditableHeading>;
+    if (!mayEdit) return <Heading as="h2" variant="large">{title}</Heading>;
+    return <div className="flex items-start gap-2">
+      <Heading as="h2" variant="large" className="flex-1">{title}</Heading>
+      <Button variant="invisible" size="small" leadingVisual={PencilIcon} onClick={() => { setText(title); }}>Rename</Button>
+    </div>;
   }
   const save = () => {
     const t = text.trim();
@@ -658,7 +621,7 @@ export const TitleSection = observer(function TitleSection({issue}: {issue: Enti
     }
   };
   return (
-    <TitleInput aria-label="Title" value={text} autoFocus maxLength={255} invalid={!text.trim()} onBlur={save} onChange={(e) => {
+    <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!text.trim() ? {validationStatus: 'error' as const} : {})} onBlur={save} onChange={(e) => {
       setText(e.target.value);
     }} onKeyDown={(e) => {
       if (e.key === 'Enter' && !e.nativeEvent.isComposing) {

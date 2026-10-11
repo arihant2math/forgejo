@@ -14,7 +14,6 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {ProseSource} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
@@ -102,7 +101,7 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
       <div className="max-w-lg"><ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
       {open && m.description && (
         <div className="max-h-dialog-body overflow-y-auto">
-          {offline ? <ProseSource text={m.description}/> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
+          {offline ? <pre className="whitespace-pre-wrap text-sm">{m.description}</pre> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
         </div>
       )}
     </section>

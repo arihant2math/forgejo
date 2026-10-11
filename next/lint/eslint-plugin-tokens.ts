@@ -1,11 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Local lint rules (an ESLint-style plugin, run by Oxlint's jsPlugins) that keep every visual value in src/styles/tokens.css and
-// every look in src/ui (IMPLEMENTATION.md §2.4):
+// Local lint rules (an ESLint-style plugin, run by Oxlint's jsPlugins) that keep every visual value in Primer's tokens
+// (src/styles/tokens.css) and every look in Primer's components (IMPLEMENTATION.md §2.4):
 //   tokens/tokens-only      raw colours, arbitrary values, off-scale numbers, dark:, transitions
 //   tokens/no-literal-style literal values in style={{…}}
-//   tokens/no-restyle       look-changing classes on a src/ui primitive
+//   tokens/no-restyle       look-changing classes on a Primer component
 // Classes that do not exist at all are caught by src/styles/classes.test.ts,
 // which compiles every class used in src/ against the theme.
 
@@ -90,9 +90,6 @@ export function classProblem(token: string): string | undefined {
 // A whole-string colour value: '#fff', 'rgb(0 0 0)', 'oklch(…)' (strings such as 'Fixes #123' are fine).
 const rawColor = /^\s*(?:#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color-mix)\(.*\))\s*$/i;
 
-/** Files whose every string is a class list or class table (the primitives). */
-const isUiFile = (filename: string) => /[\\/]src[\\/]ui[\\/][^\\/]+\.tsx?$/.test(filename);
-
 interface ClassValues {
   strings: [ESTree.Node, string][];
   /** Parts whose value cannot be followed statically. */
@@ -137,7 +134,7 @@ function classValues(context: RuleContext, expr: ESTree.Node, out: ClassValues =
       recurse(expr.object); // table[key], list[i]
       break;
     case 'CallExpression':
-      if (expr.callee.type === 'Identifier' && expr.callee.name === 'cx') expr.arguments.forEach((a) => {
+      if (expr.callee.type === 'Identifier' && (expr.callee.name === 'cx' || expr.callee.name === 'clsx')) expr.arguments.forEach((a) => {
         if (a.type !== 'SpreadElement') recurse(a);
       });
       else out.opaque.push(expr);
@@ -196,7 +193,6 @@ const tokensOnly: RuleModule = {
     schema: [],
   },
   create(context) {
-    const ui = isUiFile(context.filename);
     const checked = new Set<ESTree.Node>();
     const checkClasses = (expr: ESTree.Node) => {
       for (const [n, v] of classValues(context, expr).strings) {
@@ -211,18 +207,14 @@ const tokensOnly: RuleModule = {
         if (parent === 'ImportDeclaration' || parent === 'ImportExpression' || parent.startsWith('Export')) return;
         if (typeof node.value !== 'string') return;
         if (rawColor.test(node.value)) context.report({node, message: `Raw colour "${node.value.trim()}": use a colour token (tokens.css)`});
-        else if (ui && !checked.has(node)) classProblems(context, node, node.value);
       },
-      TemplateElement(node) {
-        if (ui && !checked.has(node)) classProblems(context, node, node.value.cooked ?? node.value.raw);
-      },
-      // Outside src/ui only class contexts are class lists: prose such as '- [ ] ' or 'transition' is fine.
+      // Only class contexts are class lists: prose such as '- [ ] ' or 'transition' is fine.
       'JSXAttribute[name.name="className"]'(node: ESTree.Node) {
         const expr = attrExpression(node as unknown as JSXAttr);
-        if (expr && !ui) checkClasses(expr);
+        if (expr) checkClasses(expr);
       },
       CallExpression(node) {
-        if (!ui && node.callee.type === 'Identifier' && node.callee.name === 'cx') checkClasses(node);
+        if (node.callee.type === 'Identifier' && (node.callee.name === 'cx' || node.callee.name === 'clsx')) checkClasses(node);
       },
     };
   },
@@ -255,19 +247,18 @@ const ownedSize: Partial<Record<string, RegExp>> = {
 };
 // Icons are tinted by their context, so text colours are fine on <Icon>.
 const iconTint = /^text-(?!xs$|sm$|base$|md$|lg$|xl$)/;
-// The design system: Primer's components (and, while they last, the app's own primitives in src/ui).
-const uiModule = /^@primer\/react(?:\/experimental|\/next)?$|(?:^|\/)ui(?:\/index\.ts|\/[A-Z]\w*\.tsx)?$/;
+// The design system: Primer's components.
+const uiModule = /^@primer\/react(?:\/experimental|\/next)?$/;
 
 const noRestyle: RuleModule = {
   meta: {
     type: 'problem',
-    docs: {description: 'Disallow restyling Primer components and src/ui primitives (look classes, style, spreads) and bare lucide icons'},
+    docs: {description: 'Disallow restyling Primer components (look classes, style, spreads)'},
     schema: [],
   },
   create(context) {
     const primitives = new Set<string>();
     const namespaces = new Set<string>();
-    const icons = new Set<string>();
     const componentName = (name: JSXName): string | undefined => {
       if (name.type === 'JSXIdentifier') return name.name !== undefined && primitives.has(name.name) ? name.name : undefined;
       if (name.type === 'JSXMemberExpression' && name.object?.type === 'JSXIdentifier' && name.object.name && namespaces.has(name.object.name)) return name.property?.name;
@@ -287,16 +278,11 @@ const noRestyle: RuleModule = {
       ImportDeclaration(node) {
         const source = node.source.value;
         if (typeof source !== 'string') return;
-        if (source === 'lucide-react') for (const s of node.specifiers) icons.add(s.local.name);
         if (!uiModule.test(source)) return;
         for (const s of node.specifiers) (s.type === 'ImportNamespaceSpecifier' ? namespaces : primitives).add(s.local.name);
       },
       JSXOpeningElement(node: ESTree.Node) {
         const el = node as unknown as JSXOpening;
-        if (el.name.type === 'JSXIdentifier' && el.name.name && icons.has(el.name.name)) {
-          context.report({node, message: `Render icons through <Icon icon={${el.name.name}}/> (standard sizes and stroke)`});
-          return;
-        }
         const component = componentName(el.name);
         if (!component) return;
         for (const attr of el.attributes) {

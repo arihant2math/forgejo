@@ -11,7 +11,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {finished} from '../../code/logs.ts';
 import type {ActionRun, ActionRunJob} from '../../protocol/types.gen.ts';
 import {ChevronDownIcon} from '@primer/octicons-react';
-import {Button, ActionMenu, ActionList} from '@primer/react';
+import {Button, IconButton, Tooltip, ActionMenu, ActionList} from '@primer/react';
 
 type Operation = 'all' | 'failed' | 'job' | 'cancel';
 
@@ -61,13 +61,13 @@ export const RunControls = observer(function RunControls({owner, repo, run, jobs
   useShortcut('actions.rerunFailed', () => { void execute('failed'); }, palette && !job, () => !reason && complete && failed);
   useShortcut('actions.cancel', () => { void execute('cancel'); }, palette && !job, () => !reason && !complete);
   useShortcut('actions.rerunJob', () => { void execute('job'); }, palette && !!job, () => !reason && complete);
-  if (job) return <Button variant="invisible" size="small" type="button" disabled={!!reason || !complete} title={reason ?? (!complete ? (run.need_approval ? 'This run waits for a maintainer’s approval.' : 'Wait for this job to finish.') : `Re-run ${job.name}`)} onClick={() => { void execute('job'); }}>{pending?.label ?? 'Re-run job'}</Button>;
+  if (job) return <Tooltip text={reason ?? (!complete ? (run.need_approval ? 'This run waits for a maintainer’s approval.' : 'Wait for this job to finish.') : `Re-run ${job.name}`)}><Button variant="invisible" size="small" type="button" inactive={Boolean(reason) || !complete} aria-disabled={Boolean(reason) || !complete} onClick={() => { void execute('job'); }}>{pending?.label ?? 'Re-run job'}</Button></Tooltip>;
   return <div className="flex items-center gap-1">
     {complete ? <>
-      <Button size="small" type="button" disabled={!!reason} title={reason} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button>
-      <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={!!reason} title={reason} aria-label="Re-run options"><ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+      <Tooltip text={reason ?? 'Re-run all jobs' }><Button size="small" type="button" inactive={Boolean(reason)} aria-disabled={Boolean(reason)} onClick={() => { void execute('all'); }}>{pending?.label ?? 'Re-run'}</Button></Tooltip>
+      <ActionMenu><ActionMenu.Anchor><IconButton icon={ChevronDownIcon} size="small" type="button" inactive={Boolean(reason)} aria-disabled={Boolean(reason)} aria-label="Re-run options" {...(reason ? {description: reason} : {})}/></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList><ActionList.Item onSelect={() => { void execute('all'); }}>Re-run all jobs</ActionList.Item><ActionList.Item disabled={!failed} onSelect={() => { void execute('failed'); }}>Re-run failed jobs</ActionList.Item></ActionList></ActionMenu.Overlay>
       </ActionMenu>
-    </> : <Button size="small" type="button" disabled={!!reason} title={reason} onClick={() => { void execute('cancel'); }}>{pending?.label ?? 'Cancel workflow'}</Button>}
+    </> : <Tooltip text={reason ?? 'Cancel workflow' }><Button size="small" type="button" inactive={Boolean(reason)} aria-disabled={Boolean(reason)} onClick={() => { void execute('cancel'); }}>{pending?.label ?? 'Cancel workflow'}</Button></Tooltip>}
   </div>;
 });

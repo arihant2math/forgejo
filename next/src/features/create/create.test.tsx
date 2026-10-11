@@ -6,21 +6,21 @@ import {expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
 import {comment, fakeSession, issue} from '../../test/fakeSession.ts';
-import {CommandPick} from '../../ui/Command.tsx';
+import {Button} from '@primer/react';
+import {cloneElement} from 'react';
+import {FilteredSelect} from './FilteredSelect.tsx';
 import {recentActivityRepo} from './CreateIssue.tsx';
 
-test('repository picker opens on the current repository, not the first alphabetically', () => {
-  const first = vi.fn();
-  const current = vi.fn();
-  render(<CommandPick label="Repository" placeholder="Repository…" empty="No repositories" onClose={vi.fn()}
-    options={[
-      {value: '1', label: 'acme/atlas', checked: false, onSelect: first},
-      {value: '2', label: 'dev/q3r2', checked: true, onSelect: current},
-    ]}/>);
-  expect(screen.getByRole('option', {name: 'dev/q3r2'}).getAttribute('data-selected')).toBe('true');
-  fireEvent.keyDown(screen.getByRole('combobox'), {key: 'Enter'});
-  expect(current).toHaveBeenCalledOnce();
-  expect(first).not.toHaveBeenCalled();
+test('repository picker opens on the current repository, not the first alphabetically', async () => {
+  const choose = vi.fn();
+  const items = [{id: 1, text: 'acme/atlas'}, {id: 2, text: 'dev/q3r2'}];
+  render(<FilteredSelect title="Repository" placeholderText="Repository…" items={items} selected={{id: 2, text: 'dev/q3r2'}}
+    onSelectedChange={choose} renderAnchor={(props) => cloneElement(<Button>Repository</Button>, props)}/>);
+  fireEvent.click(screen.getByRole('button', {name: 'dev/q3r2'}));
+  const current = await screen.findByRole('option', {name: 'dev/q3r2'});
+  expect(current.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyPress(screen.getByRole('combobox', {name: 'Repository…'}), {key: 'Enter', charCode: 13});
+  expect(choose).toHaveBeenCalledWith(expect.objectContaining({id: 2}));
 });
 
 test('fresh-device repository follows the user’s synced activity in eligible repositories', () => {

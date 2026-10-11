@@ -18,7 +18,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useState} from 'react';
+import {cloneElement, createElement, useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
@@ -26,7 +26,7 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {CommandPick, CommandPopover, Dialog, LabelIcon} from '../../ui/index.ts';
+import {FilteredSelect} from './FilteredSelect.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
@@ -39,8 +39,8 @@ import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
 import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, LinkButton, TextInput} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
+import {ActionList, Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
+import {Tooltip} from '@primer/react';
 
 /** The dialog's draft in a repository. */
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
@@ -327,6 +327,7 @@ export const CreateIssue = observer(function CreateIssue() {
   const app = useApp();
   const navigate = useNavigate();
   const req = app.ui.create;
+  const returnFocus = useRef<HTMLElement>(null);
   // A fresh form for each opening (the draft brings the text back).
   const [form, setForm] = useState<Form | undefined>();
   const [previousRequest, setPreviousRequest] = useState<typeof req>();
@@ -334,6 +335,9 @@ export const CreateIssue = observer(function CreateIssue() {
     setPreviousRequest(req);
     if (previousRequest && req) form?.flush();
     if (req) {
+      const activeBeforeOpen = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const column = req.board?.columnId;
+      returnFocus.current = column === undefined ? activeBeforeOpen : document.querySelector<HTMLElement>(`[data-column="${String(column)}"] [role="listbox"]`) ?? activeBeforeOpen;
       const next = new Form(app, req.repoId, req.board, req.title);
       setForm(next);
       void next.load(req.template);
@@ -357,19 +361,10 @@ export const CreateIssue = observer(function CreateIssue() {
       void navigate({to: path});
     }}});
   };
+  if (!req) return null;
   return (
-    <Dialog open={Boolean(req)} onCloseAutoFocus={(e) => {
-      const column = form?.board?.columnId;
-      if (column === undefined) return;
-      const list = document.querySelector<HTMLElement>(`[data-column="${String(column)}"] [role="listbox"]`);
-      if (list) {
-        e.preventDefault();
-        list.focus({preventScroll: true});
-        list.scrollIntoView({block: 'nearest', inline: 'nearest'});
-      }
-    }} onOpenChange={(o) => {
-      if (!o) close();
-    }} title="New issue" size="lg" footer={form && <Footer form={form} onCancel={close} onCreate={create}/>}>
+    <Dialog onClose={close} returnFocusRef={returnFocus} title="New issue" width="xlarge"
+      renderFooter={() => <Dialog.Footer>{form && <Footer form={form} onCancel={close} onCreate={create}/>}</Dialog.Footer>}>
       {form && (form.choosing ? <TemplatePicker form={form}/> : <Fields form={form} onCreate={create} onClose={close}/>)}
     </Dialog>
   );
@@ -377,14 +372,33 @@ export const CreateIssue = observer(function CreateIssue() {
 
 const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
   const set = form.templates;
+  const [filter, setFilter] = useState('');
+  const listRef = useRef<HTMLUListElement>(null);
   if (!set) return <p className="text-sm text-muted" role="status">Loading issue templates…</p>;
   return <div className="flex flex-col gap-2">
     <p className="text-sm text-muted">Choose an issue template</p>
     {set.note && <p className="text-sm text-muted">{set.note}</p>}
-    <CommandPick onClose={() => { runInAction(() => { form.choosing = false; }); }} label="Issue templates" placeholder="Find a template…" empty="No matching templates" options={[
-      ...set.templates.map((t) => ({value: t.file_name, label: t.name, words: t.about, meta: t.about, onSelect: () => { form.choose(t); }})),
-      ...(set.config.blank_issues_enabled ? [{value: 'blank', label: 'Blank issue', onSelect: () => { form.choose(); }}] : []),
-    ]}/>
+    <FormControl><FormControl.Label>Issue templates</FormControl.Label>
+      <TextInput autoFocus placeholder="Find a template…" value={filter} onChange={(event) => { setFilter(event.target.value); }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'Enter') {
+            event.preventDefault();
+            const first = listRef.current?.querySelector<HTMLElement>('[role="option"]');
+            if (event.key === 'Enter') first?.click();
+            else first?.focus();
+          }
+        }}/>
+    </FormControl>
+    <ActionList ref={listRef} aria-label="Issue templates" role="listbox">
+      {set.templates.filter((t) => `${t.name} ${t.about}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map((t) =>
+        <ActionList.Item role="option" key={t.file_name} onSelect={() => { form.choose(t); }}>
+          {t.name}<ActionList.Description variant="block">{t.about}</ActionList.Description>
+        </ActionList.Item>)}
+      {set.config.blank_issues_enabled && 'blank issue'.includes(filter.toLocaleLowerCase()) &&
+        <ActionList.Item role="option" onSelect={() => { form.choose(); }}>Blank issue</ActionList.Item>}
+    </ActionList>
+    {!set.templates.some((t) => `${t.name} ${t.about}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())) &&
+      !(set.config.blank_issues_enabled && 'blank issue'.includes(filter.toLocaleLowerCase())) && <p role="status">No matching templates</p>}
     {set.config.contact_links.filter((l) => /^https?:\/\//i.test(l.url)).map((l) => <div key={l.url}>
       <LinkButton variant="invisible" href={l.url} target="_blank" rel="noopener noreferrer">{l.name}↗</LinkButton>
       <p className="text-sm text-muted">{l.about}</p>
@@ -430,7 +444,8 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
 const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: () => void}) {
   const missing = form.missing && !form.title.trim();
   return (
-    <div className="flex flex-col gap-1">
+    <FormControl>
+    <FormControl.Label>Title</FormControl.Label>
     <TextInput aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} aria-describedby={missing ? 'create-title-missing' : undefined} onChange={(e) => {
         form.setTitle(e.target.value);
       }} onKeyDown={(e) => {
@@ -439,8 +454,8 @@ const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: (
           onCreate();
         }
       }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-    {missing && <p id="create-title-missing" role="alert" className="text-sm text-danger">An issue needs a title.</p>}
-    </div>
+    {missing && <FormControl.Validation id="create-title-missing" variant="error">An issue needs a title.</FormControl.Validation>}
+    </FormControl>
   );
 });
 
@@ -478,11 +493,12 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   // Every property filters as you type (a repository with many labels or people stays usable).
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <CommandPopover label="Repository" placeholder="Create in the repository…" empty="No repository is on this device."
-        options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => {
-          form.setRepo(r.id);
-        }}))}
-        trigger={<Button size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>}/>
+      <FilteredSelect title="Repository" placeholder="Repository" placeholderText="Create in the repository…"
+        message={{title: 'No repository is on this device.', body: '', variant: 'empty'}}
+        items={repos.map((r) => ({id: r.id, text: r.name}))}
+        selected={repo ? {id: repoId, text: repo.full_name} : undefined}
+        onSelectedChange={(item) => { if (item) form.setRepo(Number(item.id)); }}
+        renderAnchor={(props) => cloneElement(<Button size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>, props)}/>
       {writable ? <>
         <KindChip form={form} kind="status" labels={ofKind('status')}/>
         <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
@@ -512,7 +528,7 @@ const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; k
     <PickerPopover kind={kind} draft={form}
       trigger={
         <Button variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
-          {chosen ? <><LabelIcon icon={iconOf(chosen.name)} color={chosen.color}/>{scopedValue(chosen.name)}</> : name}
+          {chosen ? <>{createElement(iconOf(chosen.name), {fill: chosen.color})}{scopedValue(chosen.name)}</> : name}
         </Button>
       }/>
   );
@@ -532,9 +548,9 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
       </span>
       <Button variant="invisible" type="button" onClick={onCancel}>Cancel</Button>
       {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
-      {!form.choosing && <OptionalTooltip text={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={!ready} onClick={onCreate}>
+      {!form.choosing && <Tooltip text={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={!ready} onClick={onCreate}>
         Create issue
-      </Button></OptionalTooltip>}
+      </Button></Tooltip>}
     </>
   );
 });

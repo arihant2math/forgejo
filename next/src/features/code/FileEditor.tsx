@@ -16,7 +16,7 @@ import {editing} from '../../intents/session.ts';
 import {langOf} from '../../code/lang.ts';
 import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
-import {CodeFileHeader, SegmentedControl} from '../../ui/index.ts';
+import {UnderlineNav} from '@primer/react';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
 import {refTable, useSource} from './hooks.ts';
@@ -158,12 +158,12 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
     } finally {setBusy(false);}
   };
   return <>
-    <CodeFileHeader path={at.path}>
-      <Button variant="invisible" size="small" type="button" onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
-      {/\.(md|markdown)$/i.test(at.path) && <SegmentedControl label="Editor mode" value={mode} onChange={setMode} options={[{value: 'edit', label: 'Edit'}, {value: 'preview', label: 'Preview'}]}/>}
+    <div className="flex flex-wrap items-center gap-2 border-y border-default bg-inset px-3 py-2"><span className="mr-auto truncate font-mono">{at.path}</span>
+      <Button variant="invisible" size="small" type="button" aria-pressed={wrap} onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
+      {/\.(md|markdown)$/i.test(at.path) && <UnderlineNav aria-label="Editor mode"><UnderlineNav.Item as="button" type="button" aria-current={mode === 'edit' ? 'page' : false} onSelect={() => { setMode('edit'); }}>Edit</UnderlineNav.Item><UnderlineNav.Item as="button" type="button" aria-current={mode === 'preview' ? 'page' : false} onSelect={() => { setMode('preview'); }}>Preview</UnderlineNav.Item></UnderlineNav>}
       <Button variant="invisible" size="small" type="button" onClick={onCancel}>Close editor</Button>
       <Button size="small" type="button" onClick={() => {setDialog(true);}}>Commit changes…</Button>
-    </CodeFileHeader>
+    </div>
     {mode === 'edit' ? <CodeEditor value={text} path={at.path} wrap={wrap} onChange={change}/> : <MarkdownPreview repoId={repoId} text={text}/>}
     {dialog && <CommitDialog branch={at.ref} defaultMessage={`Update ${at.path.split('/').at(-1) ?? at.path}`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={why} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false);}} onCommit={(fields) => {void commit(fields);}}/>}
   </>;

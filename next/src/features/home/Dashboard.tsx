@@ -14,14 +14,15 @@ import {useEffect} from 'react';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {LOCAL_PREFS} from '../../app/splash.ts';
-import {LinkRows} from '../../ui/LinkRows.tsx';
+import {DashboardKeys} from './DashboardKeys.tsx';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
-import {Icon, ListRow, Panel, Shortcut} from '../../ui/index.ts';
+import {DenseRow} from './DenseRow.tsx';
+import {DashboardSection} from './DashboardSection.tsx';
 import {activityOf} from '../inbox/inbox.ts';
 import {AgoCell, PendingCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
 import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
@@ -33,8 +34,8 @@ import Feed from './Feed.tsx';
 import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedIcon, CloudOfflineIcon, UploadIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton} from '@primer/react';
-import {OptionalTooltip} from '../../app/OptionalTooltip.tsx';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {Tooltip} from '@primer/react';
+import {KeybindingHint, SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 /** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
@@ -84,7 +85,7 @@ export default observer(function Dashboard() {
     {title: 'Your pull requests', icon: GitPullRequestIcon, items: mine, all: '/pulls?type=created_by'},
   ].filter((x) => x.items.length);
   return (
-    <LinkRows><PageColumn>
+    <DashboardKeys><PageColumn>
       {pending.length > 0 && <Section title="Not synced yet" icon={UploadIcon} items={pending}/>}
       {/* Asked once the session holds a token (the server is asked as the signed-in user); its place is kept
           from the first frame, as tall as it was last time (nothing below moves when it arrives). */}
@@ -92,7 +93,7 @@ export default observer(function Dashboard() {
       {sections.map((x) => <Section key={x.title} {...x}/>)}
       {sections.length || pending.length ? <p className="text-sm text-muted"><Hints/></p> : <Welcome/>}
       <Feed/>
-    </PageColumn></LinkRows>
+    </PageColumn></DashboardKeys>
   );
 });
 
@@ -129,19 +130,19 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   const {data} = useSession();
   if (reach(data.status.connection) !== 'online') {
     return rows ? (
-      <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
-        <ListRow role="presentation" leading={<CloudOfflineIcon size={12} className="shrink-0"/>}><span className="text-muted">Review requests load when you are online.</span></ListRow>
-      </Panel>
+      <DashboardSection label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
+        <DenseRow role="presentation" leading={<CloudOfflineIcon size={12} className="shrink-0"/>}><span className="text-muted">Review requests load when you are online.</span></DenseRow>
+      </DashboardSection>
     ) : null;
   }
   rows = Math.max(rows, min);
   if (!rows) return null;
   return (
-    <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
+    <DashboardSection label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
       {Array.from({length: rows}, (_, i) => (
-        <ListRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></ListRow>
+        <DenseRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></DenseRow>
       ))}
-    </Panel>
+    </DashboardSection>
   );
 });
 
@@ -170,18 +171,18 @@ interface SectionProps {
   all?: string | undefined;
 }
 
-function Section({title, icon, items, all}: SectionProps) {
+function Section({title, icon: SectionIcon, items, all}: SectionProps) {
   const app = useApp();
   const click = useLinkClick();
   const href = all && hrefOf(app, all);
   return (
-    <Panel label={title}
-      title={<><Icon icon={icon} size="sm"/><span className="text-default">{title}</span><span className="tabular-nums">{items.length}</span></>}
+    <DashboardSection label={title}
+      title={<><SectionIcon size={16}/><span className="text-default">{title}</span><span className="tabular-nums">{items.length}</span></>}
       actions={href && <LinkButton variant="invisible" size="small" href={href} onClick={(e) => click(e, href)}>View all</LinkButton>}>
       {items.slice(0, ROWS).map((x) => (x.issue ?
         <Row key={x.issue.id} issue={x.issue} at={x.at}/> :
         x.note && <NoteRow key={`n${String(x.note.id)}`} note={x.note} at={x.at}/>))}
-    </Panel>
+    </DashboardSection>
   );
 }
 
@@ -193,7 +194,7 @@ const Row = observer(function Row({issue, at}: {issue: Entity<'Issue'>; at: stri
   const href = path && hrefOf(app, path);
   const repo = pool.model('Repository').get(issue.get('repo_id'))?.get('full_name') ?? '';
   return (
-    <ListRow role={undefined} href={href} onClick={(e) => {
+    <DenseRow role={undefined} href={href} onClick={(e) => {
       if (href) click(e, href);
     }} leading={<StateIcon issue={issue}/>} trailing={<>
       <PendingCell issueId={issue.id}/>
@@ -201,7 +202,7 @@ const Row = observer(function Row({issue, at}: {issue: Entity<'Issue'>; at: stri
       <AgoCell at={at}/>
     </>}>
       <TitleCell issue={issue}/>
-    </ListRow>
+    </DenseRow>
   );
 });
 
@@ -212,7 +213,7 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
   const s = subjectOf(app, note.data);
   const href = s && hrefOf(app, subjectPath(s));
   return (
-    <ListRow role={undefined} href={href} onClick={(e) => {
+    <DenseRow role={undefined} href={href} onClick={(e) => {
       if (href) click(e, href);
     }} leading={s ? <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/> : <InboxIcon size={16} className="shrink-0"/>} trailing={<>
       {s && <RefCell repo={`${s.owner}/${s.repo}`} number={s.number}/>}
@@ -220,7 +221,7 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
     </>}>
       {/* Its subject is asked of the server (once): a placeholder line meanwhile, never a row without a title. */}
       {s ? s.title : <SkeletonBox className="h-3 w-64"/>}
-    </ListRow>
+    </DenseRow>
   );
 });
 
@@ -228,9 +229,9 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
 function Hints() {
   return (
     <>
-      Jump anywhere with <Shortcut keys={shortcutHint('palette.open')}/>. <Shortcut keys={shortcutHint('go.issues')}/> opens your
-      issues, <Shortcut keys={shortcutHint('go.pulls')}/> your pull requests, <Shortcut keys={shortcutHint('go.inbox')}/> the inbox,{' '}
-      <Shortcut keys={shortcutHint('go.board')}/> your board; <Shortcut keys={shortcutHint('create')}/> creates an issue.
+      Jump anywhere with <KeybindingHint keys={shortcutHint('palette.open')}/>. <KeybindingHint keys={shortcutHint('go.issues')}/> opens your
+      issues, <KeybindingHint keys={shortcutHint('go.pulls')}/> your pull requests, <KeybindingHint keys={shortcutHint('go.inbox')}/> the inbox,{' '}
+      <KeybindingHint keys={shortcutHint('go.board')}/> your board; <KeybindingHint keys={shortcutHint('create')}/> creates an issue.
     </>
   );
 }
@@ -239,10 +240,10 @@ function Hints() {
 function Welcome() {
   const {ui, config} = useApp();
   return (
-    <Blankslate><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<OptionalTooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
+    <Blankslate><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<Tooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
           runInAction(() => {
             ui.paletteOpen = true;
           });
-        }}>Open the command menu</Button></OptionalTooltip>}</Blankslate>
+        }}>Open the command menu</Button></Tooltip>}</Blankslate>
   );
 }

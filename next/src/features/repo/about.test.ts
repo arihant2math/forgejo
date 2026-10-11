@@ -3,7 +3,7 @@
 
 import {describe, expect, test} from 'vitest';
 import type {Release} from '../../protocol/types.gen.ts';
-import {percent} from '../../ui/index.ts';
+import {percent} from './about.ts';
 import {languageShares, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
 
 function release(id: number, tag: string, created: string, extra: Partial<Release> = {}): Release {

@@ -13,9 +13,6 @@
 //   data-header="toolbar"     → and its title row (title, controls) under the tabs
 //   [data-sk-row] rows beyond the stored count are hidden
 
-import {Avatar} from '../ui/Avatar.tsx';
-import {ListRow} from '../ui/ListRow.tsx';
-import {Skeleton} from '../ui/Skeleton.tsx';
 import {LoggedOut} from './LoggedOut.tsx';
 import {HeaderRow, HeaderStack, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './shell/Frame.tsx';
 import {SKELETON_MAX_ROWS} from './splash.ts';
@@ -30,7 +27,7 @@ function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <NavSkeleton width="lg" leading={<Avatar size="sm" fromSplash/>}/>
+        <NavSkeleton width="lg" leading={<SkeletonAvatar size={20}/>}/>
         <NavSkeleton width="md"/>
         <NavSkeleton width="sm"/>
       </SidebarTop>
@@ -54,7 +51,7 @@ function Frame() {
         {/* A repository page's tabs (TabNav's geometry), then its title row with the controls. */}
         <div className="hidden header-tabs:contents">
           <div className="flex h-header shrink-0 items-center gap-6 border-b border-default px-6">
-            {tabWidths.map((w, i) => <Skeleton key={i} className={`h-3 ${w}`}/>)}
+            {tabWidths.map((w, i) => <SkeletonBox key={i} className={`h-3 ${w}`}/>)}
           </div>
         </div>
         <div className="hidden header-toolbar:contents">
@@ -68,15 +65,11 @@ function Frame() {
       </HeaderStack>
       <div role="presentation" className="min-h-0 flex-1 overflow-hidden shape-detail:hidden">
         {Array.from({length: SKELETON_MAX_ROWS}, (_, i) => (
-          <ListRow
-            key={i}
-            role="presentation"
-            data-sk-row=""
-            leading={<><SkeletonBox className="h-3 w-10"/><SkeletonBox className="size-4"/></>}
-            trailing={<SkeletonBox className="h-3 w-12"/>}
-          >
-            <Skeleton className={`h-3 ${rowWidths[i % rowWidths.length] ?? 'w-48'}`}/>
-          </ListRow>
+          <div key={i} role="presentation" data-sk-row="" className="flex h-row items-center gap-3 border-b border-muted px-4">
+            <SkeletonBox className="h-3 w-10"/><SkeletonBox className="size-4"/>
+            <SkeletonBox className={`h-3 ${rowWidths[i % rowWidths.length] ?? 'w-48'}`}/>
+            <SkeletonBox className="ml-auto h-3 w-12"/>
+          </div>
         ))}
       </div>
       <div className="hidden min-h-0 flex-1 shape-detail:flex">

@@ -13,23 +13,22 @@
 
 import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import type {MouseEvent} from 'react';
+import {type MouseEvent, type ReactNode, type ReactElement, type ElementType, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree} from '../../protocol/types.gen.ts';
-import {AsideLink, AsideLinks, AsideSection, ShareBar} from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {codeTo} from '../code/nav.tsx';
 import {README_ID, readmeOf} from '../code/Rendered.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../issues/format.ts';
-import {languageShares, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
+import {languageShares, percent, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Label} from '@primer/react';
+import {Label, Heading, CounterLabel, Link as PrimerLink, ProgressBar} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
 interface RepoProps {
@@ -41,15 +40,15 @@ interface RepoProps {
 export function AboutSidebar(props: RepoProps) {
   return (
     <>
-      <AsideSection title="About">
+      <SidebarSection title="About">
         <Description repoId={props.repoId}/>
         <ForkOf repoId={props.repoId}/>
-        <AsideLinks label="Repository">
+        <SidebarLinks label="Repository">
           <TreeLinks {...props}/>
-          <AsideLink icon={PulseIcon}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></AsideLink>
+          <SidebarLink icon={PulseIcon}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></SidebarLink>
           <Counts {...props}/>
-        </AsideLinks>
-      </AsideSection>
+        </SidebarLinks>
+      </SidebarSection>
       <Releases {...props}/>
       <Languages repoId={props.repoId}/>
     </>
@@ -69,9 +68,9 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
     <>
       {description && <p className="text-md text-default">{description}</p>}
       {site && (
-        <AsideLinks>
-          <AsideLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span className="truncate">{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></AsideLink>
-        </AsideLinks>
+        <SidebarLinks>
+          <SidebarLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span className="truncate">{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></SidebarLink>
+        </SidebarLinks>
       )}
       {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><Label variant="accent">{t}</Label></li>)}</ul>}
     </>
@@ -121,9 +120,9 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
   };
   return (
     <>
-      {readme && <AsideLink icon={BookIcon}><a href={`#${README_ID}`} onClick={toReadme}>Readme</a></AsideLink>}
+      {readme && <SidebarLink icon={BookIcon}><a href={`#${README_ID}`} onClick={toReadme}>Readme</a></SidebarLink>}
       {license && licenseHref && (
-        <AsideLink icon={LawIcon}><a href={licenseHref} title={license.name} onClick={(e) => click(e, licenseHref)}>View license</a></AsideLink>
+        <SidebarLink icon={LawIcon}><a href={licenseHref} title={license.name} onClick={(e) => click(e, licenseHref)}>View license</a></SidebarLink>
       )}
     </>
   );
@@ -133,9 +132,9 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
 function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; repo: string; path: string; icon: OcticonType; count?: number; children: string}) {
   const app = useApp();
   return (
-    <AsideLink icon={icon} count={count}>
+    <SidebarLink icon={icon} count={count}>
       <a href={classicHref(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`)} data-classic="" title={CLASSIC_HINT}>{children}</a>
-    </AsideLink>
+    </SidebarLink>
   );
 }
 
@@ -162,7 +161,7 @@ const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
   const n = r.get('watchers_count');
-  return <AsideLink icon={EyeIcon} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></AsideLink>;
+  return <SidebarLink icon={EyeIcon} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></SidebarLink>;
 });
 
 /** Releases: the count, the latest (or that there are none), the rest, and the tags (their only way in). */
@@ -173,7 +172,7 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
   const tags = tagCount(all);
   const releasesTo = codeTo(owner, repo, 'releases');
   return (
-    <AsideSection title={count > 0 ? <RouterLink {...releasesTo} muted className="min-w-0 truncate">Releases</RouterLink> : 'Releases'} count={count > 0 ? count : undefined}>
+    <SidebarSection title={count > 0 ? <RouterLink {...releasesTo} muted className="min-w-0 truncate">Releases</RouterLink> : 'Releases'} count={count > 0 ? count : undefined}>
       {latest ?
         <Link {...releasesTo} className="interactive group flex min-w-0 items-start gap-2">
           <span className="flex h-row shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
@@ -186,13 +185,13 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
           </span>
         </Link> :
         <p className="text-base text-muted">No releases published.</p>}
-      {count > 1 && <p className="text-sm"><RouterLink {...releasesTo} muted className="min-w-0 truncate">+ {count - 1}{plural(count - 1, 'release')}</RouterLink></p>}
+      {count > 1 && <p className="text-sm"><RouterLink {...releasesTo} muted className="min-w-0 truncate">+ {count - 1} {plural(count - 1, 'release')}</RouterLink></p>}
       {tags > 0 && (
-        <AsideLinks>
-          <AsideLink icon={TagIcon} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></AsideLink>
-        </AsideLinks>
+        <SidebarLinks>
+          <SidebarLink icon={TagIcon} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></SidebarLink>
+        </SidebarLinks>
       )}
-    </AsideSection>
+    </SidebarSection>
   );
 });
 
@@ -210,9 +209,23 @@ function LanguagesAt({repoId, sha}: {repoId: number; sha: string}) {
   const stats = useLoad(key, () => src.peek<Record<string, number>>(key), () => src.languages(repoId, sha));
   const shares = stats.state === 'ready' ? languageShares(stats.value) : [];
   if (!shares.length) return null;
+  const total = shares.reduce((sum, share) => sum + share.value, 0);
   return (
-    <AsideSection title="Languages">
-      <ShareBar label="Languages" shares={shares}/>
-    </AsideSection>
+    <SidebarSection title="Languages">
+      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-3">{shares.map((share) => <li key={share.label}>{share.label} <span className="text-muted">{percent(share.value, total)}</span></li>)}</ul>
+    </SidebarSection>
   );
+}
+
+const languageColors = {1: 'accent.emphasis', 2: 'success.emphasis', 3: 'attention.emphasis', 4: 'done.emphasis', 5: 'danger.emphasis', other: 'neutral.emphasis'} as const;
+
+function SidebarSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
+  const id = useId();
+  return <section aria-labelledby={id} className="flex flex-col gap-3 border-b border-default py-4"><div className="flex items-center gap-2"><Heading id={id} as="h2" variant="small">{title}</Heading>{count !== undefined && <CounterLabel>{count}</CounterLabel>}</div>{children}</section>;
+}
+function SidebarLinks({label, children}: {label?: string; children: ReactNode}) {
+  return <ul {...(label ? {'aria-label': label} : {})} className="flex flex-col gap-2">{children}</ul>;
+}
+function SidebarLink({icon: Icon, count, children, tone}: {icon: OcticonType; count?: number | undefined; children: ReactElement<{children?: ReactNode}>; tone?: 'accent'}) {
+  return <li className="flex min-w-0 items-center gap-2"><Icon className="shrink-0 text-muted"/><PrimerLink as={children.type as ElementType} {...{...children.props}} muted={tone !== 'accent'} {...(count !== undefined && typeof children.props.children === 'string' ? {'aria-label': `${count.toLocaleString()} ${children.props.children}`} : {})} className="min-w-0 truncate">{count !== undefined && <strong>{count.toLocaleString()} </strong>}{children.props.children}</PrimerLink></li>;
 }

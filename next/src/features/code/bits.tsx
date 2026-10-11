@@ -5,8 +5,9 @@
 // relative time, a commit as a list row.
 
 import {shortSha} from '../../code/refs.ts';
+import {Avatar} from '@primer/react';
 import type {CommitInfo} from '../../code/source.ts';
-import {Avatar} from '../../ui/index.ts';
+
 import {ago, fullDate} from '../issues/format.ts';
 import type {RowParts} from './RowList.tsx';
 
@@ -29,7 +30,7 @@ export function summary(message: string): string {
 /** A commit as a RowList row: author, summary, SHA, time. */
 export function commitRow(c: CommitInfo): RowParts {
   return {
-    leading: <Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/>,
+    leading: c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : null,
     main: <>{summary(c.message)} <span className="text-muted">{c.authorName}</span></>,
     trailing: <><Sha sha={c.sha}/><Ago at={c.date}/></>,
   };

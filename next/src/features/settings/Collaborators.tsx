@@ -100,7 +100,14 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild><Button size="sm" variant="primary" icon={UserPlus} disabled={disabled}>Add people</Button></PopoverTrigger>
-      <PopoverContent width="md" align="end">
+      {/* The search field takes the focus (as in every picker): typing a name narrows the list at once. Radix would
+          focus the first control, the role's. */}
+      <PopoverContent width="md" align="end" onOpenAutoFocus={(e) => {
+        const field = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>('input');
+        if (!field) return;
+        e.preventDefault();
+        field.focus();
+      }}>
         <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
           <span className="text-sm text-fg-muted">Role</span>
           <SegmentedControl label="Role" value={role} onChange={setRole} options={ROLES}/>

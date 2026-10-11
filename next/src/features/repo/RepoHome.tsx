@@ -161,9 +161,14 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
   // meanwhile for its code blocks.
   useEffect(() => {
     void src.renderedAt(repoId, sha, 'README.md', {kind: 'branch', name: branch}).catch(() => undefined);
+    // Not once the page is gone (an idle callback can come after an unmount, or after a test environment closed).
+    let live = true;
     whenIdle(() => {
-      src.preheat();
+      if (live) src.preheat();
     });
+    return () => {
+      live = false;
+    };
   }, [src, repoId, sha, branch]);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, sha, ''));
   const entries = useMemo(() => (tree.state === 'ready' ?

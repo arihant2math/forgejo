@@ -18,8 +18,12 @@ test('fork branches are grouped by repository, with an explicit repository for s
   ] : [{name: 'fix/footer'}]))));
   vi.stubGlobal('fetch', fetcher);
   expect(await forkBranches(createApp(config, s), 'alice', 'upstream')).toEqual([
-    {value: 'alice/renamed:fix/footer', label: 'fix/footer', group: 'alice/renamed'},
-    {value: 'bob:fix/footer', label: 'fix/footer', group: 'bob/upstream-copy'},
+    {value: 'alice/renamed:fix/footer', label: 'fix/footer', group: 'alice/renamed', words: 'alice/renamed:fix/footer alice/renamed'},
+    {value: 'bob:fix/footer', label: 'fix/footer', group: 'bob/upstream-copy', words: 'bob:fix/footer bob/upstream-copy'},
   ]);
   expect(fetcher).toHaveBeenCalledTimes(3);
+  // Only one owner's forks: the others' branches are not asked for.
+  fetcher.mockClear();
+  expect((await forkBranches(createApp(config, s), 'alice', 'upstream', 'BOB')).map((b) => b.value)).toEqual(['bob:fix/footer']);
+  expect(fetcher).toHaveBeenCalledTimes(2);
 });

@@ -39,7 +39,7 @@ const release = (id: number, tag: string, sha: string, extra = {}) => ({
 /** alice/website: main, the releases v0.9 (older) and v1.0, and the newer pre-release v1.1-rc.1. `writer`: alice's own. */
 function session(writer = true) {
   const me = user(1, 'alice');
-  const s = fakeSession({workspace: {viewer_id: writer ? 1 : 2, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: writer ? 'owner' : 'public'}]}});
+  const s = fakeSession({workspace: {viewer_id: writer ? 1 : 2, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: writer ? 'owner' : 'access'}]}});
   s.data.put('User', 'profile:1', me);
   s.data.put('Repository', 'repo:20', repo(20, me, 'website'));
   s.data.put('Branch', 'repo:20', branch(1, 'main', MAIN));
@@ -80,7 +80,7 @@ const commits = (n: number) => Array.from({length: n}, (_, i) => ({sha: String(i
 
 test('the releases list marks the latest release (not the newer pre-release) and counts the commits to main since each', async () => {
   const s = session(false);
-  stubForgejo((method, url) => {
+  stubForgejo((_method, url) => {
     if (url.endsWith(`/compare/${OLD}...${MAIN}`)) return {status: 200, json: {total_commits: 11, commits: commits(11)}};
     if (url.endsWith(`/compare/${RC}...${MAIN}`)) return {status: 200, json: {total_commits: 1, commits: commits(1)}};
     return undefined;

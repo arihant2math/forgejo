@@ -146,3 +146,17 @@ export function compareSplat(base: string, head: string): string {
 export function isForkHead(head: string): boolean {
   return head.includes(':');
 }
+
+/**
+ * A fork's branch as the head of a comparison in the repository it was forked from: `owner:branch`, or
+ * `owner/repo:branch` when the fork has the upstream's owner (an owner's fork of its own repository).
+ */
+export function forkHead(forkOwner: string, forkRepo: string, upstreamOwner: string, branch: string): string {
+  return forkOwner.toLowerCase() === upstreamOwner.toLowerCase() ? `${forkOwner}/${forkRepo}:${branch}` : `${forkOwner}:${branch}`;
+}
+
+/** A typed `owner:branch` or `owner/repo:branch` (a fork's branch to compare with), else undefined. */
+export function typedForkHead(query: string): string | undefined {
+  const q = query.trim();
+  return /^[\w.-]+(?:\/[\w.-]+)?:[^\s:]+$/.test(q) ? q : undefined;
+}

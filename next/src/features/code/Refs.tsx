@@ -35,7 +35,8 @@ import {Markdown} from '../issue/Markdown.tsx';
 import {releaseSummary} from '../repo/about.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
-import {compareSplat} from './proposal.ts';
+import {compareSplat, forkHead} from './proposal.ts';
+import {useUpstream} from './ForkCompare.tsx';
 import {ConfirmDelete, DeleteBranchDialog, DeleteTagDialog, NewBranchDialog, NewTagDialog, useWriteBlock} from './RefDialogs.tsx';
 import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './refOps.ts';
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
@@ -72,11 +73,14 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   const branches = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted)
     .sort((a, b) => Number(b.name === def) - Number(a.name === def) || b.commit_time.localeCompare(a.commit_time));
   const defSha = branches.find((b) => b.name === def)?.commit_id;
-  // Each branch's pull request (the open one, else the latest merged one) from this repository.
+  // A fork's branches are proposed to its upstream (as GitHub's and classic Forgejo's forks do).
+  const up = useUpstream(props.owner, props.repo, props.repoId);
+  const parentId = pool.model('Repository').get(props.repoId)?.get('parent_id') ?? 0;
+  // Each branch's pull request (the open one, else the latest merged one) from this repository, into it or its upstream.
   const prOf = new Map<string, {pr: PullRequest; open: boolean}>();
   for (const e of pool.model('PullRequest').all()) {
     const p = e.data;
-    if (p.head_repo_id !== props.repoId || p.base_repo_id !== props.repoId) continue;
+    if (p.head_repo_id !== props.repoId || (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId))) continue;
     const open = pool.model('Issue').get(p.issue_id)?.get('state') === 'open';
     const had = prOf.get(p.head_branch);
     if (!had || open || (p.merged && !had.pr.merged)) prOf.set(p.head_branch, {pr: p, open});
@@ -100,15 +104,18 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
                 leading: <Icon icon={GitBranch} size="sm"/>,
                 main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Badge>default</Badge></>} <span className="text-fg-subtle">{b.commit_message.split('\n')[0]}</span></>,
                 trailing: <>
-                  {pull && <BranchPull owner={props.owner} repo={props.repo} pr={pull.pr}/>}
+                  {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
                   <span className="font-mono">{shortSha(b.commit_id)}</span>
                   <time dateTime={b.commit_time} title={fullDate(b.commit_time)}>{ago(b.commit_time)}</time>
-                  {b.name !== def && def && <RowControls>
-                    {pull?.open ?
-                      <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={compareSplat(def, b.name)}>Compare</CodeLink></Button> :
-                      <NewPullLink owner={props.owner} repo={props.repo} base={def} head={b.name}/>}
-                    {writer && <RowDelete name={b.name} block={block} onDelete={() => {
+                  {def && (b.name !== def || up !== undefined) && <RowControls>
+                    {b.name !== def && (pull?.open === true || up !== undefined) &&
+                      <Button size="sm" variant="ghost" asChild><CodeLink owner={props.owner} repo={props.repo} to={compareSplat(def, b.name)}>Compare</CodeLink></Button>}
+                    {!pull?.open && (up ?
+                      <NewPullLink owner={up.owner} repo={up.name} base={up.defaultBranch} head={forkHead(props.owner, props.repo, up.owner, b.name)}
+                        tooltip={`Propose ${b.name} to ${up.owner}/${up.name}:${up.defaultBranch}`}/> :
+                      b.name !== def && <NewPullLink owner={props.owner} repo={props.repo} base={def} head={b.name}/>)}
+                    {writer && b.name !== def && <RowDelete name={b.name} block={block} onDelete={() => {
                       setDialog({kind: 'delete', name: b.name, openPull: pull?.open ? pull.pr.number : undefined});
                     }}/>}
                   </RowControls>}
@@ -128,10 +135,13 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   );
 });
 
-/** A branch's way to a new pull request: its comparison with the default branch, the form open (`?expand=1`). */
-function NewPullLink({owner, repo, base, head}: {owner: string; repo: string; base: string; head: string}) {
+/**
+ * A branch's way to a new pull request: its comparison with the default branch (a fork's: with its upstream's), the
+ * form open (`?expand=1`).
+ */
+function NewPullLink({owner, repo, base, head, tooltip}: {owner: string; repo: string; base: string; head: string; tooltip?: string}) {
   return (
-    <Button size="sm" variant="ghost" asChild>
+    <Button size="sm" variant="ghost" asChild tooltip={tooltip}>
       <Link {...codeTo(owner, repo, compareSplat(base, head))} search={{expand: '1'} as never}><Icon icon={GitPullRequestArrow} size="sm"/>New pull request</Link>
     </Button>
   );

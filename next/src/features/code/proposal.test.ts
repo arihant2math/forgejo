@@ -3,7 +3,9 @@
 
 import {describe, expect, test} from 'vitest';
 import type {Label} from '../../protocol/types.gen.ts';
-import {compareSplat, createPullBody, headChoices, isForkHead, mergeOutlook, type OutlookInput, proposable, pullDefaults, TITLE_MAX, withLabel} from './proposal.ts';
+import {
+  compareSplat, createPullBody, forkHead, headChoices, isForkHead, mergeOutlook, type OutlookInput, proposable, pullDefaults, TITLE_MAX, typedForkHead, withLabel,
+} from './proposal.ts';
 
 describe('the proposed title and description', () => {
   test('one commit: its summary and the rest of its message', () => {
@@ -92,4 +94,17 @@ test('compare paths and fork heads', () => {
   expect(isForkHead('alice:feature')).toBe(true);
   expect(isForkHead('alice/atlas:feature')).toBe(true);
   expect(isForkHead('feature/x')).toBe(false);
+});
+
+describe('fork heads', () => {
+  test('owner:branch, or owner/repo:branch for an owner\'s fork of its own repository', () => {
+    expect(forkHead('alice', 'atlas', 'acme', 'fix/typo')).toBe('alice:fix/typo');
+    expect(forkHead('acme', 'atlas-2', 'Acme', 'fix')).toBe('acme/atlas-2:fix');
+  });
+
+  test('a typed fork head', () => {
+    expect(typedForkHead(' bob:fix/x ')).toBe('bob:fix/x');
+    expect(typedForkHead('bob/atlas:main')).toBe('bob/atlas:main');
+    for (const q of ['main', 'bob:', ':main', 'a b:c', 'bob:fix x', 'a:b:c']) expect(typedForkHead(q), q).toBeUndefined();
+  });
 });

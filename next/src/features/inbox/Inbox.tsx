@@ -71,7 +71,6 @@ class InboxModel {
   private readonly rev = createAtom('inbox');
   private scheduled = false;
   private readonly off: () => void;
-  private readonly offPrune: () => void;
   private disposed = false;
 
   private readonly pool: Pool;
@@ -100,12 +99,18 @@ class InboxModel {
       const o = b.rows[i];
       return r.type === 'note' ? o?.type === 'note' && o.id === r.id : o?.type === 'group' && o.key === r.key && o.count === r.count && o.label === r.label;
     })});
-    // The selection is the model's (the toolbar shows it), so the model prunes it whenever the rows change (#262):
-    // the list is not there to do it when no row is left (the empty state), and a selection of rows no longer
-    // listed stayed in the toolbar, and came back selected with Undo.
-    this.offPrune = reaction(() => this.result.get().ids, (ids) => {
+  }
+
+  /**
+   * Prunes the selection whenever the rows change, until the returned function is called (the page's effect: set up
+   * again when StrictMode runs effects twice). The selection is the model's (the toolbar shows it), so the model
+   * prunes it, not the list (#262): no list is mounted when no row is left (the empty state), and a selection of
+   * rows that were no longer listed stayed in the toolbar, then came back selected with Undo.
+   */
+  pruneSelection(): () => void {
+    return reaction(() => this.result.get().ids, (ids) => {
       this.cursor.keepSelected(new Set(ids));
-    });
+    }, {fireImmediately: true});
   }
 
   /** Every notification, newest first: sorted again only when notifications change (not on triage). */
@@ -167,7 +172,6 @@ class InboxModel {
   dispose(): void {
     this.disposed = true;
     this.off();
-    this.offPrune();
   }
 }
 
@@ -205,6 +209,7 @@ export default observer(function Inbox() {
   useEffect(() => () => {
     model.dispose();
   }, [model]);
+  useEffect(() => model.pruneSelection(), [model]);
   // Which notifications mention the viewer or wait for their review: the server says (serverReasons.ts).
   useEffect(() => {
     askServerReasons(app, () => untracked(() => oldestNote(data.pool)), true);

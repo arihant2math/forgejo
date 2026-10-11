@@ -79,6 +79,7 @@ var spaRoutes = [][]string{
 	{"{owner}", "{repo}", "settings", "hooks"},
 	{"{owner}", "{repo}", "settings", "keys"},
 	{"{owner}", "{repo}", "labels"},     // the repository's labels
+	{"{owner}", "{repo}", "watchers"},   // the people who watch it
 	{"{owner}", "{repo}", "milestones"}, // its milestones (open, closed)
 	{"{owner}", "{repo}", "milestones", "new"},
 	{"{owner}", "{repo}", "milestone", "{index}"}, // a milestone and its issues

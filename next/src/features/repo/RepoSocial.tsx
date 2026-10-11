@@ -9,7 +9,8 @@
 // all or nothing, so a selection made in the classic UI (releases only) is
 // shown as such and changed there.
 
-import {Eye, Star} from 'lucide-react';
+import {useNavigate} from '@tanstack/react-router';
+import {Eye, Star, Users} from 'lucide-react';
 import {makeAutoObservable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect} from 'react';
@@ -205,6 +206,7 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
   useShortcut('repo.star', star, true, () => !disabled);
   useShortcut('repo.watch', () => { watch(s.watching ? 'none' : 'all'); }, true, () => !disabled);
   const level = s.level;
+  const navigate = useNavigate();
   const mark = (on: boolean) => (on ? ' ✓' : '');
   return <div className="flex items-center gap-2" title={away ? 'Available when online' : undefined}>
     {s.failed && !away && <Button size="sm" variant="ghost" disabled={s.loading} onClick={() => { void s.load(app, owner, repo); }}>Retry star/watch status</Button>}
@@ -219,6 +221,8 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
       <MenuItem onSelect={() => { watch('all'); }}>All activity{mark(level === 'all')}</MenuItem>
       {/* A part only (releases, say) is set in the classic UI's watch dialog: API v1 watches all or nothing. */}
       <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}>{level === 'custom' ? `Custom: ${s.parts}${mark(true)}` : 'Custom (issues, pull requests or releases)…'}</ClassicMenuItem>
+      <MenuSeparator/>
+      <MenuItem icon={Users} onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}>Watchers</MenuItem>
       <MenuSeparator/>
       <MenuLabel>New releases are announced by email only (when this server sends mail), not in the Inbox.</MenuLabel>
     </MenuContent></Menu>

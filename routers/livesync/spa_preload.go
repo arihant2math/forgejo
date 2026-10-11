@@ -88,6 +88,8 @@ func routeModules(p string) []string {
 			return []string{"src/features/repo/RepoViews.tsx"}
 		case "labels":
 			return []string{"src/features/meta/LabelsPage.tsx"}
+		case "watchers":
+			return []string{"src/features/repo/Watchers.tsx"}
 		case "milestones":
 			return []string{"src/features/meta/MilestonesPage.tsx"}
 		case "settings":

@@ -141,7 +141,7 @@ function Counts(props: RepoProps) {
   return (
     <>
       <Count {...props} field="stars_count" path="stars" icon={Star} one="star"/>
-      <Count {...props} field="watchers_count" path="watchers" icon={Eye} one="watching" many="watching"/>
+      <Watching {...props}/>
       <Count {...props} field="forks_count" path="forks" icon={GitFork} one="fork"/>
     </>
   );
@@ -152,6 +152,14 @@ const Count = observer(function Count({owner, repo, repoId, field, path, icon, o
   if (!r) return null;
   const n = r.get(field);
   return <ClassicRow owner={owner} repo={repo} path={path} icon={icon} count={n}>{plural(n, one, many)}</ClassicRow>;
+});
+
+/** Watchers: the app's page (the people who watch the repository). */
+const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
+  const r = usePool().model('Repository').get(repoId);
+  if (!r) return null;
+  const n = r.get('watchers_count');
+  return <AsideLink icon={Eye} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></AsideLink>;
 });
 
 /** Releases: the count, the latest (or that there are none), the rest, and the tags (their only way in). */

@@ -41,6 +41,10 @@ test('canonical routes (B8 spaRoutes) and the rest', () => {
   for (const p of ['/acme/repo/labels/1', '/acme/repo/milestones/3', '/acme/repo/milestone', '/acme/repo/milestone/0', '/acme/repo/milestone/x/edit', '/acme/repo/milestone/3/close']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
+  // A repository's watchers (#255); its stargazers and forks stay classic.
+  expect(isSpaRoute('/acme/repo/watchers')).toBe(true);
+  expect(isSpaRoute('/acme/repo/watchers', '?page=2')).toBe(true);
+  for (const p of ['/acme/repo/watchers/x', '/acme/repo/stars', '/acme/repo/forks']) expect(isSpaRoute(p), p).toBe(false);
   // The classic page asked for by name, and an owner's profile tabs, are classic.
   expect(isSpaRoute('/acme/repo/issues', '?ui=classic')).toBe(false);
   expect(isSpaRoute('/acme', '?tab=activity')).toBe(false);

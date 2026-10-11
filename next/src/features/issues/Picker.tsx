@@ -64,12 +64,22 @@ export const IssuePicker = observer(function IssuePicker() {
   );
 });
 
-/** The same picker under a property (a click in the issue's side panel). */
-export function PickerPopover({kind, issueIds, trigger}: {kind: PickerKind; issueIds: readonly number[]; trigger: ReactElement}) {
+export interface PickerDraft {
+  repoId: number;
+  labels: number[];
+  assignees: number[];
+  milestone: number;
+  toggleLabel: (label: Label, on: boolean, all: readonly Label[]) => void;
+  setAssignee: (id: number, on: boolean) => void;
+  setMilestone: (id: number) => void;
+}
+
+/** The same picker under an issue property or a new issue's property. */
+export function PickerPopover({kind, issueIds = [], draft, trigger}: {kind: PickerKind; issueIds?: readonly number[]; draft?: PickerDraft; trigger: ReactElement}) {
   const app = useApp();
   return (
     <CommandPopover trigger={trigger} label={TITLES[kind]} placeholder={PLACEHOLDERS[kind]} options={[]} width="md"
-      render={(onClose) => <PickerList app={app} kind={kind} issueIds={issueIds} onClose={onClose}/>}/>
+      render={(onClose) => <PickerList app={app} kind={kind} issueIds={issueIds} draft={draft} onClose={onClose}/>}/>
   );
 }
 
@@ -80,15 +90,15 @@ function close(app: App): void {
 }
 
 /** The list itself: `named` says which issues it changes above the field (a key does not show which row it was). */
-const PickerList = observer(function PickerList({app, kind, issueIds, named = false, onClose}: {
-  app: App; kind: PickerKind; issueIds: readonly number[]; named?: boolean; onClose: () => void;
+const PickerList = observer(function PickerList({app, kind, issueIds, draft, named = false, onClose}: {
+  app: App; kind: PickerKind; issueIds: readonly number[]; draft?: PickerDraft | undefined; named?: boolean; onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const first = untracked(() => app.session?.data.pool.model('Issue').get(issueIds[0] ?? 0)?.data.repo_id);
+  const first = draft?.repoId ?? untracked(() => app.session?.data.pool.model('Issue').get(issueIds[0] ?? 0)?.data.repo_id);
   useEffect(() => {
     if (first !== undefined && (kind === 'assignees' || kind === 'reviewers')) loadPeople(app, first);
   }, [app, first, kind]);
-  const {options, empty, searched} = pickerOptions(app, kind, issueIds, query);
+  const {options, empty, searched} = pickerOptions(app, kind, issueIds, query, draft);
   const issues = issuesOf(app, issueIds);
   const allPulls = issues.every((i) => untracked(() => i.data.is_pull));
   const one = issues.length === 1 ? issues[0] : undefined;
@@ -111,26 +121,27 @@ function coverage(issues: readonly Entity<'Issue'>[], has: (i: Entity<'Issue'>) 
  * A picker's options for these issues (read in an observer: they follow the pool). `searched`: the options are
  * the query's matches already (dependencies search the repository's issues; a due date parses the query).
  */
-export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly number[], query: string): {options: PickOption[]; empty: string; searched: boolean} {
+export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly number[], query: string, draft?: PickerDraft): {options: PickOption[]; empty: string; searched: boolean} {
   const s = app.session;
   if (!s) return {options: [], empty: '', searched: false};
   const pool = s.data.pool;
   const {overlay} = editing(app);
   const issues = issuesOf(app, issueIds);
-  if (!issues.length) return {options: [], empty: 'These issues are not on this device.', searched: false};
-  const repoId = commonRepo(issues);
+  if (!issues.length && !draft) return {options: [], empty: 'These issues are not on this device.', searched: false};
+  const repoId = draft?.repoId ?? commonRepo(issues);
   if (repoId === undefined && kind !== 'status') return {options: [], empty: 'Pick issues of one repository to change this.', searched: false};
   const hasLabel = (id: number) => (i: Entity<'Issue'>) => issueLabelIds(pool, overlay, i.id).includes(id);
   const options: PickOption[] = [];
   let empty = 'Nothing to choose from in this repository.';
 
   const labelOption = (l: Label, icon: LucideIcon | undefined, keepOpen: boolean): PickOption => {
-    const checked = coverage(issues, hasLabel(l.id));
+    const checked = draft ? draft.labels.includes(l.id) : coverage(issues, hasLabel(l.id));
     return {
       value: `l${String(l.id)}`, label: kind === 'labels' ? l.name : scopedValue(l.name), words: l.description, checked, keepOpen,
       leading: icon ? <LabelIcon icon={icon} color={l.color}/> : <LabelDot color={l.color}/>,
       onSelect: () => {
-        setLabel(app, issues, l, checked !== true);
+        if (draft) draft.toggleLabel(l, checked !== true, repoLabels(pool, draft.repoId));
+        else setLabel(app, issues, l, checked !== true);
       },
     };
   };
@@ -140,9 +151,12 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const closed = state === 'mixed' ? 'mixed' : !state;
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     const statuses = repoId === undefined ? [] : repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status').sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
-    const anyStatus = statuses.some((l) => coverage(issues, hasLabel(l.id)) !== false);
+    const anyStatus = statuses.some((l) => draft ? draft.labels.includes(l.id) : coverage(issues, hasLabel(l.id)) !== false);
     // The state is the value when no workflow status is set (with one, the status is).
-    options.push(
+    if (draft) options.push({value: 'none', label: 'No status', checked: !anyStatus, onSelect: () => {
+      for (const l of statuses) draft.toggleLabel(l, false, statuses);
+    }});
+    else options.push(
       {value: 'open', label: 'Open', checked: anyStatus ? false : state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, onSelect: () => {
         reopen(app, issues);
       }},
@@ -152,15 +166,17 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     );
     // A status is Linear's: done and canceled close the issue, the others reopen it.
     for (const l of statuses) options.push({...labelOption(l, statusIcon(l.name), false), onSelect: () => {
-      setWorkflowStatus(app, issues, l);
+      if (draft) draft.toggleLabel(l, true, repoLabels(pool, draft.repoId));
+      else setWorkflowStatus(app, issues, l);
     }});
   } else if (kind === 'priority' && repoId !== undefined) {
     const priorities = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'priority').sort((a, b) => kindRank('priority', a.name) - kindRank('priority', b.name));
     const scopes = new Set(priorities.map(exclusiveScope));
     if (priorities.length) {
-      const none = coverage(issues, (i) => !priorities.some((l) => hasLabel(l.id)(i)));
+      const none = draft ? !priorities.some((l) => draft.labels.includes(l.id)) : coverage(issues, (i) => !priorities.some((l) => hasLabel(l.id)(i)));
       options.push({value: 'none', label: 'No priority', checked: none, leading: <Icon icon={NoPriorityIcon} className="text-fg-subtle"/>, onSelect: () => {
-        for (const scope of scopes) clearScope(app, issues, scope);
+        if (draft) for (const l of priorities) draft.toggleLabel(l, false, priorities);
+        else for (const scope of scopes) clearScope(app, issues, scope);
       }});
       for (const l of priorities) options.push(labelOption(l, priorityIcon(l.name), false));
     }
@@ -171,14 +187,15 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     for (const l of repoLabels(pool, repoId)) if (!labelKind(l)) options.push(labelOption(l, undefined, true));
     empty = 'This repository has no labels.';
   } else if (kind === 'assignees' && repoId !== undefined) {
-    const current = issues.flatMap((i) => issueAssigneeIds(pool, overlay, i.id));
+    const current = draft?.assignees ?? issues.flatMap((i) => issueAssigneeIds(pool, overlay, i.id));
     for (const u of repoPeople(pool, repoId, s.userId, current)) {
-      const checked = coverage(issues, (i) => issueAssigneeIds(pool, overlay, i.id).includes(u.id));
+      const checked = draft ? draft.assignees.includes(u.id) : coverage(issues, (i) => issueAssigneeIds(pool, overlay, i.id).includes(u.id));
       options.push({
         value: `u${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
         leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
         onSelect: () => {
-          setAssignee(app, issues, u.id, checked !== true);
+          if (draft) draft.setAssignee(u.id, checked !== true);
+          else setAssignee(app, issues, u.id, checked !== true);
         },
       });
     }
@@ -229,9 +246,10 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     empty = 'No other issue of this repository matches.';
     return {options, empty, searched: true};
   } else if (kind === 'milestone' && repoId !== undefined) {
-    const current = (id: number) => coverage(issues, (i) => issueMilestone(overlay, i) === id);
+    const current = (id: number) => draft ? draft.milestone === id : coverage(issues, (i) => issueMilestone(overlay, i) === id);
     options.push({value: 'none', label: 'No milestone', checked: current(0), onSelect: () => {
-      setMilestone(app, issues, 0);
+      if (draft) draft.setMilestone(0);
+      else setMilestone(app, issues, 0);
     }});
     const ms = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data)
       .sort((a, b) => (a.state === b.state ? (a.due_on ?? '9').localeCompare(b.due_on ?? '9') || a.title.localeCompare(b.title) : a.state === 'open' ? -1 : 1));
@@ -240,7 +258,8 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
         value: `m${String(m.id)}`, label: m.title, words: m.state === 'closed' ? 'closed' : '', checked: current(m.id),
         meta: m.state === 'closed' ? 'closed' : m.due_on ? `due ${shortDate(m.due_on)}` : undefined,
         onSelect: () => {
-          setMilestone(app, issues, m.id);
+          if (draft) draft.setMilestone(m.id);
+          else setMilestone(app, issues, m.id);
         },
       });
     }

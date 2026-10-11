@@ -265,7 +265,7 @@ ${NEXT_FORGEJO_EXTRA_INI:-}"
       CONFORMANCE_KILL_CMD="env $inst '$self' kill $db" CONFORMANCE_STOP_CMD="env $inst '$self' stop $db" \
       CONFORMANCE_START_CMD="env $inst '$self' start $db" \
       CONFORMANCE_MAX_REPLAY=100 \
-      npm run test:conformance -- "$@"
+      pnpm run test:conformance -- "$@"
   ) || rc=$?
   if [ "${NEXT_CONFORMANCE_KEEP:-}" = 1 ]; then
     log "kept running: $URL (data: $WORK, database $DB_NAME)"
@@ -286,7 +286,7 @@ ${NEXT_FORGEJO_EXTRA_INI:-}"
 conformance() {
   local d failed=""
   [ "${NEXT_CONFORMANCE_NO_BUILD:-}" = 1 ] && [ -x "$CONF_ROOT/forgejo" ] || NEXT_DEV_ROOT="$CONF_ROOT" "$REPO/next/tools/dev-forgejo.sh" build
-  [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && npm ci --no-audit --no-fund)
+  [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && pnpm install --frozen-lockfile)
   for d in $conf_dbs; do
     # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended
     env $(conformance_instance "$d") "$REPO/next/tools/dev-forgejo.sh" conformance-one "$d" "$@" || failed="$failed $d"
@@ -325,7 +325,7 @@ ${NEXT_FORGEJO_EXTRA_INI:-}"
   (
     cd "$REPO/next"
     NEXT_E2E_NO_SERVERS=1 NEXT_FORGEJO_URL="${URL%/}" NEXT_E2E_DB="$db" \
-      npx playwright test --project forgejo --no-deps "$@"
+      pnpm exec playwright test --project forgejo --no-deps "$@"
   ) || rc=$?
   if [ "${NEXT_E2E_KEEP:-}" = 1 ]; then
     log "kept running: $URL (data: $WORK, database $DB_NAME)"
@@ -345,15 +345,15 @@ ${NEXT_FORGEJO_EXTRA_INI:-}"
 e2e() {
   local d failed=""
   [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -x "$E2E_ROOT/forgejo" ] || NEXT_DEV_ROOT="$E2E_ROOT" "$REPO/next/tools/dev-forgejo.sh" build
-  [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && npm ci --no-audit --no-fund)
-  [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$REPO/next/dist/index.html" ] || (cd "$REPO/next" && npx vite build >/dev/null)
+  [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && pnpm install --frozen-lockfile)
+  [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$REPO/next/dist/index.html" ] || (cd "$REPO/next" && pnpm exec vite build >/dev/null)
   # The sandbox has no Playwright-managed Chromium of this version; use the preinstalled one when present.
   if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
   for d in $conf_dbs; do
     # The update path and kill switch tests rewrite dist/ in place and restore it; a run killed in between
     # leaves it changed: put it back before each database.
     if [ -f "$REPO/next/dist/sw.js.off" ]; then mv -f "$REPO/next/dist/sw.js.off" "$REPO/next/dist/sw.js"; fi
-    if grep -q 'e2e001' "$REPO/next/dist/index.html" "$REPO/next/dist/sw.js" 2>/dev/null; then (cd "$REPO/next" && npx vite build >/dev/null); fi
+    if grep -q 'e2e001' "$REPO/next/dist/index.html" "$REPO/next/dist/sw.js" 2>/dev/null; then (cd "$REPO/next" && pnpm exec vite build >/dev/null); fi
     # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended
     env $(e2e_instance "$d") "$REPO/next/tools/dev-forgejo.sh" e2e-one "$d" "$@" || failed="$failed $d"
   done

@@ -116,6 +116,9 @@ describe('boot', () => {
     expect(classConflicts(div)).toEqual([]);
   });
 
+  // The app's first element inside Primer's BaseStyles wrapper (app/App.tsx PrimerTheme).
+  const appRoot = (container: HTMLElement) => container.querySelector('[data-component="BaseStyles"]')?.firstElementChild;
+
   test.each(['/-/next/', '/', '/issues', '/user2/repo1/issues/3'])('the logged-out boot shell is exactly what %s renders (wrapper included)', async (path) => {
     const shell = document.createElement('div');
     shell.innerHTML = renderToStaticMarkup(<BootShell/>);
@@ -126,7 +129,7 @@ describe('boot', () => {
     const links = / invisible" aria-hidden="true"/;
     expect(panel?.outerHTML).toMatch(links);
     expect(panel?.outerHTML.replace('hidden logged-out:flex', 'flex').replace(links, '"'))
-      .toBe(container.firstElementChild?.outerHTML.replace(/<a href="[^"]*"/g, '<a'));
+      .toBe(appRoot(container)?.outerHTML.replace(/<a href="[^"]*"/g, '<a'));
   });
 
   test('without OAuth2 on the server, signing in is unavailable (and says so)', async () => {

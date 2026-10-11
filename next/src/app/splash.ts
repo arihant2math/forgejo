@@ -58,7 +58,8 @@ export function applySplash(win: Window): void {
     // Storage blocked or corrupt: render the defaults.
   }
   const pref = s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system';
-  html.dataset.theme = pref === 'system' ?
+  // Primer's themes (@primer/primitives) key on data-color-mode; data-theme names the same for the app's own checks.
+  html.dataset.theme = html.dataset.colorMode = pref === 'system' ?
     (win.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') :
     pref;
   if (typeof s.sidebarWidth === 'number' && Number.isFinite(s.sidebarWidth)) {

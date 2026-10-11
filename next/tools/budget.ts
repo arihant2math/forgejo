@@ -15,6 +15,12 @@
 // that, link a hashed stylesheet), and that the CSS contains nothing the lint
 // rules ban (raw colours on non-token properties, transition: all).
 //
+// CSS: 30 KiB (10 KiB inline) until the move to Primer (2026-10). Primer's
+// colour themes (@primer/primitives, light + dark: every functional token) are
+// about 10 KiB br on their own and inlined so the first frame has its colours;
+// the limits were raised to 48 KiB (32 KiB inline) for them and the Primer
+// component styles of the shell.
+//
 // Usage: node tools/budget.ts [distDir]   (exit 1 when over budget)
 
 import {existsSync, readFileSync} from 'node:fs';
@@ -24,7 +30,7 @@ import {brotliCompressSync} from 'node:zlib';
 import {BOOT_ROUTES} from './boot.ts';
 
 const KiB = 1024;
-export const BUDGET = {js: 500 * KiB, css: 30 * KiB, inlineCss: 10 * KiB} as const;
+export const BUDGET = {js: 500 * KiB, css: 48 * KiB, inlineCss: 32 * KiB} as const;
 
 export interface Item {
   name: string;
@@ -81,8 +87,10 @@ export function chunkCycles(manifest: Record<string, ManifestChunk>): string[] {
 }
 
 /** CSS the lint rules forbid that could still reach the output (e.g. from a dependency). */
-export function cssProblems(css: string): string[] {
+export function cssProblems(sheet: string): string[] {
   const problems: string[] = [];
+  // Primer's stylesheets give each token a fallback (var(--fgColor-default,#1f2328)): a token use, not a raw colour.
+  const css = sheet.replace(/,\s*#[\da-f]{3,8}(?=\s*\))/gi, '');
   // Custom properties are tokens; @property initial-values and #0000 (transparent) are Tailwind internals.
   for (const m of css.matchAll(/([\w-]+)\s*:\s*[^;{}]*?#(?!0000\b)[\da-f]{3,8}\b/gi)) {
     if (!m[1]?.startsWith('--') && m[1] !== 'initial-value') problems.push(`raw colour outside a token: ${m[0].slice(0, 80)}`);

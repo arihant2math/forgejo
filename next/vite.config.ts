@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react';
 import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
 import {previewConfig} from './tools/vite-plugin-preview-config.ts';
+import {primerLayer} from './tools/vite-plugin-primer-layer.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
 import {serviceWorker} from './tools/vite-plugin-sw.ts';
 
@@ -38,6 +39,9 @@ export function vendorChunk(id: string): string | null {
   if (radix?.[1] && radixPrimitives.has(radix[1])) return `vendor-radix-ui-${radix[1]}`;
   if (pkg.startsWith('@radix-ui/')) return radixFocus.has(pkg.slice('@radix-ui/'.length)) ? 'vendor-radix-ui-focus' : 'vendor-radix-ui-internal';
   if (pkg.startsWith('@floating-ui/')) return 'vendor-floating-ui';
+  // Primer's components are split like the app's own modules: a component only a lazy route uses (and its
+  // stylesheet) loads with that route, not at boot.
+  if (pkg === '@primer/react') return null;
   if (removeScroll.has(pkg)) return 'vendor-react-remove-scroll';
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
@@ -47,6 +51,7 @@ export default defineConfig({
   base: '/-/next/',
   plugins: [
     react(),
+    primerLayer(),
     tailwindcss(),
     shell({bootRoutes: BOOT_ROUTES}),
     serviceWorker(),
@@ -95,7 +100,9 @@ export default defineConfig({
             {name: vendorChunk, debugName: 'vendor'},
             // Only static entry dependencies: lazy views stay lazy. Include
             // Vite's preload helper so it cannot form a cycle through the entry.
-            {name: 'app-boot', test: (id) => (/[\\/]src[\\/]/.test(id) && !id.endsWith('/src/main.tsx')) || id.includes('vite/preload-helper'), tags: ['$initial']},
+            // Primer's modules the boot route needs join it (left to the default splitting they land in the
+            // entry chunk, which app-boot then imports: a cycle).
+            {name: 'app-boot', test: (id) => (/[\\/]src[\\/]/.test(id) && !id.endsWith('/src/main.tsx')) || /[\\/]node_modules[\\/]@primer[\\/]react[\\/]/.test(id) || id.includes('vite/preload-helper'), tags: ['$initial']},
           ],
         },
       },

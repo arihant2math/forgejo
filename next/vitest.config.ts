@@ -20,6 +20,8 @@ const domTests = [
 export default defineConfig({
   plugins: [react()],
   test: {
+    // @primer/react's modules import their stylesheets: let Vite load them (Node cannot import .css).
+    server: {deps: {inline: [/@primer\/react/]}},
     projects: [
       {
         extends: true,

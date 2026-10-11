@@ -7,9 +7,30 @@
  * whole theme.
  */
 
-@layer theme, base, components, utilities;
+/* Primer (the design system: @primer/react components on @primer/primitives tokens) sits between the element
+ * defaults and the utilities: its components override preflight, and layout utilities on a component (a margin,
+ * a width) override the component. tools/vite-plugin-primer-layer.ts puts every @primer/react stylesheet in
+ * the `primer` layer. */
+@layer theme, base, primer, components, utilities;
 
 @import "tailwindcss/preflight.css" layer(base);
+/* Primer's tokens: sizes, typography, motion and the light and dark colour themes (chosen by the
+ * data-color-mode / data-light-theme / data-dark-theme attributes on <html>). */
+@import "@primer/primitives/dist/css/base/size/size.css" layer(theme);
+@import "@primer/primitives/dist/css/base/typography/typography.css" layer(theme);
+@import "@primer/primitives/dist/css/base/motion/motion.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/border.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/breakpoints.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/radius.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/size.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/size-coarse.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/size-fine.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/size/z-index.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/spacing/space.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/typography/typography.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/motion/motion.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/themes/light.css" layer(theme);
+@import "@primer/primitives/dist/css/functional/themes/dark.css" layer(theme);
 /* Only the app's own sources generate utilities: tests, lint fixtures, docs and
  * src/dev (the dev-only gallery, which brings its own sheet) are not scanned. */
 @import "tailwindcss/utilities.css" layer(utilities) source(none);

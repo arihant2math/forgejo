@@ -250,16 +250,18 @@ const noLiteralStyle: RuleModule = {
 const layoutClass = /^(?:-?m[xytrblse]?-|[wh]-|size-|min-[wh]-|max-[wh]-|flex-|grow|shrink|basis-|self-|justify-self-|order-|col-|row-|hidden$|block$|inline-block$|sr-only$|truncate$|absolute$|relative$|sticky$|-?inset(?:-[xy])?-(?:\d|px$|auto$|full$)|-?(?:top|right|bottom|left)-)/;
 // Sizes a primitive owns (its size prop decides them); className may not override them.
 const ownedSize: Partial<Record<string, RegExp>> = {
-  Button: /^(?:h|size)-/, IconButton: /^(?:h|w|size)-/, Input: /^(?:h|size)-/, Avatar: /^(?:h|w|size)-/, Icon: /^(?:h|w|size)-/,
+  Button: /^(?:h|size)-/, IconButton: /^(?:h|w|size)-/, Input: /^(?:h|size)-/, TextInput: /^(?:h|size)-/, Avatar: /^(?:h|w|size)-/,
+  Icon: /^(?:h|w|size)-/, SkeletonAvatar: /^(?:h|w|size)-/, Spinner: /^(?:h|w|size)-/,
 };
 // Icons are tinted by their context, so text colours are fine on <Icon>.
 const iconTint = /^text-(?!xs$|sm$|base$|md$|lg$|xl$)/;
-const uiModule = /(?:^|\/)ui(?:\/index\.ts|\/[A-Z]\w*\.tsx)?$/;
+// The design system: Primer's components (and, while they last, the app's own primitives in src/ui).
+const uiModule = /^@primer\/react(?:\/experimental|\/next)?$|(?:^|\/)ui(?:\/index\.ts|\/[A-Z]\w*\.tsx)?$/;
 
 const noRestyle: RuleModule = {
   meta: {
     type: 'problem',
-    docs: {description: 'Disallow restyling src/ui primitives (look classes, style, spreads) and bare icons outside src/ui'},
+    docs: {description: 'Disallow restyling Primer components and src/ui primitives (look classes, style, spreads) and bare lucide icons'},
     schema: [],
   },
   create(context) {
@@ -277,7 +279,7 @@ const noRestyle: RuleModule = {
         if (ownedSize[component]?.test(utility)) {
           context.report({node, message: `"${cls}": <${component}> owns its size; use its size prop`});
         } else if (!layoutClass.test(utility) && !(component === 'Icon' && iconTint.test(utility))) {
-          context.report({node, message: `"${cls}" restyles <${component}>: add a variant or prop to the primitive in src/ui instead`});
+          context.report({node, message: `"${cls}" restyles <${component}>: use the component's own props (variant, size, …) instead`});
         }
       }
     };

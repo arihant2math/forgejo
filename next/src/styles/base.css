@@ -4,6 +4,14 @@
  * Element defaults on top of Tailwind's preflight. Tokens only.
  */
 
+:root[data-color-mode="light"] {
+  color-scheme: light;
+}
+
+:root[data-color-mode="dark"] {
+  color-scheme: dark;
+}
+
 html {
   background-color: var(--color-canvas);
   color: var(--color-fg);

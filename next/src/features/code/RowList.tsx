@@ -84,7 +84,6 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     list.current = el;
     place(el);
   }, [place]);
-  // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer re-renders this list itself (rows are not memoized)
   const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
   useShortcutScope('list');
   const hasItems = items.length > 0;

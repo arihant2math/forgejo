@@ -93,7 +93,7 @@ describe('review regressions (data integrity)', () => {
     tab.intents.submit({issueId: temp, repoId: REPO, kind: 'issue.create', tempId: t, title: 'X', body: '', labelIds: [], assigneeIds: [], milestoneId: 0});
     tab.intents.submit({issueId: temp, repoId: REPO, kind: 'comment.create', tempId: crypto.randomUUID(), body: 'keep me'});
     await new Promise((r) => setTimeout(r, 20));
-    const orig = IntentDb.prototype.fail; // eslint-disable-line @typescript-eslint/unbound-method -- called with its instance below
+    const orig = IntentDb.prototype.fail;
     let n = 0;
     const spy = vi.spyOn(IntentDb.prototype, 'fail').mockImplementation(async function (this: IntentDb, id: string, d) {
       const ok = await orig.call(this, id, d);

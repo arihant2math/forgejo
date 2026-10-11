@@ -24,6 +24,8 @@ beforeEach(() => {
   Element.prototype.scrollTo ??= () => undefined;
   vi.stubGlobal('scrollTo', () => undefined);
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
+  // Each test's session leads alone: no queue messages from an earlier test's tab.
+  vi.stubGlobal('BroadcastChannel', undefined);
 });
 afterEach(() => {
   cleanup();
@@ -82,18 +84,20 @@ test('opening an issue by its address reads its unread notification, and only it
   expect(screen.getByRole('link', {name: /Inbox/}).textContent).toContain('1');
 });
 
-test('a pull request reads its notification on its Files tab too; a pinned one stays pinned (#259)', async () => {
-  const s = session([note(1, 101, 'unread'), note(2, 100, 'pinned')]);
+test('a pull request reads its notification on its Files tab too (#259)', async () => {
+  const s = session([note(1, 101, 'unread')]);
   const {app} = await open('/acme/atlas/pulls/8?tab=files', s, /cache: evict in a loop/);
   await waitFor(() => {
     expect(statusOf(app, 1)).toBe('read');
   });
-  const {app: other} = await (async () => {
-    cleanup();
-    return open('/acme/atlas/issues/7', session([note(2, 100, 'pinned')]), /Tiles from S3/);
-  })();
-  expect(statusIntents(other)).toEqual([]);
-  expect(statusOf(other, 2)).toBe('pinned');
+  expect(statusIntents(app)).toEqual([expect.objectContaining({kind: 'notification.status', notificationId: 1, issueId: 101, status: 'read'})]);
+});
+
+test('a pinned notification stays pinned when its issue is opened (#259)', async () => {
+  const {app} = await open('/acme/atlas/issues/7', session([note(2, 100, 'pinned')]), /Tiles from S3/);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(statusIntents(app)).toEqual([]);
+  expect(statusOf(app, 2)).toBe('pinned');
 });
 
 test('a notification that arrives while the issue is open is read; one marked unread again is left so (#259)', async () => {

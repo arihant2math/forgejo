@@ -244,6 +244,11 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const app = useApp();
   const pool = usePool();
   const [replying, setReplying] = useState(false);
+  const replyButton = useRef<HTMLButtonElement>(null);
+  const closeReply = () => {
+    setReplying(false);
+    requestAnimationFrame(() => replyButton.current?.focus());
+  };
   const [text, setText] = useState('');
   const root = conversationRoot(pool, c.data);
   const resolver = useResolver(root);
@@ -260,7 +265,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
       drafts: [{key: `reply:${uuid()}`, anchor: commentAnchor(c.data), text, at: Date.now()}],
     });
     setText('');
-    setReplying(false);
+    closeReply();
   };
   if (resolver > 0 && !shown && !replying) {
     return (
@@ -276,7 +281,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
     <div className="flex flex-col gap-1 rounded-md border border-border p-3">
       <span className="text-sm text-fg-muted">
         <Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on{' '}
-        {files ? <TextLink><Link to={files} search={{tab: 'files'}}><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</Link></TextLink> :
+        {files ? <TextLink><Link to={files} search={{tab: 'files'}} hash={`review-thread-${String(c.id)}`}><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</Link></TextLink> :
           <><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</>}
         {c.get('invalidated') && <> · <Badge>Outdated</Badge></>}
       </span>
@@ -294,17 +299,17 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
       {issue && !c.get('invalidated') && (replying ?
         <div className="flex flex-col gap-2">
           <MarkdownField repoId={issue.repo_id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {
-            setReplying(false);
+            closeReply();
           }}/>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => {
-              setReplying(false);
+              closeReply();
             }}>Cancel</Button>
             <Button size="sm" variant="primary" disabled={!text.trim()} onClick={reply}>Reply</Button>
           </div>
         </div> :
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" icon={Reply} onClick={() => {
+          <Button ref={replyButton} size="sm" variant="ghost" icon={Reply} onClick={() => {
             setReplying(true);
           }}>Reply</Button>
           {root && issueEntity && <ResolveButton root={root} issue={issueEntity}/>}

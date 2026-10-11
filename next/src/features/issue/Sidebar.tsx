@@ -7,6 +7,7 @@
 // and the pull request's branches. Each value is an observer of what it
 // shows.
 
+import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
 import {ArrowRight, Bell, BellOff, CalendarClock, CircleCheck, CircleX, Clock, GitBranch, Lock, LockOpen, MessageSquare, Pin, PinOff} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
@@ -125,13 +126,7 @@ const AssigneesValue = observer(function AssigneesValue({issue}: {issue: Entity<
 const ReviewersValue = observer(function ReviewersValue({issue}: {issue: Entity<'Issue'>}) {
   const pool = usePool();
   const requested = viewMembers(pool, useOverlay(), 'ReviewRequest', issue.id);
-  const verdicts = new Map<number, {state: string; at: string}>();
-  for (const r of pool.model('Review').by('issue_id', issue.id)) {
-    const d = r.data;
-    if (!d.reviewer_id || d.state === 'PENDING' || d.state === 'REQUEST_REVIEW' || d.dismissed) continue;
-    const prev = verdicts.get(d.reviewer_id);
-    if (!prev || prev.at < d.created_at) verdicts.set(d.reviewer_id, {state: d.state, at: d.created_at});
-  }
+  const verdicts = reviewVerdicts([...pool.model('Review').by('issue_id', issue.id)].map((r) => r.data));
   const ids = [...new Set([...requested as Set<number>, ...verdicts.keys()])].sort((a, b) => a - b);
   if (!ids.length) return <PropertyEmpty>No reviewers</PropertyEmpty>;
   return (

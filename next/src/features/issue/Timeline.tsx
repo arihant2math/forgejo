@@ -34,7 +34,7 @@ import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {commentBody, issueComments, viewMembers} from '../../intents/view.ts';
 import {firstOf, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
-import {labelKind, scopedValue} from '../issues/labels.ts';
+import {labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import {agoWords, fullDate, shortDate} from '../issues/format.ts';
 import {CommentActions, CommentBody} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
@@ -459,11 +459,39 @@ export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
     ((Boolean(sha) && p.get('merge_commit_sha') === sha) || (d.ref_is_pull && p.get('issue_id') === d.ref_issue_id)));
   const action = d.type === 'close' ? 'closed this' : 'reopened this';
   const message = reference?.body_html ? textOfMarkup(reference.body_html).trim().split('\n')[0] ?? '' : '';
+  const reason = d.type === 'close' && !sha && !d.ref_is_pull ? closeReason(pool, comments, d) : undefined;
+  if (reason?.duplicateOf !== undefined) {
+    const original = [...pool.model('Issue').by('number', reason.duplicateOf)].find((i) => i.get('repo_id') === repoId);
+    return <>closed this as a duplicate of {original ? <IssueRef id={original.id} from={d.issue_id}/> : `#${String(reason.duplicateOf)}`}</>;
+  }
+  if (reason?.notPlanned) return <>closed this as not planned</>;
   return <>{action}{sha && repo && <> in <TextLink wrap><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
     <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
   </CodeLink></TextLink></>}{pull && <> in <IssueRef id={pull.get('issue_id')} from={d.issue_id}/></>}
   {!pull && d.ref_is_pull && d.ref_issue_id > 0 && <> in <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>}</>;
 });
+
+/** How close together (ms) a close and the comment or status change made with it are. */
+const WITH_CLOSE = 60_000;
+
+/**
+ * Why an issue was closed, as far as Forgejo records it (it has no close reason): the closer's own "Duplicate of #N"
+ * comment just before (GitHub's convention; the close-with-reason menu posts it), or a canceled workflow status they
+ * set with it (status/Canceled, Won't fix: "not planned").
+ */
+function closeReason(pool: ReturnType<typeof usePool>, comments: Comment[], d: Comment): {duplicateOf?: number; notPlanned?: boolean} | undefined {
+  const at = Date.parse(d.created_at);
+  const near = comments.filter((c) => c.id !== d.id && c.poster_id === d.poster_id && Math.abs(Date.parse(c.created_at) - at) <= WITH_CLOSE);
+  const said = near.filter((c) => c.type === 'comment' && c.id < d.id).sort((a, b) => b.id - a.id)[0];
+  const dup = said ? /^\s*duplicate of #([1-9]\d{0,15})\b/i.exec(said.body) : null;
+  if (dup) return {duplicateOf: Number(dup[1])};
+  const canceled = near.some((c) => {
+    if (c.type !== 'label' || c.body !== '1') return false;
+    const l = pool.model('Label').get(c.label_id)?.data;
+    return l !== undefined && labelKind(l) === 'status' && statusStage(scopedValue(l.name)) === 'canceled';
+  });
+  return canceled ? {notPlanned: true} : undefined;
+}
 
 /** A commit an event names: its short SHA and its message's first line, linking to the commit. */
 const CommitRef = observer(function CommitRef({d}: {d: Comment}) {

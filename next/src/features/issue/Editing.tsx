@@ -10,10 +10,10 @@
 // so a reload or a crash never loses it. The field is the CodeMirror
 // composer with Forgejo's preview (editor/Composer.tsx).
 
-import {Link2, MoreHorizontal, Pencil, Quote, Trash2} from 'lucide-react';
+import {ChevronDown, CircleSlash, Copy, Link2, MoreHorizontal, Pencil, Quote, Trash2} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type RefObject, useEffect, useId, useRef, useState} from 'react';
+import {type ReactNode, type RefObject, useEffect, useId, useRef, useState} from 'react';
 import {dismissSeries, notify} from '../../app/notices.ts';
 import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -23,14 +23,19 @@ import {hasConflictMarkers} from '../../intents/merge3.ts';
 import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
 import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
 import {
-  Button, Callout, Dialog, EditableHeading, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge, ProseSource, SkeletonText, TitleInput,
+  Button, Callout, CommandPick, CommandPopover, Dialog, EditableHeading, Icon, IconButton, matchOptions, Menu, MenuContent, MenuItem, MenuTrigger, PendingBadge,
+  type PickOption, ProseSource, SkeletonText, TitleInput,
 } from '../../ui/index.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {reach} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
-import {useUser} from '../issues/cells.tsx';
+import {usePool, useUser} from '../issues/cells.tsx';
+import {changeState, setWorkflowStatus} from '../issues/actions.ts';
+import {repoLabels} from '../issues/candidates.ts';
+import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
+import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
@@ -81,7 +86,12 @@ interface TextEditorProps {
   /** A shortcut that focuses the editor (R: the comment box). */
   focusShortcut?: ShortcutId | undefined;
   onTextChange?: (text: string) => void;
-  stateAction?: {label: (hasText: boolean) => string; run: (text: string) => void} | undefined;
+  stateAction?: {
+    label: (hasText: boolean) => string;
+    run: (text: string) => void;
+    /** More ways to change the state beside the button (close reasons): `act` runs one with the text, as the button does. */
+    more?: ((act: (run: (text: string) => void) => void) => ReactNode) | undefined;
+  } | undefined;
   quote?: boolean;
 }
 
@@ -169,6 +179,13 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     onSave(text, base);
     if (!onCancel) setText('');
   };
+  /** Changes the state with the text (posted with it): the editor empties, as after saving. */
+  const act = (run: (text: string) => void) => {
+    if (hasPendingUploads(text)) return;
+    forget();
+    run(text);
+    change('');
+  };
   const cancel = () => {
     done.current = true;
     pending.current = undefined;
@@ -195,9 +212,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       if (stateAction && e.key === 'Enter' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         e.stopPropagation();
-        forget();
-        stateAction.run(text);
-        change('');
+        act(stateAction.run);
       }
     }}>
       {confirmCancel && <Dialog open size="sm" title="Discard this edit?" description="Your changes can be restored with Undo." onOpenChange={setConfirmCancel} footer={<>
@@ -215,12 +230,12 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
         {onCancel && <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>}
-        {stateAction && <Button size="sm" disabled={hasPendingUploads(text)} onClick={() => {
-          if (hasPendingUploads(text)) return;
-          forget();
-          stateAction.run(text);
-          change('');
-        }}>{stateAction.label(Boolean(text.trim()))}</Button>}
+        {stateAction && <span className="flex items-center gap-1">
+          <Button size="sm" disabled={hasPendingUploads(text)} onClick={() => {
+            act(stateAction.run);
+          }}>{stateAction.label(Boolean(text.trim()))}</Button>
+          {stateAction.more?.(act)}
+        </span>}
         <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} tooltip={`${saveLabel} (works offline)`} disabled={blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers)} onClick={save}>{saveLabel}</Button>
       </div>
     </div>
@@ -506,6 +521,8 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
               intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
             });
           },
+          // An open issue closes with a reason too: not planned, or a duplicate of another issue.
+          more: state === 'open' && !issue.get('is_pull') && issueId > 0 ? (act) => <CloseReasons issue={issue} act={act}/> : undefined,
         } : undefined}
         onSave={(body) => {
           runInAction(() => {
@@ -514,6 +531,75 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
         }}/>
     </div>
   );
+});
+
+/** The words of a duplicate's comment (GitHub's): Forgejo links it both ways, and the timeline reads the close as one. */
+export function duplicateComment(number: number, text: string): string {
+  return `Duplicate of #${String(number)}${text.trim() ? `\n\n${text}` : ''}`;
+}
+
+/** How many issues the duplicate list shows (type to find others). */
+const DUPLICATE_CHOICES = 30;
+
+/**
+ * Closing with a reason (Forgejo has no close reason of its own): "Not planned" sets the repository's canceled
+ * workflow status (status/Canceled, Won't fix, …: a done or canceled status closes the issue), offered only when
+ * the repository has one; "Duplicate of #N" posts that comment (a cross-reference #N shows too) and closes, with the
+ * repository's duplicate status when it has one. The typed comment is posted with either.
+ */
+const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity<'Issue'>; act: (run: (text: string) => void) => void}) {
+  const app = useApp();
+  return (
+    <CommandPopover label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" width="md" options={[]}
+      trigger={<Button size="sm" aria-label="Close with a reason" tooltip="Close as not planned or as a duplicate"><Icon icon={ChevronDown} size="sm"/></Button>}
+      render={(onClose) => <CloseReasonPick issue={issue} onClose={onClose} choose={(reason) => {
+        act((text) => {
+          const {issueId, repoId} = {issueId: issue.id, repoId: issue.get('repo_id')};
+          runInAction(() => {
+            const body = reason.duplicateOf ? duplicateComment(reason.duplicateOf, text) : text;
+            if (body.trim()) editing(app).intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
+            if (reason.status) setWorkflowStatus(app, [issue], reason.status);
+            else changeState(app, [issue], 'closed');
+          });
+        });
+      }}/>}/>
+  );
+});
+
+const CloseReasonPick = observer(function CloseReasonPick({issue, onClose, choose}: {
+  issue: Entity<'Issue'>; onClose: () => void; choose: (reason: {status?: Label | undefined; duplicateOf?: number}) => void;
+}) {
+  const pool = usePool();
+  const [query, setQuery] = useState('');
+  const repoId = issue.get('repo_id');
+  const canceled = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status' && statusStage(scopedValue(l.name)) === 'canceled')
+    .sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
+  const duplicateStatus = canceled.find((l) => /^duplicate/i.test(scopedValue(l.name)));
+  const notPlanned = canceled.find((l) => l !== duplicateStatus);
+  const others = [...pool.model('Issue').by('repo_id', repoId)].map((e) => e.data)
+    .filter((i) => i.id !== issue.id && !i.is_pull && i.number > 0)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  const options: PickOption[] = [];
+  if (notPlanned) {
+    options.push(...matchOptions([{value: 'not-planned', label: 'Not planned', words: `${scopedValue(notPlanned.name)} wontfix canceled`, group: 'Close as',
+      icon: CircleSlash, meta: `status: ${scopedValue(notPlanned.name)}`, onSelect: () => {
+        choose({status: notPlanned});
+      }}], query));
+  }
+  const q = query.trim().replace(/^#/, '');
+  const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
+  // A number not on this device is still a reference Forgejo resolves (an older closed issue).
+  if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) {
+    options.push({value: `number-${String(exact)}`, label: `#${String(exact)}`, group: 'Duplicate of', icon: Copy, onSelect: () => {
+      choose({status: duplicateStatus, duplicateOf: exact});
+    }});
+  }
+  options.push(...matchOptions(others.map((i) => ({value: `issue-${String(i.id)}`, label: `#${String(i.number)} ${i.title}`, group: 'Duplicate of',
+    icon: Copy, meta: i.state === 'closed' ? 'closed' : undefined, onSelect: () => {
+      choose({status: duplicateStatus, duplicateOf: i.number});
+    }})), q).slice(0, DUPLICATE_CHOICES));
+  return <CommandPick label="Close with a reason" placeholder="Not planned, or duplicate of… (number or title)" options={options} filtered query={query} onQueryChange={setQuery}
+    empty="No issue matches. Type its number." onClose={onClose}/>;
 });
 
 /** Changes of yours that overrode someone's newer value (last writer wins), with one-click undo. */

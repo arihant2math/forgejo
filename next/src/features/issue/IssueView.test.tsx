@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, render, screen, waitFor} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
-import {createApp, type Session} from '../../app/store.ts';
+import {type App as AppState, createApp, type Session} from '../../app/store.ts';
+import type {Intent} from '../../intents/intents.ts';
+import {editing} from '../../intents/session.ts';
 import {IntentDb} from '../../intents/store.ts';
-import type {NextConfig} from '../../protocol/types.gen.ts';
+import type {Label, NextConfig} from '../../protocol/types.gen.ts';
 import {comment, fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -21,6 +23,7 @@ beforeEach(() => {
     scrolled.push(this);
   };
   Element.prototype.scrollTo ??= () => undefined;
+  vi.stubGlobal('scrollTo', () => undefined);
   // API v1 (the viewer's permissions) is not asked here: the pool's access rows decide.
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
 });
@@ -107,4 +110,45 @@ test('a long (virtualized) timeline brings the linked comment into view (#210)',
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1055');
   }, {timeout: 4000});
+});
+
+function label(id: number, name: string): Label {
+  return {id, repo_id: 20, org_id: 0, name, exclusive: true, description: '', color: '888888', num_issues: 0, num_closed_issues: 0, created_at: T};
+}
+
+function queued(app: AppState): Intent[] {
+  return [...editing(app).intents.records.values()].map((r) => r.intent);
+}
+
+test('an open issue closes as a duplicate of another: the comment, the duplicate status and the close (#216)', async () => {
+  const s = session('write');
+  s.data.put('Issue', 'repo:20', issue(101, 20, 5, 'Footer links 404', {poster_id: 3}));
+  s.data.put('Label', 'repo:20', label(1, 'status/Todo'));
+  s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
+  s.data.put('Label', 'repo:20', label(3, 'status/Duplicate'));
+  const {app} = await open('/acme/website/issues/7', s);
+  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
+  const field = await screen.findByPlaceholderText(/duplicate of/);
+  expect(screen.getByRole('option', {name: /Not planned/})).toBeTruthy();
+  fireEvent.change(field, {target: {value: '5'}});
+  fireEvent.click(await screen.findByRole('option', {name: /#5 Footer links 404/}));
+  const intents = queued(app);
+  expect(intents).toContainEqual(expect.objectContaining({kind: 'comment.create', issueId: 100, body: 'Duplicate of #5'}));
+  expect(intents).toContainEqual(expect.objectContaining({kind: 'issue.label', issueId: 100, labelId: 3, add: true}));
+  expect(intents).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
+});
+
+test('not planned sets the canceled status (and closes); offered only when the repository has one (#216)', async () => {
+  const s = session('write');
+  s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
+  const {app} = await open('/acme/website/issues/7', s);
+  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
+  fireEvent.click(await screen.findByRole('option', {name: /Not planned/}));
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.label', issueId: 100, labelId: 2, add: true}));
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
+  cleanup();
+  await open('/acme/website/issues/7', session('write'));
+  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
+  await screen.findByPlaceholderText(/duplicate of/);
+  expect(screen.queryByRole('option', {name: /Not planned/})).toBeNull();
 });

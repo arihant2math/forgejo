@@ -57,6 +57,7 @@ import {RunControls} from '../code/RunControls.tsx';
 import {checksOf, cleanDescription, latestStatuses, unfinishedChecks} from './checks.ts';
 import {ApprovalPanel, useMergeCheck} from './Approval.tsx';
 import {bumpMergeCheck, protectionWhy} from './mergeCheck.ts';
+import {mergedMeanwhile} from './merged.ts';
 import {deleteBranch} from '../code/refOps.ts';
 import {mergeOptions} from './mergeStyles.ts';
 import {pullSettingsOf} from '../settings/forms.ts';
@@ -805,11 +806,18 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const write = canWrite(session, pr.base_repo_id);
   const path = repo ? `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}` : '';
   /** An online action: what it did (said when it succeeds), what failed (said with the server's reason). */
-  const run = (words: {done: string; failed: string}, req: Parameters<typeof online>[1]) => {
+  const run = (words: {done: string; failed: string; merging?: boolean}, req: Parameters<typeof online>[1]) => {
     setBusy(true);
     online(app, req).then(() => {
       notify(app, {tone: 'success', title: words.done});
-    }, (err: unknown) => {
+    }, async (err: unknown) => {
+      // A merge refused because someone merged it first: the work is in, not a failure (the page follows the sync).
+      const merged = words.merging ? await mergedMeanwhile(app, err, path, () => pullOf(pool, issue.id)?.merged === true) : undefined;
+      if (merged) {
+        notify(app, {tone: 'neutral', title: 'Already merged', description: `${merged.by ?? 'Someone'} merged this pull request before your merge went through.`});
+        bumpMergeCheck(issue.id);
+        return;
+      }
       // A short, human reason (the server's own words only when they are a sentence for people). Retry only when
       // trying again may help: Forgejo refusing it (a 4xx) would refuse it again.
       notify(app, {tone: 'danger', title: words.failed, description: failureText(err), ...refused(err) ? {} : {action: {label: 'Retry', run: () => {
@@ -926,7 +934,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</Button> :
             checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
-              run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed'},
+              run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
             }}>Merge when checks succeed</Button>}
           {pr.commits_behind > 0 && <div className="flex items-center gap-1">
@@ -964,7 +972,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           setStyle(undefined);
         }} onMerge={(body) => {
           setStyle(undefined);
-          run({done: `Merged into ${pr.base_branch}`, failed: 'Merging failed'}, {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style, ...body, ...seen}, timeout: 60_000});
+          run({done: `Merged into ${pr.base_branch}`, failed: 'Merging failed', merging: true}, {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style, ...body, ...seen}, timeout: 60_000});
         }}/>
       )}
     </Card></div>

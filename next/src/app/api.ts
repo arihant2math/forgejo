@@ -27,6 +27,9 @@ export interface OnlineRequest {
   timeout?: number;
 }
 
+/** A refusal's message when Forgejo gave none. */
+const answered = (status: number) => `Forgejo answered ${String(status)}.`;
+
 /** A request that failed: the server's message when it gave one. */
 export class RequestFailed extends Error {
   override name = 'RequestFailed';
@@ -93,7 +96,7 @@ export async function send<T>(app: App, req: OnlineRequest): Promise<Written<T>>
   }
   if (!res.ok) {
     const msg = json && typeof json === 'object' && typeof (json as {message?: unknown}).message === 'string' ? (json as {message: string}).message : '';
-    throw new RequestFailed(res.status, msg || `Forgejo answered ${String(res.status)}.`);
+    throw new RequestFailed(res.status, msg || answered(res.status));
   }
   const v = Number(res.headers.get(HeaderSyncID));
   const count = res.headers.get('X-Total-Count');
@@ -113,7 +116,10 @@ export function refused(err: unknown): boolean {
  */
 export function failureText(err: unknown): string {
   const status = err instanceof RequestFailed ? err.status : 0;
-  const said = err instanceof Error ? err.message.trim() : '';
+  const raw = err instanceof Error ? err.message.trim() : '';
+  // send() names the status when Forgejo gave no message ("Forgejo answered 405."): that is no reason, so the
+  // sentence for the status says what to do instead.
+  const said = err instanceof RequestFailed && raw === answered(status) ? '' : raw;
   if (/not allowed to merge|not in mergeable state|User not allowed to merge PR/i.test(said)) {
     if (/enough approvals/i.test(said)) return 'More approvals are required before this pull request can be merged.';
     if (/reject|change.?request/i.test(said)) return 'A change request is blocking this merge.';

@@ -213,6 +213,29 @@ describe('the issue\'s status (#192)', () => {
   });
 });
 
+describe('the Labels picker\'s selection semantics (#179)', () => {
+  test('the applied labels are the selected options; the highlighted one is not', async () => {
+    const s = session();
+    s.data.put('Label', 'repo:20', label(2, 'docs'));
+    s.data.put('IssueLabel', 'repo:20', {id: 2, issue_id: 103, label_id: 2});
+    await renderApp('/acme/website/issues/9', s);
+    fireEvent.click(await screen.findByRole('button', {name: /^Labels/}));
+    const list = await screen.findByRole('listbox', {name: 'Change labels'});
+    expect(list.getAttribute('aria-multiselectable')).toBe('true');
+    const bug = within(list).getByRole('option', {name: 'bug'});
+    // The cursor opens on "bug" (not applied): highlighted, the combobox's active descendant, not selected.
+    expect(bug.hasAttribute('data-highlighted')).toBe(true);
+    expect(screen.getByRole('combobox', {name: 'Change labels'}).getAttribute('aria-activedescendant')).toBe(bug.id);
+    expect(bug.getAttribute('aria-selected')).toBe('false');
+    expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['docs']);
+    // Applying "bug" makes it selected.
+    fireEvent.click(bug);
+    await waitFor(() => {
+      expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['bug', 'docs']);
+    });
+  });
+});
+
 describe('the Labels picker and status/priority labels (#215)', () => {
   test('a search that names a status or priority label finds it under its field, which sets it', () => {
     const s = session();

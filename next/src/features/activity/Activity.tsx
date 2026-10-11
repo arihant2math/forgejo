@@ -98,7 +98,7 @@ const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner
     if (sha) void src.contributors(repoId, sha).catch(() => undefined);
   };
   return (
-    <nav aria-label="Activity pages" className="flex shrink-0 flex-col gap-px border-b border-border p-2 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
+    <nav aria-label="Activity pages" className="flex shrink-0 flex-col gap-px border-b border-default p-2 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
       {SECTIONS.map((s) => (
         <NavItem key={s.id} asChild icon={s.icon} label={s.label} onPointerEnter={s.id === 'pulse' ? undefined : warm} onFocus={s.id === 'pulse' ? undefined : warm}>
           <Link to={SECTION_ROUTES[s.id]} params={{owner, repo}} aria-current={s.id === section ? 'page' : undefined} activeProps={{}} activeOptions={{exact: true}}/>
@@ -133,7 +133,7 @@ function PeriodMenu({period}: {period: Period}) {
   return (
     <ActionMenu>
       <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" aria-label={`Period: ${periodLabel(period)}`}>
-          <span className="text-fg-muted">Period:</span>{periodLabel(period)}<ChevronDownIcon size={12} className="shrink-0"/>
+          <span className="text-muted">Period:</span>{periodLabel(period)}<ChevronDownIcon size={12} className="shrink-0"/>
         </Button></ActionMenu.Anchor>
       <ActionMenu.Overlay><ActionList>
         <ActionList.Group selectionVariant="single">
@@ -191,10 +191,10 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   const range = `${shortDate(new Date(from).toISOString(), 0)} – ${shortDate(new Date(now).toISOString(), 0)}`;
   return (
     <>
-      <Panel label="Overview" title={<><span className="text-fg">Overview</span><span>{range}</span></>}>
+      <Panel label="Overview" title={<><span className="text-default">Overview</span><span>{range}</span></>}>
         {loading ? <OverviewSkeleton/> : (
           <div className="flex flex-col">
-            <div className="flex flex-col gap-4 border-b border-border-subtle p-4 @xl:flex-row">
+            <div className="flex flex-col gap-4 border-b border-muted p-4 @xl:flex-row">
               <Share title={`${count(p.activePulls)} active pull ${plural(p.activePulls, 'request')}`} a={p.merged.items.length} b={p.opened.items.length}
                 aLabel="merged" bLabel="open"/>
               <Share title={`${count(p.activeIssues)} active ${plural(p.activeIssues, 'issue')}`} a={p.closed.items.length} b={p.created.items.length}
@@ -212,7 +212,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
       {long && <OlderNote pager={pager}/>}
       <Commits owner={owner} repo={repo} repoId={repoId} from={from}/>
       {p.releases.items.length > 0 && (
-        <Panel label="Releases" title={<><TagIcon size={12} className="shrink-0"/><span className="text-fg">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span>by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
+        <Panel label="Releases" title={<><TagIcon size={12} className="shrink-0"/><span className="text-default">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span>by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
           {p.releases.items.slice(0, MAX_ROWS).map((r) => <ReleaseItem key={r.id} owner={owner} repo={repo} release={r.release}/>)}
         </Panel>
       )}
@@ -247,7 +247,7 @@ function OverviewSkeleton() {
 function Share({title, a, b, aLabel, bLabel}: {title: string; a: number; b: number; aLabel: string; bLabel: string}) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <span className="text-md font-medium text-fg tabular-nums">{title}</span>
+      <span className="text-md font-medium text-default tabular-nums">{title}</span>
       <Split a={a} b={b} label={`${count(a)} ${aLabel}, ${count(b)} ${bLabel}`}/>
     </div>
   );
@@ -257,9 +257,9 @@ const TONES = {done: 'text-done', success: 'text-success'} as const;
 
 function Stat({href, icon, tone, value, label}: {href: string; icon: OcticonType; tone: keyof typeof TONES; value: number; label: string}) {
   return (
-    <a href={href} className="interactive flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-3 text-center hover:bg-hover focus-visible:focus-inset">
+    <a href={href} className="interactive flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-3 text-center hover:bg-control-transparent-hover focus-visible:focus-inset">
       <span className={cx('flex items-center gap-1.5 text-xl font-semibold tabular-nums', TONES[tone])}><Icon icon={icon}/>{count(value)}</span>
-      <span className="text-sm text-fg-muted">{label}</span>
+      <span className="text-sm text-muted">{label}</span>
     </a>
   );
 }
@@ -269,7 +269,7 @@ const OlderNote = observer(function OlderNote({pager}: {pager: ReturnType<typeof
   if (pager.done) return null;
   const offline = !connectivity.online;
   return (
-    <p role="status" className="flex items-center gap-2 text-sm text-fg-subtle">
+    <p role="status" className="flex items-center gap-2 text-sm text-muted">
       {offline && <CloudOfflineIcon size={12} className="shrink-0"/>}
       {offline ?
         'Older closed issues and pull requests are not all on this device: the counts may miss some until you are online.' :
@@ -300,7 +300,7 @@ function List({id, icon, title, noun, items, authors, at, all, hint}: {
     <section id={id} className="scroll-mt-4">
       <Panel label={`${title} ${noun}s`} title={<>
         <Icon icon={icon} size="sm"/>
-        <span className="text-fg tabular-nums">{count(items.length)} {title} {plural(items.length, noun)}</span>
+        <span className="text-default tabular-nums">{count(items.length)} {title} {plural(items.length, noun)}</span>
         {authors !== undefined && <span className="tabular-nums">by {count(authors)} {plural(authors, 'person', 'people')}</span>}
         {hint && <span className="truncate max-md:hidden">· {hint}</span>}
       </>} actions={items.length > shown.length ? (
@@ -362,7 +362,7 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
       <Avatar name={name !== '' ? name : '?'} src={who.avatar_url !== '' ? who.avatar_url : undefined} size={size}/>
       {who.login ?
         <TextLink><Link to="/$owner" params={{owner: who.login}} className="truncate">{name}</Link></TextLink> :
-        <span className="truncate text-fg">{name !== '' ? name : 'Someone'}</span>}
+        <span className="truncate text-default">{name !== '' ? name : 'Someone'}</span>}
     </>
   );
 }
@@ -370,11 +370,11 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
 /** Commits of the period on the default branch, and who made them (from the cached year of history). */
 const Commits = observer(function Commits({owner, repo, repoId, from}: {owner: string; repo: string; repoId: number; from: number}) {
   const {branch, sha, empty} = useHead(repoId);
-  const title = <><GitCommitIcon size={12} className="shrink-0"/><span className="text-fg">Commits</span>{branch && <span className="font-mono">{branch}</span>}</>;
+  const title = <><GitCommitIcon size={12} className="shrink-0"/><span className="text-default">Commits</span>{branch && <span className="font-mono">{branch}</span>}</>;
   if (!sha) {
     return (
       <Panel label="Commits" title={title} padded>
-        <p className="text-sm text-fg-muted">{empty ? 'This repository has no commits yet.' : 'Its branches are not on this device yet.'}</p>
+        <p className="text-sm text-muted">{empty ? 'This repository has no commits yet.' : 'Its branches are not on this device yet.'}</p>
       </Panel>
     );
   }
@@ -400,15 +400,15 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
   return (
     <Panel label="Commits" title={title} padded>
       <div className="flex flex-col gap-4">
-        <p className="text-base text-fg-muted">
-          Excluding merges, <strong className="font-semibold text-fg">{atLeast}{count(s.authors.length)} {plural(s.authors.length, 'author')}</strong>{' '}
-          {s.authors.length === 1 ? 'has' : 'have'} pushed <strong className="font-semibold text-fg">{atLeast}{count(s.commits)} {plural(s.commits, 'commit')}</strong> to{' '}
+        <p className="text-base text-muted">
+          Excluding merges, <strong className="font-semibold text-default">{atLeast}{count(s.authors.length)} {plural(s.authors.length, 'author')}</strong>{' '}
+          {s.authors.length === 1 ? 'has' : 'have'} pushed <strong className="font-semibold text-default">{atLeast}{count(s.commits)} {plural(s.commits, 'commit')}</strong> to{' '}
           <span className="font-mono">{branch}</span>, with <span className="text-success tabular-nums">{count(s.additions)} {plural(s.additions, 'addition')}</span> and{' '}
           <span className="text-danger tabular-nums">{count(s.deletions)} {plural(s.deletions, 'deletion')}</span>.
         </p>
         {top.length > 0 && (
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium text-fg">Top committers</h3>
+            <h3 className="text-sm font-medium text-default">Top committers</h3>
             <ol className="flex flex-col gap-1.5">
               {top.map(({author, commits}) => {
                 const who = a.authors[author] ?? {name: 'Someone', login: '', avatar_url: ''};
@@ -417,7 +417,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
                     <span className="flex w-32 min-w-0 shrink-0 items-center gap-2 @xl:w-48"><Author who={who} size="sm"/></span>
                     <span className="flex min-w-0 flex-1 items-center gap-2">
                       <Meter value={commits} max={most}/>
-                      <span className="w-20 shrink-0 text-right text-sm text-fg-muted tabular-nums">{count(commits)} {plural(commits, 'commit')}</span>
+                      <span className="w-20 shrink-0 text-right text-sm text-muted tabular-nums">{count(commits)} {plural(commits, 'commit')}</span>
                     </span>
                   </li>
                 );
@@ -425,7 +425,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
             </ol>
           </div>
         )}
-        <p className="text-sm text-fg-subtle">
+        <p className="text-sm text-muted">
           <RouterLink to="/$owner/$repo/activity/contributors" params={{owner, repo}} muted className="min-w-0 truncate">All contributors</RouterLink>
         </p>
       </div>
@@ -466,7 +466,7 @@ function ChartSkeleton({rows = 1}: {rows?: number}) {
   return (
     <div className="flex flex-col gap-4" aria-busy>
       {Array.from({length: rows}, (_, i) => (
-        <div key={i} className="flex flex-col gap-2 rounded-md border border-border p-4">
+        <div key={i} className="flex flex-col gap-2 rounded-md border border-default p-4">
           <SkeletonBox className="h-3 w-48"/>
           <Skeleton className={i === 0 ? 'h-40 w-full' : 'h-12 w-full'}/>
         </div>
@@ -502,7 +502,7 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
   const rest = stats.contributors.slice(MAX_CONTRIBUTORS);
   return (
     <>
-      <Panel label="Commits over time" title={<><span className="text-fg">Commits to <span className="font-mono">{branch}</span></span><span>excluding merges</span></>} padded>
+      <Panel label="Commits over time" title={<><span className="text-default">Commits to <span className="font-mono">{branch}</span></span><span>excluding merges</span></>} padded>
         <ColumnChart label={`Commits per week to ${branch}`} size="lg" unit="commits"
           columns={total.map((w) => ({label: weekLabel(w.week), value: w.commits}))}
           caption={`${count(commits)} ${plural(commits, 'commit')} by ${count(stats.contributors.length)} ${plural(stats.contributors.length, 'contributor')}`}
@@ -514,15 +514,15 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
           const add = c.weeks.reduce((n, w) => n + w.additions, 0);
           const del = c.weeks.reduce((n, w) => n + w.deletions, 0);
           return (
-            <li key={`${c.login}:${c.name}:${String(i)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-surface p-3">
+            <li key={`${c.login}:${c.name}:${String(i)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-default bg-default p-3">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="flex min-w-0 flex-col">
                   <span className="flex min-w-0 items-center gap-2 font-medium"><Author who={c} size="md"/></span>
-                  <span className="text-sm text-fg-muted tabular-nums">
+                  <span className="text-sm text-muted tabular-nums">
                     {count(c.commits)} {plural(c.commits, 'commit')} · <span className="text-success">+{count(add)}</span> <span className="text-danger">−{count(del)}</span>
                   </span>
                 </div>
-                <span className="ml-auto text-sm text-fg-subtle tabular-nums">#{i + 1}</span>
+                <span className="ml-auto text-sm text-muted tabular-nums">#{i + 1}</span>
               </div>
               <ColumnChart label={`Commits per week by ${c.name || c.login}`} size="sm" unit="commits" columns={weeks.map((w) => ({label: weekLabel(w.week), value: w.commits}))}/>
             </li>
@@ -530,7 +530,7 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
         })}
       </ol>
       {rest.length > 0 && (
-        <p className="text-sm text-fg-muted">
+        <p className="text-sm text-muted">
           And {count(rest.length)} more: {rest.map((c) => `${c.name || c.login} (${count(c.commits)})`).join(', ')}.
         </p>
       )}
@@ -548,7 +548,7 @@ export function ActivityCodeFrequency() {
             const add = weeks.reduce((n, w) => n + w.additions, 0);
             const del = weeks.reduce((n, w) => n + w.deletions, 0);
             return (
-              <Panel label="Code frequency" title={<><span className="text-fg">Additions and deletions per week</span><span className="font-mono">{branch}</span></>} padded>
+              <Panel label="Code frequency" title={<><span className="text-default">Additions and deletions per week</span><span className="font-mono">{branch}</span></>} padded>
                 <DivergingChart label={`Lines added and deleted per week on ${branch}`}
                   columns={weeks.map((w) => ({label: weekLabel(w.week), up: w.additions, down: w.deletions}))}
                   caption={<><span className="text-success">{count(add)} {plural(add, 'addition')}</span>, <span className="text-danger">{count(del)} {plural(del, 'deletion')}</span> in all</>}
@@ -579,7 +579,7 @@ function RecentCommits({stats, branch}: {stats: APIContributors; branch: string}
   const weeks = lastWeeks(stats.total, 52, now);
   const commits = weeks.reduce((n, w) => n + w.commits, 0);
   return (
-    <Panel label="Recent commits" title={<><span className="text-fg">Commits per week, the last year</span><span className="font-mono">{branch}</span></>} padded>
+    <Panel label="Recent commits" title={<><span className="text-default">Commits per week, the last year</span><span className="font-mono">{branch}</span></>} padded>
       <ColumnChart label={`Commits per week to ${branch} in the last 52 weeks`} size="lg" unit="commits"
         columns={weeks.map((w) => ({label: weekLabel(w.week), value: w.commits}))}
         caption={`${count(commits)} ${plural(commits, 'commit')} in the last 52 weeks`}

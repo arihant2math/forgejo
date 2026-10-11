@@ -112,11 +112,11 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
   }
   return <section ref={root} aria-label="Artifacts">
     <SectionHeading>Artifacts</SectionHeading>
-    {!onlineNow && <p className="px-4 py-3 text-sm text-fg-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
-    {!done && <p className="px-4 py-3 text-sm text-fg-muted">Artifacts will be available when this run finishes.</p>}
-    {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-fg-muted">Loading artifacts…</p>}
+    {!onlineNow && <p className="px-4 py-3 text-sm text-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
+    {!done && <p className="px-4 py-3 text-sm text-muted">Artifacts will be available when this run finishes.</p>}
+    {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-muted">Loading artifacts…</p>}
     {error && <Callout tone="danger" title="Artifacts not loaded">{error} <Button size="small" type="button" disabled={!onlineNow} onClick={() => { setAttempt((n) => n + 1); }}>Retry</Button></Callout>}
-    {items?.length === 0 && <p className="px-4 py-3 text-sm text-fg-muted">No artifacts for this run.</p>}
+    {items?.length === 0 && <p className="px-4 py-3 text-sm text-muted">No artifacts for this run.</p>}
     {items?.map((artifact) => {
       const expiry = artifactExpiry(artifact);
       const disabled = !onlineNow || expiry === 'Expired' || busy !== undefined;

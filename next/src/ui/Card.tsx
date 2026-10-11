@@ -8,7 +8,7 @@ import type {ReactNode} from 'react';
  * the one card look. `label` names it as a region.
  */
 export function Card({children, label, as: Tag = 'div'}: {children: ReactNode; label?: string | undefined; as?: 'div' | 'article' | 'section'}) {
-  return <Tag aria-label={label} className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-surface p-3">{children}</Tag>;
+  return <Tag aria-label={label} className="flex min-w-0 flex-col gap-2 rounded-md border border-default bg-default p-3">{children}</Tag>;
 }
 
 /**
@@ -18,8 +18,8 @@ export function Card({children, label, as: Tag = 'div'}: {children: ReactNode; l
  */
 export function Panel({title, actions, label, id, padded = false, children}: {title: ReactNode; actions?: ReactNode; label?: string | undefined; id?: string | undefined; padded?: boolean; children: ReactNode}) {
   return (
-    <section id={id} aria-label={label} className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border bg-surface">
-      <header className="flex h-row shrink-0 items-center gap-2 border-b border-border-subtle bg-canvas px-3 text-sm text-fg-muted">
+    <section id={id} aria-label={label} className="flex min-w-0 flex-col overflow-hidden rounded-md border border-default bg-default">
+      <header className="flex h-row shrink-0 items-center gap-2 border-b border-muted bg-inset px-3 text-sm text-muted">
         <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{title}</span>
         {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
       </header>

@@ -181,7 +181,7 @@ export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, 
 }
 
 const ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
-const TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-warning'} as const;
+const TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
 const WORDS = {success: 'Checks passed', failure: 'Some checks failed', pending: 'Checks are not done yet'} as const;
 
 /** What a mark leads to: the first failed check that opens in the app, else the commit's checks. */
@@ -217,7 +217,7 @@ export const CommitCheckMark = observer(function CommitCheckMark({owner, repo, r
 /** A commit's checks on its page (#checks), each leading to its run's job or its target. */
 export const CommitChecksSection = observer(function CommitChecksSection({owner, repo, repoId, sha}: {owner: string; repo: string; repoId: number; sha: string}) {
   const c = useCommitChecks(owner, repo, {base_repo_id: repoId, head_repo_id: repoId}, sha);
-  if (c === 'error') return <p className="text-sm text-fg-subtle">This commit’s checks could not be loaded.</p>;
+  if (c === 'error') return <p className="text-sm text-muted">This commit’s checks could not be loaded.</p>;
   if (!c || c.summary === 'none') return null;
   return (
     <section id="checks" aria-label="Checks" className="flex flex-col gap-1">
@@ -230,7 +230,7 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
           return (
             <li key={it.key} className="flex flex-wrap items-center gap-2">
               <StatusDot tone={look.tone}/>{name}
-              <span className="text-fg-subtle">{look.text}{it.description ? ` · ${it.description}` : ''}</span>
+              <span className="text-muted">{look.text}{it.description ? ` · ${it.description}` : ''}</span>
             </li>
           );
         })}

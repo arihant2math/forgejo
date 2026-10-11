@@ -43,7 +43,7 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
     <div className="flex flex-col gap-3 p-1">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-md font-semibold text-fg">Clone</h2>
+          <h2 className="text-md font-semibold text-default">Clone</h2>
           {ssh !== undefined && (
             <SegmentedControl label="Clone over" value={shown} onChange={setProtocol} options={[{value: 'https', label: 'HTTPS'}, {value: 'ssh', label: 'SSH'}]}/>
           )}
@@ -51,10 +51,10 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
         <CopyField value={url} label={`Clone URL (${shown === 'ssh' ? 'SSH' : 'HTTPS'})`} copyLabel="Copy the clone URL" onCopy={() => {
           onCopy(url);
         }}/>
-        <p className="text-sm text-fg-subtle">{HINTS[shown]}</p>
+        <p className="text-sm text-muted">{HINTS[shown]}</p>
       </div>
       {archives.length > 0 && (
-        <div className="border-t border-border pt-3">
+        <div className="border-t border-default pt-3">
           <AsideLinks label="Download">
             {archives.map((a) => (
               <AsideLink key={a.format} icon={FileZipIcon}><a href={a.href} download>{ARCHIVE_LABELS[a.format]}</a></AsideLink>

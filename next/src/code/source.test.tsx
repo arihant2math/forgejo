@@ -71,7 +71,7 @@ test('a file is highlighted by blob SHA even when the worker takes long (progres
   // In memory: the file switched back to paints highlighted in its first frame.
   expect(src.peekHighlight(7, SHA, 'src/value.ts')).toBe(hl);
   const {container} = render(<CodeLine gutter={<LineNo n={1}/>}><CodeTokens text={TEXT.split('\n')[0] ?? ''} hl={hl} line={0}/></CodeLine>);
-  expect(container.querySelector('.text-syn-keyword')?.textContent).toBe('export');
+  expect(container.querySelector('.text-syntax-keyword')?.textContent).toBe('export');
   expect(container.textContent).toContain('export const value0: number = 0 * 2; // line 0');
   src.close();
 });

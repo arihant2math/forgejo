@@ -15,8 +15,8 @@ import {Icon, type LucideIcon} from './Icon.tsx';
 export function AsideSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="flex min-w-0 flex-col gap-3 border-t border-border py-4 first:border-t-0 first:pt-0">
-      <h2 className="flex min-w-0 items-center gap-2 text-md font-semibold text-fg">
+    <section aria-labelledby={id} className="flex min-w-0 flex-col gap-3 border-t border-default py-4 first:border-t-0 first:pt-0">
+      <h2 className="flex min-w-0 items-center gap-2 text-md font-semibold text-default">
         <span id={id} className="flex min-w-0">{title}</span>
         {count !== undefined && <Badge round>{count}</Badge>}
       </h2>
@@ -31,8 +31,8 @@ export function AsideLinks({label, children}: {label?: string | undefined; child
 }
 
 const linkTones = {
-  muted: 'text-fg-muted hover:text-accent-fg',
-  accent: 'font-semibold text-accent-fg hover:underline',
+  muted: 'text-muted hover:text-accent',
+  accent: 'font-semibold text-accent hover:underline',
 } as const;
 
 /**
@@ -44,7 +44,7 @@ export function AsideLink({icon, count, tone = 'muted', children}: {icon: Lucide
     <li className="flex min-w-0">
       <Slot.Root className={cx('interactive group flex min-w-0 items-center gap-2 text-base', linkTones[tone])}>
         <Icon icon={icon} size="sm"/>
-        {count !== undefined && <span className="font-semibold text-fg tabular-nums group-hover:text-accent-fg">{count}</span>}
+        {count !== undefined && <span className="font-semibold text-default tabular-nums group-hover:text-accent">{count}</span>}
         <Slot.Slottable>{children}</Slot.Slottable>
       </Slot.Root>
     </li>
@@ -55,7 +55,7 @@ export function AsideLink({icon, count, tone = 'muted', children}: {icon: Lucide
 export type ShareTone = 1 | 2 | 3 | 4 | 5 | 'other';
 
 const fills: Record<ShareTone, string> = {
-  1: 'bg-series-1', 2: 'bg-series-2', 3: 'bg-series-3', 4: 'bg-series-4', 5: 'bg-series-5', other: 'bg-fg-subtle',
+  1: 'bg-data-blue', 2: 'bg-data-orange', 3: 'bg-data-green', 4: 'bg-data-yellow', 5: 'bg-data-pink', other: 'bg-neutral-emphasis',
 };
 
 export interface Share {
@@ -89,8 +89,8 @@ export function ShareBar({label, shares}: {label: string; shares: readonly Share
         {shares.map((s) => (
           <li key={s.label} className="flex min-w-0 items-center gap-1.5">
             <span aria-hidden className={cx('size-2 shrink-0 rounded-full', fills[s.tone])}/>
-            <span className="font-semibold text-fg">{s.label}</span>
-            <span className="text-fg-muted tabular-nums">{percent(s.value, total)}</span>
+            <span className="font-semibold text-default">{s.label}</span>
+            <span className="text-muted tabular-nums">{percent(s.value, total)}</span>
           </li>
         ))}
       </ul>

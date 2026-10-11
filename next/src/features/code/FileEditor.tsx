@@ -53,10 +53,10 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
       history(), search({top: true}), highlightSelectionMatches(), keymap.of([...searchKeymap, {key: 'Mod-h', mac: 'Mod-Alt-f', run: openReplace, preventDefault: true}, ...defaultKeymap, ...historyKeymap]), lineNumbers(), paint.of([]), wrapping.of([]),
       EditorView.contentAttributes.of({'aria-label': 'File contents'}),
       EditorView.theme({
-        '&': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'},
-        '.cm-panels': {backgroundColor: 'var(--color-surface)', color: 'var(--color-fg)'}, '.cm-panels-top': {borderBottom: '1px solid var(--color-border)'},
-        '.cm-panel.cm-search input, .cm-panel.cm-search button': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)', border: '1px solid var(--color-border)', borderRadius: '4px'},
-        '.cm-searchMatch': {backgroundColor: 'var(--color-accent-subtle)', outline: '1px solid var(--color-accent)'}, '.cm-searchMatch.cm-searchMatch-selected': {backgroundColor: 'var(--color-canvas-selected)'},
+        '&': {color: 'var(--fgColor-default)', backgroundColor: 'var(--bgColor-inset)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'},
+        '.cm-panels': {backgroundColor: 'var(--bgColor-default)', color: 'var(--fgColor-default)'}, '.cm-panels-top': {borderBottom: '1px solid var(--borderColor-default)'},
+        '.cm-panel.cm-search input, .cm-panel.cm-search button': {color: 'var(--fgColor-default)', backgroundColor: 'var(--bgColor-inset)', border: '1px solid var(--borderColor-default)', borderRadius: '4px'},
+        '.cm-searchMatch': {backgroundColor: 'var(--bgColor-accent-muted)', outline: '1px solid var(--bgColor-accent-emphasis)'}, '.cm-searchMatch.cm-searchMatch-selected': {backgroundColor: 'var(--control-transparent-bgColor-selected)'},
       }),
       EditorView.updateListener.of((u) => { if (u.docChanged) callback.current(u.state.doc.toString()); }),
     ]})});
@@ -75,7 +75,7 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
       void source.snippet(lang, value).then((hl) => {
         const v = view.current;
         if (!active || !v || !hl || v.state.doc.toString() !== value) return;
-        const classes = ['', 'text-syn-keyword', 'text-syn-string', 'text-syn-comment', 'text-syn-function', 'text-syn-constant', 'text-syn-parameter', 'text-fg-muted', 'text-accent-fg'];
+        const classes = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'];
         const marks = [];
         for (let line = 0; line < hl.starts.length - 1 && line < v.state.doc.lines; line++) {
           let pos = v.state.doc.line(line + 1).from;

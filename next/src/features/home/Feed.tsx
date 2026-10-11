@@ -45,7 +45,7 @@ export default observer(function Feed() {
     }, 100);
     return () => { active = false; controller.abort(); clearTimeout(timer); };
   }, [app, cache, connected]);
-  return <Panel label="Activity" title={<span className="text-fg">Activity</span>} actions={
+  return <Panel label="Activity" title={<span className="text-default">Activity</span>} actions={
     <Select aria-label="Activity context" size="sm" value={context} onValueChange={setContext}
       options={[{value: '', label: 'You'}, ...orgs.map((o) => ({value: o.username, label: o.username}))]}/>
   }>
@@ -118,9 +118,9 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
   }), [session, cache]);
 
   return <div aria-busy={busy}>
-    {saved && <p className="px-3 py-2 text-xs text-fg-subtle">{connected ? 'Last fetched' : 'Offline · last fetched'} <AgoCell at={saved.at}/></p>}
-    {!connected && !saved && <p className="px-3 py-2 text-sm text-fg-muted">Activity loads when you are online.</p>}
-    {error && <p role="alert" className="px-3 py-2 text-sm text-fg-muted">{error}</p>}
+    {saved && <p className="px-3 py-2 text-xs text-muted">{connected ? 'Last fetched' : 'Offline · last fetched'} <AgoCell at={saved.at}/></p>}
+    {!connected && !saved && <p className="px-3 py-2 text-sm text-muted">Activity loads when you are online.</p>}
+    {error && <p role="alert" className="px-3 py-2 text-sm text-muted">{error}</p>}
     {feedDays(actions).map(([day, rows]) => <div key={day}>
       <SectionHeading>{day}</SectionHeading>
       {rows.map((a) => {
@@ -130,7 +130,7 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
           leading={<Avatar name={a.act_user.login} src={a.act_user.avatar_url}/>} trailing={<AgoCell at={a.created}/>}>{entry.text}</ListRow>;
       })}
     </div>)}
-    {connected && ready && !busy && !error && !actions.length && <p className="px-3 py-2 text-sm text-fg-muted">No recent activity. Watch repositories or follow people to see their updates here.</p>}
+    {connected && ready && !busy && !error && !actions.length && <p className="px-3 py-2 text-sm text-muted">No recent activity. Watch repositories or follow people to see their updates here.</p>}
     {connected && <div className="px-3 py-2">
       <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
       {saved?.more && !error && <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}

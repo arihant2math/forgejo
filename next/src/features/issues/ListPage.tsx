@@ -135,7 +135,7 @@ const ClosedFooter = observer(function ClosedFooter({pager}: {pager: ReturnType<
   const text = pager.loading ?
     'Loading older closed items…' :
     pager.done ? `All older closed items are here (${String(pager.count)} loaded).` : `${String(pager.count)} older closed items loaded; more load as you scroll.`;
-  return <p role="status" className="px-3 py-2 text-sm text-fg-subtle">{text}</p>;
+  return <p role="status" className="px-3 py-2 text-sm text-muted">{text}</p>;
 });
 
 const widths = ['w-64', 'w-48', 'w-72', 'w-56', 'w-40', 'w-60'];

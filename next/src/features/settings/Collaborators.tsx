@@ -108,8 +108,8 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
         e.preventDefault();
         field.focus();
       }}>
-        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-          <span className="text-sm text-fg-muted">Role</span>
+        <div className="flex items-center justify-between gap-2 border-b border-default px-3 py-2">
+          <span className="text-sm text-muted">Role</span>
           <SegmentedControl label="Role" value={role} onChange={setRole} options={ROLES}/>
         </div>
         <PeopleSearch members={members} onPick={(u) => {

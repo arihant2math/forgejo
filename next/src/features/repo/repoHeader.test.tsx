@@ -92,8 +92,8 @@ describe('the repository header', () => {
     expect(within(tabs).getByRole('link', {name: /^Pull requests\s?1$/})).toBeTruthy();
     expect(within(tabs).getByRole('link', {name: 'Code'})).toBeTruthy();
     expect(issues.getAttribute('aria-current')).toBe('page');
-    expect(issues.className).toContain('aria-[current=page]:after:bg-accent');
-    expect(issues.className).not.toContain('bg-selected');
+    expect(issues.className).toContain('aria-[current=page]:after:bg-accent-emphasis');
+    expect(issues.className).not.toContain('bg-control-transparent-selected');
     expect(classConflicts(container)).toEqual([]);
   });
 });

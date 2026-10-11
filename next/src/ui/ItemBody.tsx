@@ -19,9 +19,9 @@ export interface ItemBodyProps {
 export function ItemBody({icon, leading, meta, shortcut, children}: ItemBodyProps) {
   return (
     <>
-      {icon ? <Icon icon={icon} className="text-fg-muted group-data-disabled:text-fg-subtle"/> : leading}
+      {icon ? <Icon icon={icon} className="text-muted group-data-disabled:text-muted"/> : leading}
       <span className={meta === undefined ? 'min-w-0 flex-1 truncate' : 'min-w-0 truncate'}>{children}</span>
-      {meta !== undefined && <span className="min-w-0 flex-1 truncate text-sm text-fg-subtle">{meta}</span>}
+      {meta !== undefined && <span className="min-w-0 flex-1 truncate text-sm text-muted">{meta}</span>}
       {shortcut && <Shortcut keys={shortcut} className="group-data-disabled:opacity-disabled"/>}
     </>
   );

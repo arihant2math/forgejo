@@ -42,7 +42,7 @@ export function DiffSettings() {
       <div className="flex flex-col gap-3 p-3">
         <SegmentedControl label="Diff layout" value={s.split ? 'split' : 'unified'} options={[{value: 'unified', label: 'Unified'}, {value: 'split', label: 'Split'}]} onChange={(v) => { s.set(v === 'split', s.hide); }}/>
         <FormControl><Checkbox checked={s.hide} onChange={(event) => { const v = event.target.checked; s.set(s.split, v); }}/><FormControl.Label>Hide whitespace changes</FormControl.Label></FormControl>
-        {s.hide && <p className="text-xs text-fg-muted">Hidden changes cannot receive line comments.</p>}
+        {s.hide && <p className="text-xs text-muted">Hidden changes cannot receive line comments.</p>}
       </div>
     </PopoverContent>
   </Popover>;

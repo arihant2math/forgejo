@@ -34,7 +34,7 @@ import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
 /** A milestone's entry in the list (and its skeleton's). */
-const ENTRY = 'flex flex-col gap-2 border-b border-border-subtle px-3 py-3 last:border-b-0';
+const ENTRY = 'flex flex-col gap-2 border-b border-muted px-3 py-3 last:border-b-0';
 
 export function MilestonesPage() {
   const {owner, repo, repoId} = useRepoPage();
@@ -136,21 +136,21 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
     <li className={cx(ENTRY, '@xl:flex-row @xl:gap-6')}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h3 className="flex min-w-0 items-center gap-2 text-md font-semibold">
-          {temp ? <span className="truncate text-fg">{m.title}</span> :
+          {temp ? <span className="truncate text-default">{m.title}</span> :
             <RouterLink to="/$owner/$repo/milestone/$index" params={params} muted className="min-w-0 truncate">{m.title}</RouterLink>}
           {isPending('Milestone', m.id) && <PendingIcon label="Saving to Forgejo"/>}
           {late && <Label variant="danger">Overdue</Label>}
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <DueLine m={m}/>
-          <span className="text-fg-subtle">Updated <time dateTime={m.updated_at} title={fullDate(m.updated_at)}>{ago(m.updated_at)}</time></span>
+          <span className="text-muted">Updated <time dateTime={m.updated_at} title={fullDate(m.updated_at)}>{ago(m.updated_at)}</time></span>
         </div>
-        {m.description && <p className="truncate text-base text-fg-muted">{excerpt(m.description)}</p>}
+        {m.description && <p className="truncate text-base text-muted">{excerpt(m.description)}</p>}
       </div>
       <div className="flex shrink-0 flex-col gap-2 @xl:w-80">
         <ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted tabular-nums">
-          <span className="font-semibold text-fg">{p.percent}% complete</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted tabular-nums">
+          <span className="font-semibold text-default">{p.percent}% complete</span>
           {temp ? <span>{p.open} open</span> : <RouterLink to="/$owner/$repo/milestone/$index" params={params} muted className="min-w-0 truncate">{p.open}open</RouterLink>}
           {temp ? <span>{p.closed} closed</span> : <RouterLink to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} muted className="min-w-0 truncate">{p.closed}closed</RouterLink>}
         </div>

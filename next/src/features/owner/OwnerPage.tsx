@@ -197,12 +197,12 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
           <div className="flex items-center gap-3">
             <Avatar size="lg" name={info.login} src={info.avatar_url}/>
             <div className="flex min-w-0 flex-col">
-              <h2 className="truncate text-xl font-semibold text-fg">{info.full_name || info.login}</h2>
-              <p className="truncate text-base text-fg-muted">{info.full_name ? `${info.login} · ` : ''}{isOrg ? 'Organization' : 'User'}</p>
+              <h2 className="truncate text-xl font-semibold text-default">{info.full_name || info.login}</h2>
+              <p className="truncate text-base text-muted">{info.full_name ? `${info.login} · ` : ''}{isOrg ? 'Organization' : 'User'}</p>
             </div>
           </div>
-          {info.description && <p className="text-md text-fg-muted">{info.description}</p>}
-          {info.location && <p className="text-sm text-fg-muted">{info.location}</p>}
+          {info.description && <p className="text-md text-muted">{info.description}</p>}
+          {info.location && <p className="text-sm text-muted">{info.location}</p>}
           {info.website && /^https?:\/\//i.test(info.website) && <a className="text-sm text-accent" href={info.website} target="_blank" rel="noreferrer">{info.website}</a>}
           {!isOrg && <>
             <div className="flex gap-3"><LinkButton variant="invisible" size="small" href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0}followers · {info.following_count ?? 0}following</LinkButton></div>
@@ -255,7 +255,7 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
       )}>
       <LinkRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</LinkRows>
       {remote.state !== 'ready' && away ?
-        list.length ? <p className="px-3 py-2 text-sm text-fg-subtle">Repositories that are not on this device load when you are online.</p> :
+        list.length ? <p className="px-3 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
           <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
         list.length ? null :
           remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
@@ -272,7 +272,7 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
   const remote = useRemote<APIRepo[]>(`${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=50&page=${String(page)}`);
   const away = reach(data.status.connection) !== 'online';
   return <Panel label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
-    {kind === 'stars' && <p className="px-3 py-1 text-sm text-fg-muted">Most recently starred first.</p>}
+    {kind === 'stars' && <p className="px-3 py-1 text-sm text-muted">Most recently starred first.</p>}
     {remote.state === 'ready' ? <>
       <LinkRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</LinkRows>
       {!remote.value.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
@@ -293,7 +293,7 @@ function RepoLine({r}: {r: RepoRow}) {
         {r.archived && <Label variant="attention">Archived</Label>}
         <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
       </>}>
-      <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-fg-subtle">{r.description}</span>}
+      <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-muted">{r.description}</span>}
     </ListRow>
   );
 }

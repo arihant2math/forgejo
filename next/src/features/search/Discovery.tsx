@@ -98,15 +98,15 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       </>}
       {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl label="State" value={search.state} onChange={(state) => { patch({state}); }} options={[{value: 'all', label: 'All'}, {value: 'open', label: 'Open'}, {value: 'closed', label: 'Closed'}]}/>}
     </PageHeader>
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2">
       <SegmentedControl label={explore ? 'Explore type' : 'Search type'} value={search.type} onChange={(type) => { patch({type}); }} options={available.map((kind) => ({value: kind, label: kind === 'code' ? labels[kind] : `${labels[kind]} (${connected ? counts[kind] ?? '…' : localDiscovery(app, discoverySearch({...search, type: kind, page: 1})).total})`}))}/>
     </div>
-    {!connected && <p role="note" className="px-4 py-2 text-sm text-fg-muted">Offline — showing results on this device only. Language filtering and people sort by activity are unavailable offline.</p>}
+    {!connected && <p role="note" className="px-4 py-2 text-sm text-muted">Offline — showing results on this device only. Language filtering and people sort by activity are unavailable offline.</p>}
     <PageBody ref={setScroller}>
-      {!allowed && <p role="status" className="p-4 text-fg-muted">This discovery page is disabled by the instance administrator.</p>}
-      {loading && <p role="status" className="p-4 text-fg-muted">Searching Forgejo…</p>}
+      {!allowed && <p role="status" className="p-4 text-muted">This discovery page is disabled by the instance administrator.</p>}
+      {loading && <p role="status" className="p-4 text-muted">Searching Forgejo…</p>}
       {error && <div role="alert" className="p-4"><p>{error}</p><Button type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
-      {allowed && page && !rows.length && <p role="status" className="p-4 text-fg-muted">No results found.</p>}
+      {allowed && page && !rows.length && <p role="status" className="p-4 text-muted">No results found.</p>}
       <div role="listbox" aria-label="Search results" aria-activedescendant={rows[cursor] ? `discovery-${String(rows[cursor]?.id)}` : undefined} tabIndex={0} onKeyDown={(event) => {
         if (!rows.length || event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key === 'Enter') {
@@ -131,7 +131,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       </div>
       {page && page.total > 50 && <div className="flex items-center gap-2 p-4">
         <Button type="button" disabled={search.page === 1} onClick={() => { patch({page: search.page - 1}); }}>Previous</Button>
-        <span className="text-sm text-fg-muted">Page {search.page} of {Math.ceil(page.total / 50)}</span>
+        <span className="text-sm text-muted">Page {search.page} of {Math.ceil(page.total / 50)}</span>
         <Button type="button" disabled={search.page * 50 >= page.total} onClick={() => { patch({page: search.page + 1}); }}>Next</Button>
       </div>}
     </PageBody>

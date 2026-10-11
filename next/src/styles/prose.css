@@ -17,7 +17,7 @@
   }
 
   & :where(h1, h2, h3, h4, h5, h6) {
-    color: var(--color-fg);
+    color: var(--fgColor-default);
     font-weight: var(--font-weight-semibold);
   }
 
@@ -62,14 +62,14 @@
   }
 
   & :where(a) {
-    color: var(--color-accent-fg);
+    color: var(--fgColor-accent);
     text-decoration-line: underline;
-    text-decoration-color: var(--color-border-strong);
+    text-decoration-color: var(--borderColor-emphasis);
     text-underline-offset: var(--prose-underline-offset);
   }
 
   & :where(a:hover) {
-    text-decoration-color: var(--color-accent-fg);
+    text-decoration-color: var(--fgColor-accent);
   }
 
   & :where(strong, b) {
@@ -78,7 +78,7 @@
 
   & :where(code) {
     border-radius: var(--radius-sm);
-    background-color: var(--color-hover);
+    background-color: var(--control-transparent-bgColor-hover);
     padding: var(--prose-inset-y) var(--prose-inset-x);
     font-size: var(--text-sm);
   }
@@ -87,9 +87,9 @@
     overflow-x: auto;
     border-style: solid;
     border-width: var(--hairline);
-    border-color: var(--color-border);
+    border-color: var(--borderColor-default);
     border-radius: var(--radius-md);
-    background-color: var(--color-canvas);
+    background-color: var(--bgColor-inset);
     padding: var(--prose-gap);
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
@@ -102,9 +102,9 @@
   }
 
   & :where(blockquote) {
-    border-left: var(--prose-quote-width) solid var(--color-border-strong);
+    border-left: var(--prose-quote-width) solid var(--borderColor-emphasis);
     padding-left: var(--prose-gap);
-    color: var(--color-fg-muted);
+    color: var(--fgColor-muted);
   }
 
   & :where(table) {
@@ -117,12 +117,12 @@
     overflow-wrap: normal;
     border-style: solid;
     border-width: var(--hairline);
-    border-color: var(--color-border);
+    border-color: var(--borderColor-default);
     padding: var(--prose-inset-y) var(--prose-inset-x);
   }
 
   & :where(th) {
-    background-color: var(--color-canvas);
+    background-color: var(--bgColor-inset);
     font-weight: var(--font-weight-medium);
   }
 
@@ -139,7 +139,7 @@
   }
 
   & :where(hr) {
-    border-top: var(--hairline) solid var(--color-border);
+    border-top: var(--hairline) solid var(--borderColor-default);
   }
 
   & :where(summary) {

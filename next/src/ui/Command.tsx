@@ -94,10 +94,10 @@ export interface CommandInputProps {
 }
 
 // The parts' looks, shared by the cmdk lists (the palette) and CommandPick's own listbox.
-const inputRow = 'flex h-header items-center gap-2 border-b border-border px-3';
-const inputField = 'h-full min-w-0 flex-1 bg-transparent text-md text-fg outline-none placeholder:text-fg-subtle';
+const inputRow = 'flex h-header items-center gap-2 border-b border-default px-3';
+const inputField = 'h-full min-w-0 flex-1 bg-transparent text-md text-default outline-none placeholder:text-muted';
 const listBox = 'max-h-96 scroll-py-1 overflow-y-auto p-1';
-const emptyBox = 'px-2 py-6 text-center text-base text-fg-muted';
+const emptyBox = 'px-2 py-6 text-center text-base text-muted';
 
 function GroupHeading({children}: {children: ReactNode}) {
   return <span className={cx(sectionLabel, 'block px-2 pt-2 pb-1')}>{children}</span>;
@@ -106,7 +106,7 @@ function GroupHeading({children}: {children: ReactNode}) {
 export function CommandInput({value, onValueChange, placeholder, ref}: CommandInputProps) {
   return (
     <div className={inputRow}>
-      <Icon icon={SearchIcon} className="text-fg-subtle"/>
+      <Icon icon={SearchIcon} className="text-muted"/>
       <K.Input ref={ref} value={value} onValueChange={onValueChange} placeholder={placeholder} className={inputField}/>
     </div>
   );
@@ -146,9 +146,9 @@ export interface CommandItemProps {
 }
 
 // cmdk writes data-selected / data-disabled as "true" or "false".
-const item = cx(menuRow, 'text-fg data-muted:text-fg-subtle data-[selected=true]:bg-raised-hover data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-subtle');
+const item = cx(menuRow, 'text-default data-muted:text-muted data-[selected=true]:bg-control-transparent-hover data-[disabled=true]:pointer-events-none data-[disabled=true]:text-muted');
 // CommandPick's options: the cursor is data-highlighted.
-const pickItem = cx(menuRow, 'text-fg data-highlighted:bg-raised-hover');
+const pickItem = cx(menuRow, 'text-default data-highlighted:bg-control-transparent-hover');
 
 export function CommandItem({value, onSelect, icon, leading, meta, shortcut, checked, muted, children}: CommandItemProps) {
   return (
@@ -380,9 +380,9 @@ export function CommandPick({label, placeholder, options, empty, onClose, target
   return (
     <div tabIndex={-1} onKeyDown={onKeyDown} className="outline-none">
       <label htmlFor={`${id}input`} id={`${id}label`} className="sr-only">{label}</label>
-      {target && <p className="truncate px-3 pt-2 text-sm text-fg-muted">{target}</p>}
+      {target && <p className="truncate px-3 pt-2 text-sm text-muted">{target}</p>}
       <div className={inputRow}>
-        <Icon icon={SearchIcon} className="text-fg-subtle"/>
+        <Icon icon={SearchIcon} className="text-muted"/>
         <input id={`${id}input`} type="text" role="combobox" aria-expanded aria-controls={`${id}list`} aria-labelledby={`${id}label`}
           aria-autocomplete="list" aria-activedescendant={at < 0 ? undefined : optionId(at)} autoComplete="off" autoCorrect="off" spellCheck={false}
           value={query} placeholder={placeholder} className={inputField} onChange={(e) => {

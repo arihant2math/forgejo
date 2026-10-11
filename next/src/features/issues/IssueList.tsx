@@ -377,7 +377,7 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         <UpdatedCell issue={issue}/>
       </>}
     >
-      <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
+      <span className={showRepo ? 'mr-2 text-muted tabular-nums' : 'mr-2 inline-block min-w-12 text-muted tabular-nums'}>
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
       <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>

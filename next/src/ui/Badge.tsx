@@ -9,12 +9,12 @@ import {labelInk} from './ink.ts';
 const chip = 'inline-flex h-5 shrink-0 items-center gap-1 px-1.5 text-sm font-medium whitespace-nowrap tabular-nums';
 
 const tones = {
-  neutral: 'border border-border-strong text-fg-muted',
-  accent: 'bg-accent-subtle text-accent-fg',
-  success: 'bg-success-subtle text-success',
-  warning: 'bg-warning-subtle text-warning',
-  danger: 'bg-danger-subtle text-danger',
-  done: 'bg-done-subtle text-done',
+  neutral: 'border border-emphasis text-muted',
+  accent: 'bg-accent-muted text-accent',
+  success: 'bg-success-muted text-success',
+  warning: 'bg-attention-muted text-attention',
+  danger: 'bg-danger-muted text-danger',
+  done: 'bg-done-muted text-done',
 } as const;
 
 export type BadgeTone = keyof typeof tones;
@@ -27,7 +27,7 @@ export function Badge({tone = 'neutral', round = false, children}: {tone?: Badge
 /** An issue label: its own colour (server data) as a dot, the name in normal text colour. */
 export function LabelChip({name, color}: {name: string; color: string}) {
   return (
-    <span className={cx(chip, 'rounded-full border border-border-strong text-fg-muted')} style={labelColor(color)}>
+    <span className={cx(chip, 'rounded-full border border-emphasis text-muted')} style={labelColor(color)}>
       <LabelDot color={color}/>
       {name}
     </span>
@@ -55,7 +55,7 @@ export function LabelPill({name, color, scope}: {name: string; color: string; sc
 }
 
 // Only hex colours (Forgejo stores labels' colours as #rgb / #rrggbb) or a colour token reach the style; anything else is neutral.
-const labelColor = (color: string) => ({'--label-color': /^(?:#[\da-f]{3,8}|var\(--color-[a-z-]+\))$/i.test(color) ? color : 'var(--color-fg-subtle)'} as CSSProperties);
+const labelColor = (color: string) => ({'--label-color': /^(?:#[\da-f]{3,8}|var\(--color-[a-z-]+\))$/i.test(color) ? color : 'var(--fgColor-muted)'} as CSSProperties);
 
 /** A label's colour as a small dot (pickers, filters), edged like a pill (a white one stays visible). */
 export function LabelDot({color}: {color: string}) {
@@ -80,7 +80,7 @@ export function ChipButton({pressed, label, onClick, disabled, children}: {press
     // aria-disabled, not disabled: who reacted stays reachable (focus, the title) when you cannot react.
     <button type="button" aria-pressed={pressed} aria-label={label} title={label} aria-disabled={disabled} onClick={disabled ? undefined : onClick}
       // The same border either way: toggling never changes its width.
-      className={cx(chip, 'interactive rounded-full border', pressed ? 'border-transparent bg-accent-subtle text-accent-fg' : 'border-border-strong text-fg-muted', !disabled && 'hover:bg-hover')}>
+      className={cx(chip, 'interactive rounded-full border', pressed ? 'border-transparent bg-accent-muted text-accent' : 'border-emphasis text-muted', !disabled && 'hover:bg-control-transparent-hover')}>
       {children}
     </button>
   );

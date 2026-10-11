@@ -128,19 +128,19 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
       {target && <ActionList.Item onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</ActionList.Item>}
     </ActionList></ActionMenu.Overlay></ActionMenu>
-    {blocked && <p className="text-sm text-fg-muted">{blocked}</p>}
+    {blocked && <p className="text-sm text-muted">{blocked}</p>}
     {children}
     {mode && !dialog && <Dialog title={mode === 'create' ? 'Create new file' : 'Upload files'} width="xlarge" onClose={() => { const open = false; if (!open) setMode(undefined); }} renderFooter={() => <Dialog.Footer>{<Button type="button" disabled={Boolean(problem) || Boolean(blocked)} onClick={() => {setDialog(true);}}>Commit changes…</Button>}</Dialog.Footer>}>
       {mode === 'create' ? <><TextInput aria-label="File path" placeholder="dir/name.ext" value={path} onChange={(event) => {setPath(event.target.value); void intents.keepText({key: pathKey, title: 'New file path', issueId: 0, repoId, text: event.target.value});}}/><Suspense fallback={<p>Loading editor…</p>}><CodeEditor value={text} path={path} wrap onChange={(value) => {setText(value); void intents.keepText({key, title: `New file in ${dir || repo}`, issueId: 0, repoId, text: value});}}/></Suspense></> : <div className="flex flex-col gap-3">
-        <p className="text-sm text-fg-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
+        <p className="text-sm text-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
         <input aria-label="Choose files" type="file" multiple onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         <input aria-label="Choose folder" type="file" multiple {...{webkitdirectory: ''}} onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         {files.map((item) => <ListRow role={undefined} key={item.path} trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</ListRow>)}
       </div>}
-      {problem && <p className="text-sm text-fg-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      {problem && <p className="text-sm text-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Dialog>}
     {mode && dialog && <CommitDialog allowPull={!repository?.empty} branch={at.ref} defaultMessage={mode === 'delete' ? `Delete ${at.path}` : mode === 'create' ? `Create ${fullPath(path)}` : `Upload ${String(files.length)} files`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={blocked ?? problem ?? (protectedBranch === undefined ? 'Checking branch protection…' : undefined)} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false); if (mode === 'delete') setMode(undefined);}} onCommit={(fields) => {void commit(fields);}}/>}
-    {progress && <p role="status" className="text-sm text-fg-muted">{progress}</p>}
+    {progress && <p role="status" className="text-sm text-muted">{progress}</p>}
   </div>;
 });
 

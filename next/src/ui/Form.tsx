@@ -29,14 +29,14 @@ export interface FormSectionProps {
 export function FormSection({id, title, description, tone = 'default', actions, children}: FormSectionProps) {
   return (
     <section aria-labelledby={id} className="flex min-w-0 flex-col gap-3">
-      <header className="flex min-h-control items-end gap-2 border-b border-border pb-2">
+      <header className="flex min-h-control items-end gap-2 border-b border-default pb-2">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 id={id} className={cx('text-md font-semibold', tone === 'danger' ? 'text-danger' : 'text-fg')}>{title}</h2>
-          {description && <p className="text-sm text-fg-muted">{description}</p>}
+          <h2 id={id} className={cx('text-md font-semibold', tone === 'danger' ? 'text-danger' : 'text-default')}>{title}</h2>
+          {description && <p className="text-sm text-muted">{description}</p>}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
-      {tone === 'danger' ? <div className="flex flex-col rounded-md border border-danger px-3">{children}</div> : children}
+      {tone === 'danger' ? <div className="flex flex-col rounded-md border border-danger-emphasis px-3">{children}</div> : children}
     </section>
   );
 }
@@ -53,10 +53,10 @@ export interface SettingRowProps {
 /** One setting: what it is on the left, its control on the right (a feature's switch, a danger-zone button). */
 export function SettingRow({id, title, description, control}: SettingRowProps) {
   return (
-    <div className="flex min-w-0 items-center gap-4 border-b border-border-subtle py-3 last:border-b-0">
+    <div className="flex min-w-0 items-center gap-4 border-b border-muted py-3 last:border-b-0">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <label htmlFor={id} className="text-base font-medium text-fg">{title}</label>
-        {description && <p id={hintId(id)} className="text-sm text-fg-muted">{description}</p>}
+        <label htmlFor={id} className="text-base font-medium text-default">{title}</label>
+        {description && <p id={hintId(id)} className="text-sm text-muted">{description}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2">{control}</div>
     </div>

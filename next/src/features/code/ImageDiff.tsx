@@ -41,12 +41,12 @@ function ImageSide({repoId, commit, path, label}: {repoId: number; commit: strin
     };
   }, [source, repoId, commit, path]);
   return <figure className="min-w-0 flex-1">
-    <figcaption className="mb-2 text-fg-muted">{label}{image && ` · ${String(image.size)} bytes`}{dimensions && ` · ${dimensions}`}</figcaption>
+    <figcaption className="mb-2 text-muted">{label}{image && ` · ${String(image.size)} bytes`}{dimensions && ` · ${dimensions}`}</figcaption>
     {image ? <img src={image.url} alt={`${label}: ${path}`} className="max-h-80 max-w-full object-contain" onLoad={(event) => {
       setDimensions(`${String(event.currentTarget.naturalWidth)} × ${String(event.currentTarget.naturalHeight)}`);
     }} onError={() => {
       setImage(undefined);
       setFailed(true);
-    }}/> : <p className="text-fg-subtle">{failed ? 'Image preview unavailable.' : 'Loading image…'}</p>}
+    }}/> : <p className="text-muted">{failed ? 'Image preview unavailable.' : 'Loading image…'}</p>}
   </figure>;
 }

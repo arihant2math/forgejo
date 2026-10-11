@@ -13,10 +13,10 @@ import {cx} from './cx.ts';
 import {Tooltip} from './Tooltip.tsx';
 
 /** Syntax classes by token class (workers/highlight.ts SYN): plain, keyword, string, comment, function, constant, parameter, punctuation, link. */
-const SYN = ['', 'text-syn-keyword', 'text-syn-string', 'text-syn-comment', 'text-syn-function', 'text-syn-constant', 'text-syn-parameter', 'text-fg-muted', 'text-accent-fg'] as const;
+const SYN = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'] as const;
 
 /** ANSI colour slots (code/ansi.ts): default, red, green, yellow, blue, magenta, cyan, grey. */
-const ANSI = ['', 'text-danger', 'text-success', 'text-warning', 'text-accent-fg', 'text-done', 'text-syn-constant', 'text-fg-subtle'] as const;
+const ANSI = ['', 'text-danger', 'text-success', 'text-attention', 'text-accent', 'text-done', 'text-syntax-constant', 'text-muted'] as const;
 
 export interface TokenSpans {
   spans: Uint32Array;
@@ -87,8 +87,8 @@ export function AnsiText({spans}: {spans: readonly {text: string; color: number;
 
 export type LineTone = 'add' | 'del' | 'hunk' | 'none';
 
-const lineTone = {add: 'bg-diff-add text-fg', del: 'bg-diff-del text-fg', hunk: 'bg-accent-subtle text-fg-muted', none: 'text-fg'} as const;
-const gutterTone = {add: 'bg-diff-add-strong', del: 'bg-diff-del-strong', hunk: 'bg-accent-subtle', none: 'bg-surface'} as const;
+const lineTone = {add: 'bg-diff-addition-line text-default', del: 'bg-diff-deletion-line text-default', hunk: 'bg-accent-muted text-muted', none: 'text-default'} as const;
+const gutterTone = {add: 'bg-diff-addition-word', del: 'bg-diff-deletion-word', hunk: 'bg-accent-muted', none: 'bg-default'} as const;
 
 export interface CodeLineProps {
   /** The gutter: line numbers (LineNo), a blame cell, … */
@@ -118,9 +118,9 @@ export interface CodeLineProps {
 export function CodeLine({gutter, tone = 'none', active, linked, trailing, action, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined} data-linked={linked ? '' : undefined}
-      className={cx('group flex h-line w-max min-w-full font-mono text-code contain-layout', linked ? 'bg-selected text-fg' : lineTone[tone])}>
+      className={cx('group flex h-line w-max min-w-full font-mono text-code contain-layout', linked ? 'bg-control-transparent-selected text-default' : lineTone[tone])}>
       {/* The cursor's edge is the gutter's own (sticky, it would cover an edge drawn on the row). */}
-      <span data-active={active ? '' : undefined} className={cx('row-cursor sticky left-0 flex shrink-0', linked ? 'bg-selected' : gutterTone[tone])}>
+      <span data-active={active ? '' : undefined} className={cx('row-cursor sticky left-0 flex shrink-0', linked ? 'bg-control-transparent-selected' : gutterTone[tone])}>
         {gutter}
         {action && <span className="absolute inset-y-0 right-0 flex items-center">{action}</span>}
       </span>
@@ -143,7 +143,7 @@ export function LineAction({label, children = '+', ...props}: {label: string} & 
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
       {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
       <button type="button" tabIndex={-1} aria-label={label} title={label} {...props}
-        className="interactive flex size-control-sm items-center justify-center rounded-sm bg-accent text-fg-on-accent hover:bg-accent-hover">
+        className="interactive flex size-control-sm items-center justify-center rounded-sm bg-accent-emphasis text-onEmphasis hover:bg-accent-emphasis">
         {children}
       </button>
     </span>
@@ -155,10 +155,10 @@ export function LineAction({label, children = '+', ...props}: {label: string} & 
  * line (#L12): a click names the line, Shift+click a range from the line named before (GitHub, classic).
  */
 export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boolean) => void) | undefined}) {
-  const cls = 'w-gutter shrink-0 pr-2 text-right text-fg-subtle tabular-nums select-none';
+  const cls = 'w-gutter shrink-0 pr-2 text-right text-muted tabular-nums select-none';
   if (!onPick || n <= 0) return <span className={cls}>{n > 0 ? n : ''}</span>;
   return (
-    <a href={`#L${String(n)}`} aria-label={`Line ${String(n)}`} className={cx(cls, 'cursor-pointer hover:text-fg')} onClick={(e) => {
+    <a href={`#L${String(n)}`} aria-label={`Line ${String(n)}`} className={cx(cls, 'cursor-pointer hover:text-default')} onClick={(e) => {
       if (e.metaKey || e.ctrlKey || e.button !== 0) return;
       e.preventDefault();
       onPick(n, e.shiftKey);
@@ -169,10 +169,10 @@ export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boo
 /** The blame column of a line: the commit's summary and age on the first line of a part, empty below it. */
 export function BlameCell({first, summary, meta, children}: {first: boolean; summary?: string | undefined; meta?: string | undefined; children?: ReactNode}) {
   return (
-    <span className={cx('flex w-blame-narrow shrink-0 items-center gap-2 overflow-hidden border-r @xl:w-blame border-border-subtle px-2 font-sans text-sm text-fg-muted', first && 'border-t')}>
+    <span className={cx('flex w-blame-narrow shrink-0 items-center gap-2 overflow-hidden border-r @xl:w-blame border-muted px-2 font-sans text-sm text-muted', first && 'border-t')}>
       {first && <>
         <span className="min-w-0 flex-1 truncate">{children ?? summary}</span>
-        {meta && <span className="shrink-0 text-fg-subtle tabular-nums">{meta}</span>}
+        {meta && <span className="shrink-0 text-muted tabular-nums">{meta}</span>}
       </>}
     </span>
   );
@@ -185,10 +185,10 @@ export function BlameCell({first, summary, meta, children}: {first: boolean; sum
 export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
   return (
     <button type="button" aria-expanded={expanded} onClick={onToggle}
-      className="interactive flex h-line w-full items-center gap-2 bg-canvas px-3 text-left font-sans text-sm text-fg hover:bg-hover">
+      className="interactive flex h-line w-full items-center gap-2 bg-inset px-3 text-left font-sans text-sm text-default hover:bg-control-transparent-hover">
       {mark}
       <span className="min-w-0 flex-1 truncate font-medium">{children}</span>
-      {meta && <span className="text-fg-subtle tabular-nums">{meta}</span>}
+      {meta && <span className="text-muted tabular-nums">{meta}</span>}
     </button>
   );
 }
@@ -220,12 +220,12 @@ export function CodeFileHeader({path, oldPath, status, stat, leading, children, 
   ref?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div ref={ref} className="flex h-row items-center gap-2 border-y border-border bg-canvas px-3 text-base">
+    <div ref={ref} className="flex h-row items-center gap-2 border-y border-default bg-inset px-3 text-base">
       {leading}
-      <span className="min-w-0 truncate font-mono text-code text-fg" title={oldPath ? `${oldPath} → ${path}` : path}>
-        {oldPath && <span className="text-fg-muted">{oldPath} → </span>}{path}
+      <span className="min-w-0 truncate font-mono text-code text-default" title={oldPath ? `${oldPath} → ${path}` : path}>
+        {oldPath && <span className="text-muted">{oldPath} → </span>}{path}
       </span>
-      {status && <span className="shrink-0 text-sm text-fg-subtle">{status}</span>}
+      {status && <span className="shrink-0 text-sm text-muted">{status}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-2">{stat}{children}</span>
     </div>
   );
@@ -281,7 +281,7 @@ export function TabNav({label, children, more}: {label: string; children: ReactN
   }, [measure, overflow]);
   const isHidden = (i: number) => shown !== undefined && !shown.includes(i);
   return (
-    <nav ref={nav} aria-label={label} className="flex h-header shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4">
+    <nav ref={nav} aria-label={label} className="flex h-header shrink-0 items-center gap-1 overflow-x-auto border-b border-default px-4">
       {more ? <>
         {tabs.map((t, i) => {
           const key = isValidElement(t) && t.key !== null ? t.key : String(i);
@@ -318,17 +318,17 @@ export function shownTabs(widths: readonly (number | undefined)[], room: number,
 
 /** How a bar shows its current tab: filled (default), or underlined on the bar's bottom edge (a repository's, GitHub's). */
 const currentTab = {
-  filled: 'aria-[current=page]:bg-selected',
+  filled: 'aria-[current=page]:bg-control-transparent-selected',
   // The tab (h-control) is centred in the bar (h-header, 16px taller): 6px below it is just above the bar's bottom
   // border, inside the bar (which scrolls sideways: nothing may stick out of it).
   underline: 'relative aria-[current=page]:font-medium after:pointer-events-none after:absolute after:inset-x-1 after:-bottom-1.5 after:h-0.5 ' +
-    'after:rounded-full aria-[current=page]:after:bg-accent',
+    'after:rounded-full aria-[current=page]:after:bg-accent-emphasis',
 } as const;
 
 /** One tab: wraps a router <Link>, which sets aria-current="page" on the active route (`tooltip`: a hint on hover). */
 export function TabLink({children, tooltip, current = 'filled'}: {children: ReactElement; tooltip?: string | undefined; current?: keyof typeof currentTab}) {
   const tab = (
-    <Slot.Root className={cx('interactive flex h-control shrink-0 items-center gap-1.5 rounded-md px-2.5 text-base whitespace-nowrap text-fg-muted hover:bg-hover hover:text-fg aria-[current=page]:text-fg', currentTab[current])}>
+    <Slot.Root className={cx('interactive flex h-control shrink-0 items-center gap-1.5 rounded-md px-2.5 text-base whitespace-nowrap text-muted hover:bg-control-transparent-hover hover:text-default aria-[current=page]:text-default', currentTab[current])}>
       {children}
     </Slot.Root>
   );

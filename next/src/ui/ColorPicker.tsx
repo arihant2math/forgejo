@@ -10,7 +10,7 @@ import {CheckIcon, PaintbrushIcon} from '@primer/octicons-react';
 
 const swatchColor = (color: string) => ({'--label-color': color} as CSSProperties);
 
-const swatch = 'interactive flex size-control-sm shrink-0 items-center justify-center rounded-md border border-border bg-label';
+const swatch = 'interactive flex size-control-sm shrink-0 items-center justify-center rounded-md border border-default bg-label';
 
 export interface ColorPickerProps {
   /** The colour as typed ("#e11d21"); may be incomplete while typing. */

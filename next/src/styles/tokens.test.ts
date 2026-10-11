@@ -81,23 +81,21 @@ describe('tokens.css', () => {
   });
 
   test.each(['light', 'dark'] as const)('WCAG contrast, %s theme', (theme) => {
-    const surface = resolve('var(--color-surface)', theme);
-    // A colour token as an opaque colour: fills with alpha (Primer's transparent controls) over the surface.
-    const color = (name: string, base = surface) => over(resolve(`var(--color-${name})`, theme), base);
+    const surface = resolve('var(--background-color-default)', theme);
+    // A token as an opaque colour: fills with alpha (Primer's transparent controls) over the surface.
+    const color = (token: string, base = surface) => over(resolve(`var(${token})`, theme), base);
     const failures: string[] = [];
     const need = (fg: string, bg: string, min: number) => {
-      const b = color(bg);
-      const r = contrast(color(fg, b), b);
-      if (r < min) failures.push(`${fg} on ${bg}: ${r.toFixed(2)} < ${min}`);
+      const b = color(`--background-color-${bg}`);
+      const r = contrast(color(`--text-color-${fg}`, b), b);
+      if (r < min) failures.push(`text-${fg} on bg-${bg}: ${r.toFixed(2)} < ${min}`);
     };
-    const text = ['fg', 'fg-muted', 'fg-subtle', 'accent-fg', 'success', 'warning', 'danger', 'done'];
-    for (const fg of text) for (const bg of ['canvas', 'surface', 'raised']) need(fg, bg, 4.5);
+    for (const fg of ['default', 'muted', 'accent', 'success', 'attention', 'danger', 'done']) for (const bg of ['inset', 'default', 'overlay']) need(fg, bg, 4.5);
     // On a hovered or selected row: the text colours (Primer's status colours are made for the plain surfaces).
-    for (const fg of ['fg', 'fg-muted']) for (const bg of ['hover', 'selected']) need(fg, bg, 4.5);
-    for (const bg of ['accent', 'success-solid', 'danger-solid']) need('fg-on-accent', bg, 4.5);
-    for (const bg of ['canvas', 'surface', 'raised']) need('focus', bg, 3);
-    for (const fg of ['fg', 'syn-keyword', 'syn-string', 'syn-function', 'syn-constant']) {
-      for (const bg of ['surface', 'diff-add', 'diff-del']) need(fg, bg, 4.5);
+    for (const fg of ['default', 'muted']) for (const bg of ['control-transparent-hover', 'control-transparent-selected']) need(fg, bg, 4.5);
+    for (const bg of ['accent-emphasis', 'success-emphasis', 'danger-emphasis']) need('onEmphasis', bg, 4.5);
+    for (const fg of ['default', 'syntax-keyword', 'syntax-string', 'syntax-entity', 'syntax-constant']) {
+      for (const bg of ['default', 'diff-addition-line', 'diff-deletion-line']) need(fg, bg, 4.5);
     }
     expect(failures).toEqual([]);
   });
@@ -142,7 +140,7 @@ describe('label ink (text-label)', () => {
   }
   // The tokens' colours in a theme, as opaque #rrggbb (over the surface).
   const resolved = (theme: Theme) => {
-    const surface = resolve('var(--color-surface)', theme);
+    const surface = resolve('var(--bgColor-default)', theme);
     return {get: (name: string) => over(resolve(`var(${name})`, theme), surface)};
   };
   const light = resolved('light');
@@ -157,8 +155,8 @@ describe('label ink (text-label)', () => {
   const labels = ['#eab308', '#facc15', '#22c55e', '#06b6d4', '#f97316', '#ffffff', '#e11d48', '#3b82f6', '#8b5cf6', '#fbca04', '#c2e0c6', '#bfdadc'];
   test.each(['light', 'dark'] as const)('≥ 3:1 against the surfaces (%s)', (theme) => {
     const t = theme === 'light' ? light : dark;
-    const fg = t.get('--color-fg');
-    for (const bg of ['--color-surface', '--color-hover', '--color-canvas']) {
+    const fg = t.get('--text-color-default');
+    for (const bg of ['--background-color-default', '--background-color-control-transparent-hover', '--background-color-inset']) {
       for (const l of labels) expect(contrast(mix(l, fg), t.get(bg)), `${l} on ${bg}`).toBeGreaterThanOrEqual(3);
     }
   });
@@ -168,13 +166,13 @@ describe('label ink (text-label)', () => {
   const edge = Number.parseFloat(decls(block(':root')).get('--label-edge') ?? 'NaN') / 100;
   test.each(['light', 'dark'] as const)('a label\'s fill or edge is ≥ 1.5:1 against the surfaces (%s)', (theme) => {
     const t = theme === 'light' ? light : dark;
-    const fg = t.get('--color-fg');
+    const fg = t.get('--text-color-default');
     const failures: string[] = [];
     for (let r = 0; r < 256; r += 17) {
       for (let g = 0; g < 256; g += 17) {
         for (let b = 0; b < 256; b += 17) {
           const fill = `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
-          for (const bg of ['--color-canvas', '--color-surface', '--color-raised', '--color-hover', '--color-selected']) {
+          for (const bg of ['--background-color-inset', '--background-color-default', '--background-color-overlay', '--background-color-control-transparent-hover', '--background-color-control-transparent-selected']) {
             const surface = t.get(bg);
             const best = Math.max(contrast(fill, surface), contrast(mix(fill, fg, edge), surface));
             if (best < 1.5) failures.push(`${fill} on ${bg}: ${best.toFixed(2)}`);

@@ -115,7 +115,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
             <Panel label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
-              <p className="border-b border-border-subtle px-3 py-2 text-sm text-fg-muted">They stay on their issues but are no longer offered in the pickers.</p>
+              <p className="border-b border-muted px-3 py-2 text-sm text-muted">They stay on their issues but are no longer offered in the pickers.</p>
               {rows(archived, true)}
             </Panel>
           )}
@@ -152,7 +152,7 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
       )}
     </>}>
       <LabelPill name={label.name} color={label.color} scope={scope || undefined}/>
-      {label.description && <span className="ml-3 text-fg-subtle">{label.description}</span>}
+      {label.description && <span className="ml-3 text-muted">{label.description}</span>}
     </ListRow>
   );
 });

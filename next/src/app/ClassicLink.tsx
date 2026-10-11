@@ -25,7 +25,7 @@ export function ClassicLink({to, children, variant = 'ghost', size = 'md'}: {to:
   return (
     <Button asChild variant={variant} size={size} tooltip={CLASSIC_HINT}>
       <a href={classicHref(app, to)} data-classic="">
-        <Icon icon={BrowserIcon} size={size}/>{children}<span className={variant === 'primary' ? 'text-sm font-normal' : 'text-sm font-normal text-fg-subtle'}>classic</span>
+        <Icon icon={BrowserIcon} size={size}/>{children}<span className={variant === 'primary' ? 'text-sm font-normal' : 'text-sm font-normal text-muted'}>classic</span>
       </a>
     </Button>
   );

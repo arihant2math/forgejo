@@ -47,7 +47,7 @@ export const People = observer(function People({owner, isOrg}: {owner: string; i
   return <Panel label="People" title={isOrg ? 'People' : 'Followers and following'}>
     {!isOrg && <div className="flex gap-2 px-3 py-2"><Button size="small" type="button" onClick={() => { setKind('followers'); }}>Followers</Button><Button size="small" type="button" onClick={() => { setKind('following'); }}>Following</Button></div>}
     <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
-      {(people) => people.map((p) => <Link key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-3 px-3 py-2"><Avatar name={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-fg-muted">{p.login}</span></Link>)}
+      {(people) => people.map((p) => <Link key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-3 px-3 py-2"><Avatar name={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-muted">{p.login}</span></Link>)}
     </ResourceList>
   </Panel>;
 });
@@ -83,5 +83,5 @@ const Popular = observer(function Popular({owner}: {owner: string}) {
     const rows = await allPages<{id: number; name: string; owner: {login: string}; stars_count: number; description: string}>(app, `/users/${encodeURIComponent(owner)}/repos`, signal);
     return rows.sort((a, b) => b.stars_count - a.stars_count).slice(0, 6);
   });
-  return <Panel label="Popular repositories" title="Popular repositories"><ResourceList res={res} what="Repositories" empty={{icon: RepoIcon, title: 'No repositories', description: 'None that you can see.'}}>{(rows) => rows.map((r) => <Link key={r.id} to="/$owner/$repo" params={{owner: r.owner.login, repo: r.name}} className="flex flex-col px-3 py-2"><span>{r.name} · {r.stars_count} stars</span><span className="text-sm text-fg-muted">{r.description}</span></Link>)}</ResourceList></Panel>;
+  return <Panel label="Popular repositories" title="Popular repositories"><ResourceList res={res} what="Repositories" empty={{icon: RepoIcon, title: 'No repositories', description: 'None that you can see.'}}>{(rows) => rows.map((r) => <Link key={r.id} to="/$owner/$repo" params={{owner: r.owner.login, repo: r.name}} className="flex flex-col px-3 py-2"><span>{r.name} · {r.stars_count} stars</span><span className="text-sm text-muted">{r.description}</span></Link>)}</ResourceList></Panel>;
 });

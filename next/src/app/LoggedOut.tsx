@@ -10,7 +10,7 @@ import {Blankslate} from '@primer/react/experimental';
 /** A full-height screen with its content centred (logged-out, placeholders). */
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
   // In the boot shell the splash attribute decides whether it shows.
-  return <div className={cx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-canvas')}>{children}</div>;
+  return <div className={cx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-inset')}>{children}</div>;
 }
 
 /**

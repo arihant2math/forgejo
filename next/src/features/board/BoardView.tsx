@@ -115,14 +115,14 @@ const ProjectContext = observer(function ProjectContext({project}: {project: Ent
       <RouterLink to="/-/next/boards" activeOptions={{exact: true}} muted className="min-w-0 truncate">Boards</RouterLink>
       {repo ? (
         <>
-          <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
+          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
           <RouterLink to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('owner_name')}</RouterLink>
-          <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
+          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
           <RouterLink to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('name')}</RouterLink>
         </>
       ) : login && (
         <>
-          <ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/>
+          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
           <RouterLink to="/$owner" params={{owner: login}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{login}</RouterLink>
         </>
       )}
@@ -818,7 +818,7 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
               close();
             }
           }}/>
-        <p className="px-1 text-sm text-fg-subtle">Enter adds it, Esc cancels.</p>
+        <p className="px-1 text-sm text-muted">Enter adds it, Esc cancels.</p>
       </BoardColumnDraft>
     );
   }

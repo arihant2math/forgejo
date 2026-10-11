@@ -90,7 +90,7 @@ export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, 
   }
   if (actions?.poster_trust === 'explicitly' && can) {
     return (
-      <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
         The author of this pull request is always trusted to run workflows.
         <OptionalTooltip text={why ?? 'Each of their runs will need approval again'}><Button variant="invisible" size="small" type="button" disabled={busy || !isOnline} onClick={() => {
           decide('revoke');

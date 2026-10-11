@@ -53,7 +53,7 @@ export function ConfirmDialog({open, onOpenChange, title, description, confirmLa
         <div className="flex flex-col gap-3">
           {children}
           {confirmText !== undefined && (
-            <label className="flex flex-col gap-1 text-base text-fg">
+            <label className="flex flex-col gap-1 text-base text-default">
               <span>Type <strong className="font-mono text-code">{confirmText}</strong> to confirm.</span>
               <Input className="w-full" value={typed} autoComplete="off" spellCheck={false} onChange={(e) => {
                 setTyped(e.target.value);

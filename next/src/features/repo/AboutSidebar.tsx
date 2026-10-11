@@ -64,10 +64,10 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   const website = r.get('website');
   const topics = r.get('topics');
   const site = /^https?:\/\//.test(website) ? website : '';
-  if (!description && !site && topics.length === 0) return <p className="text-base text-fg-subtle">No description, website, or topics provided.</p>;
+  if (!description && !site && topics.length === 0) return <p className="text-base text-muted">No description, website, or topics provided.</p>;
   return (
     <>
-      {description && <p className="text-md text-fg">{description}</p>}
+      {description && <p className="text-md text-default">{description}</p>}
       {site && (
         <AsideLinks>
           <AsideLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span className="truncate">{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></AsideLink>
@@ -86,7 +86,7 @@ const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
   const p = parentId > 0 ? pool.model('Repository').get(parentId) : undefined;
   if (!p) return null;
   return (
-    <p className="flex min-w-0 items-center gap-2 text-base text-fg-muted">
+    <p className="flex min-w-0 items-center gap-2 text-base text-muted">
       <RepoForkedIcon size={12} className="shrink-0"/>
       <span className="shrink-0">Forked from</span>
       <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
@@ -179,13 +179,13 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
           <span className="flex h-row shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
           <span className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-base font-semibold text-fg group-hover:text-accent-fg">{latest.name || latest.tag_name}</span>
+              <span className="truncate text-base font-semibold text-default group-hover:text-accent">{latest.name || latest.tag_name}</span>
               {latest.prerelease ? <Label variant="attention">Pre-release</Label> : <Label variant="success">Latest</Label>}
             </span>
-            <time dateTime={latest.created_at} title={fullDate(latest.created_at)} className="text-sm text-fg-subtle">{shortDate(latest.created_at)}</time>
+            <time dateTime={latest.created_at} title={fullDate(latest.created_at)} className="text-sm text-muted">{shortDate(latest.created_at)}</time>
           </span>
         </Link> :
-        <p className="text-base text-fg-subtle">No releases published.</p>}
+        <p className="text-base text-muted">No releases published.</p>}
       {count > 1 && <p className="text-sm"><RouterLink {...releasesTo} muted className="min-w-0 truncate">+ {count - 1}{plural(count - 1, 'release')}</RouterLink></p>}
       {tags > 0 && (
         <AsideLinks>

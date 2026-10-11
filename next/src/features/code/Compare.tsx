@@ -136,7 +136,7 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   const title = (
     <span className="flex min-w-0 items-center gap-1.5">
       <ComparePick {...sides} side="base" value={baseName} onPick={headName ? undefined : setPicked}/>
-      <span className="text-fg-subtle" aria-hidden>…</span>
+      <span className="text-muted" aria-hidden>…</span>
       <ComparePick {...sides} side="head" value={headName}/>
     </span>
   );
@@ -330,7 +330,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   return (
     <>
       {pullable && (
-        <div className="sticky left-0 flex w-view flex-col gap-3 border-b border-border px-4 py-3">
+        <div className="sticky left-0 flex w-view flex-col gap-3 border-b border-default px-4 py-3">
           <UpstreamNotice {...props}/>
           <OutlookLine outlook={outlook} base={props.base} head={props.head}/>
           {props.open && proposable(outlook) &&
@@ -338,7 +338,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
               defaults={pullDefaults(info.value.commits, info.value.total, props.head)} onCancel={props.onClose}/>}
         </div>
       )}
-      <div className="sticky left-0 w-view border-b border-border">
+      <div className="sticky left-0 w-view border-b border-default">
         <div className="px-4 pt-3 pb-1"><SectionHeading>{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</SectionHeading></div>
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
           row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
@@ -420,7 +420,7 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
       <RowList items={choices} scroller={scroller} label="Branches" keyOf={(b) => b.name}
         row={(b) => ({
           leading: <GitBranchIcon size={12} className="shrink-0"/>,
-          main: <><span className="font-mono">{b.name}</span> <span className="text-fg-subtle">{summary(byName.get(b.name)?.commit_message ?? '')}</span></>,
+          main: <><span className="font-mono">{b.name}</span> <span className="text-muted">{summary(byName.get(b.name)?.commit_message ?? '')}</span></>,
           trailing: b.commitTime ? <Ago at={b.commitTime}/> : undefined,
         })}
         onOpen={(b) => {
@@ -462,14 +462,14 @@ const MyForkBranches = observer(function MyForkBranches({owner, repo, base}: {ow
   const list = mine && mine.key === key ? mine.list : [];
   if (!list.length) return null;
   return (
-    <section aria-label="Your forks" className="border-b border-border px-4 py-3">
+    <section aria-label="Your forks" className="border-b border-default px-4 py-3">
       <SectionHeading>{`From your fork${new Set(list.map((b) => b.group)).size > 1 ? 's' : ''}`}</SectionHeading>
       <ul className="mt-1 flex flex-col gap-1">
         {list.map((b) => (
           <li key={b.value} className="flex items-center gap-2 text-base">
             <GitBranchIcon size={12} className="shrink-0"/>
             <RouterLink {...codeTo(owner, repo, compareSplat(base, b.value))} search={{expand: '1'} as never} muted className="min-w-0 truncate"><span className="font-mono">{b.value}</span></RouterLink>
-            <span className="text-sm text-fg-subtle">{b.group}</span>
+            <span className="text-sm text-muted">{b.group}</span>
           </li>
         ))}
       </ul>

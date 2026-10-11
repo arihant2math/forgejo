@@ -67,7 +67,7 @@ export function CommitMessage({owner, repo, text, inRow = false}: {owner: string
 export function linkedCommitRow(owner: string, repo: string): (c: CommitInfo) => RowParts {
   return (c) => ({
     ...commitRow(c),
-    main: <><CommitMessage owner={owner} repo={repo} text={summary(c.message)} inRow/> <span className="text-fg-subtle">{c.authorName}</span></>,
+    main: <><CommitMessage owner={owner} repo={repo} text={summary(c.message)} inRow/> <span className="text-muted">{c.authorName}</span></>,
   });
 }
 
@@ -81,12 +81,12 @@ export const ContainedIn = observer(function ContainedIn({owner, repo, repoId, s
     async () => (await online<APICommitRefs>(app, {api: 'sync', path: `/repos/${String(repoId)}/refs/${sha}`})) ?? {branches: [], tags: []});
   if (refs.state === 'loading') return null;
   if (refs.state !== 'ready') {
-    return <p className="text-sm text-fg-subtle">{refs.state === 'offline' ? 'The branches and tags that contain this commit are loaded online.' : 'The branches and tags that contain this commit could not be loaded.'}</p>;
+    return <p className="text-sm text-muted">{refs.state === 'offline' ? 'The branches and tags that contain this commit are loaded online.' : 'The branches and tags that contain this commit could not be loaded.'}</p>;
   }
   const {branches, tags} = refs.value;
-  if (!branches.length && !tags.length) return <p className="text-sm text-fg-subtle">No branch or tag contains this commit.</p>;
+  if (!branches.length && !tags.length) return <p className="text-sm text-muted">No branch or tag contains this commit.</p>;
   return (
-    <div aria-label="Contained in" className="flex flex-col gap-1 text-sm text-fg-muted">
+    <div aria-label="Contained in" className="flex flex-col gap-1 text-sm text-muted">
       {tags.length > 0 && <RefList owner={owner} repo={repo} kind="tag" names={tags}/>}
       {branches.length > 0 && <RefList owner={owner} repo={repo} kind="branch" names={branches}/>}
     </div>

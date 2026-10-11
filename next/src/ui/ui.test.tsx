@@ -15,7 +15,7 @@ describe('primitives', () => {
     render(<Button variant="primary" size="sm" icon={PlusIcon}>New</Button>);
     const b = screen.getByRole('button', {name: 'New'});
     expect(b.getAttribute('type')).toBe('button');
-    expect(b.className).toContain('bg-accent');
+    expect(b.className).toContain('bg-accent-emphasis');
     expect(b.className).toContain('h-control-sm');
     expect(b.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
   });
@@ -61,8 +61,8 @@ describe('primitives', () => {
   });
 
   test('LabelChip: label colour via a CSS variable', () => {
-    const {container} = render(<LabelChip name="bug" color="var(--color-danger)"/>);
-    expect((container.firstElementChild as HTMLElement).style.getPropertyValue('--label-color')).toBe('var(--color-danger)');
+    const {container} = render(<LabelChip name="bug" color="var(--fgColor-danger)"/>);
+    expect((container.firstElementChild as HTMLElement).style.getPropertyValue('--label-color')).toBe('var(--fgColor-danger)');
   });
 
   test('LabelPill and LabelDot: a fill always has an edge (a white label still shows as a pill)', () => {
@@ -121,7 +121,7 @@ describe('primitives', () => {
     );
     fireEvent.contextMenu(screen.getByText('Row'));
     const item = screen.getByRole('menuitem', {name: /Labels/});
-    expect(item.className).toContain('data-highlighted:bg-raised-hover');
+    expect(item.className).toContain('data-highlighted:bg-control-transparent-hover');
     expect(classConflicts(document.body)).toEqual([]);
   });
 
@@ -147,7 +147,7 @@ describe('primitives', () => {
 describe('classConflicts', () => {
   test('detects a property set twice under the same variants', () => {
     const div = document.createElement('div');
-    div.innerHTML = '<span class="text-fg text-danger hover:bg-hover bg-surface text-sm"></span><i class="z-popover z-tooltip"></i><b class="rounded-sm data-[state=open]:rounded-md"></b>';
+    div.innerHTML = '<span class="text-default text-danger hover:bg-control-transparent-hover bg-default text-sm"></span><i class="z-popover z-tooltip"></i><b class="rounded-sm data-[state=open]:rounded-md"></b>';
     expect(classConflicts(div)).toHaveLength(2);
   });
 });

@@ -130,7 +130,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-3">
-          {s.failed ? <span className="flex items-center gap-2 text-sm text-fg-subtle">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.retry}>Retry</Button>}</span> :
+          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.retry}>Retry</Button>}</span> :
             <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>
       )}
@@ -174,8 +174,8 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
       {(scroller) => (
         <>
           {/* Pinned to the view's left edge: a wide line scrolls the diff sideways, not the commit's header. */}
-          <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-border px-6 py-4">
-            {c ? <CommitMeta owner={owner} repo={repo} repoId={repoId} c={c}/> : <p className="font-mono text-code text-fg-muted">{sha}</p>}
+          <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-default px-6 py-4">
+            {c ? <CommitMeta owner={owner} repo={repo} repoId={repoId} c={c}/> : <p className="font-mono text-code text-muted">{sha}</p>}
           </header>
           {diff.state === 'ready' ?
             <>
@@ -193,10 +193,10 @@ function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repo
   const body = c.message.slice(summary(c.message).length).trim();
   return (
     <>
-      <h1 className="text-xl font-semibold text-fg"><CommitMessage owner={owner} repo={repo} text={summary(c.message)}/></h1>
-      {body && <pre className="font-mono text-code whitespace-pre-wrap text-fg-muted"><CommitMessage owner={owner} repo={repo} text={body}/></pre>}
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
-        <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-fg">{c.authorName}</span></span>
+      <h1 className="text-xl font-semibold text-default"><CommitMessage owner={owner} repo={repo} text={summary(c.message)}/></h1>
+      {body && <pre className="font-mono text-code whitespace-pre-wrap text-muted"><CommitMessage owner={owner} repo={repo} text={body}/></pre>}
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+        <span className="flex items-center gap-1.5"><Avatar name={c.authorName} src={c.authorAvatar === '' ? undefined : c.authorAvatar} size="sm"/><span className="text-default">{c.authorName}</span></span>
         <Ago at={c.date}/>
         <span className="flex items-center gap-1"><GitCommitIcon size={12} className="shrink-0"/><Code>{c.sha}</Code></span>
         {c.parents.map((p) => <span key={p}>parent <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></CodeLink></TextLink></span>)}

@@ -79,8 +79,8 @@ export const NewOrg = observer(function NewOrg() {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) create(e);
           }}>
             <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold text-fg">Create a new organization</h2>
-              <p className="text-base text-fg-muted">An organization owns repositories together: its members work in teams, each with its own access.</p>
+              <h2 className="text-xl font-semibold text-default">Create a new organization</h2>
+              <p className="text-base text-muted">An organization owns repositories together: its members work in teams, each with its own access.</p>
             </div>
             {scopeMissing && <ScopeNote scope={scope} what="organizations" classic="/org/create"/>}
 
@@ -104,14 +104,14 @@ export const NewOrg = observer(function NewOrg() {
             <Section title="Permissions">
               <div className="flex flex-col gap-1">
                 <FormControl><Checkbox checked={teamAccess} onChange={(event) => { setTeamAccess(event.target.checked); }}/><FormControl.Label>Repository admins can add or remove the access of teams</FormControl.Label></FormControl>
-                <p className="pl-6 text-sm text-fg-muted">Otherwise only the organization’s owners decide which teams have a repository. Which members may create repositories is up to each team.</p>
+                <p className="pl-6 text-sm text-muted">Otherwise only the organization’s owners decide which teams have a repository. Which members may create repositories is up to each team.</p>
               </div>
             </Section>
 
             <Section>
               {refused?.field === 'form' && <Callout tone="danger" title="The organization was not created">{refused.text}</Callout>}
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {!isOnline && <span className="mr-auto text-sm text-fg-subtle">Offline: creating an organization needs a connection.</span>}
+                {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating an organization needs a connection.</span>}
                 <OptionalTooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" aria-disabled={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create organization'}
                 </Button></OptionalTooltip>

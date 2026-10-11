@@ -377,17 +377,17 @@ export const CreateIssue = observer(function CreateIssue() {
 
 const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
   const set = form.templates;
-  if (!set) return <p className="text-sm text-fg-muted" role="status">Loading issue templates…</p>;
+  if (!set) return <p className="text-sm text-muted" role="status">Loading issue templates…</p>;
   return <div className="flex flex-col gap-2">
-    <p className="text-sm text-fg-muted">Choose an issue template</p>
-    {set.note && <p className="text-sm text-fg-muted">{set.note}</p>}
+    <p className="text-sm text-muted">Choose an issue template</p>
+    {set.note && <p className="text-sm text-muted">{set.note}</p>}
     <CommandPick onClose={() => { runInAction(() => { form.choosing = false; }); }} label="Issue templates" placeholder="Find a template…" empty="No matching templates" options={[
       ...set.templates.map((t) => ({value: t.file_name, label: t.name, words: t.about, meta: t.about, onSelect: () => { form.choose(t); }})),
       ...(set.config.blank_issues_enabled ? [{value: 'blank', label: 'Blank issue', onSelect: () => { form.choose(); }}] : []),
     ]}/>
     {set.config.contact_links.filter((l) => /^https?:\/\//i.test(l.url)).map((l) => <div key={l.url}>
       <LinkButton variant="invisible" href={l.url} target="_blank" rel="noopener noreferrer">{l.name}↗</LinkButton>
-      <p className="text-sm text-fg-muted">{l.about}</p>
+      <p className="text-sm text-muted">{l.about}</p>
     </div>)}
     <Properties form={form}/>
   </div>;
@@ -400,7 +400,7 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
     form.flush();
   }, [form]);
   if (!repoChoices(app, form.board).length) {
-    return <p className="text-base text-fg-muted">{form.board ?
+    return <p className="text-base text-muted">{form.board ?
       'No repository whose issues this board can hold is on this device: a board takes the issues of its owner\'s repositories.' :
       'No repository is on this device yet: issues are created in one.'}</p>;
   }
@@ -420,7 +420,7 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
     }}>
       {form.templates?.templates.length ? <Button variant="invisible" size="small" type="button" onClick={() => { runInAction(() => { form.choosing = true; }); }}>Change template</Button> : null}
       <Title form={form} onCreate={onCreate}/>
-      {form.templates?.note && <p className="text-sm text-fg-muted">{form.templates.note}</p>}
+      {form.templates?.note && <p className="text-sm text-muted">{form.templates.note}</p>}
       {form.template?.body?.length ? <TemplateFields fields={form.template.body} values={form.values} missing={form.fieldErrors} repoId={form.repoId} onChange={form.setValue}/> : <Description form={form} onCreate={onCreate}/>}
       <Properties form={form}/>
     </div>
@@ -497,7 +497,7 @@ const Properties = observer(function Properties({form}: {form: Form}) {
           trigger={<Button variant={who.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
         <PickerPopover kind="milestone" draft={form}
           trigger={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
-      </> : repoId > 0 && <span className="px-1 text-sm text-fg-subtle">You can read this repository: its maintainers set labels, people and milestones.</span>}
+      </> : repoId > 0 && <span className="px-1 text-sm text-muted">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
   );
 });
@@ -523,7 +523,7 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
   const ready = !form.choosing && Boolean(form.title.trim()) && form.repoId > 0 && !uploading;
   return (
     <>
-      <span className="mr-auto flex items-center gap-1 self-center text-sm text-fg-subtle">
+      <span className="mr-auto flex items-center gap-1 self-center text-sm text-muted">
         {form.board && <BoardHint board={form.board}/>}
         {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
           form.discard();

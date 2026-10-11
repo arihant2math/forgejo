@@ -104,7 +104,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               const pull = prOf.get(b.name);
               return {
                 leading: <GitBranchIcon size={12} className="shrink-0"/>,
-                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Label>default</Label></>} <span className="text-fg-subtle">{b.commit_message.split('\n')[0]}</span></>,
+                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Label>default</Label></>} <span className="text-muted">{b.commit_message.split('\n')[0]}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
@@ -168,7 +168,7 @@ const Divergence = observer(function Divergence({repoId, base, head, baseName}: 
   const ahead = useLoad(`ahead:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, base, head)).total);
   const behind = useLoad(`behind:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, head, base)).total);
   if (ahead.state !== 'ready' || behind.state !== 'ready') return null;
-  return <span className="text-fg-subtle tabular-nums" title={`${String(ahead.value)} ahead of ${baseName}, ${String(behind.value)} behind`}>↑{ahead.value} ↓{behind.value}</span>;
+  return <span className="text-muted tabular-nums" title={`${String(ahead.value)} ahead of ${baseName}, ${String(behind.value)} behind`}>↑{ahead.value} ↓{behind.value}</span>;
 });
 
 type TagDialog = {kind: 'new'} | {kind: 'delete'; name: string; hasRelease: boolean};
@@ -192,7 +192,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
           <RowList items={tags} scroller={scroller} label="Tags" keyOf={(t) => t.tag_name}
             row={(t) => ({
               leading: <TagIcon size={12} className="shrink-0"/>,
-              main: <><span className="font-mono">{t.tag_name}</span>{!t.is_tag && t.name && <> <span className="text-fg-subtle">{t.name}</span></>}</>,
+              main: <><span className="font-mono">{t.tag_name}</span>{!t.is_tag && t.name && <> <span className="text-muted">{t.name}</span></>}</>,
               trailing: <>
                 <span className="font-mono">{shortSha(t.sha)}</span><time dateTime={t.created_at} title={fullDate(t.created_at)}>{ago(t.created_at)}</time>
                 {(def || writer) && <RowControls>
@@ -306,12 +306,12 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
   const target = releaseTarget(d.target_commitish || refs.defaultBranch, refs);
   const at = tagged ?? targetCommit(target, refs);
   return (
-    <article aria-label={`Draft ${name}`} className="-mx-1 flex flex-col gap-3 border-b border-border-subtle px-1 py-6 first:pt-0">
+    <article aria-label={`Draft ${name}`} className="-mx-1 flex flex-col gap-3 border-b border-muted px-1 py-6 first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold text-fg">{name}</h2>
+        <h2 className="text-lg font-semibold text-default">{name}</h2>
         <Label>Draft</Label>
         {d.prerelease && <Label variant="attention">Pre-release</Label>}
-        <span className="text-sm text-fg-subtle">
+        <span className="text-sm text-muted">
           <span className="font-mono">{d.tag_name}</span>
           {d.created_at && <>{' · '}<time dateTime={d.created_at} title={fullDate(d.created_at)}>{shortDate(d.created_at)}</time></>}
           {' · '}
@@ -334,7 +334,7 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
         <ul className="flex flex-col gap-1" aria-label="Assets">
           {d.assets.map((a) => (
             <li key={a.id} className="flex items-center gap-2 text-base">
-              <PaperclipIcon size={12} className="shrink-0"/>{a.name}<span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
+              <PaperclipIcon size={12} className="shrink-0"/>{a.name}<span className="text-sm text-muted tabular-nums">{formatSize(a.size)}</span>
             </li>
           ))}
         </ul>
@@ -396,12 +396,12 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
   const pool = usePool();
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
   return (
-    <article className="-mx-1 flex flex-col gap-3 border-b border-border-subtle px-1 py-6 render-lazy first:pt-0">
+    <article className="-mx-1 flex flex-col gap-3 border-b border-muted px-1 py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold text-fg">{r.name || r.tag_name}</h2>
+        <h2 className="text-lg font-semibold text-default">{r.name || r.tag_name}</h2>
         {latest && <Label variant="success">Latest</Label>}
         {r.prerelease && <Label variant="attention">Pre-release</Label>}
-        <span className="text-sm text-fg-subtle">
+        <span className="text-sm text-muted">
           <TextLink><CodeLink owner={owner} repo={repo} to={`src/tag/${r.tag_name}`}><span className="font-mono">{r.tag_name}</span></CodeLink></TextLink>
           {' · '}<time dateTime={r.created_at} title={fullDate(r.created_at)}>{shortDate(r.created_at)}</time>
         </span>
@@ -420,7 +420,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
                   <PaperclipIcon size={12} className="shrink-0"/>{a.name}
                 </a>
               </Button>
-              <span className="text-sm text-fg-subtle tabular-nums">
+              <span className="text-sm text-muted tabular-nums">
                 {formatSize(a.size)} · {a.download_count === 1 ? '1 download' : `${String(a.download_count)} downloads`}
               </span>
             </li>

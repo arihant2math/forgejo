@@ -200,7 +200,7 @@ export const LabelsCell = observer(function LabelsCell({issue, max = 3}: {issue:
   return (
     <span className="flex min-w-0 items-center gap-1">
       {shown.map((l) => <LabelChip key={l.id} name={l.name} color={l.color}/>)}
-      {labels.length > max && <span title={labels.slice(max).map((l) => l.name).join(', ')} className="text-sm text-fg-subtle tabular-nums">+{labels.length - max}</span>}
+      {labels.length > max && <span title={labels.slice(max).map((l) => l.name).join(', ')} className="text-sm text-muted tabular-nums">+{labels.length - max}</span>}
     </span>
   );
 });
@@ -220,7 +220,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
  */
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
-  if (!id || !u.login) return <span className="font-medium text-fg">{id ? u.name : fallback}</span>;
+  if (!id || !u.login) return <span className="font-medium text-default">{id ? u.name : fallback}</span>;
   return <span className="font-medium"><RouterLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} muted>{u.name}</RouterLink></span>;
 });
 
@@ -243,7 +243,7 @@ export const AssigneesCell = observer(function AssigneesCell({issue}: {issue: En
     <AvatarGroup>
       {ids.slice(0, 3).map((id) => <AssigneeAvatar key={id} id={id}/>)}
       {rest.length > 0 && (
-        <span title={`Also assigned: ${rest.map((id) => userLabel(pool, id)).join(', ')}`} className="text-sm text-fg-subtle tabular-nums">+{rest.length}</span>
+        <span title={`Also assigned: ${rest.map((id) => userLabel(pool, id)).join(', ')}`} className="text-sm text-muted tabular-nums">+{rest.length}</span>
       )}
     </AvatarGroup>
   );
@@ -307,7 +307,7 @@ export function isDraft(title: string, prefixes: readonly string[] = ['WIP:', '[
 }
 
 const CHECK_ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
-const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-warning'} as const;
+const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
 const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending: 'Checks running'} as const;
 
 /**
@@ -403,7 +403,7 @@ export const ResultCount = observer(function ResultCount({model}: {model: IssueL
   if (!narrowed) return null;
   const n = model.result.get().ids.length;
   // Plain text: a chip beside the state buttons read as one more of them, pressed (QA verify3).
-  return <span className="text-sm whitespace-nowrap text-fg-subtle tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
+  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
 });
 
 /** The first non-empty string. */

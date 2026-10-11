@@ -82,7 +82,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
             </>}/>
         ))}
       </ResourceList>
-      <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
         Other kinds of webhooks (Slack, Matrix, Discord, …), the delivery history and Git hooks are in the classic UI.
         <ClassicLink size="sm" to={`${repoPath}/settings/hooks`}>Webhooks</ClassicLink>
       </p>
@@ -208,13 +208,13 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
             }} {...(errors.branchFilter ? {validationStatus: 'error' as const} : {})} monospace/>
         <FormControl.Caption>A glob pattern of the branches whose events are sent (empty or *: all).</FormControl.Caption>{errors.branchFilter && <FormControl.Validation variant="error">{errors.branchFilter}</FormControl.Validation>}</FormControl>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-fg">Events</legend>
+          <legend className="pb-1 text-base font-medium text-default">Events</legend>
           <SegmentedControl label="Events" value={form.mode} options={MODES} onChange={(v) => {
             set('mode', v);
           }}/>
           {form.mode === 'choose' && GROUPS.map((g) => (
             <div key={g} role="group" aria-label={g} className="flex flex-col gap-1">
-              <span className="text-sm text-fg-subtle">{g}</span>
+              <span className="text-sm text-muted">{g}</span>
               <div className="flex flex-col gap-1">
                 {HOOK_EVENTS.filter((e) => e.group === g).map((e) => (
                   <FormControl key={e.name}><Checkbox checked={form.events.includes(e.name)} onChange={(event) => { const on = event.target.checked; toggleEvent(e.name, on); }}/><FormControl.Label>{e.label}</FormControl.Label></FormControl>

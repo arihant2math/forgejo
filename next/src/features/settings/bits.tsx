@@ -84,7 +84,7 @@ export function ListSkeleton({rows = 3}: {rows?: number}) {
   return (
     <EntryList>
       {Array.from({length: rows}, (_, i) => (
-        <li key={i} aria-hidden className="flex items-center gap-3 border-b border-border-subtle py-2 last:border-b-0">
+        <li key={i} aria-hidden className="flex items-center gap-3 border-b border-muted py-2 last:border-b-0">
           <SkeletonAvatar size={20}/>
           <span className="flex flex-1 flex-col gap-1.5"><SkeletonBox className="h-3 w-40"/><SkeletonBox className="h-3 w-24"/></span>
         </li>

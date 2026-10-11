@@ -69,14 +69,14 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
   };
   // Named as what it is (classic's and GitHub's "Suggested change"): the lines it replaces and their replacement.
   return <section aria-label="Suggested change" className="flex flex-col gap-2">
-    <span className="text-sm font-medium text-fg-muted">Suggested change</span>
+    <span className="text-sm font-medium text-muted">Suggested change</span>
     <div>
       {original.map((line, i) => <CodeLine key={`old${i}`} tone="del" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
       {suggestion.text.split('\n').map((line, i) => <CodeLine key={i} tone="add" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
     </div>
     <div className="flex gap-2"><OptionalTooltip text={why}><Button size="small" type="button" disabled={!!why} onClick={() => {setOpen(true);}}>{batch.length ? `Commit ${batch.length} suggestions` : 'Commit suggestion'}</Button></OptionalTooltip>
       <OptionalTooltip text={why}><Button size="small" type="button" disabled={!!why} onClick={() => batches.set(comment.issue_id, batch.some((c) => c.id === comment.id) ? batch.filter((c) => c.id !== comment.id) : [...batch, comment])}>{batch.some((c) => c.id === comment.id) ? 'Remove from batch' : 'Add to batch'}</Button></OptionalTooltip></div>
-    {why && <span className="text-sm text-fg-subtle">{why}</span>}
+    {why && <span className="text-sm text-muted">{why}</span>}
     {open && <Dialog title="Commit suggestions" width="large" onClose={() => { setOpen(false); }} renderFooter={() => <Dialog.Footer>{<Button type="button" disabled={busy || !message.trim() || !!why} onClick={() => {void commit();}}>Commit</Button>}</Dialog.Footer>}><TextInput aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>{error && <Callout tone="danger" title={error}/>}</Dialog>}
   </section>;
 });

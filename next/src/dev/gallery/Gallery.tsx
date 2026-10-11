@@ -38,10 +38,10 @@ function GalleryColor() {
 }
 
 const swatches = [
-  ['canvas', 'bg-canvas'], ['surface', 'bg-surface'], ['raised', 'bg-raised'], ['hover', 'bg-hover'],
-  ['selected', 'bg-selected'], ['border', 'bg-border'], ['fg', 'bg-fg'], ['fg-muted', 'bg-fg-muted'],
-  ['fg-subtle', 'bg-fg-subtle'], ['accent', 'bg-accent'], ['success', 'bg-success'], ['warning', 'bg-warning'],
-  ['danger', 'bg-danger'], ['danger-solid', 'bg-danger-solid'], ['done', 'bg-done'], ['accent-subtle', 'bg-accent-subtle'],
+  ['canvas', 'bg-inset'], ['surface', 'bg-default'], ['raised', 'bg-overlay'], ['hover', 'bg-control-transparent-hover'],
+  ['selected', 'bg-control-transparent-selected'], ['border', 'bg-neutral-muted'], ['fg', 'bg-emphasis'], ['fg-muted', 'bg-neutral-emphasis'],
+  ['fg-subtle', 'bg-neutral-emphasis'], ['accent', 'bg-accent-emphasis'], ['success', 'bg-success-emphasis'], ['warning', 'bg-attention-emphasis'],
+  ['danger', 'bg-danger-emphasis'], ['danger-solid', 'bg-danger-emphasis'], ['done', 'bg-done-emphasis'], ['accent-subtle', 'bg-accent-muted'],
 ] as const;
 
 // "const answer = 42; // ok": keyword, plain, constant, plain, comment (workers/highlight.ts SYN).
@@ -52,15 +52,15 @@ const themes = [['light', SunIcon], ['dark', MoonIcon], ['system', DeviceDesktop
 const OVERFLOW_TABS = ['Code', 'Issues', 'Pull requests', 'Actions', 'Projects', 'Wiki', 'Activity', 'Settings'];
 
 const rows = [
-  {id: 'FJ-128', title: 'Sync log trims too early on MySQL with binlog off', labels: [['bug', 'var(--color-danger)']]},
-  {id: 'FJ-131', title: 'Keyboard shortcut hints in menus', labels: [['ui', 'var(--color-accent)'], ['good first issue', 'var(--color-success)']]},
+  {id: 'FJ-128', title: 'Sync log trims too early on MySQL with binlog off', labels: [['bug', 'var(--fgColor-danger)']]},
+  {id: 'FJ-131', title: 'Keyboard shortcut hints in menus', labels: [['ui', 'var(--bgColor-accent-emphasis)'], ['good first issue', 'var(--fgColor-success)']]},
   {id: 'FJ-140', title: 'Offline queue: show pending badge on rows', labels: []},
 ] as const;
 
 function Section({id, title, children}: {id?: string; title: string; children: ReactNode}) {
   return (
-    <section id={id} className="flex flex-col gap-3 border-b border-border px-6 py-5">
-      <h2 className="text-sm font-medium text-fg-subtle">{title}</h2>
+    <section id={id} className="flex flex-col gap-3 border-b border-default px-6 py-5">
+      <h2 className="text-sm font-medium text-muted">{title}</h2>
       <div className="flex flex-wrap items-center gap-3">{children}</div>
     </section>
   );
@@ -82,8 +82,8 @@ export default function Gallery() {
 
   return (
     <TooltipProvider>
-      <div className="h-full overflow-y-auto bg-surface">
-        <header className="sticky top-0 z-sticky flex h-header items-center gap-2 border-b border-border bg-surface px-6">
+      <div className="h-full overflow-y-auto bg-default">
+        <header className="sticky top-0 z-sticky flex h-header items-center gap-2 border-b border-default bg-default px-6">
           <h1 className="flex-1 text-md font-semibold">Primitives</h1>
           {themes.map(([t, icon]) => (
             <Button variant={theme === t ? 'default' : 'invisible'} size="small" leadingVisual={icon} type="button" key={t} aria-pressed={theme === t} onClick={() => {
@@ -97,8 +97,8 @@ export default function Gallery() {
         <Section id="tokens" title="Tokens">
           {swatches.map(([name, cls]) => (
             <div key={name} className="flex w-20 flex-col gap-1">
-              <span className={`h-8 rounded-md border border-border ${cls}`}/>
-              <span className="text-xs text-fg-muted">{name}</span>
+              <span className={`h-8 rounded-md border border-default ${cls}`}/>
+              <span className="text-xs text-muted">{name}</span>
             </div>
           ))}
         </Section>
@@ -136,20 +136,20 @@ export default function Gallery() {
           <Label variant="success">Open</Label>
           <Label variant="attention">Draft</Label>
           <Label variant="done">Merged</Label>
-          <LabelChip name="bug" color="var(--color-danger)"/>
-          <LabelChip name="enhancement" color="var(--color-accent)"/>
+          <LabelChip name="bug" color="var(--fgColor-danger)"/>
+          <LabelChip name="enhancement" color="var(--bgColor-accent-emphasis)"/>
           <Avatar name="alice" size="sm"/>
           <Avatar name="Bob"/>
           <Avatar name="Ünal" size="lg"/>
           <AvatarGroup><Avatar name="alice" size="sm"/><Avatar name="Bob" size="sm"/></AvatarGroup>
-          <LabelDot color="var(--color-done)"/>
-          <LabelIcon icon={IssueDraftIcon} color="var(--color-warning)"/>
-          <Hint label="Priority: High"><LabelIcon icon={GraphBarVerticalIcon} color="var(--color-danger)"/></Hint>
+          <LabelDot color="var(--fgColor-done)"/>
+          <LabelIcon icon={IssueDraftIcon} color="var(--fgColor-attention)"/>
+          <Hint label="Priority: High"><LabelIcon icon={GraphBarVerticalIcon} color="var(--fgColor-danger)"/></Hint>
         </Section>
 
         <Section title="Label pills, progress, colour">
           {LABEL_PRESETS.map((c, i) => <LabelPill key={c} name={i % 3 === 0 ? `kind/label ${String(i)}` : `label ${String(i)}`} scope={i % 3 === 0 ? 'kind' : undefined} color={c}/>)}
-          <LabelPill name="not a colour" color="var(--color-accent)"/>
+          <LabelPill name="not a colour" color="var(--bgColor-accent-emphasis)"/>
           <div className="w-64"><ProgressBar barSize="small" progress={37.5} aria-label="3 of 8 closed"/></div>
           <div className="w-64"><ProgressBar barSize="small" progress={0} aria-label="Nothing yet"/></div>
           <GalleryColor/>
@@ -157,8 +157,8 @@ export default function Gallery() {
 
         <Section title="Issue list rows, properties, prose, notices">
           <div role="listbox" aria-label="Rows" className="w-full max-w-lg">
-            <ListGroupHeader leading={<LabelIcon icon={IssueDraftIcon} color="var(--color-warning)"/>} label="Backlog" count={2}/>
-            <ListRow role="option" active leading={<IssueOpenedIcon size={16} className="shrink-0"/>} trailing={<LabelChip name="bug" color="var(--color-danger)"/>}>Active row</ListRow>
+            <ListGroupHeader leading={<LabelIcon icon={IssueDraftIcon} color="var(--fgColor-attention)"/>} label="Backlog" count={2}/>
+            <ListRow role="option" active leading={<IssueOpenedIcon size={16} className="shrink-0"/>} trailing={<LabelChip name="bug" color="var(--fgColor-danger)"/>}>Active row</ListRow>
             <ListRow role="option" selected leading={<IssueOpenedIcon size={16} className="shrink-0"/>}>Selected row</ListRow>
           </div>
           <div className="w-80">
@@ -264,8 +264,8 @@ export default function Gallery() {
           </Dialog>
         </Section>
 
-        <section className="border-b border-border">
-          <h2 className="px-6 pt-5 pb-3 text-sm font-medium text-fg-subtle">List rows (right click for the context menu)</h2>
+        <section className="border-b border-default">
+          <h2 className="px-6 pt-5 pb-3 text-sm font-medium text-muted">List rows (right click for the context menu)</h2>
           <div role="listbox" aria-label="Issues">
             {rows.map((row, i) => (
               <ContextMenu key={row.id}>
@@ -305,7 +305,7 @@ export default function Gallery() {
         </section>
 
         <Section title="Sidebar navigation, status">
-          <div className="relative flex w-sidebar flex-col gap-px rounded-md border border-border bg-canvas p-2">
+          <div className="relative flex w-sidebar flex-col gap-px rounded-md border border-default bg-inset p-2">
             <NavItem icon={InboxIcon} label="Inbox" count={3} shortcut="G N"/>
             <NavItem icon={IssueOpenedIcon} label="My issues" aria-current="page"/>
             <NavHeading>Workspace</NavHeading>
@@ -324,7 +324,7 @@ export default function Gallery() {
         </Section>
 
         <Section id="code" title="Code: lines, diff, blame, logs, tabs">
-          <div className="flex w-full flex-col overflow-x-auto rounded-md border border-border">
+          <div className="flex w-full flex-col overflow-x-auto rounded-md border border-default">
             <TabNav label="Example tabs">
               <TabLink><a href="#code" aria-current="page">Files</a></TabLink>
               <TabLink><a href="#code">Commits</a></TabLink>
@@ -402,7 +402,7 @@ export default function Gallery() {
                 archives={[{format: 'zip', href: '#code'}, {format: 'tar.gz', href: '#code'}]}/>
             </PopoverContent>
           </Popover>
-          <div className="w-80 rounded-lg border border-border p-2">
+          <div className="w-80 rounded-lg border border-default p-2">
             <CodeMenuPanel https="https://code.example/acme/website.git" onCopy={() => undefined} archives={[]}/>
           </div>
           <div className="w-64">

@@ -51,7 +51,7 @@ export function BlobImage({bytes, type, alt, onSize}: {bytes: ArrayBuffer | stri
   // is shown four times larger with sharp pixels, not as a speck (QA verify3: a 16×16 PNG looked blank).
   return (
     <div className="flex justify-center p-6">
-      <img src={url} alt={alt} className={small ? 'pixelated bg-checker w-auto max-w-full border border-border-subtle' : 'bg-checker max-w-full border border-border-subtle'}
+      <img src={url} alt={alt} className={small ? 'pixelated bg-checker w-auto max-w-full border border-muted' : 'bg-checker max-w-full border border-muted'}
         style={small ? {zoom: SMALL_ZOOM} : undefined}
         onLoad={(e) => {
           const {naturalWidth: w, naturalHeight: h} = e.currentTarget;
@@ -96,6 +96,6 @@ function PlainReadme({repoId, entry, path}: {repoId: number; entry: APITreeEntry
   const key = CodeSource.blobKey(repoId, entry.sha);
   const blob = useLoad(key, () => src.peek<FileContent>(key), () => src.blob(repoId, entry.sha, path, entry.size));
   if (blob.state !== 'ready') return <Unloaded loaded={blob} what="The README" skeleton={<SkeletonText lines={6}/>}/>;
-  if (blob.value.kind !== 'text') return <p className="text-base text-fg-muted">The README is not a text file.</p>;
-  return <pre className="font-mono text-code whitespace-pre-wrap text-fg">{blob.value.text}</pre>;
+  if (blob.value.kind !== 'text') return <p className="text-base text-muted">The README is not a text file.</p>;
+  return <pre className="font-mono text-code whitespace-pre-wrap text-default">{blob.value.text}</pre>;
 }

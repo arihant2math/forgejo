@@ -237,14 +237,14 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
   return (
     <article aria-label={rec.title} className="flex min-w-0 flex-col gap-4">
       {rec.date && (
-        <p className="text-sm text-fg-muted">
+        <p className="text-sm text-muted">
           {rec.author || 'Someone'} edited this page <time dateTime={rec.date} title={fullDate(rec.date)}>{agoWords(rec.date)}</time>
           {rec.commitCount > 0 && <> · <PrimerLink href={revisions} data-classic="" title={CLASSIC_HINT} muted>{rec.commitCount === 1 ? '1 revision' : `${String(rec.commitCount)} revisions`}</PrimerLink></>}
         </p>
       )}
       <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={rec.html} empty="This page is empty."/>
       {rec.footer && (
-        <footer aria-label="Wiki footer" className="border-t border-border-subtle pt-4">
+        <footer aria-label="Wiki footer" className="border-t border-muted pt-4">
           <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={rec.footer.html}/>
         </footer>
       )}
@@ -256,7 +256,7 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
 function WikiMarkdown({owner, repo, repoId, html, empty}: WikiProps & {html: string; empty?: string}) {
   const src = useWiki();
   const app = useApp();
-  if (!html.trim()) return empty ? <p className="text-base text-fg-subtle">{empty}</p> : null;
+  if (!html.trim()) return empty ? <p className="text-base text-muted">{empty}</p> : null;
   const onPointerOver = (e: PointerEvent<HTMLDivElement>) => {
     const a = (e.target as Element).closest('a');
     if (!a?.href) return;
@@ -311,7 +311,7 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
   if (list.state === 'ready' && list.value.kind !== 'pages' && !sidebar) return null;
   const pages = list.state === 'ready' && list.value.kind === 'pages' ? listOrder(list.value.pages) : [];
   return (
-    <aside aria-label="Wiki" className="flex shrink-0 flex-col gap-4 border-t border-border p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
+    <aside aria-label="Wiki" className="flex shrink-0 flex-col gap-4 border-t border-default p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
       {sidebar && (
         <section aria-label="Wiki sidebar" className="flex flex-col gap-2">
           <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={sidebar}/>
@@ -321,9 +321,9 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
         </section>
       )}
       <nav aria-label="Pages" className="flex flex-col">
-        <h2 className="flex h-control items-center justify-between px-2 text-sm font-medium text-fg-muted">
+        <h2 className="flex h-control items-center justify-between px-2 text-sm font-medium text-muted">
           <span>Pages</span>
-          {pages.length > 0 && <span className="tabular-nums text-fg-subtle">{pages.length}</span>}
+          {pages.length > 0 && <span className="tabular-nums text-muted">{pages.length}</span>}
         </h2>
         {list.state === 'loading' && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
         {pages.slice(0, SIDE_PAGES).map((p) => (
@@ -494,7 +494,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
               setMessage(e.target.value);
             }}/>
           <div className="flex items-center justify-end gap-2">
-            {offline && <span className="text-sm text-fg-subtle">{onlineOnly(page ? 'Saving a wiki page' : 'Creating a wiki page')}</span>}
+            {offline && <span className="text-sm text-muted">{onlineOnly(page ? 'Saving a wiki page' : 'Creating a wiki page')}</span>}
             <Button variant="invisible" type="button" onClick={leave}>Cancel</Button>
             <Button variant="primary" type="button" disabled={saving || offline} onClick={save}>{saving ? 'Saving…' : page ? 'Save' : 'Create page'}</Button>
           </div>

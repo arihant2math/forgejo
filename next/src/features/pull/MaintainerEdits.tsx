@@ -22,5 +22,5 @@ export const MaintainerEdits = observer(function MaintainerEdits({issue}: {issue
     setBusy(true);
     setError('');
     void onlineWrite(app, {method: 'PATCH', api: 'v1', path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.get('number'))}`, body: {allow_maintainer_edit: checked}}).catch(() => { setError('Could not change maintainer permissions. Try again.'); }).finally(() => { setBusy(false); });
-  })(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>{offline && <span className="text-sm text-fg-muted">Changing permissions requires a connection.</span>}{error && <Callout tone="danger" title="Update failed">{error}</Callout>}</div>;
+  })(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>{offline && <span className="text-sm text-muted">Changing permissions requires a connection.</span>}{error && <Callout tone="danger" title="Update failed">{error}</Callout>}</div>;
 });

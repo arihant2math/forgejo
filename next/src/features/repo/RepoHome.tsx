@@ -81,7 +81,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
             {repository?.fork && <Contribute owner={owner} repo={repo}/>}
             <Files owner={owner} repo={repo} repoId={repoId}/>
           </PageColumn>
-          <aside aria-label="About" className="shrink-0 border-t border-border p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
+          <aside aria-label="About" className="shrink-0 border-t border-default p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
             <AboutSidebar owner={owner} repo={repo} repoId={repoId}/>
           </aside>
         </div>
@@ -96,7 +96,7 @@ const Summary = observer(function Summary({repoId}: {repoId: number}) {
   if (!r) return null;
   const flags = [r.private ? 'Private' : 'Public', r.fork && 'Fork', r.mirror && 'Mirror', r.template && 'Template', r.archived && 'Archived'].filter((f): f is string => Boolean(f));
   return (
-    <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-fg">
+    <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-default">
       {r.name}
       {flags.map((f) => <Badge key={f} tone={f === 'Archived' ? 'warning' : 'neutral'} round>{f}</Badge>)}
     </h2>

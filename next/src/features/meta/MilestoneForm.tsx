@@ -108,7 +108,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
         docTitle={milestone ? `Edit ${milestone.title} · Milestones` : 'New milestone'}/>
       <PageBody>
         <PageColumn>
-          <h2 className="text-xl font-semibold text-fg">{title}</h2>
+          <h2 className="text-xl font-semibold text-default">{title}</h2>
           {!write && <Callout title="You cannot change this repository’s milestones">Forgejo would refuse it: changing milestones needs write access to the repository’s issues.</Callout>}
           {offline && <Callout title={onlineOnly('Saving a milestone')}>What you type stays here until you are back online.</Callout>}
           {/* noValidate: each field's problem shows under it (milestoneProblems), not as the browser's bubble. */}
@@ -129,7 +129,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
               </span>
             <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{(tried ? problems.due : undefined) && <FormControl.Validation variant="error">{tried ? problems.due : undefined}</FormControl.Validation>}</FormControl>
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-fg">Description</span>
+              <span className="text-sm font-medium text-default">Description</span>
               <MarkdownField repoId={r.repoId} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {
                 setD((x) => ({...x, description}));
               }} onSubmit={save}/>

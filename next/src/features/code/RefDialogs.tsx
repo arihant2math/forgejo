@@ -102,11 +102,11 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
     </>}</Dialog.Footer>}>
       <div className="flex flex-col gap-3">
         <NameField label="Branch name" placeholder="feature/my-change" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={BRANCH_MAX} onEnter={create}/>
-        <div className="flex flex-wrap items-center gap-2 text-base text-fg-muted">
+        <div className="flex flex-wrap items-center gap-2 text-base text-muted">
           <span>From</span>
           <RefPicker repoId={repoId} label="Start from" value={source} onChange={setSource} commits/>
         </div>
-        {block && <p className="text-sm text-fg-subtle">{block}</p>}
+        {block && <p className="text-sm text-muted">{block}</p>}
         {error && <Problem id="ref-write-error">{error}</Problem>}
       </div>
     </Dialog>
@@ -143,7 +143,7 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
     </>}</Dialog.Footer>}>
       <div className="flex flex-col gap-3">
         <NameField label="Tag name" placeholder="v1.0.0" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={TAG_MAX} onEnter={create}/>
-        <div className="flex flex-wrap items-center gap-2 text-base text-fg-muted">
+        <div className="flex flex-wrap items-center gap-2 text-base text-muted">
           <span>At</span>
           <RefPicker repoId={repoId} label="Tag the commit of" value={target} onChange={setTarget} commits/>
         </div>
@@ -155,7 +155,7 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
             create();
           }
         }} block/>
-        {block && <p className="text-sm text-fg-subtle">{block}</p>}
+        {block && <p className="text-sm text-muted">{block}</p>}
         {error && <Problem id="ref-write-error">{error}</Problem>}
       </div>
     </Dialog>
@@ -181,8 +181,8 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
     </>}</Dialog.Footer>}>
       {(blocked ?? pending ?? error) && (
         <div className="flex flex-col gap-1">
-          {blocked && <p role="alert" className="text-base text-fg">{blocked}</p>}
-          {!blocked && pending && <p className="text-sm text-fg-subtle">{pending}</p>}
+          {blocked && <p role="alert" className="text-base text-default">{blocked}</p>}
+          {!blocked && pending && <p className="text-sm text-muted">{pending}</p>}
           {error && <Problem id="ref-write-error">{error}</Problem>}
         </div>
       )}

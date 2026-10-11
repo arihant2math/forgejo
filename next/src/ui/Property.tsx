@@ -21,7 +21,7 @@ export function Property({label, stacked, children}: {label: string; stacked?: b
   const id = useId();
   return (
     <div className={cx('flex min-h-control', stacked ? 'flex-col' : 'items-start gap-2')}>
-      <dt id={id} className={cx('flex shrink-0 items-center text-sm text-fg-subtle', stacked ? 'h-control-sm' : 'h-control w-20')}>{label}</dt>
+      <dt id={id} className={cx('flex shrink-0 items-center text-sm text-muted', stacked ? 'h-control-sm' : 'h-control w-20')}>{label}</dt>
       <dd className="flex min-w-0 flex-1 flex-col"><NameContext value={id}>{children}</NameContext></dd>
     </div>
   );
@@ -57,7 +57,7 @@ export function PropertyButton({onClick, label, shortcut, disabled, children, re
         {...rest}
         disabled={disabled}
         onClick={onClick}
-        className="interactive flex min-h-control w-full flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left text-base text-fg hover:bg-hover disabled:pointer-events-none disabled:opacity-disabled"
+        className="interactive flex min-h-control w-full flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left text-base text-default hover:bg-control-transparent-hover disabled:pointer-events-none disabled:opacity-disabled"
       >
         {children}
       </button>
@@ -67,10 +67,10 @@ export function PropertyButton({onClick, label, shortcut, disabled, children, re
 
 /** A property without a value ("None"), muted. */
 export function PropertyEmpty({children}: {children: string}) {
-  return <span className="text-fg-subtle">{children}</span>;
+  return <span className="text-muted">{children}</span>;
 }
 
-const valueTones = {default: 'text-fg', muted: 'text-fg-muted', danger: 'text-danger'} as const;
+const valueTones = {default: 'text-default', muted: 'text-muted', danger: 'text-danger'} as const;
 
 /** A read-only value (projects, dependencies, dates): lined up with PropertyButton's content. */
 export function PropertyValue({tone = 'default', title, children}: {tone?: 'default' | 'muted' | 'danger'; title?: string | undefined; children: ReactNode}) {

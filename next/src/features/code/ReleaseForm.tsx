@@ -211,7 +211,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       {error && <Callout tone="danger" title="Not saved">{error}</Callout>}
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
-          <p className="flex items-center gap-2 text-base text-fg-muted"><TagIcon size={12} className="shrink-0"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
+          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
           <>
             <div className="flex flex-wrap items-center gap-2">
               <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
@@ -227,8 +227,8 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
               tag && (existing ?
-                <p id="release-tag-state" className="text-sm text-fg-subtle">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
-                <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-fg-subtle">
+                <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
+                <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>A new tag, made when the release is published, at</span>
                   {/* A branch (its head when published), an existing tag (e.g. the tested release candidate's) or a commit. */}
                   <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
@@ -253,8 +253,8 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
           return (
             <div key={a.id} className="flex items-center gap-2 text-base">
               <PaperclipIcon size={12} className="shrink-0"/>
-              <span className={gone ? 'text-fg-subtle line-through' : 'text-fg'}>{a.name}</span>
-              <span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
+              <span className={gone ? 'text-muted line-through' : 'text-default'}>{a.name}</span>
+              <span className="text-sm text-muted tabular-nums">{formatSize(a.size)}</span>
               <IconButton icon={gone ? UndoIcon : XIcon} variant="invisible" size="small" aria-label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} type="button" onClick={() => {
                 setRemoved((r) => (gone ? r.filter((x) => x !== a.id) : [...r, a.id]));
               }}/>
@@ -263,8 +263,8 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         })}
         {files.map((f, i) => (
           <div key={`${f.name}:${String(i)}`} className="flex items-center gap-2 text-base">
-            <PlusIcon size={12} className="shrink-0"/><span className="text-fg">{f.name}</span>
-            <span className="text-sm text-fg-subtle tabular-nums">{formatSize(f.size)}</span>
+            <PlusIcon size={12} className="shrink-0"/><span className="text-default">{f.name}</span>
+            <span className="text-sm text-muted tabular-nums">{formatSize(f.size)}</span>
             <IconButton icon={XIcon} variant="invisible" size="small" aria-label={`Do not upload ${f.name}`} type="button" onClick={() => {
               setFiles((fs) => fs.filter((_, k) => k !== i));
             }}/>
@@ -281,7 +281,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       </section>
       <FormControl><Checkbox checked={fields.prerelease} onChange={(event) => { const prerelease = event.target.checked; set({prerelease}); }}/><FormControl.Label>This is a pre-release (not ready for production)</FormControl.Label></FormControl>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {block && <span className="mr-auto text-sm text-fg-subtle">{block}</span>}
+        {block && <span className="mr-auto text-sm text-muted">{block}</span>}
         <Button variant="invisible" type="button" onClick={back}>Cancel</Button>
         {publishing && <OptionalTooltip text={block ?? 'Only writers see a draft'}><Button type="button" aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(true);
@@ -310,7 +310,7 @@ const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repo
   return (
     <span role="status" aria-label="Target commit" className="flex min-w-0 items-center gap-1">
       <span className="font-mono" title={full}>{shortSha(full)}</span>
-      {commit.state === 'ready' && <span className="truncate text-fg-muted">{summary(commit.value.message)}</span>}
+      {commit.state === 'ready' && <span className="truncate text-muted">{summary(commit.value.message)}</span>}
       {target.kind === 'branch' && <span>({target.ref}’s head now: the tag is made at its head when published)</span>}
     </span>
   );

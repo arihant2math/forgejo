@@ -8,7 +8,7 @@ import {messageTones} from './Notice.tsx';
 import {message} from './recipes.ts';
 
 /** Inline messages tint their box with the tone (Notice floats on `raised` instead). */
-const tints = {neutral: 'bg-canvas', warning: 'bg-warning-subtle', danger: 'bg-danger-subtle'} as const;
+const tints = {neutral: 'bg-inset', warning: 'bg-attention-muted', danger: 'bg-danger-muted'} as const;
 
 export type CalloutTone = keyof typeof tints;
 
@@ -28,7 +28,7 @@ export interface CalloutProps {
 export function Callout({tone = 'neutral', title, children, actions}: CalloutProps) {
   const t = messageTones[tone];
   return (
-    <div role="note" className={cx('flex items-start gap-2 rounded-md border border-border px-3 py-2', tints[tone])}>
+    <div role="note" className={cx('flex items-start gap-2 rounded-md border border-default px-3 py-2', tints[tone])}>
       <Icon icon={t.icon} className={cx(message.icon, t.text)}/>
       <div className={message.body}>
         <p className={message.title}>{title}</p>

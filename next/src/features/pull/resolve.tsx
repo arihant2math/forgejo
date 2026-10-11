@@ -105,7 +105,7 @@ export const ResolveButton = observer(function ResolveButton({root, issue}: {roo
 /** A resolved conversation folded to one line (Linear, GitHub): who resolved it, and Show. */
 export function ResolvedFold({resolver, onShow}: {resolver: number; onShow: () => void}) {
   return (
-    <div className="flex items-center gap-2 text-sm text-fg-muted">
+    <div className="flex items-center gap-2 text-sm text-muted">
       <CheckCircleIcon size={12} className="shrink-0 text-success"/>
       <span>Resolved by <UserName id={resolver}/></span>
       <Button variant="invisible" size="small" type="button" onClick={onShow}>Show</Button>

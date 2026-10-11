@@ -19,14 +19,14 @@ export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolea
   return (
     <div className={cx('flex h-full', boot && 'logged-out:hidden')}>
       <aside aria-label="Sidebar" className={drawer}>{sidebar}</aside>
-      <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay max-md:drawer-open:block" onClick={onBackdrop}/>
-      <main className="@container flex min-w-0 flex-1 flex-col bg-surface">{children}</main>
+      <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay-backdrop max-md:drawer-open:block" onClick={onBackdrop}/>
+      <main className="@container flex min-w-0 flex-1 flex-col bg-default">{children}</main>
     </div>
   );
 }
 
 const drawer = cx(
-  'relative flex w-sidebar shrink-0 flex-col border-r border-border bg-canvas md:sidebar-hidden:hidden',
+  'relative flex w-sidebar shrink-0 flex-col border-r border-default bg-inset md:sidebar-hidden:hidden',
   'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-popover max-md:hidden max-md:w-pane max-md:shadow-dialog max-md:drawer-open:flex',
 );
 
@@ -47,7 +47,7 @@ export function HeaderBar({children}: {children: ReactNode}) {
   return <header className={headerRow}>{children}</header>;
 }
 
-const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-border px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
+const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-default px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
 
 /**
  * A row of a header that has several (a repository page's: where you are, the tabs, the page's title and

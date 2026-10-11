@@ -117,10 +117,10 @@ function Finder({owner, repo, repoId, at, onClose}: FinderProps & {onClose: () =
               <CommandItem key={h.path} value={h.path} icon={FileIcon} onSelect={() => {
                 open(h.path);
               }}>
-                {markRuns(h.path, h.marks).map((r, i) => (r.marked ? <span key={i} className="font-semibold text-accent-fg">{r.text}</span> : r.text))}
+                {markRuns(h.path, h.marks).map((r, i) => (r.marked ? <span key={i} className="font-semibold text-accent">{r.text}</span> : r.text))}
               </CommandItem>
             ))}
-            {list.value.truncated && <p className="px-2 py-1.5 text-sm text-fg-subtle">This tree is too large to list every file.</p>}
+            {list.value.truncated && <p className="px-2 py-1.5 text-sm text-muted">This tree is too large to list every file.</p>}
           </>
         )}
       </CommandList>

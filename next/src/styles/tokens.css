@@ -3,7 +3,7 @@
  *
  * Design tokens: the ONLY place where colours, type, spacing, sizes, radii,
  * shadows, z-index and motion are defined. Everything else uses these names,
- * either as Tailwind utilities (bg-surface, text-fg-muted, h-row, rounded-md,
+ * either as Tailwind utilities (bg-default, text-muted, h-row, rounded-md,
  * shadow-popover, …) or as var(--…) in CSS. Need a new value? Add a token here.
  *
  * `@theme static` turns each --namespace-name into a Tailwind utility and
@@ -13,82 +13,95 @@
 
 @theme static {
   /* ── Colour: Primer's functional colour tokens (@primer/primitives). ─────
-   * Every colour is an alias of a Primer variable, so the light and dark themes (and Primer's high-contrast and
+   * Utilities are named after Primer's own tokens, per property: bg-muted is bgColor-muted, text-muted is
+   * fgColor-muted, border-default is borderColor-default. The light and dark themes (and Primer's high-contrast and
    * colour-blind variants) come from Primer: <html data-color-mode data-light-theme data-dark-theme> picks the set
-   * (app/theme.ts, the splash script). The names stay the app's, so layout code reads the same. */
+   * (app/theme.ts, the splash script). Tailwind's colour palette is not loaded: only these exist. */
+  --color-*: initial;
 
-  /* Surfaces, from back to front. */
-  --color-canvas: var(--bgColor-inset); /* app background, sidebar */
-  --color-surface: var(--bgColor-default); /* main content panel */
-  --color-raised: var(--overlay-bgColor); /* popovers, menus, dialogs */
-  --color-overlay: var(--overlay-backdrop-bgColor); /* dialog backdrop */
+  /* bg-* (bgColor-*) */
+  --background-color-default: var(--bgColor-default);
+  --background-color-muted: var(--bgColor-muted);
+  --background-color-inset: var(--bgColor-inset);
+  --background-color-emphasis: var(--bgColor-emphasis);
+  --background-color-neutral-muted: var(--bgColor-neutral-muted);
+  --background-color-neutral-emphasis: var(--bgColor-neutral-emphasis);
+  --background-color-accent-muted: var(--bgColor-accent-muted);
+  --background-color-accent-emphasis: var(--bgColor-accent-emphasis);
+  --background-color-success-muted: var(--bgColor-success-muted);
+  --background-color-success-emphasis: var(--bgColor-success-emphasis);
+  --background-color-attention-muted: var(--bgColor-attention-muted);
+  --background-color-attention-emphasis: var(--bgColor-attention-emphasis);
+  --background-color-danger-muted: var(--bgColor-danger-muted);
+  --background-color-danger-emphasis: var(--bgColor-danger-emphasis);
+  --background-color-done-muted: var(--bgColor-done-muted);
+  --background-color-done-emphasis: var(--bgColor-done-emphasis);
+  --background-color-severe-muted: var(--bgColor-severe-muted);
+  --background-color-severe-emphasis: var(--bgColor-severe-emphasis);
+  /* overlay-bgColor, overlay-backdrop-bgColor, the transparent controls' fills, skeletonLoader-bgColor */
+  --background-color-overlay: var(--overlay-bgColor);
+  --background-color-overlay-backdrop: var(--overlay-backdrop-bgColor);
+  --background-color-control-transparent-hover: var(--control-transparent-bgColor-hover);
+  --background-color-control-transparent-selected: var(--control-transparent-bgColor-selected);
+  --background-color-skeleton: var(--skeletonLoader-bgColor);
+  --background-color-button-primary-hover: var(--button-primary-bgColor-hover);
+  --background-color-button-danger-hover: var(--button-danger-bgColor-hover);
+  /* diffBlob-*-bgColor */
+  --background-color-diff-addition-line: var(--diffBlob-additionLine-bgColor);
+  --background-color-diff-addition-word: var(--diffBlob-additionWord-bgColor);
+  --background-color-diff-deletion-line: var(--diffBlob-deletionLine-bgColor);
+  --background-color-diff-deletion-word: var(--diffBlob-deletionWord-bgColor);
+  /* data-*-color-emphasis: categorical series (a repository's languages bar), in this order, never cycled */
+  --background-color-data-blue: var(--data-blue-color-emphasis);
+  --background-color-data-orange: var(--data-orange-color-emphasis);
+  --background-color-data-green: var(--data-green-color-emphasis);
+  --background-color-data-yellow: var(--data-yellow-color-emphasis);
+  --background-color-data-pink: var(--data-pink-color-emphasis);
 
-  /* Interactive fills. raised-hover is the highlighted row of a menu (on raised). */
-  --color-hover: var(--control-transparent-bgColor-hover);
-  --color-raised-hover: var(--control-transparent-bgColor-hover);
-  --color-selected: var(--control-transparent-bgColor-selected);
-  --color-skeleton: var(--skeletonLoader-bgColor);
+  /* text-* (fgColor-*) */
+  --text-color-default: var(--fgColor-default);
+  --text-color-muted: var(--fgColor-muted);
+  --text-color-onEmphasis: var(--fgColor-onEmphasis);
+  --text-color-accent: var(--fgColor-accent);
+  --text-color-success: var(--fgColor-success);
+  --text-color-attention: var(--fgColor-attention);
+  --text-color-danger: var(--fgColor-danger);
+  --text-color-done: var(--fgColor-done);
+  --text-color-severe: var(--fgColor-severe);
+  --text-color-open: var(--fgColor-open);
+  --text-color-closed: var(--fgColor-closed);
+  /* syntax colours (Primer's "prettylights", what github.com highlights code with) */
+  --text-color-syntax-keyword: var(--color-prettylights-syntax-keyword);
+  --text-color-syntax-string: var(--color-prettylights-syntax-string);
+  --text-color-syntax-comment: var(--color-prettylights-syntax-comment);
+  --text-color-syntax-entity: var(--color-prettylights-syntax-entity);
+  --text-color-syntax-constant: var(--color-prettylights-syntax-constant);
+  --text-color-syntax-variable: var(--color-prettylights-syntax-variable);
+  /* Text on a label's own colour (a filled label pill): the one that contrasts more with that colour (labelInk). */
+  --text-color-on-label-dark: #1b1b1f;
+  --text-color-on-label-light: #fff;
 
-  /* Fills on the canvas (sidebar rows). */
-  --color-canvas-hover: var(--control-transparent-bgColor-hover);
-  --color-canvas-selected: var(--control-transparent-bgColor-selected);
+  /* border-* (borderColor-*) */
+  --border-color-default: var(--borderColor-default);
+  --border-color-muted: var(--borderColor-muted);
+  --border-color-emphasis: var(--borderColor-emphasis);
+  --border-color-accent-emphasis: var(--borderColor-accent-emphasis);
+  --border-color-success-emphasis: var(--borderColor-success-emphasis);
+  --border-color-attention-emphasis: var(--borderColor-attention-emphasis);
+  --border-color-danger-emphasis: var(--borderColor-danger-emphasis);
 
-  /* Hairlines. */
-  --color-border: var(--borderColor-default);
-  --color-border-subtle: var(--borderColor-muted);
-  --color-border-strong: var(--borderColor-emphasis);
-
-  /* Text. */
-  --color-fg: var(--fgColor-default);
-  --color-fg-muted: var(--fgColor-muted);
-  --color-fg-subtle: var(--fgColor-muted);
-  --color-fg-on-accent: var(--fgColor-onEmphasis); /* on accent, success-solid and danger-solid fills */
-  /* Text on a label's own colour (a filled label pill): the one of the two that contrasts more with that colour
-   * (labelInk). The same in both themes: the fill is the label's. */
-  --color-on-label-dark: #1b1b1f;
-  --color-on-label-light: #fff;
-
-  /* The accent (Primer's blue): a fill (+ hover), a text colour and a subtle tint. */
-  --color-accent: var(--bgColor-accent-emphasis);
-  --color-accent-hover: var(--borderColor-accent-emphasis);
-  --color-accent-fg: var(--fgColor-accent);
-  --color-accent-subtle: var(--bgColor-accent-muted);
-  --color-focus: var(--focus-outlineColor);
-
-  /* Status: text/icon colour + subtle tint (+ a solid fill). */
-  --color-success: var(--fgColor-success);
-  --color-success-subtle: var(--bgColor-success-muted);
-  --color-success-solid: var(--bgColor-success-emphasis);
-  --color-success-solid-hover: var(--button-primary-bgColor-hover);
-  --color-warning: var(--fgColor-attention);
-  --color-warning-subtle: var(--bgColor-attention-muted);
-  --color-danger: var(--fgColor-danger);
-  --color-danger-subtle: var(--bgColor-danger-muted);
-  --color-danger-solid: var(--bgColor-danger-emphasis);
-  --color-danger-solid-hover: var(--button-danger-bgColor-hover);
-  --color-done: var(--fgColor-done);
-  --color-done-subtle: var(--bgColor-done-muted);
-  --color-shadow: var(--borderColor-translucent);
-
-  /* Code: syntax colours (Primer's "prettylights", what github.com highlights with) and the diff tints. */
-  --color-syn-keyword: var(--color-prettylights-syntax-keyword);
-  --color-syn-string: var(--color-prettylights-syntax-string);
-  --color-syn-comment: var(--color-prettylights-syntax-comment);
-  --color-syn-function: var(--color-prettylights-syntax-entity);
-  --color-syn-constant: var(--color-prettylights-syntax-constant);
-  --color-syn-parameter: var(--color-prettylights-syntax-variable);
-  --color-diff-add: var(--diffBlob-additionLine-bgColor);
-  --color-diff-add-strong: var(--diffBlob-additionWord-bgColor);
-  --color-diff-del: var(--diffBlob-deletionLine-bgColor);
-  --color-diff-del-strong: var(--diffBlob-deletionWord-bgColor);
-
-  /* Categorical series (a repository's languages bar): fixed order, never cycled. Primer's data-visualisation
-   * colours. */
-  --color-series-1: var(--data-blue-color-emphasis);
-  --color-series-2: var(--data-orange-color-emphasis);
-  --color-series-3: var(--data-green-color-emphasis);
-  --color-series-4: var(--data-yellow-color-emphasis);
-  --color-series-5: var(--data-pink-color-emphasis);
+  /* outline-*, fill-*, stroke-*, accent-* */
+  --outline-color-focus: var(--focus-outlineColor);
+  --outline-color-danger: var(--borderColor-danger-emphasis);
+  --fill-success: var(--fgColor-success);
+  --fill-accent: var(--fgColor-accent);
+  --fill-danger: var(--fgColor-danger);
+  --fill-done: var(--fgColor-done);
+  --fill-skeleton: var(--skeletonLoader-bgColor);
+  --fill-control-transparent-hover: var(--control-transparent-bgColor-hover);
+  --stroke-default: var(--borderColor-default);
+  --stroke-emphasis: var(--borderColor-emphasis);
+  --accent-color-accent: var(--fgColor-accent);
 
   /* ── Typography: Primer's font stacks and type scale. System fonts only. ── */
   --font-sans: var(--fontStack-system);

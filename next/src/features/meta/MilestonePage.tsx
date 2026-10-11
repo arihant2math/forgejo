@@ -88,11 +88,11 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
   const [open, setOpen] = useState(false);
   const offline = !connectivity.online;
   return (
-    <section aria-label="Milestone" className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-3">
+    <section aria-label="Milestone" className="flex shrink-0 flex-col gap-2 border-b border-default px-3 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <DueLine m={m}/>
-        <span className="font-semibold text-fg tabular-nums">{p.percent}% complete</span>
-        <span className="text-fg-muted tabular-nums">{p.open} open · {p.closed} closed</span>
+        <span className="font-semibold text-default tabular-nums">{p.percent}% complete</span>
+        <span className="text-muted tabular-nums">{p.open} open · {p.closed} closed</span>
         {m.description && (
           <Button variant="invisible" size="small" type="button" aria-expanded={open} onClick={() => {
             setOpen(!open);

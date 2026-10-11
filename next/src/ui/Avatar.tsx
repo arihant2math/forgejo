@@ -26,7 +26,7 @@ export type AvatarProps = {
 export function Avatar({size = 'md', ...props}: AvatarProps) {
   // A picture that cannot load (offline and not kept, gone) gives way to the initial, never a broken image.
   const [failed, setFailed] = useState<string | undefined>(undefined);
-  const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-border-strong font-medium text-fg select-none', sizes[size]);
+  const cls = cx('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-muted font-medium text-default select-none', sizes[size]);
   if (props.fromSplash) return <span aria-hidden className={cx(cls, 'splash-initial')}/>;
   if (props.src && failed !== props.src) {
     const src = props.src;

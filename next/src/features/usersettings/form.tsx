@@ -14,10 +14,10 @@ import type {ReactNode} from 'react';
 export function FormSection({title, description, actions, children, id}: {title: string; description?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string}) {
   return (
     <section aria-labelledby={id ? `${id}-title` : undefined} className="flex min-w-0 flex-col gap-4">
-      <header className="flex items-end gap-2 border-b border-border-subtle pb-2">
+      <header className="flex items-end gap-2 border-b border-muted pb-2">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h2 id={id ? `${id}-title` : undefined} className="text-md font-semibold text-fg">{title}</h2>
-          {description && <p className="text-sm text-fg-muted">{description}</p>}
+          <h2 id={id ? `${id}-title` : undefined} className="text-md font-semibold text-default">{title}</h2>
+          {description && <p className="text-sm text-muted">{description}</p>}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
       </header>
@@ -30,11 +30,11 @@ export function FormSection({title, description, actions, children, id}: {title:
 export function Field({id, label, hint, error, children}: {id: string; label: string; hint?: ReactNode; error?: string | undefined; children: ReactNode}) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={id} className="text-base font-medium text-fg">{label}</label>
+      <label htmlFor={id} className="text-base font-medium text-default">{label}</label>
       {children}
       {error ?
         <p id={`${id}-error`} role="alert" className="text-sm text-danger">{error}</p> :
-        hint && <p id={`${id}-hint`} className="text-sm text-fg-subtle">{hint}</p>}
+        hint && <p id={`${id}-hint`} className="text-sm text-muted">{hint}</p>}
     </div>
   );
 }
@@ -49,8 +49,8 @@ export function SettingRow({title, description, children}: {title: string; descr
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
       <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
-        <span className="text-base font-medium text-fg">{title}</span>
-        {description && <span className="text-sm text-fg-muted">{description}</span>}
+        <span className="text-base font-medium text-default">{title}</span>
+        {description && <span className="text-sm text-muted">{description}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
@@ -61,7 +61,7 @@ export function SettingRow({title, description, children}: {title: string; descr
 export function FormActions({note, children}: {note?: ReactNode; children: ReactNode}) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      {note && <span className="text-sm text-fg-subtle">{note}</span>}
+      {note && <span className="text-sm text-muted">{note}</span>}
       {children}
     </div>
   );

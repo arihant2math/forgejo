@@ -7,22 +7,22 @@
 // conflicting utilities).
 
 /** A raised panel: dialogs, and the base of floating surfaces. Add a shadow. */
-export const surface = 'rounded-lg border border-border bg-raised text-fg';
+export const surface = 'rounded-lg border border-default bg-overlay text-default';
 
 /** A floating surface (menus, popovers, tooltips): appears instantly, fades and shrinks out. Add a z-* layer. */
 export const floating = `${surface} origin-popper shadow-popover data-[state=closed]:animate-exit-pop`;
 
 /** A small muted heading over a group of rows (menus, the palette, the sidebar, dialogs). */
-export const sectionLabel = 'text-sm text-fg-subtle';
+export const sectionLabel = 'text-sm text-muted';
 
 /** The layout of one row in a menu or a command list. */
 export const menuRow = 'interactive group flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-base outline-none select-none';
 
 /** One row in a Radix menu (data-highlighted / data-disabled are present only when on). Add a text colour. */
-export const menuItem = `${menuRow} data-highlighted:bg-raised-hover data-disabled:pointer-events-none data-disabled:text-fg-subtle`;
+export const menuItem = `${menuRow} data-highlighted:bg-control-transparent-hover data-disabled:pointer-events-none data-disabled:text-muted`;
 
 /** The dimmed full-viewport layer under a dialog; it also centres the dialog near the top. */
-export const overlay = 'fixed inset-0 z-dialog flex items-start justify-center overflow-y-auto bg-overlay px-4 pt-24 pb-8 data-[state=closed]:animate-exit';
+export const overlay = 'fixed inset-0 z-dialog flex items-start justify-center overflow-y-auto bg-overlay-backdrop px-4 pt-24 pb-8 data-[state=closed]:animate-exit';
 
 /** A dialog panel (add a max width). */
 export const dialogPanel = `${surface} w-full shadow-dialog outline-none data-[state=closed]:animate-exit-pop`;
@@ -39,16 +39,16 @@ export const controlHeight = {sm: 'h-control-sm', md: 'h-control'} as const;
 export type ControlSize = keyof typeof controlHeight;
 
 /** A text field's box (Input, TextArea): border, surface, placeholder, hover, focus, invalid, disabled. */
-export const field = 'border border-border bg-surface text-fg placeholder:text-fg-subtle hover:border-border-strong focus-visible:outline-offset-0 aria-invalid:border-danger aria-invalid:outline-danger disabled:opacity-disabled';
+export const field = 'border border-default bg-default text-default placeholder:text-muted hover:border-emphasis focus-visible:outline-offset-0 aria-invalid:border-danger-emphasis aria-invalid:outline-danger disabled:opacity-disabled';
 
 /** The quiet hover of ghost controls (Button ghost, a clickable Status). */
-export const ghostHover = 'text-fg-muted hover:bg-hover hover:text-fg';
+export const ghostHover = 'text-muted hover:bg-control-transparent-hover hover:text-default';
 
 /** A message's parts (Notice, Callout): its icon, then title, description and actions. */
 export const message = {
   icon: 'mt-0.5',
   body: 'flex min-w-0 flex-1 flex-col gap-1',
-  title: 'text-base font-medium text-fg',
-  description: 'text-sm text-fg-muted',
+  title: 'text-base font-medium text-default',
+  description: 'text-sm text-muted',
   actions: 'flex flex-wrap gap-2 pt-1',
 } as const;

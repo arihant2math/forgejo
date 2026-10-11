@@ -70,7 +70,7 @@ export function Dialog({open, onOpenChange, trigger, title, description, footer,
             className={cx(dialogPanel, 'flex flex-col gap-3 p-4 focus-visible:outline-none', widths[size])}>
             <div className="flex flex-col gap-1">
               <D.Title className="text-md font-semibold">{title}</D.Title>
-              {description && <D.Description className="text-base text-fg-muted">{description}</D.Description>}
+              {description && <D.Description className="text-base text-muted">{description}</D.Description>}
             </div>
             {children && <div className={scroll ? 'max-h-dialog-body overflow-y-auto overscroll-contain' : undefined}>{children}</div>}
             {footer && <div className="flex justify-end gap-2 pt-1">{footer}</div>}

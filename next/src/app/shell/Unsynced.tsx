@@ -135,7 +135,7 @@ function ParkedEntry({app, rec, onOpen}: {app: App; rec: IntentRecord; onOpen: (
   const w = where(app, rec.intent, rec.issueNumber);
   return (
     <Entry
-      leading={<GitMergeIcon size={16} className="shrink-0 text-warning"/>}
+      leading={<GitMergeIcon size={16} className="shrink-0 text-attention"/>}
       title={describeIntent(rec.intent, names(app))}
       meta={w.meta}
       description="You and someone else changed the same lines. Open it to resolve the conflict in the editor."
@@ -201,7 +201,7 @@ function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline
   const tried = rec.req !== undefined;
   return (
     <Entry
-      leading={rec.attempts > 2 ? <AlertIcon size={16} className="shrink-0 text-warning"/> : <IssueDraftIcon size={16} className="shrink-0"/>}
+      leading={rec.attempts > 2 ? <AlertIcon size={16} className="shrink-0 text-attention"/> : <IssueDraftIcon size={16} className="shrink-0"/>}
       title={describeIntent(rec.intent, names(app))}
       meta={w.meta}
       description={text ? <>{text}<br/>{state}</> : state}

@@ -191,7 +191,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         }
       }}>
         {/* Where it opens: a fork's own pull request and one proposed upstream read alike otherwise. */}
-        <p className="text-sm text-fg-subtle">Opens in <Code>{`${owner}/${repo}`}</Code>: merges <Code>{head}</Code> into <Code>{base}</Code>.</p>
+        <p className="text-sm text-muted">Opens in <Code>{`${owner}/${repo}`}</Code>: merges <Code>{head}</Code> into <Code>{base}</Code>.</p>
         <Properties form={form} repoId={repoId}/>
         <div className="flex flex-col gap-1">
           <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
@@ -206,7 +206,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         {head.includes(':') && <FormControl><Checkbox checked={allowEdits} onChange={(event) => { setAllowEdits(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>}
         {!!wipPrefixes(app.config)[0] && <FormControl><Checkbox checked={draft} onChange={(event) => { setDraft(event.target.checked); }}/><FormControl.Label>Create draft pull request</FormControl.Label></FormControl>}
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="mr-auto flex items-center gap-1 text-sm text-fg-subtle">
+          <span className="mr-auto flex items-center gap-1 text-sm text-muted">
             {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
               form.discard();
             }}>Discard</Button></>}
@@ -379,7 +379,7 @@ export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutl
     }
   })();
   return (
-    <div className="flex flex-wrap items-center gap-2 text-base text-fg">
+    <div className="flex flex-wrap items-center gap-2 text-base text-default">
       <StatusDot tone={tone}/><span className="min-w-0 flex-1">{text}</span>{children}
     </div>
   );

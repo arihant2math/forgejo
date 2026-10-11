@@ -36,7 +36,7 @@ export function Input({size = 'md', invalid, icon, mono, className, ...rest}: In
   if (!icon) return input;
   return (
     <span className={cx('relative inline-flex items-center', className)}>
-      <span className="pointer-events-none absolute left-2 flex text-fg-subtle"><Icon icon={icon} size="sm"/></span>
+      <span className="pointer-events-none absolute left-2 flex text-muted"><Icon icon={icon} size="sm"/></span>
       {input}
     </span>
   );
@@ -73,7 +73,7 @@ export function TextArea({invalid, bare = false, rows = 6, ...rest}: TextAreaPro
       aria-invalid={invalid}
       rows={rows}
       // The prose size: what is typed reads like what it becomes (ProseSource, the rendering).
-      className={cx('block w-full resize-y px-2 py-1.5 text-md', bare ? 'bg-transparent text-fg outline-none placeholder:text-fg-subtle' : cx('interactive rounded-md', field))}
+      className={cx('block w-full resize-y px-2 py-1.5 text-md', bare ? 'bg-transparent text-default outline-none placeholder:text-muted' : cx('interactive rounded-md', field))}
       {...rest}
     />
   );
@@ -90,7 +90,7 @@ export function EditorFrame({invalid, header, children, ref}: {invalid?: boolean
       {children}
       {/* The field's own controls (Write / Preview, formatting): on top, inside the same box, which never moves — but
           after the text in the focus order (Linear: Tab from a title goes to the description, then the toolbar). */}
-      {header && <div className="order-first flex items-center gap-1 border-b border-border-subtle px-1 py-1">{header}</div>}
+      {header && <div className="order-first flex items-center gap-1 border-b border-muted px-1 py-1">{header}</div>}
     </div>
   );
 }
@@ -106,8 +106,8 @@ export function TitleInput({invalid, ...rest}: Omit<InputHTMLAttributes<HTMLInpu
 /** A heading that opens its editor on click (TitleInput): looks like the heading, hovers like a control. */
 export function EditableHeading({label, onEdit, children}: {label: string; onEdit: () => void; children: ReactNode}) {
   return (
-    <h2 className="text-xl font-semibold text-fg">
-      <button type="button" title={label} onClick={onEdit} className="interactive -mx-2 w-full cursor-text rounded-md px-2 py-0.5 text-left hover:bg-hover">{children}</button>
+    <h2 className="text-xl font-semibold text-default">
+      <button type="button" title={label} onClick={onEdit} className="interactive -mx-2 w-full cursor-text rounded-md px-2 py-0.5 text-left hover:bg-control-transparent-hover">{children}</button>
     </h2>
   );
 }
@@ -124,9 +124,9 @@ export function Field({label, htmlFor, hint, error, errorId, optional, children}
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-fg">{label}{optional && <span className="font-normal text-fg-subtle"> (optional)</span>}</label>
+      <label htmlFor={htmlFor} className="text-sm font-medium text-default">{label}{optional && <span className="font-normal text-muted"> (optional)</span>}</label>
       {children}
-      {error ? <p id={errorId} className="text-sm text-danger">{error}</p> : hint ? <p id={errorId} className="text-sm text-fg-muted">{hint}</p> : null}
+      {error ? <p id={errorId} className="text-sm text-danger">{error}</p> : hint ? <p id={errorId} className="text-sm text-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -134,7 +134,7 @@ export function Field({label, htmlFor, hint, error, errorId, optional, children}
 /** A checkbox with its label (a dialog's option). */
 export function Checkbox({label, checked, onChange, disabled}: {label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean | undefined}) {
   return (
-    <label className="inline-flex items-center gap-2 text-base text-fg has-disabled:opacity-disabled">
+    <label className="inline-flex items-center gap-2 text-base text-default has-disabled:opacity-disabled">
       <input type="checkbox" className="size-4 accent-accent" checked={checked} disabled={disabled} onChange={(e) => {
         onChange(e.target.checked);
       }}/>

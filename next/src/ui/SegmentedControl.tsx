@@ -19,10 +19,10 @@ export function SegmentedControl<V extends string>({label, value, onChange, opti
   return (
     <ToggleGroup.Root type="single" aria-label={label} value={value} onValueChange={(v) => {
       if (v) onChange(v as V);
-    }} className="inline-flex gap-px rounded-md border border-border p-px">
+    }} className="inline-flex gap-px rounded-md border border-default p-px">
       {options.map((o) => (
         <ToggleGroup.Item key={o.value} value={o.value} disabled={o.disabled}
-          className={cx(control, controlHeight.sm, 'px-2.5 text-sm text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-disabled data-[state=on]:bg-selected data-[state=on]:text-fg')}>
+          className={cx(control, controlHeight.sm, 'px-2.5 text-sm text-muted hover:bg-control-transparent-hover hover:text-default disabled:opacity-disabled data-[state=on]:bg-control-transparent-selected data-[state=on]:text-default')}>
           {o.label}
         </ToggleGroup.Item>
       ))}

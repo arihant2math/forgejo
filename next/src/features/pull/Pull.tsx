@@ -377,8 +377,8 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   return (
     <div className="flex h-full min-h-0">
       {listOpen && (
-        <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-border">
-          <div className="flex h-control items-center gap-2 px-3 text-sm text-fg-subtle tabular-nums">
+        <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-default">
+          <div className="flex h-control items-center gap-2 px-3 text-sm text-muted tabular-nums">
             <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
             <DiffStat additions={additions} deletions={deletions}/>
             <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
@@ -424,7 +424,7 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
 }) {
   return (
     // Sticky: the pending count and Review stay in reach anywhere in a long diff.
-    <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
+    <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-muted bg-default px-3 text-sm text-muted">
       <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
       {drafts.length > 0 && <Label variant="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Label>}
@@ -446,7 +446,7 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
   return (
     <ActionMenu open={menu} onOpenChange={setMenu}>
       <ActionMenu.Anchor><Button size="sm" variant="ghost" className="min-w-0" aria-label={`${label}: choose the changes shown`} tooltip="Choose the changes shown">
-          <span className="min-w-0 truncate">{label} <span className="text-fg-subtle">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
+          <span className="min-w-0 truncate">{label} <span className="text-muted">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
           <ChevronDownIcon size={12} className="shrink-0"/>
         </Button></ActionMenu.Anchor>
       <ActionMenu.Overlay><ActionList>
@@ -455,7 +455,7 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
           if (v === 'all') onRange({kind: 'all'});
           else if (v === 'review' && lastReview) onRange({kind: 'review', base: lastReview});
           else if (v.startsWith('commit:')) onRange({kind: 'commit', sha: v.slice('commit:'.length)});
-        })('all'); }}>All changes <span className="text-fg-subtle"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></ActionList.Item>
+        })('all'); }}>All changes <span className="text-muted"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></ActionList.Item>
           {/* Only once the head moved past the viewer's last review (else there is nothing new to show). */}
           {(lastReview ?? range.kind === 'review') && <ActionList.Item disabled={!lastReview} selected={rangeValue(range) === 'review'} onSelect={() => { ((v) => {
           if (v === 'all') onRange({kind: 'all'});
@@ -481,7 +481,7 @@ function RangeCommits({pr, base, head, lastReview}: {pr: PullRequest; base: stri
     <ActionList.Divider/>
     <MenuLabel>One commit</MenuLabel>
     {info.value.commits.map((c) => (
-      <MenuRadioItem key={c.sha} value={`commit:${c.sha}`}><span className="text-fg-subtle"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</MenuRadioItem>
+      <MenuRadioItem key={c.sha} value={`commit:${c.sha}`}><span className="text-muted"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</MenuRadioItem>
     ))}
   </>;
 }
@@ -538,7 +538,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
   };
   if (resolver > 0 && !shown && !composing) {
     return (
-      <div className="border-y border-border-subtle bg-canvas py-2 pr-4 pl-thread">
+      <div className="border-y border-muted bg-inset py-2 pr-4 pl-thread">
         <ResolvedFold resolver={resolver} onShow={() => {
           setShown(true);
         }}/>
@@ -546,7 +546,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
     );
   }
   return (
-    <div className="flex flex-col gap-2 border-y border-border-subtle bg-canvas py-3 pr-4 pl-thread">
+    <div className="flex flex-col gap-2 border-y border-muted bg-inset py-3 pr-4 pl-thread">
       {items.map((it) => (it.kind === 'comment' ?
         <CommentCard key={`c${String(it.c.id)}`} c={it.c} pending={it.pending}/> :
         composing?.key === it.d.key ? null : <DraftCard key={it.d.key} d={it.d} repoId={pr.base_repo_id} onEdit={() => {
@@ -595,7 +595,7 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
     <Card as="article">
       <header className="flex items-center gap-2 text-sm">
         {who}
-        {when && <span className="text-fg-subtle"><Ago at={when}/></span>}
+        {when && <span className="text-muted"><Ago at={when}/></span>}
         {badge}
         {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
       </header>
@@ -611,7 +611,7 @@ const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pen
 
 function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: number; onEdit?: (() => void) | undefined; onDelete: () => void}) {
   return (
-    <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Label variant="accent">Draft</Label>}
+    <CardShell who={<span className="font-medium text-default">Your comment</span>} badge={<Label variant="accent">Draft</Label>}
       actions={<>
         {onEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the comment" type="button" onClick={onEdit}/>}
         <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the comment" type="button" onClick={onDelete}/>
@@ -627,13 +627,13 @@ const FileNotes = observer(function FileNotes({items, title, repoId}: {items: It
   const app = useApp();
   const {intents} = editing(app);
   return (
-    <div className="flex flex-col gap-2 border-b border-border-subtle bg-canvas px-4 py-3">
+    <div className="flex flex-col gap-2 border-b border-muted bg-inset px-4 py-3">
       <SectionHeading>{title ?? 'Comments not on the lines shown'}</SectionHeading>
       {items.map((it) => {
         const a = itemAnchor(it);
         return (
           <div key={it.kind === 'comment' ? `c${String(it.c.id)}` : it.d.key} className="flex flex-col gap-1">
-            <span className="font-mono text-code text-fg-muted">{a.path}:{a.line} ({a.side === 'old' ? 'old' : 'new'}, {shortSha(a.commit)})</span>
+            <span className="font-mono text-code text-muted">{a.path}:{a.line} ({a.side === 'old' ? 'old' : 'new'}, {shortSha(a.commit)})</span>
             {it.kind === 'comment' ? <CommentCard c={it.c} pending={it.pending}/> : <DraftCard d={it.d} repoId={repoId} onDelete={() => {
               void intents.discardDraft(it.d.key);
             }}/>}
@@ -688,8 +688,8 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
         <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedControl label="Verdict" value={event} onChange={setEvent} options={EVENTS.map((e) => ({value: e.event, label: e.label, disabled: own && !e.own}))}/>
-          {own && <span className="text-sm text-fg-subtle">Your own pull request: comment only.</span>}
-          {needsBody && !body.trim() && <span className="text-sm text-fg-subtle">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
+          {own && <span className="text-sm text-muted">Your own pull request: comment only.</span>}
+          {needsBody && !body.trim() && <span className="text-sm text-muted">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
         </div>
       </div>
     </Dialog>
@@ -740,7 +740,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
             return (
               <ListRow key={s.id} role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={look.text}>
                 {/^https?:\/\//.test(url) ? <PrimerLink href={url} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{s.get('context')}</PrimerLink> : s.get('context')}
-                {description && <span className="text-fg-subtle"> {description}</span>}
+                {description && <span className="text-muted"> {description}</span>}
               </ListRow>
             );
           })}
@@ -878,13 +878,13 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
     <div className="mt-4"><Card as="section" label="Merge">
-      <p className="flex flex-wrap items-center gap-2 text-base text-fg">{state}</p>
-      {checksLine && <p className="flex flex-wrap items-center gap-2 text-sm text-fg"><StatusDot tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
+      <p className="flex flex-wrap items-center gap-2 text-base text-default">{state}</p>
+      {checksLine && <p className="flex flex-wrap items-center gap-2 text-sm text-default"><StatusDot tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
       {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p className="text-sm">{checksTab}</p>}
       {!pr.merged && !closed && waitingApproval && <ApprovalPanel issueId={issue.id} actions={check?.actions ?? undefined} waiting={(sum?.awaitingApproval ?? 0) > 0}/>}
       {!pr.merged && !closed && !waitingApproval && check?.actions?.poster_trust === 'explicitly' && <ApprovalPanel issueId={issue.id} actions={check.actions} waiting={false}/>}
       {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
-        <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+        <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
           The branch <Code>{pr.head_branch}</Code> can be deleted{pr.merged ? ': its work is merged' : ''}.
           <OptionalTooltip text={offlineWhy('Deleting the branch')}><PrimerButton size="small" leadingVisual={TrashIcon} type="button" disabled={!isOnline || busy} onClick={() => {
             setDeleteConfirm(true);
@@ -908,7 +908,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       </>}</PrimerDialog.Footer>}></PrimerDialog>}
       {!pr.merged && !closed && <DraftControl issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
-      {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
+      {auto && !pr.merged && <p className="text-sm text-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && write && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
@@ -954,8 +954,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             </ActionList></ActionMenu.Overlay>
           </ActionMenu>}
           </div>}
-          {!isOnline && <span className="text-sm text-fg-subtle">{onlineOnly('Merging')}</span>}
-          {isOnline && conflictWhy && <span className="text-sm text-fg-subtle">{conflictWhy}</span>}
+          {!isOnline && <span className="text-sm text-muted">{onlineOnly('Merging')}</span>}
+          {isOnline && conflictWhy && <span className="text-sm text-muted">{conflictWhy}</span>}
         </div>
       )}
       {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}

@@ -6,7 +6,7 @@ import type {ReactNode} from 'react';
 
 /** Inline code outside rendered markdown (a path, a branch): the same look as prose code. */
 export function Code({children}: {children: ReactNode}) {
-  return <code className="rounded-sm bg-hover px-1 font-mono text-sm text-fg">{children}</code>;
+  return <code className="rounded-sm bg-control-transparent-hover px-1 font-mono text-sm text-default">{children}</code>;
 }
 
 /**
@@ -16,6 +16,6 @@ export function Code({children}: {children: ReactNode}) {
  */
 export function TextLink({wrap = false, accent = false, children}: {wrap?: boolean; accent?: boolean; children: ReactNode}) {
   // `accent`: a reference inside text that is not otherwise a link (a commit message's "#12"): visibly a link.
-  if (accent) return <Slot.Root className="interactive text-accent-fg hover:underline">{children}</Slot.Root>;
-  return <Slot.Root className={wrap ? 'interactive text-fg hover:text-accent-fg' : 'interactive min-w-0 truncate text-fg hover:text-accent-fg'}>{children}</Slot.Root>;
+  if (accent) return <Slot.Root className="interactive text-accent hover:underline">{children}</Slot.Root>;
+  return <Slot.Root className={wrap ? 'interactive text-default hover:text-accent' : 'interactive min-w-0 truncate text-default hover:text-accent'}>{children}</Slot.Root>;
 }

@@ -83,7 +83,7 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
         {(tried ? problems.color : undefined) && <FormControl.Validation variant="error">{tried ? problems.color : undefined}</FormControl.Validation>}</FormControl>
         <div className="flex flex-col gap-1">
           <FormControl><Checkbox checked={d.exclusive} onChange={(event) => { const exclusive = event.target.checked; set({exclusive}); }}/><FormControl.Label>Exclusive within its scope</FormControl.Label></FormControl>
-          <p className="text-sm text-fg-muted">
+          <p className="text-sm text-muted">
             {d.exclusive && problems.exclusive ? problems.exclusive :
               'An issue can have one label of a scope (the name up to its last “/”): adding another removes the one it has. Status and priority are such scopes.'}
           </p>

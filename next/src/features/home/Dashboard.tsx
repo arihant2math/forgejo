@@ -90,7 +90,7 @@ export default observer(function Dashboard() {
           from the first frame, as tall as it was last time (nothing below moves when it arrives). */}
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
-      {sections.length || pending.length ? <p className="text-sm text-fg-subtle"><Hints/></p> : <Welcome/>}
+      {sections.length || pending.length ? <p className="text-sm text-muted"><Hints/></p> : <Welcome/>}
       <Feed/>
     </PageColumn></LinkRows>
   );
@@ -129,15 +129,15 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   const {data} = useSession();
   if (reach(data.status.connection) !== 'online') {
     return rows ? (
-      <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-fg">Review requested</span></>}>
-        <ListRow role="presentation" leading={<CloudOfflineIcon size={12} className="shrink-0"/>}><span className="text-fg-muted">Review requests load when you are online.</span></ListRow>
+      <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
+        <ListRow role="presentation" leading={<CloudOfflineIcon size={12} className="shrink-0"/>}><span className="text-muted">Review requests load when you are online.</span></ListRow>
       </Panel>
     ) : null;
   }
   rows = Math.max(rows, min);
   if (!rows) return null;
   return (
-    <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-fg">Review requested</span></>}>
+    <Panel label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
       {Array.from({length: rows}, (_, i) => (
         <ListRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></ListRow>
       ))}
@@ -176,7 +176,7 @@ function Section({title, icon, items, all}: SectionProps) {
   const href = all && hrefOf(app, all);
   return (
     <Panel label={title}
-      title={<><Icon icon={icon} size="sm"/><span className="text-fg">{title}</span><span className="tabular-nums">{items.length}</span></>}
+      title={<><Icon icon={icon} size="sm"/><span className="text-default">{title}</span><span className="tabular-nums">{items.length}</span></>}
       actions={href && <LinkButton variant="invisible" size="small" href={href} onClick={(e) => click(e, href)}>View all</LinkButton>}>
       {items.slice(0, ROWS).map((x) => (x.issue ?
         <Row key={x.issue.id} issue={x.issue} at={x.at}/> :

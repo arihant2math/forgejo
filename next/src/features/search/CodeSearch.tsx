@@ -23,8 +23,8 @@ interface Answer {enabled: boolean; total: number; results: Hit[]; repositories:
 /** A line of a hit: its number, its text with the words that matched marked; a context line dimmed. */
 function HitCode({line, context = false}: {line: ShownLine; context?: boolean}) {
   return (
-    <CodeLine gutter={<span className="w-12 shrink-0 pr-2 text-right text-fg-subtle tabular-nums select-none">{line.num}</span>}>
-      <span className={context ? 'text-fg-subtle' : undefined}>{line.runs.map((r, i) => (r.marked ? <mark key={i}>{r.text}</mark> : <span key={i}>{r.text}</span>))}</span>
+    <CodeLine gutter={<span className="w-12 shrink-0 pr-2 text-right text-muted tabular-nums select-none">{line.num}</span>}>
+      <span className={context ? 'text-muted' : undefined}>{line.runs.map((r, i) => (r.marked ? <mark key={i}>{r.text}</mark> : <span key={i}>{r.text}</span>))}</span>
     </CodeLine>
   );
 }
@@ -74,7 +74,7 @@ export default observer(function CodeSearch() {
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
   return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><TextInput aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2"><SegmentedControl label="Search type" value="code" onChange={(type) => { void navigate({to: '/search', search: discoverySearch({q, type})}); }} options={kinds.map((kind) => ({value: kind, label: kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}))}/>{repoId && <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2"><SegmentedControl label="Search type" value="code" onChange={(type) => { void navigate({to: '/search', search: discoverySearch({q, type})}); }} options={kinds.map((kind) => ({value: kind, label: kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}))}/>{repoId && <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}
       {answer && !answer.enabled && !repoId && <Blankslate><Blankslate.Heading>Global code search is unavailable</Blankslate.Heading><Blankslate.Description>The repository code indexer is disabled on this instance.</Blankslate.Description></Blankslate>}

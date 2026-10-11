@@ -80,7 +80,7 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
           setRemoving(m);
         }}/>}/>)}
     </ResourceList>
-    {manage && <p className="px-3 py-2 text-sm text-fg-muted">People join the organization through its teams (Teams: add a member).</p>}
+    {manage && <p className="px-3 py-2 text-sm text-muted">People join the organization through its teams (Teams: add a member).</p>}
     <ConfirmDialog open={removing !== undefined} onOpenChange={(o) => {
       if (!o && !busy) setRemoving(undefined);
     }} title={`Remove ${removing?.login ?? ''} from ${owner}?`}

@@ -13,10 +13,10 @@ import {ChevronDownIcon, ChevronRightIcon} from '@primer/octicons-react';
 // which router links set themselves.
 // shrink-0: the rows keep their height in a sidebar that scrolls (it scrolls; they never squash).
 const look =
-  'interactive flex h-control min-w-0 shrink-0 items-center rounded-md text-left text-base text-fg-muted select-none ' +
-  'hover:bg-canvas-hover hover:text-fg focus-visible:focus-inset aria-[current=page]:bg-canvas-selected aria-[current=page]:text-fg ' +
-  'aria-[current=true]:bg-canvas-selected aria-[current=true]:text-fg ' +
-  'data-[state=open]:bg-canvas-hover data-[state=open]:text-fg';
+  'interactive flex h-control min-w-0 shrink-0 items-center rounded-md text-left text-base text-muted select-none ' +
+  'hover:bg-control-transparent-hover hover:text-default focus-visible:focus-inset aria-[current=page]:bg-control-transparent-selected aria-[current=page]:text-default ' +
+  'aria-[current=true]:bg-control-transparent-selected aria-[current=true]:text-default ' +
+  'data-[state=open]:bg-control-transparent-hover data-[state=open]:text-default';
 const row = cx(look, 'w-full gap-2 px-2');
 
 export interface NavItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'style' | 'children'> {
@@ -40,9 +40,9 @@ export interface NavItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElemen
 /** One sidebar row: a link (asChild) or a button. */
 export function NavItem({label, icon, leading, count, inset, shortcut, asChild, children, ...rest}: NavItemProps) {
   // The label names the row: an avatar next to it is decorative.
-  const lead = icon ? <Icon icon={icon} className="text-fg-subtle"/> : leading && <span aria-hidden className="flex shrink-0">{leading}</span>;
+  const lead = icon ? <Icon icon={icon} className="text-muted"/> : leading && <span aria-hidden className="flex shrink-0">{leading}</span>;
   const name = <span className="min-w-0 flex-1 truncate">{label}</span>;
-  const tally = count ? <span className="text-sm text-fg-subtle tabular-nums">{count}</span> : null;
+  const tally = count ? <span className="text-sm text-muted tabular-nums">{count}</span> : null;
   const cls = cx(row, inset && 'pl-8');
   // Slot needs the Slottable as a direct child (no fragment): the link becomes the row.
   const el = asChild ?
@@ -67,7 +67,7 @@ export interface NavGroupProps {
 export function NavGroup({label, leading, open, onOpenChange, link, holdsCurrent, children}: NavGroupProps) {
   const lead = leading && <span aria-hidden className="flex shrink-0">{leading}</span>;
   const name = <span className="min-w-0 flex-1 truncate">{label}</span>;
-  const chevron = <Icon icon={open ? ChevronDownIcon : ChevronRightIcon} size="sm" className="text-fg-subtle"/>;
+  const chevron = <Icon icon={open ? ChevronDownIcon : ChevronRightIcon} size="sm" className="text-muted"/>;
   const toggle = () => {
     onOpenChange(!open);
   };

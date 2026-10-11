@@ -29,7 +29,7 @@ export interface ListRowProps extends Omit<HTMLAttributes<HTMLElement>, 'role' |
 const slot = 'flex shrink-0 items-center gap-2';
 
 /** The geometry every list row shares (rows and group headers): fixed height, so virtualized lists never measure. */
-const rowBase = 'flex h-row items-center gap-2 border-b border-border-subtle px-3 contain-content';
+const rowBase = 'flex h-row items-center gap-2 border-b border-muted px-3 contain-content';
 
 /**
  * One compact list row (issues, PRs, notifications). Fixed height and layout
@@ -53,13 +53,13 @@ export function ListRow({role, selected, active, leading, trailing, href, childr
         // The cursor (J/K) is an accent edge on a filled row (Linear's), the selection (X) an accent tint: both
         // distinct from the pointer's hover, in both themes. No fade: the cursor moves instantly (a key held down
         // leaves no trail).
-        'row-cursor relative text-base text-fg hover:bg-hover data-active:not-data-selected:bg-selected data-selected:bg-accent-subtle',
+        'row-cursor relative text-base text-default hover:bg-control-transparent-hover data-active:not-data-selected:bg-control-transparent-selected data-selected:bg-accent-muted',
       )}
       {...rest}
     >
-      {leading && <span role={cell} className={cx(slot, 'text-fg-muted')}>{leading}</span>}
+      {leading && <span role={cell} className={cx(slot, 'text-muted')}>{leading}</span>}
       <span role={cell} className="min-w-0 flex-1 truncate">{children}</span>
-      {trailing && <span role={cell} className={cx(slot, 'text-sm text-fg-muted')}>{trailing}</span>}
+      {trailing && <span role={cell} className={cx(slot, 'text-sm text-muted')}>{trailing}</span>}
     </Tag>
   );
 }
@@ -77,10 +77,10 @@ export interface ListGroupHeaderProps {
  */
 export function ListGroupHeader({leading, label, count}: ListGroupHeaderProps) {
   return (
-    <div role="presentation" className={cx(rowBase, 'bg-canvas text-sm font-medium text-fg')}>
-      {leading && <span className={cx(slot, 'text-fg-muted')}>{leading}</span>}
+    <div role="presentation" className={cx(rowBase, 'bg-inset text-sm font-medium text-default')}>
+      {leading && <span className={cx(slot, 'text-muted')}>{leading}</span>}
       <span className="min-w-0 truncate">{label}</span>
-      <span className="text-fg-subtle tabular-nums">{count}</span>
+      <span className="text-muted tabular-nums">{count}</span>
     </div>
   );
 }

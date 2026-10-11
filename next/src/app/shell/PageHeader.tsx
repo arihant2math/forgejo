@@ -79,9 +79,9 @@ export function PageHeader({title, icon, context, children, docTitle}: PageHeade
       <SidebarToggle/>
       <PageIcon icon={icon}/>
       {context && (
-        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted @max-xl:order-first @max-xl:w-full @max-xl:pt-2 @max-xl:text-sm">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-muted @max-xl:order-first @max-xl:w-full @max-xl:pt-2 @max-xl:text-sm">
           {context}
-          <span className="flex @max-xl:hidden"><ChevronRightIcon size={12} className="shrink-0 text-fg-subtle"/></span>
+          <span className="flex @max-xl:hidden"><ChevronRightIcon size={12} className="shrink-0 text-muted"/></span>
         </nav>
       )}
       <TitleAndControls title={title}>{children}</TitleAndControls>
@@ -119,7 +119,7 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
       <HeaderRow>
         <SidebarToggle/>
         {/* Reserve the row's remaining width for the breadcrumb at every panel size. */}
-        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-fg-muted flex-1 basis-0 py-2">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-muted flex-1 basis-0 py-2">
           {context}
         </nav>
         <HeaderEnd before={actions}/>
@@ -142,14 +142,14 @@ function SidebarToggle() {
 
 /** The page's icon before its title (wide panels). */
 function PageIcon({icon}: {icon: OcticonType | undefined}) {
-  return icon ? <span className="flex shrink-0 @max-xl:hidden"><Icon icon={icon} className="text-fg-subtle"/></span> : null;
+  return icon ? <span className="flex shrink-0 @max-xl:hidden"><Icon icon={icon} className="text-muted"/></span> : null;
 }
 
 /** The page's title and its controls. */
 function TitleAndControls({title, children}: {title: ReactNode; children?: ReactNode}) {
   return (
     <>
-      <h1 className={cx('min-w-0 truncate text-base font-medium text-fg @max-xl:max-w-none @max-xl:flex-1 @max-xl:basis-0 @max-xl:py-2', children ? 'max-w-sm @xl:shrink-0' : '@xl:shrink')}>{title}</h1>
+      <h1 className={cx('min-w-0 truncate text-base font-medium text-default @max-xl:max-w-none @max-xl:flex-1 @max-xl:basis-0 @max-xl:py-2', children ? 'max-w-sm @xl:shrink-0' : '@xl:shrink')}>{title}</h1>
       {children && <span aria-hidden className="hidden @max-xl:order-last @max-xl:block @max-xl:w-full"/>}
       {children && (
         <div className="flex min-w-0 shrink flex-wrap items-center gap-1 p-1 @max-xl:order-last @max-xl:w-full @max-xl:py-2">

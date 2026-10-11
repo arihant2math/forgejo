@@ -287,7 +287,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}
   };
   return (
     <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-1">
-      <span className="px-1 text-sm whitespace-nowrap text-fg-muted tabular-nums">{ids.length} selected</span>
+      <span className="px-1 text-sm whitespace-nowrap text-muted tabular-nums">{ids.length} selected</span>
       <OptionalTooltip text={'Mark the selected notifications read'} keybindingHint={shortcutHint('inbox.read')}><Button variant="invisible" size="small" leadingVisual={ReadIcon} type="button" disabled={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button></OptionalTooltip>
       <OptionalTooltip text={'Mark the selected notifications unread'} keybindingHint={shortcutHint('inbox.unread')}><Button variant="invisible" size="small" leadingVisual={MailIcon} type="button" disabled={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button></OptionalTooltip>
       <OptionalTooltip text={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'} keybindingHint={shortcutHint('inbox.pin')}><Button variant="invisible" size="small" leadingVisual={allPinned ? PinSlashIcon : PinIcon} type="button" onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button></OptionalTooltip>
@@ -305,7 +305,7 @@ const UnreadCount = observer(function UnreadCount() {
   const {ui} = useApp();
   const {data} = useSession();
   const n = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
-  return n ? <span className="text-fg-subtle tabular-nums">{n}</span> : null;
+  return n ? <span className="text-muted tabular-nums">{n}</span> : null;
 });
 
 const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}: {model: InboxModel; filter: InboxSearch['filter']; byRepo: boolean; filtered: boolean}) {
@@ -529,7 +529,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
             const r = rows[it.index];
             if (!r) return null;
             return (
-              <div key={it.key} className="absolute inset-x-0 top-0 hover:bg-hover" style={{transform: `translateY(${String(it.start)}px)`}} onPointerEnter={r.type === 'note' ? (e) => {
+              <div key={it.key} className="absolute inset-x-0 top-0 hover:bg-control-transparent-hover" style={{transform: `translateY(${String(it.start)}px)`}} onPointerEnter={r.type === 'note' ? (e) => {
                 // A mouse: a tap that opens the row has no use for its buttons.
                 if (e.pointerType === 'mouse' && model.menuFor === undefined) model.hover.replace([r.id]);
               } : undefined}>
@@ -591,7 +591,7 @@ const NoteMenu = observer(function NoteMenu({ids, open, Item, Separator}: {ids: 
       <Item icon={BellSlashIcon} disabled={!!cannotUnsubscribe} onSelect={() => {
         unsubscribe(app, ids, true);
       }}>{`Unsubscribe and mark read${many}`}</Item>
-      {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-fg-subtle">{cannotUnsubscribe}</div>}
+      {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-muted">{cannotUnsubscribe}</div>}
     </>
   );
 });
@@ -616,7 +616,7 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
   };
   return (
     <div data-note={id} aria-hidden className="absolute inset-y-0 right-0 flex items-center pe-2">
-      <div className="flex items-center gap-0.5 rounded-md border border-border bg-raised p-0.5">
+      <div className="flex items-center gap-0.5 rounded-md border border-default bg-overlay p-0.5">
         <IconButton icon={unread ? ReadIcon : MailIcon} variant="invisible" size="small" aria-label={unread ? 'Mark read' : 'Mark unread'} keybindingHint={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], unread ? (st) => (st === 'unread' ? 'read' : undefined) : () => 'unread', unread ? 'read' : 'unread');
         }}/>
@@ -684,7 +684,7 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
         onClick(n.id, e);
       }}
       leading={<>
-        {selecting && (selected ? <CheckboxIcon size={16} className="shrink-0 text-accent-fg"/> : <SquareIcon size={16} className="shrink-0"/>)}
+        {selecting && (selected ? <CheckboxIcon size={16} className="shrink-0 text-accent"/> : <SquareIcon size={16} className="shrink-0"/>)}
         <StatusDot tone="accent" off={!unread}/>
         {issue ? <StateIcon issue={issue}/> : subject ? <SubjectIcon s={subject}/> : <Icon icon={n.get('subject') === 'commit' ? GitCommitIcon : InboxIcon}/>}
       </>}
@@ -697,7 +697,7 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
       {/* The title gives way first, then the actor's name; why it is here stays (a phone, #229). */}
       <span className="flex min-w-0 items-baseline">
         {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
-        <span className={cx('shrink-4 truncate', reason ? 'min-w-24' : 'min-w-0', unread ? 'font-medium text-fg' : 'text-fg-muted')}>
+        <span className={cx('shrink-4 truncate', reason ? 'min-w-24' : 'min-w-0', unread ? 'font-medium text-default' : 'text-muted')}>
           {issue ? <TitleCell issue={issue}/> : subject ? subject.title : subjectWords(n.get('subject'))}
         </span>
         {reason && <Why why={reason.why} actor={reason.actor}/>}
@@ -710,8 +710,8 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
 function Why({why, actor}: {why: string; actor: number}) {
   const user = useUser(actor);
   return <>
-    <span className="ms-1 shrink-0 whitespace-nowrap text-fg-subtle">· {why}</span>
-    {actor && user.name ? <span className="ms-1 min-w-0 truncate text-fg-subtle">· {user.name}</span> : null}
+    <span className="ms-1 shrink-0 whitespace-nowrap text-muted">· {why}</span>
+    {actor && user.name ? <span className="ms-1 min-w-0 truncate text-muted">· {user.name}</span> : null}
   </>;
 }
 

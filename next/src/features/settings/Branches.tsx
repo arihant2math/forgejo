@@ -68,7 +68,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
             </>}/>
         ))}
       </ResourceList>
-      <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
         Team allowlists and approval allowlists are set in the classic UI.
         <ClassicLink size="sm" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings/branches`}>Branch rules</ClassicLink>
       </p>
@@ -159,7 +159,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
           <FormControl.Caption>{matches.length ? `Matches ${matches.slice(0, 3).join(', ')}${matches.length > 3 ? ` and ${String(matches.length - 3)} more` : ''}.` : 'A branch name, or a glob pattern such as release/* (no branch matches yet).'}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
         )}
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-fg">Who may push</legend>
+          <legend className="pb-1 text-base font-medium text-default">Who may push</legend>
           <SegmentedControl label="Who may push" value={form.push} options={PUSH} onChange={(v) => {
             set('push', v);
           }}/>
@@ -173,7 +173,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
           </>}
         </fieldset>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-fg">Before merging</legend>
+          <legend className="pb-1 text-base font-medium text-default">Before merging</legend>
           <FormControl id="rule-approvals"><FormControl.Label>Required approvals</FormControl.Label>
             <TextInput id="rule-approvals" className="w-24" inputMode="numeric" value={form.approvals} aria-describedby={hintId('rule-approvals')} onChange={(e) => {
                 set('approvals', e.target.value);
@@ -201,7 +201,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
           )}
         </fieldset>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-fg">Commits and files</legend>
+          <legend className="pb-1 text-base font-medium text-default">Commits and files</legend>
           {check('signed', 'Require signed commits')}
           <FormControl id="rule-protected"><FormControl.Label>Protected files</FormControl.Label>
             <TextInput id="rule-protected" className="w-full" value={form.protectedFiles} spellCheck={false} aria-describedby={hintId('rule-protected')} onChange={(e) => {

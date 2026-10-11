@@ -27,12 +27,12 @@ export const IssueNav = observer(function IssueNav({owner, repo, repoId, current
     <>
       <Button size="sm" variant={look(current === 'labels')} asChild tooltip="The repository's labels">
         <Link to="/$owner/$repo/labels" params={{owner, repo}} aria-current={current === 'labels' ? 'page' : undefined} activeProps={{}}>
-          <TagIcon size={12} className="shrink-0"/>Labels{labels > 0 && <span className="text-fg-subtle tabular-nums">{labels}</span>}
+          <TagIcon size={12} className="shrink-0"/>Labels{labels > 0 && <span className="text-muted tabular-nums">{labels}</span>}
         </Link>
       </Button>
       <Button size="sm" variant={look(current === 'milestones')} asChild tooltip="The repository's milestones">
         <Link to="/$owner/$repo/milestones" params={{owner, repo}} aria-current={current === 'milestones' ? 'page' : undefined} activeProps={{}}>
-          <MilestoneIcon size={12} className="shrink-0"/>Milestones{milestones > 0 && <span className="text-fg-subtle tabular-nums">{milestones}</span>}
+          <MilestoneIcon size={12} className="shrink-0"/>Milestones{milestones > 0 && <span className="text-muted tabular-nums">{milestones}</span>}
         </Link>
       </Button>
     </>

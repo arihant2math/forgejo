@@ -67,7 +67,7 @@ export function ResizeHandle({label, value, min, max, onResize, onCommit}: Resiz
       className="group absolute inset-y-0 -right-1 z-sticky w-2 cursor-col-resize touch-none"
     >
       {/* Instant in and out: the line follows the pointer, a fade would lag behind it. */}
-      <div className="mx-auto h-full w-px group-hover:bg-accent group-active:bg-accent"/>
+      <div className="mx-auto h-full w-px group-hover:bg-accent-emphasis group-active:bg-accent-emphasis"/>
     </div>
   );
 }

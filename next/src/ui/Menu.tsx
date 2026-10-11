@@ -36,13 +36,13 @@ type Parts = Pick<typeof D, 'Item' | 'CheckboxItem' | 'RadioGroup' | 'RadioItem'
 function makeItems(P: Parts) {
   function Item({icon, shortcut, danger, href, hint, classic, children, ...rest}: MenuItemProps & Omit<ComponentProps<typeof P.Item>, 'children' | 'className' | 'style' | 'asChild'>) {
     const body = <ItemBody icon={icon} shortcut={shortcut} meta={hint ?? (classic ? 'classic' : undefined)}>{children}</ItemBody>;
-    const cls = cx(menuItem, danger ? 'text-danger' : 'text-fg');
+    const cls = cx(menuItem, danger ? 'text-danger' : 'text-default');
     if (href !== undefined) return <P.Item asChild className={cls} {...rest}><a href={href} data-classic={classic ? '' : undefined}>{body}</a></P.Item>;
     return <P.Item className={cls} {...rest}>{body}</P.Item>;
   }
   function CheckboxItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.CheckboxItem>, 'children' | 'className' | 'style'>) {
     return (
-      <P.CheckboxItem className={cx(menuItem, 'text-fg')} {...rest}>
+      <P.CheckboxItem className={cx(menuItem, 'text-default')} {...rest}>
         <span className={iconSlot}>
           <P.ItemIndicator><Icon icon={CheckIcon}/></P.ItemIndicator>
         </span>
@@ -52,7 +52,7 @@ function makeItems(P: Parts) {
   }
   function RadioItem({shortcut, children, ...rest}: Omit<MenuItemProps, 'icon' | 'danger'> & Omit<ComponentProps<typeof P.RadioItem>, 'children' | 'className' | 'style'>) {
     return (
-      <P.RadioItem className={cx(menuItem, 'text-fg')} {...rest}>
+      <P.RadioItem className={cx(menuItem, 'text-default')} {...rest}>
         <span className={iconSlot}>
           <P.ItemIndicator><Icon icon={DotFillIcon}/></P.ItemIndicator>
         </span>
@@ -64,15 +64,15 @@ function makeItems(P: Parts) {
     return <P.Label className={cx(sectionLabel, 'px-2 py-1')}>{children}</P.Label>;
   }
   function Separator() {
-    return <P.Separator className="-mx-1 my-1 h-px bg-border"/>;
+    return <P.Separator className="-mx-1 my-1 h-px bg-neutral-muted"/>;
   }
   /** A nested menu: <Sub label="Labels" icon={Tag}>…items…</Sub>. */
   function Sub({label, icon, children}: {label: ReactNode; icon?: LucideIcon | undefined; children: ReactNode}) {
     return (
       <P.Sub>
-        <P.SubTrigger className={cx(menuItem, 'text-fg data-[state=open]:bg-raised-hover')}>
+        <P.SubTrigger className={cx(menuItem, 'text-default data-[state=open]:bg-control-transparent-hover')}>
           <ItemBody icon={icon}>{label}</ItemBody>
-          <Icon icon={ChevronRightIcon} size="sm" className="text-fg-muted"/>
+          <Icon icon={ChevronRightIcon} size="sm" className="text-muted"/>
         </P.SubTrigger>
         <P.Portal>
           <P.SubContent sideOffset={4} collisionPadding={EDGE_GAP} sticky="always" className={content}>{children}</P.SubContent>

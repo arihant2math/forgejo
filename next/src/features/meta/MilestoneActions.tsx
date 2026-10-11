@@ -16,12 +16,12 @@ const line = 'flex items-center gap-1';
 /** A milestone's due date, or when it closed: overdue in the danger tone. */
 export function DueLine({m}: {m: Milestone}) {
   if (m.state === 'closed') {
-    return <span className={`${line} text-fg-muted`}><CheckCircleIcon size={12} className="shrink-0"/>Closed {m.closed_at && <time dateTime={m.closed_at} title={fullDate(m.closed_at)}>{shortDate(m.closed_at)}</time>}</span>;
+    return <span className={`${line} text-muted`}><CheckCircleIcon size={12} className="shrink-0"/>Closed {m.closed_at && <time dateTime={m.closed_at} title={fullDate(m.closed_at)}>{shortDate(m.closed_at)}</time>}</span>;
   }
-  if (!m.due_on) return <span className={`${line} text-fg-muted`}><CalendarIcon size={12} className="shrink-0"/>No due date</span>;
+  if (!m.due_on) return <span className={`${line} text-muted`}><CalendarIcon size={12} className="shrink-0"/>No due date</span>;
   const late = overdue(m);
   return (
-    <span className={`${line} ${late ? 'text-danger' : 'text-fg-muted'}`}>
+    <span className={`${line} ${late ? 'text-danger' : 'text-muted'}`}>
       <CalendarIcon size={12} className="shrink-0"/>{late ? 'Past due by' : 'Due by'} <time dateTime={m.due_on} title={fullDate(m.due_on)}>{shortDate(m.due_on)}</time>
     </span>
   );

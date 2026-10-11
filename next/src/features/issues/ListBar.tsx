@@ -460,7 +460,7 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
     <>
       <ActionMenu>
         <ActionMenu.Anchor><Button variant="invisible" size="small" leadingVisual={StackIcon} type="button" aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
-            {view.name}{changed && <span className="text-fg-subtle">· changed</span>}<ChevronDownIcon size={12} className="shrink-0"/>
+            {view.name}{changed && <span className="text-muted">· changed</span>}<ChevronDownIcon size={12} className="shrink-0"/>
           </Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
           <ActionList.Item disabled={!changed} onSelect={() => {

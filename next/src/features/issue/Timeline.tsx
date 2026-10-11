@@ -197,13 +197,13 @@ function Who({id, fallback}: {id: number; fallback?: string}) {
 
 /** When, compact, with the full date on hover. */
 function When({at}: {at: string}) {
-  return <time dateTime={at} title={fullDate(at)} className="text-fg-subtle">{agoWords(at)}</time>;
+  return <time dateTime={at} title={fullDate(at)} className="text-muted">{agoWords(at)}</time>;
 }
 
 /** "edited": a comment changed after it was posted (Forgejo counts its edits: content_version; the time on hover). */
 export function Edited({updated, version}: {updated: string; version: number}) {
   if (!(version > 0)) return null;
-  return <span className="text-sm text-fg-subtle" title={`Edited ${fullDate(updated)}`}>edited</span>;
+  return <span className="text-sm text-muted" title={`Edited ${fullDate(updated)}`}>edited</span>;
 }
 
 /** A card: comments and reviews. `linked`: the comment the page's address points at (#comment-123), highlighted. */
@@ -211,7 +211,7 @@ function Card({poster, original, at, badge, children, footer, id, linked}: {
   poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string; linked?: boolean;
 }) {
   return (
-    <article id={id} aria-current={linked ? 'location' : undefined} className={cx('flex gap-3 py-3', linked && '-mx-2 rounded-md bg-accent-subtle px-2')}>
+    <article id={id} aria-current={linked ? 'location' : undefined} className={cx('flex gap-3 py-3', linked && '-mx-2 rounded-md bg-accent-muted px-2')}>
       <UserAvatar id={poster} size="lg" linked/>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <header className="flex flex-wrap items-center gap-x-2 text-base">
@@ -262,7 +262,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
       badge={<>
         {badge}
         <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
-        {c.get('content_version') > 0 && lastEdit && <span className="text-sm text-fg-subtle">by <Who id={lastEdit.poster_id}/></span>}
+        {c.get('content_version') > 0 && lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
         {type === 'dismiss_review' ? <Label variant="attention">dismissed a review</Label> : type === 'code' ? <Label>{c.get('path')}</Label> : undefined}
         {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
           setEdit(true);
@@ -343,8 +343,8 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   };
   if (resolver > 0 && !shown && !replying) {
     return (
-      <div className="flex flex-col gap-1 rounded-md border border-border p-3">
-        <span className="text-sm text-fg-muted"><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</span>
+      <div className="flex flex-col gap-1 rounded-md border border-default p-3">
+        <span className="text-sm text-muted"><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</span>
         <ResolvedFold resolver={resolver} onShow={() => {
           setShown(true);
         }}/>
@@ -352,18 +352,18 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
     );
   }
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-border p-3">
-      <span className="text-sm text-fg-muted">
+    <div className="flex flex-col gap-1 rounded-md border border-default p-3">
+      <span className="text-sm text-muted">
         <Who id={c.get('poster_id')} fallback={c.get('original_author')}/> on{' '}
         {files ? <RouterLink to={files} search={{tab: 'files'}} hash={`review-thread-${String(c.id)}`} muted className="min-w-0 truncate"><Code>{c.get('path')}</Code>line {Math.abs(c.get('line'))}</RouterLink> :
           <><Code>{c.get('path')}</Code> line {Math.abs(c.get('line'))}</>}
         {c.get('invalidated') && <> · <Label>Outdated</Label></>}
       </span>
       {lines.length > 0 && (
-        <div className="overflow-x-auto rounded-sm border border-border-subtle" role="presentation">
+        <div className="overflow-x-auto rounded-sm border border-muted" role="presentation">
           {lines.map((l, i) => (
             <CodeLine key={i} tone={l.startsWith('+') ? 'add' : l.startsWith('-') ? 'del' : 'none'}
-              gutter={<span className="w-6 shrink-0 text-center text-fg-subtle select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>}>
+              gutter={<span className="w-6 shrink-0 text-center text-muted select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>}>
               {l.slice(1)}
             </CodeLine>
           ))}
@@ -398,7 +398,7 @@ const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: 
   const d = c.data as Comment;
   const ev = swapFrom === undefined ? describeEvent(d) : {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
   return (
-    <div className="flex min-h-control items-center gap-3 py-1 text-base text-fg-muted">
+    <div className="flex min-h-control items-center gap-3 py-1 text-base text-muted">
       <span className="flex size-6 shrink-0 items-center justify-center"><Icon icon={ev.icon} size="sm"/></span>
       <span className="min-w-0">
         <Who id={d.poster_id} fallback={d.original_author}/> {ev.text} <When at={d.created_at}/>
@@ -440,7 +440,7 @@ const LabelSwap = observer(function LabelSwap({from, to}: {from: number; to: num
 /** A due date an event names (Forgejo stores it as "YYYY-MM-DD", a change as "new|old"). */
 function deadlineText(d: Comment): ReactNode {
   const [next = '', old = ''] = d.body.split('|');
-  const date = (v: string) => (/^\d{4}-\d{2}-\d{2}/.test(v) ? <span className="text-fg">{shortDate(v)}</span> : null);
+  const date = (v: string) => (/^\d{4}-\d{2}-\d{2}/.test(v) ? <span className="text-default">{shortDate(v)}</span> : null);
   switch (d.type) {
     case 'added_deadline':
       return <>set the due date to {date(next)}</>;
@@ -544,7 +544,7 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
 const ProjectName = observer(function ProjectName({id}: {id: number}) {
   const pool = usePool();
   const title = pool.model('Project').get(id)?.get('title') ?? pool.model('ProjectRef').get(id)?.get('title');
-  return <span className="font-medium text-fg">{title ?? 'a project'}</span>;
+  return <span className="font-medium text-default">{title ?? 'a project'}</span>;
 });
 
 /** A team a review was requested from ("@acme/core" when the organization is known). */
@@ -552,7 +552,7 @@ const TeamName = observer(function TeamName({id}: {id: number}) {
   const pool = usePool();
   const t = pool.model('Team').get(id);
   const org = t ? pool.model('User').get(t.get('org_id'))?.get('login') : undefined;
-  return <span className="font-medium text-fg">{t ? `${org ? `${org}/` : ''}${t.get('name')}` : 'a team'}</span>;
+  return <span className="font-medium text-default">{t ? `${org ? `${org}/` : ''}${t.get('name')}` : 'a team'}</span>;
 });
 
 /**
@@ -577,7 +577,7 @@ const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   const m = usePool().model('Milestone').get(id);
   const {owner, repo} = useParams({strict: false});
-  const title = <span className="font-medium text-fg">{m?.get('title') ?? 'a milestone'}</span>;
+  const title = <span className="font-medium text-default">{m?.get('title') ?? 'a milestone'}</span>;
   // The milestone's page (the repository's: an issue's milestone is its repository's).
   if (!m || !owner || !repo) return title;
   return <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink>;
@@ -609,7 +609,7 @@ function describeEvent(d: Comment): {icon: OcticonType; text: ReactNode} {
       return {icon: EyeIcon, text: <>{d.removed_assignee ? 'removed the review request for' : 'requested a review from'} {d.assignee_team_id ?
         <TeamName id={d.assignee_team_id}/> : <Who id={d.assignee_id} fallback="someone"/>}</>};
     case 'change_title':
-      return {icon: PencilIcon, text: <>changed the title from <s>{d.old_title}</s> to <span className="text-fg">{d.new_title}</span></>};
+      return {icon: PencilIcon, text: <>changed the title from <s>{d.old_title}</s> to <span className="text-default">{d.new_title}</span></>};
     case 'issue_ref':
     case 'comment_ref':
     case 'pull_ref':
@@ -626,7 +626,7 @@ function describeEvent(d: Comment): {icon: OcticonType; text: ReactNode} {
       return {icon: LinkIcon, text: <DependencyEvent d={d}/>};
     case 'lock':
       // Forgejo keeps the reason the person chose in the event's content.
-      return {icon: LockIcon, text: d.body ? <>locked the conversation as <span className="text-fg">{d.body.toLowerCase()}</span></> : 'locked the conversation'};
+      return {icon: LockIcon, text: d.body ? <>locked the conversation as <span className="text-default">{d.body.toLowerCase()}</span></> : 'locked the conversation'};
     case 'unlock':
       return {icon: UnlockIcon, text: 'unlocked the conversation'};
     case 'pin':

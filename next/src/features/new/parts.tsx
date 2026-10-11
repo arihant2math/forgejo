@@ -27,14 +27,14 @@ export function Field({id, label, required, optional, hint, error, children}: {
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={id} className="text-base font-medium text-fg">
+      <label htmlFor={id} className="text-base font-medium text-default">
         {label}{required && <span className="text-danger" aria-hidden> *</span>}
-        {optional && <span className="font-normal text-fg-subtle"> (optional)</span>}
+        {optional && <span className="font-normal text-muted"> (optional)</span>}
       </label>
       {children}
       {error ?
         <p id={hintOf(id)} role="alert" className="flex items-center gap-1 text-sm text-danger"><AlertIcon size={12} className="shrink-0"/>{error}</p> :
-        hint && <div id={hintOf(id)} className="text-sm text-fg-muted">{hint}</div>}
+        hint && <div id={hintOf(id)} className="text-sm text-muted">{hint}</div>}
     </div>
   );
 }
@@ -42,11 +42,11 @@ export function Field({id, label, required, optional, hint, error, children}: {
 /** A part of the form under a hairline, with its heading. */
 export function Section({title, description, children}: {title?: string; description?: ReactNode; children: ReactNode}) {
   return (
-    <section className="flex min-w-0 flex-col gap-3 border-t border-border-subtle pt-4">
+    <section className="flex min-w-0 flex-col gap-3 border-t border-muted pt-4">
       {title && (
         <div className="flex flex-col gap-0.5">
-          <h2 className="text-md font-semibold text-fg">{title}</h2>
-          {description && <p className="text-sm text-fg-muted">{description}</p>}
+          <h2 className="text-md font-semibold text-default">{title}</h2>
+          {description && <p className="text-sm text-muted">{description}</p>}
         </div>
       )}
       {children}
@@ -76,10 +76,10 @@ export function Choice<V extends string>({name, label, value, options, onChange}
             onChange={() => {
               onChange(o.value);
             }}/>
-          <Icon icon={o.icon} className="mt-0.5 text-fg-muted"/>
+          <Icon icon={o.icon} className="mt-0.5 text-muted"/>
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-base font-medium text-fg">{o.label}</span>
-            <span id={`${name}-${o.value}-hint`} className="text-sm text-fg-muted">{o.disabled ?? o.description}</span>
+            <span className="text-base font-medium text-default">{o.label}</span>
+            <span id={`${name}-${o.value}-hint`} className="text-sm text-muted">{o.disabled ?? o.description}</span>
           </span>
         </label>
       ))}
@@ -158,7 +158,7 @@ export function useAvailability(app: App, path: string | undefined, local: boole
 /** The line under a name: free (a check), checking, or `idle` advice; taken and invalid names are errors (Field). */
 export function NameStatus({availability, free, idle}: {availability: Availability; free: string; idle: string}) {
   if (availability === 'free') return <span className="flex items-center gap-1 text-success"><CheckIcon size={12} className="shrink-0"/>{free}</span>;
-  if (availability === 'checking') return <span className="text-fg-subtle">Checking the name…</span>;
+  if (availability === 'checking') return <span className="text-muted">Checking the name…</span>;
   return <span>{idle}</span>;
 }
 

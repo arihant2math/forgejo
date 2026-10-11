@@ -330,7 +330,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
     case 'notes':
       return <div className="sticky left-0 w-view font-sans">{extras?.notesOf(row.f)}</div>;
     case 'empty':
-      return <div className="sticky left-0 flex h-row w-view items-center px-4 font-sans text-sm text-fg-subtle">{emptyReason(file)}</div>;
+      return <div className="sticky left-0 flex h-row w-view items-center px-4 font-sans text-sm text-muted">{emptyReason(file)}</div>;
     case 'hunk': {
       const h = file.hunks[row.h];
       if (!h) return null;
@@ -354,7 +354,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       );
     }
     case 'extra':
-      if (split) return <div className="flex divide-x divide-border-subtle">
+      if (split) return <div className="flex divide-x divide-muted">
         {[row.o, row.n].map((n, side) => <div key={side} className="min-w-0 flex-1"><CodeLine gutter={<LineNo n={n}/>}><CodeTokens text={row.text} hl={hl} line={row.n - 1}/></CodeLine></div>)}
       </div>;
       // `hl` is the head file's highlighting here (its line n - 1).
@@ -370,7 +370,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
         const left = l.k === ADD ? undefined : row.l;
         const right = row.right ?? (l.k === DEL ? undefined : row.l);
         const selected = rightSide ? right ?? left : left ?? right;
-        return <div className="flex divide-x divide-border-subtle">
+        return <div className="flex divide-x divide-muted">
           {[left, right].map((index, side) => {
             const line = index === undefined ? undefined : file.lines[index];
             return <div key={side} data-side={side === 0 ? 'left' : 'right'} className="min-w-0 flex-1 overflow-hidden">
@@ -385,7 +385,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       }
       return (
         <CodeLine id={id} active={active} tone={l.k === ADD ? 'add' : l.k === DEL ? 'del' : 'none'}
-          gutter={<><LineNo n={l.o}/><LineNo n={l.n} onPick={comment ? (_n, range) => {comment(row.f, row.l, range);} : undefined}/><span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
+          gutter={<><LineNo n={l.o}/><LineNo n={l.n} onPick={comment ? (_n, range) => {comment(row.f, row.l, range);} : undefined}/><span className="inline-block w-3 text-muted select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
           action={comment && (
             <LineAction label={`Comment on line ${String(l.k === DEL ? l.o : l.n)}`} onClick={() => {
               comment(row.f, row.l);
@@ -439,12 +439,12 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
   return (
-    <section aria-label="Changed files" className="sticky left-0 w-view border-b border-border-subtle py-1">
-      <div className="flex h-control items-center gap-2 px-4 text-sm text-fg-muted">
+    <section aria-label="Changed files" className="sticky left-0 w-view border-b border-muted py-1">
+      <div className="flex h-control items-center gap-2 px-4 text-sm text-muted">
         <IconButton icon={open ? ChevronDownIcon : ChevronRightIcon} variant="invisible" size="small" aria-label={open ? 'Hide the files' : 'Show the files'} type="button" aria-expanded={open} onClick={() => {
           setOpen((o) => !o);
         }}/>
-        <span className="text-fg">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
+        <span className="text-default">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
         <DiffStat additions={additions} deletions={deletions}/>
       </div>
       {open && files.map((f, i) => (

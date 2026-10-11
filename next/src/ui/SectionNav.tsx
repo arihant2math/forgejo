@@ -33,11 +33,11 @@ export interface SectionNavLinkProps {
 /** One section link. */
 export function SectionNavLink({label, icon, hint, children}: SectionNavLinkProps) {
   return (
-    <Slot.Root className="interactive flex h-control shrink-0 items-center gap-2 rounded-md px-2 text-base whitespace-nowrap text-fg-muted hover:bg-hover hover:text-fg aria-[current=page]:bg-selected aria-[current=page]:text-fg">
+    <Slot.Root className="interactive flex h-control shrink-0 items-center gap-2 rounded-md px-2 text-base whitespace-nowrap text-muted hover:bg-control-transparent-hover hover:text-default aria-[current=page]:bg-control-transparent-selected aria-[current=page]:text-default">
       <Slot.Slottable>{children}</Slot.Slottable>
-      {icon && <Icon icon={icon} size="sm" className="text-fg-subtle"/>}
+      {icon && <Icon icon={icon} size="sm" className="text-muted"/>}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {hint && <span className="text-sm text-fg-subtle">{hint}</span>}
+      {hint && <span className="text-sm text-muted">{hint}</span>}
     </Slot.Root>
   );
 }

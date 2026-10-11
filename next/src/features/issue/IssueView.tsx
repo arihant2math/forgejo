@@ -201,13 +201,13 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
         <Overrides issueId={issue.id}/>
         <BodySection issue={issue}/>
         <Reactions issueId={issue.id} commentId={0}/>
-        <div className="mt-4 border-t border-border-subtle pt-2">
+        <div className="mt-4 border-t border-muted pt-2">
           <Timeline issueId={issue.id} scroller={scroller}/>
           {issue.get('is_pull') && issue.id > 0 && <MergeBox issue={issue}/>}
           <Composer issue={issue}/>
         </div>
       </article>
-      <aside id={PROPERTIES} tabIndex={-1} aria-label="Properties" className="shrink-0 border-t border-border outline-none @xl:w-pane @xl:border-t-0 @xl:border-l">
+      <aside id={PROPERTIES} tabIndex={-1} aria-label="Properties" className="shrink-0 border-t border-default outline-none @xl:w-pane @xl:border-t-0 @xl:border-l">
         <div className="p-4 @xl:sticky @xl:top-0">
           <IssueSidebar issue={issue}/>
         </div>
@@ -220,7 +220,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
 const Composer = observer(function Composer({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
   const locked = issueLocked(editing(useApp()).overlay, issue);
-  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><LockIcon size={12} className="shrink-0"/>{text}</p>;
+  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-muted"><LockIcon size={12} className="shrink-0"/>{text}</p>;
   if (locked && !canWrite(session, issue.get('repo_id'))) return note('This conversation is locked: only collaborators can comment.');
   return (
     <>
@@ -235,7 +235,7 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
   return (
     <>
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
-      <span className="text-fg-subtle tabular-nums">{indexLabel(index)}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
+      <span className="text-muted tabular-nums">{indexLabel(index)}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
       {/* A pull request's draft, review and checks marks, as its row in the list shows them. */}
       <span className="ml-2 inline-flex items-center gap-1 align-middle"><PullStateCell issue={issue}/></span>
     </>
@@ -266,7 +266,7 @@ const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
   const at = issue.get('created_at');
 
   return (
-    <p className="text-base text-fg-muted">
+    <p className="text-base text-muted">
       <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
     </p>

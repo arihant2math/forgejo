@@ -10,7 +10,7 @@ test('hex colours parse; anything else does not', () => {
   expect(parseHex('#fff')).toEqual([255, 255, 255]);
   expect(parseHex('#E11D21')).toEqual([225, 29, 33]);
   expect(parseHex('#00000080')).toEqual([0, 0, 0]);
-  for (const c of ['fff', '#ffff', 'red', 'var(--color-danger)', '#gggggg', '']) expect(parseHex(c), c).toBeUndefined();
+  for (const c of ['fff', '#ffff', 'red', 'var(--fgColor-danger)', '#gggggg', '']) expect(parseHex(c), c).toBeUndefined();
 });
 
 test('the ink with the higher contrast wins', () => {
@@ -36,6 +36,6 @@ test('the chosen ink always has at least 4:1 on the fill, whatever the colour', 
 test('the inks are the tokens\' colours', () => {
   const css = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8');
   const value = (name: string) => new RegExp(`${name}:\\s*(#[\\da-f]+);`, 'i').exec(css)?.[1] ?? '';
-  expect(luminance(parseHex(value('--color-on-label-dark')) ?? [255, 255, 255])).toBeCloseTo(DARK_INK, 3);
-  expect(luminance(parseHex(value('--color-on-label-light')) ?? [0, 0, 0])).toBeCloseTo(LIGHT_INK, 3);
+  expect(luminance(parseHex(value('--text-color-on-label-dark')) ?? [255, 255, 255])).toBeCloseTo(DARK_INK, 3);
+  expect(luminance(parseHex(value('--text-color-on-label-light')) ?? [0, 0, 0])).toBeCloseTo(LIGHT_INK, 3);
 });

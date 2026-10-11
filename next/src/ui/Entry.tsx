@@ -26,14 +26,14 @@ export interface EntryProps {
 export function Entry({leading, title, meta, description, actions, active, id}: EntryProps) {
   return (
     <li id={id} data-active={active ? '' : undefined}
-      className="row-cursor relative flex items-start gap-3 border-b border-border-subtle py-2 last:border-b-0 data-active:bg-selected">
-      {leading && <span className="flex h-control-sm shrink-0 items-center text-fg-muted">{leading}</span>}
+      className="row-cursor relative flex items-start gap-3 border-b border-muted py-2 last:border-b-0 data-active:bg-control-transparent-selected">
+      {leading && <span className="flex h-control-sm shrink-0 items-center text-muted">{leading}</span>}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="flex min-h-control-sm items-center gap-2 text-base">
-          <span className="min-w-0 truncate text-fg">{title}</span>
-          {meta && <span className="shrink-0 text-sm text-fg-subtle tabular-nums">{meta}</span>}
+          <span className="min-w-0 truncate text-default">{title}</span>
+          {meta && <span className="shrink-0 text-sm text-muted tabular-nums">{meta}</span>}
         </p>
-        {description && <div className="text-sm text-fg-muted">{description}</div>}
+        {description && <div className="text-sm text-muted">{description}</div>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
     </li>

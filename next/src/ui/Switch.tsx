@@ -21,8 +21,8 @@ export interface SwitchProps {
 export function Switch({checked, onCheckedChange, label, id, disabled, describedBy}: SwitchProps) {
   return (
     <S.Root id={id} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} aria-label={label} aria-describedby={describedBy}
-      className="interactive inline-flex h-4.5 w-8 shrink-0 items-center rounded-full border border-border-strong bg-border-strong p-px disabled:opacity-disabled data-[state=checked]:border-accent data-[state=checked]:bg-accent">
-      <S.Thumb className="block size-3.5 rounded-full bg-fg-on-accent data-[state=checked]:translate-x-3.5"/>
+      className="interactive inline-flex h-4.5 w-8 shrink-0 items-center rounded-full border border-emphasis bg-neutral-muted p-px disabled:opacity-disabled data-[state=checked]:border-accent-emphasis data-[state=checked]:bg-accent-emphasis">
+      <S.Thumb className="block size-3.5 rounded-full bg-default data-[state=checked]:translate-x-3.5"/>
     </S.Root>
   );
 }

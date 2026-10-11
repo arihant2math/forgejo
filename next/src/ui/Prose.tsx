@@ -12,7 +12,7 @@ export function Prose({ref, onClick}: {ref: Ref<HTMLDivElement>; onClick?: Mouse
   return <div ref={ref} onClick={onClick} className={prose}/>;
 }
 
-const prose = 'prose min-w-0 text-md text-fg';
+const prose = 'prose min-w-0 text-md text-default';
 
 /**
  * Markdown source not rendered yet (an edit made offline: the server renders

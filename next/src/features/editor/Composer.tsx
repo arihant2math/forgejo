@@ -378,7 +378,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
                 }
               }}/>}
       </EditorFrame>
-      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-fg-muted"><PendingIcon label="Uploading attachments" now/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
+      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><PendingIcon label="Uploading attachments" now/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
     </div>
   );
 });
@@ -409,11 +409,11 @@ export const MarkdownPreview = observer(function MarkdownPreview({repoId, text, 
       live = false;
     };
   }, [app, repoId, text, offline]);
-  if (!text.trim()) return <p className="min-h-16 px-2 py-1.5 text-base text-fg-subtle">Nothing to preview.</p>;
+  if (!text.trim()) return <p className="min-h-16 px-2 py-1.5 text-base text-muted">Nothing to preview.</p>;
   if (offline) {
     return (
       <div className="flex flex-col gap-2 px-2 py-1.5">
-        <p className="text-sm text-fg-subtle">The preview needs a connection (Forgejo renders it). Your text as written:</p>
+        <p className="text-sm text-muted">The preview needs a connection (Forgejo renders it). Your text as written:</p>
         <ProseSource text={text}/>
       </div>
     );

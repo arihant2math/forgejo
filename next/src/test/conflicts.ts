@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Finds elements whose class list sets the same property twice under the same
-// variants (e.g. "text-fg text-danger", "z-popover z-tooltip"). Which one wins
+// variants (e.g. "text-default text-danger", "z-popover z-tooltip"). Which one wins
 // then depends on stylesheet order, which is how composed recipes go wrong.
 
 import {splitClass} from '../../lint/eslint-plugin-tokens.ts';

@@ -104,8 +104,8 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
   </>}</Dialog.Footer>}>
     <div className="flex flex-col gap-3">
       <RefPicker repoId={repoId} label="Run on" value={ref} onChange={(value) => { if (!busy && (value.kind !== ref.kind || value.ref !== ref.ref)) { setSchema(undefined); setError(undefined); setRef(value); } }}/>
-      {!schema && !error && !block && <p className="text-sm text-fg-muted">Loading inputs…</p>}
-      {schema && !schema.dispatchable && <p className="text-sm text-fg-muted">This workflow does not support manual runs at this ref.</p>}
+      {!schema && !error && !block && <p className="text-sm text-muted">Loading inputs…</p>}
+      {schema && !schema.dispatchable && <p className="text-sm text-muted">This workflow does not support manual runs at this ref.</p>}
       {schema?.inputs?.map((input) => {
         const id = `dispatch-${input.name}`;
         const change = (value: string) => { setValues((prev) => ({...prev, [input.name]: value})); };
@@ -115,7 +115,7 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
               <TextInput id={id} className="w-full" type={input.type === 'number' ? 'number' : 'text'} step="any" required={input.required} disabled={busy} value={values[input.name] ?? ''} onChange={(event) => { change(event.target.value); }}/>}
         <FormControl.Caption>{input.description}</FormControl.Caption></FormControl>;
       })}
-      {block && <p className="text-sm text-fg-muted">{block}</p>}
+      {block && <p className="text-sm text-muted">{block}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {error && !schema && connected && <Button size="small" type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry loading inputs</Button>}
     </div>

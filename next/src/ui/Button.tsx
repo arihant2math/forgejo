@@ -9,14 +9,14 @@ import {control, controlHeight, type ControlSize, ghostHover} from './recipes.ts
 import {Tooltip} from './Tooltip.tsx';
 
 const variants = {
-  primary: 'bg-accent text-fg-on-accent hover:bg-accent-hover',
-  secondary: 'border border-border bg-surface text-fg hover:bg-hover',
+  primary: 'bg-accent-emphasis text-onEmphasis hover:bg-accent-emphasis',
+  secondary: 'border border-default bg-default text-default hover:bg-control-transparent-hover',
   // A transparent border: switching between ghost and secondary (a toggle, a tab, a filter with a value)
   // never changes the width.
-  ghost: `border border-transparent ${ghostHover} data-[state=open]:bg-hover data-[state=open]:text-fg`,
+  ghost: `border border-transparent ${ghostHover} data-[state=open]:bg-control-transparent-hover data-[state=open]:text-default`,
   // The one green button (GitHub's Code menu on the overview); not for confirming things (that is primary).
-  success: 'bg-success-solid text-fg-on-accent hover:bg-success-solid-hover',
-  danger: 'bg-danger-solid text-fg-on-accent hover:bg-danger-solid-hover',
+  success: 'bg-success-emphasis text-onEmphasis hover:bg-button-primary-hover',
+  danger: 'bg-danger-emphasis text-onEmphasis hover:bg-button-danger-hover',
 } as const;
 
 export type ButtonVariant = keyof typeof variants;
@@ -77,7 +77,7 @@ export function IconButton({variant = 'ghost', size = 'md', icon, label, shortcu
       type="button"
       aria-label={label}
       aria-pressed={pressed}
-      className={cx(base, size === 'sm' ? 'size-control-sm' : 'size-control', variants[variant], pressed && 'aria-pressed:bg-selected aria-pressed:text-fg', className)}
+      className={cx(base, size === 'sm' ? 'size-control-sm' : 'size-control', variants[variant], pressed && 'aria-pressed:bg-control-transparent-selected aria-pressed:text-default', className)}
       {...rest}
     >
       <Icon icon={icon} size={size}/>

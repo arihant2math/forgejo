@@ -53,7 +53,7 @@ function Frame() {
         </HeaderRow>
         {/* A repository page's tabs (TabNav's geometry), then its title row with the controls. */}
         <div className="hidden header-tabs:contents">
-          <div className="flex h-header shrink-0 items-center gap-6 border-b border-border px-6">
+          <div className="flex h-header shrink-0 items-center gap-6 border-b border-default px-6">
             {tabWidths.map((w, i) => <Skeleton key={i} className={`h-3 ${w}`}/>)}
           </div>
         </div>
@@ -85,7 +85,7 @@ function Frame() {
           <div className="h-2"/>
           <SkeletonText lines={3}/>
         </div>
-        <div className="flex w-pane shrink-0 flex-col gap-3 border-l border-border p-4">
+        <div className="flex w-pane shrink-0 flex-col gap-3 border-l border-default p-4">
           <SkeletonBox className="h-3 w-20"/>
           <SkeletonBox className="h-3 w-32"/>
           <SkeletonBox className="h-3 w-24"/>

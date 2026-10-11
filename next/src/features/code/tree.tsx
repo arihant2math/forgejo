@@ -60,7 +60,7 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
     <>
       {showRef && <>
         <Icon icon={kind === 'tag' ? TagIcon : kind === 'commit' ? GitCommitIcon : GitBranchIcon} size="sm"/>
-        {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-fg">{name}</span>}
+        {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-default">{name}</span>}
       </>}
       {message !== undefined ? <>
         <span className="min-w-0 truncate"><RouterLink {...codeTo(owner, repo, `commit/${commit}`)} muted className="min-w-0 truncate">{summary(message)}</RouterLink></span>

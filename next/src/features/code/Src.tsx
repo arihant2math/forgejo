@@ -137,7 +137,7 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
       {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink></TextLink> : <span>{root}</span>}
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
-          <span className="text-fg-subtle">/</span>
+          <span className="text-muted">/</span>
           {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
             <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
         </span>
@@ -293,8 +293,8 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
   useShortcut('code.editFile', () => {setEditing(true);}, allowed && !editing);
   if (editing) return <Suspense fallback={<CodeSkeleton/>}><FileEditor owner={props.owner} repo={props.repo} repoId={props.repoId} at={props.at} sha={props.entry.sha} original={props.text} onCancel={() => {setEditing(false);}}/></Suspense>;
   return <>
-    {allowed && <div className="flex justify-end border-b border-border-subtle px-4 py-2"><Button variant="invisible" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
-    {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-fg-muted">Fork this repository to edit this file.</p>}
+    {allowed && <div className="flex justify-end border-b border-muted px-4 py-2"><Button variant="invisible" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
+    {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-muted">Fork this repository to edit this file.</p>}
     {props.text === '' ? <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
   </>;
 });
@@ -410,7 +410,7 @@ function useMarkPainted(path: string): void {
 /** A file's facts above it (lines or dimensions, size) and its controls. */
 function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string | undefined; size: number | undefined; children?: ReactNode}) {
   return (
-    <div className="flex h-control items-center gap-3 border-b border-border-subtle px-4 text-sm text-fg-subtle tabular-nums">
+    <div className="flex h-control items-center gap-3 border-b border-muted px-4 text-sm text-muted tabular-nums">
       {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
       {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
@@ -464,11 +464,11 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
               {/* The blame at the change's parent (the same file, by its name there): the history behind these lines. */}
               {part.previous_sha && (
                 <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
-                  className="interactive flex shrink-0 items-center rounded-sm text-fg-subtle hover:text-fg" label="Blame prior to this change">
+                  className="interactive flex shrink-0 items-center rounded-sm text-muted hover:text-default" label="Blame prior to this change">
                   <HistoryIcon size={12} className="shrink-0"/>
                 </CodeLink>
               )}
-              <span className="shrink-0 text-fg @max-xl:hidden">{commit.author_name}</span>
+              <span className="shrink-0 text-default @max-xl:hidden">{commit.author_name}</span>
               <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink></TextLink>
             </span>
           )}

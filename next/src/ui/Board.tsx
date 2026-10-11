@@ -64,7 +64,7 @@ export function BoardLanes({ref, children, ...rest}: BoardLanesProps) {
 }
 
 /** A board's lane: a quiet canvas column of fixed width (the board scrolls sideways). */
-const lane = 'flex w-column shrink-0 flex-col rounded-lg bg-canvas';
+const lane = 'flex w-column shrink-0 flex-col rounded-lg bg-inset';
 
 /**
  * One column of a board (Linear's): a quiet canvas lane with a header and
@@ -75,8 +75,8 @@ export function BoardColumn({title, count, leading, badge, actions, children, bo
     <section data-column={columnId} className={cx(lane, 'focus-visible-within')}>
       <header className="flex h-control shrink-0 items-center gap-2 px-3 pt-1 text-base">
         {leading}
-        <h2 className="min-w-0 truncate font-medium text-fg">{title}</h2>
-        <span className="text-sm text-fg-subtle tabular-nums">{count}</span>
+        <h2 className="min-w-0 truncate font-medium text-default">{title}</h2>
+        <span className="text-sm text-muted tabular-nums">{count}</span>
         {badge}
         {actions && <span className="ml-auto flex items-center">{actions}</span>}
       </header>
@@ -120,13 +120,13 @@ export function BoardCard({active, dragging, meta, title, footer, href, ...rest}
       data-active={active ? '' : undefined}
       data-dragging={dragging ? '' : undefined}
       className={cx(
-        'flex h-card cursor-default flex-col gap-1 overflow-hidden rounded-md border border-border bg-surface px-2.5 py-1.5 contain-content select-none',
-        'hover:border-border-strong data-active:border-accent data-dragging:opacity-disabled',
+        'flex h-card cursor-default flex-col gap-1 overflow-hidden rounded-md border border-default bg-default px-2.5 py-1.5 contain-content select-none',
+        'hover:border-emphasis data-active:border-accent-emphasis data-dragging:opacity-disabled',
       )}
       {...props}
     >
-      <div className="flex h-4 items-center gap-1.5 text-sm text-fg-subtle tabular-nums">{meta}</div>
-      <div className="clamp-title min-h-0 text-base text-fg">{title}</div>
+      <div className="flex h-4 items-center gap-1.5 text-sm text-muted tabular-nums">{meta}</div>
+      <div className="clamp-title min-h-0 text-base text-default">{title}</div>
       {footer && <div className="mt-auto flex min-w-0 items-center gap-1">{footer}</div>}
     </Tag>
   );
@@ -139,5 +139,5 @@ export function BoardColumnDraft({children}: {children: ReactNode}) {
 
 /** The insertion line shown while dragging a card (moved by transform: `drag-layer`). */
 export function DropIndicator({ref}: {ref: Ref<HTMLDivElement>}) {
-  return <div ref={ref} aria-hidden hidden className="drag-layer h-0.5 w-column rounded-full bg-accent"/>;
+  return <div ref={ref} aria-hidden hidden className="drag-layer h-0.5 w-column rounded-full bg-accent-emphasis"/>;
 }

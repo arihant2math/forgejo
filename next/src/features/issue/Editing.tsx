@@ -43,7 +43,7 @@ import {SkeletonText} from '@primer/react/experimental';
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
 export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
   if (local) return <ProseSource text={text}/>;
-  return html ? <Markdown html={html} onTask={onTask}/> : <p className="text-base text-fg-subtle">No text.</p>;
+  return html ? <Markdown html={html} onTask={onTask}/> : <p className="text-base text-muted">No text.</p>;
 }
 
 /** Resolves a conflict with one side whole (the merge being typed in the editor is dropped with it). */
@@ -230,7 +230,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
           else cancel();
         } : undefined} focusShortcut={focusShortcut}/>
       <div className="flex items-center justify-end gap-2">
-        {blocked && <span className="mr-auto text-sm text-warning">Remove the conflict markers to save.</span>}
+        {blocked && <span className="mr-auto text-sm text-attention">Remove the conflict markers to save.</span>}
         {onCancel && <Button variant="invisible" size="small" type="button" onClick={cancel}>Cancel</Button>}
         {stateAction && <span className="flex items-center gap-1">
           <Button size="small" type="button" disabled={hasPendingUploads(text)} onClick={() => {
@@ -329,7 +329,7 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
           if (text === b.text) return;
           const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
           intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
-        } : undefined}/> : <p className="text-base text-fg-subtle">No description.</p>}
+        } : undefined}/> : <p className="text-base text-muted">No description.</p>}
         {body.local && <NotSynced/>}
       </div>
       {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
@@ -643,7 +643,7 @@ export const TitleSection = observer(function TitleSection({issue}: {issue: Enti
   const title = issueTitle(overlay, issue);
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
   if (text === undefined) {
-    if (!mayEdit) return <h2 className="text-xl font-semibold text-fg">{title}</h2>;
+    if (!mayEdit) return <h2 className="text-xl font-semibold text-default">{title}</h2>;
     return <EditableHeading label="Rename" onEdit={() => {
       setText(title);
     }}>{title}</EditableHeading>;

@@ -9,9 +9,9 @@ import {AlertIcon, CheckCircleIcon, InfoIcon, XIcon} from '@primer/octicons-reac
 
 /** The tones of a message (Notice, Callout): icon and colour. */
 export const messageTones = {
-  neutral: {icon: InfoIcon, text: 'text-fg-muted'},
+  neutral: {icon: InfoIcon, text: 'text-muted'},
   success: {icon: CheckCircleIcon, text: 'text-success'},
-  warning: {icon: AlertIcon, text: 'text-warning'},
+  warning: {icon: AlertIcon, text: 'text-attention'},
   danger: {icon: AlertIcon, text: 'text-danger'},
 } as const satisfies Record<string, {icon: LucideIcon; text: string}>;
 

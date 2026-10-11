@@ -33,11 +33,11 @@ export function CommitDialog({branch, defaultMessage, protectedBranch, busy, err
     <div className="flex flex-col gap-3">
       <TextInput aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>
       <Textarea aria-label="Commit description" value={description} onChange={(e) => {setDescription(e.target.value);}} block rows={6}/>
-      {protectedBranch && <p className="text-sm text-fg-muted">This branch is protected. Commit to a new branch and propose a pull request.</p>}
+      {protectedBranch && <p className="text-sm text-muted">This branch is protected. Commit to a new branch and propose a pull request.</p>}
       {!protectedBranch && <label><input type="radio" checked={!useNew} onChange={() => {setNewBranch(false);}}/> Commit directly to {branch}</label>}
       <label><input type="radio" checked={useNew} onChange={() => {setNewBranch(true);}}/> Create a new branch</label>
-      {useNew && <><TextInput aria-label="New branch name" value={name} onChange={(e) => {setName(e.target.value);}}/>{allowPull ? <label><input type="checkbox" checked={pull} onChange={(e) => {setPull(e.target.checked);}}/> {pullInto ? `Open a pull request into ${pullInto}` : 'Open a pull request'}</label> : <p className="text-sm text-fg-muted">The first commit establishes the branch. A pull request needs an existing base branch.</p>}</>}
-      {why && <p className="text-sm text-fg-muted">{why}</p>}
+      {useNew && <><TextInput aria-label="New branch name" value={name} onChange={(e) => {setName(e.target.value);}}/>{allowPull ? <label><input type="checkbox" checked={pull} onChange={(e) => {setPull(e.target.checked);}}/> {pullInto ? `Open a pull request into ${pullInto}` : 'Open a pull request'}</label> : <p className="text-sm text-muted">The first commit establishes the branch. A pull request needs an existing base branch.</p>}</>}
+      {why && <p className="text-sm text-muted">{why}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>
   </Dialog>;

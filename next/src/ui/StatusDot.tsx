@@ -6,11 +6,11 @@ import {cx} from './cx.ts';
 import {ghostHover} from './recipes.ts';
 
 const tones = {
-  success: 'bg-success',
-  warning: 'bg-warning',
-  danger: 'bg-danger',
-  muted: 'bg-fg-subtle',
-  accent: 'bg-accent',
+  success: 'bg-success-emphasis',
+  warning: 'bg-attention-emphasis',
+  danger: 'bg-danger-emphasis',
+  muted: 'bg-neutral-emphasis',
+  accent: 'bg-accent-emphasis',
 } as const;
 
 export type StatusTone = keyof typeof tones;
@@ -37,7 +37,7 @@ export function Status({tone, children, onClick, label}: {tone: StatusTone; chil
     );
   }
   return (
-    <span className={cx(status, 'text-fg-muted')}>
+    <span className={cx(status, 'text-muted')}>
       <StatusDot tone={tone}/>
       {children}
     </span>

@@ -100,9 +100,9 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
     <Panel label="Watchers" title={<><EyeIcon size={12} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
       {(page > 1 || more) && (
-        <nav aria-label="Pages" className="flex items-center gap-2 border-t border-border-subtle px-3 py-2">
+        <nav aria-label="Pages" className="flex items-center gap-2 border-t border-muted px-3 py-2">
           {page > 1 ? <RouterLinkButton size="small" {...to(page - 1)}>Previous</RouterLinkButton> : <Button size="small" type="button" disabled>Previous</Button>}
-          <span className="text-sm text-fg-muted tabular-nums">{last === undefined ? `Page ${String(page)}` : `Page ${String(page)} of ${String(last)}`}</span>
+          <span className="text-sm text-muted tabular-nums">{last === undefined ? `Page ${String(page)}` : `Page ${String(page)} of ${String(last)}`}</span>
           {more ? <RouterLinkButton size="small" {...to(page + 1)}>Next</RouterLinkButton> : <Button size="small" type="button" disabled>Next</Button>}
         </nav>
       )}
@@ -135,10 +135,10 @@ function WatcherCard({u}: {u: Watcher}) {
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
     <Entry leading={<Avatar name={u.login} src={u.avatar_url}/>}
-      title={<Link to="/$owner" params={{owner: u.login}} className="font-medium hover:text-accent-fg">{name}</Link>}
+      title={<Link to="/$owner" params={{owner: u.login}} className="font-medium hover:text-accent">{name}</Link>}
       meta={u.full_name ? u.login : undefined}
       description={site ?
-        <span className="flex min-w-0 items-center gap-1"><LinkIcon size={12} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate hover:text-accent-fg">{site}</a></span> :
+        <span className="flex min-w-0 items-center gap-1"><LinkIcon size={12} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate hover:text-accent">{site}</a></span> :
         u.location ?
           <span className="flex min-w-0 items-center gap-1"><LocationIcon size={12} className="shrink-0"/><span className="truncate">{u.location}</span></span> :
           u.created ?

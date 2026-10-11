@@ -109,15 +109,15 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
       </>
     );
   }
-  if (draft) return <><GitPullRequestDraftIcon size={16} className="shrink-0 text-fg-muted"/><span>Draft</span></>;
+  if (draft) return <><GitPullRequestDraftIcon size={16} className="shrink-0 text-muted"/><span>Draft</span></>;
   // Open without a status label in a repository that has them: no status yet ("No priority" alike), not a stage
   // called "Open" (QA #192).
   const none = !status && !pull && state === 'open' && usesStatuses(pool, issue.get('repo_id'));
   return (
     <>
       <StateGlyph look={look}/><span>{look.label}</span>
-      {status && !merged && <span className="truncate text-fg-subtle">({scopedValue(status.name)})</span>}
-      {none && <span className="truncate text-fg-subtle">· No status</span>}
+      {status && !merged && <span className="truncate text-muted">({scopedValue(status.name)})</span>}
+      {none && <span className="truncate text-muted">· No status</span>}
     </>
   );
 });
@@ -169,7 +169,7 @@ const ReviewersValue = observer(function ReviewersValue({issue}: {issue: Entity<
   );
 });
 
-const REVIEW_TONE = {APPROVED: 'text-success', REQUEST_CHANGES: 'text-danger', COMMENT: 'text-fg-subtle', REQUEST_REVIEW: 'text-warning'} as const;
+const REVIEW_TONE = {APPROVED: 'text-success', REQUEST_CHANGES: 'text-danger', COMMENT: 'text-muted', REQUEST_REVIEW: 'text-attention'} as const;
 
 const REVIEW_LOOK: Record<string, {icon: OcticonType; label: string; tone: keyof typeof REVIEW_TONE} | undefined> = {
   APPROVED: {icon: CheckCircleIcon, label: 'Approved', tone: 'APPROVED'},
@@ -229,7 +229,7 @@ const MilestoneValue = observer(function MilestoneValue({issue, link}: {issue: E
   return (
     <span className="truncate">
       {link && m && owner && repo ? <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink> : title}
-      {due && <span className="text-fg-subtle"> · due {shortDate(due)}</span>}
+      {due && <span className="text-muted"> · due {shortDate(due)}</span>}
     </span>
   );
 });
@@ -254,7 +254,7 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
       {project ?? pool.model('ProjectRef').get(pid) ?
         <RouterLink to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}} muted className="min-w-0 truncate">{title}</RouterLink> :
         <span className="truncate">{title}</span>}
-      {column && <span className="shrink-0 text-fg-subtle">· {column}</span>}
+      {column && <span className="shrink-0 text-muted">· {column}</span>}
     </span>
   );
   if (!write || isTemp(issue.id)) return <Property label="Project"><PropertyValue>{value}</PropertyValue></Property>;
@@ -307,7 +307,7 @@ const DependenciesValue = observer(function DependenciesValue({issue, write}: {i
         {blockedBy.length ? <IssueLinks ids={blockedBy} repoId={issue.get('repo_id')}/> : !edit && <PropertyValue><PropertyEmpty>Nothing</PropertyEmpty></PropertyValue>}
         {edit && (
           <PickerPopover kind="dependency" issueIds={[issue.id]} trigger={
-            <PropertyButton label="Change what blocks this">{blockedBy.length ? <span className="text-sm text-fg-subtle">Change…</span> : <PropertyEmpty>Nothing</PropertyEmpty>}</PropertyButton>
+            <PropertyButton label="Change what blocks this">{blockedBy.length ? <span className="text-sm text-muted">Change…</span> : <PropertyEmpty>Nothing</PropertyEmpty>}</PropertyButton>
           }/>
         )}
       </Property>
@@ -331,11 +331,11 @@ export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An 
   const app = useApp();
   const pool = usePool();
   const i = pool.model('Issue').get(id);
-  if (!i) return <span className="text-fg-subtle">{missing}</span>;
+  if (!i) return <span className="text-muted">{missing}</span>;
   const repo = pool.model('Repository').get(i.get('repo_id'));
   const ref = `${i.get('repo_id') === repoId ? '' : repo?.get('full_name') ?? ''}#${String(i.get('number'))}`;
   const path = issuePath(app, i);
-  const text = <><span className="text-fg-subtle tabular-nums">{ref}</span> {i.get('title')}</>;
+  const text = <><span className="text-muted tabular-nums">{ref}</span> {i.get('title')}</>;
   if (!path) return <span className={inline ? undefined : 'truncate'}>{text}</span>;
   return <RouterLink to={path} muted className={inline ? undefined : 'min-w-0 truncate'}>{text}</RouterLink>;
 });
@@ -436,7 +436,7 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
           }}><Icon icon={pinned ? PinIcon : PinSlashIcon}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></PropertyButton> :
           <PropertyValue tone="muted">
             <span className="flex items-center gap-1"><Icon icon={pinned ? PinIcon : PinSlashIcon}/><span>{pinned ? 'Pinned' : 'Not pinned'}</span></span>
-            <span className="text-sm text-fg-subtle">Only repository administrators can pin issues.</span>
+            <span className="text-sm text-muted">Only repository administrators can pin issues.</span>
           </PropertyValue>}
       </Property>
       <Property label="Conversation">

@@ -175,7 +175,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const scopes = new Set(priorities.map(exclusiveScope));
     if (priorities.length) {
       const none = draft ? !priorities.some((l) => draft.labels.includes(l.id)) : coverage(issues, (i) => !priorities.some((l) => hasLabel(l.id)(i)));
-      options.push({value: 'none', label: 'No priority', checked: none, leading: <NoPriorityIcon size={16} className="shrink-0 text-fg-subtle"/>, onSelect: () => {
+      options.push({value: 'none', label: 'No priority', checked: none, leading: <NoPriorityIcon size={16} className="shrink-0 text-muted"/>, onSelect: () => {
         if (draft) for (const l of priorities) draft.toggleLabel(l, false, priorities);
         else for (const scope of scopes) clearScope(app, issues, scope);
       }});

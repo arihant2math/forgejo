@@ -39,7 +39,7 @@ export function Select<V extends string>({value, onValueChange, options, size = 
       >
         {options.map((o) => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
       </select>
-      <span className="pointer-events-none absolute right-2 flex text-fg-subtle"><Icon icon={ChevronDownIcon} size="sm"/></span>
+      <span className="pointer-events-none absolute right-2 flex text-muted"><Icon icon={ChevronDownIcon} size="sm"/></span>
     </span>
   );
 }

@@ -139,11 +139,11 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) create(e);
           }}>
             <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold text-fg">Create a new repository</h2>
-              <p className="text-base text-fg-muted">
+              <h2 className="text-xl font-semibold text-default">Create a new repository</h2>
+              <p className="text-base text-muted">
                 A repository holds a project’s files and their history. Already have one elsewhere? Migrate it with “New migration”.
               </p>
-              <p className="text-sm text-fg-subtle">Required fields are marked with an asterisk (*).</p>
+              <p className="text-sm text-muted">Required fields are marked with an asterisk (*).</p>
             </div>
             {scopeMissing && <ScopeNote scope={scope} what={owner?.org ? `repositories in ${owner.login}` : 'repositories in your account'} classic={classicForm}/>}
 
@@ -166,7 +166,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <Field id="new-repo-owner" label="Owner" required>
                 <OwnerPicker owners={owners} owner={owner} me={userId} onChange={setOwnerId}/>
               </Field>
-              <span aria-hidden className="pt-7 text-xl text-fg-subtle">/</span>
+              <span aria-hidden className="pt-7 text-xl text-muted">/</span>
               <div className="min-w-0 flex-1 basis-48">
                 <Field id="new-repo-name" label="Repository name" required error={nameError}
                   hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Great repository names are short and memorable."/>}>
@@ -226,10 +226,10 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               </Field>
               {!tpl && formats.length > 1 && (
                 <div className="flex flex-col gap-1">
-                  <span className="text-base font-medium text-fg">Object format</span>
+                  <span className="text-base font-medium text-default">Object format</span>
                   <div className="flex"><SegmentedControl label="Object format" value={format} onChange={setFormat}
                     options={formats.map((f) => ({value: f, label: FORMAT_LABELS[f] ?? f}))}/></div>
-                  <p className="text-sm text-fg-muted">How Git names objects. SHA-256 cannot be changed later, and some tools do not support it yet.</p>
+                  <p className="text-sm text-muted">How Git names objects. SHA-256 cannot be changed later, and some tools do not support it yet.</p>
                 </div>
               )}
               {!tpl && <FormControl><Checkbox checked={isTemplate} onChange={(event) => { setIsTemplate(event.target.checked); }}/><FormControl.Label>Make this repository a template</FormControl.Label></FormControl>}
@@ -237,13 +237,13 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
 
             <Section>
               {owner && (
-                <p className="text-sm text-fg-muted">
+                <p className="text-sm text-muted">
                   {`You are creating a ${priv || forced ? 'private' : 'public'} repository ${owner.org ? `in the organization ${owner.login}` : 'in your personal account'}.`}
                 </p>
               )}
               {refused?.field === 'form' && <Callout tone="danger" title="The repository was not created">{refused.text}</Callout>}
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {!isOnline && <span className="mr-auto text-sm text-fg-subtle">Offline: creating a repository needs a connection.</span>}
+                {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating a repository needs a connection.</span>}
                 {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a name). */}
                 <OptionalTooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" aria-disabled={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create repository'}
@@ -268,7 +268,7 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
     <Section title="Initialize this repository with" description="Skip this to push an existing repository.">
       <div className="flex flex-col gap-1">
         <FormControl disabled={implied}><Checkbox checked={readme || implied} onChange={(event) => { setReadme(event.target.checked); }}/><FormControl.Label>Add a README file</FormControl.Label></FormControl>
-        <p className="pl-6 text-sm text-fg-muted">
+        <p className="pl-6 text-sm text-muted">
           {implied ? 'Forgejo adds a README with a .gitignore or a license.' : 'A long description of the project, shown on its home.'}
         </p>
       </div>

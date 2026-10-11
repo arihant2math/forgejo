@@ -142,7 +142,7 @@ describe('classes', () => {
 
   test('unknown classes are detected', async () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
-    expect(ds.candidatesToCss(['bg-white', 'text-red-500', 'font-bold', 'shadow-sm', 'bg-surface'])).toEqual([null, null, null, null, expect.any(String)]);
+    expect(ds.candidatesToCss(['bg-white', 'text-red-500', 'font-bold', 'shadow-sm', 'bg-default'])).toEqual([null, null, null, null, expect.any(String)]);
     expect(classStrings(join(src, 'ui/X.tsx'), 'const a = {x: "bg-x"}; <A className={cx("p-1", y ? "m-1" : `h-3 ${w}`)}/>')).toEqual(['bg-x', 'p-1', 'm-1', 'h-3 ']);
     // Outside src/ui: consts and map parameters reached from a class context.
     expect(classStrings(join(src, 'app/X.tsx'), 'const data = ["Sync log"]; const ws = ["w-big"]; const row = "h-row"; <>{ws.map((w) => <A className={`${row} ${w}`}/>)}</>')).toEqual(['h-row', 'w-big']);

@@ -210,7 +210,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
             const t = took(r.started, finished(r.status) ? r.stopped : undefined, now);
             return {
               leading: <span title={look.text}><StatusDot tone={look.tone}/></span>,
-              main: <>{r.title} <span className="text-fg-subtle">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Label variant="attention">Needs approval</Label></> : <span className="sr-only">, {look.text}</span>}</>,
+              main: <>{r.title} <span className="text-muted">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Label variant="attention">Needs approval</Label></> : <span className="sr-only">, {look.text}</span>}</>,
               trailing: <>
                 <TriggerText gitRef={r.ref}/>
                 <span className="max-md:hidden">{eventText(r.event)}</span>
@@ -284,17 +284,17 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
         <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
         <div className="flex min-h-full flex-col">
           {/* What started it: the workflow, the event, its pull request or branch, the commit, who. */}
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-sm text-fg-muted">
-            <span className="font-mono text-fg">{run.workflow_id}</span>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-default px-4 py-2 text-sm text-muted">
+            <span className="font-mono text-default">{run.workflow_id}</span>
             <span>{eventText(run.event)}</span>
             <TriggerLink owner={props.owner} repo={props.repo} gitRef={run.ref}/>
             {run.commit_sha && <TextLink><CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`}><span className="font-mono tabular-nums">{shortSha(run.commit_sha)}</span></CodeLink></TextLink>}
             {actor && <span className="flex items-center gap-1.5"><Avatar name={actor.full_name || actor.login} src={actor.avatar_url === '' ? undefined : actor.avatar_url} size="sm"/>{actor.login}</span>}
             <time dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
           </p>
-          {awaitsApproval(run) && <div className="border-b border-border px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
+          {awaitsApproval(run) && <div className="border-b border-default px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">
-          <nav aria-label="Jobs" className="shrink-0 border-b border-border py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
+          <nav aria-label="Jobs" className="shrink-0 border-b border-default py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
             {jobs.map((j, i) => {
               const jl = runLook(run, j.status);
               return (
@@ -393,7 +393,7 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
     if (log.expired) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log removed</Blankslate.Heading><Blankslate.Description>This log was removed by the instance's log retention.</Blankslate.Description></Blankslate>;
     if (source === 'none' && !connectivity.online) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This job's log is not on this device.</Blankslate.Description></Blankslate>;
     if (feed.closed) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log not available</Blankslate.Heading><Blankslate.Description>{feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}</Blankslate.Description></Blankslate>;
-    return <p className="px-4 py-3 text-sm text-fg-subtle">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
+    return <p className="px-4 py-3 text-sm text-muted">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;
 });

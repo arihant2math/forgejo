@@ -120,7 +120,7 @@ function SideNav({section}: {section: Section}) {
   const app = useApp();
   const src = useSource();
   return (
-    <nav aria-label="Settings pages" className="flex shrink-0 flex-col gap-px border-b border-border p-2 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
+    <nav aria-label="Settings pages" className="flex shrink-0 flex-col gap-px border-b border-default p-2 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
       {SECTIONS.map((s) => (
         <NavItem key={s.id} asChild icon={s.icon} label={s.label} onPointerEnter={() => {
           src.prefetch(...s.kinds);
@@ -336,7 +336,7 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
             <PrimerButton leadingVisual={UploadIcon} type="button" disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</PrimerButton>
             <PrimerButton variant="invisible" leadingVisual={TrashIcon} type="button" disabled={busy || Boolean(offline)} onClick={remove}>Remove</PrimerButton>
           </div>
-          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <p className="text-sm text-fg-subtle">{offline ?? 'A square picture looks best.'}</p>}
+          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <p className="text-sm text-muted">{offline ?? 'A square picture looks best.'}</p>}
         </div>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => {
           const file = e.target.files?.[0];
@@ -366,7 +366,7 @@ const PrivacySection = observer(function PrivacySection({src, settings, slot, vi
           <Toggle src={src} settings={settings} field="hide_email" label="Hide my email address" hint="Others do not see your primary address on your profile." offline={offline}/>
           <Toggle src={src} settings={settings} field="hide_pronouns" label="Hide my pronouns" hint="Your pronouns are shown to you only." offline={offline}/>
           <Toggle src={src} settings={settings} field="hide_activity" label="Hide my activity" hint="Your activity is not shown on your profile page." offline={offline}/>
-          {offline && <p className="text-sm text-fg-subtle">{offline}</p>}
+          {offline && <p className="text-sm text-muted">{offline}</p>}
         </div>
       ) : <SlotState slot={slot} what="Your privacy settings" skeleton={<RowsSkeleton rows={3}/>}/>}
     </FormSection>
@@ -382,7 +382,7 @@ const Toggle = observer(function Toggle({src, settings, field, label, hint, offl
   return (
     <div className="flex flex-col gap-0.5">
       <FormControl disabled={Boolean(offline)}><Checkbox checked={settings[field]} onChange={(event) => { const v = event.target.checked; change({[field]: v}, label); }}/><FormControl.Label>{label}</FormControl.Label></FormControl>
-      <span className="pl-6 text-sm text-fg-subtle">{hint}</span>
+      <span className="pl-6 text-sm text-muted">{hint}</span>
     </div>
   );
 });
@@ -433,7 +433,7 @@ const AppearanceView = observer(function AppearanceView() {
               }}/>
             </SettingRow>
             <SettingRow title="Diff view" description="How the classic UI shows a change.">
-              {offline ? <span className="text-sm text-fg-muted">{diffStyleOf(settings.diff_view_style) === 'split' ? 'Split' : 'Unified'}</span> :
+              {offline ? <span className="text-sm text-muted">{diffStyleOf(settings.diff_view_style) === 'split' ? 'Split' : 'Unified'}</span> :
                 <SegmentedControl label="Diff view" value={diffStyleOf(settings.diff_view_style)} options={[{value: 'unified', label: 'Unified'}, {value: 'split', label: 'Split'}]}
                   onChange={(v) => {
                     change({diff_view_style: v}, 'Diff view');
@@ -441,7 +441,7 @@ const AppearanceView = observer(function AppearanceView() {
             </SettingRow>
             <Toggle src={src} settings={settings} field="enable_repo_unit_hints" label="Hints for a repository's unused features"
               hint="The classic UI suggests adding what a repository you own does not use yet (a wiki, releases)." offline={offline}/>
-            {offline && <p className="text-sm text-fg-subtle">{offline}</p>}
+            {offline && <p className="text-sm text-muted">{offline}</p>}
           </>
         ) : <SlotState slot={settings ? src.slot('options') : src.slot('settings')} what="Your appearance settings" skeleton={<RowsSkeleton rows={4}/>}/>}
       </FormSection>
@@ -525,7 +525,7 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
         </Panel>
       ) : <SlotState slot={slot} what="Your email addresses" skeleton={<RowsSkeleton/>}/>}
       {list?.some((e) => !e.verified) && (
-        <p className="text-sm text-fg-subtle">An unverified address waits for the link Forgejo mailed to it. <TextClassic to="/user/settings/account">Send it again in the classic UI</TextClassic>.</p>
+        <p className="text-sm text-muted">An unverified address waits for the link Forgejo mailed to it. <TextClassic to="/user/settings/account">Send it again in the classic UI</TextClassic>.</p>
       )}
       <AddEmail src={src} offline={offline}/>
       {removing !== undefined && (
@@ -584,7 +584,7 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
 /** A link to a classic page inside a sentence. */
 function TextClassic({to, children}: {to: string; children: ReactNode}) {
   const app = useApp();
-  return <a href={classicHref(app, to)} data-classic="" className="text-accent-fg hover:underline">{children}</a>;
+  return <a href={classicHref(app, to)} data-classic="" className="text-accent hover:underline">{children}</a>;
 }
 
 /** Asks before a delete. */
@@ -609,7 +609,7 @@ const KeysView = observer(function KeysView() {
     <>
       <SshKeys src={src}/>
       <GpgKeys src={src}/>
-      <p className="text-sm text-fg-subtle">
+      <p className="text-sm text-muted">
         Verifying a key, and SSH certificate principals, are in the <TextClassic to="/user/settings/keys">classic UI</TextClassic>.
       </p>
     </>
@@ -642,7 +642,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
               }}/>
             </>}>
               <span className="font-medium">{k.title}</span>
-              {k.fingerprint && <span className="ml-3 font-mono text-sm text-fg-subtle" title={k.fingerprint}>{k.fingerprint}</span>}
+              {k.fingerprint && <span className="ml-3 font-mono text-sm text-muted" title={k.fingerprint}>{k.fingerprint}</span>}
             </ListRow>
           ))}
         </Panel>
@@ -687,7 +687,7 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
     });
   };
   return (
-    <form className="flex flex-col gap-3 rounded-md border border-border p-3" onSubmit={(e) => {
+    <form className="flex flex-col gap-3 rounded-md border border-default p-3" onSubmit={(e) => {
       e.preventDefault();
       add();
     }}>
@@ -739,7 +739,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
                 }}/>
               </>}>
                 <span className="font-mono font-medium">{spacedKeyId(k.key_id)}</span>
-                {emails && <span className="ml-3 text-fg-subtle" title={emails}>{emails}</span>}
+                {emails && <span className="ml-3 text-muted" title={emails}>{emails}</span>}
               </ListRow>
             );
           })}
@@ -783,7 +783,7 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
     });
   };
   return (
-    <form className="flex flex-col gap-3 rounded-md border border-border p-3" onSubmit={(e) => {
+    <form className="flex flex-col gap-3 rounded-md border border-default p-3" onSubmit={(e) => {
       e.preventDefault();
       add();
     }}>

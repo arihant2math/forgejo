@@ -118,15 +118,15 @@
  * component from the scroll position): the board's fifth column is discoverable. The mask uses alpha only. */
 @utility edge-fade-x {
   &[data-more-end] {
-    mask-image: linear-gradient(to right, var(--color-fg) calc(100% - var(--spacing-fade)), transparent);
+    mask-image: linear-gradient(to right, var(--fgColor-default) calc(100% - var(--spacing-fade)), transparent);
   }
 
   &[data-more-start] {
-    mask-image: linear-gradient(to left, var(--color-fg) calc(100% - var(--spacing-fade)), transparent);
+    mask-image: linear-gradient(to left, var(--fgColor-default) calc(100% - var(--spacing-fade)), transparent);
   }
 
   &[data-more-start][data-more-end] {
-    mask-image: linear-gradient(to right, transparent, var(--color-fg) var(--spacing-fade), var(--color-fg) calc(100% - var(--spacing-fade)), transparent);
+    mask-image: linear-gradient(to right, transparent, var(--fgColor-default) var(--spacing-fade), var(--fgColor-default) calc(100% - var(--spacing-fade)), transparent);
   }
 }
 
@@ -138,7 +138,7 @@
     inset-block: 0;
     left: 0;
     width: var(--cursor-width);
-    background-color: var(--color-accent);
+    background-color: var(--bgColor-accent-emphasis);
     content: "";
   }
 }
@@ -164,8 +164,8 @@
 
 /* Behind an image file: a checkerboard, so that transparent parts and a light or dark image show on any theme. */
 @utility bg-checker {
-  background-color: var(--color-surface);
-  background-image: conic-gradient(var(--color-canvas-selected) 25%, transparent 0 50%, var(--color-canvas-selected) 0 75%, transparent 0);
+  background-color: var(--bgColor-default);
+  background-image: conic-gradient(var(--control-transparent-bgColor-selected) 25%, transparent 0 50%, var(--control-transparent-bgColor-selected) 0 75%, transparent 0);
   background-size: calc(var(--spacing-checker) * 2) calc(var(--spacing-checker) * 2);
 }
 
@@ -186,7 +186,7 @@
  * as an input does (offset 0, like `field`). */
 @utility focus-ring-within {
   &:focus-within {
-    outline: var(--focus-ring-width) solid var(--color-focus);
+    outline: var(--focus-ring-width) solid var(--focus-outlineColor);
     outline-offset: 0;
   }
 }
@@ -196,7 +196,7 @@
  * the card's own edge is the focus mark (no outline around the whole lane). */
 @utility focus-visible-within {
   &:has([role="listbox"]:focus-visible):not(:has([data-active])) {
-    outline: var(--focus-ring-width) solid var(--color-focus);
+    outline: var(--focus-ring-width) solid var(--focus-outlineColor);
     outline-offset: 0;
   }
 }
@@ -227,7 +227,7 @@
  * inside, so a white label on the light canvas (or a black one on the dark) keeps its shape (tokens.test.ts). */
 @utility edge-label {
   /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- a mix of two tokens */
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--label-color) var(--label-edge), var(--color-fg));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--label-color) var(--label-edge), var(--fgColor-default));
 }
 
 /* An icon in a label's colour (status, priority) is the only signal of its kind in a row: the server
@@ -235,7 +235,7 @@
  * both themes (tokens.test.ts). */
 @utility text-label {
   /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- a mix of two tokens */
-  color: color-mix(in oklab, var(--label-color) var(--label-ink), var(--color-fg));
+  color: color-mix(in oklab, var(--label-color) var(--label-ink), var(--fgColor-default));
 }
 
 /* A code line's text (F7): one line, never wrapped, tabs at --code-tab-size. */

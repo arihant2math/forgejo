@@ -43,7 +43,7 @@ export function ShortcutsDialog() {
             <dl className="flex flex-col">
               {(byScope.get(scope) ?? []).map((id) => (
                 <div key={id} className="flex min-h-control items-center justify-between gap-4 py-1 text-base">
-                  <dt className="text-fg">{KEYMAP[id].label}</dt>
+                  <dt className="text-default">{KEYMAP[id].label}</dt>
                   <dd><Shortcut keys={shortcutHint(id)}/></dd>
                 </div>
               ))}

@@ -96,7 +96,7 @@ test('the commit page: references are links, and the tags and branches that cont
   expect(ref.closest('h1')).not.toBeNull();
   expect(ref.getAttribute('href')).toBe('/acme/atlas/issues/107');
   // Visibly a link (the accent colour), unlike the text around it.
-  expect(ref.className).toMatch(/text-accent-fg/);
+  expect(ref.className).toMatch(/text-accent/);
   expect(screen.getByRole('link', {name: '#25'}).getAttribute('href')).toBe('/acme/atlas/issues/25');
   const contained = await screen.findByLabelText('Contained in');
   expect(contained.textContent).toMatch(/In 1 tag:\s*v1\.0\.0/);

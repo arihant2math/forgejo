@@ -12,6 +12,12 @@ export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefine
   return <div className={cx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-canvas')}>{children}</div>;
 }
 
+/**
+ * The default text. Forgejo's own session (its sign-in form) is not the app's: signed in there, "Sign in" here
+ * still has a step (the authorization), which the text says so that it does not read as a failed sign-in.
+ */
+const SIGN_IN_TEXT = 'Sign in to continue. Already signed in to Forgejo? Sign in connects Forgejo Next to your account.';
+
 export interface LoggedOutProps {
   boot?: 'logged-out' | undefined;
   /** Starts signing in; undefined when this server cannot (OAuth2 off) — the text says so. */
@@ -47,7 +53,7 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
       <EmptyState
         icon={LogIn}
         title={appName ?? 'Forgejo'}
-        description={message ?? (unavailable ? 'Signing in is not available on this server.' : 'Sign in to continue.')}
+        description={message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}
         action={
           <span className="flex flex-col items-center gap-3">
             {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}

@@ -13,6 +13,7 @@ import {markOnce} from '../../sync/rum.ts';
 import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
 import {classicOfLocation, publicPageRepo} from '../paths.ts';
+import {claimClassicHandoff} from '../gate.ts';
 import {NoticeViewport, TooltipProvider} from '../../ui/index.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {openCreate} from '../create.ts';
@@ -27,6 +28,17 @@ import {type App, useApp} from '../store.ts';
 import {ShellFrame} from './Frame.tsx';
 import {Sidebar} from './Sidebar.tsx';
 import {closeDrawer, drawerOpen, toggleSidebar} from './sidebar.ts';
+
+/** Whether this page load hands a classic sign-in on to the app's own (decided once per app: gate.ts claims it). */
+const classicHandoff = new WeakMap<App, boolean>();
+function handoffFromClassicSignIn(app: App): boolean {
+  let handoff = classicHandoff.get(app);
+  if (handoff === undefined) {
+    handoff = !app.session && !pendingWebLogout() && claimClassicHandoff(app.config, document.referrer, location.origin);
+    classicHandoff.set(app, handoff);
+  }
+  return handoff;
+}
 
 const Palette = lazyComponent(() => import('../palette/Palette.tsx').then((m) => m.Palette));
 const ShortcutsDialog = lazyComponent(() => import('./Overlays.tsx').then((m) => m.ShortcutsDialog));
@@ -205,12 +217,19 @@ export function Shell() {
     }).catch(() => undefined);
     return () => { controller.abort(); };
   }, [app, app.session, classicPage, searchStr]);
+  // Opened right after signing in with Forgejo's own form (not through this screen's Sign in): Forgejo's session
+  // is not the app's, so the app's sign-in continues by itself instead of asking to sign in again.
+  const handoff = handoffFromClassicSignIn(app);
+  useEffect(() => {
+    if (handoff && !app.session) signInHere(app);
+  }, [app, handoff]);
   if (!app.session) {
     // The classic page of this address (a public repository, an issue: readable without an account), and opting out.
     const classic = classicOfLocation(pathname, searchStr);
     // Signed out offline: Forgejo's own session ends once the device is online again (auth/weblogout.ts) — said.
     const webSession = pendingWebLogout() ? 'You are signed out here. Forgejo\'s own session on this device ends as soon as it is back online.' : undefined;
-    return <LoggedOut appName={app.config.app_name} message={webSession} onSignIn={app.config.oauth ? () => {
+    const message = webSession ?? (handoff ? 'You are signed in to Forgejo. Connecting Forgejo Next to your account…' : undefined);
+    return <LoggedOut appName={app.config.app_name} message={message} onSignIn={app.config.oauth ? () => {
       signInHere(app);
     } : undefined} classic={{
       page: publicPage === classicPage ? classicHref(app, classic) : undefined,

@@ -25,7 +25,7 @@ import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
 import {ClockIcon, DuplicateIcon, GitPullRequestClosedIcon, GitPullRequestIcon, IssueClosedIcon, IssueReopenedIcon, KebabHorizontalIcon, LinkIcon, PencilIcon, QuoteIcon, SkipIcon, TrashIcon, TriangleDownIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Banner, Button, ButtonGroup, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
+import {ActionList, ActionMenu, Banner, Button, ButtonGroup, ConfirmationDialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
@@ -195,11 +195,11 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
         act(stateAction.run);
       }
     }}>
-      {confirmCancel && <Dialog title="Discard this edit?" subtitle="Your changes can be restored with Undo." width="medium"
-        onClose={() => { setConfirmCancel(false); }} footerButtons={[
-          {content: 'Keep editing', onClick: () => { setConfirmCancel(false); }},
-          {content: 'Discard', buttonType: 'danger', onClick: () => { setConfirmCancel(false); cancel(); }},
-        ]}/>}
+      {confirmCancel && <ConfirmationDialog title="Discard this edit?" cancelButtonContent="Keep editing" confirmButtonContent="Discard" confirmButtonType="danger"
+        onClose={(gesture) => {
+          setConfirmCancel(false);
+          if (gesture === 'confirm') cancel();
+        }}>Your changes can be restored with Undo.</ConfirmationDialog>}
       <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
         onChange={change} onSubmit={save} onCancel={onCancel ? () => {
           if (dirty) setConfirmCancel(true);
@@ -319,8 +319,8 @@ export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDel
     setOpen(next);
   };
   return (
-    <ActionMenu open={open} onOpenChange={setMenuOpen}>
-      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button" ref={triggerRef}/></ActionMenu.Anchor>
+    <ActionMenu open={open} onOpenChange={setMenuOpen} anchorRef={triggerRef}>
+      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button"/></ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
         {link && <ActionList.Item onSelect={() => {
           const url = new URL(window.location.href);
@@ -371,11 +371,14 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
     requestAnimationFrame(() => { fallback.current?.focus(); });
   };
   return <>
-    {confirming && <Dialog title="Delete this comment?" subtitle="It is removed for everyone. This cannot be undone." width="small"
-      returnFocusRef={triggerRef} onClose={() => { setConfirming(false); }} footerButtons={[
-        {content: 'Cancel', onClick: () => { setConfirming(false); }},
-        {content: 'Delete', buttonType: 'danger', onClick: remove},
-      ]}/>}
+    {confirming && <ConfirmationDialog title="Delete this comment?" confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
+      if (gesture === 'confirm') {
+        remove();
+        return;
+      }
+      setConfirming(false);
+      requestAnimationFrame(() => { triggerRef.current?.focus(); });
+    }}>It is removed for everyone. This cannot be undone.</ConfirmationDialog>}
     <CardMenu triggerRef={triggerRef} label="Comment actions" issueId={c.get('issue_id')}
       link={(url) => {
         if (c.get('type') === 'code') {

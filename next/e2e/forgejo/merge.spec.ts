@@ -38,7 +38,7 @@ test('squash-only default, live settings, and confirmed rebase update', async ({
   await box.getByRole('button', {name: 'Choose branch update method'}).click();
   await expect(page.getByRole('menuitem', {name: 'Update with rebase'})).toBeVisible({timeout: 30_000});
   await page.getByRole('menuitem', {name: 'Update with rebase'}).click();
-  await expect(page.getByRole('dialog')).toContainText('force-pushes the head branch');
+  await expect(page.getByRole('alertdialog')).toContainText('force-pushes the head branch');
   await page.getByRole('button', {name: 'Rebase and force-push'}).click();
   await expect(box.getByRole('button', {name: 'Update branch', exact: true})).toHaveCount(0, {timeout: 30_000});
   await box.getByRole('button', {name: 'Squash and merge', exact: true}).click();

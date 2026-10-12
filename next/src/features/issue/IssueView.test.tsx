@@ -334,3 +334,40 @@ test('reactions: the add button comes first, chips keep GitHub\'s order whatever
   fireEvent.click(within(picker).getByRole('button', {name: 'Rocket'}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'reaction', issueId: 100, commentId: 0, content: 'rocket', add: true}));
 });
+
+test('a comment\'s time links to its permalink, as on GitHub', async () => {
+  await open('/acme/website/issues/7', session('read', 1));
+  const card = await waitFor(() => {
+    const el = document.getElementById('comment-1001');
+    if (!el) throw new Error('no comment card');
+    return el;
+  });
+  const link = card.querySelector('header a[href$="#comment-1001"]');
+  expect(link?.querySelector('relative-time')?.getAttribute('datetime')).toBe(new Date(Date.parse(T) + 60_000).toISOString());
+});
+
+test('deleting a comment asks first: Cancel has focus, Escape keeps the comment, Delete removes it', async () => {
+  const {app} = await open('/acme/website/issues/7', session('write', 1));
+  const card = await waitFor(() => {
+    const el = document.getElementById('comment-1001');
+    if (!el) throw new Error('no comment card');
+    return el;
+  });
+  const trigger = within(card).getByRole('button', {name: 'Comment actions'});
+  const ask = async () => {
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete…'}));
+    return screen.findByRole('alertdialog', {name: 'Delete this comment?'});
+  };
+  let dialog = await ask();
+  expect(dialog.textContent).toContain('It is removed for everyone.');
+  await waitFor(() => { expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'})); });
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  await waitFor(() => { expect(document.activeElement).toBe(trigger); });
+  expect(editing(app).intents.records.size).toBe(0);
+  dialog = await ask();
+  fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  expect([...editing(app).intents.records.values()].map((r) => r.intent)).toContainEqual(expect.objectContaining({kind: 'comment.delete', commentId: 1001}));
+});

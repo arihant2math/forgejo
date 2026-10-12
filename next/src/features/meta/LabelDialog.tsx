@@ -10,7 +10,7 @@ import type {Label} from '../../protocol/types.gen.ts';
 import {ColorPicker} from './ColorPicker.tsx';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
-import {Checkbox, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
+import {Checkbox, ConfirmationDialog, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
 
 export function DraftPill({name, color, exclusive}: {name: string; color: string; exclusive: boolean}) {
   const fillColor = normalizeColor(color);
@@ -92,9 +92,9 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
 export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; label: Label; open: number; onClose: () => void}) {
   const app = useApp();
   return (
-    <Dialog title={`Delete the label “${label.name}”?`} subtitle={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`} width="medium" onClose={onClose} footerButtons={[
-      {content: 'Cancel', onClick: onClose},
-      {content: 'Delete label', buttonType: 'danger', onClick: () => { onClose(); void deleteLabel(app, repo, label); }},
-    ]}></Dialog>
+    <ConfirmationDialog title={`Delete the label “${label.name}”?`} confirmButtonContent="Delete label" confirmButtonType="danger" onClose={(gesture) => {
+      onClose();
+      if (gesture === 'confirm') void deleteLabel(app, repo, label);
+    }}>{`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`}</ConfirmationDialog>
   );
 }

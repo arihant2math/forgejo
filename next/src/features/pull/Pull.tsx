@@ -62,7 +62,7 @@ import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
-import {Banner, BranchName, ButtonGroup, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
+import {Banner, BranchName, ButtonGroup, ConfirmationDialog, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
@@ -969,10 +969,14 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}
         pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
-      {rebaseConfirm && <PrimerDialog title="Update with rebase" subtitle={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} width="large" onClose={() => {setRebaseConfirm(false);}}
-        footerButtons={[{content: 'Cancel', onClick: () => {setRebaseConfirm(false);}}, {content: 'Rebase and force-push', buttonType: 'primary', inactive: !isOnline || busy || conflict || !config || !options.rebaseUpdate, onClick: rebaseHead}]}>
-        {(offlineWhy('Updating the branch') ?? conflictWhy) && <p className="text-muted">{offlineWhy('Updating the branch') ?? conflictWhy}</p>}
-      </PrimerDialog>}
+      {rebaseConfirm && <ConfirmationDialog title="Update with rebase" confirmButtonContent="Rebase and force-push" confirmButtonType="primary" confirmButtonLoading={busy} width="large" onClose={(gesture) => {
+        // rebaseHead closes the dialog only when the update can run; otherwise the reason stays in view.
+        if (gesture === 'confirm') rebaseHead();
+        else setRebaseConfirm(false);
+      }}>
+        <p>{`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`}</p>
+        {(offlineWhy('Updating the branch') ?? conflictWhy) && <p className="mt-2 text-muted">{offlineWhy('Updating the branch') ?? conflictWhy}</p>}
+      </ConfirmationDialog>}
       {confirming && chosen && (
         <ConfirmMerge key={`${chosen.style}:${confirming}`} pr={pr} title={issue.get('title')} style={chosen.style} auto={confirming === 'auto'} checks={checks} unfinished={unfinished}
           deletable={deletable} deleteDefault={deleteDefault} reason={offlineWhy('Merging') ?? mergeWhy} busy={busy} onCancel={() => {

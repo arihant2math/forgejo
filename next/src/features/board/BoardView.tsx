@@ -37,7 +37,7 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList, Label, ConfirmationDialog, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
@@ -675,10 +675,10 @@ function ColumnDialog({model, state, onClose}: {model: BoardModel; state: Column
       </form>
     </Dialog>;
   }
-  return <Dialog title={`Delete “${column.title}”?`} subtitle="Its cards move to the default column." width="large" onClose={close} footerButtons={[
-    {content: 'Cancel', onClick: close},
-    {content: 'Delete', buttonType: 'danger', onClick: () => { onClose(true); void deleteColumn(app, projectId, column.id); }},
-  ]}/>;
+  return <ConfirmationDialog title={`Delete “${column.title}”?`} confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
+    onClose(gesture === 'confirm');
+    if (gesture === 'confirm') void deleteColumn(app, projectId, column.id);
+  }}>Its cards move to the default column.</ConfirmationDialog>;
 }
 
 const ColumnMenu = observer(function ColumnMenu({model, column, index, count, onDialog}: {

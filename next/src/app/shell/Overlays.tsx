@@ -3,7 +3,7 @@
 
 import {runInAction} from 'mobx';
 import {useState} from 'react';
-import {Dialog} from '@primer/react';
+import {ConfirmationDialog} from '@primer/react';
 import {performSignOut} from '../session.ts';
 import {useApp} from '../store.ts';
 
@@ -16,14 +16,15 @@ export function SignOutDialog({pending}: {pending: number}) {
     runInAction(() => { app.ui.signOut = undefined; });
   };
   return (
-    <Dialog title="Sign out with unsynced changes?"
-      subtitle={`${String(pending)} ${pending === 1 ? 'change has' : 'changes have'} not reached Forgejo yet. Signing out deletes ${pending === 1 ? 'it' : 'them'} from this device.`}
-      width="medium" onClose={cancel} footerButtons={[
-        {content: 'Cancel', onClick: cancel},
-        {content: 'Sign out anyway', buttonType: 'danger', disabled: busy, onClick: () => {
+    <ConfirmationDialog title="Sign out with unsynced changes?" confirmButtonContent="Sign out anyway" confirmButtonType="danger" confirmButtonLoading={busy}
+      onClose={(gesture) => {
+        if (gesture !== 'confirm') cancel();
+        else if (!busy) {
           setBusy(true);
           void performSignOut(app);
-        }},
-      ]}/>
+        }
+      }}>
+      {`${String(pending)} ${pending === 1 ? 'change has' : 'changes have'} not reached Forgejo yet. Signing out deletes ${pending === 1 ? 'it' : 'them'} from this device.`}
+    </ConfirmationDialog>
   );
 }

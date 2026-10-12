@@ -26,7 +26,7 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
+import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, ConfirmationDialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
 
@@ -164,7 +164,10 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
         <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem>
       </ActionList></ActionMenu.Overlay></ActionMenu>
       {confirming && (
-        <Dialog title={`Delete “${title}”?`} subtitle="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." width="medium" onClose={() => { setConfirming(false); }} footerButtons={[{content: 'Cancel', onClick: () => { setConfirming(false); }}, {content: 'Delete', buttonType: 'danger', onClick: remove}]}></Dialog>
+        <ConfirmationDialog title={`Delete “${title}”?`} confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
+          if (gesture === 'confirm') remove();
+          else setConfirming(false);
+        }}>The page is removed from the wiki for everyone. Its revisions stay in the wiki's history.</ConfirmationDialog>
       )}
     </>
   );

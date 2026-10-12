@@ -101,7 +101,7 @@ Under a sub-path: give the MySQL dev instance (:3010) `ROOT_URL = http://127.0.0
 | `ci.sh [steps…]` | Every check (below), with a summary and perf report |
 | `gen-protocol.sh [--check]` | Regenerates `src/protocol/types.gen.ts` from `services/livesync/protocol` (tygo, `tools/tygo.yaml`); `--check` fails when stale |
 | `budget.ts` | Bundle budgets (below) |
-| `boot.ts` | `BOOT_ROUTES`: modules the boot route renders (preloaded and counted) |
+| `boot.ts` | `BOOT_ROUTES`: modules the boot route renders (preloaded and counted); `ON_DEMAND`: assets the service worker caches on first use |
 | `seed-issues.ts` | Seeds a repository with labels, milestones, a second user, issues and comments |
 | `subpath-proxy.ts` | Serves a dev Forgejo under a sub-path, like a reverse proxy |
 | `vite-plugin-shell.ts` | Fills `index.html`: splash script, static boot shell, inlined CSS, boot modulepreloads |
@@ -164,6 +164,7 @@ q11, 1 KiB = 1024 B:
 |---|---|
 | Boot-route JS (inline scripts, entry, every modulepreload) | 500 KiB |
 | Boot-route CSS (inline `<style>` + linked sheets) | 48 KiB, of which inline 32 KiB |
+| Service-worker precache (every asset but `ON_DEMAND`) | 1.5 MiB in total; no single file over 512 KiB raw |
 
 It also fails when a chunk in the static closure of the entry or of a `BOOT_ROUTES` module is not preloaded, when
 such a chunk has CSS of its own, on any import cycle between chunks, and on raw colours or `all`/layout transitions

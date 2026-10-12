@@ -184,7 +184,7 @@ export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked 
   const u = useUser(id);
   const pixels = {sm: 20, md: 32, lg: 40}[size];
   const avatar = u.avatar ? <Avatar alt={u.name} src={u.avatar} size={pixels}/> : <span aria-label={u.name}><SkeletonAvatar size={pixels}/></span>;
-  return linked && u.login ? <Link to="/$owner" params={{owner: u.login}} aria-label={`Profile of ${u.login}`}>{avatar}</Link> : avatar;
+  return linked && u.login ? <Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} aria-label={`Profile of ${u.login}`}>{avatar}</Link> : avatar;
 });
 
 export const AssigneesCell = observer(function AssigneesCell({issue}: {issue: Entity<'Issue'>}) {

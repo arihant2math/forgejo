@@ -256,6 +256,11 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
   network epoch's abort signal (`sync/net.ts`).
 * **Holding:** the groups kept are those reachable from the workspace, recent on-demand groups (LRU), pins and tab
   holds (`Data.hold` / `release`); unreachable groups are purged.
+* **Server reads outside the pool** (`app/resource.ts`): `useResource(key, load, opts)` gives a view its first frame
+  from memory (the session cache, or the caller's `peek` for SHA-addressed content), then IndexedDB, then Forgejo;
+  a stale value stays while it is asked again, transient failures retry while connected and on reconnect, and the
+  request is aborted with the view. `loadResource` is the same read outside React (route prefetch, loops), which a
+  view joins. `components/LoadState` renders the loading, offline, failure and empty states.
 * `openData()` (`sync/data.ts`) is the entry point; `Data` exposes `pool`, observable `status`, `hold`, `whenSynced`,
   `loadClosedPage`, `tailLog`, `barrier` and events (`revoked`, `newBuild`, …).
 
@@ -300,7 +305,8 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Code rendering
 
 * Reads go through `src/code/source.ts` (`CodeSource`): everything addressed by SHA, cached in `src/code/cache.ts`
-  (memory LRU + IndexedDB `blobs`, purged with a revoked `repo:{id}` group), with byte caps while streaming.
+  (memory LRU + IndexedDB `blobs`), with byte caps while streaming. A session has one cache (`sessionCache`), shared
+  with settings resources; the shell's `revoked` handler purges a revoked `repo:{id}` group through it (`purgeRevoked`).
 * **File view:** `src/code/FileSurface.tsx` renders `@pierre/diffs` `CodeView` in a worker pool, themed by
   `primerCodeCSS` (Primer variables). **Diff/review:** `src/code/ReviewSurface.tsx` renders Pierre's virtualized
   diff with review threads as line annotations, anchored by `(path, side, line, commit SHA)` (`code/anchor.ts`).

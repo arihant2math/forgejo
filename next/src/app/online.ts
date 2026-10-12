@@ -4,7 +4,7 @@
 // Online-only actions are never queued; offline controls share the same disabled reason.
 
 import {observable, reaction, runInAction} from 'mobx';
-import {useSyncExternalStore} from 'react';
+import {useCallback, useSyncExternalStore} from 'react';
 import {useApp} from './store.ts';
 
 export const connectivity = observable({online: typeof navigator === 'undefined' ? true : navigator.onLine});
@@ -32,8 +32,8 @@ export function reach(connection: string | undefined): 'online' | 'offline' | 'u
 /** reach() of the current session as React state: hooks re-render on changes even outside observer components. */
 export function useReach(): 'online' | 'offline' | 'unreachable' {
   const app = useApp();
-  const read = () => reach(app.session?.data.status.connection);
-  return useSyncExternalStore((changed) => reaction(read, changed), read);
+  const subscribe = useCallback((changed: () => void) => reaction(() => reach(app.session?.data.status.connection), changed), [app]);
+  return useSyncExternalStore(subscribe, () => reach(app.session?.data.status.connection));
 }
 
 /** Why an online-only action cannot run now (for a disabled control's tooltip or note), or undefined when it can. */

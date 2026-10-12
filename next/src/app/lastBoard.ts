@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The board G B goes back to (the last one opened by this user on this
-// device). Cleared at sign-out with the other LOCAL_PREFS.
+// Cleared at sign-out with LOCAL_PREFS.
 
 import {LOCAL_PREFS} from './splash.ts';
 

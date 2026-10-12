@@ -71,7 +71,6 @@ test('single keys, sequences, and the sequence timeout', () => {
   expect(press(r, 'g')).toBe(true);
   expect(press(r, 'i')).toBe(true);
   expect(ran).toEqual(['issues']);
-  // An unrelated key ends the sequence and is tried alone.
   press(r, 'g');
   press(r, 'c');
   expect(ran).toEqual(['issues', 'create']);
@@ -80,7 +79,6 @@ test('single keys, sequences, and the sequence timeout', () => {
   expect(press(r, 'i')).toBe(false);
   press(r, 'k', {ctrlKey: true});
   expect(ran).toEqual(['issues', 'create', 'palette']);
-  // A modifier makes it another chord: Ctrl+C is not C.
   expect(press(r, 'c', {ctrlKey: true})).toBe(false);
 });
 
@@ -198,16 +196,11 @@ test('scopes a view pushes together: the innermost decides a key they share (a b
 });
 
 test('views that push several scopes: every key two of them share is meant, and the innermost one wins', () => {
-  // [scopes from outer to inner, keys the inner one takes over on purpose]
-  // Esc: a list clears its selection; an issue page (which pushes no list scope) goes back. A list pushes the issue
-  // scope for the pickers only and never binds issue.back. (Enter in a diff's lines and on a board's column is theirs:
-  // local keys, handled by the focused element first.)
+  // List issue scopes supply pickers, not issue.back; local focused-element keys bypass the registry.
   const views: [string[], string[]][] = [[['list', 'issue'], ['escape']], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['escape', 'l']], [['list', 'diff'], []]];
   for (const [scopes, intended] of views) {
     const byKey = new Map<string, string[]>();
     for (const [id, def] of Object.entries(KEYMAP)) {
-      // Keys the focused element handles itself (a board column's Enter and arrows) and commands without keys do not
-      // go through the registry.
       if (!scopes.includes(def.scope) || !def.keys || 'local' in def) continue;
       byKey.set(def.keys, [...byKey.get(def.keys) ?? [], id]);
     }

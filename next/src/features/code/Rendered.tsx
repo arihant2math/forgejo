@@ -1,12 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Files shown rendered (a README under a directory, a markdown file's
-// "Preview", an SVG as an image): markup is rendered by Forgejo (B9
-// /-/sync/api/markup, as its file page does: links resolve from the file's directory;
-// cached by blob SHA, so it is there offline once seen) and put in
-// through the Trusted Types gate; an SVG is shown as an image (an <img> from
-// a blob: URL runs no script).
+// Server-rendered markup is cached by blob SHA and passes through the Trusted Types gate.
+// The server resolves markup links relative to the file's directory.
+// SVGs use blob-backed <img> elements so scripts cannot execute.
 import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
 import {CodeSource, type FileContent} from '../../code/source.ts';
@@ -17,7 +14,6 @@ import {Unloaded} from './states.tsx';
 import {BookIcon} from '@primer/octicons-react';
 import {SkeletonText} from '@primer/react/experimental';
 
-/** Whether a file has a rendered view ("Preview"): markdown (and other markup Forgejo renders), SVG images. */
 export function renderable(path: string): 'markup' | 'svg' | undefined {
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
   if (ext === 'md' || ext === 'markdown' || ext === 'mdown' || ext === 'mkd') return 'markup';
@@ -25,7 +21,7 @@ export function renderable(path: string): 'markup' | 'svg' | undefined {
   return undefined;
 }
 
-/** The README of a directory's entries (README.md first), if any. */
+/** Prefer renderable markup READMEs over plain text. */
 export function readmeOf<T extends {name: string; type: string}>(entries: readonly T[]): T | undefined {
   const files = entries.filter((e) => e.type === 'blob' && /^readme(?:\.[\w-]+)?$/i.test(e.name));
   return files.find((e) => renderable(e.name) === 'markup') ?? files.find((e) => /^readme(?:\.txt)?$/i.test(e.name));
@@ -39,15 +35,13 @@ export function RenderedMarkup({repoId, sha, path, text, at}: {repoId: number; s
   return <Markdown html={html.value}/>;
 }
 
-/** An image file (raster, or an SVG's text) shown from a blob: URL. */
 export function BlobImage({bytes, type, alt, onSize}: {bytes: ArrayBuffer | string; type: string; alt: string; onSize?: (w: number, h: number) => void}) {
   const url = useMemo(() => URL.createObjectURL(new Blob([bytes], {type})), [bytes, type]);
   useEffect(() => () => {
     URL.revokeObjectURL(url);
   }, [url]);
   const [small, setSmall] = useState(false);
-  // On a checkerboard (transparent parts show, a white or black image is seen on either theme); a tiny image (an icon)
-  // is shown four times larger with sharp pixels, not as a speck (QA verify3: a 16×16 PNG looked blank).
+  // Checkerboards reveal transparency on either theme; enlarge tiny images with sharp pixels.
   return (
     <div className="flex justify-center p-6">
       <img src={url} alt={alt} className={small ? 'pixelated bg-checker w-auto max-w-full border border-muted' : 'bg-checker max-w-full border border-muted'}
@@ -61,15 +55,10 @@ export function BlobImage({bytes, type, alt, onSize}: {bytes: ArrayBuffer | stri
   );
 }
 
-/** An image at most this large (px) is shown enlarged SMALL_ZOOM times. */
 const SMALL_IMAGE = 64;
 const SMALL_ZOOM = 4;
 
-/**
- * A directory's README as a panel: rendered markup (the server reads and renders it at the commit: one round trip,
- * no blob first), or the text as is.
- */
-/** The README panel's element id (a repository's About links it: "Readme"). */
+/** Stable anchor for the repository About panel's README link. */
 export const README_ID = 'readme';
 
 export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: APITreeEntry; dir: string; at: {kind: RefKind; ref: string; sha: string}}) {
@@ -80,7 +69,6 @@ export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: AP
   return <section id={README_ID} aria-label="README" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base font-semibold"><BookIcon size={16}/>{entry.name}</div><div className="p-4">{body}</div></section>;
 }
 
-/** A markup file at a commit, rendered by the server from the repository (renderedAt). */
 function RenderedAt({repoId, commit, path, at}: {repoId: number; commit: string; path: string; at: {kind: RefKind; ref: string}}) {
   const src = useSource();
   const ref = {kind: at.kind, name: at.ref};

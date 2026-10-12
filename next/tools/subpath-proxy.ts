@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Serves a dev Forgejo under a sub-path, the way a reverse proxy does
-// (nginx `location /git/ { proxy_pass http://127.0.0.1:3010/; }`): requests
-// below /<prefix>/ are forwarded with the prefix stripped, WebSockets too.
-// Forgejo's ROOT_URL must then be http://127.0.0.1:<port>/<prefix>/ (F3 notes).
-//
-//   node tools/subpath-proxy.ts [listen-port=3011] [target-port=3010] [prefix=git]
+// Strip /<prefix>/ from HTTP and WebSocket requests; Forgejo's ROOT_URL must include that prefix.
 
 import http from 'node:http';
 import net from 'node:net';

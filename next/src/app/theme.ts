@@ -10,10 +10,9 @@ export function getThemePreference(): ThemePreference {
   return readSplash().theme ?? 'system';
 }
 
-/** The preference, observable: every control showing it follows every change (menu, palette). */
 export const themeState = observable({preference: getThemePreference()});
 
-/** Applies a theme by swapping the token set on <html>, and remembers it for the next boot. */
+/** Persists the preference for the next boot. */
 export function setThemePreference(pref: ThemePreference): void {
   writeSplash({theme: pref});
   showTheme(pref);
@@ -26,20 +25,18 @@ function showTheme(pref: ThemePreference): void {
   applyMode(pref === 'system' ? (matchMedia(darkQuery).matches ? 'dark' : 'light') : pref);
 }
 
-/** Shows a colour mode: Primer's themes key on data-color-mode (data-light-theme / data-dark-theme are set in index.html). */
 function applyMode(mode: 'light' | 'dark'): void {
   const html = document.documentElement;
   html.dataset.theme = mode;
   html.dataset.colorMode = mode;
 }
 
-/** Follows the OS theme while the preference is "system", and the preference set in other tabs. Returns an unsubscribe function. */
+/** Follows OS and cross-tab preferences; returns listener cleanup. */
 export function followSystemTheme(): () => void {
   const query = matchMedia(darkQuery);
   const onChange = () => {
     if (getThemePreference() === 'system') applyMode(query.matches ? 'dark' : 'light');
   };
-  // Another tab changed the preference (QA round 2): every open tab shows it.
   const onStorage = (e: StorageEvent) => {
     if (e.key !== SPLASH_KEY && e.key !== null) return;
     const pref = getThemePreference();

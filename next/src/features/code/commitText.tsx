@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A commit's text and standing, shared by the commit page and the commit
-// rows of comparisons and histories: issue and pull request references in a
-// message ("#107", "Closes #25", "acme/atlas#3") as visible links, and the
-// branches and tags that contain a commit (which release has a fix) — the
-// classic commit page's load-branches-and-tags, from the sync API (refs
-// move: asked for online, not cached).
+// Containing refs can move, so query them online without caching.
 import {observer} from 'mobx-react-lite';
 import {BranchName} from '@primer/react';
 import {Link as PrimerLink} from '@primer/react';
@@ -24,13 +19,10 @@ import {GitBranchIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
-/** A piece of a message: text, or a reference to issue `index` of `repo` (owner/name; undefined: this repository). */
+/** Undefined repo means this repository; otherwise it is owner/name. */
 export type MessagePart = {text: string} | {ref: string; repo: string | undefined; index: string};
 
-/**
- * A message cut at its issue references: `#12`, and `owner/repo#12` (another repository), not inside a word, a path
- * or a URL (`a#1`, `/x#1`, `page#12`), as Forgejo's renderer finds them.
- */
+/** Match issue references outside words, paths, and URLs, as Forgejo does. */
 export function messageParts(text: string): MessagePart[] {
   const parts: MessagePart[] = [];
   const re = /(?<![\w/#.:-])((?:([\w.-]+\/[\w.-]+))?#(\d{1,9}))(?!\w)/g;
@@ -45,10 +37,7 @@ export function messageParts(text: string): MessagePart[] {
   return parts;
 }
 
-/**
- * A commit message (or its summary) with its references as links to the issues (an issue page shows a pull request
- * too). `inRow`: inside a row that opens on click — a reference opens itself, not the row.
- */
+/** inRow prevents reference clicks from opening the enclosing commit row. */
 export function CommitMessage({owner, repo, text, inRow = false}: {owner: string; repo: string; text: string; inRow?: boolean}) {
   return (
     <>
@@ -65,7 +54,6 @@ export function CommitMessage({owner, repo, text, inRow = false}: {owner: string
   );
 }
 
-/** commitRow with the summary's references as links (the comparisons' and histories' rows). */
 export function linkedCommitRow(owner: string, repo: string): (c: CommitInfo) => RowParts {
   return (c) => ({
     ...commitRow(c),
@@ -73,10 +61,8 @@ export function linkedCommitRow(owner: string, repo: string): (c: CommitInfo) =>
   });
 }
 
-/** How many of each kind are shown before "Show all". */
 const SHOWN = 8;
 
-/** The branches and tags that contain a commit (full SHA): which release has it. Online; nothing while loading. */
 export const ContainedIn = observer(function ContainedIn({owner, repo, repoId, sha}: {owner: string; repo: string; repoId: number; sha: string}) {
   const app = useApp();
   const refs = useLoad(`refs:${String(repoId)}:${sha}`, () => undefined,

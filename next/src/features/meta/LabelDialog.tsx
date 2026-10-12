@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A label's form (new, edit) and the confirmation of a deletion. Saving
-// closes the dialog at once: the change shows on the page while it is sent
-// (writes.ts), and is rolled back with a notice if Forgejo refuses it.
 
 import {type SyntheticEvent, useId, useState} from 'react';
 import {observer} from 'mobx-react-lite';
@@ -15,13 +12,12 @@ import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, lab
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
 import {Checkbox, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
 
-/** Primer's issue-label preview keeps the complete scoped name and the label's own colour. */
 export function DraftPill({name, color, exclusive}: {name: string; color: string; exclusive: boolean}) {
   const fillColor = normalizeColor(color);
   return <IssueLabelToken text={name} {...(fillColor ? {fillColor} : {})} title={exclusive ? 'Exclusive within its scope' : name}/>;
 }
 
-/** New (no `label`) or edit. `count`: the repository's labels, for the new one's colour. */
+/** Omit label to create; count selects the new label's preset colour. */
 export const LabelDialog = observer(function LabelDialog({repo, label, count, onClose, onSave}: {repo: RepoRef; label?: Label | undefined; count: number; onClose: () => void; onSave?: (draft: LabelDraft) => Promise<boolean>}) {
   const app = useApp();
   const [d, setD] = useState<LabelDraft>(() => (label ? draftOf(label) : {name: '', description: '', color: nextPreset(count), exclusive: false, archived: false}));
@@ -86,14 +82,13 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
           </p>
         </div>
         {label && <FormControl><Checkbox checked={d.archived} onChange={(event) => { const archived = event.target.checked; set({archived}); }}/><FormControl.Label>Archived (kept on its issues, no longer offered)</FormControl.Label></FormControl>}
-        {/* Enter in a field saves. */}
+        {/* Enable implicit submission with Enter from form fields. */}
         <button type="submit" hidden/>
       </form>
     </Dialog>
   );
 });
 
-/** Asks before a label is deleted (it leaves every issue and pull request that has it). */
 export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; label: Label; open: number; onClose: () => void}) {
   const app = useApp();
   return (

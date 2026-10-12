@@ -1,40 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// RUM (PLAN §5.8), the reporting half (loaded when idle after the first
-// paint, never on the boot route): batches what sync/rum.ts collected and
-// the boot marks of the performance timeline into POST /-/sync/rum reports
-// (B8, protocol.RUMReport).
-//
-// The contract: `marks` maps a known name to one value in ms (0–10 min),
-// `events` a known name to a count (0–1000); ≤ 8 KiB; JSON; anonymous;
-// 10 reports a minute per client address (burst 10). So:
-//
-//   * boot marks (ms from `appStart`) go once per page load, in the first
-//     report after they happened; a mark after the page was hidden (a tab
-//     opened in the background) is not reported, nor a network mark (the
-//     socket, catching up) after the device went offline (sync/rum.ts);
-//   * mutation and interaction samples go one per mark per report: a flush
-//     sends at most MAX_REPORTS reports, and what does not fit waits for the
-//     next one (sync/rum.ts keeps a uniform sample per mark);
-//   * INP: the worst interaction (Event Timing ≥ 16 ms, by interactionId) of
-//     each visible period, reported when the page is hidden;
-//   * a flush every FLUSH_MS while something is waiting, and when the page
-//     is hidden (all of its reports at once, fetch keepalive); nothing while
-//     offline;
-//   * the tabs of a browser share one budget (localStorage `forgejo-next:rum`:
-//     the times of the reports sent in the last minute, at most TAB_BUDGET),
-//     below the server's per-address limit; a 429 waits for its Retry-After,
-//     a network error or a 5xx keeps the batch for the next flush, other
-//     refusals drop it.
-//
-// Privacy: only the fixed names and numbers (whole milliseconds); no
-// identifiers, URLs, texts or credentials (`credentials: 'omit'`, no
-// Authorization header; the document's referrer policy is no-referrer).
-//
-// The offline queue's depth has no slot in protocol.RUMReport (backend
-// follow-up, IMPLEMENTATION.md F8): its largest value per period is put on the
-// performance timeline as `rum:queueDepth` (detail = depth), for profiling.
+// Anonymous RUM reports contain only fixed names and numbers, never identifiers, URLs, text or credentials.
+// Protocol limits: marks in ms (0–10 min), event counts (0–1000), JSON ≤ 8 KiB, 10 reports/minute per address.
+// Tabs share a lower browser-wide budget; retry network/5xx failures and honor Retry-After on 429.
+// Boot marks go once per load, excluding hidden/offline distortion; INP covers each visible period.
 
 import {
   type RUMEvent, type RUMMark, type RUMReport,
@@ -43,7 +13,7 @@ import {
 import {disturbedSince, putBack, sample, takeCollected} from '../sync/rum.ts';
 import {netSignal} from '../sync/net.ts';
 
-/** Boot marks: the report's name → the performance entry (a mark, or a measure's end), and whether it needs the network. */
+/** Report name, performance entry and network-dependency flag. */
 const BOOT: readonly (readonly [RUMMark, string, boolean])[] = [
   [RUMFirstPaintFromCache, 'firstPaintFromCache', false],
   [RUMDataOpen, 'dataOpen', false],
@@ -58,16 +28,14 @@ export const MAX_REPORTS = 3;
 /** Reports a minute for all tabs of this browser (the server allows 10 per address). */
 export const TAB_BUDGET = 6;
 const MAX_MS = 10 * 60_000;
-/** A report not accepted within this time is given up (it holds one of the host's connections; ms). */
+/** Bound connection occupancy for stalled reports (ms). */
 const POST_MS = 15_000;
 const BUDGET_KEY = 'forgejo-next:rum';
 
 export interface RumEnv {
-  /** POST target: sitePath(config, '/-/sync/rum'). */
   url: string;
   fetch?: typeof fetch;
   now?: () => number;
-  /** The shared budget's storage (localStorage). */
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
 }
 
@@ -149,7 +117,6 @@ export class RumReporter {
       document.removeEventListener('visibilitychange', hidden);
       window.removeEventListener('pagehide', hidden);
     });
-    // The boot marks of this load, once the first sync is in.
     this.first = setTimeout(() => {
       void this.flush(false);
     }, 10_000);
@@ -165,7 +132,7 @@ export class RumReporter {
     return (this.env.now ?? Date.now)();
   }
 
-  /** The boot marks not reported yet, in ms from appStart (those a hidden page or the network distorted are left out). */
+  /** Unreported boot marks in ms from appStart, excluding hidden/offline distortion. */
   private bootMarks(): Map<RUMMark, number> {
     const out = new Map<RUMMark, number>();
     const start = performance.getEntriesByName('appStart')[0]?.startTime;
@@ -185,7 +152,7 @@ export class RumReporter {
     return out;
   }
 
-  /** Takes up to `n` slots of the browser-wide budget (reports sent in the last minute by any tab). */
+  /** Reserves slots across tabs for the rolling one-minute budget. */
   private slots(n: number): number {
     const storage = this.env.storage ?? (typeof localStorage === 'undefined' ? undefined : localStorage);
     const now = this.now();
@@ -201,18 +168,19 @@ export class RumReporter {
     }
   }
 
-  /** Sends what is waiting. `final`: the page is being hidden (the period's INP goes too, all reports at once). */
+  /** On hide, includes period INP and starts all keepalive reports together. */
   async flush(final: boolean): Promise<void> {
     if (final) {
-      // Taken now, whatever happens below: it waits in the buffer if it cannot go.
+      // Buffer INP before checking whether this flush can send.
       const v = inp([...this.interactions.values()]);
       if (v !== undefined) sample(RUMInteraction, v);
       this.interactions.clear();
     }
     const now = this.now();
-    // A hide sends even while a periodic flush is in flight (its requests are independent, keepalive).
+    // Keepalive hide requests must not wait for an in-flight periodic flush.
     if ((this.sending && !final) || now < this.blockedUntil || !navigator.onLine) return;
     const got = takeCollected();
+    // Queue depth has no protocol field; keep its maximum on the profiling timeline only.
     if (got.queueMax > 0) {
       try {
         performance.mark('rum:queueDepth', {detail: got.queueMax});
@@ -229,26 +197,24 @@ export class RumReporter {
       for (const r of left) for (const [m, ms] of Object.entries(r.marks ?? {})) if (!boot.has(m)) samples.set(m, [...samples.get(m) ?? [], ms]);
       putBack(samples, counts ? got.counts : new Map<RUMEvent, number>());
     };
-    // What did not fit the budget, and what did not fit the reports, waits for the next flush.
     back(built.reports.slice(allowed), reports.length === 0);
     putBack(built.rest, new Map<RUMEvent, number>());
     if (reports.length === 0) return;
     const nested = this.sending;
     this.sending = true;
     try {
-      // On hide, all at once (only requests started now outlive the page); otherwise one after the other.
+      // Only requests started on hide can outlive the page.
       const answers = final ? await Promise.all(reports.map((r) => this.post(r, true))) : [];
       for (const [n, report] of reports.entries()) {
         const res = final ? answers[n] : await this.post(report, false);
         const status = res?.status ?? 0;
         if (status === 0 || status === 429 || status >= 500) {
-          // Not taken: kept for later (a 429: after its Retry-After).
           if (status === 429) this.blockedUntil = now + retryAfter(res, now);
           back(final ? [report] : reports.slice(n), n === 0);
           if (!final) break;
           continue;
         }
-        // Delivered, or refused for good (another 4xx): either way not sent again.
+        // Other 4xx refusals are permanent; do not resend.
         if (n === 0) for (const m of boot.keys()) this.bootSent.add(m);
       }
     } finally {
@@ -256,7 +222,6 @@ export class RumReporter {
     }
   }
 
-  /** The answer, or undefined when the request did not complete. */
   private async post(report: RUMReport, keepalive: boolean): Promise<Response | undefined> {
     try {
       return await (this.env.fetch ?? fetch)(this.env.url, {
@@ -271,7 +236,6 @@ export class RumReporter {
 
 let reporter: RumReporter | undefined;
 
-/** Starts reporting for this page (once). */
 export function startRum(url: string): RumReporter {
   if (!reporter) {
     reporter = new RumReporter({url});

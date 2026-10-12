@@ -1,18 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's activity (the classic /{owner}/{repo}/activity pages,
-// laid out like GitHub's Insights): a side list of its pages — Pulse,
-// Contributors, Code frequency, Recent commits — beside the page.
-//
-// The Pulse is counted here from the pool (pulse.ts): merged and proposed
-// pull requests, closed and new issues, unresolved conversations and
-// releases of the period, so switching the period is instant and works
-// offline. Its commit counts and top committers come from one year of the
-// default branch's history (B9 /activity/{commit}), and the graphs from the
-// contributor statistics (/contributors/{commit}), both by the branch's head
-// SHA in the code cache: there at once when seen before, offline too. Its own
-// chunk.
+// Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
 import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
@@ -57,14 +46,12 @@ const SECTIONS: {id: Section; label: string; icon: OcticonType}[] = [
   {id: 'recent-commits', label: 'Recent commits', icon: GitCommitIcon},
 ];
 
-/** The periods longer than the pool's summary is sure to hold (B6: 90 days by default): older closed items load. */
+/** Longer periods may exceed the summary's recency window and need closed-tier data. */
 const LONG: ReadonlySet<Period> = new Set(['quarterly', 'semiyearly', 'yearly']);
 
-/** Rows a list shows at first, and at most (the rest is a click away in the issue list). */
 const FIRST_ROWS = 10;
 const MAX_ROWS = 100;
 
-/** Every activity page: the repository header (the Activity tab), the side list of pages, the page. */
 function ActivityPage({section, controls, children}: {section: Section; controls?: ReactNode; children: (repoId: number, owner: string, repo: string) => ReactNode}) {
   const {owner, repo, repoId} = useRepoPage();
   const title = SECTIONS.find((s) => s.id === section)?.label ?? 'Pulse';
@@ -83,7 +70,6 @@ function ActivityPage({section, controls, children}: {section: Section; controls
   );
 }
 
-/** The activity pages (GitHub's Insights list). Pointing at a graph's page starts loading its statistics. */
 const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner: string; repo: string; repoId: number; section: Section}) {
   const src = useSource();
   const app = useApp();
@@ -105,14 +91,12 @@ const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner
   );
 });
 
-/** The default branch and its head (from the synced branches), and whether the repository has no commit yet. */
 function useHead(repoId: number): {branch: string; sha: string | undefined; empty: boolean} {
   const pool = usePool();
   const refs = refTable(pool, repoId);
   return {branch: refs.defaultBranch, sha: refs.branches.get(refs.defaultBranch), empty: pool.model('Repository').get(repoId)?.get('empty') ?? false};
 }
 
-// ---- Pulse ----
 
 export function ActivityPulse() {
   const params: {period?: string} = useParams({strict: false});
@@ -141,7 +125,6 @@ function PeriodMenu({period}: {period: Period}) {
   );
 }
 
-/** An issue as the Pulse counts it (its pull request part merged in), with its entity. */
 interface Row extends PulseIssue {
   issue: Entity<'Issue'>;
 }
@@ -154,7 +137,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   const pool = usePool();
   const overlay = useOverlay();
   const {data} = useSession();
-  // One "now" per period shown: the counts do not move while the page is open (a period picked again recounts).
+  // Freeze the count window until the period changes.
   const now = useMemo(() => Date.now(), [period]); // eslint-disable-line react-hooks/exhaustive-deps -- recount per period
   const from = periodStart(period, now);
   const pulls = pool.model('PullRequest');
@@ -171,7 +154,6 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   const releases: ReleaseRow[] = [...pool.model('Release').by('repo_id', repoId)].map((release) => ({...release.data, release}));
   const p = pulse(rows, releases, from, Infinity);
 
-  // A period beyond the summary's recency: the older closed issues and pull requests are loaded (B6 closed tier).
   const pager = closedPager(data, `repo:${String(repoId)}`);
   const long = LONG.has(period);
   useEffect(() => {
@@ -259,7 +241,6 @@ function Stat({href, icon: StatIcon, tone, value, label}: {href: string; icon: O
   );
 }
 
-/** Where the older closed issues and pull requests are, for a long period. */
 const OlderNote = observer(function OlderNote({pager}: {pager: ReturnType<typeof closedPager>}) {
   if (pager.done) return null;
   const offline = !connectivity.online;
@@ -273,7 +254,6 @@ const OlderNote = observer(function OlderNote({pager}: {pager: ReturnType<typeof
   );
 });
 
-/** A list of the Pulse: its first rows, all of them (up to a hundred) on request. */
 function List({id, icon: SectionIcon, title, noun, items, authors, at, all, hint}: {
   id: string;
   icon: OcticonType;
@@ -349,7 +329,6 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, release}: {owner
   );
 });
 
-/** A commit author: avatar and name, a link to their profile when they have an account here. */
 function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
   const name = who.name !== '' ? who.name : who.login;
   return (
@@ -362,7 +341,6 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
   );
 }
 
-/** Commits of the period on the default branch, and who made them (from the cached year of history). */
 const Commits = observer(function Commits({owner, repo, repoId, from}: {owner: string; repo: string; repoId: number; from: number}) {
   const {branch, sha, empty} = useHead(repoId);
   const title = <><GitCommitIcon size={16}/><span className="text-default">Commits</span>{branch && <BranchName as="span">{branch}</BranchName>}</>;
@@ -437,9 +415,7 @@ function CommitsSkeleton() {
   );
 }
 
-// ---- The graphs (contributor statistics) ----
 
-/** A graph page's statistics at the default branch's head: computed by Forgejo once per commit, cached here. */
 function Statistics({repoId, children, skeleton}: {repoId: number; children: (s: APIContributors, branch: string) => ReactNode; skeleton: ReactNode}) {
   const {branch, sha, empty} = useHead(repoId);
   if (!sha) {
@@ -473,7 +449,6 @@ function ChartSkeleton({rows = 1}: {rows?: number}) {
 const weekLabel = (w: number) => `Week of ${shortDate(new Date(w).toISOString(), 0)}`;
 const dateLabel = (w: number | undefined) => (w === undefined ? undefined : shortDate(new Date(w).toISOString(), 0));
 
-/** At most this many contributors get their own graph (the rest are listed by name). */
 const MAX_CONTRIBUTORS = 50;
 
 export function ActivityContributors() {

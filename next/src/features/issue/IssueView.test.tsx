@@ -23,7 +23,6 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
     scrolled.push(this);
   };
-  // API v1 (the viewer's permissions) is not asked here: the pool's access rows decide.
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
 });
 afterEach(() => {
@@ -32,7 +31,6 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** Alice (1) on acme/website (20, an organization's) with `permission`, and its issue #7 (100). */
 function session(permission: string, comments = 0) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'member'}]}});
   const acme = user(2, 'acme', 'organization');
@@ -62,7 +60,6 @@ test('a writer who is not an administrator sees the pin state and why it cannot 
   expect(await screen.findByText('Only repository administrators can pin issues.')).toBeTruthy();
   expect(screen.getByText('Not pinned')).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Not pinned/})).toBeNull();
-  // Locking stays a writer's.
   expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
 });
 
@@ -148,7 +145,6 @@ test.each(['e11d21', '#e11d21'])('labels with color %s remain readable and linke
   const sidebar = screen.getByRole('complementary', {name: 'Properties'});
   expect(within(sidebar).getByRole('link', {name: 'bug'}).getAttribute('href')).toBe('/acme/website/issues?labels=1');
   await waitFor(() => {
-    // The sidebar and timeline both link the label without losing its name.
     expect(screen.getAllByRole('link', {name: 'bug'})).toHaveLength(2);
     expect(screen.getByText('added', {exact: false})).toBeTruthy();
   });
@@ -206,12 +202,9 @@ test('not planned sets the canceled status (and closes); offered only when the r
 test('on a wide page the properties are a scroll region of their own, bounded by the page body (#273)', async () => {
   await open('/acme/website/issues/7', session('write'));
   const pane = screen.getByRole('complementary', {name: 'Properties'});
-  // The page body (the conversation's scroller, whose scroll the router restores) stays the page's one scroller…
   const body = pane.closest('[data-scroll-restoration-id="page"]');
   expect(body?.classList.contains('overflow-y-auto')).toBe(true);
-  // …and is a size container: the properties stick to its top, are at most as tall as it (max-h-page-body: 100cqh) and scroll
-  // themselves, without chaining to the conversation. jsdom has no layout: e2e/forgejo/issue-layout.spec.ts
-  // measures it in a browser.
+  // jsdom cannot measure sticky layout; the browser test covers geometry.
   expect(body?.classList.contains('@container-size')).toBe(true);
   const scroller = pane.firstElementChild;
   for (const c of ['@xl:sticky', '@xl:top-0', '@xl:max-h-page-body', '@xl:overflow-y-auto', '@xl:overscroll-contain']) expect(scroller?.classList.contains(c), c).toBe(true);

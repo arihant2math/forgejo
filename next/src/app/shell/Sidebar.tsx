@@ -1,9 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sidebar: account, search, the viewer's views and the workspace's
-// owners and repositories. Each part that reads the pool is its own observer
-// leaf, so a delta re-renders the row it changed and nothing else.
+// Pool readers are observer leaves so deltas re-render only the affected rows.
 
 import {useRouterState} from '@tanstack/react-router';
 import {RouterNavItem} from '../routerLinks.tsx';
@@ -26,7 +24,6 @@ import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, S
 import {Avatar, CounterLabel, IconButton, NavList} from '@primer/react';
 import {ChevronDownIcon, ChevronRightIcon, RepoIcon} from '@primer/octicons-react';
 
-/** New issue (C), available from the sidebar and shortcut registry. */
 function SidebarCreate() {
   const app = useApp();
   return <NavList.Item as="button" onClick={() => { openCreate(app); }}>
@@ -50,15 +47,12 @@ const SidebarSearch = function SidebarSearch() {
 const InboxItem = observer(function InboxItem() {
   const {data} = useSession();
   const {ui} = useApp();
-  // The overlay-aware count once the queue runs (a read marked offline counts at once), else the pool's.
+  // Include pending offline reads once the queue supplies overlay-aware counts.
   const unread = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
   return <RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem>;
 });
 
-// ── Workspace: owners and their repositories ─────────────────────────────
-
 const PREFS = LOCAL_PREFS[0];
-/** Repositories listed per owner before "N more". */
 const SHOWN = 10;
 
 function readClosed(): Set<string> {
@@ -85,7 +79,7 @@ interface Owner {
   repos: string[];
 }
 
-/** The workspace's owners (the viewer first, then by name) and their repositories (by name). */
+/** Orders owners with the viewer first, then by name; sorts repositories by name. */
 export function owners(session: Session, hydrating = false): Owner[] {
   const {data, userId} = session;
   const ws = data.workspace.current;
@@ -128,7 +122,6 @@ export function owners(session: Session, hydrating = false): Owner[] {
   return list.sort((a, b) => Number(b.id === userId) - Number(a.id === userId) || a.login.localeCompare(b.login));
 }
 
-/** A repository: its home; current on every page of it (lists, issues, code). */
 const RepoItem = memo(function RepoItem({owner, name}: {owner: string; name: string}) {
   const key = `${owner}/${name}`.toLowerCase();
   const current = useRouterState({select: (s) => repoOfPath(s.location.pathname) === key});
@@ -148,11 +141,10 @@ const OwnerAvatar = observer(function OwnerAvatar({id, login}: {id: number; logi
 const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boolean}) =>
   a.open === b.open && a.owner.id === b.owner.id && a.owner.login === b.owner.login && a.owner.repos.join('/') === b.owner.repos.join('/');
 
-/** Re-renders only when its owner, repositories or open state change (owners() builds new objects each time). */
+/** Compares rebuilt owner objects to avoid unrelated row renders. */
 export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
   const [all, setAll] = useState(false);
-  // The repository on screen: its row stays listed (after the first ten, it joins them) and, folded, the owner's
-  // row is current in its place: the sidebar always says where you are.
+  // Always reveal the current repository; a folded owner inherits its current-page marker.
   const prefix = `${owner.login.toLowerCase()}/`;
   const here = useRouterState({select: (s) => {
     const key = repoOfPath(s.location.pathname);
@@ -167,10 +159,8 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
   const extra = visited.filter((name) => owner.repos.includes(name) && !first.includes(name));
   const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
-  // The owner row: its link and, beside it, the disclosure as a standalone small IconButton (Primer's own
-  // radius on every corner). NavList.TrailingAction would be the split-row half with square left corners.
-  // The inner list is presentational: the row is one list item holding two separate controls. The owner item's
-  // own inset margin is the 8px gap; pr-2 puts the button's right edge on the repository rows' right edge.
+  // Separate controls avoid nesting a button inside a link; TrailingAction would square the button's corners.
+  // The presentational inner list keeps the owner row a single list item.
   return (
     <NavList.Group hideDivider role="group" aria-label={owner.login}>
       <li className="flex items-center pr-2">
@@ -228,15 +218,13 @@ const Workspace = observer(function Workspace() {
   );
 });
 
-/** Saved views: their own chunk (rendered once it is here; below everything else, so nothing moves). */
+/** Loads below existing content so saved views cannot shift it. */
 const SidebarViews = lazyComponent(() => import('../../features/views/SidebarViews.tsx').then((m) => m.SidebarViews));
 
-/** Mounted when the app is idle (the views chunk is not fetched with the first paint). */
 function IdleViews() {
   const [idle, setIdle] = useState(false);
   useEffect(() => {
-    // The idle callback can come after an unmount (a closed test environment
-    // too, where React's update then reads a `window` that is gone).
+    // Ignore idle callbacks after unmount.
     let live = true;
     whenIdle(() => {
       if (live) setIdle(true);
@@ -248,7 +236,6 @@ function IdleViews() {
   return idle ? <SidebarViews/> : null;
 }
 
-/** Boards: current on the list of boards and on a board. */
 function BoardsItem() {
   const onBoard = useRouterState({select: (s) => s.location.pathname.startsWith('/-/next/projects/')});
   return (
@@ -257,8 +244,6 @@ function BoardsItem() {
     </RouterNavItem>
   );
 }
-
-// ── Width ────────────────────────────────────────────────────────────────
 
 function currentWidth(): number {
   const w = readSplash().sidebarWidth;
@@ -275,8 +260,7 @@ function SidebarResize() {
       min={SIDEBAR_MIN}
       max={SIDEBAR_MAX}
       onResize={(w, handle) => {
-        // While dragging, only the sidebar's own width changes (no React state, and not the
-        // root variable, whose change restyles the whole document on every pointer move).
+        // Resize locally without React state or a root CSS variable that would restyle the whole document.
         handle.parentElement?.style.setProperty('width', `${String(w)}px`);
       }}
       onCommit={(w) => {

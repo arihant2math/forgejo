@@ -1,30 +1,21 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The global shortcut registry (PLAN §5.6): one keydown listener on the
-// window, the key table in keymap.ts, handlers bound by the views that can
-// run them, and scopes pushed by the views that are on screen.
-//
-//   const off = shortcuts.bind('go.inbox', () => navigate(...));
-//   const pop = shortcuts.pushScope('list');   // J/K now apply
-//
-// A binding runs when its keys were typed, its scope is active (global
-// always is) and, unless it is `anywhere`, focus is neither in a text field
-// nor inside an open menu, listbox or dialog (those keep their keys). When
-// several match, the innermost scope wins, then the latest binding.
+// Resolve matching keys by innermost scope, then latest binding.
+// Text fields and overlays keep their keys unless a binding opts into anywhere.
 
 import {isApple, KEYMAP, type KeyDef, type Scope, type ShortcutId} from './keymap.ts';
 
-/** How long the next key of a sequence ("g i") is waited for (ms). */
+/** Sequence timeout in ms. */
 export const SEQUENCE_TIMEOUT = 1500;
 
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Meta', 'Alt', 'AltGraph', 'CapsLock', 'Fn', 'OS', 'Hyper', 'Super']);
 const NAMED = new Set(['enter', 'escape', 'tab', 'backspace', 'delete', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'home', 'end', 'pageup', 'pagedown', ' ']);
 
-/** The chord an event types, in keymap notation ("mod+k", "g", "?", "shift+enter"); undefined for a bare modifier. */
+/** Produces keymap notation; undefined for bare modifiers. */
 export function chordOf(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> & {code?: string}, apple: boolean): string | undefined {
   if (MODIFIER_KEYS.has(e.key) || e.key === 'Dead' || e.key === 'Unidentified' || !e.key) return undefined;
-  // A letter key of a non-Latin layout (Cyrillic, Greek, …): its position, as on a US layout.
+  // Use US physical key positions for non-Latin letter layouts.
   const physical = /^Key([A-Z])$/.exec(e.code ?? '')?.[1];
   const lower = e.key.length === 1 && !/^[\x20-\x7e]$/.test(e.key) && physical ? physical.toLowerCase() : e.key.toLowerCase();
   const letter = /^[a-z0-9]$/.test(lower);
@@ -49,18 +40,13 @@ function isTextField(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
-/**
- * Inside an open menu, listbox or dialog (they keep their keys) — unless that
- * element opts in to the app's shortcuts with `data-shortcuts` (an issue
- * list's listbox: J/K/X/S/L/… are its keys).
- */
+/** Overlays own their keys unless data-shortcuts opts them into app shortcuts. */
 function inOverlay(el: Element | null): boolean {
   const overlay = el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]');
-  // A menu or dialog fading out (Radix: data-state="closed") has let go of the keys already.
+  // Closing overlays release their keys before the fade ends.
   return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts') && overlay?.getAttribute('data-state') !== 'closed';
 }
 
-/** Whether the element is inside a menu or dialog that is closing (Radix: data-state="closed" while it fades). */
 function leaving(el: Element): boolean {
   return el.closest('[role="menu"],[role="dialog"],[role="alertdialog"]')?.getAttribute('data-state') === 'closed';
 }
@@ -68,7 +54,7 @@ function leaving(el: Element): boolean {
 interface Binding {
   id: ShortcutId;
   run: () => void;
-  /** Whether it applies now (Open with a row under the cursor, a card move with a card): not, it is neither run nor offered. */
+  /** False excludes the binding from both execution and palette commands. */
   when: (() => boolean) | undefined;
   seq: number;
 }
@@ -81,10 +67,7 @@ export class ShortcutRegistry {
   private bindSeq = 0;
   private scopeSeq = 0;
   private pending: string[] = [];
-  /**
-   * Whether an overlay is opening or open (set by the shell): its keys are its own even before it has the focus —
-   * typing right after Ctrl+K must never run the page's shortcuts ("c" of a search creating an issue).
-   */
+  /** Blocks page keys before an opening overlay receives focus, so typing cannot run page commands. */
   overlayOpen: () => boolean = () => false;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -103,12 +86,11 @@ export class ShortcutRegistry {
     };
   }
 
-  /** The shortcuts something is bound to right now. */
   bound(): Set<ShortcutId> {
     return new Set(this.bindings.map((b) => b.id));
   }
 
-  /** The scopes active now, innermost first, global last (the shortcuts help lists them first). */
+  /** Innermost first, global last. */
   activeScopes(): Scope[] {
     const out: Scope[] = [];
     for (let i = this.scopes.length - 1; i >= 0; i--) {
@@ -118,10 +100,7 @@ export class ShortcutRegistry {
     return [...out, 'global'];
   }
 
-  /**
-   * The bound shortcuts whose scope is active now, outside global (what the
-   * view on screen offers: the palette lists them as commands).
-   */
+  /** Active, bound page shortcuts, excluding global. */
   available(): ShortcutId[] {
     const seen = new Set<ShortcutId>();
     for (const b of this.bindings) {
@@ -131,11 +110,7 @@ export class ShortcutRegistry {
     return [...seen];
   }
 
-  /**
-   * Whether a shortcut's keys run something else now: another binding with
-   * the same keys in a deeper active scope (on a board, L is the next
-   * column, not labels). Its hint must not be shown then.
-   */
+  /** A deeper scope owns these keys; hide their hint to avoid advertising the wrong action. */
   shadowed(id: ShortcutId): boolean {
     const def = this.keymap[id];
     if (!def?.keys) return false;
@@ -164,7 +139,7 @@ export class ShortcutRegistry {
     return true;
   }
 
-  /** Activates a scope while a view is mounted; returns the function that pops it. */
+  /** Activates a scope and returns its cleanup. */
   pushScope(scope: Scope): () => void {
     const entry = {scope, token: ++this.scopeSeq};
     this.scopes.push(entry);
@@ -174,7 +149,6 @@ export class ShortcutRegistry {
     };
   }
 
-  /** How deep a scope is active (higher = inner); -1 when inactive. Global is the outermost. */
   private depth(scope: Scope): number {
     if (scope === 'global') return 0;
     for (let i = this.scopes.length - 1; i >= 0; i--) if (this.scopes[i]?.scope === scope) return i + 1;
@@ -205,8 +179,7 @@ export class ShortcutRegistry {
     const chord = chordOf(e, this.apple);
     if (!chord) return false;
     const focused = e.target instanceof Element ? e.target : null;
-    // The focus still inside a menu or dialog that is fading out (its field, its item): the keys are the page's
-    // again. L, Esc, P typed quickly lost the P to the closing labels picker's field (found by the e2e triage flow).
+    // Closing overlays release keys even while focus remains in their fading fields.
     const target = focused && leaving(focused) ? null : focused;
     const restricted = isTextField(target) || inOverlay(target) || this.overlayOpen();
     const onPage = !target || target === target.ownerDocument.body || target.closest('[data-shortcuts]') !== null;
@@ -216,7 +189,7 @@ export class ShortcutRegistry {
       let best: {binding: Binding; depth: number} | undefined;
       let prefix = false;
       for (const c of candidates) {
-        // Holding a key repeats only movement (J/K in a list), never a toggle such as ⌘K.
+        // Repeat only movement, never toggles such as the palette.
         if (e.repeat && c.binding.id !== 'list.next' && c.binding.id !== 'list.prev') continue;
         if (c.keys === keys) {
           if (!best || c.depth > best.depth || (c.depth === best.depth && c.binding.seq > best.binding.seq)) best = c;
@@ -243,15 +216,13 @@ export class ShortcutRegistry {
     if (this.pending.length && attempt([...this.pending, chord])) return true;
     this.reset();
     if (attempt([chord])) return true;
-    // Shift and a letter that is no shortcut of its own: the letter's (the help shows "R"; Caps Lock). Not when
-    // the keymap gives Shift+letter a meaning that this page does not bind (Shift+S on a board must not change
-    // the status).
+    // Fall back to the unshifted letter unless Shift+letter has a keymap meaning in another scope.
     const letter = /^shift\+([a-z])$/.exec(chord)?.[1];
     const meant = Object.values(this.keymap).some((d) => d.keys === chord || d.keys.startsWith(`${chord} `));
     return letter !== undefined && !meant && attempt([letter]);
   }
 
-  /** Listens on a window (the app does this once); returns the function that stops. */
+  /** Returns the window listener cleanup. */
   attach(win: Window): () => void {
     const onKey = (e: KeyboardEvent) => {
       this.handle(e);

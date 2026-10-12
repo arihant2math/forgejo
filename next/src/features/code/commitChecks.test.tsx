@@ -31,7 +31,6 @@ function session() {
   return s;
 }
 
-/** acme/atlas with a failed run #4 (job "test" failed) and its job status on OLD. */
 function failedRun(s: ReturnType<typeof session>) {
   s.data.put('ActionRun', 'repo:20', {
     id: 4, repo_id: 20, owner_id: 2, title: 'server: serve .mvt tiles', workflow_id: 'ci.yml', run_number: 4, trigger_user_id: 1, ref: 'refs/pull/106/head', commit_sha: OLD,

@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/**
- * EventSource over fetch: Node has none (and the server's stream is plain
- * `data:` lines). Implements what openSSE uses.
- */
+/** Fetch-backed EventSource for Node, which has no native implementation. */
 export class FetchEventSource {
   onmessage: ((ev: MessageEvent<string>) => void) | null = null;
   onerror: (() => void) | null = null;

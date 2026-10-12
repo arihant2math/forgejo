@@ -1,25 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The code cache (PLAN §3, §5.5, §5.7): git content addressed by SHA —
-// trees and files by (repository, commit, path), blobs, blames, diffs by
-// (base, head), highlighted lines by blob SHA, finished job logs by job id —
-// never goes stale, so it is kept until the quota budget pushes it out (LRU).
-// Only the mutable ref → SHA step is decided elsewhere, from the synced
-// Branch/Release entities (refs.ts).
-//
-// Two levels: a memory LRU (synchronous hits: switching to a file seen in
-// this tab paints in the same frame) over the user's IndexedDB `blobs` store
-// (F2 created it, keyPath `sha`, index `atime`). Each entry is two records:
-//
-//   d:<key>  {sha, v}                      the value (no atime: not in the index)
-//   m:<key>  {sha, atime, size, repo}      what eviction reads (small)
-//
-// so eviction walks only the small records. Entries name their repository:
-// a revoked repository's content is deleted with its group (purgeRepo), and
-// the database is per user (deleted at sign-out), so nothing is shared
-// between accounts. Writes may come from any tab (it is a cache: a lost
-// write is a later miss).
+// Immutable content lives in a memory LRU over per-user IndexedDB.
+// Separate d:<key> values and m:<key> metadata keep eviction scans small.
+// Repository keys allow revocation purges; sign-out deletes the database.
 
 import {BLOBS, done, request} from '../data/idb.ts';
 
@@ -30,10 +14,6 @@ export interface CacheMeta {
   repo: number;
 }
 
-/**
- * The entries to delete so that the rest fits the budget: least recently used
- * first. Pure (cache.test.ts).
- */
 export function toEvict(entries: readonly CacheMeta[], budget: number): string[] {
   let total = 0;
   for (const e of entries) total += e.size;
@@ -48,7 +28,6 @@ export function toEvict(entries: readonly CacheMeta[], budget: number): string[]
   return out;
 }
 
-/** A size-bounded LRU map (Map keeps insertion order: a hit is moved to the end). */
 export class MemoryLru<V> {
   private readonly map = new Map<string, {v: V; size: number}>();
   private total = 0;
@@ -102,7 +81,7 @@ export class MemoryLru<V> {
   }
 }
 
-/** Approximate bytes of a value (strings as UTF-16, typed arrays by length, the rest by its JSON). */
+/** Approximate bytes: UTF-16 strings, buffer byte lengths, recursive object sizes. */
 export function sizeOf(v: unknown): number {
   if (typeof v === 'string') return v.length * 2;
   if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v.byteLength;
@@ -116,7 +95,6 @@ export function sizeOf(v: unknown): number {
 }
 
 const MB = 1024 * 1024;
-/** IndexedDB budget bounds: a tenth of the origin's quota, within these. */
 const MIN_BUDGET = 64 * MB;
 const MAX_BUDGET = 512 * MB;
 /** atime is written back at most this often per entry (a hit is a read, not a write). */
@@ -145,7 +123,6 @@ export class CodeCache {
   private evictTimer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
   private readonly db: IDBDatabase;
-  /** Repositories purged this session (see put). */
   private readonly revoked = new Set<number>();
 
   constructor(db: IDBDatabase, opts: CodeCacheOptions = {}) {
@@ -198,7 +175,7 @@ export class CodeCache {
 
   /** Stores a value (memory at once, IndexedDB in the background). Only immutable content, or a hint that says so. */
   put(key: string, v: unknown, size = sizeOf(v)): void {
-    // A request that was running when the repository was revoked does not put its answer back.
+    // In-flight requests must not restore revoked content.
     if (this.revoked.has(keyRepo(key))) return;
     this.mem.set(key, v, size);
     if (this.closed) return;
@@ -217,7 +194,6 @@ export class CodeCache {
     }
   }
 
-  /** Forgets one entry (a mutable hint replaced). */
   delete(key: string): void {
     this.mem.delete(key);
     void this.deleteKeys([key]);
@@ -235,7 +211,7 @@ export class CodeCache {
         if (r.result) s.put({...r.result, atime: at});
       };
     } catch {
-      // ignore
+      // Access-time updates are best-effort.
     }
   }
 
@@ -266,7 +242,6 @@ export class CodeCache {
     return this.budget;
   }
 
-  /** Deletes least recently used entries beyond the budget. */
   async evict(): Promise<number> {
     if (this.closed) return 0;
     const keys = toEvict(await this.entries(), await this.limit());
@@ -274,7 +249,7 @@ export class CodeCache {
     return keys.length;
   }
 
-  /** Deletes everything of a repository (its group was revoked: the viewer may no longer read it). */
+  /** Purges repository content and rejects subsequent writes for this session. */
   async purgeRepo(repoId: number): Promise<void> {
     this.revoked.add(repoId);
     this.mem.deleteWhere((k) => keyRepo(k) === repoId);

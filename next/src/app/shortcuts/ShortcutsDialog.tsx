@@ -9,7 +9,6 @@ import {useApp} from '../store.ts';
 import {KEYMAP, SCOPE_LABELS, type Scope, type ShortcutId} from './keymap.ts';
 import {shortcuts} from './index.ts';
 
-/** Every shortcut by scope, with this page's effective bindings first. Lazy-loaded by the shell. */
 export function ShortcutsDialog() {
   const {ui} = useApp();
   const [active] = useState(() => shortcuts.activeScopes());

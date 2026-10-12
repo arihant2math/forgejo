@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // @vitest-environment node
 
-// The app's tokens are aliases of Primer's (@primer/primitives): these checks resolve them through Primer's light
-// and dark themes and size/typography files, so a renamed or missing Primer variable fails here, not on screen.
+// Resolve aliases through Primer themes so missing variables fail here, not on screen.
 
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
@@ -26,7 +25,6 @@ function block(selector: string, text = css): string {
 
 const decls = (text: string) => new Map([...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1] ?? '', m[2]?.trim() ?? '']));
 
-// Primer's non-colour tokens (the same in both themes) and each theme's colours (its first, unconditional block).
 const sizes = ['base/size/size.css', 'base/typography/typography.css', 'base/motion/motion.css', 'functional/size/border.css',
   'functional/size/radius.css', 'functional/size/size.css', 'functional/size/size-fine.css', 'functional/size/z-index.css',
   'functional/spacing/space.css', 'functional/typography/typography.css', 'functional/motion/motion.css'];
@@ -40,7 +38,6 @@ type Theme = keyof typeof themes;
 const tokens = decls(block('@theme static'));
 const root = decls(block(':root'));
 
-/** A token's value with every var() resolved in a theme (throws on a variable neither defines). */
 function resolve(value: string, theme: Theme, seen: string[] = []): string {
   return value.replace(/var\((--[\w-]+)(?:,\s*([^)]*))?\)/g, (_, name: string, fallback?: string) => {
     if (seen.includes(name)) throw new Error(`var cycle ${[...seen, name].join(' → ')}`);
@@ -50,7 +47,6 @@ function resolve(value: string, theme: Theme, seen: string[] = []): string {
   });
 }
 
-/** The red, green, blue (0–1) and alpha of a #rgb / #rrggbb / #rrggbbaa colour. */
 function rgba(hex: string): [number, number, number, number] {
   const h = hex.trim().replace('#', '');
   const full = h.length <= 4 ? h.replace(/./g, '$&$&') : h;
@@ -58,7 +54,6 @@ function rgba(hex: string): [number, number, number, number] {
   return [r / 255, g / 255, b / 255, a / 255];
 }
 
-/** A colour with alpha painted over an opaque one, as #rrggbb. */
 function over(top: string, bottom: string): string {
   const [r, g, b, a] = rgba(top);
   const [r2, g2, b2] = rgba(bottom);
@@ -89,7 +84,6 @@ describe('tokens.css', () => {
 
   test.each(['light', 'dark'] as const)('WCAG contrast, %s theme', (theme) => {
     const surface = resolve('var(--background-color-default)', theme);
-    // A token as an opaque colour: fills with alpha (Primer's transparent controls) over the surface.
     const color = (token: string, base = surface) => over(resolve(`var(${token})`, theme), base);
     const failures: string[] = [];
     const need = (fg: string, bg: string, min: number) => {
@@ -98,7 +92,6 @@ describe('tokens.css', () => {
       if (r < min) failures.push(`text-${fg} on bg-${bg}: ${r.toFixed(2)} < ${min}`);
     };
     for (const fg of ['default', 'muted', 'accent', 'success', 'attention', 'danger', 'done']) for (const bg of ['inset', 'default', 'overlay']) need(fg, bg, 4.5);
-    // On a hovered or selected row: the text colours (Primer's status colours are made for the plain surfaces).
     for (const fg of ['default', 'muted']) for (const bg of ['control-transparent-hover', 'control-transparent-selected']) need(fg, bg, 4.5);
     for (const bg of ['accent-emphasis', 'success-emphasis', 'danger-emphasis']) need('onEmphasis', bg, 4.5);
     for (const fg of ['default', 'syntax-keyword', 'syntax-string', 'syntax-entity', 'syntax-constant']) {
@@ -127,7 +120,6 @@ describe('tokens.css', () => {
 });
 
 describe('label ink (text-label)', () => {
-  // CSS color-mix(in oklab, label X%, fg): the icon colour of a status or priority label.
   const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   const toSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
   const hex = (h: string) => [0, 2, 4].map((i) => Number.parseInt(h.replace('#', '').slice(i, i + 2), 16) / 255);
@@ -145,7 +137,6 @@ describe('label ink (text-label)', () => {
     const c = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
     return `#${c.map((x) => Math.round(Math.min(1, Math.max(0, toSrgb(x))) * 255).toString(16).padStart(2, '0')).join('')}`;
   }
-  // The tokens' colours in a theme, as opaque #rrggbb (over the surface).
   const resolved = (theme: Theme) => {
     const surface = resolve('var(--bgColor-default)', theme);
     return {get: (name: string) => over(resolve(`var(${name})`, theme), surface)};
@@ -158,7 +149,6 @@ describe('label ink (text-label)', () => {
     const b = oklab(hex(fg));
     return rgb(a.map((x, i) => x * part + (b[i] ?? 0) * (1 - part)));
   };
-  // Light and saturated label colours of Forgejo's presets and common palettes.
   const labels = ['#eab308', '#facc15', '#22c55e', '#06b6d4', '#f97316', '#ffffff', '#e11d48', '#3b82f6', '#8b5cf6', '#fbca04', '#c2e0c6', '#bfdadc'];
   test.each(['light', 'dark'] as const)('≥ 3:1 against the surfaces (%s)', (theme) => {
     const t = theme === 'light' ? light : dark;
@@ -168,8 +158,6 @@ describe('label ink (text-label)', () => {
     }
   });
 
-  // A filled label (LabelPill, LabelDot) is edged by its colour mixed towards the text colour (edge-label): whatever
-  // the colour (white on the light canvas, black on the dark), its fill or its edge stands out from the surface.
   const edge = Number.parseFloat(decls(block(':root')).get('--label-edge') ?? 'NaN') / 100;
   test.each(['light', 'dark'] as const)('a label\'s fill or edge is ≥ 1.5:1 against the surfaces (%s)', (theme) => {
     const t = theme === 'light' ? light : dark;

@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code fixtures: generated source files, commits through the contents API,
-// and the code views' URLs.
 
 import {api, apiJson, ok} from './api.ts';
 import {BASE, USER} from './env.ts';
@@ -19,7 +17,6 @@ export function tsFile(n: number): string {
   return `${out.join('\n')}\n`;
 }
 
-/** One commit changing files (POST /contents). */
 export async function changeFiles(repo: string, body: object, as?: string): Promise<void> {
   await ok(await api('POST', `/repos/${USER}/${repo}/contents`, body, as), 'contents');
 }
@@ -28,7 +25,6 @@ export async function blobSha(repo: string, path: string, ref?: string): Promise
   return (await apiJson<{sha: string}>('GET', `/repos/${USER}/${repo}/contents/${path}${ref ? `?ref=${ref}` : ''}`)).sha;
 }
 
-/** A code page of dev's repository (Forgejo's address: `/{owner}/{repo}/src/branch/main/…`). */
 export const codeUrl = (repo: string, rest: string) => `${BASE}/${USER}/${repo}/${rest}`;
 
 export interface Pull {

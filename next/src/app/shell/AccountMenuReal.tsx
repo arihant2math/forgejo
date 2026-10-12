@@ -15,7 +15,6 @@ import {useApp} from '../store.ts';
 import {setThemePreference, themeState} from '../theme.ts';
 import {BrowserIcon, RepoIcon, OrganizationIcon, CommandPaletteIcon, TelescopeIcon, RepoPullIcon, SignOutIcon, DeviceDesktopIcon, PaintbrushIcon, GearIcon, StarIcon, PersonIcon} from '@primer/octicons-react';
 
-/** Account actions load on intent; Primer's menu owns keyboard navigation and focus return. */
 export const AccountMenuReal = observer(function AccountMenuReal({trigger, defaultOpen}: {trigger: ReactElement; defaultOpen: boolean}) {
   const app = useApp();
   const [menuOpen, setMenuOpen] = useState(defaultOpen);

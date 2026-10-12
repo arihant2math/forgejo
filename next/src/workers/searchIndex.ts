@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The local search index itself (MiniSearch), apart from the worker's
-// messaging (search.worker.ts) so that it is tested and measured directly.
-
 import MiniSearch from 'minisearch';
 
 export interface SearchDoc {
@@ -31,13 +28,12 @@ export function createIndex() {
     fields: ['title', 'repo', 'num'],
     // Also asked for the id: keep it a number (hits, has/replace).
     extractField: (doc, field) => (field === 'id' ? doc.id : field === 'num' ? String(doc.number) : String(doc[field as keyof SearchDoc])),
-    // Words in titles, and the parts of "owner/repo" (split on the slash, dashes and dots too).
     tokenize: (text) => text.split(/[\s/\-._:#,;!?()[\]{}"'`]+/u).filter(Boolean),
     searchOptions: {
       boost: {title: 3, num: 2},
       prefix: true,
-      // A typo per five letters; none in short words (numbers, "ui"), and none in a one-word query: "move" must not
-      // find "more" (the palette lists commands by their words; a single word is a name, not a phrase to guess at).
+      // Single-word queries name commands exactly: "move" must not match "more".
+      // Short terms stay exact to avoid noise for numbers and short names.
       fuzzy: (term, _i, terms) => (terms.length > 1 && term.length > 3 ? 0.2 : false),
       combineWith: 'AND',
     },
@@ -57,7 +53,6 @@ export function createIndex() {
     },
     search(query: string, limit: number): SearchAnswer {
       const t0 = performance.now();
-      // "#12" is the number 12.
       const q = query.replace(/(^|\s)#(\d)/g, '$1$2');
       const hits = q.trim() ? index.search(q).slice(0, limit).map((r) => ({id: r.id as number, score: r.score})) : [];
       return {hits, ms: performance.now() - t0, size: index.documentCount};

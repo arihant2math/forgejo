@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Showing and hiding the sidebar: on a wide screen it collapses (remembered
-// in the splash, applied before the first paint), on a narrow one it is a
-// drawer over the page. Both are attributes on <html> read by CSS variants
-// (sidebar-hidden, drawer-open): toggling re-renders nothing.
+// CSS reads <html> attributes so sidebar toggles need no React render; wide-screen collapse is stored for boot.
 
 import {readSplash, writeSplash} from '../splash.ts';
 
@@ -28,7 +25,6 @@ export function closeDrawer(restoreFocus = false): void {
   drawerOpener = null;
 }
 
-/** Shows or hides the sidebar (the drawer on a narrow screen; collapsed, remembered, on a wide one). */
 export function toggleSidebar(): void {
   const html = document.documentElement;
   if (narrow()) {
@@ -37,7 +33,6 @@ export function toggleSidebar(): void {
       drawerOpener = document.querySelector<HTMLElement>('main button[aria-label="Show the sidebar"]') ??
         (document.activeElement instanceof HTMLElement ? document.activeElement : null);
       html.dataset.drawer = 'open';
-      // The drawer takes the focus (its first link), so the keyboard is where the eyes are.
       requestAnimationFrame(() => {
         if (!drawerOpen()) return;
         document.querySelector<HTMLElement>('aside[aria-label="Sidebar"] a, aside[aria-label="Sidebar"] button')?.focus();

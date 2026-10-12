@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Workflow runs that wait for a maintainer (the classic page's trust panel):
-// a fork's (or AGit) pull request by an author who is not trusted with
-// Actions runs its pull_request workflows only once someone with write
-// access to Actions approves them. Said wherever those runs show (the merge
-// box, the Checks tab, the run page), with the decision for those who may
-// make it (POST /-/sync/api/issues/{id}/action-trust).
+// Fork and AGit workflows from untrusted authors require approval by an Actions writer.
 
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
@@ -32,7 +27,7 @@ const DONE: Record<Trust, string> = {
   revoke: 'The author is no longer trusted to run workflows',
 };
 
-/** What Forgejo says about merging the pull request (online; asked again when its answer may have changed). */
+/** Fetch the viewer's merge eligibility; refresh when merge-check inputs change. */
 export function useMergeCheck(issue: Entity<'Issue'> | undefined, pr: PullRequest | undefined) {
   const app = useApp();
   const pool = usePool();
@@ -46,10 +41,7 @@ export function useMergeCheck(issue: Entity<'Issue'> | undefined, pr: PullReques
 
 export const APPROVAL_TITLE = 'Workflows are waiting for a maintainer’s approval';
 
-/**
- * The approval notice of a pull request (`issueId`): `actions` is what Forgejo said (the merge check), `waiting`
- * whether the pool already holds runs that wait (said before Forgejo answers, and offline).
- */
+/** waiting reports cached runs awaiting approval while the server's actions answer is unavailable. */
 export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, waiting}: {issueId: number; actions: APIMergeActions | undefined; waiting: boolean}) {
   const app = useApp();
   const session = useSession();

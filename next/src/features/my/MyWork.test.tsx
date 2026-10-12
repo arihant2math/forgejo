@@ -22,7 +22,6 @@ afterEach(() => {
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
-/** Sam, whose only review requests are on merged pull requests; Forgejo answers the review-requested search with `answer`. */
 async function renderPulls(path: string, answer: (url: URL) => Promise<Response>) {
   const s = fakeSession({userId: 1});
   vi.spyOn(s.auth, 'token').mockResolvedValue('t');
@@ -122,7 +121,6 @@ describe('emptyText (QA #261)', () => {
         expect(emptyText(t, true, state, 'unanswered', 'online').title).toBe('Needs a connection');
         expect(emptyText(t, true, state, 'asking', 'offline').title).toBe('Needs a connection');
         expect(emptyText(t, true, state, 'asking', 'unreachable').title).toBe('Needs a connection');
-        // Still asking, online: neither empty nor failed yet.
         const asking = emptyText(t, true, state, 'asking', 'online');
         expect(asking.title).toBe('Asking Forgejo…');
         expect(asking.description).not.toContain('connection');

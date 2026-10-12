@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The URL of a classic page (ClassicLink.tsx renders the links; this module
-// has no UI, so actions and menus can use it without the primitives).
+// No UI imports: actions and menus can use classic URLs without loading primitives.
 
 import {sitePath} from './config.ts';
 import {isCanonical} from './paths.ts';
@@ -18,5 +17,4 @@ export function classicHref(app: App, path: string): string {
   return sitePath(app.config, `${bare}${s ? `?${s}` : ''}`);
 }
 
-/** The tooltip and accessible hint of every classic link. */
 export const CLASSIC_HINT = 'Opens in the classic Forgejo UI';

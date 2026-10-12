@@ -32,7 +32,6 @@ const milestone = (id: number, title: string, extra: Partial<Milestone> = {}): M
   id, repo_id: 20, title, description: '', state: 'open', open_issues: 0, closed_issues: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', ...extra,
 });
 
-/** alice reads acme/website (no write access): its labels, the organization's, two milestones. */
 function session() {
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
@@ -74,15 +73,11 @@ describe('labels and milestones', () => {
     expect(within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: /^Issues/}).getAttribute('aria-current')).toBe('page');
     const own = screen.getByRole('region', {name: 'Labels'});
     expect(within(own).getByText('Something is broken')).toBeTruthy();
-    // Two open issues have "bug" (the closed one does not count).
     expect(within(own).getByRole('link', {name: '2 open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=1');
     expect(within(own).getByRole('link', {name: 'No open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=2');
-    // An exclusive scoped label shows its scope.
     expect(within(own).getByText('kind/docs')).toBeTruthy();
     expect(within(screen.getByRole('region', {name: 'Labels of acme'})).getByText('security')).toBeTruthy();
-    // A reader gets no write controls.
     expect(screen.queryByRole('button', {name: 'New label'})).toBeNull();
-    // A delta (a pull request gets "kind/docs") moves the counts.
     s.data.put('Issue', 'repo:20', issue(104, 20, 10, 'Docs PR', {is_pull: true}));
     s.data.put('IssueLabel', 'repo:20', {id: 4, issue_id: 104, label_id: 2});
     expect(await within(own).findByRole('link', {name: '1 pull request'})).toBeTruthy();
@@ -95,7 +90,6 @@ describe('labels and milestones', () => {
   test('organization labels on a repository\'s page: who manages them, their open counts and links, their own colours', async () => {
     const s = session();
     s.auth.token = () => Promise.resolve('token');
-    // alice is a member of acme, neither owner nor admin; API v1 gives colours without their "#".
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       const json = (v: unknown) => Promise.resolve(new Response(JSON.stringify(v), {status: 200, headers: {'Content-Type': 'application/json'}}));
       if (url.includes('/api/v1/users/alice/orgs/acme/permissions')) return json({is_owner: false, is_admin: false});
@@ -109,12 +103,10 @@ describe('labels and milestones', () => {
     const org = screen.getByRole('region', {name: 'Labels of acme'});
     expect(await within(org).findByText(/Managed by the owners and admins of acme/)).toBeTruthy();
     expect(within(org).queryByRole('button', {name: /Edit organization label/})).toBeNull();
-    // Counted in this repository, linked to its lists filtered by the label, like the repository's own.
     await waitFor(() => {
       expect(within(org).getByRole('link', {name: '1 open issue'}).getAttribute('href')).toBe('/acme/website/issues?labels=3');
     });
     expect(within(org).getByRole('link', {name: 'No open issues'}).getAttribute('href')).toBe('/acme/website/issues?labels=4');
-    // Their own colours (a filled pill, not the grey fallback chip), the scope shown.
     const urgent = within(org).getByText('priority/Urgent').closest<HTMLElement>('[data-size]');
     expect(urgent?.style.getPropertyValue('--label-r')).toBe('225');
     expect(urgent?.style.getPropertyValue('--label-g')).toBe('29');
@@ -160,7 +152,6 @@ describe('labels and milestones', () => {
       if (method === 'DELETE') return json({message: 'The label is in use.'}, 422);
       return json({message: 'not here'}, 404);
     }));
-    // The pool holds the new label once synced (the echoed sync id).
     s.data.whenSynced = () => {
       s.data.put('Label', 'repo:20', label(50, 'triage', {color: '#fbca04'}));
       return Promise.resolve();
@@ -175,12 +166,10 @@ describe('labels and milestones', () => {
     await waitFor(() => {
       expect(sent.find((r) => r.method === 'POST')?.body).toEqual({name: 'triage', color: '#fbca04', description: '', exclusive: false, is_archived: false});
     });
-    // Forgejo's label (id 50) in place of the optimistic one, never both.
     await waitFor(() => {
       expect(within(screen.getByRole('region', {name: 'Labels'})).getAllByRole('link').some((a) => a.getAttribute('href') === '/acme/website/issues?labels=50')).toBe(true);
     });
     expect(within(screen.getByRole('region', {name: 'Labels'})).getAllByText('triage')).toHaveLength(1);
-    // Deleting: gone at once, back when Forgejo refuses, with why.
     fireEvent.click(screen.getByRole('button', {name: 'Delete bug'}));
     fireEvent.click(await screen.findByRole('button', {name: 'Delete label'}));
     expect(within(screen.getByRole('region', {name: 'Labels'})).queryByText('Something is broken')).toBeNull();
@@ -202,7 +191,7 @@ describe('labels and milestones', () => {
     fireEvent.change(title, {target: {value: 'zz-verify-date'}});
     const due = screen.getByLabelText('Due date');
     expect(due.getAttribute('max')).toBe('9999-12-31');
-    // What Chromium's date field holds after "2026-11-02" is typed into its mm/dd/yyyy segments.
+    // Native date fields can produce five-digit years while editing segmented dates.
     fireEvent.change(due, {target: {value: '61102-02-02'}});
     fireEvent.click(screen.getByRole('button', {name: 'Create milestone'}));
     expect(due.getAttribute('aria-invalid')).toBe('true');

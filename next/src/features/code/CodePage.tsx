@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The code views of a repository (PLAN §5.7, §7.1 Code), one route
-// (`/{owner}/{repo}/*`, Forgejo's addresses; its own chunk): source (directories,
-// files, blame), history (commits, one commit), branches, tags, releases,
-// compare, a writer's release form, and Actions (runs, jobs, live logs). Every git read is addressed
-// by SHA and cached (code/source.ts); refs resolve from the synced branches
-// and tags, so what was seen once is there offline.
+// Git reads are cached by SHA; refs resolve from synced branches and tags for offline browsing.
 
 import {useNavigate, useParams} from '@tanstack/react-router';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -32,11 +27,9 @@ export interface CodeViewProps {
   owner: string;
   repo: string;
   repoId: number;
-  /** The code path (for the tabs). */
   splat: string;
 }
 
-/** The browser tab's name of a code view whose title is not plain text (a path breadcrumb, a ref switcher). */
 function viewName(splat: string): string {
   const r = parseCodePath(splat);
   switch (r?.view) {
@@ -49,14 +42,10 @@ function viewName(splat: string): string {
   }
 }
 
-/**
- * A code view's frame: the header (breadcrumb, the repository's tabs, the
- * view's title and controls) and the scroll container, which the body gets
- * (lists virtualize against it).
- */
+/** Children receive the scroll container to virtualize their lists. */
 export function CodeFrame({view, title, controls, docTitle, children}: {
   view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode;
-  /** The tab's title when the title is not text (a file's path: "internal/geo · acme/atlas"). */
+  /** Browser tab title when the visible title is not plain text. */
   docTitle?: string | undefined;
 }) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -69,10 +58,6 @@ export function CodeFrame({view, title, controls, docTitle, children}: {
   );
 }
 
-/**
- * The code route's page (`/{owner}/{repo}/…`): a code view, or — for another address of a repository the app has no
- * page for (`/acme/atlas/settings/units`) — the not-found page with the classic one.
- */
 export function CodePage() {
   const splat = codeRestOf(useParams({strict: false}));
   return parseCodePath(splat) || abbreviatedCommit(splat) ? <CodeViews/> : <ShellNotFound/>;
@@ -93,8 +78,6 @@ const CodeViews = observer(function CodeViews() {
   const props: CodeViewProps = {owner, repo, repoId, splat};
   const repoEmpty = pool.model('Repository').get(repoId)?.get('empty') === true;
   const route = parseCodePath(splat);
-  // A commit named by an abbreviation of its SHA (`commit/edac59f`, `src/commit/edac59f/…`): looked up, then the
-  // address with the full SHA.
   const short = abbreviatedCommit(splat);
   if (short) {
     return (
@@ -110,7 +93,7 @@ const CodeViews = observer(function CodeViews() {
       </CodeFrame>
     );
   }
-  // An empty repository: one state on every code tab (what to push), not "Branch or tag not found".
+  // Empty repositories need push instructions rather than a missing-ref error.
   if (repoEmpty && route.view !== 'actions' && route.view !== 'run' && route.view !== 'releases') {
     return <CodeFrame view={props} title="Code">{() => <EmptyRepo owner={owner} repo={repo} repoId={repoId}/>}</CodeFrame>;
   }
@@ -139,10 +122,7 @@ const CodeViews = observer(function CodeViews() {
   }
 });
 
-/**
- * A code address with an abbreviated commit SHA (`commit/edac59f0a3`): Forgejo is asked for the full SHA, and the
- * address becomes the one with it (replaced: Back does not return to the lookup). Offline, or no such commit: said.
- */
+/** Replace the abbreviated address so Back does not repeat the lookup. */
 function ShortCommit({owner, repo, repoId, abbreviation, full}: CodeViewProps & {abbreviation: string; full: (sha: string) => string}) {
   const src = useSource();
   const navigate = useNavigate();

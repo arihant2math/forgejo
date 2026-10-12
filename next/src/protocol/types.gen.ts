@@ -59,9 +59,6 @@ export const APIPrefix = "/-/sync/api";
  * CacheImmutable is the Cache-Control of the SHA-addressed responses.
  */
 export const CacheImmutable = "private, max-age=31536000, immutable";
-/**
- * APIError is the body of an error response.
- */
 export interface APIError {
   message: string;
 }
@@ -156,7 +153,7 @@ export interface APICard {
  * comment if its content_version (IssueBody.content_version,
  * Comment.content_version) is still ExpectedVersion. API v1 has no such
  * check (it overwrites whatever is there): offline edits need it to
- * merge (PLAN §5.4).
+ * merge.
  * Permission (as the classic UI): the poster, or a writer of the issues
  * (pull requests) unit; the repository must not be archived; only
  * comments with content (comment, code comment, review) can be edited
@@ -316,9 +313,6 @@ export interface APIBlame {
   uses_ignore_revs: boolean;
   faulty_ignore_revs_file: boolean;
 }
-/**
- * APIBlamePart is a run of lines of APIBlame.
- */
 export interface APIBlamePart {
   sha: string;
   start_line: number /* int */;
@@ -392,9 +386,6 @@ export interface APIContributors {
   total: APIWeek[];
   contributors: APIContributor[];
 }
-/**
- * APIContributor is an author of APIContributors.
- */
 export interface APIContributor {
   name: string;
   login: string;
@@ -548,7 +539,7 @@ export const TierSummary = "summary";
 export const TierClosed = "closed";
 /**
  * BootstrapHeader is the first line of a bootstrap or load response.
- * Bootstraps and partial loads (PLAN §4.7): GET /-/sync/bootstrap?group=…
+ * Bootstraps and partial loads: GET /-/sync/bootstrap?group=…
  * and GET /-/sync/load?group=… stream NDJSON, one JSON object per line:
  *  1. a BootstrapHeader (type "header");
  *  2. the entities, each a Change with op U (exactly as a delta carries it;
@@ -699,7 +690,7 @@ export interface BootstrapEnd {
 }
 /**
  * Workspace answers GET /-/sync/workspace: the groups the client should keep
- * subscribed and bootstrapped (available offline), PLAN §4.7: the viewer's
+ * subscribed and bootstrapped (available offline): the viewer's
  * own groups, the profile directories, their organizations, the
  * repositories they own, were given access to or watch — the repositories
  * ordered by recent activity and capped — and the groups of those
@@ -951,17 +942,10 @@ export interface RepoUnit {
 /**
  * Label is a repository label (group repo:{repo_id}, unit issues|pulls) or
  * an organization label (group owner:{org_id}).
- * An organization label carries what upstream shows of it to every reader
- * of the issues of one of the organization's repositories (the repository's
- * label page, the issue JSON): no issue counts and no updated_at. Its
- * num_issues / num_closed_issues are 0: the label's counters span all of
- * the organization's repositories, private ones included, and upstream shows
- * them only to the organization's owners (its label settings); updated_at
- * moves whenever those counters are recalculated, i.e. whenever an issue of
- * any of those repositories gets or loses the label. Count a repository's
+ * Organization labels omit updated_at and report zero issue counts: counters
+ * and their update times expose activity in private repositories, which
+ * upstream shows only to organization owners. Count the repository's
  * IssueLabel rows instead (upstream's per-repository NumOpenRepoIssues).
- * Schema 2 (B6 follow-up): updated_at optional, organization labels' counts
- * 0.
  */
 export interface Label {
   id: number /* int64 */;
@@ -1602,9 +1586,6 @@ export const LogClosedError = "error";
  * versioned per model (the Schema* constants, WelcomeMessage.Schemas).
  */
 export const ProtocolVersion = 1;
-/**
- * MessageType is the "type" of a protocol message.
- */
 export type MessageType = string;
 export const MsgHello: MessageType = "hello";
 export const MsgSubscribe: MessageType = "subscribe";
@@ -1835,7 +1816,7 @@ export interface CaughtUpMessage {
 /**
  * BootstrapRequiredMessage says that the client cannot get a group's
  * missing changes from the stream: it must drop what it holds of the group
- * and load it again (B6's bootstrap). The subscription stays: changes keep
+ * and bootstrap it again. The subscription stays: changes keep
  * arriving, and the bootstrap's watermark makes the overlap harmless.
  */
 export interface BootstrapRequiredMessage {
@@ -1860,7 +1841,7 @@ export const BootstrapCursorTrimmed = "cursor_trimmed";
 export const BootstrapReplayTooLong = "replay_too_long";
 /**
  * BootstrapPermissionChanged: the viewer's units in the group changed;
- * what they may read of it is no longer what they hold. Not sent again
+ * the readable scope differs from what they hold. Not sent again
  * on resume: see GroupRequest.
  */
 export const BootstrapPermissionChanged = "permission_changed";
@@ -1872,7 +1853,7 @@ export const BootstrapPermissionChanged = "permission_changed";
  */
 export const BootstrapCursorUnknown = "cursor_unknown";
 /**
- * GroupRevokedMessage says that the viewer may no longer read a group: the
+ * GroupRevokedMessage says that the viewer cannot read a group: the
  * subscription is gone and the client must purge the group's entities.
  */
 export interface GroupRevokedMessage {
@@ -1890,16 +1871,13 @@ export interface BarrierOKMessage {
 }
 /**
  * SessionInvalidMessage says that the token is invalid, expired or revoked,
- * or that the account may no longer sign in; the server closes the session.
+ * or that the account cannot sign in; the server closes the session.
  * The client should get a new token (or sign in again) and reconnect.
  */
 export interface SessionInvalidMessage {
   type: 'session_invalid';
   message: string;
 }
-/**
- * NoticeMessage informs the client about the server.
- */
 export interface NoticeMessage {
   type: 'notice';
   kind: NoticeKind;
@@ -1926,7 +1904,7 @@ export interface PongMessage {
  * GrantsMessage tells the client that the viewer's implicit grants
  * (WelcomeMessage.Grants) changed, e.g. after they were made a
  * collaborator: the workspace may subscribe the new groups. Groups that
- * are no longer readable are revoked separately (GroupRevokedMessage).
+ * are unreadable are revoked separately (GroupRevokedMessage).
  */
 export interface GrantsMessage {
   type: 'grants';
@@ -2138,18 +2116,10 @@ export const RUMConflictDiscarded: RUMEvent = "conflictDiscarded";
 //////////
 // source: protocol.go
 /*
-Package protocol defines livesync's wire types (PLAN §4.4, §4.6): the
-normalized, viewer-independent entity DTOs the materializer writes to the
-sync log, the sync group names and the units that gate repository-scoped
-entities. The TypeScript client's types are generated from this package
-(next/tools/gen-protocol.sh → next/src/protocol/types.gen.ts); keep it free
-of anything tygo cannot translate (functions are ignored by tygo, so only
-put small, pure helpers here).
-
-Conventions: JSON field names follow API v1 (snake_case, the same name as
-the corresponding API v1 field where one exists); references to other
-entities are ids (normalized, never embedded objects); times are RFC 3339
-strings in UTC; optional times are omitted when unset.
+Package protocol defines viewer-independent sync DTOs, groups and access units.
+Keep types tygo-translatable for next/tools/gen-protocol.sh; helpers stay pure.
+JSON names follow API v1 snake_case; references are ids, not embedded entities.
+Times are UTC RFC 3339 strings; unset optional times are omitted.
 */
 
 /**
@@ -2219,14 +2189,14 @@ export const SchemaIssue = 1;
 export const SchemaIssueBody = 1;
 export const SchemaIssueLabel = 1;
 export const SchemaIssueAssignee = 1;
-export const SchemaPullRequest = 2; // 2: status in lower case, as documented (1 sent Go's upper-case names)
+export const SchemaPullRequest = 2;
 export const SchemaAutoMerge = 1;
 export const SchemaBranch = 1;
 export const SchemaRelease = 1;
 export const SchemaCommitStatus = 1;
 export const SchemaActionRun = 1;
 export const SchemaActionRunJob = 1;
-export const SchemaNotification = 2; // 2: actor_id
+export const SchemaNotification = 2;
 export const SchemaStopwatch = 1;
 export const SchemaIssueWatch = 1;
 export const SchemaWatch = 1;
@@ -2267,7 +2237,7 @@ export const OpDelete: Op = "D";
 export const OpRebootstrap: Op = "B";
 /**
  * OpPermission: who may read what may have changed (a permission
- * epoch, PLAN §4.5). Written to GroupPermission with entity id 0 and a
+ * epoch). Written to GroupPermission with entity id 0 and a
  * PermissionChange payload, before the entries of the same transaction.
  * Never sent to clients: the hub recomputes the grants of the affected
  * viewers and re-checks the affected groups' subscribers.
@@ -2356,7 +2326,7 @@ export const GroupProfilesLimited = GroupPrefixProfiles + ":limited";
  * GroupAll is the pseudo group of the entries that concern every client: the
  * schema epoch markers (OpRebootstrap), which carry no entity data. Readers
  * of a group always receive GroupAll entries too. Nothing else is written to
- * it (PLAN §4.5: nothing is broadcast instance-wide).
+ * it: entity data is never broadcast instance-wide.
  */
 export const GroupAll = "*";
 /**
@@ -2368,7 +2338,7 @@ export const GroupPermission = "!perm";
 /**
  * Unit is what a reader of a group needs (livesync_log.unit) to receive an
  * entity of it. In repo:{id} and issue:{id} groups it is a repository unit,
- * checked with Permission.CanRead(unit) (PLAN §4.4); several alternatives are
+ * checked with Permission.CanRead(unit); several alternatives are
  * separated by "|" (the entity is visible with any of them), and the same
  * names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
  * UnitSelf (that user only; nobody else is granted the group anyway); in

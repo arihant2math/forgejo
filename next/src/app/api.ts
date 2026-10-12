@@ -1,11 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Online-only requests (PLAN §5.4: never queued — board columns, markdown
-// previews, the server's search): API v1 or livesync's gap endpoints (B9),
-// with the session's token, an Idempotency-Key on writes, no redirects
-// (the token never follows one) and a timeout. Offline-capable writes are
-// intents (src/intents), never this.
+// Online-only requests use the session token, write idempotency keys and a timeout.
+// Redirects are forbidden so the token cannot follow them. Offline-capable writes use intents.
 
 import {uuid} from '../intents/intents.ts';
 import {APIPrefix, HeaderIdempotencyKey, HeaderSyncID} from '../protocol/types.gen.ts';
@@ -18,19 +15,14 @@ export interface OnlineRequest {
   api: 'v1' | 'sync';
   path: string;
   body?: unknown;
-  /**
-   * A multipart body instead (a file upload: a release's asset). Sent without an Idempotency-Key: B7 buffers a
-   * keyed body (16 MiB at most), and a file can be larger.
-   */
+  /** No Idempotency-Key: keyed bodies are buffered up to 16 MiB, but uploads can be larger. */
   form?: FormData | undefined;
   signal?: AbortSignal | undefined;
   timeout?: number;
 }
 
-/** A refusal's message when Forgejo gave none. */
 const answered = (status: number) => `Forgejo answered ${String(status)}.`;
 
-/** A request that failed: the server's message when it gave one. */
 export class RequestFailed extends Error {
   override name = 'RequestFailed';
   readonly status: number;
@@ -45,17 +37,14 @@ export async function online<T = unknown>(app: App, req: OnlineRequest): Promise
   return (await send<T>(app, req)).value;
 }
 
-/** A write's answer and the sync log position that holds it (X-Livesync-Sync-Id, PLAN §4.8), when the server gave one. */
+/** A write's response and its X-Livesync-Sync-Id position, when provided. */
 export interface Written<T> {
   totalCount: number | undefined;
   value: T | undefined;
   syncId: number | undefined;
 }
 
-/**
- * An online write that the page goes on from once the pool holds it (a created pull request's page): its answer
- * with the echoed sync id, for Data.whenSynced. Throws RequestFailed.
- */
+/** Returns the echoed sync id for Data.whenSynced; throws RequestFailed. */
 export function onlineWrite<T = unknown>(app: App, req: OnlineRequest): Promise<Written<T>> {
   return send<T>(app, req);
 }
@@ -74,7 +63,7 @@ export async function send<T>(app: App, req: OnlineRequest): Promise<Written<T>>
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',
         ...(method === 'GET' || req.form ? {} : {[HeaderIdempotencyKey]: uuid()}),
-        // A form's type (multipart, with its boundary) is the browser's.
+        // Let the browser set the multipart boundary.
         ...(body === undefined || req.form ? {} : {'Content-Type': 'application/json'}),
       },
       ...(body === undefined ? {} : {body}),
@@ -109,16 +98,11 @@ export function refused(err: unknown): boolean {
   return err instanceof RequestFailed && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
 }
 
-/**
- * Why an online action failed, for people: Forgejo's message when it is one (short, no internal addresses or
- * stack: a failed hook prints sockets and URLs), else what happened in general. The whole message goes to the
- * console for whoever needs it.
- */
+/** User-facing failure text omits internal addresses and stacks; full details go to the console. */
 export function failureText(err: unknown): string {
   const status = err instanceof RequestFailed ? err.status : 0;
   const raw = err instanceof Error ? err.message.trim() : '';
-  // send() names the status when Forgejo gave no message ("Forgejo answered 405."): that is no reason, so the
-  // sentence for the status says what to do instead.
+  // A status-only fallback carries no server reason; use the actionable status message.
   const said = err instanceof RequestFailed && raw === answered(status) ? '' : raw;
   if (/not allowed to merge|not in mergeable state|User not allowed to merge PR/i.test(said)) {
     if (/enough approvals/i.test(said)) return 'More approvals are required before this pull request can be merged.';

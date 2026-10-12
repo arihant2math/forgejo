@@ -1,13 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Branches, tags and releases: synced entities (Branch, Release) read from
-// the pool — complete offline, updated live. Release notes are the server's
-// rendered markdown (body_html) through the Trusted Types gate. Writers
-// create and delete branches and tags here (RefDialogs.tsx), and make, edit,
-// publish and delete releases (ReleaseForm.tsx); their draft releases, which
-// are not synced (B3), come from API v1 (refOps.ts drafts). Every write is
-// online only.
+// Draft releases are not synced; fetch them via API v1. Writes are online-only.
+// Server-rendered release notes pass through the Trusted Types gate.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {Heading, Text} from '@primer/react';
@@ -47,7 +42,6 @@ import {Tooltip} from '@primer/react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
-/** Stops a row's click (it opens the row) at the controls inside it. */
 function RowControls({children, wide = false}: {children: ReactNode; wide?: boolean}) {
   return (
     <span className={wide ? 'flex w-44 items-center justify-end gap-1' : 'flex items-center gap-1'} onClick={(e) => {
@@ -56,7 +50,6 @@ function RowControls({children, wide = false}: {children: ReactNode; wide?: bool
   );
 }
 
-/** A writer's delete button in a row: disabled, and saying why, when the write cannot happen now. */
 function RowDelete({name, block, onDelete}: {name: string; block: string | undefined; onDelete: () => void}) {
   return (
     <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={block ? `Delete ${name}: ${block}` : `Delete ${name}`} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
@@ -77,10 +70,8 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   const branches = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted)
     .sort((a, b) => Number(b.name === def) - Number(a.name === def) || b.commit_time.localeCompare(a.commit_time));
   const defSha = branches.find((b) => b.name === def)?.commit_id;
-  // A fork's branches are proposed to its upstream (as GitHub's and classic Forgejo's forks do).
   const up = useUpstream(props.owner, props.repo, props.repoId);
   const parentId = pool.model('Repository').get(props.repoId)?.get('parent_id') ?? 0;
-  // Each branch's pull request (the open one, else the latest merged one) from this repository, into it or its upstream.
   const prOf = new Map<string, {pr: PullRequest; open: boolean}>();
   for (const e of pool.model('PullRequest').all()) {
     const p = e.data;
@@ -139,17 +130,12 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   );
 });
 
-/**
- * A branch's way to a new pull request: its comparison with the default branch (a fork's: with its upstream's), the
- * form open (`?expand=1`).
- */
 function NewPullLink({owner, repo, base, head, tooltip}: {owner: string; repo: string; base: string; head: string; tooltip?: string}) {
   return (
     <Tooltip text={tooltip ?? ''}><RouterLinkButton variant="invisible" size="small" leadingVisual={GitPullRequestIcon} {...codeTo(owner, repo, compareSplat(base, head))} search={{expand: '1'} as never}>New pull request</RouterLinkButton></Tooltip>
   );
 }
 
-/** A branch's pull request: open (a link to it), or merged (marked). */
 const BranchPull = observer(function BranchPull({owner, repo, pr}: {owner: string; repo: string; pr: PullRequest}) {
   return (
     <span className="flex items-center gap-1" onClick={(e) => {
@@ -161,10 +147,7 @@ const BranchPull = observer(function BranchPull({owner, repo, pr}: {owner: strin
   );
 });
 
-/**
- * How far a branch is from the default one: commits ahead and behind (two comparisons, cached by commit; asked for
- * the rows in view only, as the list is virtualized). Nothing until both are known.
- */
+/** Load divergence only for visible rows; comparisons are cached by commit. */
 const Divergence = observer(function Divergence({repoId, base, head, baseName}: {repoId: number; base: string; head: string; baseName: string}) {
   const src = useSource();
   const ahead = useLoad(`ahead:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, base, head)).total);
@@ -198,7 +181,6 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
               trailing: <>
                 <span className="font-mono">{shortSha(t.sha)}</span><time className="w-12 text-right" dateTime={t.created_at} title={fullDate(t.created_at)}>{ago(t.created_at)}</time>
                 {(def || writer) && <RowControls>
-                  {/* What the default branch has gained since the tag ("previous tag vs main"). */}
                   {def && <Tooltip text={`What ${def} has that ${t.tag_name} lacks`}><RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(props.owner, props.repo, compareSplat(t.tag_name, def))} aria-label={`Compare ${t.tag_name} with ${def}`}>Compare</RouterLinkButton></Tooltip>}
                   {writer && <RowDelete name={t.tag_name} block={block} onDelete={() => {
                     setDialog({kind: 'delete', name: t.tag_name, hasRelease: !t.is_tag});
@@ -219,7 +201,6 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   );
 });
 
-/** A writer's way to what the app does not do here (re-run a workflow), on the classic page of the same list. */
 export const RepoClassic = observer(function RepoClassic({owner, repo, repoId, path, children}: CodeViewProps & {path: string; children: string}) {
   if (!canWrite(useSession(), repoId)) return null;
   return <ClassicLink size="small" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`}>{children}</ClassicLink>;
@@ -231,7 +212,6 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   const session = useSession();
   const writer = canWrite(session, props.repoId);
   const store = drafts(app);
-  // A writer's drafts: API v1's (not synced), the device's copy first.
   useEffect(() => {
     const r = writer ? repoRef(session, props.repoId) : undefined;
     if (r) void store.load(r);
@@ -239,15 +219,14 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   const slot: DraftSlot | undefined = writer ? store.slot(props.repoId) : undefined;
   const all = [...pool.model('Release').by('repo_id', props.repoId)].map((r) => r.data);
   const releases = all.filter((r) => !r.is_tag && !r.draft).sort((a, b) => b.created_at.localeCompare(a.created_at));
-  // The same "Latest" as the repository's overview (the newest release that is not a pre-release).
   const latest = releaseSummary(all).latest?.id;
-  // A draft published elsewhere is in the pool before the drafts are asked for again.
+  // A published draft may reach the pool before the draft list refreshes.
   const shownDrafts = (slot?.state === 'ready' ? slot.list : []).filter((d) => !releases.some((r) => r.id === d.id));
   const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small" leadingVisual={PlusIcon}>New release</RouterLinkButton>;
   return (
     <CodeFrame view={props} title="Releases" controls={writer && newRelease}>
       {() => (releases.length || shownDrafts.length ?
-        // Not virtualized (each release's notes have their own height): off-screen ones are not rendered.
+        // Variable-height release notes use lazy rendering rather than row virtualization.
         <PageColumn wide>
           {shownDrafts.length > 0 && (
             <section aria-label="Drafts">{shownDrafts.map((d) => <DraftItem key={d.id} owner={props.owner} repo={props.repo} repoId={props.repoId} d={d}/>)}</section>
@@ -259,7 +238,6 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   );
 });
 
-/** Publishes a draft, or sets a release back to draft; the pool (and the drafts) show it when the notice comes. */
 function usePublish(repoId: number) {
   const app = useApp();
   const session = useSession();
@@ -280,7 +258,6 @@ function usePublish(repoId: number) {
   return {busy, run};
 }
 
-/** Asks before a release is deleted (its tag stays). */
 function DeleteReleaseDialog({repoId, id, name, draft, onClose}: {repoId: number; id: number; name: string; draft: boolean; onClose: () => void}) {
   const app = useApp();
   const session = useSession();
@@ -296,14 +273,12 @@ function DeleteReleaseDialog({repoId, id, name, draft, onClose}: {repoId: number
   );
 }
 
-/** A writer's draft: its title and tag, notes (rendered online), assets; edit, publish, delete. */
 const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: string; repo: string; repoId: number; d: DraftRelease}) {
   const block = useWriteBlock(repoId, 'Publishing a release', false);
   const publish = usePublish(repoId);
   const [deleting, setDeleting] = useState(false);
   const name = d.name || d.tag_name;
   const refs = refTable(usePool(), repoId);
-  // Where its tag will be: an existing tag stays where it is, a new one is made at the target when published.
   const tagged = refs.tags.get(d.tag_name);
   const target = releaseTarget(d.target_commitish || refs.defaultBranch, refs);
   const at = tagged ?? targetCommit(target, refs);
@@ -348,7 +323,7 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
   );
 });
 
-/** Which commit a draft's tag will name: an existing tag's, or its target's (a branch's moves until it is published). */
+/** An existing tag stays fixed; a target branch can move until publication. */
 function DraftTarget({tagged, target, at}: {tagged: boolean; target: RefChoice; at: string | undefined}) {
   const sha = at ? <span className="font-mono" title={at}>{shortSha(at)}</span> : undefined;
   if (tagged) return <span>existing tag{sha && <> at {sha}</>}</span>;
@@ -361,7 +336,6 @@ function DraftTarget({tagged, target, at}: {tagged: boolean; target: RefChoice; 
   );
 }
 
-/** A published release's writer controls: edit, back to draft, delete, its classic page. */
 const ReleaseControls = observer(function ReleaseControls({owner, repo, r}: {owner: string; repo: string; r: Release}) {
   const block = useWriteBlock(r.repo_id, 'Changing a release', false);
   const publish = usePublish(r.repo_id);
@@ -387,10 +361,6 @@ const ReleaseControls = observer(function ReleaseControls({owner, repo, r}: {own
   );
 });
 
-/**
- * A release: its notes, its assets (size, downloads), the source archives, the changes since `previous` and what its
- * branch has gained since. `latest`: the repository's latest release (as its overview marks it).
- */
 const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, writer, latest}: {
   owner: string; repo: string; r: Release; previous: string | undefined; writer: boolean; latest: boolean;
 }) {
@@ -444,9 +414,8 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
   );
 });
 
-/** Whether an element has come into view (once): what is below the fold asks for nothing until it is scrolled to. */
+/** Defer requests below the fold until the element has been visible once. */
 function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {
-  // Without IntersectionObserver (old browsers, tests): seen at once.
   const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
   const [el, setEl] = useState<T | null>(null);
   useEffect(() => {
@@ -462,10 +431,6 @@ function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {
   return [seen, setEl];
 }
 
-/**
- * "N commits to main since this release" (classic's TargetBehind): the comparison of the release's tag with the
- * branch it was made from (else the default branch), counted once the release is in view (cached by commit).
- */
 const SinceRelease = observer(function SinceRelease({owner, repo, r}: {owner: string; repo: string; r: Release}) {
   const pool = usePool();
   const src = useSource();

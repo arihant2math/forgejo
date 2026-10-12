@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The headless conformance suite (B10, PLAN Phase 1 exit): Node, one file at
-// a time in name order (the files share one server; 7-restart.test.ts kills
-// and restarts it), against FORGEJO_URL. `npm run test:conformance` from
-// next/; `next/tools/dev-forgejo.sh conformance all` starts Forgejo on
-// PostgreSQL and on MySQL and runs it against each.
+// Run files serially in name order: they share a server, and the restart test kills it.
 
 import {fileURLToPath} from 'node:url';
 import {BaseSequencer, type TestSpecification} from 'vitest/node';
@@ -18,7 +14,6 @@ class ByName extends BaseSequencer {
 }
 
 export default defineConfig({
-  // Vitest's cache next to the other projects' (the root is this directory).
   cacheDir: fileURLToPath(new URL('../node_modules/.vite', import.meta.url)),
   test: {
     name: 'conformance',

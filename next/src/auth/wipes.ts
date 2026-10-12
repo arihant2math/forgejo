@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The users whose local data a sign-out started to wipe (localStorage), so an
-// interrupted wipe finishes at the next boot (signout.ts resumeWipes).
+// Persist unfinished wipes so interrupted sign-outs resume at boot.
 
 const WIPES = 'forgejo-next:wipe';
 
@@ -29,7 +28,7 @@ export function listWipe(userId: number): void {
   writeWipes([...new Set([...readWipes(), userId])]);
 }
 
-/** The user signed in again: their data is theirs again, never wiped by an old listing. */
+/** Cancels a pending wipe when the user signs in again. */
 export function unlistWipe(userId: number): void {
   writeWipes(readWipes().filter((id) => id !== userId));
 }

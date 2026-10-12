@@ -11,7 +11,7 @@ import {CodeSource} from '../../code/source.ts';
 import type {Branch, NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 
-// Pointing at a graph's page warms its statistics; nothing here should reach the network.
+// Hover prefetch must not reach the network in these tests.
 vi.spyOn(CodeSource.prototype, 'contributors').mockImplementation(() => new Promise(() => undefined));
 vi.spyOn(CodeSource.prototype, 'commitActivity').mockImplementation(() => new Promise(() => undefined));
 
@@ -50,7 +50,6 @@ async function renderActivity(path: string) {
   return screen.findByRole('navigation', {name: 'Activity pages'});
 }
 
-/** The octicon a side list link leads with (its octicon-* class), and whether it is only decoration. */
 function leadingIcon(link: HTMLElement): {icon: string | undefined; hidden: boolean} {
   const svg = link.querySelector('svg');
   return {
@@ -60,7 +59,6 @@ function leadingIcon(link: HTMLElement): {icon: string | undefined; hidden: bool
 }
 
 describe('the activity side list', () => {
-  // #289: Code frequency and Recent commits both led with the commit octicon.
   test.each([
     ['/acme/website/activity', 'Pulse'],
     ['/acme/website/activity/code-frequency', 'Code frequency'],

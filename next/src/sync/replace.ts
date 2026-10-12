@@ -1,28 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Bootstrap replacement (protocol.BootstrapHeader, "Replacement"): once a
-// response's end line arrived, drop every entity of the group within the
-// response's scope with v at or below the watermark that the response did
-// not contain. The scope rules are the server's contract, implemented here
-// exactly (B6 notes, review round 1 item 3):
-//
-//   * full / summary: the whole group (only the header's models when it lists
-//     some), except what the tier leaves out and cannot send again —
-//       - summary: the closed tier (Issues held as closed with updated_at
-//         before closed_before and their IssueLabel / IssueAssignee /
-//         ProjectIssue / PullRequest, the AutoMerge of such a PullRequest)
-//         and CommitStatus / ActionRun / ActionRunJob with updated_at before
-//         closed_before;
-//       - user:{id} (closed_before set): Notifications held as read with
-//         updated_at before closed_before;
-//     — unless the header's units differ from the units the group was held
-//     with: then the scope is the whole group.
-//   * closed page: Issues held as closed (before the summary's cutoff) whose
-//     (updated_at, id) is below the page's `before` and at or above `next`,
-//     what hangs off them, and what hangs off the page's own Issues.
-//
-// Decided on the entities as held after the response's lines were applied.
+// After a complete response, evict absent in-scope entities at or below its watermark.
+// Tier scope excludes old closed issues and their children, aged CI rows, and old read notifications;
+// changed units force whole-group replacement. Closed pages replace only their cursor range and children.
+// Scope is evaluated against held state after applying response lines.
 
 import type {Entity} from '../data/entity.ts';
 import type {ModelName} from '../data/models.ts';
@@ -75,10 +57,7 @@ export interface ReplaceInput {
   summaryClosedBefore?: number | undefined;
 }
 
-/**
- * Applies the replacement and sets the group's floor (Pool.setFloor) for a
- * full or summary response; returns the number of entities dropped.
- */
+/** Replaces the response scope, setting a floor for full/summary loads; returns evictions. */
 export function replaceGroup(pool: Pool, input: ReplaceInput): number {
   const {group, header, received} = input;
   const w = header.watermark;
@@ -158,7 +137,6 @@ function scopeOf(held: Entity[], input: ReplaceInput, models: Set<string> | unde
   const cutoff = header.closed_before;
   const unitsChanged = input.heldUnits !== undefined && !sameUnits(input.heldUnits, header.units);
   if (cutoff === undefined || unitsChanged) return modelOK;
-  // The closed tier held: kept as the deltas left it.
   const closed = new Set<number>();
   for (const e of held) {
     if (e.model !== 'Issue') continue;
@@ -176,7 +154,6 @@ function scopeOf(held: Entity[], input: ReplaceInput, models: Set<string> | unde
   };
 }
 
-/** The ids of the PullRequests (held in the group) of these issues. */
 function pullsOf(held: Entity[], issues: ReadonlySet<number>): Set<number> {
   const out = new Set<number>();
   for (const e of held) {

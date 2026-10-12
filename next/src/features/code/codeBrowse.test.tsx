@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code views in the app against a stubbed Forgejo: a history whose request drops is asked again (#196), a short
-// commit SHA resolves to the full one (#186), blame leads to the blame before a change (#187), and Raw follows the
-// branch viewed (#162).
-
 import {createMemoryHistory} from '@tanstack/react-router';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
@@ -52,7 +48,6 @@ const apiCommit = (sha: string, message: string) => ({
   sha, commit: {message, author: {name: 'Dan', email: 'dan@example.com', date: T}}, author: {login: 'dan', avatar_url: ''}, parents: [],
 });
 
-/** Forgejo: `answer` per request URL (undefined: 404); a thrown error is a request that never got an answer. */
 function stubForgejo(answer: (url: string) => {status: number; json?: unknown; text?: string} | undefined) {
   const fetch = vi.fn((url: string) => {
     const a = answer(url) ?? {status: 404, json: {message: 'not here'}};
@@ -70,7 +65,7 @@ async function open(path: string) {
   return router;
 }
 
-// The history is asked again after a pause, and its page loads cold: on a loaded machine longer than 5 s (#288).
+// Auto-retry plus cold page loading can exceed the default timeout under load.
 test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', {timeout: 30_000}, async () => {
   let drop = 1;
   const fetch = stubForgejo((url) => {
@@ -109,7 +104,6 @@ test('a short commit SHA opens the commit at its full SHA (#186)', async () => {
   await waitFor(() => {
     expect(router.state.location.pathname).toBe(`/alice/website/commit/${FULL}`);
   });
-  // The same for a file at a short SHA (its line kept).
   router.history.push('/alice/website/src/commit/abc1234567/README.md#L3');
   await waitFor(() => {
     expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${FULL}/README.md`);
@@ -143,14 +137,12 @@ test('blame links each change to the blame before it, and Raw follows the branch
   });
   await open('/alice/website/blame/branch/main/config.go');
   const prior = await screen.findByRole('link', {name: 'Blame prior to this change'}, {timeout: 3000});
-  // The file by its name at the parent (it was renamed by the change).
+  // Prior blame must use the path at the parent commit when a file is renamed.
   expect(prior.getAttribute('href')).toBe(`/alice/website/blame/commit/${OLDER}/conf.go`);
-  // The first commit has no earlier one: one such link.
   expect(screen.getAllByRole('link', {name: 'Blame prior to this change'})).toHaveLength(1);
   expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('href')).toBe('/alice/website/raw/branch/main/config.go');
 });
 
-/** A 20-line config.go at main's head (the tree and the blob), and code search answers for `zoom` (#246). */
 function fileServer(url: string): {status: number; json?: unknown; text?: string} | undefined {
   if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'config.go', type: 'blob', mode: '100644', sha: BLOB, size: 400}]}};
   if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: Array.from({length: 20}, (_, i) => (i === 16 ? '\treturn Config{MaxZoom: 16}' : `// line ${String(i + 1)}`)).join('\n')};
@@ -206,12 +198,10 @@ test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)
   stubForgejo(fileServer);
   const router = await open(`/alice/website/src/commit/${MAIN}/config.go#L17`);
   await linkedLine(17);
-  // No redirect on the way: the address is the code page's own, with its anchor.
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
   expect(document.getElementById('L16')?.hasAttribute('data-linked')).toBe(false);
   cleanup();
-  // The same on a branch's address.
   const branch = await open('/alice/website/src/branch/main/config.go#L17');
   await linkedLine(17);
   expect(branch.state.location.hash).toBe('L17');

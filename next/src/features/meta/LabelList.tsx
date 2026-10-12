@@ -4,7 +4,6 @@ import type {ReactNode} from 'react';
 import {Text} from '@primer/react';
 import {ClockIcon} from '@primer/octicons-react';
 
-/** Label and milestone list layout, including non-navigational rows and usage links. */
 export function MetadataSection({label, title, actions, children}: {label: string; title: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return <section aria-label={label} className="rounded-md border border-default">
     <header className="flex flex-wrap items-center justify-between gap-2 border-b border-default rounded-t-md bg-muted px-4 py-2">

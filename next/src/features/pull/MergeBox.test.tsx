@@ -39,14 +39,12 @@ function check(extra: Partial<APIMergeCheck> = {}): APIMergeCheck {
   return {mergeable: true, allow_merge: true, head_repo: 'acme/website', head_branch_exists: true, branch_deletable: true, ...extra};
 }
 
-/** The pull request page's merge box for acme/website#7, with Forgejo answering the merge check with `answer`. */
 function setup(opts: {pr?: Partial<PullRequest>; title?: string; state?: string; answer?: APIMergeCheck; unit?: Record<string, unknown>; statuses?: Partial<CommitStatus>[]; runs?: Partial<ActionRun>[]} = {}) {
   const s = fakeSession();
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
   s.data.put('User', 'profile:1', me);
   s.data.put('User', 'org:2', acme);
-  // alice administers acme/website (a writer here: the server decides what protection allows, not this).
   s.data.put('Repository', 'repo:20', repo(20, acme, 'website'));
   s.data.put('Access', 'user:1', {id: 1, user_id: 1, repo_id: 20, permission: 'write'} as never);
   s.data.put('Issue', 'repo:20', issue(100, 20, 7, opts.title ?? 'Add the footer', {is_pull: true, state: opts.state ?? 'open', poster_id: 3}));

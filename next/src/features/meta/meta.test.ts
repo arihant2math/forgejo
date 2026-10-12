@@ -37,13 +37,11 @@ describe('counts', () => {
   });
 
   test('a milestone\'s progress: open from here, closed from the server\'s total', () => {
-    // In step with the server.
     expect(milestoneProgress({open_issues: 2, closed_issues: 6}, {open: 2, closed: 1})).toEqual({open: 2, closed: 6, total: 8, percent: 75});
     // Closed here, not synced yet: it moves from open to closed at once.
     expect(milestoneProgress({open_issues: 2, closed_issues: 6}, {open: 1, closed: 2})).toEqual({open: 1, closed: 7, total: 8, percent: 87});
     // The server lags a delta: never fewer closed than held here.
     expect(milestoneProgress({open_issues: 0, closed_issues: 0}, {open: 1, closed: 2})).toEqual({open: 1, closed: 2, total: 3, percent: 66});
-    // None of its issues here yet: the server's counts.
     expect(milestoneProgress({open_issues: 3, closed_issues: 1}, undefined)).toEqual({open: 3, closed: 1, total: 4, percent: 25});
     expect(milestoneProgress({open_issues: 0, closed_issues: 0}, undefined)).toEqual({open: 0, closed: 0, total: 0, percent: 0});
   });
@@ -154,11 +152,9 @@ describe('milestones', () => {
     expect(dateField('2026-10-31T23:59:59Z')).toBe('2026-10-31');
     expect(dateField(undefined)).toBe('');
     expect(dueOnOf('2026-10-31')).toBe('2026-10-31T23:59:59Z');
-    // Clearing it: Forgejo's "no deadline" (its year is 9999 in every time zone).
     expect(dueOnOf('')).toBe('9999-12-31T12:00:00Z');
     expect(milestoneProblems({title: ' ', description: '', due: ''})).toEqual({title: 'A milestone needs a title.'});
     expect(milestoneProblems({title: 'v3', description: '', due: '2026-10-31'})).toEqual({});
-    // A date's problem is the date field's, never the title's (a date field lets a year of 5 digits through).
     for (const due of ['2026-1-1', '2026-02-30']) expect(milestoneProblems({title: 'v3', description: '', due}), due).toEqual({due: 'Not a valid date.'});
     expect(milestoneProblems({title: 'v3', description: '', due: '61102-02-02'})).toEqual({due: 'The year needs four digits.'});
     expect(milestoneProblems({title: '', description: '', due: '61102-02-02'})).toEqual({title: 'A milestone needs a title.', due: 'The year needs four digits.'});

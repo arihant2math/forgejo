@@ -39,8 +39,7 @@ export default defineConfig({
         test: {
           name: 'unit-dom',
           environment: 'jsdom',
-          // Primer announces through @primer/live-region-element, whose Node build (what Vitest would resolve)
-          // never defines the <live-region> element: the browser build does, and jsdom runs it.
+          // Primer's Node live-region build never defines the element; jsdom needs the browser build.
           alias: {'@primer/live-region-element': fileURLToPath(new URL('node_modules/@primer/live-region-element/dist/esm/index.js', import.meta.url))},
           maxWorkers: 4,
           include: domTests,
@@ -48,8 +47,6 @@ export default defineConfig({
         },
       },
       {
-        // The data layer against a real Forgejo (NEXT_FORGEJO_URL; skipped
-        // without it), in Node: its own fetch, WebSocket and streams.
         extends: true,
         test: {
           name: 'integration',

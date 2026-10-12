@@ -17,7 +17,6 @@ afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 
 const repoRow = (id: number, owner: string, name: string, updated: string) => ({id, name, owner: {login: owner}, description: '', private: false, fork: false, archived: false, updated_at: updated});
 
-/** alice (the viewer), acme (an organization she owns); `answer` overrides API v1's answers by path. */
 function setup(path: string, answer: (method: string, path: string) => unknown = () => undefined) {
   const s = fakeSession();
   s.data.put('User', 'profile:1', user(1, 'alice'));
@@ -45,7 +44,6 @@ function setup(path: string, answer: (method: string, path: string) => unknown =
 test('a tab parameter picks the section the owner has, its first one otherwise', () => {
   expect(ownerTab('stars', false, false)).toBe('stars');
   expect(ownerTab('watching', false, true)).toBe('watching');
-  // Only the viewer's own watched repositories.
   expect(ownerTab('watching', false, false)).toBe('overview');
   expect(ownerTab(undefined, false, true)).toBe('overview');
   expect(ownerTab('teams', true, false)).toBe('teams');
@@ -64,11 +62,9 @@ test('the Stars tab is its own address, most recently starred first, its times l
   expect(stars.getAttribute('href')).toBe('/alice?tab=stars');
   expect(within(tabs).getByRole('link', {name: 'Overview'}).getAttribute('href')).toBe('/alice');
   expect(within(panel).getByText('Most recently starred first.')).toBeTruthy();
-  // Forgejo's order is kept.
   await within(panel).findByText('acme/atlas');
   expect(within(panel).getAllByRole('link').map((a) => a.textContent?.replace(/Updated.*/, ''))).toEqual(['acme/atlas', 'openlab/notes']);
   expect(panel.textContent.match(/Updated /g)).toHaveLength(2);
-  // Another tab is another address.
   fireEvent.click(within(tabs).getByRole('link', {name: 'Repositories'}));
   await waitFor(() => { expect(router.state.location.search).toEqual({tab: 'repositories'}); });
   expect(await screen.findByRole('region', {name: 'Repositories'})).toBeTruthy();

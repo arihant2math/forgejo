@@ -1,17 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What the UI shows of an issue: the pool's server state with the overlay's
-// optimistic overrides on top. Every reader of a field an intent can change
-// goes through these, so a row, the detail view and the pickers agree.
-//
-// Inside a reaction each accessor observes exactly what it combines — the
-// issue's field (or the issue's set in the pool's index) and the overlay's
-// override of it — so one change re-renders the cells that show it.
-//
-// Rebase (PLAN §5.4): a delta changes the server value under an override;
-// the override keeps showing (no flicker) until its intent is confirmed or
-// fails, and sets show the other members' changes at once (they commute).
+// All intent-editable reads combine server state with pending overlays so every view agrees.
+// Observe only the fields/sets combined; keep overrides until confirmation to avoid flicker.
 
 import {PROJECT_FIELD} from './intents.ts';
 import {untracked} from 'mobx';
@@ -51,11 +42,7 @@ export function issueLocked(overlay: Overlay, issue: Entity<'Issue'>): boolean {
   return o ? o.value as boolean : issue.get('is_locked');
 }
 
-/**
- * The description's markdown as the user sees it: `local` when an edit is
- * pending (the server's rendered HTML is not of that text), else the server's.
- * undefined while the issue's lazy group is not here.
- */
+/** local text has no matching server HTML; undefined means the lazy issue group is not loaded. */
 export function issueBody(pool: Pool, overlay: Overlay, issueId: number): {text: string; html: string; local: boolean} | undefined {
   const o = overlay.field('IssueBody', issueId, 'body');
   const body = pool.model('IssueBody').get(issueId) ?? overlay.createdEntity('IssueBody', issueId) as Entity<'IssueBody'> | undefined;
@@ -95,11 +82,7 @@ export function boardCard(pool: Pool, overlay: Overlay, projectId: number, issue
   return undefined;
 }
 
-/**
- * The server's members of a set (label ids, assignee ids, …; the viewer's
- * reaction contents; viewed paths), observing the set's membership only.
- * `me`: the viewer (reactions and viewed files are the viewer's).
- */
+/** Observes set membership only; me selects the viewer’s reactions and viewed files. */
 export function serverMembers(pool: Pool, model: SetModel, owner: number, me = 0): Set<Member> {
   const out = new Set<Member>();
   const add = <T>(rows: Iterable<T>, pick: (row: T) => Member | undefined) => {
@@ -163,21 +146,15 @@ export function viewMembers(pool: Pool, overlay: Overlay, model: SetModel, owner
   return set;
 }
 
-/** The ids of the labels on an issue, as the user sees them. */
 export function issueLabelIds(pool: Pool, overlay: Overlay, issueId: number): number[] {
   return [...viewMembers(pool, overlay, 'IssueLabel', issueId)] as number[];
 }
 
-/** The ids of the users assigned to an issue, as the user sees them. */
 export function issueAssigneeIds(pool: Pool, overlay: Overlay, issueId: number): number[] {
   return [...viewMembers(pool, overlay, 'IssueAssignee', issueId)] as number[];
 }
 
-/**
- * Untracked: a set as the user saw it when the intent `layer` was made (the
- * server's, with the overrides of that intent and the ones before it). Sends
- * that replace a whole set (API v1's assignee list) use this.
- */
+/** Untracked set state including layer and preceding overrides, for whole-set API writes. */
 export function membersAsOf(pool: Pool, overlay: Overlay, model: SetModel, owner: number, layer: string, me = 0): Set<Member> {
   return untracked(() => {
     const set = serverMembers(pool, model, owner, me);
@@ -189,15 +166,10 @@ export function membersAsOf(pool: Pool, overlay: Overlay, model: SetModel, owner
   });
 }
 
-/**
- * The comments of an issue as the user sees them: the pool's, without those
- * deleted locally, plus those created locally (minus a created one whose
- * server copy is already in the pool: `remapped` maps temporary ids to the
- * server's, so it never shows twice).
- */
+/** Omits local deletions and deduplicates created comments against server copies using remapped ids. */
 export function issueComments(pool: Pool, overlay: Overlay, issueId: number, remapped: ReadonlyMap<number, number>): Entity<'Comment'>[] {
   const rows = pool.model('Comment').by('issue_id', issueId);
-  // Few: observed (an arriving server copy hides its local one in the same batch).
+  // Observe server-copy arrival so it hides the local entity in the same batch.
   const created = (overlay.created('Comment') as Entity<'Comment'>[]).filter((c) => {
     if ((c.data as Comment).issue_id !== issueId) return false;
     const real = remapped.get(c.id);
@@ -208,25 +180,18 @@ export function issueComments(pool: Pool, overlay: Overlay, issueId: number, rem
 
 const PARTICIPATION = new Set(['comment', 'code', 'review']);
 
-/**
- * Whether the viewer is subscribed to an issue, as Forgejo decides it
- * (models/issues CheckIssueWatch): a pending (un)subscribe; else their
- * explicit choice (IssueWatch); else watching the repository's issues
- * (Watch), or taking part — the poster, or a commenter whose comment is on
- * this device.
- */
+/** Pending subscription overrides explicit IssueWatch; otherwise use repository watching or participation. */
 export function issueSubscribed(pool: Pool, overlay: Overlay, issue: Entity<'Issue'>, me: number): boolean {
   const o = overlay.members('IssueSubscriber', issue.id)?.get(me);
   if (o !== undefined) return o;
   for (const w of pool.model('IssueWatch').by('issue_id', issue.id)) if (w.get('user_id') === me) return w.get('is_watching');
   for (const w of pool.model('Watch').by('repo_id', issue.get('repo_id'))) if (w.get('user_id') === me && w.get('issues')) return true;
   if (issue.get('poster_id') === me) return true;
-  // Forgejo's participants: posters of comments, code comments and reviews.
   for (const c of pool.model('Comment').by('issue_id', issue.id)) if (c.get('poster_id') === me && PARTICIPATION.has(c.get('type'))) return true;
   return false;
 }
 
-/** Whether a code comment's conversation is resolved as the user sees it (a pending resolve first), and by whom (0: open). */
+/** Pending resolve wins; returns resolver id (0 means open). */
 export function commentResolver(overlay: Overlay, c: Entity<'Comment'>): number {
   const o = overlay.field('Comment', c.id, 'resolve_doer_id');
   return o ? o.value as number : c.get('resolve_doer_id');

@@ -1,18 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The markdown editor (PLAN §5.1: CodeMirror 6, markdown fidelity over
-// WYSIWYG). Its own chunk: loaded when a composer is about to show, never
-// on the boot route. Markdown is parsed with @lezer/markdown (GFM) and
-// highlighted with lezer's class highlighter (`tok-*` classes); every look
-// comes from the design tokens (the theme below names variables only).
-// The frame (border, focus outline, the Write / Preview tabs) is the field's: EditorFrame, in Composer.tsx.
-//
-// The text is the caller's state: typing reports it (onChange), and a new
-// `value` from the caller (cleared after a save, a restored draft) replaces
-// the document. ⌘↵ submits, Esc cancels. "@" suggests people and "#"
-// issues (the caller's `complete`: Enter or Tab takes one, Esc closes the
-// list first).
+// Lazy-loaded CodeMirror editor; caller state owns the document.
 
 import {autocompletion, type CompletionContext, type CompletionResult, completionKeymap} from '@codemirror/autocomplete';
 
@@ -25,7 +14,6 @@ import {continueList, markdown} from './markdown.ts';
 import {type Ref, useEffect, useImperativeHandle, useRef, useState} from 'react';
 import {type EditMaker, type Format, formatEdit} from './format.ts';
 
-/** Tokens only (tokens.css): the frame draws the box; the editor draws text, caret and selection. */
 const theme = EditorView.theme({
   '&': {color: 'var(--fgColor-default)', backgroundColor: 'transparent', borderRadius: 'var(--radius-md)'},
   '&.cm-focused': {outline: 'none'},
@@ -43,7 +31,6 @@ const theme = EditorView.theme({
   '.tok-meta, .tok-punctuation, .tok-processingInstruction': {color: 'var(--fgColor-muted)'},
   '.tok-strikethrough': {textDecoration: 'line-through'},
   '.tok-quote, .tok-comment': {color: 'var(--fgColor-muted)'},
-  // The suggestions: a menu's look (floating surface, menu rows) from the tokens.
   '.cm-tooltip.cm-tooltip-autocomplete': {
     backgroundColor: 'var(--overlay-bgColor)', border: '1px solid var(--borderColor-default)', borderRadius: 'var(--radius-md)',
     boxShadow: 'var(--shadow-popover)', padding: 'var(--spacing)', zIndex: 'var(--z-popover)',
@@ -80,7 +67,6 @@ const uploadChips = ViewPlugin.fromClass(class {
   update(update: ViewUpdate) { this.decorations = uploadMatcher.updateDeco(update, this.decorations); }
 }, {decorations: (plugin) => plugin.decorations});
 
-/** A suggestion for "@" (a person: login) or "#" (an issue: its number). */
 export interface Suggestion {
   /** Inserted after the trigger. */
   label: string;
@@ -88,7 +74,6 @@ export interface Suggestion {
   detail?: string | undefined;
 }
 
-/** "@login" and "#12" at a word boundary: the caller's suggestions for what follows the trigger. */
 function suggestions(complete: (trigger: '@' | '#', query: string) => Suggestion[]) {
   return (ctx: CompletionContext): CompletionResult | null => {
     const m = ctx.matchBefore(/(?:^|[\s([{])[@#][\w.-]*$/);
@@ -106,7 +91,6 @@ export interface MarkdownEditorHandle {
   focus(): void;
   insert(text: string, position?: number): void;
   replace(placeholder: string, text: string): void;
-  /** Formats the selection (the toolbar; the keys are ⌘B, ⌘I, ⌘E). */
   format(kind: Format): void;
   /** Applies a caller's edit of the selection (a toolbar's own tool), as one change. */
   edit(make: EditMaker): void;
@@ -126,7 +110,6 @@ export interface MarkdownEditorProps {
   onSubmit?: (() => void) | undefined;
   onCancel?: (() => void) | undefined;
   onFiles?: ((files: File[], position?: number) => void) | undefined;
-  /** Suggestions after "@" (people) and "#" (issues). */
   complete?: ((trigger: '@' | '#', query: string) => Suggestion[]) | undefined;
   ref?: Ref<MarkdownEditorHandle>;
 }
@@ -209,7 +192,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
             },
           }),
           autocompletion({override: [suggestions((t, q) => cb.current.complete?.(t, q) ?? [])], icons: false, activateOnTyping: true}),
-          // Before the editor's own keys: with the list open, Enter and Esc are the list's.
+          // Completion keys must win over submit/cancel while suggestions are open.
           keymap.of(completionKeymap),
           keymap.of([
             {key: 'Mod-Enter', run: () => {
@@ -225,7 +208,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
             {key: 'Mod-b', run: (v) => applyFormat(v, 'bold')},
             {key: 'Mod-i', run: (v) => applyFormat(v, 'italic')},
             {key: 'Mod-e', run: (v) => applyFormat(v, 'code')},
-            // Tab moves the focus on (as in a text area: no keyboard trap); lists indent with ⌘] / ⌘[ (defaultKeymap).
+            // Leave Tab unbound to avoid trapping keyboard focus.
             {key: 'Enter', run: continueList},
             ...historyKeymap,
             ...defaultKeymap,
@@ -249,33 +232,29 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
       v.destroy();
       view.current = undefined;
     };
-    // Created once; value changes are applied below, the rest is fixed for the editor's life.
+    // Construct once; callback refs and effects handle mutable props.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The accessible name, description and validity follow the props.
   useEffect(() => {
     view.current?.dispatch({effects: attrs.reconfigure(contentAttrs())});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [label, describedBy, invalid, attrs]);
 
-  // A value from the caller that is not what the editor holds (cleared, restored): replaces the text.
   useEffect(() => {
     const v = view.current;
     if (!v || v.state.doc.toString() === value) return;
     v.dispatch({changes: {from: 0, to: v.state.doc.length, insert: value}, selection: {anchor: value.length}});
   }, [value]);
 
-  // The frame (and the Write / Preview tabs) is the field's (MarkdownField): the editor is its body.
   return <div ref={host}/>;
 }
 
-/** Formats the main selection as one change (one undo step). */
 function applyFormat(v: EditorView, kind: Format): boolean {
   return applyEdit(v, (doc, from, to) => formatEdit(doc, from, to, kind));
 }
 
-/** Replaces the main selection by an edit made from it, as one change (one undo step). */
+/** Apply selection edits as one undo step. */
 function applyEdit(v: EditorView, make: EditMaker): boolean {
   const {from, to} = v.state.selection.main;
   const e = make(v.state.doc.toString(), from, to);

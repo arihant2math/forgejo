@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Dates as lists and the detail view show them: compact ("Oct 3", "Oct 3,
-// 2024") and relative ("5m", "3h", "2d" in rows; "5 minutes ago" in prose).
-// Intl formatting costs tens of µs per call and a list mounts dozens of rows
-// per scroll frame, so formatted dates are cached per timestamp.
+// Cache dates by timestamp: Intl formatting across many rows is costly per scroll frame.
 
 const DAY = 86_400_000;
 
@@ -27,7 +24,6 @@ function cached(key: string, make: () => string): string {
 
 const parse = (iso: string | undefined) => (iso ? Date.parse(iso) : Number.NaN);
 
-/** "Oct 3" this year, "Oct 3, 2024" before. */
 export function shortDate(iso: string | undefined, now = Date.now()): string {
   const t = parse(iso);
   if (Number.isNaN(t)) return '';
@@ -35,13 +31,11 @@ export function shortDate(iso: string | undefined, now = Date.now()): string {
   return cached(`${thisYear ? 's' : 'y'}${String(t)}`, () => (thisYear ? short.format(t) : withYear.format(t)));
 }
 
-/** A full date and time (tooltips). */
 export function fullDate(iso: string | undefined): string {
   const t = parse(iso);
   return Number.isNaN(t) ? '' : cached(`f${String(t)}`, () => full.format(t));
 }
 
-/** "now", "5m", "3h", "2d", then the short date. */
 export function ago(iso: string | undefined, now = Date.now()): string {
   const t = parse(iso);
   if (Number.isNaN(t)) return '';
@@ -50,12 +44,11 @@ export function ago(iso: string | undefined, now = Date.now()): string {
   if (d < 3_600_000) return `${String(Math.floor(d / 60_000))}m`;
   if (d < DAY) return `${String(Math.floor(d / 3_600_000))}h`;
   if (d < 30 * DAY) return `${String(Math.floor(d / DAY))}d`;
-  // As narrow as "Oct 3" for earlier years too ("Oct ’24"): rows give it a fixed slot.
+  // Earlier years must fit the same fixed-width row slot.
   if (new Date(t).getFullYear() !== new Date(now).getFullYear()) return cached(`m${String(t)}`, () => `${month.format(t)} ’${String(new Date(t).getFullYear() % 100).padStart(2, '0')}`);
   return shortDate(iso, now);
 }
 
-/** "just now", "5 minutes ago", "3 hours ago", "2 days ago", then "on Oct 3". */
 export function agoWords(iso: string | undefined, now = Date.now()): string {
   const t = parse(iso);
   if (Number.isNaN(t)) return '';

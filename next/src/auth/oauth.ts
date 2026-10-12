@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Forgejo's OAuth2 token endpoint (routers/web/auth/oauth.go) for the Next
-// UI's public client: the authorization code grant with PKCE, and the
-// refresh token grant. No secret. Forgejo rotates refresh tokens by default
-// ([oauth2] INVALIDATE_REFRESH_TOKENS): each one works once, so a refresh
-// must store the new one before anything else may refresh (session.ts).
+// Forgejo rotates refresh tokens: store each replacement before another tab refreshes.
 
 import type {NextOAuth} from '../protocol/types.gen.ts';
 
@@ -16,7 +12,6 @@ export interface TokenGrant {
   expiresAt: number;
 }
 
-/** The server refused the grant: the code or refresh token is not valid (any more). */
 export class GrantRefused extends Error {
   readonly code: string;
   constructor(code: string, description: string) {
@@ -41,7 +36,6 @@ interface TokenResponse {
 }
 
 async function post(oauth: NextOAuth, params: Record<string, string>, fetchFn: typeof fetch, now: number): Promise<TokenGrant> {
-  // Network errors propagate as they are: the caller retries later.
   const res = await fetchFn(onThisOrigin(oauth.token_url), {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json'},

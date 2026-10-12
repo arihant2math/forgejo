@@ -26,15 +26,13 @@ vi.mock('./PierreProvider.tsx', () => ({
   PierreProvider: ({children}: {children: ReactNode}) => children,
   WorkerReady: ({children}: {children: ReactNode}) => children,
 }));
-// Test the feature/library contract independently of browser layout and Shadow DOM.
-// The actual parser is used by the fake worker; highlighting and virtualization belong to Pierre.
+// Test the viewer contract with the real parser, without browser layout or Shadow DOM.
 vi.mock('@pierre/diffs/react', () => ({CodeView: (props: ViewerProps) => {
   lastProps = props;
   useImperativeHandle(props.ref, (): CodeViewHandle<Annotation, undefined> => ({
     scrollTo: () => undefined, getSelectedLines: () => selected, setSelectedLines: (selection) => {selected = selection;},
     clearSelectedLines: () => {selected = null;},
     getItem: (id) => props.items.find((item) => item.id === id),
-    // These tests use the controlled viewer; mutations and editor access are unexpected.
     addItems: () => {throw new Error('Unexpected addItems');},
     removeItem: () => {throw new Error('Unexpected removeItem');},
     updateItem: () => {throw new Error('Unexpected updateItem');},

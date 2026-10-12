@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The server's ordinary HTTP API (API v1, the classic web UI's forms) as the
-// scenarios use it: accounts, repositories and writes. Every scenario
-// creates its own users and repositories (unique names), so files and runs
-// do not depend on each other or on what the database already holds.
+// Unique users and repositories keep scenarios independent of other files and runs.
 
 import {HeaderIdempotencyKey} from '../src/protocol/types.gen.ts';
 import {env} from './env.ts';
@@ -40,7 +37,6 @@ export interface RequestOptions {
   basic?: {user: string; password: string};
   body?: unknown;
   headers?: Record<string, string>;
-  /** Sent as Idempotency-Key. */
   key?: string;
 }
 
@@ -68,7 +64,6 @@ export async function api<T>(method: string, path: string, o: RequestOptions = {
 
 let adminPromise: Promise<Account> | undefined;
 
-/** The site administrator the run was given, with a fresh token. */
 export function admin(): Promise<Account> {
   adminPromise ??= (async () => {
     const basic = {user: env.adminUser, password: env.adminPassword};
@@ -79,7 +74,6 @@ export function admin(): Promise<Account> {
   return adminPromise;
 }
 
-/** A new user (created by the administrator) with a token. */
 export async function createUser(prefix: string): Promise<Account> {
   const a = await admin();
   const login = unique(prefix);
@@ -121,12 +115,7 @@ export function createIssue(who: Account, repo: Repo, title: string, body = ''):
   return api<IssueRef>('POST', `/repos/${repo.full}/issues`, {token: who.token, body: {title, body}});
 }
 
-/**
- * An API v1 write with an Idempotency-Key that must succeed: answered only
- * once its change is in the sync log, so a barrier taken after it covers it
- * (an unkeyed write is answered before the materializer has logged it).
- * Answers the decoded JSON and the sync id echo.
- */
+/** Keyed writes answer after logging, so a later barrier covers them; returns JSON and sync-id echo. */
 export async function keyed(method: string, path: string, o: Omit<RequestOptions, 'key'> = {}): Promise<{body: unknown; echo: number}> {
   const res = await request(method, `/api/v1${path}`, {...o, key: unique('key')});
   const text = await res.text();
@@ -142,12 +131,7 @@ export function syncId(res: Response): number | undefined {
   return v === null ? undefined : Number(v);
 }
 
-/**
- * A signed-in session of the classic web UI (cookies). Forgejo protects its
- * forms with Go's cross-origin protection (Sec-Fetch-Site / Origin), not
- * CSRF tokens, so a non-browser client posts forms like the UI does. Used
- * for what API v1 cannot do (projects).
- */
+/** Cookie session for classic forms, protected by Sec-Fetch-Site / Origin rather than CSRF tokens. */
 export class WebSession {
   private readonly cookies = new Map<string, string>();
 

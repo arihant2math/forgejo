@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // @vitest-environment node
 
-// Stylesheets live in src/styles (the app) and src/dev (dev-only pages). A
-// feature-level .css file would be a second, unreviewed styling path next to
-// the primitives (and app.css would not see it).
+// Feature-level CSS would bypass the centralized styling and compilation path.
 
 import {readdirSync} from 'node:fs';
 import {join, relative} from 'node:path';

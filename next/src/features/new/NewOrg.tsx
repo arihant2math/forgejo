@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A new organization (/org/create, a canonical route): a name checked as it
-// is typed (against the pool at once, then Forgejo: users and organizations
-// share names), the visibility, and whether repository admins may change
-// which teams have access (the classic form's one permission). Online only
-// (PLAN §5.4): API v1's POST /orgs; the organization's page opens once the
-// pool holds it. Its own chunk.
+// Users and organizations share names; check the pool and then the server.
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';

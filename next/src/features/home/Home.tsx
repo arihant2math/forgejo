@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The dashboard (/): where the app starts. The boot route renders the header
-// and Home's placeholders at once; what is waiting for the viewer
-// (Dashboard.tsx) is its own chunk (the server preloads it with the document:
-// spa_preload.go), so the boot route stays small and the first frame is
-// never an empty page.
+// Lazy content keeps the boot route small; immediate placeholders avoid an empty first frame.
 import {lazyComponent} from '../../app/lazy.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
@@ -14,10 +10,6 @@ import {DashboardSection} from './DashboardSection.tsx';
 import {HomeIcon} from '@primer/octicons-react';
 import {SkeletonBox} from '@primer/react/experimental';
 
-/**
- * Home while the device loads what is waiting (its chunk, a first sign-in's sync): the sections' shape, static
- * placeholders, no spinner — the same before and after the chunk arrives, until the real layout replaces it once.
- */
 export function HomeSkeleton() {
   return (
     <PageColumn>

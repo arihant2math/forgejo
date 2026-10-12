@@ -1,20 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A line-based 3-way merge (diff3, PLAN §5.4 "Body"): the text the user
-// edited from (`base`), the server's current text (`theirs`) and the user's
-// text (`mine`). Regions only one side changed take that side; regions both
-// changed the same way are taken once; regions both changed differently are a
-// conflict, written with git's markers so the user can resolve them in the
-// editor. Lines are matched with a longest common subsequence (O(n·m); issue
-// bodies are small — beyond MAX_CELLS the texts are compared whole).
+// Line-based diff3 with git conflict markers.
+// LCS costs O(n·m); compare whole texts beyond MAX_CELLS to bound memory and CPU.
 
 export interface MergeResult {
   /** No region conflicts: `text` is the merge. */
   clean: boolean;
   /** The merged text; with conflict markers when not clean. */
   text: string;
-  /** The number of conflicting regions. */
   conflicts: number;
 }
 
@@ -68,7 +62,6 @@ export function merge3(base: string, theirs: string, mine: string): MergeResult 
   return {clean: conflicts === 0, text: out.join('\n'), conflicts};
 }
 
-/** Whether a text still holds conflict markers (an unresolved merge). */
 export function hasConflictMarkers(text: string): boolean {
   return text.split('\n').some((l) => l === MARK_MINE || l === MARK_SPLIT || l === MARK_THEIRS);
 }

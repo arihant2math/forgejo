@@ -109,7 +109,6 @@ const (
 	CacheImmutable = "private, max-age=31536000, immutable"
 )
 
-// APIError is the body of an error response.
 type APIError struct {
 	Message string `json:"message"`
 }
@@ -197,7 +196,7 @@ type APICard struct {
 // comment if its content_version (IssueBody.content_version,
 // Comment.content_version) is still ExpectedVersion. API v1 has no such
 // check (it overwrites whatever is there): offline edits need it to
-// merge (PLAN §5.4).
+// merge.
 //
 // Permission (as the classic UI): the poster, or a writer of the issues
 // (pull requests) unit; the repository must not be archived; only
@@ -353,7 +352,6 @@ type APIBlame struct {
 	FaultyIgnoreRevsFile bool                      `json:"faulty_ignore_revs_file"`
 }
 
-// APIBlamePart is a run of lines of APIBlame.
 type APIBlamePart struct {
 	SHA          string `json:"sha"`
 	StartLine    int    `json:"start_line"`
@@ -423,7 +421,6 @@ type APIContributors struct {
 	Contributors []APIContributor `json:"contributors"`
 }
 
-// APIContributor is an author of APIContributors.
 type APIContributor struct {
 	Name      string    `json:"name"`
 	Login     string    `json:"login"`

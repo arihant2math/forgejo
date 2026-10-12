@@ -4,7 +4,6 @@
 import {useState} from 'react';
 import {Button, SelectPanel} from '@primer/react';
 
-/** Inbox filters share a searchable, single-selection Primer panel. */
 export function FilterPicker({label, values, value, onChange}: {
   label: string; values: readonly (readonly [string | number, string])[];
   value: string | number | undefined; onChange: (value: string | number | undefined) => void;

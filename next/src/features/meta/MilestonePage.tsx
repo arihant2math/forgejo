@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A milestone (/{owner}/{repo}/milestone/{id}): its due date, progress and
-// description over its issues and pull requests — the repository's issue
-// list (the same live query, rows, keys and filters) fixed to this
-// milestone. Writers edit, close or reopen and delete it (online).
 
 import {getRouteApi, useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -44,7 +40,6 @@ export function MilestonePage() {
   return <MilestoneLookup key={`${String(repoId)}:${String(id)}`} r={{owner, repo, repoId}} id={id}/>;
 }
 
-/** The milestone from the pool (its repository's group is held by the page); not found once that has loaded. */
 const MilestoneLookup = observer(function MilestoneLookup({r, id}: {r: RepoRef; id: number}) {
   const s = useSession();
   const row = s.data.pool.model('Milestone').get(id)?.data;
@@ -80,7 +75,6 @@ const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Mi
   );
 });
 
-/** The milestone's due date, progress and description, above its list (outside the list's scroll: the rows virtualize). */
 const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
   const counts = useRepoCounts(r.repoId).get().milestones;
   const p = milestoneProgress(m, counts.get(m.id));
@@ -108,7 +102,6 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
   );
 });
 
-/** A writer's actions on the milestone: edit, close or reopen, delete. */
 const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Milestone}) {
   const app = useApp();
   const navigate = useNavigate();

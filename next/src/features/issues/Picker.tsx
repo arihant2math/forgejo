@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The issue pickers (S status, P priority, L labels, A assignees, M
-// milestone; reviewers, dependencies, project and due date): the pool's
-// candidates, acting on one issue or a selection. Primer SelectPanels filter as
-// you type and apply on Enter; multi-value fields stay open for more.
-// A shortcut opens a modal panel naming its issues; a property button opens
-// an anchored panel. All values apply locally through the intent overlay.
+// Shortcuts open modal pickers; property buttons anchor them. Changes use the intent overlay.
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {cloneElement, type ReactElement, type HTMLAttributes, useEffect, useLayoutEffect, useRef, useState} from 'react';
@@ -39,17 +34,14 @@ const PLACEHOLDERS: Record<PickerKind, string> = {
   due: 'Date or “3 days”…',
 };
 
-/** Issues offered as dependencies at most (the query narrows them). */
 const MAX_DEPENDENCIES = 40;
 
-/** A decorative swatch, with an outline so white labels remain visible. */
 function LabelSwatch({color}: {color: string}) {
   return <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
     <circle cx={8} cy={8} r={6} fill={labelColor(color)} stroke="var(--borderColor-default)"/>
   </svg>;
 }
 
-/** A shortcut opens a modal SelectPanel, returning focus to the list or property. */
 export const IssuePicker = observer(function IssuePicker() {
   const app = useApp();
   const picker = app.ui.picker;
@@ -59,7 +51,7 @@ export const IssuePicker = observer(function IssuePicker() {
 
 function KeyboardPicker({app, kind, issueIds}: {app: App; kind: PickerKind; issueIds: readonly number[]}) {
   const active = document.activeElement as HTMLElement;
-  // A menu item disappears as it opens a picker: return to the page's keyboard list instead.
+  // Menu triggers unmount when the picker opens; restore focus to the page's keyboard list.
   const returnTo = active.closest('[role="menu"], [role="dialog"]') ? document.querySelector<HTMLElement>('main [role="listbox"][data-shortcuts]') ?? active : active;
   const anchorRef = useRef<HTMLElement>(returnTo);
   return <PickerPanel app={app} kind={kind} issueIds={issueIds} named open variant="modal"
@@ -76,7 +68,6 @@ export interface PickerDraft {
   setMilestone: (id: number) => void;
 }
 
-/** The same SelectPanel anchored under an issue or draft property. */
 export function PickerPopover({kind, issueIds = [], draft, trigger}: {kind: PickerKind; issueIds?: readonly number[]; draft?: PickerDraft; trigger: ReactElement}) {
   const app = useApp();
   const [open, setOpen] = useState(false);
@@ -125,16 +116,12 @@ const PickerPanel = observer(function PickerPanel({app, kind, issueIds, draft, n
     onOpenChange={(next) => { if (next) onOpen?.(); else onClose(); }}/>;
 });
 
-/** How many of the issues have a property: all (checked), some (mixed) or none. */
 function coverage(issues: readonly Entity<'Issue'>[], has: (i: Entity<'Issue'>) => boolean): boolean | 'mixed' {
   const n = issues.filter(has).length;
   return n === 0 ? false : n === issues.length ? true : 'mixed';
 }
 
-/**
- * A picker's options for these issues (read in an observer: they follow the pool). `searched`: the options are
- * the query's matches already (dependencies search the repository's issues; a due date parses the query).
- */
+/** searched means candidates already match the query (dependency search or parsed due date). */
 export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly number[], query: string, draft?: PickerDraft): {options: PickOption[]; empty: string; searched: boolean} {
   const s = app.session;
   if (!s) return {options: [], empty: '', searched: false};
@@ -166,12 +153,11 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     const statuses = repoId === undefined ? [] : repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status').sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
     const anyStatus = statuses.some((l) => draft ? draft.labels.includes(l.id) : coverage(issues, hasLabel(l.id)) !== false);
-    // The state is the value when no workflow status is set (with one, the status is).
     if (draft) options.push({value: 'none', label: 'No status', checked: !anyStatus, onSelect: () => {
       for (const l of statuses) draft.toggleLabel(l, false, statuses);
     }});
     else options.push(
-      // Open without a status label (in a repository that has them) is no status yet, not a stage (QA #192).
+      // An unset workflow status is distinct from an "Open" stage.
       {value: 'open', label: 'Open', meta: statuses.length && !anyStatus && state !== false ? 'no status' : undefined, checked: anyStatus ? false : state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, onSelect: () => {
         reopen(app, issues);
       }},
@@ -179,7 +165,6 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
         changeState(app, issues, 'closed');
       }},
     );
-    // A status is Linear's: done and canceled close the issue, the others reopen it.
     for (const l of statuses) options.push({...labelOption(l, statusIcon(l.name), false), onSelect: () => {
       if (draft) draft.toggleLabel(l, true, repoLabels(pool, draft.repoId));
       else setWorkflowStatus(app, issues, l);
@@ -195,12 +180,9 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       }});
       for (const l of priorities) options.push(labelOption(l, priorityIcon(l.name), false));
     }
-    // Priorities are exclusive scoped labels (PLAN §7.3): say so where there are none.
     empty = 'This repository has no priority labels (exclusive "priority/…" labels set them).';
   } else if (kind === 'labels' && repoId !== undefined) {
-    // Status and priority labels have their own pickers (S, P) and are not listed here; but a search that names
-    // one ("status/Todo", "Todo", "prio": the Labels page lists them as labels) finds it under its field, which
-    // sets it (QA #215).
+    // Scoped fields use their own pickers, but label searches must still find them.
     const all = repoLabels(pool, repoId);
     const searching = query.trim() !== '';
     for (const l of all) if (!labelKind(l)) options.push({...labelOption(l, undefined, true), group: searching ? 'Labels' : undefined});
@@ -299,7 +281,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       });
     }
   } else if (kind === 'project' && repoId !== undefined) {
-    // One issue (the side panel's): the boards it can go on, its repository's and its owner's (Forgejo's rule).
+    // Forgejo allows boards from the issue's repository or its owner.
     const issue = issues[0];
     const repo = pool.model('Repository').get(repoId)?.data;
     const pid = issue ? issueProject(pool, overlay, issue.id).project : 0;
@@ -351,7 +333,6 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
   return {options, empty, searched: false};
 }
 
-/** The due date presets (Linear's): today, tomorrow, the end of the week, next week, in two weeks, in a month. */
 export function dueOptions(now: number): {label: string; day: string}[] {
   const d = new Date(now);
   const at = (days: number) => isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
@@ -363,7 +344,7 @@ export function dueOptions(now: number): {label: string; day: string}[] {
   ];
 }
 
-/** A typed due date: "2026-10-20", "oct 20" (this year), "3 days", "2 weeks"; undefined otherwise. */
+/** Parse absolute or relative due dates; month/day inputs default to this year. */
 export function parseDue(query: string, now = Date.now()): string | undefined {
   const q = query.trim().toLowerCase();
   if (!q) return undefined;
@@ -374,7 +355,6 @@ export function parseDue(query: string, now = Date.now()): string | undefined {
     const n = Number(rel[1]) * (rel[2].startsWith('w') ? 7 : 1);
     return isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
   }
-  // A month and a day ("oct 20", "20 october"): this year (no year given).
   if (!/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/.test(q) || !/\d/.test(q) || /\d{4}/.test(q)) return undefined;
   const t = Date.parse(`${q} ${String(d.getFullYear())}`);
   return Number.isNaN(t) ? undefined : isoDay(new Date(t));

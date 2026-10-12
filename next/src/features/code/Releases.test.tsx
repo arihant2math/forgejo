@@ -1,9 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The releases and tags pages as a release manager uses them: which release
-// is the latest one, what the default branch has gained since a release or a
-// tag (the comparison is one click away), and where a draft's tag will be
-// made — a branch, an existing tag (the tested release candidate) or a commit.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -35,7 +31,6 @@ const release = (id: number, tag: string, sha: string, extra = {}) => ({
   num_commits: 1, hide_archive_links: false, original_author: '', created_at: T, ...extra,
 });
 
-/** alice/website: main, the releases v0.9 (older) and v1.0, and the newer pre-release v1.1-rc.1. `writer`: alice's own. */
 function session(writer = true) {
   const me = user(1, 'alice');
   const s = fakeSession({workspace: {viewer_id: writer ? 1 : 2, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: writer ? 'owner' : 'access'}]}});
@@ -90,12 +85,10 @@ test('the releases list marks the latest release (not the newer pre-release) and
   const rc = screen.getByRole('heading', {name: 'Candidate'}).closest('article');
   const nine = screen.getByRole('heading', {name: 'Nine'}).closest('article');
   if (!one || !rc || !nine) throw new Error('no release cards');
-  // As the repository's overview: the newest release that is not a pre-release.
   expect(within(one).getByText('Latest')).toBeTruthy();
   expect(within(rc).queryByText('Latest')).toBeNull();
   expect(within(rc).getByText('Pre-release')).toBeTruthy();
   expect(within(nine).queryByText('Latest')).toBeNull();
-  // "N commits to main since this release": the tag compared with its branch.
   const since = await within(one).findByRole('link', {name: /11 commits to main since this release/});
   expect(since.getAttribute('href')).toBe('/alice/website/compare/v1.0...main');
   const rcSince = await within(rc).findByRole('link', {name: /1 commit to main since this release/});
@@ -144,15 +137,12 @@ test('a release\'s new tag can be made at an existing tag (the release candidate
   const app = createApp(config, s);
   await open(app, '/alice/website/releases/new');
   fireEvent.change(await screen.findByRole('textbox', {name: 'Tag name'}), {target: {value: 'v2.0'}});
-  // The default: main, with the commit it is at now.
   const status = await screen.findByRole('status', {name: 'Target commit'});
   await waitFor(() => {
     expect(status.textContent).toMatch(/aaaaaaaaaa.*Main head/);
   });
   expect(status.textContent).toMatch(/head now/);
-  // The picker offers tags too: the release candidate.
   fireEvent.click(screen.getByRole('button', {name: 'Target: main'}));
-  // The current target is the picker's selected option.
   const rc = await screen.findByRole('option', {name: /v1\.1-rc\.1/});
   expect(screen.getByRole('option', {name: /^main/}).getAttribute('aria-selected')).toBe('true');
   expect(rc.getAttribute('aria-selected')).toBe('false');
@@ -160,7 +150,6 @@ test('a release\'s new tag can be made at an existing tag (the release candidate
   await waitFor(() => {
     expect(screen.getByRole('status', {name: 'Target commit'}).textContent).toMatch(/cccccccccc.*Release candidate/);
   });
-  // A commit by its SHA; one that does not exist says so.
   fireEvent.click(screen.getByRole('button', {name: 'Target: v1.1-rc.1'}));
   const find = await screen.findByRole('combobox');
   fireEvent.change(find, {target: {value: 'deadbeef'}});

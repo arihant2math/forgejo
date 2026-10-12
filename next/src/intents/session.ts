@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// One overlay and one intent queue per signed-in session. Started at boot
-// (app/boot.ts, its own chunk, in parallel with the route): the stored
-// queue is in the overlay before the first frame, so a reload with pending
-// changes shows them at once, online or offline. `editing(app)` is how views
-// reach them.
+// Restore the durable queue into the overlay before the first frame so reloads retain optimistic changes.
 
 import {autorun, runInAction, untracked, when} from 'mobx';
 import {sitePath} from '../app/config.ts';
@@ -34,7 +30,6 @@ export async function startEditing(app: App): Promise<Editing> {
   return e;
 }
 
-/** The session's overlay and intents. */
 export function editing(app: App): Editing {
   const s = app.session;
   if (!s) throw new Error('editing without a session');
@@ -78,8 +73,7 @@ export function editing(app: App): Editing {
       });
     },
     onOverride: (o) => {
-      // Shown inline on the issue's page (Overrides): no second message when that page is open, and the page
-      // takes this notice back when it opens (overrideSeries).
+      // Avoid duplicate override notices when the issue page shows the inline callout.
       if (app.ui.issueOpen === o.issueId) return;
       const words = overrideWords(app, o, true);
       notify(app, {
@@ -102,7 +96,6 @@ export function editing(app: App): Editing {
   });
   e = {overlay, intents};
   sessions.set(s, e);
-  // The sync indicator's "N pending" and the sign-out warning.
   autorun(() => {
     const n = intents.pending + intents.failedCount;
     runInAction(() => {
@@ -130,7 +123,7 @@ export function editing(app: App): Editing {
       }
     }
   });
-  // Back in the foreground: what other tabs did while this one slept (bfcache, frozen tabs).
+  // Re-read after foregrounding: frozen tabs and bfcache may miss broadcasts.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void intents.reread();
   });
@@ -140,11 +133,7 @@ export function editing(app: App): Editing {
 /** The notice of an override, taken back once the issue's page shows it. */
 export const overrideSeries = (id: string) => `override:${id}`;
 
-/**
- * The one wording of "your offline change won over a newer one", for the notice and the issue page's callout: who
- * made the newer change (yourself on another device is not "@dev"), and what else happened to the issue meanwhile
- * (closed or reopened by someone).
- */
+/** Shared override wording distinguishes another-device self-edits and intervening issue state changes. */
 export function overrideWords(app: App, o: Override, named = false): {title: string; description: string} {
   const s = app.session;
   return untracked(() => {
@@ -164,7 +153,6 @@ export function overrideWords(app: App, o: Override, named = false): {title: str
   });
 }
 
-/** Opens the "Unsynced changes" panel. */
 export function openUnsynced(app: App): void {
   runInAction(() => {
     app.ui.unsyncedOpen = true;
@@ -181,7 +169,7 @@ function names(s: Session): Names {
   }));
 }
 
-/** The tabs' channel for queue messages (none without BroadcastChannel: each tab then leads alone, F2). */
+/** Without BroadcastChannel, each tab leads independently. */
 function broadcast(name: string): Channel {
   const BC = globalThis.BroadcastChannel as typeof BroadcastChannel | undefined;
   const ch = BC ? new BC(name) : undefined;
@@ -207,10 +195,7 @@ function broadcast(name: string): Channel {
   };
 }
 
-/**
- * Says that a change was queued while offline (or while Forgejo cannot be reached), and takes the notice back once
- * the change has been sent: "Review queued" no longer stays after the review went out (QA verify3).
- */
+/** Shows an offline-queue notice and removes it when the intent is sent. */
 export function notifyQueued(app: App, intentId: string, title: string): void {
   if (reach(app.session?.data.status.connection) === 'online') return;
   const series = `queued:${intentId}`;

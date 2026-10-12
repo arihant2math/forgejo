@@ -1,9 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// A writer's branches, tags and releases in the app: a new branch and a new
-// tag (API v1, then the dialog closes once the pool shows the change), the
-// draft releases (API v1: not synced) on the releases page, a new release from
-// its canonical address, and an archived repository refusing with its reason.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -32,7 +28,6 @@ const tag = (id: number, name: string, sha: string, extra = {}) => ({
   num_commits: 1, hide_archive_links: false, original_author: '', created_at: T, ...extra,
 });
 
-/** alice's repository alice/website (she owns it: a writer), with main and the tag v1.0. */
 function session(extra: Partial<Repository> = {}) {
   const me = user(1, 'alice');
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'owner'}]}});
@@ -51,7 +46,6 @@ interface Sent {
   body: unknown;
 }
 
-/** Forgejo: `answer` per request (method and path), else 404. Every write is recorded. */
 function stubForgejo(answer: (method: string, url: string, body: unknown) => {status: number; json: unknown} | undefined): Sent[] {
   const sent: Sent[] = [];
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
@@ -75,7 +69,6 @@ test('a new branch from a tag: API v1 is asked, the dialog closes once the pool 
   const s = session();
   const sent = stubForgejo((method, url) => {
     if (method === 'POST' && url.endsWith('/api/v1/repos/alice/website/branches')) {
-      // The push's delta: the branch is in the pool shortly after.
       setTimeout(() => {
         s.data.put('Branch', 'repo:20', branch(2, 'fix/footer', MAIN));
       }, 10);
@@ -88,13 +81,11 @@ test('a new branch from a tag: API v1 is asked, the dialog closes once the pool 
   fireEvent.click(await screen.findByRole('button', {name: 'New branch'}));
   const dialog = await screen.findByRole('dialog', {name: 'New branch'});
   const name = within(dialog).getByRole('textbox', {name: 'Branch name'});
-  // git's rules, as typed.
   fireEvent.change(name, {target: {value: 'fix footer'}});
   expect(within(dialog).getByRole('alert').textContent).toMatch(/Spaces/);
   fireEvent.change(name, {target: {value: 'main'}});
   expect(within(dialog).getByRole('alert').textContent).toMatch(/exists already/);
   fireEvent.change(name, {target: {value: 'fix/footer'}});
-  // From the tag v1.0 (the picker lists branches and tags).
   fireEvent.click(within(dialog).getByRole('button', {name: 'Start from: main'}));
   fireEvent.click(await screen.findByRole('option', {name: /v1\.0/}));
   act(() => {

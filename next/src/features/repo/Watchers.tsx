@@ -1,12 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's watchers (/{owner}/{repo}/watchers, the classic page's
-// address): the people who watch it, as the classic user cards show them —
-// avatar, name (their profile), and their website, else their location, else
-// when they joined — a page at a time (`?page=`, as the classic pagination).
-// API v1 lists them (online; the last answer is kept for the next visit and
-// shown offline); the count is the repository's own (the pool's).
 
 import {ResourceSection, PersonRow} from './layout.tsx';
 import {Avatar, Banner} from '@primer/react';
@@ -30,10 +24,9 @@ import {Blankslate} from '@primer/react/experimental';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
 
-/** Watchers a page lists (within API v1's default MAX_RESPONSE_ITEMS, so that Forgejo pages them as asked). */
+/** Stay within API v1's default MAX_RESPONSE_ITEMS to preserve requested pagination. */
 export const WATCHERS_PER_PAGE = 30;
 
-/** API v1's User, the fields a watcher's card shows. */
 export interface Watcher {
   id: number;
   login: string;
@@ -41,17 +34,17 @@ export interface Watcher {
   avatar_url: string;
   website: string;
   location: string;
-  /** When they joined (RFC 3339). */
+  /** Join time in RFC 3339 format. */
   created: string;
 }
 
-/** One page of watchers and how many there are in all (X-Total-Count; undefined when Forgejo did not say). */
+/** `total` is undefined when Forgejo omits X-Total-Count. */
 export interface WatcherPage {
   users: Watcher[];
   total: number | undefined;
 }
 
-/** How many pages `total` watchers fill (at least one: the first page says there are none). */
+/** An empty list still has a first page. */
 export function pageCount(total: number): number {
   return Math.max(1, Math.ceil(total / WATCHERS_PER_PAGE));
 }
@@ -86,7 +79,6 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
     const got = await send<Watcher[]>(app, {api: 'v1', path: `${repoApi(owner, repo)}/subscribers?limit=${String(WATCHERS_PER_PAGE)}&page=${String(page)}`, signal});
     return {users: got.value ?? [], total: got.totalCount};
   });
-  // Someone (the viewer: the header's Watch) started or stopped watching: the list is asked again.
   const seen = useRef(count);
   const {reload} = res;
   useEffect(() => {
@@ -129,7 +121,6 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   return <div><ul>{v.users.map((u) => <WatcherCard key={u.id} u={u}/>)}</ul></div>;
 }
 
-/** A watcher, as the classic user card: their website, else their location, else when they joined. */
 function WatcherCard({u}: {u: Watcher}) {
   const name = u.full_name || u.login;
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;

@@ -50,7 +50,6 @@ describe('branch protection', () => {
     expect(rulePatch(r, {...ruleFormOf(r), push: 'none'})).toEqual({enable_push: false, enable_push_whitelist: false, push_whitelist_deploy_keys: false});
     const listed = rule({enable_push_whitelist: true, push_whitelist_usernames: ['alice']});
     expect(rulePatch(listed, {...ruleFormOf(listed), pushUsers: 'alice, bob'})).toEqual({push_whitelist_usernames: ['alice', 'bob']});
-    // Status checks turned off: their patterns are not sent.
     const checks = rule({enable_status_check: true, status_check_contexts: ['ci']});
     expect(rulePatch(checks, {...ruleFormOf(checks), statusCheck: false})).toEqual({enable_status_check: false});
   });

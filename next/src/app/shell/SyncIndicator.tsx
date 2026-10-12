@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The global sync indicator (PLAN §5.4): catching up / offline / signed
-// out, with the number of intents waiting to sync. Live with nothing waiting
-// is the normal state and shows nothing (the live region still announces
-// it). An observer leaf: it reads the connection fields of the sync status
-// and the auth state, nothing else, so deltas and position updates do not
-// re-render it.
+// Observe only connection/auth fields so data deltas and position updates do not re-render the indicator.
 
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -20,14 +15,10 @@ interface View {
   label: string;
   detail: string;
   signIn?: boolean;
-  /** Forgejo cannot be reached: offer to try again now. */
   retry?: boolean;
 }
 
-/**
- * `ready`: the viewer's workspace is known (fetched once on this device). A new device is never "Live" before
- * that: the session may be caught up while nothing is loaded yet.
- */
+/** `ready` means the workspace is loaded; a caught-up session alone must not be shown as Live. */
 export function describe(connection: string, loading: number, auth: string, ready = true): View {
   if (auth === 'expired' || connection === 'unauthorized') {
     return {tone: 'warning', label: 'Signed out', detail: 'Your session ended. Changes wait here until you sign in again.', signIn: true};
@@ -47,14 +38,13 @@ export const SyncIndicator = observer(function SyncIndicator() {
   const {data, auth} = useSession();
   const v = describe(data.status.connection, data.status.loading, auth.status.state, data.workspace.current !== undefined);
   const pending = app.ui.pendingIntents;
-  // Opens the "Unsynced changes" panel (its own chunk). Always the same button: focus stays when the count changes.
+  // Keep the same button so count updates cannot move focus.
   const open = () => {
     runInAction(() => {
       app.ui.unsyncedOpen = true;
     });
   };
   const words = pending > 0 ? `${v.label} · ${String(pending)} pending` : v.label;
-  // Up to date and nothing waiting: no badge, only the live region (the header stays quiet, like GitHub's).
   const quiet = v.tone === 'success' && pending === 0;
   return (
     <div className="flex items-center gap-2" data-sync-indicator="">
@@ -64,7 +54,7 @@ export const SyncIndicator = observer(function SyncIndicator() {
           {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
         </Button>
       </Tooltip>}
-      {/* The live region: announces the connection, apart from the button (not every pending change). */}
+      {/* Announce connection changes, not every pending-count update. */}
       <span role="status" className="sr-only">{v.label}</span>
       {v.retry && (
         <Button variant="invisible" size="small" type="button" onClick={() => {

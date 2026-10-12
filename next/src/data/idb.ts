@@ -1,39 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The IndexedDB schema (PLAN §5.3): one database per (origin, user) —
-// IndexedDB is per origin already, the name carries the user id. One object
-// store per model ("m:<Model>"); plus `meta` (group positions, units,
-// schemas, workspace, the flush sequence), `intents` (the offline queue,
-// F5), `drafts` and `blobs` (the SHA cache, F7).
-//
-// A model store does not hold one value per entity but one per bucket:
-// `{g, b, r}` with key [g, b] — the entities (EntityRecord {id, g, v, d}) of
-// group g whose id mod BUCKETS (pool.ts) is b. Measured in Chromium (F2
-// notes): a put of one value per record costs 85 µs per record, 150–190 µs
-// with a group and a hot-field index; the same records written as values of
-// a thousand cost 3 µs each and read back 4× faster. The key makes a group
-// one key range (hydration by group needs no secondary index), and a live
-// change rewrites one bucket (~100 records for a 50 000-entity group). Hot
-// query fields are indexed in the pool, which every read goes through; an
-// IndexedDB index on them would cost every write and serve no reader.
-//
-// Upgrades reconcile the stores with this file's layout: a model store whose
-// indexes changed is dropped and created again (its model is re-bootstrapped:
-// the names land in meta "droppedModels"), unknown model stores are deleted,
-// and `intents` / `drafts` are never dropped (their indexes may be added or
-// removed, the records stay). Bump IDB_VERSION whenever the layout changes.
+// Per-user model stores use [group, bucket] keys: batching reduces IndexedDB clone/write overhead
+// and lets hydration read a group without secondary indexes. Query indexes live in the pool.
+// Bump IDB_VERSION when changing the layout; model stores can be rebuilt, user data must survive.
 
 import type {EntityRecord} from './entity.ts';
 import {MODEL_NAMES, type ModelName} from './models.ts';
 
 export const IDB_VERSION = 4;
 
-/**
- * Model stores written by an older layout than this are recreated (and their
- * models re-bootstrapped) even when their keys and indexes look the same:
- * 2 = buckets per group kind (pool.ts KIND_BUCKETS); 1 = id mod 512.
- */
+/** Rebuild model stores below this layout version, even if keys and indexes match. */
 const MODEL_LAYOUT = 2;
 
 export const META = 'meta';
@@ -67,11 +44,10 @@ export interface StoreLayout {
 
 export type Layout = Record<string, StoreLayout>;
 
-/** The layout of this build. */
 export function layout(): Layout {
   const out: Layout = {
     [META]: {keyPath: 'k', indexes: {}},
-    // The offline queue (F5, intents/store.ts): keyed by a sequence (the queue's order across tabs), looked up by intent id.
+    // Auto-incremented seq orders the queue across tabs; id locates individual intents.
     [INTENTS]: {keyPath: 'seq', autoIncrement: true, indexes: {id: 'id'}},
     [DRAFTS]: {keyPath: 'key', indexes: {}},
     [BLOBS]: {keyPath: 'sha', indexes: {atime: 'atime'}},
@@ -124,7 +100,6 @@ export function reconcile(db: IDBDatabase, tx: IDBTransaction, want: Layout, old
     const store = tx.objectStore(name);
     if (sameKey(store.keyPath, l.keyPath) && store.autoIncrement === Boolean(l.autoIncrement) && sameIndexes(store, l.indexes)) continue;
     if (PRESERVED.has(name) && sameKey(store.keyPath, l.keyPath) && store.autoIncrement === Boolean(l.autoIncrement)) {
-      // Keep the records, fix the indexes.
       for (const n of [...store.indexNames]) if (store.index(n).keyPath !== l.indexes[n]) store.deleteIndex(n);
       for (const [n, kp] of Object.entries(l.indexes)) if (!store.indexNames.contains(n)) store.createIndex(n, kp);
       continue;
@@ -148,7 +123,6 @@ export function reconcile(db: IDBDatabase, tx: IDBTransaction, want: Layout, old
 
 export interface OpenOptions {
   factory?: IDBFactory;
-  /** For tests: another layout / version. */
   layout?: Layout;
   version?: number;
   /** Another tab wants to upgrade or delete the database: close and reload. */
@@ -223,7 +197,6 @@ export function writeTx(db: IDBDatabase, stores: string[]): IDBTransaction {
   return db.transaction(stores, 'readwrite', {durability: 'relaxed'});
 }
 
-/** Reads every meta record. */
 export async function readMeta(db: IDBDatabase): Promise<Map<string, unknown>> {
   const tx = db.transaction(META, 'readonly');
   const rows = await request(tx.objectStore(META).getAll() as IDBRequest<{k: string; v: unknown}[]>);

@@ -12,8 +12,7 @@ import {fakeSession, user} from '../../test/fakeSession.ts';
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
-// One test walks the whole page (the organization, its labels, a team's members), each loaded cold: on a loaded machine
-// that takes longer than Vitest's default 5 s, and a first render than Testing Library's default second (#288).
+// Cold organization, label, and team-member loads can exceed default timeouts under load.
 configure({asyncUtilTimeout: 10_000});
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 

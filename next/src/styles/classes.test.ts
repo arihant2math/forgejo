@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // @vitest-environment node
 
-// Every class used in src/ must exist in the theme. Tailwind silently emits
-// nothing for unknown classes (bg-white, text-red-500, font-bold: the default
-// theme is not loaded), so a typo or a habit from stock Tailwind would ship as
-// a missing style.
+// Tailwind silently omits unknown classes; catch missing styles before they ship.
 
 import {readFileSync, readdirSync} from 'node:fs';
 import {createRequire} from 'node:module';
@@ -19,7 +16,6 @@ import {describe, expect, test} from 'vitest';
 const src = new URL('..', import.meta.url).pathname;
 // Marker classes that only exist for variants (group-data-…).
 const markers = new Set(['group', 'peer']);
-// Classes of Primer's own stylesheets (@primer/css, imported by app.css): GitHub's rendered-markdown styles.
 const primerCss = new Set(['markdown-body']);
 
 function sourceFiles(dir: string): string[] {
@@ -30,10 +26,6 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/**
- * Class strings: className attributes and clsx() arguments (following same-file
- * consts, `table[key]` and `list.map((x) => …)` parameters).
- */
 export function classStrings(file: string, text: string): string[] {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const followed = new Set<string>();
@@ -43,7 +35,7 @@ export function classStrings(file: string, text: string): string[] {
     for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer) topLevel.set(d.name.text, d.initializer);
   }
   const out: string[] = [];
-  // Collects the strings an expression can evaluate to (not those it merely compares against).
+  // Follow possible class values, not strings used only in comparisons.
   const collect = (node: ts.Node): void => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) out.push(node.text);
     else if (ts.isTemplateExpression(node)) {
@@ -74,7 +66,6 @@ export function classStrings(file: string, text: string): string[] {
     else if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node)) collect(node.expression);
     else if (ts.isIdentifier(node)) follow(node);
   };
-  // A same-file const, or the list behind a `.map((x) => …)` parameter.
   const follow = (id: ts.Identifier) => {
     for (let n: ts.Node = id.parent; !ts.isSourceFile(n); n = n.parent) {
       if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
@@ -118,8 +109,7 @@ describe('classes', () => {
   });
 
   test('every class that ships obeys the lint policy, however the code produced it', async () => {
-    // Tailwind's own scanner over app.css's @source set finds every candidate that
-    // becomes CSS (from functions, spreads, prose, anything): none may be banned.
+    // Tailwind scans all candidates, including prose and spreads; none may be banned.
     const css = readFileSync(join(src, 'styles/app.css'), 'utf8');
     const base = join(src, 'styles');
     const compiler = await compile(css, {base, onDependency: () => undefined});
@@ -139,11 +129,10 @@ describe('classes', () => {
     }
   });
 
-  // #287: a tab bar row's divider runs on under the actions beside Primer's UnderlineNav (a repository's More).
+  // The divider must add no height, and Primer's muted line over default must still read as default.
   test('tabs-divider: one border-default line inside the row, at the nav\'s own baseline', async () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     const [css = ''] = ds.candidatesToCss(['tabs-divider']);
-    // Drawn inside the box, as UnderlineNav draws its own: not a border, so the row (and the header) is not a pixel taller.
     expect(css).toMatch(/box-shadow:\s*var\(--tabs-divider\)/);
     expect(css).not.toMatch(/border(-bottom)?(-width)?\s*:/);
     const tokens = readFileSync(join(src, 'styles/tokens.css'), 'utf8');
@@ -151,10 +140,8 @@ describe('classes', () => {
   });
 
   test('tabs-divider: UnderlineNav\'s own line over it reads as the same line in every Primer theme', () => {
-    // UnderlineNav draws `inset 0 -1px var(--borderColor-muted)`; over borderColor-default that is borderColor-default
-    // as long as muted is default with alpha (or default itself), as Primer's primitives have it in every theme.
     const require = createRequire(import.meta.url);
-    // Primer's stylesheets, wherever a Primer release puts them (not a hashed file name).
+    // Locate styles independent of Primer's release-specific filenames.
     const dist = dirname(require.resolve('@primer/react'));
     const navRules = readdirSync(dist, {recursive: true, encoding: 'utf8'}).filter((f) => f.endsWith('.css'))
       .flatMap((f) => readFileSync(join(dist, f), 'utf8').match(/[^{}]*UnderlineWrapper[^{}]*\{[^}]*\}/g) ?? []);
@@ -176,7 +163,6 @@ describe('classes', () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     expect(ds.candidatesToCss(['bg-white', 'text-red-500', 'font-bold', 'shadow-sm', 'bg-default'])).toEqual([null, null, null, null, expect.any(String)]);
     expect(classStrings(join(src, 'app/X.tsx'), 'const a = {x: "bg-x"}; <A className={clsx("p-1", y ? "m-1" : `h-3 ${w}`)}/>')).toEqual(['p-1', 'm-1', 'h-3 ']);
-    // Consts and map parameters reached from a class context.
     expect(classStrings(join(src, 'app/X.tsx'), 'const data = ["Sync log"]; const ws = ["w-big"]; const row = "h-row"; <>{ws.map((w) => <A className={`${row} ${w}`}/>)}</>')).toEqual(['h-row', 'w-big']);
   });
 });

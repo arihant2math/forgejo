@@ -1,15 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository home's side pane, in GitHub's order: About (description,
-// website, topics, where it was forked from, Readme / License / Activity,
-// stars, watchers, forks; the clone URLs and the archives are in the file
-// bar's Code menu, CodeMenu.tsx, as on GitHub), Releases
-// (the count, the latest, Tags) and Languages. Everything but the languages
-// comes from the pool and the code cache (no request of its own: the README
-// and license links read the root tree the file list loads); the languages
-// are asked for once per commit of the default branch and kept in the code
-// cache. Each part observes only the fields it shows.
+// Languages are cached by default-branch commit; README and license reuse the file list's root tree.
 
 import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -57,7 +49,6 @@ export function AboutSidebar(props: RepoProps) {
   );
 }
 
-/** The description (its emoji shortcodes as emoji), the website and the topics (or that there are none). */
 const Description = observer(function Description({repoId}: {repoId: number}) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
@@ -79,7 +70,6 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   );
 });
 
-/** "Forked from owner/name": the parent repository, when it is on this device. */
 const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
   const pool = usePool();
   const r = pool.model('Repository').get(repoId);
@@ -95,7 +85,6 @@ const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
   );
 });
 
-/** Readme (the panel below the files) and License (the file), read from the default branch's root tree. */
 const TreeLinks = observer(function TreeLinks({owner, repo, repoId}: RepoProps) {
   const refs = refTable(usePool(), repoId);
   const sha = refs.branches.get(refs.defaultBranch);
@@ -108,7 +97,7 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
   const src = useSource();
   const click = useLinkClick();
   const key = CodeSource.treeKey(repoId, sha, '');
-  // The same request as the file list's (one in flight per key): its answer paints both.
+  // Share the file list's in-flight request so one answer paints both.
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, sha, ''));
   if (tree.state !== 'ready') return null;
   const readme = readmeOf(tree.value.entries);
@@ -130,7 +119,6 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
   );
 }
 
-/** A row that opens a classic page (marked and hinted like every classic exit). */
 function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; repo: string; path: string; icon: OcticonType; count?: number; children: string}) {
   const app = useApp();
   return (
@@ -140,7 +128,6 @@ function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; 
   );
 }
 
-/** Stars, watchers and forks: one cell each (a new star re-renders its own line only). */
 function Counts(props: RepoProps) {
   return (
     <>
@@ -158,7 +145,6 @@ const Count = observer(function Count({owner, repo, repoId, field, path, icon, o
   return <ClassicRow owner={owner} repo={repo} path={path} icon={icon} count={n}>{plural(n, one, many)}</ClassicRow>;
 });
 
-/** Watchers: the app's page (the people who watch the repository). */
 const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
@@ -166,7 +152,6 @@ const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
   return <SidebarLink icon={EyeIcon} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></SidebarLink>;
 });
 
-/** Releases: the count, the latest (or that there are none), the rest, and the tags (their only way in). */
 const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
   const pool = usePool();
   const all = [...pool.model('Release').by('repo_id', repoId)].map((x) => x.data);
@@ -197,7 +182,6 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
   );
 });
 
-/** Languages: the default branch's, by size (nothing until known: it is the last section, nothing moves). */
 const Languages = observer(function Languages({repoId}: {repoId: number}) {
   const refs = refTable(usePool(), repoId);
   const sha = refs.branches.get(refs.defaultBranch);

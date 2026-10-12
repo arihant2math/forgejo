@@ -99,7 +99,6 @@ test('the account theme submenu uses Primer radio menu items', async () => {
   const session = fakeSession();
   session.data.put('User', 'profile:1', user(1, 'alice'));
   const app = createApp(config, session);
-  // Supply router hooks without loading feature pages (the account menu does not read their data).
   const route = createRootRoute({component: () => <AccountMenuReal trigger={<Button>alice</Button>} defaultOpen/>});
   const router = createRouter({routeTree: route, history: createMemoryHistory({initialEntries: ['/']})});
   await router.load();
@@ -115,7 +114,6 @@ test('empty unsynced changes uses a Primer dialog with a working Close action', 
   render(<AppContext value={app}><PrimerTheme><UnsyncedPanel/></PrimerTheme></AppContext>);
   const dialog = screen.getByRole('dialog', {name: 'Unsynced changes'});
   expect(within(dialog).getByRole('heading', {name: 'Everything is synced'})).toBeTruthy();
-  // Primer provides both a header close icon and our footer action.
   fireEvent.click(within(dialog).getAllByRole('button', {name: 'Close'}).at(-1) ?? dialog);
   expect(app.ui.unsyncedOpen).toBe(false);
 });

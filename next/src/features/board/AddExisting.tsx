@@ -13,11 +13,6 @@ import {searchServer, type ServerHit} from '../search/server.ts';
 import type {BoardModel} from './model.ts';
 import {PencilIcon} from '@primer/octicons-react';
 
-/**
- * A column's "Add existing issue…": the issues the board can hold (this device's, and what the server search finds)
- * to pick, then add at once. Cards are issues (Forgejo's boards hold nothing else), so the dialog says so and offers a
- * new issue in this column (`onCreate`: the create dialog, the text typed as its title) where no issue matches.
- */
 export const AddExisting = observer(function AddExisting({model, project, columnId, onClose, onCreate}: {
   model: BoardModel; project: Entity<'Project'>; columnId: number; onClose: () => void; onCreate: (title: string) => void;
 }) {
@@ -77,8 +72,7 @@ export const AddExisting = observer(function AddExisting({model, project, column
   };
   // Keep Enter's first choice useful: offer Add only after something is selected.
   if (selected.length) options.unshift({id: 'add', text: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, onAction: (_, event) => { event.preventDefault(); add(); onClose(); }});
-  // Typed text is not a card: where nothing matches it says so, and Enter makes a new issue in this column instead,
-  // titled with that text (a number searched for is no title).
+  // Numeric searches are not issue titles.
   const typed = query.trim();
   const none = typed !== '' && matches === 0;
   const title = /^#?\d+$/.test(typed) ? '' : typed;

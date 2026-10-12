@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The same exit scenarios driven through the Next app's own data layer
-// (src/sync/data.ts: SyncClient, pool, IndexedDB persistence), unmodified,
-// against the real server: the workspace is bootstrapped and goes live; a
-// keyed write's echo resolves whenSynced with the entity in the pool; a
-// second session resumes from the persisted positions and catches up with
-// what changed while it was away; access given and taken away appears in
-// and is purged from the pool.
+// Exercise the app's data layer against the real server, not a protocol replica.
 
 import 'fake-indexeddb/auto';
 import {IDBFactory, IDBKeyRange} from 'fake-indexeddb';
@@ -23,7 +17,6 @@ afterAll(async () => {
 });
 
 interface OpenOptions {
-  /** The fetch the data layer uses (bootstraps, loads, the workspace). */
   fetch?: typeof fetch;
   /** Called once IndexedDB is hydrated, before waiting for the session to be live. */
   hydrated?: (d: Data) => void;
@@ -53,7 +46,6 @@ async function close(d: Data): Promise<void> {
   opened.splice(opened.indexOf(d), 1);
 }
 
-/** A fetch that records the groups bootstrapped or loaded through it. */
 function recordingFetch(groups: string[]): typeof fetch {
   return (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -86,17 +78,13 @@ describe.each<'ws' | 'sse'>(['ws', 'sse'])('the app\'s data layer over %s', (tra
       expect(titles(d, repo)).toEqual(['one']);
     }, {timeout: 20_000});
 
-    // A keyed write: whenSynced(group, echo) resolves with the entity held.
     const res = await request('POST', `/api/v1/repos/${repo.full}/issues`, {token: alice.token, key: unique('key'), body: {title: 'two'}});
     const created = await res.json() as {id: number};
     await d.whenSynced(repo.group, syncId(res) ?? 0);
     expect(d.pool.model('Issue').get(created.id)?.get('title')).toBe('two');
     await close(d);
 
-    // Away: changes happen. A new session hydrates what was persisted, then
-    // resumes each group from its position: the persisted issues are there
-    // once hydrated, and the group is never bootstrapped again (a client
-    // that lost its positions would re-bootstrap and still end up right).
+    // Check hydration and avoid re-bootstrap: losing persisted positions could still converge.
     await api('PATCH', `/repos/${repo.full}/issues/1`, {token: alice.token, body: {title: 'one (edited)'}});
     await createIssue(alice, repo, 'three');
     const loads: string[] = [];
@@ -120,11 +108,9 @@ describe.each<'ws' | 'sse'>(['ws', 'sse'])('the app\'s data layer over %s', (tra
     d.on('revoked', (e) => revoked.push(e.group));
 
     await api('PUT', `/repos/${secret.full}/collaborators/${bob.login}`, {token: alice.token, body: {permission: 'read'}});
-    // grants → workspace → bootstrap → subscription.
     await vi.waitFor(() => {
       expect(titles(d, secret)).toEqual(['secret one']);
     }, {timeout: 30_000});
-    // The recording fetch sees the bootstraps (the resume check above relies on it).
     expect(loads).toContain(secret.group);
 
     await api('DELETE', `/repos/${secret.full}/collaborators/${bob.login}`, {token: alice.token});

@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The account menu loads on intent, not on the boot route.
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {Avatar, Button, Text} from '@primer/react';

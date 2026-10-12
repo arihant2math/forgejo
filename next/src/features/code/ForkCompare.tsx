@@ -61,13 +61,10 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
 
 export interface ForkChoice {id: number; name: string; owner: {login: string}}
 
-/** A fork's branch as a comparison's head: `value` is the head (forkHead), `words` lets `owner:branch` find it. */
+/** `value` encodes forkHead; `words` makes owner:branch searchable. */
 export interface ForkBranch {value: string; label: string; group: string; words: string}
 
-/**
- * The branches of the forks of owner/repo (`only`: of the forks this login owns), grouped by fork. Forks are not
- * synced to the device: API v1, online.
- */
+/** Fetch unsynced fork branches via API v1, optionally restricted to one owner login. */
 export async function forkBranches(app: ReturnType<typeof useApp>, owner: string, repo: string, only?: string): Promise<ForkBranch[]> {
   const options: ForkBranch[] = [];
   for (let page = 1; ; page++) {

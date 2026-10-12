@@ -1,16 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Which notifications mention the viewer or wait for their review, as the
-// server knows it. Forgejo stores no reason on a notification, and what the
-// inbox could derive it from on this device (the notifying comment's body, a
-// pull request's review requests) lives in each issue's own group, held only
-// once that issue was opened here: a fresh device read every mention as
-// "Commented" and Reason: Mentioned listed nothing (#168). API v1's issue
-// search names them (`mentioned`, `review_requested`, as My issues and My
-// pull requests ask), for issues and pull requests alike. Asked when the
-// inbox opens and again when notifications arrive (at most every FRESH ms),
-// remembered on this device so the next visit shows them at once.
+// Notification records lack reasons; issue search supplies mentions and review requests
+// even when their issue groups are not held. Cache answers for offline use.
 
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
@@ -32,9 +24,8 @@ const known = observable.box<Known | undefined>(undefined, {deep: false});
 const KEY = 'forgejo-next:inbox-reasons';
 /** Forgejo's default page size limit (API.MAX_RESPONSE_ITEMS). */
 const PAGE = 50;
-/** At most this many pages per question (the most recently updated issues first). */
 const PAGES = 10;
-/** How long an answer is fresh: notifications arriving within it do not ask again at once. */
+/** Freshness duration in milliseconds. */
 export const FRESH = 30_000;
 
 let inflight = false;
@@ -50,7 +41,7 @@ function load(userId: number): void {
     const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number') : []);
     if (raw && typeof raw === 'object') value = {userId, mentioned: ids(raw.mentioned), reviewRequested: ids(raw.reviewRequested)};
   } catch {
-    // Storage blocked: asked again online.
+    // Storage blocked: fetch online.
   }
   runInAction(() => {
     known.set(value);
@@ -61,11 +52,11 @@ function save(v: Known): void {
   try {
     localStorage.setItem(`${KEY}:${String(v.userId)}`, JSON.stringify({mentioned: [...v.mentioned], reviewRequested: [...v.reviewRequested]}));
   } catch {
-    // Storage blocked or full: kept for this tab only.
+    // Storage blocked or full: keep this tab's cache.
   }
 }
 
-/** What the server said (observes it); undefined until it answered once (on this device). */
+/** Observe cached reasons; undefined until the server has answered on this device. */
 export function serverReasons(app: App): ServerReasons | undefined {
   const s = app.session;
   if (!s) return undefined;
@@ -89,9 +80,8 @@ async function issueIds(app: App, flag: 'mentioned' | 'review_requested', since:
 }
 
 /**
- * Asks the server again (online), unless an answer is fresh (`force`: ask anyway, e.g. when the inbox opens).
- * `since`: the oldest notification's creation time — an issue that mentioned the viewer since was updated since
- * (computed only when it asks).
+ * Refresh stale answers online; force bypasses freshness.
+ * since lazily gives the oldest notification's creation time: mentions also update their issues.
  */
 export function askServerReasons(app: App, since: () => string | undefined, force = false): void {
   const s = app.session;
@@ -123,7 +113,7 @@ export function askServerReasons(app: App, since: () => string | undefined, forc
       });
       save(value);
     } catch {
-      // Offline, or Forgejo not answering: the last answer stays; asked again on the next visit.
+      // Retain the cached answer on failure; allow a later retry.
       askedAt = 0;
     } finally {
       inflight = false;
@@ -132,7 +122,6 @@ export function askServerReasons(app: App, since: () => string | undefined, forc
   })();
 }
 
-/** For tests: forgets every answer and question. */
 export function resetServerReasons(): void {
   if (timer) clearTimeout(timer);
   timer = undefined;

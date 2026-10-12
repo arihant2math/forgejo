@@ -1,14 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A writer's release form (Forgejo's `releases/new` and `releases/edit/{tag}`;
-// PLAN §5.4: online only, never queued): the tag (an existing one, or a new
-// one and the branch it starts from — made when the release is published),
-// a title, notes in the markdown editor, pre-release, and assets (uploaded
-// after the release is saved: API v1 takes them one by one). "Save draft"
-// keeps it a draft (only writers see drafts), "Publish release" publishes
-// it. A published release is read from the pool, a draft from API v1
-// (refOps.ts drafts: drafts are not synced).
+// Release writes are online-only and never queued; upload assets individually after saving.
+// Published releases come from the pool, unsynced drafts from API v1.
 
 import {useNavigate} from '@tanstack/react-router';
 import {Banner} from '@primer/react';
@@ -44,7 +38,6 @@ import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextI
 import {Tooltip} from '@primer/react';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
-/** A release being edited, from the pool (published) or API v1 (a draft). */
 interface Editing {
   id: number;
   draft: boolean;
@@ -53,7 +46,6 @@ interface Editing {
   title: string;
   notes: string;
   prerelease: boolean;
-  /** Its assets (a published release's: the pool's, kept current while the form is open). */
   assets: {id: number; name: string; size: number}[];
 }
 
@@ -78,7 +70,6 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
   );
 });
 
-/** Finds the release of a tag (the pool's, else a draft), with its whole notes, then opens the editor on it. */
 const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: string}) {
   const {repoId, tag} = props;
   const app = useApp();
@@ -92,11 +83,11 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   const pub = [...pool.model('Release').by('repo_id', repoId)].map((r) => r.data).find((r) => r.tag_name === tag && !r.is_tag && !r.draft);
   const draft = pub ? undefined : store.find(repoId, (d) => d.tag_name === tag);
   const slot = store.slot(repoId);
-  // The pool may hold a long text cut short (body_truncated): the whole of it from API v1 before it is edited.
+  // Fetch complete notes before editing a truncated pool body.
   const repo = repoRef(session, repoId);
   const full = useLoad(pub?.body_truncated && repo ? `release-body:${String(pub.id)}` : undefined, () => undefined,
     async () => (await online<ApiRelease>(app, {api: 'v1', path: `/repos/${encodeURIComponent(repo?.owner ?? '')}/${encodeURIComponent(repo?.name ?? '')}/releases/${String(pub?.id ?? 0)}`}))?.body ?? '');
-  // Opened once: the form keeps what is typed while the release changes underneath.
+  // Open once so live updates cannot overwrite edits.
   const [opened, setOpened] = useState<Editing | undefined>(undefined);
   const now: Editing | undefined = pub && (!pub.body_truncated || full.state === 'ready') ?
     {id: pub.id, draft: false, tag: pub.tag_name, target: pub.target_commitish, title: pub.name, notes: full.state === 'ready' ? full.value : pub.body, prerelease: pub.prerelease, assets: []} :
@@ -124,7 +115,6 @@ function FormSkeleton() {
   );
 }
 
-/** The form. `editing` undefined: a new release. */
 const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, editing}: CodeViewProps & {editing: Editing | undefined}) {
   const app = useApp();
   const session = useSession();
@@ -138,7 +128,6 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   const [files, setFiles] = useState<File[]>([]);
   const [removed, setRemoved] = useState<number[]>([]);
   const [asked, setAsked] = useState(false);
-  /** The button pressed (a draft or not) and what it says meanwhile. */
   const [busy, setBusy] = useState<{draft: boolean; label: string} | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const picker = useRef<HTMLInputElement | null>(null);
@@ -146,7 +135,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   const set = (patch: Partial<ReleaseFields>) => {
     setFields((f) => ({...f, ...patch}));
   };
-  // A published release's tag stays (Forgejo moves no tag under a release); a draft's tag is made when it is published.
+  // Published tags are fixed; draft tags are created on publication.
   const tagFixed = editing !== undefined && !editing.draft;
   const slot = store.slot(repoId);
   const known: KnownRelease[] = [
@@ -182,7 +171,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       setError(failureText(err));
     });
   };
-  /** Saves the release, then its assets; resolves with what went wrong with an asset, if anything. */
+  /** Asset uploads follow the save; return any upload failure separately. */
   const submit = async (r: RepoRef, draft: boolean): Promise<string | undefined> => {
     const f = {...fields, tag};
     const id = editing ?
@@ -232,7 +221,6 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                 <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
                 <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>A new tag, made when the release is published, at</span>
-                  {/* A branch (its head when published), an existing tag (e.g. the tested release candidate's) or a commit. */}
                   <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
                     set({target: refSpec(c, refs)});
                   }}/>
@@ -296,10 +284,6 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   );
 });
 
-/**
- * The commit a new tag would be made at, before it is: its SHA and summary (a branch's head moves until the release
- * is published; a commit typed by its SHA is checked with Forgejo).
- */
 const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repoId: number; target: RefChoice; sha: string | undefined}) {
   const src = useSource();
   const key = sha ? `commit:${String(repoId)}:${sha}` : undefined;

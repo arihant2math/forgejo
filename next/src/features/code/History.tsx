@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// History: the commits of a ref (optionally of one path), 50 per page, and
-// one commit with its diff against its first parent. Commit lists come from
-// API v1 by full SHA (cached: a page seen once is there offline); the diff
-// from B9 (cached, parsed and highlighted in the worker).
+// Commit pages are cached by full SHA for offline reads; commit diffs use the first parent.
 
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
@@ -39,7 +36,6 @@ import {Blankslate} from '@primer/react/experimental';
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
   const r = resolveRef(refTable(pool, props.repoId), props.kind, props.rest);
-  // The path's breadcrumb (each directory's history; the path itself opens its source), the ref switcher.
   const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
@@ -56,15 +52,12 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
 
 interface Pages {
   commits: CommitInfo[];
-  /** Pages loaded. */
   pages: number;
   done: boolean;
   loading: boolean;
-  /** The next page could not be loaded (offline: not on this device). */
   failed: Extract<Loaded<never>, {state: 'offline' | 'error'}> | undefined;
 }
 
-/** The pages of a history, one at a time (each from memory, IndexedDB or the server). */
 function useCommitPages(repoId: number, sha: string, path: string) {
   const src = useSource();
   const [s, setS] = useState<Pages>({commits: [], pages: 0, done: false, loading: false, failed: undefined});
@@ -84,7 +77,6 @@ function useCommitPages(repoId: number, sha: string, path: string) {
       setS((p) => ({commits: [...p.commits, ...list], pages: page, done: st.done, loading: false, failed: undefined}));
     }, (err: unknown) => {
       st.busy = false;
-      // Connected, and the failure may pass (a dropped request): asked again on its own a few times (useLoad's rule).
       const pause = st.connected && transientFailure(err) ? AUTO_RETRY_MS[st.tries] : undefined;
       if (pause !== undefined) {
         st.tries++;
@@ -108,7 +100,6 @@ function useCommitPages(repoId: number, sha: string, path: string) {
       st.gone = true;
     };
   }, [more]);
-  // Back online after a page failed offline: asked again (once, on the change).
   useEffect(() => {
     const st = at.current;
     const back = connected && !st.connected;
@@ -141,7 +132,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   );
 });
 
-/** A diff between two commits, parsed in the worker (memory first). `base` "": the commit's first parent; `head` "": nothing yet. */
+/** Empty base selects the first parent; empty head defers loading. */
 export function useDiff(repoId: number, base: string, head: string): Loaded<DiffFile[]> {
   const src = useSource();
   const {whitespace} = useDiffSettings();
@@ -160,7 +151,6 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   const diff = useDiff(repoId, '', sha);
   const diffRef = useRef<DiffHandle>(null);
   const c = info.state === 'ready' ? info.value : undefined;
-  // No such commit: said once, with the way to the commits (not "this commit's changes do not exist").
   if (info.state === 'error' && info.status === 404) {
     return (
       <CodeFrame view={props} title={shortSha(sha)}>
@@ -176,7 +166,7 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     </>}>
       {(scroller) => (
         <>
-          {/* Pinned to the view's left edge: a wide line scrolls the diff sideways, not the commit's header. */}
+          {/* Pin commit metadata so horizontal diff scrolling cannot move it out of view. */}
           <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-default px-6 py-4">
             {c ? <CommitMeta owner={owner} repo={repo} repoId={repoId} c={c}/> : <p className="font-mono text-code text-muted">{sha}</p>}
           </header>

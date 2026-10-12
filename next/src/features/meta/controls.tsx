@@ -1,14 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The controls of the labels and milestones pages' headers: a search that
-// filters as you type (the URL follows; "/" focuses it) and an order menu.
 import {useEffect, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ArrowSwitchIcon, SearchIcon} from '@primer/octicons-react';
 import {Button, TextInput, ActionMenu, ActionList} from '@primer/react';
 
-/** The page's search: `onChange` on every keystroke (the page filters), the URL a moment later (`onSettle`). */
+/** onChange runs per keystroke; onSettle runs after the debounce. */
 export function PageSearch({value, label, onChange, onSettle}: {value: string; label: string; onChange: (q: string) => void; onSettle: (q: string) => void}) {
   const ref = useRef<HTMLInputElement>(null);
   useShortcutScope('list');
@@ -18,7 +16,6 @@ export function PageSearch({value, label, onChange, onSettle}: {value: string; l
   });
   const [text, setText] = useState(value);
   const [seen, setSeen] = useState(value);
-  // The URL changed from elsewhere (back, a link).
   if (value !== seen) {
     setSeen(value);
     setText(value);
@@ -54,7 +51,6 @@ export function PageSearch({value, label, onChange, onSettle}: {value: string; l
   );
 }
 
-/** The order of the page's rows. */
 export function SortMenu<S extends string>({value, names, onChange}: {value: S; names: Record<S, string>; onChange: (sort: S) => void}) {
   return (
     <ActionMenu>

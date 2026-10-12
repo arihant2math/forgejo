@@ -1,13 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A pull request's two commits (PLAN §5.7): the diff is (merge base, head).
-// Both come from the pool when it can: the synced PullRequest's merge_base
-// and the head branch's commit (Branch, synced with the head repository).
-// A head the pool does not have (a fork outside the workspace, AGit) is
-// asked of API v1 once and kept as a hint — the only mutable value in the
-// code cache, replaced whenever it is asked again online.
-
 import {untracked} from 'mobx';
 import type {App} from '../app/store.ts';
 import {online, RequestFailed} from '../app/api.ts';
@@ -39,10 +32,8 @@ export function poolHead(pool: Pool, pr: PullRequest): string | undefined {
 }
 
 /**
- * (merge base, head) from the pool, or undefined when the pool lacks one of
- * them. Only for an open pull request: Forgejo stops following the head
- * branch once one is merged or closed (refs/pull/N/head stays where it was),
- * so the branch may have moved on since — those ask API v1 (`fetchCommits`).
+ * Only open pulls can use the synced branch: closed pulls pin refs/pull/N/head
+ * while their branch can advance. Returns undefined if either commit is missing.
  */
 export function poolCommits(pool: Pool, pr: PullRequest, open: boolean): PullCommits | undefined {
   if (!open || pr.merged) return undefined;
@@ -52,10 +43,7 @@ export function poolCommits(pool: Pool, pr: PullRequest, open: boolean): PullCom
 
 const hintKey = (pr: PullRequest) => `prhead:${String(pr.base_repo_id)}:${String(pr.id)}`;
 
-/**
- * The commits from API v1 (online: asked again and stored as the hint), else
- * the stored hint, else undefined.
- */
+/** Refreshes the cached hint online; otherwise returns the hint or undefined. */
 export async function fetchCommits(app: App, src: CodeSource, pr: PullRequest): Promise<PullCommits | undefined> {
   const repo = untracked(() => app.session?.data.pool.model('Repository').get(pr.base_repo_id)?.data);
   if (repo && navigator.onLine) {

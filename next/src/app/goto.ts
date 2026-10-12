@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// "Go to the code" (G C, the palette): the repository on screen, else the one last opened in this tab; with
-// none, a notice says what to do (a shortcut listed under General never does nothing silently).
-
 import type {useNavigate} from '@tanstack/react-router';
 import {untracked} from 'mobx';
 import {dismissSeries, notify} from './notices.ts';
@@ -21,10 +18,8 @@ export function goToCode(app: App, navigate: ReturnType<typeof useNavigate>): vo
 }
 
 const SERIES = 'go.code';
-/** Why there is no code to go to (the palette's disabled command says it too). */
 export const GO_CODE_WHY = 'Open a repository first';
 
-/** Whether "Go to the code" has a repository to go to. */
 export function canGoToCode(app: App): boolean {
   const id = untracked(() => app.ui.repoOpen || app.ui.recentRepo);
   return Boolean(id && app.session?.data.pool.model('Repository').get(id));

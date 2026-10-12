@@ -1,10 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Ending Forgejo's own web session when signing out (the classic login cookie): a "Sign in" afterwards must ask
-// for the password again. Offline the request fails; it is remembered on this device and made as soon as the
-// browser is online again (at the next boot, on the `online` event, and before any sign-in starts), so a signed-out
-// device on a shared machine never keeps a live Forgejo session (QA round 2).
+// End the classic login cookie too, so shared-device sign-in requires a password.
+// Offline logouts are retried at boot, on reconnect, and before signing in.
 
 const KEY = 'forgejo-next:webLogout';
 

@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The page's side of the service worker (src/sw/sw.ts): registered after
-// the first paint (when idle; the worker then precaches this build), the
-// update path (a new build installed and waiting → "Reload" → it activates
-// and the page reloads into it; notice{new_build} from the sync session
-// makes the browser look for it at once), and the kill switch's page side
-// (no worker served → unregister). Its own chunk.
+// Registered after first paint; updates activate on request, while the kill switch unregisters and clears caches.
 
 import {autorun} from 'mobx';
 import {notify} from './notices.ts';
@@ -45,12 +40,12 @@ export function startServiceWorker(app: App): void {
   container.addEventListener('controllerchange', () => {
     if (reloading) location.reload();
   });
-  /** The kill switch, page side: no worker served any more ⇒ none stays registered, nothing stays cached. */
+  /** A missing worker script retires the controller and clears caches. */
   const killed = async (): Promise<boolean> => {
     const res = await fetch(`${app.config.base}sw.js`, {cache: 'no-store'}).catch(() => undefined);
     if (!res || (res.status !== 404 && res.status !== 410)) return false;
     const old = await container.getRegistration(scope).catch(() => undefined);
-    // The worker still controls this page until it reloads: it stops caching first (sw/sw.ts `retired`).
+    // Unregister does not release this page's controller; retire it before clearing caches.
     container.controller?.postMessage({t: 'retire'});
     await old?.unregister();
     await dropCaches();
@@ -60,7 +55,7 @@ export function startServiceWorker(app: App): void {
     let reg: ServiceWorkerRegistration;
     try {
       reg = await container.register(workerScriptURL(app.config.base), {scope, updateViaCache: 'none'});
-      // register() resolves at once for a worker already registered: look for a new one (or none) now.
+      // register() may return an existing worker without checking for updates.
       await reg.update();
     } catch (err) {
       if (await killed()) return;
@@ -73,13 +68,12 @@ export function startServiceWorker(app: App): void {
       });
     };
     offer(reg);
-    // The avatars on screen were fetched before a worker controlled this page (the first load after signing
-    // in): the active worker keeps them for offline.
+    // Cache avatars fetched before this page acquired a worker controller.
     void container.ready.then((r) => {
       const urls = [...document.images].map((i) => i.currentSrc || i.src).filter((u) => u.startsWith(location.origin));
       if (urls.length) r.active?.postMessage({t: 'avatars', urls});
     });
-    // An install the browser started before this code ran (its updatefound has fired already).
+    // Include an install whose updatefound event already fired.
     watch(reg.installing);
     reg.addEventListener('updatefound', () => {
       watch(reg.installing);
@@ -90,10 +84,7 @@ export function startServiceWorker(app: App): void {
   })();
 }
 
-/**
- * Back to the classic UI: the worker goes too (it would keep answering this
- * instance's navigations offline with this app), and so does its cache.
- */
+/** Removes worker and caches so classic navigations cannot fall back to the app offline. */
 export async function removeServiceWorker(app: App): Promise<void> {
   const container = (navigator as Partial<Navigator>).serviceWorker;
   const reg = await container?.getRegistration(`${app.config.app_sub_url}/`).catch(() => undefined);
@@ -102,10 +93,7 @@ export async function removeServiceWorker(app: App): Promise<void> {
   await dropCaches();
 }
 
-/**
- * Deletes this app's caches, and again a moment later: a fetch the retiring worker had in flight may have opened
- * one again in between (it checks before it opens, sw/sw.ts `alive`).
- */
+/** Sweep twice: a retiring worker's in-flight fetch can reopen a cache after the first deletion. */
 async function dropCaches(): Promise<void> {
   const sweep = async () => {
     for (const k of await caches.keys().catch(() => [])) if (k.startsWith('forgejo-next-')) await caches.delete(k);

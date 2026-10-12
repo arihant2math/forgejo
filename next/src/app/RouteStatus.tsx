@@ -16,10 +16,10 @@ import {QuestionIcon, SyncIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 
-/** The not-found page's body (and the classic link) in its own chunk: rare, and off the boot route. */
+/** Lazy to keep the rare not-found body off the boot route. */
 const Missing = lazyComponent(() => import('./Missing.tsx').then((m) => m.Missing));
 
-/** A route failed to load or render. A missing chunk (an old build) reloads once. */
+/** Reloads once for a missing chunk; otherwise displays the route error. */
 export function RouteError({error}: ErrorComponentProps) {
   const chunk = isChunkError(error);
   useEffect(() => {
@@ -32,10 +32,7 @@ export function RouteError({error}: ErrorComponentProps) {
   );
 }
 
-/**
- * The classic page of an address the app has no page for, when the classic UI is known to have it (a
- * repository's wiki or settings); undefined for an address nobody has (no promise of a page that is a 404).
- */
+/** Returns a classic path only when a page is known to exist there but not in the app. */
 function useClassicOfHere(): string | undefined {
   const app = useApp();
   const path = useRouterState({select: (s) => s.location.pathname});
@@ -44,13 +41,7 @@ function useClassicOfHere(): string | undefined {
   return classic === '/' || classic === path || !classicHas(classic) ? undefined : classic;
 }
 
-/**
- * A path the app has no page for, inside the shell (the sidebar stays). The
- * service worker answers every navigation it cannot get from the network
- * with the app (offline, or the server unreachable), so this is also the
- * page of a classic page that is not available offline: it says so, and
- * lists what is available; online it offers the classic page.
- */
+/** The service worker's offline fallback can land on a classic-only page; offer locally available pages. */
 export const ShellNotFound = observer(function ShellNotFound() {
   const classic = useClassicOfHere();
   const app = useApp();
@@ -66,7 +57,6 @@ export const ShellNotFound = observer(function ShellNotFound() {
   );
 });
 
-/** The same outside the shell (no route matched at all, e.g. signed out). */
 export function RouteNotFound() {
   const classic = useClassicOfHere();
   return (

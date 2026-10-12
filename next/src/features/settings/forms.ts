@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's general settings as forms (pure; forms.test.ts): what the
-// pool says (Repository, RepoUnit) → the form's values, the form → the
-// smallest API v1 `PATCH /repos/{owner}/{repo}` body (EditRepoOption: only
-// the fields that change are sent, so a save never overwrites a change
-// someone else made to another field), the checks made before sending, and
-// the server's 422 answers → the field they are about.
+// Send only changed fields so a save cannot overwrite concurrent edits to other fields.
 
 import type {Repository} from '../../protocol/types.gen.ts';
 
@@ -14,7 +9,6 @@ export type FieldErrors<K extends string> = Partial<Record<K, string>>;
 
 export type MergeStyle = 'merge' | 'rebase' | 'rebase-merge' | 'squash' | 'fast-forward-only' | 'manually-merged';
 
-/** EditRepoOption (modules/structs/repo.go), the fields the settings pages change. */
 export interface RepoPatch {
   name?: string;
   description?: string;
@@ -42,7 +36,6 @@ export interface RepoPatch {
   default_allow_maintainer_edit?: boolean;
 }
 
-// ---- Name, description, website, template ----
 
 export interface Details {
   name: string;
@@ -59,12 +52,10 @@ export function sameDetails(a: Details, b: Details): boolean {
   return a.name === b.name && a.description === b.description && a.website === b.website && a.template === b.template;
 }
 
-/** What is typed, as it is sent (surrounding spaces dropped). */
 function clean(d: Details): Details {
   return {name: d.name.trim(), description: d.description.trim(), website: d.website.trim(), template: d.template};
 }
 
-/** The fields that changed from `base` (what the form was filled with), as EditRepoOption. */
 export function detailsPatch(base: Details, form: Details): RepoPatch {
   const b = clean(base);
   const f = clean(form);
@@ -76,12 +67,11 @@ export function detailsPatch(base: Details, form: Details): RepoPatch {
   return patch;
 }
 
-/** repo_model.IsUsableRepoName: the characters, and the names and suffixes Forgejo reserves. */
+/** Mirror Forgejo's repo_model.IsUsableRepoName restrictions. */
 const NAME_CHARS = /^[\w.-]+$/;
 const RESERVED_NAMES = new Set(['.', '..', '-']);
 const RESERVED_SUFFIX = /\.(?:git|wiki|rss|atom)$/i;
 
-/** The checks Forgejo makes too (binding and IsUsableRepoName), made before sending. */
 export function validateDetails(form: Details): FieldErrors<keyof Details> {
   const f = clean(form);
   const errors: FieldErrors<keyof Details> = {};
@@ -98,7 +88,6 @@ export function validateDetails(form: Details): FieldErrors<keyof Details> {
   return errors;
 }
 
-/** An absolute http(s) URL. */
 export function isWebUrl(s: string): boolean {
   try {
     const u = new URL(s);
@@ -108,15 +97,12 @@ export function isWebUrl(s: string): boolean {
   }
 }
 
-// ---- Features (units) ----
 
 export type FeatureKey = 'has_issues' | 'has_pull_requests' | 'has_wiki' | 'has_projects' | 'has_releases' | 'has_packages' | 'has_actions';
 
 export interface Feature {
   key: FeatureKey;
-  /** The unit (RepoUnit.type) that is enabled while the feature is on. */
   unit: string;
-  /** Its external variant (an external tracker or wiki): configured in the classic UI only. */
   external?: string;
   label: string;
   description: string;
@@ -132,18 +118,15 @@ export const FEATURES: readonly Feature[] = [
   {key: 'has_actions', unit: 'actions', label: 'Actions', description: 'Workflows that run on pushes and pull requests.'},
 ];
 
-/** Whether a feature is on (its unit or its external variant is enabled) and whether it is the external one. */
 export function featureState(units: ReadonlySet<string>, f: Feature): {on: boolean; external: boolean} {
   const external = f.external !== undefined && units.has(f.external);
   return {on: units.has(f.unit) || external, external};
 }
 
-// ---- Pull requests: merge styles and defaults ----
 
 export interface MergeStyleInfo {
   style: MergeStyle;
   key: 'allow_merge_commits' | 'allow_rebase' | 'allow_rebase_explicit' | 'allow_squash_merge' | 'allow_fast_forward_only_merge' | 'allow_manual_merge';
-  /** Its field in the pull requests unit's config (repo_model.PullRequestsConfig). */
   config: string;
   label: string;
   description: string;
@@ -168,7 +151,7 @@ export interface PullSettings {
 
 const STYLES = new Set<string>(MERGE_STYLES.map((m) => m.style));
 
-/** The pull requests unit's config (RepoUnit.config) as settings; Forgejo's defaults for what it lacks. */
+/** Use Forgejo's defaults for missing pull request config. */
 export function pullSettingsOf(config: Readonly<Record<string, unknown>>): PullSettings {
   const flag = (k: string, dflt: boolean) => (typeof config[k] === 'boolean' ? config[k] : dflt);
   const allowed = Object.fromEntries(MERGE_STYLES.map((m) => [m.style, flag(m.config, true)])) as Record<MergeStyle, boolean>;
@@ -182,14 +165,10 @@ export function pullSettingsOf(config: Readonly<Record<string, unknown>>): PullS
   };
 }
 
-/** The styles a pull request can be merged with (marking one merged by hand is not one). */
+/** Manual marking as merged is not a merge style. */
 const MERGING = MERGE_STYLES.filter((m) => m.style !== 'manually-merged');
 
-/**
- * Allowing or disallowing a merge style: the body to send, or why not. The last way of merging cannot be
- * disallowed; disallowing the default style makes the first style still allowed the default (Forgejo would
- * otherwise offer a style it refuses).
- */
+/** Keep at least one merge style; disabling the default selects an allowed replacement. */
 export function mergeStyleToggle(s: PullSettings, style: MergeStyle, on: boolean): {patch: RepoPatch} | {error: string} {
   const info = MERGE_STYLES.find((m) => m.style === style);
   if (!info) return {error: 'Unknown merge style.'};
@@ -201,14 +180,12 @@ export function mergeStyleToggle(s: PullSettings, style: MergeStyle, on: boolean
   return {patch};
 }
 
-/** The styles the default can be (the allowed ones, and the current default even if it is not). */
+/** Include the current default even if it is disallowed. */
 export function defaultStyleChoices(s: PullSettings): MergeStyleInfo[] {
   return MERGE_STYLES.filter((m) => s.allowed[m.style] || m.style === s.defaultStyle);
 }
 
-// ---- Transfer ----
 
-/** A transfer's new owner as typed (a login, maybe with "@"), or why it cannot be one. */
 export function newOwnerOf(typed: string, current: string): {owner: string} | {error: string} {
   const owner = typed.trim().replace(/^@/, '');
   if (!owner) return {error: 'Name the new owner.'};

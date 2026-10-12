@@ -66,7 +66,6 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
       batches.delete(comment.issue_id); setOpen(false);
     } catch (e) { setError(failureText(e)); } finally { setBusy(false); }
   };
-  // Named as what it is (classic's and GitHub's "Suggested change"): the lines it replaces and their replacement.
   return <section aria-label="Suggested change" className="flex flex-col gap-2">
     <span className="text-base font-semibold text-default">Suggested change</span>
     <div>

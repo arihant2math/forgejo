@@ -10,11 +10,7 @@ import type {AppRouter} from './router.tsx';
 import {type App as AppState, AppContext} from './store.ts';
 import {themeState} from './theme.ts';
 
-/**
- * Primer's theme context: the colour mode follows the app's preference. The attributes Primer's CSS keys on
- * (data-color-mode, …) are on <html>, set before paint by the splash script and app/theme.ts, so the provider
- * only supplies context (portals, overlays and `useTheme` read it).
- */
+/** Primer's CSS attributes are set on <html> before paint; this provider supplies context for portals and useTheme. */
 export const PrimerTheme = observer(function PrimerTheme({children}: {children: ReactNode}) {
   const pref = themeState.preference;
   return (
@@ -24,7 +20,6 @@ export const PrimerTheme = observer(function PrimerTheme({children}: {children: 
   );
 });
 
-/** The app root: the app state and the router (which renders the route's view). */
 export function App({app, router}: {app: AppState; router: AppRouter}) {
   return (
     <AppContext value={app}>

@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's settings (/{owner}/{repo}/settings[/collaboration|branches|
-// hooks|keys], the classic UI's addresses), laid out like GitHub's: the
-// sections on the left, the section's forms on the right. Administrators
-// only: anyone else gets the refusal (a site administrator, who has no
-// Access rows in the pool, waits for API v1's answer instead of seeing it
-// flash). The sections the app does not have yet link to the classic UI.
-// Writes are online only (PLAN §5.4). Its own chunk.
+// Site administrators have no pool Access rows: wait for API v1 before showing a refusal.
 
 import {createLink} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -76,7 +70,6 @@ function RepoSettings({section}: {section: SettingsSection}) {
   );
 }
 
-/** Administrators get the settings; others the refusal, once their access is known. */
 const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: string; repo: string; repoId: number; section: SettingsSection}) {
   const s = useSession();
   if (repoAccess(s, repoId) === 'admin') {
@@ -106,7 +99,6 @@ function Section({owner, repo, repoId, section}: {owner: string; repo: string; r
   }
 }
 
-/** The sections on the left (a row above on a narrow panel), the section on the right. */
 function Layout({owner, repo, section, children}: {owner: string; repo: string; section: SettingsSection; children: ReactNode}) {
   return (
     <div className="flex min-w-0 flex-col gap-6 px-4 py-4 @xl:flex-row @xl:gap-8 @xl:px-8 @xl:py-6">
@@ -119,7 +111,6 @@ function Layout({owner, repo, section, children}: {owner: string; repo: string; 
   );
 }
 
-/** The classic UI's settings sections the app does not have (its General page has more options too). */
 const CLASSIC_SECTIONS: readonly [string, string][] = [
   ['Units and trackers', 'settings/units'],
   ['Tags', 'settings/tags'],
@@ -153,7 +144,6 @@ function SettingsNav({owner, repo, section}: {owner: string; repo: string; secti
   );
 }
 
-/** The general section's shape, while the viewer's access is being confirmed. */
 function SettingsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-4">

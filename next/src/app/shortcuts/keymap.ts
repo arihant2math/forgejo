@@ -1,37 +1,22 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The one table of keyboard shortcuts (PLAN §5.6). Features bind handlers to
-// these ids (useShortcut); menus, tooltips, the palette and the shortcuts
-// help read their hints from here (shortcutHint), so a key is defined once.
-//
-// Keys: chords separated by spaces ("g i" is G then I); a chord is
-// modifiers + key joined by "+", where "mod" is ⌘ on Apple platforms and
-// Ctrl elsewhere. Letters match without Shift; symbols match whatever
-// produces them ("?" is Shift+/ on most layouts).
-//
-// Scopes: `global` bindings work everywhere; the others only while a view
-// that pushed that scope is mounted (useShortcutScope), innermost first.
+// Shared key definitions keep handlers and UI hints consistent.
+// Spaces separate sequence chords; "+" joins modifiers, with "mod" meaning Meta on Apple and Ctrl elsewhere.
+// Letters ignore Shift; symbols match what produces them. Active scopes resolve innermost first.
 
 /** `editor`: keys a markdown field handles itself while it has the focus (not through the registry). */
 export type Scope = 'global' | 'list' | 'issue' | 'inbox' | 'board' | 'code' | 'editor' | 'diff' | 'palette';
 
 export interface KeyDef {
   keys: string;
-  /** What it does (shortcuts help, palette). */
   label: string;
   scope: Scope;
-  /**
-   * Also while typing in a text field or inside an open menu or dialog
-   * (otherwise those keep their keys).
-   */
+  /** Also active in text fields, menus and dialogs. */
   anywhere?: boolean;
   /** Handled by the focused view itself, not through the registry (listed in the help only). */
   local?: boolean;
-  /**
-   * Only while the focus is on the page itself (<body>) or in a list that takes the app's keys: Enter and Esc of a
-   * list work without clicking into it first, and a focused button or link keeps its own Enter.
-   */
+  /** Active only on body or shortcut-enabled lists; focused controls retain their own Enter. */
   page?: boolean;
 }
 
@@ -82,7 +67,6 @@ export const KEYMAP = {
   'board.moveRight': {keys: 'shift+l', label: 'Move the card to the next column', scope: 'board'},
   'board.moveUp': {keys: 'shift+k', label: 'Move the card up', scope: 'board'},
   'board.moveDown': {keys: 'shift+j', label: 'Move the card down', scope: 'board'},
-  // Commands without keys (keys ''): the palette offers them on a board, the help does not list them.
   'repo.star': {keys: '', label: 'Star repository', scope: 'global'},
   'repo.watch': {keys: '', label: 'Watch repository', scope: 'global'},
   'board.addColumn': {keys: '', label: 'Add a column', scope: 'board'},
@@ -125,7 +109,6 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   palette: 'Command menu',
 };
 
-/** Whether this platform calls the command modifier ⌘ (Meta) rather than Ctrl. */
 export function isApple(): boolean {
   const nav = globalThis.navigator as (Navigator & {userAgentData?: {platform?: string}}) | undefined;
   const p = nav?.userAgentData?.platform ?? nav?.platform ?? '';
@@ -134,7 +117,7 @@ export function isApple(): boolean {
 
 const NAMES: Record<string, string> = {enter: '↵', escape: 'Esc', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', backspace: '⌫'};
 
-/** The hint for keys, as Shortcut renders it: key caps separated by spaces ("⌘K", "Ctrl K", "G I"). */
+/** Formats raw keymap notation into platform keycaps separated by spaces. */
 export function formatKeys(keys: string, apple = isApple()): string {
   return keys.split(' ').map((chord) => {
     const parts = chord.split('+');
@@ -146,12 +129,10 @@ export function formatKeys(keys: string, apple = isApple()): string {
       if (m === 'alt') return apple ? '⌥' : 'Alt';
       return m;
     });
-    // Apple glyphs join into one cap ("⌘K"); words get their own ("Ctrl K").
     return apple ? [...mods, name].join('') : [...mods, name].join(' ');
   }).join(' ');
 }
 
-/** The hint of a shortcut id ("⌘K", "G I"). */
 export function shortcutHint(id: ShortcutId): string {
   return formatKeys(KEYMAP[id].keys);
 }

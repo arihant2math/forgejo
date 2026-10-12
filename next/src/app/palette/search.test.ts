@@ -35,7 +35,6 @@ test('terms and scores: prefix > word start > inside; every word must match', ()
 test('repositories by full name; issues by title, by number and by repository words', () => {
   const p = pool(100);
   const r = searchPool(p, 'web');
-  // "web/tools" (owner prefix) before "acme/website" (word start).
   expect(r.repos.map((x) => x.full_name)).toEqual(['web/tools', 'acme/website']);
   expect(searchPool(p, 'crash').issues.map((x) => x.issue.title)).toEqual(['Crash when saving']);
   expect(searchPool(p, '#42').issues[0]?.issue.number).toBe(42);
@@ -56,7 +55,7 @@ test('50 000 issues: a keystroke searches well within a frame', () => {
   const p = pool(50_000);
   searchPool(p, 'f'); // first search builds the lower-case cache
   const times: number[] = [];
-  // Three rounds (the first also warms the JIT): one slow stretch of a shared machine does not decide.
+  // Multiple rounds reduce shared-machine noise and warm the JIT.
   for (let round = 0; round < 3; round++) {
     for (const q of ['fo', 'foo', 'foot', 'footer', 'pag', '#4242', 'acme pag']) {
       const t0 = performance.now();
@@ -65,8 +64,7 @@ test('50 000 issues: a keystroke searches well within a frame', () => {
     }
   }
   times.sort((a, b) => a - b);
-  // The browser budget is 16 ms (e2e asserts it); jsdom on a shared CI box gets slack.
-  // The fastest run shows the cost without the machine's noise (tests run in parallel).
+  // Use the fastest run to limit parallel-test noise; allow jsdom slack above the browser's 16 ms budget.
   expect(times[0]).toBeLessThan(30);
 });
 
@@ -79,12 +77,12 @@ test('narrowing from the previous keystroke gives the full scan\'s results', () 
     expect(narrowed.issues.map((x) => x.issue.id), q).toEqual(full.issues.map((x) => x.issue.id));
     prev = narrowed.matched ? {query: q, matched: narrowed.matched} : undefined;
   }
-  // From one word to two the second may name the repository: no narrowing then (round-2 review).
+  // A second word may name the repository, so one-to-two-word queries cannot narrow.
   const one = searchPool(p, 'website', {issueLimit: 50});
   const two = searchPool(p, 'website footer', {issueLimit: 50, narrow: {query: 'website', matched: one.matched ?? []}});
   expect(two.issues.map((x) => x.issue.id)).toEqual(searchPool(p, 'website footer', {issueLimit: 50}).issues.map((x) => x.issue.id));
   expect(two.issues.length).toBeGreaterThan(0);
-  // A number query is never narrowed from a text one (its matches are not a subset).
+  // Numeric matches are not a subset of text matches.
   const r = searchPool(p, '#7', {narrow: {query: '#', matched: []}});
   expect(r.issues[0]?.issue.number).toBe(7);
 });
@@ -99,7 +97,6 @@ test('typing into 50 000 issues: after the first keystroke, each one narrows wit
     times.push(performance.now() - t0);
     prev = r.matched ? {query: q, matched: r.matched} : undefined;
   }
-  // The later keystrokes scan only the earlier matches.
   expect(Math.min(...times.slice(1))).toBeLessThan(16);
 });
 
@@ -116,10 +113,8 @@ test('references name one issue exactly, first', () => {
 });
 
 test('a repository named by the query outranks things found by its name; boards and milestones need their own title', () => {
-  // "atlas": the repository acme/atlas (exact name) beats the board "Atlas 1.0" (title start, 3 + bonuses).
   expect(repoScore('acme/atlas', 'atlas', ['atlas'])).toBeGreaterThan(scoreNamed('atlas 1.0', 'acme/atlas', ['atlas']) + 1);
   expect(repoScore('openlab/field-notes', 'field-notes', ['field'])).toBeGreaterThanOrEqual(4);
-  // The milestone "Q4 migration" of acme/infra is no match for "infra"; "infra q4" is.
   expect(scoreNamed('q4 migration', 'acme/infra', ['infra'])).toBe(-1);
   expect(scoreNamed('q4 migration', 'acme/infra', ['infra', 'q4'])).toBeGreaterThan(0);
 });

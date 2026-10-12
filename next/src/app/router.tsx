@@ -1,22 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The route tree (TanStack Router). Routes are Forgejo's canonical URLs
-// (B8 `spaRoutes`, routers/livesync/spa.go: the server sends index.html for
-// them to browsers that opted in), plus the UI's own pages below its base.
-// The router's basepath is the instance's sub-path (`app_sub_url`), so
-// paths here are site paths without it: "/-/next/callback" is below the
-// base wherever Forgejo is mounted, and links never build "/-/next" URLs by
-// hand. routes.test.ts checks this table against spaRoutes.
-//
-// Every view is its own chunk (lazyView). main.tsx awaits
-// router.load() before the first render, which loads the current route's
-// chunk: the boot route never renders through Suspense (F1). Links preload
-// their route on intent (hover, focus).
-//
-// Adding a route: a `createRoute` below (component lazy, `staticData.skeleton`
-// for the splash), its view in src/features/<area>/, and — for a canonical
-// URL — the same pattern in spaRoutes (backend) so a reload serves the UI.
+// Site paths exclude app_sub_url; canonical routes must also be registered in the backend's spaRoutes.
+// Views preload before first render and on link intent. staticData selects the next boot's skeleton.
 
 import {untracked} from 'mobx';
 import {
@@ -47,9 +33,8 @@ declare module '@tanstack/react-router' {
     router: AppRouter;
   }
   interface StaticDataRouteOption {
-    /** The skeleton the boot shell shows when the app reloads on this route (splash). */
     skeleton?: SkeletonShape;
-    /** The header's rows in that skeleton (default: one row): a repository page's breadcrumb, tabs and title row. */
+    /** Extra skeleton header rows; defaults to one row. */
     header?: SkeletonHeader;
   }
 }
@@ -59,25 +44,20 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   notFoundComponent: RouteNotFound,
 });
 
-// The UI's own pages (below the base, outside the shell).
 const callbackRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/-/next/callback',
   component: lazyView(() => import('../features/auth/Callback.tsx')),
 });
 
-// Signed in: the app shell; otherwise the logged-out screen.
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'shell',
   component: Shell,
 });
 
-/**
- * The base URL resumes the last route (splash), or the dashboard. `?to=` names a classic address (the classic
- * pages' "Back to Forgejo Next"): the app's page for it (nextPathOf), else Home — never an unrelated page resumed.
- * Written without the trailing slash (it matches "/-/next/" too): B8 rewrites every string literal that is
- * exactly the base under a sub-path, which would turn a router path into a site path.
+/** Resumes the last route unless ?to= names a classic destination.
+ * Omit the trailing slash: the server rewrites exact base literals under sub-path deployments.
  */
 const baseRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -130,9 +110,7 @@ const inboxRoute = createRoute({
   component: lazyView(() => import('../features/inbox/Inbox.tsx')),
 });
 
-// A new repository and a new organization. "repo" and "org" are names Forgejo reserves (no owner has them),
-// and a static path outranks `/$owner/$repo`. `?org=` (an organization's id) and `?template_id=` are the
-// classic page's.
+// Reserved "repo"/"org" names and static-route precedence keep creation forms from matching repositories.
 const newRepoRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/repo/create',
@@ -151,13 +129,7 @@ const newOrgRoute = createRoute({
   component: lazyView(() => import('../features/new/NewOrg.tsx'), 'NewOrg'),
 });
 
-// Repository routes resolve the repository (pool, else API v1) and hydrate
-// its group. `$index` stays a string in the URL; views parse it.
-
-/**
- * The loader of a repository route. Names are case-insensitive, so `/ACME/Atlas` finds acme/atlas: the address is
- * then rewritten to the repository's own spelling (the URL, breadcrumb and tab title are the canonical ones).
- */
+/** Resolves case-insensitive names and redirects to Forgejo's canonical spelling. */
 async function repoLoader(app: App, params: {owner: string; repo: string}, location: {pathname: string; searchStr: string; hash: string}): Promise<RepoMatch> {
   const match = await loadRepo(app, params.owner, params.repo);
   const full = match.repoId === undefined ? undefined : repoFullName(app, match.repoId);
@@ -231,8 +203,6 @@ const repoPullRoute = createRoute({
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
 
-// A repository's settings (administrators): the classic UI's addresses, one route per section the app has (the
-// others stay classic: the settings' navigation links them).
 function settingsRoute<P extends `/$owner/$repo/settings${string}`>(path: P, view: 'SettingsGeneral' | 'SettingsCollaboration' | 'SettingsBranches' | 'SettingsHooks' | 'SettingsKeys') {
   return createRoute({
     getParentRoute: () => shellRoute,
@@ -251,11 +221,7 @@ const settingsRoutes = [
   settingsRoute('/$owner/$repo/settings/keys', 'SettingsKeys'),
 ] as const;
 
-// The wiki (features/wiki): Forgejo's addresses (its Home, a page) and clean ones for what the classic wiki puts in
-// `?action=` (the page list, a new page, a page's editor: the classic addresses go on to them). The loader starts
-// fetching the page, so a hovered link (preload on intent) has it in memory when it is clicked.
-
-/** A classic wiki address with `?action=_pages`, `_new` or `_edit`: the app's view for it. */
+// Wiki actions use app paths; loaders fetch on intent so hovered pages are ready on click.
 function wikiAction(app: App, location: {pathname: string; searchStr: string; hash: string}): void {
   const q = new URLSearchParams(location.searchStr);
   if (!q.get('action')) return;
@@ -312,7 +278,6 @@ const wikiPagesRoute = createRoute({
 const wikiNewRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/wiki/-/new',
-  // `title`: the page to create (a link to a page that does not exist yet).
   validateSearch: (s): {title?: string} => (typeof s.title === 'string' && s.title ? {title: s.title} : {}),
   loader: ({context: {app}, params, location}): Promise<RepoMatch> => wikiLoader(app, params, location, undefined),
   staticData: {skeleton: 'detail', header: 'toolbar'},
@@ -327,8 +292,6 @@ const wikiEditRoute = createRoute({
   component: wikiView('WikiEdit'),
 });
 
-// A repository's activity (the classic /activity pages, laid out like GitHub's Insights): the Pulse of a period
-// (`$period`: daily … yearly, parsed by the view; a week by default) and the contributor graphs.
 const activityView = (name: 'ActivityPulse' | 'ActivityContributors' | 'ActivityCodeFrequency' | 'ActivityRecentCommits') =>
   lazyView(() => import('../features/activity/Activity.tsx'), name);
 
@@ -372,10 +335,7 @@ const repoRecentCommitsRoute = createRoute({
   component: activityView('ActivityRecentCommits'),
 });
 
-// The viewer's settings (the classic /user/settings pages, laid out like GitHub's: a side list of its pages beside
-// the page): the profile, the account's email addresses, the appearance, SSH and GPG keys; the side list links the
-// other pages to the classic UI. "user" is a name Forgejo reserves, so these never read as an owner and a
-// repository. The loader starts fetching what the page shows, so a hovered link has it in memory when clicked.
+// "user" is reserved; settings loaders prefetch on intent.
 type SettingsKind = 'settings' | 'emails' | 'keys' | 'gpg' | 'options';
 
 function settingsLoader(app: App, kinds: SettingsKind[]): void {
@@ -427,7 +387,6 @@ const settingsKeysRoute = createRoute({
   component: settingsView('SettingsKeys'),
 });
 
-// A repository's labels and milestones (features/meta): computed from the pool, written online.
 const repoLabelsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/labels',
@@ -471,7 +430,6 @@ const repoMilestoneEditRoute = createRoute({
   component: lazyView(() => import('../features/meta/MilestoneForm.tsx'), 'EditMilestone'),
 });
 
-// A repository's watchers (the classic /watchers page): the people who watch it, a page at a time (`?page=`).
 const repoWatchersRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo/watchers',
@@ -481,8 +439,7 @@ const repoWatchersRoute = createRoute({
   component: lazyView(() => import('../features/repo/Watchers.tsx'), 'RepoWatchers'),
 });
 
-// The UI's own pages inside the shell (no canonical Forgejo URL serves them yet: B8's spaRoutes would need
-// `/{owner}/{repo}/projects/{id}` etc., a backend change; below the base they reload into the app anyway).
+// Board pages live below the app base because they have no canonical SPA route.
 const boardsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/boards',
@@ -497,20 +454,16 @@ const boardsRoute = createRoute({
 const boardRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/projects/$id',
-  // `card`: the issue whose card gets the cursor (an issue's Project link opens its board on its card).
+  // Open an issue's board with its card as the cursor.
   validateSearch: (s): {card?: number} => (typeof s.card === 'string' && /^-?[1-9]\d{0,15}$/.test(s.card) ? {card: Number(s.card)} : {}),
   staticData: {skeleton: 'list'},
   component: lazyView(() => import('../features/board/BoardView.tsx'), 'BoardPage'),
 });
 
-// Code (F7): one route for every code view of a repository, at Forgejo's own addresses (spa.go codeAddress: a
-// reload is served the app); the path after the repository (`src/branch/main/…`, `commit/<sha>`, `compare/a...b`,
-// …) is parsed by the view (code/refs.ts). It also catches the repository's other deeper addresses (static routes
-// above outrank it): the app's page for one (a pull request's tab, a board) is gone on to, the rest is not found.
+// Catch deeper repository addresses; static routes outrank this fallback.
 const codeRoute = createRoute({
   getParentRoute: () => shellRoute,
-  // `$view`: the address's first segment after the repository (`src`, `commit`, …), so that the route never
-  // matches the repository's home (a splat may be empty, and a splat route would outrank `/$owner/$repo`).
+  // Require $view so an empty splat cannot outrank the repository home.
   path: '/$owner/$repo/$view/$',
   beforeLoad: ({context: {app}, params, location}) => {
     const rest = codeRestOf(params);
@@ -523,15 +476,11 @@ const codeRoute = createRoute({
   component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
 });
 
-/** Whether what follows a repository in an address is a code page (or a commit by an abbreviated SHA: the view resolves it). */
 function isCodeRest(rest: string): boolean {
   return rest !== '' && (parseCodePath(rest) !== undefined || abbreviatedCommit(rest) !== undefined);
 }
 
-/**
- * A code view's former address below the base (`/-/next/code/{owner}/{repo}/src/branch/main/README.md/-`, links
- * and bookmarks from before code pages had Forgejo's addresses): the code page, with the query and the fragment.
- */
+/** Supports bookmarked app-base code URLs, preserving query and fragment. */
 const legacyCodeRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/code/$owner/$repo/$',
@@ -542,9 +491,7 @@ const legacyCodeRoute = createRoute({
   component: ShellNotFound,
 });
 
-// An owner (user or organization): its repositories here, its profile in the classic UI (`/{owner}?tab=…` and
-// `?ui=classic` are served the classic page: spa.go). A name Forgejo reserves (`/explore`) is no owner (the
-// page says not found).
+// Profile-tab and ui=classic queries are served by the backend's classic UI.
 const ownerRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner',
@@ -552,11 +499,7 @@ const ownerRoute = createRoute({
   component: lazyView(() => import('../features/owner/OwnerPage.tsx'), 'OwnerPage'),
 });
 
-/**
- * The owner page's former address below the base — for an owner this device knows. Any other name below the base
- * (`/-/next/nonsense`) is no page: the not-found page at once, not an owner page that asks Forgejo twice for a user
- * that does not exist (QA verify3).
- */
+/** App-base owner URLs resolve only known owners, avoiding duplicate probes for arbitrary unknown names. */
 const nextOwnerRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/$owner',
@@ -570,24 +513,17 @@ const nextOwnerRoute = createRoute({
   component: ShellNotFound,
 });
 
-/** A repository's address below the base (`/-/next/{owner}/{repo}[/…]`) is its canonical page. */
 const nextRepoRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/-/next/$owner/$repo/$',
   beforeLoad: ({context: {app}, params, location}) => {
     const rest = (params._splat ?? '').replace(/^\/+|\/+$/g, '');
     const to = nextPathOf(`/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}${rest ? `/${rest}` : ''}`);
-    // An address that names no page of the app: the not-found page (with the classic page, if any). The fragment
-    // (a file's `#L12`) goes along.
     if (to) throw redirect({href: sitePath(app.config, `${to}${hashOf(location)}`), replace: true});
   },
   component: ShellNotFound,
 });
 
-/**
- * Any other address inside the shell: the not-found page, with the shell around it (and the classic page) — or the
- * app's page for an address it has elsewhere (toAppPage).
- */
 const notFoundRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '$',
@@ -597,26 +533,20 @@ const notFoundRoute = createRoute({
   component: ShellNotFound,
 });
 
-/** An address of a repository's page the app has at another address (`pulls/9/files` → the tab): gone on to. */
 function toAppPage(app: App, raw: string, location: {searchStr: string; hash: string}): void {
   const path = `/${raw.replace(/^\/+|\/+$/g, '')}`;
   const segs = path.split('/').filter(Boolean);
   const to = segs.length > 2 ? nextPathOf(path) : undefined;
-  // The query goes along (a comparison's `?expand=1` opens its pull request form), unless the page's address has
-  // its own (a pull request's tab).
+  // Preserve query parameters unless the mapped route supplies its own PR tab.
   const w = new URLSearchParams(location.searchStr).get('w');
   const query = to?.includes('?') ? (w === '1' || w === '0' ? `&w=${w}` : '') : location.searchStr;
-  // The fragment goes along too: a search hit's or a pasted permalink's `#L14` names the line to show.
   if (to && to !== path) throw redirect({href: sitePath(app.config, `${to}${query}${hashOf(location)}`), replace: true});
 }
 
-/** A location's fragment as written in an address ("#L12"; "" for none). */
 function hashOf(location: {hash: string}): string {
   return location.hash ? `#${location.hash}` : '';
 }
 
-// Dev-only pages: `import.meta.env.DEV` is false in production builds, so
-// they and their chunks are not shipped.
 const devRoutes = import.meta.env.DEV ?
   [
     createRoute({getParentRoute: () => rootRoute, path: '/-/next/dev/hydrate', component: lazyView(() => import('../dev/bench/HydrateBench.tsx'))}),
@@ -638,11 +568,7 @@ const routeTree = rootRoute.addChildren([
   ...devRoutes,
 ]);
 
-/**
- * The views most sessions go to next, loaded one per idle period once the app has painted: the rest of the bundle
- * streams in behind the first view, and the first G N or row click evaluates no module on the interaction (QA
- * round 2: ~10 ms of a 4x-slowed navigation). Heavier views (code, boards) load on intent (defaultPreload) or use.
- */
+/** Loads common views one per idle period to keep module evaluation off interactions; heavy views load on intent. */
 export function warmViews(): void {
   const views = [inboxRoute, myIssuesRoute, repoIssuesRoute, repoIssueRoute, repoHomeRoute];
   const next = () => {
@@ -656,40 +582,29 @@ export function warmViews(): void {
 }
 
 export function createAppRouter(app: App, history?: RouterHistory) {
-  // Whether the navigation under way goes back or forward in the history, or is the first load (a reload): its
-  // page's scroll is restored.
   let traversal = true;
   const router = createRouter({
     routeTree,
     context: {app},
     basepath: app.config.app_sub_url || '/',
-    // The base is a page of its own; never rewrite slashes.
+    // The base route matches with or without a trailing slash.
     trailingSlash: 'preserve',
     defaultPreload: 'intent',
     defaultPreloadDelay: 50,
-    // Loaders read IndexedDB (or the API for a repository outside the pool):
-    // show the previous page meanwhile, never a spinner for local data.
+    // Keep the previous page visible while local data loads.
     defaultPendingMs: 1000,
     defaultErrorComponent: RouteError,
     defaultNotFoundComponent: RouteNotFound,
-    // Back to a list comes back to where it was scrolled (the page's scroll container: PageBody), after the render.
-    // A new page starts at the top: that reset happens before the new page mounts (below), while the old one's
-    // layout is clean — after the render it forced a synchronous layout of the whole new page inside the
-    // navigation's task (55–65 ms at 4× CPU, QA verify3). A link to an anchor (#…) is scrolled to by the router.
+    // Restore traversal/anchor scroll after render; reset new-page scroll before mount to avoid forced layout.
     scrollRestoration: ({location}) => traversal || location.hash !== '',
     scrollToTopSelectors: [PAGE_SCROLLER],
-    // Plain query strings, as the classic UI writes them (`?labels=11,-3&milestone=4`): values stay strings (the
-    // routes' validators parse them; `?q=8` is the text "8"), never JSON-quoted (`labels=%2211%22`).
+    // Keep classic query values as strings; route validators parse them.
     parseSearch: parsePlainSearch,
     stringifySearch: stringifySearchWith(JSON.stringify),
     ...(history ? {history} : {}),
   });
-  // Back, forward and history.go return to a history entry this tab has shown (its key, which every push and
-  // replace makes new); the first load (a reload) restores its page too. Not router.history.subscribe: a
-  // subscriber added before the router's own left the first boot after signing in on the splash; nor popstate,
-  // which arrives after the router started the navigation.
-  // A navigation may start loading twice (the history's subscriber, then the router's own): the same key keeps
-  // its answer.
+  // onBeforeLoad runs early enough to detect traversal; history subscriptions can race router boot,
+  // while popstate arrives too late. Reuse the answer if loading starts twice for the same entry.
   const shown = new Set<string>();
   let first = true;
   let current: string | undefined;
@@ -710,7 +625,6 @@ export function createAppRouter(app: App, history?: RouterHistory) {
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
 
-/** Route ids, for views that read their own params (`useParams({from})`). */
 export const ROUTES = {
   repoHome: repoHomeRoute.id,
   repoIssues: repoIssuesRoute.id,

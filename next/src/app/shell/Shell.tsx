@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The layout route of every canonical page: the logged-out screen when
-// nobody is signed in on this device, otherwise the app shell (sidebar,
-// the page, and the overlays: ⌘K palette, shortcuts help, sign-out warning).
-
 import {Outlet, useNavigate, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -30,7 +26,7 @@ import {NoticeViewport} from './NoticeViewport.tsx';
 import {Sidebar} from './Sidebar.tsx';
 import {closeDrawer, drawerOpen, toggleSidebar} from './sidebar.ts';
 
-/** Whether this page load hands a classic sign-in on to the app's own (decided once per app: gate.ts claims it). */
+/** Decide the hand-off once per app. */
 const classicHandoff = new WeakMap<App, boolean>();
 function handoffFromClassicSignIn(app: App): boolean {
   let handoff = classicHandoff.get(app);
@@ -57,7 +53,7 @@ const PaletteHost = observer(function PaletteHost({app}: {app: App}) {
   return open || used ? <Palette open={open}/> : null;
 });
 
-/** The issue pickers (S/L/A/M/P), mounted from their first use on (they fade out). */
+/** Remains mounted after first use for close animations. */
 const PickerHost = observer(function PickerHost({app}: {app: App}) {
   const open = Boolean(app.ui.picker);
   const [used, setUsed] = useState(false);
@@ -65,7 +61,7 @@ const PickerHost = observer(function PickerHost({app}: {app: App}) {
   return open || used ? <IssuePicker/> : null;
 });
 
-/** The new-issue dialog (C), mounted from its first use on (it fades out). */
+/** Remains mounted after first use for close animations. */
 const CreateHost = observer(function CreateHost({app}: {app: App}) {
   const open = Boolean(app.ui.create);
   const [used, setUsed] = useState(false);
@@ -121,8 +117,7 @@ function GlobalShortcuts({app}: {app: App}) {
   useShortcut('undo', () => {
     undoLatest(app);
   });
-  // The drawer (narrow screens) closes when a page opens from it, when it opens a dialog (new issue, the
-  // palette, the help, the unsynced changes: never under the drawer), and with Esc.
+  // Close the drawer before navigation or overlays so dialogs cannot appear underneath it.
   const path = useRouterState({select: (st) => st.location.pathname});
   const last = useRef(path);
   useEffect(() => {
@@ -139,7 +134,7 @@ function GlobalShortcuts({app}: {app: App}) {
     if (open) closeDrawer();
   }), [app]);
   useEffect(() => {
-    // Capture, before the shortcut registry: Esc that closes the drawer does nothing else (an issue's "back").
+    // Capture Esc before shortcuts so closing the drawer cannot also navigate back.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !drawerOpen()) return;
       e.stopPropagation();
@@ -158,29 +153,25 @@ function GlobalShortcuts({app}: {app: App}) {
 }
 
 function AppShell({app}: {app: App}) {
-  // A repository the viewer may no longer read: its git content leaves this device's code cache (F7),
-  // whether or not a code view ever opened in this tab.
+  // Revoke cached git content even if this tab never opened a code view.
   useEffect(() => app.session?.data.on('revoked', ({group}) => {
     if (!group.startsWith('repo:') || !app.session) return;
     const db = app.session.data.db;
     void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(Number(group.slice(5)))).catch(() => undefined);
   }), [app]);
   useEffect(() => {
-    // The first frame rendered from local data (PLAN §5.2 step 3) — only when there was local data (a
-    // workspace stored by an earlier session): the first boot after signing in is a cold one.
+    // Count cached first paint only when a workspace already exists.
     if (app.session?.data.workspace.current) markOnce('firstPaintFromCache');
     whenIdle(() => {
-      // The overlays a key opens (C, the pickers, ?, the indicator): there at once, offline too.
+      // Preload keyboard overlays so they open immediately and remain available offline.
       for (const overlay of [Palette, CreateIssue, IssuePicker, Notices, UnsyncedPanel, ShortcutsDialog]) void overlay.preload().catch(() => undefined);
-      // After the first paint: the service worker precaches this build (offline boots, PLAN §5.2 step 5).
+      // Precache only after first paint to keep boot fast.
       void import('../sw.ts').then((m) => {
         m.startServiceWorker(app);
       }).catch(() => undefined);
-      // Pull requests awaiting the viewer's review: their diffs and files onto this device (PLAN §5.5, F7).
       void import('../../code/prefetch.ts').then((m) => {
         m.startPrefetch(app);
       }).catch(() => undefined);
-      // Real-user measurements to /-/sync/rum (PLAN §5.8, app/rum.ts).
       void import('../rum.ts').then((m) => {
         m.startRum(sitePath(app.config, '/-/sync/rum'));
       }).catch(() => undefined);
@@ -205,7 +196,6 @@ export function Shell() {
   useEffect(() => {
     if (app.session) return;
     // Verify anonymously: a repository visible to the previous account may be private.
-    // A repository's page (its home, an issue, a code page: paths.ts publicPageRepo).
     const match = publicPageRepo(classicPage);
     if (!match || searchStr) return;
     const controller = new AbortController();
@@ -218,16 +208,13 @@ export function Shell() {
     }).catch(() => undefined);
     return () => { controller.abort(); };
   }, [app, app.session, classicPage, searchStr]);
-  // Opened right after signing in with Forgejo's own form (not through this screen's Sign in): Forgejo's session
-  // is not the app's, so the app's sign-in continues by itself instead of asking to sign in again.
+  // Forgejo's web session is separate from app OAuth; continue authorization without another sign-in prompt.
   const handoff = handoffFromClassicSignIn(app);
   useEffect(() => {
     if (handoff && !app.session) signInHere(app);
   }, [app, handoff]);
   if (!app.session) {
-    // The classic page of this address (a public repository, an issue: readable without an account), and opting out.
     const classic = classicOfLocation(pathname, searchStr);
-    // Signed out offline: Forgejo's own session ends once the device is online again (auth/weblogout.ts) — said.
     const webSession = pendingWebLogout() ? 'You are signed out here. Forgejo\'s own session on this device ends as soon as it is back online.' : undefined;
     const message = webSession ?? (handoff ? 'You are signed in to Forgejo. Connecting Forgejo Next to your account…' : undefined);
     return <LoggedOut appName={app.config.app_name} message={message} onSignIn={app.config.oauth ? () => {

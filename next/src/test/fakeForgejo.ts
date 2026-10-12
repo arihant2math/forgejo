@@ -1,14 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A small Forgejo for the intent queue's tests: one repository (dev/big),
-// its issues with state, title, milestone, labels, assignees, a body and
-// comments; the API v1 and gap-endpoint (B9) calls the queue makes; B7's
-// idempotency (a completed key replays its answer, the same key with
-// another request is 422, a key whose attempt is still running is 409 +
-// Retry-After); a sync log of entity states (the deltas the tabs' pools
-// receive, with X-Livesync-Sync-Id); other users' changes; and faults —
-// answers lost on the way back, 503s, a slow server.
+// Intent-queue server fake with idempotent responses, sync echoes, remote changes and injected faults.
 
 import type {ModelName, ModelTypes} from '../data/models.ts';
 import type {Pool} from '../data/pool.ts';
@@ -55,18 +48,15 @@ export class FakeForgejo {
   readonly log: LogEntry[] = [];
   readonly issues = new Map<number, IssueState>();
   readonly comments = new Map<number, CommentState>();
-  /** Submitted reviews (POST …/pulls/{n}/reviews), in order. */
   readonly reviews: {issueId: number; commit_id: string; event: string; body: string; comments: {path: string; body: string; new_position: number; old_position: number}[]}[] = [];
   private nextIssue = 1000;
   private nextComment = 5000;
   private clock = 0;
-  /** Idempotency records: key → request hash and stored answer. */
   private readonly keys = new Map<string, {hash: string; status: number; body: string; v: number} | 'running'>();
   /** How many times each key's request ran (must never exceed 1). */
   readonly runs = new Map<string, number>();
   /** Requests answered 422 (a key reused with another request: a client bug). */
   readonly mismatches: string[] = [];
-  /** Faults for the next requests. */
   lose = 0;
   fail = 0;
   online = true;
@@ -119,7 +109,7 @@ export class FakeForgejo {
     this.emit('Comment', c.id, g, c.deleted ? undefined : commentDto(c.id, c.issueId, c.body, {poster_id: c.poster, content_version: c.version, updated_at: c.updated, body_html: `<p>${c.body}</p>`}));
   }
 
-  /** Applies the log after `from` to a pool; returns the new position. */
+  /** Applies log entries after `from` to the pool; returns the new position. */
   deliver(pool: Pool, from: number, upTo = Number.POSITIVE_INFINITY): number {
     let pos = from;
     pool.batch(() => {
@@ -133,7 +123,6 @@ export class FakeForgejo {
     return Math.max(pos, Math.min(this.v, upTo));
   }
 
-  // ---- other users' changes ---------------------------------------------
 
   remote(op: RemoteOp): void {
     const s = this.issues.get(op.issue);
@@ -174,7 +163,6 @@ export class FakeForgejo {
     this.emitIssue(s, false, prev);
   }
 
-  // ---- the API -------------------------------------------------------------
 
   readonly fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
     await Promise.resolve();
@@ -285,7 +273,6 @@ export class FakeForgejo {
     if (rest === '/labels' && method === 'POST') {
       for (const l of b.labels as number[]) if (!this.deletedLabels.has(l)) s.labels.add(l);
       this.emitIssue(s, false, prev);
-      // API v1 answers with the issue's labels.
       return [200, [...s.labels].map((id) => ({id}))];
     }
     const lm = /^\/labels\/(\d+)$/.exec(rest);

@@ -1,48 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The optimistic overlay (PLAN §5.4): local overrides on top of the pool's
-// server state. The pool is never written by the UI; what the user changed
-// and the server has not confirmed yet lives here, as one *layer* per
-// intent, and readers combine the two (src/features/issues/view.ts).
-//
-//   overlay.add(intent.id, ops)   applied synchronously (same frame)
-//   overlay.remove(intent.id)     confirmed (the pool holds the write now) or rolled back
-//
-// Three kinds of override:
-//   field  (model, id, field) = value            a scalar: Issue.state, Issue.milestone_id,
-//                                                IssueBody.body, Comment.body, Notification.status;
-//                                                pseudo-fields start with "~" (DELETED, board cards)
-//   member (model, owner, member) = present?     a set: an issue's labels (IssueLabel by
-//                                                issue_id), its assignees (IssueAssignee), the
-//                                                viewer's reactions (by content), viewed files (by path)
-//   create (model, entity)                       an entity created locally (a comment, an issue)
-//                                                under a temporary id (intents.ts tempId), until
-//                                                the server's one arrives in the pool
-// The latest layer wins per field / member. Layers are kept in the order
-// they were added; removing a layer reveals the one below it, or the server.
-//
-// Reactivity follows the pool's rule ("one delta, one cell"): every field
-// and every set has its own lazily created atom, so a row's label cell
-// reacts to that issue's label overrides only. `revision` is one coarse atom
-// for derivations over many entities (a list's filter and sort), which read
-// the overrides untracked afterwards.
-//
-// F5 makes intents durable (IndexedDB) and replays them after a reload: it
-// re-adds their layers here from the stored intents (`ops` is a pure function
-// of the intent, see intents.ts), so this module keeps no state of its own
-// that would need persisting.
+// Pending intents layer over server state without mutating the pool; the latest field/member layer wins.
+// Replay durable intents to rebuild layers after reload. Field/set atoms are lazy and scoped;
+// revision is the coarse signal for cross-entity filters and sorting.
 
 import {createAtom, type IAtom, runInAction} from 'mobx';
 import {type Entity, observeLazy} from '../data/entity.ts';
 import type {ModelName} from '../data/models.ts';
 
-/**
- * Sets an intent can change: an issue's labels, assignees, dependencies
- * (dependency issue ids), subscribers and requested reviewers (user ids); the
- * viewer's reactions on an issue (owner: issue id) or a comment (owner:
- * comment id), by content; a pull request's viewed files (owner: issue id), by path.
- */
+/** Owners are issue ids except CommentReaction (comment id); members are ids, reaction contents, or viewed paths. */
 export type SetModel = 'IssueLabel' | 'IssueAssignee' | 'IssueDependency' | 'IssueSubscriber' | 'ReviewRequest' | 'IssueReaction' | 'CommentReaction' | 'ViewedFile';
 
 export type Member = number | string;
@@ -71,15 +38,12 @@ export class Overlay {
   private readonly fields = new Map<string, Layer[]>();
   /** set key → member → layers overriding it, oldest first. */
   private readonly sets = new Map<string, Map<Member, Layer[]>>();
-  /** model → entity id → layers creating it (one, normally). */
   private readonly creates = new Map<ModelName, Map<number, Layer[]>>();
   private readonly atoms = new Map<string, IAtom>();
-  /** Issue id → ops of pending layers on it (an issue's fields or sets): untracked `touches`. */
   private readonly issues = new Map<number, number>();
   private readonly rev = createAtom('overlay');
   private seq = 0;
 
-  /** The number of layers (intents not confirmed or rolled back yet). */
   get size(): number {
     return this.layers.size;
   }
@@ -129,7 +93,6 @@ export class Overlay {
     });
   }
 
-  /** Removes a layer; what it overrode shows the layer below or the server value again. */
   remove(id: string): void {
     if (!this.layers.has(id)) return;
     runInAction(() => {
@@ -139,10 +102,7 @@ export class Overlay {
     });
   }
 
-  /**
-   * The override of a field, as `{value}`, or undefined (show the server's).
-   * Observing it reacts to overrides of this field only.
-   */
+  /** undefined uses server state; observes only overrides of this field. */
   field(model: ModelName, id: number, field: string): {value: unknown} | undefined {
     const k = fieldKey(model, id, field);
     observeLazy(this.atoms, k);
@@ -153,10 +113,7 @@ export class Overlay {
     return undefined;
   }
 
-  /**
-   * The overridden members of a set (e.g. the labels of issue `owner`):
-   * member → present. Observing it reacts to overrides of this set only.
-   */
+  /** member → present, observing only this set’s overrides. */
   members(model: SetModel, owner: number): ReadonlyMap<Member, boolean> | undefined {
     const k = setKey(model, owner);
     observeLazy(this.atoms, k);
@@ -183,12 +140,7 @@ export class Overlay {
     return out;
   }
 
-  /**
-   * Every override of one field of a model, as id → value, in the order
-   * the overriding intents were made (the inbox's statuses, a board's
-   * pending moves). Observing it reacts to every change of the overlay (few
-   * layers: one scan of the field keys).
-   */
+  /** Top overrides in intent order; observes every overlay change. */
   fieldOverrides(model: ModelName, field: string): Map<number, unknown> {
     this.rev.reportObserved();
     const found: {id: number; value: unknown; seq: number}[] = [];
@@ -203,12 +155,7 @@ export class Overlay {
     return new Map(found.sort((a, b) => a.seq - b.seq).map((f) => [f.id, f.value]));
   }
 
-  /**
-   * Every pending override of one field of a model, all layers (not only the
-   * top one per entity), in the order they were made: [id, value] pairs (a
-   * board's moves are replayed this way, one card possibly moved twice).
-   * Observing it reacts to every change of the overlay.
-   */
+  /** All layers in intent order, including repeated moves of one card; observes every overlay change. */
   fieldLayers(model: ModelName, field: string): [number, unknown][] {
     this.rev.reportObserved();
     const found: {id: number; value: unknown; seq: number}[] = [];
@@ -224,11 +171,7 @@ export class Overlay {
     return found.sort((a, b) => a.seq - b.seq).map((f) => [f.id, f.value]);
   }
 
-  /**
-   * The overrides of a set made by the layers added before `layer` (and by
-   * `layer` itself when `inclusive`): what the set looked like to the user
-   * when that intent was made. Untracked.
-   */
+  /** Untracked set state before layer, including that layer only when inclusive. */
   membersUpTo(model: SetModel, owner: number, layer: string, inclusive: boolean): ReadonlyMap<Member, boolean> {
     const until = this.layers.get(layer)?.seq ?? Number.POSITIVE_INFINITY;
     const out = new Map<Member, boolean>();
@@ -242,10 +185,7 @@ export class Overlay {
     return out;
   }
 
-  /**
-   * The entities of a model created locally (temporary ids), oldest first.
-   * Observing it reacts to creations and removals of that model only.
-   */
+  /** Local entities, oldest first; observes this model’s creations and removals. */
   created(model: ModelName): Entity[] {
     observeLazy(this.atoms, createdKey(model));
     const out: Entity[] = [];
@@ -257,7 +197,6 @@ export class Overlay {
     return out;
   }
 
-  /** A locally created entity by its temporary id. */
   createdEntity(model: ModelName, id: number): Entity | undefined {
     observeLazy(this.atoms, createdKey(model));
     const top = this.creates.get(model)?.get(id)?.at(-1);

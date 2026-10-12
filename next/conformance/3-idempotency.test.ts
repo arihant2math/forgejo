@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Idempotent API v1 writes (B7): a retried write with the same
-// Idempotency-Key is answered from the stored response (one entity, the
-// same bytes, the same sync id), concurrent duplicates run once, a key reused
-// for another request is refused, and requests without a key are left
-// alone. Their deltas reach a live session once, with v ≤ the echo.
 
 import {beforeAll, describe, expect, test} from 'vitest';
 import type {Issue} from '../src/protocol/types.gen.ts';
@@ -74,7 +69,6 @@ describe('idempotency', () => {
       if (r.status === 409) expect(Number(r.headers.get('Retry-After'))).toBeGreaterThan(0);
     }
     const created = await ran[0]?.json() as {id: number};
-    // A waiting retry ends with the stored answer.
     let replay: Response;
     for (;;) {
       replay = await request('POST', `/api/v1/repos/${repo.full}/issues`, {token: alice.token, key, body});

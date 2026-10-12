@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The ⌘K palette (PLAN §5.6): commands, and repositories, issues and pull
-// requests found in the in-memory pool (search.ts) as you type. Its own
-// chunk, preloaded when the app is idle.
-
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {runInAction, untracked} from 'mobx';
 import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
@@ -43,27 +39,22 @@ type Navigate = ReturnType<typeof useNavigate>;
 
 interface PaletteCommand {
   id: string;
-  /** The keymap's label when it has a shortcut (one label and hint per action: palette, help, tooltips). */
+  /** Uses the shared keymap label when bound. */
   label?: string;
   icon: OcticonType;
   shortcut?: ShortcutId;
-  /** Other names: found by them as by its label ("new issue" names "Create an issue"). */
   aliases?: readonly string[];
-  /** Extra words it is found by (weaker than a name). */
   keywords?: string;
-  /** Why it cannot run now (listed with the reason; Enter says it), or undefined. */
+  /** Disabled reason; Enter announces it without running the command. */
   unavailable?: (app: App) => string | undefined;
-  /** Not listed now (a theme already chosen). */
   hidden?: () => boolean;
-  /** Never the default (Enter right after typing never runs it) — unless the query is one of these names. */
+  /** Never selected by default unless the query exactly names it. */
   destructive?: boolean;
   names?: readonly string[];
-  /** A classic page: the command opens it (same tab), labelled as such. */
   classic?: string;
   run: (app: App, navigate: Navigate) => void;
 }
 
-/** Bound shortcuts not listed as page commands: movement (J/K/X/H/L), and the issue pickers (the issue's own group has them). */
 const PAGE_SKIP = new Set<ShortcutId>([
   'list.next', 'list.prev', 'list.select', 'board.left', 'board.right', 'code.upAlt',
   'issue.state', 'issue.labels', 'issue.assignee', 'issue.milestone', 'issue.priority',
@@ -106,7 +97,6 @@ const COMMANDS: PaletteCommand[] = [
       app.ui.shortcutsOpen = true;
     });
   }},
-  // The theme in use is not offered again.
   {id: 'theme-dark', label: 'Switch to the dark theme', icon: MoonIcon, aliases: ['dark theme', 'dark mode'], keywords: 'appearance', hidden: () => themeState.preference === 'dark', run: () => {
     setThemePreference('dark');
   }},
@@ -120,7 +110,6 @@ const COMMANDS: PaletteCommand[] = [
     location.assign(classicHref(app, classicOfHere(app, currentSitePath(app), location.search)));
   }},
   {id: 'classic', label: 'Turn off Forgejo Next', icon: DeviceDesktopIcon, keywords: 'classic ui old forgejo switch', run: (app) => {
-    // Online only (never queued): offline it says why instead.
     if (!connectivity.online) notify(app, {tone: 'neutral', title: onlineOnly('The classic UI')});
     else switchToClassic(app);
   }},
@@ -129,13 +118,12 @@ const COMMANDS: PaletteCommand[] = [
   }},
 ];
 
-/** The page on screen as a site path (without the instance's sub-path). */
 function currentSitePath(app: App): string {
   const sub = app.config.app_sub_url;
   return location.pathname.startsWith(`${sub}/`) ? location.pathname.slice(sub.length) : '/';
 }
 
-/** Searches the pool, timed (User Timing measure "palette:search"). Untracked: no subscriptions to what it read. */
+/** Measures search without subscribing to every entity read. */
 function search(app: App, query: string, narrow: Narrowing | undefined, contextRepo: number): SearchResults {
   const s = app.session;
   if (!s || !query.trim()) return {repos: [], issues: []};
@@ -149,7 +137,6 @@ function search(app: App, query: string, narrow: Narrowing | undefined, contextR
   return results;
 }
 
-/** Searches as the user types, each search narrowing the previous one's matches. */
 class Searcher {
   private prev: Narrowing | undefined;
   private readonly app: App;
@@ -178,8 +165,7 @@ function OpenPalette({app}: {app: App}) {
   return (
     <Dialog title="Command menu" width="xlarge" align="top" onClose={close} initialFocusRef={inputRef} returnFocusRef={returnFocusRef}>
       <PaletteBody app={app} inputRef={inputRef} onChoose={() => {
-        // Navigation owns the next focus. Body is deliberately not a focusable trigger, so the Dialog's cleanup
-        // cannot steal focus from a new page (or reopen the Search button's tooltip).
+        // Body cannot act as a focusable trigger: dialog cleanup must not steal the new page's focus.
         returnFocusRef.current = document.body;
       }}/>
     </Dialog>
@@ -188,16 +174,13 @@ function OpenPalette({app}: {app: App}) {
 
 type Row = PaletteRow;
 
-/** A group of rows and how well it matched (groups are ordered by it; ties keep the listed order). */
 interface Group {
   heading: string;
   rank: number;
   rows: Row[];
 }
 
-/** Commands and other named things whose label matches outrank fuzzy title matches of the same strength. */
 const NAMED_BONUS = 1.5;
-/** Commands and page actions the query names (every word at a word start of the label or a name): above everything found. */
 const COMMAND_RANK = 50;
 
 function commandLabel(c: PaletteCommand): string {
@@ -207,15 +190,13 @@ function commandLabel(c: PaletteCommand): string {
 function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void; inputRef: React.RefObject<HTMLInputElement | null>}) {
   const navigate = useNavigate();
   const pathname = useRouterState({select: (st) => st.location.pathname});
-  // Opened with a query (a list's "Search everywhere"): taken once.
   const [query, setQuery] = useState(() => untracked(() => app.ui.paletteQuery));
   useEffect(() => {
     if (untracked(() => app.ui.paletteQuery)) runInAction(() => {
       app.ui.paletteQuery = '';
     });
   }, [app]);
-  // The input never waits for the search (a large pool's first keystroke scans it all);
-  // each search narrows the previous one's matches while typing.
+  // Defer search so a full pool scan cannot block input.
   const deferred = useDeferredValue(query);
   const [searcher] = useState(() => new Searcher(app));
   const contextRepo = untracked(() => app.ui.repoOpen);
@@ -234,34 +215,28 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     fn();
   };
   const match = (text: string) => (words.length ? score(text.toLowerCase(), words) : 0);
-  // Commands and actions are found by the starts of their words only: "board" is not "Keyboard shortcuts".
   const matchName = (text: string) => (words.length ? startScore(text.toLowerCase(), words) : 0);
-  // The actions on the issues the keyboard is on (the list's selection or cursor, the open issue).
   const [target] = useState(() => untracked(() => issuesOf(app, app.ui.issueTarget)));
-  // What the page on screen offers by key (inbox triage, board moves, save the view, comment…), as commands.
   const [onPage] = useState(() => shortcuts.available().filter((id) => !PAGE_SKIP.has(id)));
   const groups: Group[] = [];
   const add = (heading: string, rank: number, rows: Row[]) => {
     if (rows.length) groups.push({heading, rank, rows});
   };
   const best = (scores: number[]) => (scores.length ? Math.max(...scores) : -1);
-  // Actions found by their label (every word at a word start) rank with the commands, above what merely contains the words.
   const actionRank = (s: number) => (s >= 2 * words.length ? COMMAND_RANK + s : s + NAMED_BONUS);
 
-  // Exactly the issue the query names ("atlas#85"): always first.
   add('Go to', 100, (results.exact ?? []).filter((r) => r.repo).map(({issue, repo}) => ({
     value: `exact:${String(issue.id)}`, icon: issueIcon(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
     run: openIssue(issue, repo),
   })));
 
-  // The issue on screen: no "Open" (it is open) and no second classic exit ("Open this page in the classic UI" is it).
   const onScreen = untracked(() => target.length === 1 && target[0]?.id === app.ui.issueOpen);
   const actionList = untracked(() => issueActions(app, target, {navigate: (path) => void navigate({to: path})}))
     .filter((a) => !onScreen || (a.id !== 'open' && a.id !== 'classic'))
     .map((a) => ({a, s: matchName(`${a.label} ${a.keywords ?? ''}`)})).filter((x) => x.s >= 0);
   const targetName = untracked(() => (target.length === 1 ? `#${String(target[0]?.data.number)} ${target[0]?.data.title ?? ''}` : `${String(target.length)} selected`));
   add(targetName, words.length ? actionRank(best(actionList.map((x) => x.s))) : 90, actionList.map(({a}) => ({
-    // Closing or reopening is never the default (Enter right after ⌘K on an issue must not close it).
+    // Prevent Enter immediately after opening the palette from closing an issue.
     value: `act:${a.id}`, icon: a.icon, shortcut: a.shortcut && !shortcuts.shadowed(a.shortcut) ? KEYMAP[a.shortcut].keys : undefined, label: a.label, destructive: a.id === 'state' && !words.length, run: () => {
       a.run();
     },
@@ -283,7 +258,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     muted: id === 'code.up' && atCodeRoot,
     meta: id === 'code.up' && atCodeRoot ? 'Already at the repository root' : undefined,
     shortcut: KEYMAP[id].keys, alternateShortcut: id === 'code.up' ? KEYMAP['code.upAlt'].keys : undefined, label: KEYMAP[id].label,
-    // After the palette closed (focus back on the page), as the key would.
+    // Run after close so focus is back on the page.
     run: () => requestAnimationFrame(() => {
       if (id === 'code.up' && atCodeRoot) {
         notify(app, {tone: 'neutral', title: 'Already at the repository root'});
@@ -326,8 +301,6 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
   })));
 
   if (words.length) {
-    // A repository named by the query (repoScore) outranks boards and milestones that share its name. Repositories
-    // only Forgejo knows (a fork outside the workspace) join them when the query names them too.
     const shownRepoIds = new Set(results.repos.map((r) => r.id));
     const namedOnServer = more.repos.filter((r) => !shownRepoIds.has(r.id))
       .map((r) => ({r, s: repoScore(r.fullName.toLowerCase(), r.name.toLowerCase(), words)})).filter((x) => x.s >= SERVER_REPO_NAMED);
@@ -354,7 +327,6 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       add('Milestones', best(milestones.map((m) => m.score)) + NAMED_BONUS, milestones.map(({item: m, repo}) => ({
         value: `milestone:${String(m.id)}`, icon: MilestoneIcon, meta: repo?.full_name, label: m.title,
         run: () => {
-          // The milestone's page: its progress and its issues and pull requests.
           if (repo) void navigate({to: '/$owner/$repo/milestone/$index', params: {owner: repo.owner_name, repo: repo.name, index: String(m.id)}});
         },
       })));
@@ -369,7 +341,6 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       value: `file:${f.owner}/${f.repo}/${f.path}`, icon: FileCodeIcon, meta: `${f.owner}/${f.repo}`, label: f.path,
       run: () => void navigate(codeTo(f.owner, f.repo, `src/branch/${f.ref}/${f.path}`)),
     })));
-    // Issues created on this device that Forgejo has not numbered yet (offline): found by title, marked pending.
     const pending = untracked(() => (editing(app).overlay.created('Issue') as Entity<'Issue'>[])
       .map((e) => ({e, s: score(e.data.title.toLowerCase(), words)})).filter((x) => x.s >= 0)
       .map(({e, s}) => ({e, s, path: issuePath(app, e), repo: app.session?.data.pool.model('Repository').get(e.data.repo_id)?.data})));
@@ -381,7 +352,6 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       value: `issue:${String(issue.id)}`, icon: issueIcon(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
       run: openIssue(issue, repo),
     })));
-    // What only the server knows: repositories and people outside the workspace, then issues by their text.
     add('On Forgejo', 0, [
       ...more.repos.filter((r) => !shownRepoIds.has(r.id)).map((r) => ({
         value: `server-repo:${String(r.id)}`, icon: RepoIcon, meta: r.description, label: r.fullName,
@@ -401,18 +371,14 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     ]);
   }
 
-  // A command is found by its label or one of its names: that outranks every title or name that merely contains the
-  // words (Linear: "new issue" is the command, not an issue titled "…new-issue…"); keywords alone rank as any match.
+  // Explicit command names outrank fuzzy titles; keyword-only matches get no priority.
   const commands = untracked(() => COMMANDS.filter((c) => !c.hidden?.()).map((c) => {
     const label = commandLabel(c);
     const s = Math.max(matchName(label), ...(c.aliases ?? []).map((a) => matchName(a)), c.shortcut ? shortcutMatch(c.shortcut) : -1);
     return {c, label, s, k: matchName(`${label} ${(c.aliases ?? []).join(' ')} ${c.keywords ?? ''}`)};
   })).filter((x) => x.k >= 0 || x.s >= 0).sort((a, b) => b.s - a.s);
-  // A command the query names outright ("sign out", "logout") is the default, destructive or not: Enter runs it
-  // (signing out still asks first when changes are not synced).
   const typed = words.join(' ');
   const named = (c: PaletteCommand) => (c.names?.includes(typed) ?? false) || (c.aliases?.includes(typed) ?? false);
-  // Every word at the start of a word of the label or a name: the command is what the query asks for.
   const whole = 2 * words.length;
   add('Commands', words.length ? best(commands.map((x) => (named(x.c) ? 100 : x.s >= whole ? COMMAND_RANK + x.s : x.s >= 0 ? x.s + NAMED_BONUS : x.k))) : 60, commands.map(({c, label}) => {
     const why = untracked(() => c.unavailable?.(app));
@@ -420,7 +386,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && KEYMAP[c.shortcut].keys, label, destructive: c.destructive && !named(c),
       meta: why ?? (c.classic ? 'classic UI' : undefined), muted: why !== undefined,
       run: why !== undefined ? () => {
-        // Listed with its reason (not left out, so that Enter never opens something else instead): Enter says it again.
+        // Keep disabled commands selectable so Enter explains the refusal, not a different action.
         notify(app, {tone: 'neutral', title: why});
       } : c.classic ? () => {
         location.assign(classicHref(app, c.classic ?? '/'));
@@ -430,9 +396,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     };
   }));
 
-  // Best first; a stable sort keeps the listed order on ties.
   groups.sort((a, b) => b.rank - a.rank);
-  // The selection: the first row (never a destructive one) whenever the results change; the user's arrow keys move it.
   const values = groups.flatMap((g) => g.rows.map((r) => r.value));
   const sig = `${deferred}\u0000${values.join('\u0000')}`;
   const rows = groups.flatMap((g) => g.rows);
@@ -443,7 +407,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     selected = first;
     setSel({sig, value: first});
   }
-  // Search links participate in arrow navigation, but never replace a deliberately empty default (Sign out).
+  // Search links must not replace a deliberately empty default for a destructive command.
   const searchRows: Row[] = query.trim() ? [
     {value: 'search:all', label: 'See all results', run: () => {
       void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
@@ -478,22 +442,17 @@ function issueIcon(issue: Issue): OcticonType {
   return issue.is_pull ? (issue.state === 'open' ? GitPullRequestIcon : GitPullRequestClosedIcon) : (issue.state === 'open' ? IssueOpenedIcon : CheckCircleIcon);
 }
 
-/** Local matches beyond the pool scan's (MiniSearch: prefixes, typos), then the server's beyond both. */
 interface More {
   local: {issue: Issue; repo: Repository | undefined}[];
   server: ServerHit[];
   repos: ServerRepo[];
   users: ServerUser[];
-  /** Forgejo is asked for this query (online, two letters or more). */
   asked?: boolean | undefined;
-  /** …and has answered (all three searches). */
   answered?: boolean | undefined;
 }
 
 const NONE: More = {local: [], server: [], repos: [], users: []};
-/** A repository only Forgejo knows joins the Repositories group when the query names it or its name's start (repoScore). */
 const SERVER_REPO_NAMED = 4;
-/** Typing pauses this long before the server is asked. */
 const SERVER_DELAY = 300;
 
 function useMoreResults(app: App, query: string, scan: SearchResults): More {
@@ -511,7 +470,6 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
       setAnswer((m) => {
         const base = m.query === query ? m.value : NONE;
         const next = {...base, ...part};
-        // Nothing to show either way (the scan filled the slots, as it usually does): no render.
         const empty = (v: More) => !v.local.length && !v.server.length && !v.repos.length && !v.users.length && v.asked === m.value.asked && v.answered === m.value.answered;
         return m.query === query && empty(next) && empty(m.value) ? m : {query, value: next};
       });
@@ -543,8 +501,7 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
       clearTimeout(timer);
     };
   }, [app, query, scan]);
-  // The last answers while the next ones are on their way (typing narrows or widens the same query: no flicker), minus
-  // what the scan lists now; each issue once (an issue on this device that only the server matched, its body say, shows).
+  // Keep prior answers while loading to avoid flicker; exclude issues already listed by the scan.
   return useMemo(() => {
     const q = query.trim().toLowerCase();
     const a = answer.query.trim().toLowerCase();
@@ -554,13 +511,12 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     for (const r of local) shown.add(r.issue.id);
     const server = answer.value.server.filter((h) => !shown.has(h.id));
     const {repos, users} = answer.value;
-    // Whether Forgejo was asked and answered counts for this very query only.
+    // Status must describe this query, not the previous answers.
     const status = q === a ? {asked: answer.value.asked, answered: answer.value.answered} : {};
     return local.length || server.length || repos.length || users.length || status.asked ? {local, server, repos, users, ...status} : NONE;
   }, [answer, query, scan]);
 }
 
-/** The issues the scan lists already, the one the query names exactly included (each issue is listed once). */
 function shownIssues(scan: SearchResults): Set<number> {
   return new Set([...scan.issues, ...scan.exact ?? []].map((r) => r.issue.id));
 }

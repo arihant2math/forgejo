@@ -1,33 +1,9 @@
 #!/usr/bin/env bash
 # Copyright 2026 The Forgejo Authors. All rights reserved.
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# dev-db.sh — bring up throwaway PostgreSQL and MySQL servers for livesync
-# development and Forgejo's integration tests. Idempotent: running `start`
-# twice is a no-op, `stop` on a stopped server is a no-op.
-#
 # Usage: next/tools/dev-db.sh {start|stop|status|env|reset} [pg|mysql|mariadb|all]
-#        (`all` = pg + mysql; `mariadb` is opt-in and runs in docker on :3307)
-#
-#   start   install missing binaries (apt, MySQL only), init data dir, start
-#   stop    stop the server(s) cleanly
-#   status  print whether each server is up, plus connection settings
-#   env     print `export ...` lines for Forgejo's Makefile test variables
-#           (eval "$(next/tools/dev-db.sh env)")
-#   reset   stop and DELETE the data dir(s), then start fresh
-#
-# Defaults (override with env vars):
-#   NEXT_DB_ROOT=/var/tmp/forgejo-next-db   data + logs + sockets
-#   NEXT_PG_PORT=5432   NEXT_MYSQL_PORT=3306
-#   NEXT_MYSQL_BINLOG=on|off   (default on, matching MySQL 8 defaults; trigger
-#                               creation by non-SUPER users then needs
-#                               log_bin_trust_function_creators=1)
-#
-# Accounts created:
-#   PostgreSQL 16:  postgres/postgres (superuser), forgejo/forgejo (non-superuser,
-#                   CREATEDB) — both over TCP 127.0.0.1 with scram-sha-256.
-#   MySQL 8.0:      root/<empty> (root@localhost and root@'%'),
-#                   forgejo/forgejo (ALL on `forgejo%`/`testgitea%` DBs, no SUPER).
+# reset deletes data; all includes pg + mysql, while mariadb is opt-in via Docker.
+# Non-SUPER MySQL trigger creation with binlogs needs log_bin_trust_function_creators=1.
 set -euo pipefail
 
 ROOT_DIR="${NEXT_DB_ROOT:-/var/tmp/forgejo-next-db}"
@@ -51,8 +27,6 @@ log() { printf '[dev-db] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 
 is_root() { [ "$(id -u)" = 0 ]; }
-
-# ---------------------------------------------------------------- PostgreSQL
 
 pg_bindir() {
   local d
@@ -120,7 +94,6 @@ EOF
     as_pg "$bin/pg_ctl" -D "$PG_DATA" -l "$PG_LOG" -w -t 60 start >/dev/null \
       || { tail -20 "$PG_LOG" >&2; die "postgres failed to start"; }
   fi
-  # Idempotent role setup (via the local socket, trust auth).
   as_pg "$bin/psql" -h "$PG_SOCK_DIR" -p "$PG_PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'forgejo') THEN
@@ -128,8 +101,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 SQL
-  # Forgejo's tests/test_utils.go connects *to* TEST_PGSQL_DBNAME to check
-  # that it exists (CI's postgres image pre-creates it), so pre-create it.
+  # Forgejo tests connect to TEST_PGSQL_DBNAME to check existence, so pre-create it.
   local dbname
   for dbname in testgitea forgejo; do
     if [ -z "$(as_pg "$bin/psql" -h "$PG_SOCK_DIR" -p "$PG_PORT" -U postgres -d postgres -tAc \
@@ -157,8 +129,6 @@ pg_status() {
     echo "postgres: DOWN (data=$PG_DATA)"
   fi
 }
-
-# --------------------------------------------------------------------- MySQL
 
 my_ensure_binaries() {
   if ! command -v mysqld >/dev/null 2>&1 && [ ! -x /usr/sbin/mysqld ]; then
@@ -266,9 +236,6 @@ my_status() {
   fi
 }
 
-# ---------------------------------------------- MariaDB (optional, via docker)
-# Not part of `all`. Used only to answer PLAN §11 Q1 (MariaDB in the matrix?).
-
 MARIA_PORT="${NEXT_MARIADB_PORT:-3307}"
 MARIA_IMAGE="${NEXT_MARIADB_IMAGE:-mariadb:11}"
 MARIA_NAME=forgejo-next-mariadb
@@ -323,8 +290,6 @@ maria_status() {
     echo "mariadb:  DOWN"
   fi
 }
-
-# ---------------------------------------------------------------------- main
 
 print_env() {
   cat <<EOF

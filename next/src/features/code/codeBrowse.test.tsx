@@ -3,7 +3,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {afterEach, beforeEach, expect, test, vi} from 'vitest';
+import {afterEach, beforeEach, expect, onTestFinished, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
@@ -238,6 +238,31 @@ test('a deep path names the page with an h1 of its own; the path nav is not insi
   expect(h1).toBe(screen.getByRole('heading', {level: 1, name: 'cmd/app/main.go'}));
   expect(h1.querySelector('nav')).toBeNull();
   expect(path?.closest('h1')).toBeNull();
+});
+
+test('a shallow path shows every crumb; a deep one folds the middle and keeps the root and the file', async () => {
+  // jsdom has no layout: give the trail a wide container and each crumb a width.
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.tagName === 'NAV' ? 1000 : 40;
+  });
+  onTestFinished(() => { width.mockRestore(); });
+  stubForgejo(() => undefined);
+  const trail = async () => {
+    const nav = (await screen.findAllByRole('navigation', {name: 'Breadcrumbs'})).at(-1);
+    return nav ?? document.body;
+  };
+  await open('/alice/website/src/branch/main/cmd/app/main.go');
+  const shallow = await trail();
+  await waitFor(() => { expect(within(shallow).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Code', 'cmd', 'app', 'main.go']); });
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(within(shallow).queryByRole('button', {name: /more breadcrumb items/})).toBeNull();
+  cleanup();
+  await open('/alice/website/src/branch/main/a/b/c/d/e/f/main.go');
+  const deep = await trail();
+  const more = await within(deep).findByRole('button', {name: /more breadcrumb items/});
+  const visible = [...deep.querySelector('ol')?.children ?? []].filter((li) => !li.contains(more)).map((li) => li.textContent);
+  expect(visible.at(0)).toBe('Code');
+  expect(visible.at(-1)).toBe('main.go');
 });
 
 test('a history path gets its own h1 and links its last crumb to the source; the root keeps the plain Commits heading', async () => {

@@ -118,6 +118,9 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
+/** Primer folds every trail of four crumbs or more, whatever the room: shorter paths wrap instead. */
+const FOLD_OVER = 5;
+
 /**
  * The path as breadcrumbs below the root (Code or Commits); linkLast makes a history title link its last crumb to the path's source.
  * A path renders a nav, which may not sit inside a heading: callers pass CodeFrame a `heading` whenever `at.path` is set.
@@ -127,7 +130,7 @@ export function CodePath({owner, repo, at, view = 'src', linkLast = false}: {own
   if (!at.path) return root;
   const parts = at.path.split('/');
   const crumb = (label: string, splat: string): Crumb => ({label, link: codeTo(owner, repo, splat)});
-  return <Crumbs overflow="menu-with-root" crumbs={[
+  return <Crumbs overflow={parts.length + 1 > FOLD_OVER ? 'menu-with-root' : 'wrap'} crumbs={[
     crumb(root, codeSplat(view, at)),
     ...parts.map((p, i) => (i === parts.length - 1 && !linkLast ? {label: p} :
       crumb(p, codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))))),

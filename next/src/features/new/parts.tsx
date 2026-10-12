@@ -5,6 +5,7 @@ import {cloneElement, useEffect, useState, type ReactNode} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import type {App} from '../../app/store.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {FilteredSelect} from '../create/FilteredSelect.tsx';
 import {CheckIcon, ChevronDownIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
@@ -124,8 +125,6 @@ export function ScopeNote({scope, what, classic}: {scope: string; what: string; 
   );
 }
 
-const SYNC_WAIT_MS = 5000;
-
 /**
  * Wait for the write delta so navigation paints from the pool; on timeout the page loads from API v1.
  * Hold the group until go settles so the destination can take over its subscription.
@@ -135,15 +134,7 @@ export async function openWhenSynced(app: App, group: string, v: number | undefi
   if (!data) return;
   data.hold(group);
   try {
-    if (v !== undefined && v > 0) {
-      const signal = AbortSignal.timeout(SYNC_WAIT_MS);
-      await Promise.race([
-        data.whenSynced(group, v, signal).catch(() => undefined),
-        new Promise((resolve) => {
-          signal.addEventListener('abort', resolve);
-        }),
-      ]);
-    }
+    await settleWrite(data, group, v);
     await go();
   } finally {
     data.release(group);

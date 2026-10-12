@@ -17,6 +17,8 @@ import {notify} from '../../app/notices.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
 
@@ -32,7 +34,6 @@ import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-reac
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
-const SYNC_WAIT_MS = 5000;
 
 const draftKey = (repoId: number, base: string, head: string) => `text:new-pull:${String(repoId)}:${base}...${head}`;
 
@@ -253,15 +254,7 @@ async function openPull(app: App, a: {owner: string; repo: string; repoId: numbe
       notify(app, {tone: 'warning', title: `Pull request #${String(number)} is open, but asking for reviews failed`, description: failureText(err)});
     }
   }
-  if (v > 0) {
-    const signal = AbortSignal.timeout(SYNC_WAIT_MS);
-    await Promise.race([
-      s.data.whenSynced(`repo:${String(a.repoId)}`, v, signal).catch(() => undefined),
-      new Promise((resolve) => {
-        signal.addEventListener('abort', resolve);
-      }),
-    ]);
-  }
+  await settleWrite(s.data, repoGroup(a.repoId), v);
   return number;
 }
 

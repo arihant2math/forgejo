@@ -486,7 +486,7 @@ export class Intents {
       case 'done':
         // The leader's pool holds the write; this tab's once it mirrored that state (no flicker).
         if (m.group !== undefined && m.v !== undefined && this.env.pool.groupEntities(m.group).size > 0) {
-          void Promise.race([this.env.whenSynced(m.group, m.v, AbortSignal.timeout(this.env.confirmTimeout ?? 60_000)), sleepMs(this.env.confirmTimeout ?? 60_000)])
+          void this.env.whenSynced(m.group, m.v, AbortSignal.timeout(this.env.confirmTimeout ?? 60_000))
             .catch(() => undefined)
             .then(() => {
               this.finishLocal(m.id);
@@ -1237,10 +1237,6 @@ function subjectOf(i: Intent): string {
     default:
       return 'The issue';
   }
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 export type {IntentRecord, DraftRecord} from './store.ts';

@@ -5,6 +5,8 @@ import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
 import {useApp, useSession} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
@@ -117,7 +119,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       if (mode === 'create') {await intents.discardDraft(key); await intents.discardDraft(pathKey);}
       setMode(undefined); setDialog(false); setFiles([]);
       if (fields.newBranch && fields.openPull && !repository?.empty) {
-        if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
+        await settleWrite(session.data, repoGroup(repoId), result.syncId, 4000);
         await navigate({...proposalTarget(owner, repo, at.ref, fields.newBranch, up).to, search: {expand: '1'} as never});
       } else await navigate(codeTo(owner, repo, codeSplat('src', {kind: 'commit', ref: sha}, mode === 'delete' ? parentPath(at.path) : mode === 'create' ? fullPath(path) : dir)));
     } catch (err) {

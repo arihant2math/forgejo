@@ -24,8 +24,6 @@ describe('vendorChunk', () => {
     ['/x/node_modules/@shikijs/langs/dist/cpp.mjs', null],
     ['/x/node_modules/@shikijs/themes/dist/github-dark.mjs', null],
     ['/x/node_modules/@pierre/theme/dist/pierre-dark.mjs', null],
-    ['/x/node_modules/shiki/dist/wasm.mjs', null],
-    ['/x/node_modules/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs', null],
     ['/x/node_modules/@shikijs/engine-oniguruma/dist/index.mjs', 'vendor-shikijs-engine-oniguruma'],
   ])('%s → %s', (id, name) => {
     expect(vendorChunk(id)).toBe(name);
@@ -34,11 +32,10 @@ describe('vendorChunk', () => {
 
 describe('chunkFileNames', () => {
   const name = (...moduleIds: string[]) => chunkFileNames({moduleIds} as PreRenderedChunk);
-  test('prefixes chunks made only of grammars, themes or WASM', () => {
+  test('prefixes chunks made only of grammars or themes', () => {
     expect(name('/x/node_modules/@shikijs/langs/dist/cpp.mjs', '/x/node_modules/@shikijs/langs/dist/c.mjs')).toBe('assets/lang-[name]-[hash].js');
     expect(name('/x/node_modules/@shikijs/themes/dist/github-dark.mjs')).toBe('assets/theme-[name]-[hash].js');
     expect(name('/x/node_modules/@pierre/theme/dist/pierre-dark.mjs')).toBe('assets/theme-[name]-[hash].js');
-    expect(name('/x/node_modules/shiki/dist/wasm.mjs', '/x/node_modules/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs')).toBe('assets/wasm-[hash].js');
     expect(name('/x/node_modules/@shikijs/langs/dist/cpp.mjs', '/x/src/code/lang.ts')).toBe('assets/[name]-[hash].js');
     expect(name()).toBe('assets/[name]-[hash].js');
   });

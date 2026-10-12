@@ -313,9 +313,8 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)
 
 * Registered after first paint (`app/sw.ts`). **Install** fetches the shell, checks its build meta, and caches every
-  hashed asset except grammars, themes, the WASM engine and React's profiling build (`ON_DEMAND` in
-  `tools/boot.ts`, cached on first use); it waits (versioned activation). The page
-  offers "Reload" when a new build is waiting.
+  hashed asset except grammars, themes and React's profiling build (`ON_DEMAND` in `tools/boot.ts`, cached on first
+  use); it waits (versioned activation). The page offers "Reload" when a new build is waiting.
 * **Assets:** cache first. **Navigations:** network first via navigation preload; offline, failed, or an app page
   without an answer in 4 s → the cached shell, which renders from IndexedDB or says what is available offline.
   Avatars are cached network-first.
@@ -351,7 +350,8 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 split into what the entry imports statically (boot; Primer's boot stylesheet is linked from the page) and a `-lazy`
 chunk that loads, with its stylesheet, alongside the first view that needs it; an `app-boot` group for the entry's
 static closure; workers as ES modules; one chunk per Shiki grammar (`lang-*`) and theme (`theme-*`) in the app and
-its workers; the never-run Oniguruma WASM in its own `wasm-*` chunk; hidden source maps; no modulepreload polyfill.
+its workers; `shiki/wasm` replaced by a stub (`tools/no-wasm.ts`: the CSP forbids WASM); hidden source maps; no
+modulepreload polyfill.
 React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
 
 ### RUM

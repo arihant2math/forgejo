@@ -3,6 +3,7 @@
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import {fileURLToPath} from 'node:url';
 import type {PreRenderedChunk} from 'rolldown';
 import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
@@ -12,16 +13,13 @@ import {primerLayer} from './tools/vite-plugin-primer-layer.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
 import {serviceWorker} from './tools/vite-plugin-sw.ts';
 
-/** Shiki's inlined Oniguruma WASM: the CSP has no 'wasm-unsafe-eval', so it never runs. */
-const WASM = /[\\/](?:shiki[\\/]dist[\\/]wasm|engine-oniguruma[\\/]dist[\\/]wasm-inlined)\.mjs$/;
-
 /** Split by package so updates invalidate only that chunk and lazy-route dependencies stay lazy. */
 export function vendorChunk(id: string): string | null {
   const m = /[\\/]node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id);
   if (!m?.[1]) return null;
   const pkg = m[1].replace('\\', '/');
-  // Grammars and themes are loaded one dynamic import at a time; WASM stays out of the engine's chunk.
-  if (pkg === '@shikijs/langs' || pkg === '@shikijs/themes' || pkg === '@pierre/theme' || WASM.test(id)) return null;
+  // Grammars and themes are loaded one dynamic import at a time.
+  if (pkg === '@shikijs/langs' || pkg === '@shikijs/themes' || pkg === '@pierre/theme') return null;
   // Split into boot and lazy halves by the groups below.
   if (pkg === '@primer/react' || pkg === '@primer/octicons-react') return null;
   // React's profiling build (localStorage.profile, app/profile.tsx) loads only when asked: never with react-dom.
@@ -29,12 +27,11 @@ export function vendorChunk(id: string): string | null {
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
 
-/** Prefixes grammar, theme and WASM chunks so the service worker caches them on first use (`ON_DEMAND`). */
+/** Prefixes grammar and theme chunks so the service worker caches them on first use (`ON_DEMAND`). */
 export function chunkFileNames(c: PreRenderedChunk): string {
   const all = (re: RegExp) => c.moduleIds.length > 0 && c.moduleIds.every((id) => re.test(id));
   if (all(/[\\/]@shikijs[\\/]langs[\\/]/)) return 'assets/lang-[name]-[hash].js';
   if (all(/[\\/]@shikijs[\\/]themes[\\/]|[\\/]@pierre[\\/]theme[\\/]/)) return 'assets/theme-[name]-[hash].js';
-  if (all(WASM)) return 'assets/wasm-[hash].js';
   return 'assets/[name]-[hash].js';
 }
 
@@ -48,6 +45,7 @@ export default defineConfig({
     serviceWorker(),
     previewConfig(),
   ],
+  resolve: {alias: {'shiki/wasm': fileURLToPath(new URL('tools/no-wasm.ts', import.meta.url))}},
   css: {
     transformer: 'lightningcss',
     lightningcss: {visitor: dropAutoColorMode},

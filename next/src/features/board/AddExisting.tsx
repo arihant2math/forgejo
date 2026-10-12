@@ -8,7 +8,8 @@ import {loadRepo} from '../../app/repo.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
-import {SelectPanel, type SelectPanelItemInput as ItemInput} from '@primer/react';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {searchServer, type ServerHit} from '../search/server.ts';
 import type {BoardModel} from './model.ts';
 import {PencilIcon} from '@primer/octicons-react';
@@ -49,11 +50,13 @@ export const AddExisting = observer(function AddExisting({model, project, column
     candidates.set(hit.id, {id: hit.id, number: hit.number, title: hit.title, repoId: repo?.id ?? 0, hit});
   }
   const words = query.toLowerCase().replace(/^#/, '').split(/\s+/).filter(Boolean);
-  const options: ItemInput[] = [...candidates.values()].filter((c) =>
+  const options: PickOption[] = [...candidates.values()].filter((c) =>
     issueProject(pool, editing(app).overlay, c.id).project !== project.id &&
     words.every((w) => `${c.number} ${c.title}`.toLowerCase().includes(w)),
   ).map((c) => ({
-    id: c.id, text: c.title, trailingVisual: `#${c.number}`,
+    value: String(c.id), label: c.title, meta: `#${c.number}`, checked: selected.includes(c.id), onSelect: () => {
+      setSelected((now) => now.includes(c.id) ? now.filter((id) => id !== c.id) : [...now, c.id]);
+    },
   }));
   const matches = options.length;
   const add = () => {
@@ -70,24 +73,20 @@ export const AddExisting = observer(function AddExisting({model, project, column
       }
     }
   };
-  // Keep Enter's first choice useful: offer Add only after something is selected.
-  if (selected.length) options.unshift({id: 'add', text: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, onAction: (_, event) => { event.preventDefault(); add(); onClose(); }});
+  // Keep Enter's first choice useful: offer Add only after something is selected. Closing by a pick adds.
+  if (selected.length) options.unshift({value: 'add', label: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, keepOpen: false, onSelect: () => undefined});
   // Numeric searches are not issue titles.
   const typed = query.trim();
   const none = typed !== '' && matches === 0;
   const title = /^#?\d+$/.test(typed) ? '' : typed;
   options.push({
-    id: 'new', text: title ? `New issue “${title}” in this column…` : 'New issue in this column…', leadingVisual: PencilIcon,
-    onAction: (_, event) => { event.preventDefault(); onCreate(title); },
+    value: 'new', label: title ? `New issue “${title}” in this column…` : 'New issue in this column…', icon: PencilIcon, keepOpen: true,
+    onSelect: () => { onCreate(title); },
   });
-  return <SelectPanel open variant="modal" renderAnchor={null} anchorRef={anchorRef} title="Add existing issues"
+  return <LocalSelectPanel open variant="modal" anchorRef={anchorRef} title="Add existing issues"
     subtitle="Cards are issues: pick existing ones, or create a new issue in this column."
-    placeholderText="Search by number or title…" inputLabel="Search existing issues"
-    filterValue={query} onFilterChange={setQuery} items={options}
-    selected={selected.map((id) => ({id, text: candidates.get(id)?.title ?? String(id)}))}
-    onSelectedChange={(items: ItemInput[]) => { setSelected(items.flatMap((item) => typeof item.id === 'number' ? [item.id] : [])); }}
+    placeholder="Search by number or title…" inputLabel="Search existing issues"
+    query={query} onQueryChange={setQuery} options={options} searched multiple selectedFirst={false}
     onOpenChange={(open, gesture) => { if (!open) { if (gesture === 'selection') add(); onClose(); } }}
-    onCancel={onClose} showSelectedOptionsFirst={false} virtualized={options.length > 50}
-    {...(none ? {notice: {variant: 'info' as const, text: connectivity.online ? 'No issue matches' : 'No issue on this device matches'}} : {})}
-  />;
+    {...(none ? {notice: {variant: 'info' as const, text: connectivity.online ? 'No issue matches' : 'No issue on this device matches'}} : {})}/>;
 });

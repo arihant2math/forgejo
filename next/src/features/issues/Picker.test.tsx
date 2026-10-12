@@ -5,7 +5,7 @@ import {expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
-import {matchOptions, type PickOption} from './pickerItems.tsx';
+import {matchOptions, type PickOption} from '../../components/pickOptions.ts';
 import {pickerOptions, type PickerDraft} from './Picker.tsx';
 
 test('new issues use the people names, multi-selection and dated milestones of the issue picker', () => {
@@ -41,6 +41,27 @@ test('new issues use the people names, multi-selection and dated milestones of t
   expect(milestones[1]?.meta).toContain('due ');
   milestones[1]?.onSelect();
   expect(draft.setMilestone).toHaveBeenCalledWith(2);
+});
+
+test('a new pull request asks its reviewers through the issue picker, never the viewer', () => {
+  const session = fakeSession({userId: 1});
+  const app = createApp(fallbackConfig(), session);
+  const dev = {...user(1, 'dev'), full_name: 'Dev Admin'};
+  session.data.put('User', 'profiles:public', dev);
+  session.data.put('User', 'profiles:public', {...user(2, 'alice'), full_name: 'Alice Nakamura'});
+  session.data.put('Repository', 'repo:10', repo(10, dev, 'demo'));
+  session.data.put('Collaboration', 'repo:10', {id: 1, repo_id: 10, user_id: 2, permission: 'write', created_at: '', updated_at: ''});
+  const draft: PickerDraft = {
+    repoId: 10, labels: [], assignees: [], milestone: 0, reviewers: [], toggleLabel: vi.fn(), setMilestone: vi.fn(), setAssignee: vi.fn(),
+    setReviewer(id, on) {
+      this.reviewers = on ? [...this.reviewers ?? [], id] : (this.reviewers ?? []).filter((x) => x !== id);
+    },
+  };
+  const reviewers = () => pickerOptions(app, 'reviewers', [], '', draft).options;
+  expect(reviewers().map((p) => [p.label, p.checked])).toEqual([['Alice Nakamura', false]]);
+  reviewers()[0]?.onSelect();
+  expect(draft.reviewers).toEqual([2]);
+  expect(reviewers()[0]?.checked).toBe(true);
 });
 
 test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart (#263)', () => {

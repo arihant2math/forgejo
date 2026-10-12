@@ -19,7 +19,8 @@ import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine, LogStep} from '../../protocol/types.gen.ts';
 import {codeSplat, shortSha} from '../../code/refs.ts';
 
-import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {usePool} from '../issues/cells.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -175,13 +176,13 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   const controls = <>
     <ActionMenu><ActionMenu.Button size="small">Show runs: {RUN_FILTERS.find((item) => item.value === filter)?.label}</ActionMenu.Button><ActionMenu.Overlay><ActionList selectionVariant="single">{RUN_FILTERS.map((item) => <ActionList.Item key={item.value} selected={item.value === filter} onSelect={() => { setFilter(item.value); }}>{item.label}</ActionList.Item>)}</ActionList></ActionMenu.Overlay></ActionMenu>
     {workflows.length > 0 && (
-      <ChoicePanel title="Workflow" placeholder="Find a workflow…" empty="No workflow matches."
-        choices={[undefined, ...workflows].map((w): CodeChoice => ({
+      <LocalSelectPanel title="Workflow" placeholder="Find a workflow…" empty="No workflow matches."
+        options={[undefined, ...workflows].map((w): PickOption => ({
           value: w ?? '', label: w ?? 'All workflows', checked: w === workflow, onSelect: () => {
             setWorkflow(w);
           },
         }))}
-        anchor={<Button variant="invisible" size="small" leadingVisual={WorkflowIcon} trailingVisual={ChevronDownIcon} type="button">{workflow ?? 'All workflows'}</Button>}/>
+        renderAnchor={(props) => <Button {...props} variant="invisible" size="small" leadingVisual={WorkflowIcon} trailingVisual={ChevronDownIcon} type="button">{workflow ?? 'All workflows'}</Button>}/>
     )}
     {dispatchable && <Tooltip text={!connectivity.online ? 'Running a workflow requires a connection.' : 'Run this workflow'}><Button size="small" type="button" inactive={!connectivity.online} aria-disabled={!connectivity.online} onClick={() => { if (connectivity.online) setDispatchOpen(true); }}>Run workflow</Button></Tooltip>}
     {workflowError && <Tooltip text={workflowError}><Button variant="invisible" size="small" type="button" onClick={retryWorkflows}>Retry loading workflows</Button></Tooltip>}

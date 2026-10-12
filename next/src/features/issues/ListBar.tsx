@@ -16,7 +16,8 @@ import {useApp, useSession} from '../../app/store.ts';
 import {SaveViewDialog} from '../views/SaveView.tsx';
 import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
-import {panelGroups, panelItems, selectedItems, matchOptions, type PickOption} from './pickerItems.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
 import {SearchField} from './SearchField.tsx';
 import {labelColor, LabelGlyph} from './cells.tsx';
@@ -30,7 +31,7 @@ import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
-import {IssueLabelToken, Label as PrimerLabel, SelectPanel, SegmentedControl, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {IssueLabelToken, Label as PrimerLabel, SegmentedControl, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -297,25 +298,13 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const pool = usePool();
   const app = useApp();
   const me = app.session?.userId ?? 0;
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
   // Sync progress matters only while a filtered label is missing, so it is read only then.
   const active = activeFilters(pool, search, set, () => (app.session?.data.status.loading ?? 0) > 0);
-  const closeFilter = () => {setOpen(false); setQuery('');};
-  // The options scan labels, people and (on My lists) every issue: build them only while the panel is open.
-  const visible = open ? matchOptions(filterOptions(pool, search, set, active, repoId, me, byMilestone), query) : [];
-  const items = panelItems(visible, closeFilter);
-  return <SelectPanel title="Filter" aria-label="Filter" inputLabel="Filter" placeholderText="Filter by…"
-    open={open} onOpenChange={(next) => {
-      if (next) setOpen(true);
-      else closeFilter();
-      if (next && repoId !== undefined) loadPeople(app, repoId);
-    }}
-    items={items} selected={selectedItems(visible, items)} onSelectedChange={() => undefined}
-    {...(visible.length <= 50 && visible.some((option) => option.group) ? {groupMetadata: panelGroups(visible)} : {})}
-    filterValue={query} onFilterChange={setQuery} showSelectedOptionsFirst={false} virtualized={items.length > 50} loading={false}
-    {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No matches', body: 'Nothing to filter by is on this device.'}} : {})}
-    renderAnchor={(props) => <Button {...{...props}} variant="default" size="small" leadingVisual={FilterIcon} type="button">
+  // The options scan labels, people and (on My lists) every issue: the panel builds them only while open.
+  return <LocalSelectPanel title="Filter" placeholder="Filter by…" multiple selectedFirst={false} empty="Nothing to filter by is on this device."
+    options={() => filterOptions(pool, search, set, active, repoId, me, byMilestone)}
+    onOpenChange={(next) => { if (next && repoId !== undefined) loadPeople(app, repoId); }}
+    renderAnchor={(props) => <Button {...props} variant="default" size="small" leadingVisual={FilterIcon} type="button">
       <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
     </Button>}/>;
 });
@@ -331,7 +320,8 @@ function filterOptions(pool: ReturnType<typeof usePool>, search: ListSearch, set
   if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
   // Avoid subscribing the open menu to every issue in the workspace.
   else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
-  return options;
+  // Only label toggles keep the panel open: every other filter takes one value.
+  return options.map((option) => ({...option, keepOpen: option.keepOpen === true}));
 }
 
 function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoId: number, me: number, set: Setter, byMilestone: boolean): PickOption[] {

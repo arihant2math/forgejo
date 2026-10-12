@@ -4,6 +4,7 @@
 import {SkeletonAvatar} from '@primer/react/experimental';
 
 import type {SelectPanelItemInput} from '@primer/react';
+import {enterPicksFirst, VIRTUALIZE_OVER} from '../../components/pickOptions.ts';
 import {SelectPanel, Select, Avatar, Button, IconButton, ConfirmationDialog, Dialog, FormControl, Radio, RadioGroup} from '@primer/react';
 import {SettingsEntry} from './SettingsEntry.tsx';
 import {FormSection} from '../usersettings/form.tsx';
@@ -166,7 +167,7 @@ export function PeopleSearch({members, onPick, onClose, label = 'Add a collabora
   const empty = !q ? 'Type a login or a name.' : found.q !== q ? 'Searching…' : found.error ?? 'Nobody by that name.';
   return <SelectPanel title={label} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
     renderAnchor={null} anchorRef={anchor} selected={undefined} filterValue={query} onFilterChange={setQuery}
-    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > 50}
+    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > VIRTUALIZE_OVER} textInputProps={{onKeyDown: enterPicksFirst}}
     {...(users.length ? {} : {message: {title: empty, variant: found.error ? 'error' as const : 'empty' as const, body: ''}})}
     items={users.map((user) => ({
       id: user.id, text: user.name, description: members.has(user.id) ? 'Already added' : user.login,

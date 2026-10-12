@@ -55,6 +55,8 @@ import {ActionList, ActionMenu, Button, CounterLabel, IconButton, SegmentedContr
 import {Blankslate, KeybindingHint} from '@primer/react/experimental';
 
 const ROW = DENSE_ROW_HEIGHT;
+/** A group header (Pinned, Latest, a repository): fixed at 40px (`h-10`), as the virtualizer estimates it (#274). */
+const GROUP = 40;
 const route = getRouteApi('/shell/notifications');
 
 /** The inbox's rows, recomputed when notifications change (at most once a frame) or a status is overridden. */
@@ -334,7 +336,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     count: rows.length,
     getScrollElement: () => scroller,
     ...pageListRect(),
-    estimateSize: (index) => rows[index]?.type === 'note' ? ROW : 40,
+    estimateSize: (index) => rows[index]?.type === 'note' ? ROW : GROUP,
     // Rendered with the next frame, not synchronously in every scroll event (QA round 2: 60-100 ms long tasks per
     // wheel step on a 4x slowed CPU); a few rows past each edge are enough for J/K and the wheel.
     useFlushSync: false,
@@ -541,7 +543,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
                     <NoteRow id={r.id} model={model} onClick={click} byRepo={byRepo}/>
                     <RowActions id={r.id} model={model} open={open} refocus={refocus}/>
                   </> :
-                  <div role="presentation" className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2">
+                  <div role="presentation" data-inbox-group="" className="flex h-10 items-center gap-2 border-b border-default bg-muted px-4">
                     {r.key === 'pinned' ? <PinIcon size={16}/> : r.key.startsWith('repo:') ? <FileSubmoduleIcon size={16}/> : null}
                     <span className="min-w-0 truncate font-semibold">{r.label}</span><CounterLabel>{r.count}</CounterLabel>
                   </div>}

@@ -136,6 +136,7 @@
   --spacing-control-sm: var(--control-small-size);
   --spacing-control: var(--control-medium-size);
   --spacing-row: 32px;
+  --spacing-dense-row: 38px; /* a DenseRow: a 21px line (14px text) + py-2 + its 1px separator (= DENSE_ROW_HEIGHT) */
   --spacing-header: 48px;
   --spacing-sidebar: var(--sidebar-width);
   --spacing-pane: 280px; /* detail side pane */

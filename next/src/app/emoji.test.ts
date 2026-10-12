@@ -27,9 +27,9 @@ test('unknown names and other colon text stay as they are', () => {
   expect(emojify('at 10:30:45, key: value')).toBe('at 10:30:45, key: value');
   expect(emojify('see http://example.com:8080/')).toBe('see http://example.com:8080/');
   expect(emojify(':Smile:')).toBe(':Smile:');
-  // An unknown name's closing colon can open the next shortcode.
-  expect(emojify('ratio:foo_bar:smile:')).toBe('ratio:foo_bar😄');
-  expect(emojify(':unknown:smile:')).toBe(':unknown😄');
+  // As the server's emojiShortCodeProcessor: the scan resumes after an unknown name, whose closing colon is spent.
+  expect(emojify(':unknown:smile:')).toBe(':unknown:smile:');
+  expect(emojify(':unknown: :smile:')).toBe(':unknown: 😄');
 });
 
 test('Unicode emoji stay; HTML-like text stays text', () => {

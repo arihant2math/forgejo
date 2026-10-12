@@ -24,22 +24,12 @@ const SHORTCODE = /:([-+\w]+):/g;
 
 /**
  * s with every known `:alias:` replaced by its emoji. Unknown names and other
- * colon-delimited text stay as they are; an unknown name's closing colon may
- * open the next shortcode (`x:foo_bar:smile:` → `x:foo_bar😄`).
+ * colon-delimited text stay as they are. Matched as the server matches them
+ * (EmojiShortCodeRegex, case-sensitive aliases, the scan resuming after an
+ * unknown name: `:foo_bar:smile:` stays), so a description reads the same here
+ * as on the classic pages.
  */
 export function emojify(s: string): string {
   if (!s.includes(':')) return s;
-  let out = '';
-  let last = 0;
-  SHORTCODE.lastIndex = 0;
-  for (let m = SHORTCODE.exec(s); m; m = SHORTCODE.exec(s)) {
-    const emoji = emojiOf(m[1] ?? '');
-    if (emoji === undefined) {
-      SHORTCODE.lastIndex = m.index + m[0].length - 1;
-      continue;
-    }
-    out += s.slice(last, m.index) + emoji;
-    last = m.index + m[0].length;
-  }
-  return last === 0 ? s : out + s.slice(last);
+  return s.replace(SHORTCODE, (code, alias: string) => emojiOf(alias) ?? code);
 }

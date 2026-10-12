@@ -27,19 +27,15 @@ describe('dashboard feed', () => {
     expect(ref('delete_tag', 'refs/tags/v0.9')).toEqual({path: '/team/project/tags', text: 'alice deleted tag v0.9 in team/project'});
     expect(ref('mirror_sync_create', 'refs/heads/main').path).toBe('/team/project/src/branch/main');
     expect(ref('mirror_sync_delete', 'refs/tags/v2').text).toBe('alice removed tag v2 in team/project');
-    // Older actions store the short name.
     expect(ref('delete_branch', 'old').text).toBe('alice deleted branch old in team/project');
-    // No ref at all: the generic wording, linked to the repository.
     expect(ref('delete_tag', '')).toEqual({path: '/team/project', text: 'alice deleted a tag in team/project'});
   });
   it('previews comments as plain text, past a leading quote, and opens the comment (#212)', () => {
     const quoted = '> Accept-based negotiation breaks caching.\n\nExtensions are **simpler**, agreed.';
     expect(feedEntry({...action, op_type: 'comment_issue', content: '["85","> Accept-based negotiation breaks caching."]', comment_id: 1768, comment: {id: 1768, body: quoted}}))
       .toEqual({path: '/team/project/issues/85#comment-1768', text: 'alice commented in team/project #85 — Extensions are simpler, agreed.'});
-    // Without the comment (older actions): only the stored first line, without its quote marker.
     expect(feedEntry({...action, op_type: 'comment_pull', content: '["9","> +1 to dev"]'}))
       .toEqual({path: '/team/project/pulls/9', text: 'alice commented on a pull request in team/project #9 — +1 to dev'});
-    // A title is never treated as markdown.
     expect(feedEntry({...action, content: '["3","> not a quote"]'}).text).toBe('alice opened an issue in team/project #3 — > not a quote');
   });
   it('commentPreview skips quotes, fences and markup', () => {

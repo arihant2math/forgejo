@@ -1,22 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A refused settings write → what to say, and next to which field (pure;
-// problems.test.ts). API v1 answers a binding failure with
-// "[FieldName]: Kind" (routers/api/v1/api.go bind) and its own checks with
-// a sentence ("repo name is already taken [name: x]", "Invalid url",
-// "Missing config option: url"): each form names the words that point at
-// its fields.
+// Binding errors use "[FieldName]: Kind"; other API errors name fields in prose.
 
 import {RequestFailed} from '../../app/api.ts';
 
 export interface Problem {
-  /** The form field it is about, if the answer names one. */
   field?: string;
   message: string;
 }
 
-/** Binding failure kinds (code.forgejo.org/go-chi/binding and Forgejo's own rules), in words. */
 const KINDS: Record<string, string> = {
   Required: 'Required.',
   AlphaDash: 'Use only letters, digits, “-” and “_”.',
@@ -33,7 +26,6 @@ const KINDS: Record<string, string> = {
   Email: 'Not a valid email address.',
 };
 
-/** Forgejo's sentences, said better. */
 const REWORDS: [RegExp, string][] = [
   [/repo name is already taken/i, 'A repository with this name already exists here.'],
   [/repo name is reserved/i, 'This name is reserved.'],
@@ -45,11 +37,7 @@ const REWORDS: [RegExp, string][] = [
   [/^Key (?:already exists|title has been used)/i, 'A deploy key with this title or content already exists.'],
 ];
 
-/**
- * What a failed request means for a form. `fields` maps words of the answer to the form's field names: Go
- * field names of a binding failure ("Name", "BranchFilter"), lower-cased, and phrases of Forgejo's own
- * messages ("repo name", "url", "content type").
- */
+/** `fields` maps lower-case Go field names and API error phrases to form field names. */
 export function problemOf(err: unknown, fields: Readonly<Record<string, string>> = {}): Problem {
   const raw = err instanceof Error ? err.message : String(err);
   const status = err instanceof RequestFailed ? err.status : undefined;
@@ -69,7 +57,7 @@ export function problemOf(err: unknown, fields: Readonly<Record<string, string>>
     }
   }
   const reworded = REWORDS.find(([re]) => re.test(raw))?.[1];
-  // A bare 404 of a write: what it changes is gone (deleted meanwhile, or the repository was renamed).
+  // A bare write 404 means the target is absent or renamed.
   const message = reworded ?? (status === 404 && /^(?:not found\.?|forgejo answered 404\.)$/i.test(raw) ? 'Not found: it may have been deleted or renamed meanwhile.' : raw);
   return {...(field ? {field} : {}), message: message || 'Forgejo refused the change.'};
 }

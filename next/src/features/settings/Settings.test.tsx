@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's settings in the app: the general form from the pool (no
-// request needed to paint it), a save sending only what changed, the
-// features' switches, a list section from API v1, and the refusal for
-// someone who does not administer the repository.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -25,12 +21,11 @@ afterEach(() => {
   localStorage.clear();
 });
 
-// The shell's idle work (whenIdle: a 200 ms timer in jsdom) runs before the environment goes away.
+// Let the shell's 200 ms idle timer finish before jsdom teardown.
 afterAll(() => new Promise<void>((resolve) => {
   setTimeout(resolve, 300);
 }));
 
-/** alice owns alice/notes (id 10: administrator from the pool) and reads acme/website (id 20). */
 function session() {
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
@@ -76,17 +71,14 @@ test('the general settings paint from the pool; a save sends only what changed',
   const name = screen.getByRole<HTMLInputElement>('textbox', {name: 'Repository name'});
   expect(name.value).toBe('notes');
   expect(screen.getByRole<HTMLTextAreaElement>('textbox', {name: /Description/}).value).toBe('My notes');
-  // The repository's Settings tab is the app's page (administrators only), and the current one.
   const tab = within(screen.getByRole('navigation', {name: 'Repository'})).getByRole('link', {name: 'Settings'});
   expect(tab.getAttribute('href')).toBe('/alice/notes/settings');
   expect(tab.hasAttribute('data-classic')).toBe(false);
   expect(tab.getAttribute('aria-current')).toBe('page');
-  // The sections: here, and the rest in the classic UI.
   const nav = screen.getByRole('navigation', {name: 'Settings'});
   expect(within(nav).getByRole('link', {name: /General/}).getAttribute('aria-current')).toBe('page');
   expect(within(nav).getByRole('link', {name: /Units and trackers/}).getAttribute('href')).toBe('/alice/notes/settings/units');
   expect(within(nav).getByRole('link', {name: /More options/}).getAttribute('href')).toBe('/alice/notes/settings?ui=classic');
-  // Features from the units: issues and pull requests on, the wiki off.
   expect(screen.getByRole('button', {name: 'Issues'}).getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByRole('button', {name: 'Wiki'}).getAttribute('aria-pressed')).toBe('false');
   expect(screen.getByRole('button', {name: 'Squash'}).getAttribute('aria-pressed')).toBe('true');
@@ -97,7 +89,6 @@ test('the general settings paint from the pool; a save sends only what changed',
   act(() => {
     fireEvent.click(save);
   });
-  // Checked before sending: nothing sent.
   expect(await screen.findByText('An address starting with http:// or https://.')).toBeTruthy();
   fireEvent.change(screen.getByRole('textbox', {name: /Website/}), {target: {value: 'https://notes.example'}});
   act(() => {

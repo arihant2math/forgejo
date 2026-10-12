@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/** The same readable reference in dashboard, inbox and search metadata. */
 export function formatIssueReference(repo: string, number: number | undefined): string {
   return [repo, number === undefined ? '' : `#${String(number)}`].filter(Boolean).join(' ');
 }

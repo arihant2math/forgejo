@@ -6,9 +6,6 @@ import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Label, Button, IconButton, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
 
-// A repository's deploy keys (/{owner}/{repo}/settings/keys): SSH keys that
-// give a machine access to this one repository. Listed from API v1 (kept
-// for the next visit), added in a dialog, deleted after a confirmation.
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {online} from '../../app/api.ts';

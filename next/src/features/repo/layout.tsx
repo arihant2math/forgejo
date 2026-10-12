@@ -6,7 +6,6 @@ import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {Text} from '@primer/react';
 import {clsx} from 'clsx';
 
-/** Bordered sections for repository data and owner resources. */
 export function ResourceSection({label, title, actions, children}: {label: string; title: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return <section aria-label={label} className="rounded-md border border-default overflow-hidden">
     <header className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-default bg-muted px-4 py-2"><Text as="h2" size="medium" weight="semibold"><span className="flex items-center gap-2">{title}</span></Text>{actions}</header>
@@ -14,14 +13,13 @@ export function ResourceSection({label, title, actions, children}: {label: strin
   </section>;
 }
 
-/** Dense navigational row: file metadata and repository summaries are not menu items. */
 export function DataRow({href, onClick, leading, trailing, children, compact = false}: {href: string; onClick?: MouseEventHandler<HTMLAnchorElement>; leading?: ReactNode; trailing?: ReactNode; children: ReactNode; compact?: boolean}) {
   return <div className={clsx("flex min-w-0 items-center gap-2 border-b border-muted px-4 last:border-b-0", compact ? "h-row" : "py-2")}>
     <span className="flex shrink-0 items-center text-muted">{leading}</span><a href={href} onClick={onClick} data-resource-row="" className="min-w-0 flex-1 truncate text-base text-default hover:text-accent hover:underline">{children}</a>{trailing && <div className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</div>}
   </div>;
 }
 
-/** Preserve J/K and Enter for repository/file lists without making links into menu items. */
+/** J/K and Enter navigation without turning links into menu items. */
 export function ResourceRows({children}: {children: ReactNode}) {
   const root = useRef<HTMLDivElement>(null);
   useShortcutScope('list');
@@ -39,7 +37,6 @@ export function ResourceRows({children}: {children: ReactNode}) {
   return <div ref={root} data-shortcuts="">{children}</div>;
 }
 
-/** User/team resource row with secondary metadata and independent actions. */
 export function PersonRow({leading, title, meta, description, actions}: {leading?: ReactNode; title: ReactNode; meta?: ReactNode; description?: ReactNode; actions?: ReactNode}) {
   return <li className="flex items-center gap-2 border-b border-muted px-4 py-3 last:border-b-0">{leading}<div className="min-w-0 flex-1"><Text weight="semibold">{title}</Text>{meta && <span className="ml-2 text-sm text-muted">{meta}</span>}{description && <div className="mt-1 text-muted">{description}</div>}</div>{actions}</li>;
 }

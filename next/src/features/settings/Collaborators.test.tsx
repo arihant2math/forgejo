@@ -36,7 +36,6 @@ test('"Add people" opens with the focus in its search field, so typing a name se
   fireEvent.click(add);
   const search = await screen.findByPlaceholderText('Search people…');
   await waitFor(() => { expect(document.activeElement).toBe(search); });
-  // The role control is still there, with its default.
   expect(screen.getByRole('button', {name: 'Write'}).getAttribute('aria-pressed')).toBe('true');
   fireEvent.change(document.activeElement as HTMLInputElement, {target: {value: 'dan'}});
   const panel = screen.getByRole('dialog', {name: 'Add a collaborator'});

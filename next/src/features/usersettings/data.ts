@@ -1,17 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The viewer's settings: read through API v1 (/user/settings, /user/emails,
-// /user/keys, /user/gpg_keys) and the gap endpoint of the appearance
-// choices (/-/sync/api/user/options). None of it is in the sync pool (the
-// pool's User has the public profile only, which the profile page paints
-// first), so what was fetched is kept in the code cache (memory LRU over
-// IndexedDB) by user and shown at once the next time, offline too, while it
-// is asked for again (stale while revalidate). Writes are online only:
-// optimistic where a failure is easy to undo (a switch, a choice, a delete,
-// the primary address: shown at once, put back when Forgejo refuses),
-// awaited where Forgejo decides what the result is (a profile with its
-// validation, an added address or key).
+// Private settings are absent from the pool. Cache by user and revalidate on access;
+// optimistic writes roll back on refusal, while server-determined results await the answer.
 
 import {observable, runInAction} from 'mobx';
 import {online, RequestFailed} from '../../app/api.ts';
@@ -25,13 +16,12 @@ import {
 
 export type Slot<T> =
   | {state: 'loading'}
-  /** `stale`: from the cache, asked for again. */
+  /** `stale` means cached data awaiting revalidation. */
   | {state: 'ready'; value: T; stale: boolean}
-  /** Offline (or unreachable) and not on this device. */
+  /** Unreachable and no locally cached value. */
   | {state: 'offline'}
   | {state: 'error'; message: string; status: number};
 
-/** What the pages read, by kind. */
 export interface Kinds {
   settings: UserSettings;
   emails: ApiEmail[];
@@ -42,10 +32,9 @@ export interface Kinds {
 
 export type Kind = keyof Kinds;
 
-/** An answer this recent is not asked for again (a hover's prefetch, then the click). */
+/** Avoid duplicate reads between hover prefetch and click. */
 const FRESH = 30_000;
 
-/** Keys per request, and requests at most (an account has a handful). */
 const PAGE = 50;
 const MAX_PAGES = 20;
 
@@ -63,12 +52,11 @@ export class SettingsSource {
     this.userId = userId;
   }
 
-  /** The cache key ("kind:<repo>:…": no repository, the user's own). */
   private key(kind: Kind): string {
     return `uset:0:${String(this.userId)}:${kind}`;
   }
 
-  /** What is known now (observed; memory only: the view's first frame). */
+  /** Observable memory-only reads allow a synchronous first frame. */
   slot<K extends Kind>(kind: K): Slot<Kinds[K]> {
     const s = this.slots.get(kind) as Slot<Kinds[K]> | undefined;
     if (s) return s;
@@ -76,7 +64,6 @@ export class SettingsSource {
     return hit === undefined ? {state: 'loading'} : {state: 'ready', value: hit, stale: true};
   }
 
-  /** The value now, if any. */
   value<K extends Kind>(kind: K): Kinds[K] | undefined {
     const s = this.slot(kind);
     return s.state === 'ready' ? s.value : undefined;
@@ -88,16 +75,13 @@ export class SettingsSource {
     });
   }
 
-  /** A new value (a write's answer, an optimistic copy): shown and kept. */
+  /** Update both the displayed value and cache. */
   private put<K extends Kind>(kind: K, v: Kinds[K]): void {
     this.cache.put(this.key(kind), v);
     this.set(kind, {state: 'ready', value: v, stale: false});
   }
 
-  /**
-   * Loads one kind: the device's copy first (stale), then Forgejo unless asked in the last moments. One request
-   * per kind at a time; offline or unreachable the copy stays.
-   */
+  /** Cache first, then refresh unless recent; deduplicate in-flight requests and retain data offline. */
   load(kind: Kind, force = false): Promise<void> {
     const running = this.inflight.get(kind);
     if (running) return running;
@@ -129,7 +113,7 @@ export class SettingsSource {
     return p;
   }
 
-  /** Loads ahead (a section's link hovered); errors are the page's to show. */
+  /** Prefetch without surfacing errors; the page owns error display. */
   prefetch(...kinds: Kind[]): void {
     if (!navigator.onLine) return;
     for (const k of kinds) this.load(k).catch(() => undefined);
@@ -161,13 +145,8 @@ export class SettingsSource {
     return out;
   }
 
-  // ---- Writes (online only) ----
 
-  /**
-   * Changes settings (PATCH /user/settings). `optimistic`: shown at once and put back when Forgejo refuses (a
-   * switch, a choice); otherwise shown once Forgejo answers (the profile form, which shows its draft meanwhile).
-   * Resolves with Forgejo's settings; throws RequestFailed.
-   */
+  /** Optimistic changes roll back on refusal; otherwise await the answer. Throws RequestFailed. */
   async patch(patch: SettingsPatch, optimistic: boolean): Promise<UserSettings> {
     const before = this.value('settings');
     if (optimistic && before) this.put('settings', applyPatch(before, patch));
@@ -183,14 +162,14 @@ export class SettingsSource {
     }
   }
 
-  /** Adds an address (Forgejo mails it to be verified when the instance asks for that). */
+  /** May trigger verification mail, depending on instance settings. */
   async addEmail(email: string): Promise<void> {
     const added = await online<ApiEmail[]>(this.app, {method: 'POST', api: 'v1', path: '/user/emails', body: {emails: [email]}});
     this.put('emails', mergeEmails(this.value('emails') ?? [], added ?? []));
     void this.load('emails', true);
   }
 
-  /** Removes an address (never the primary one: Forgejo refuses). Optimistic. */
+  /** Optimistic removal; Forgejo refuses removal of the primary address. */
   async deleteEmail(email: string): Promise<void> {
     const lower = email.toLowerCase();
     const gone = this.value('emails')?.find((e) => e.email.toLowerCase() === lower);
@@ -198,7 +177,7 @@ export class SettingsSource {
       () => online(this.app, {method: 'DELETE', api: 'v1', path: '/user/emails', body: {emails: [email]}}));
   }
 
-  /** Makes a verified address the primary one (the gap endpoint: API v1 has none). Optimistic. */
+  /** Optimistic primary-address change via the gap endpoint; API v1 has no equivalent. */
   async makePrimary(email: string): Promise<void> {
     const was = this.value('emails')?.find((e) => e.primary)?.email;
     const body: APIPrimaryEmail = {email};
@@ -230,7 +209,7 @@ export class SettingsSource {
       () => online(this.app, {method: 'DELETE', api: 'v1', path: `/user/gpg_keys/${String(id)}`}));
   }
 
-  /** A new profile picture (base64 bytes); the pool's User brings its new address. */
+  /** Accept base64 bytes; the synced User supplies the new avatar address. */
   async uploadAvatar(image: string): Promise<void> {
     await online(this.app, {method: 'POST', api: 'v1', path: '/user/avatar', body: {image}, timeout: 60_000});
   }
@@ -239,7 +218,7 @@ export class SettingsSource {
     await online(this.app, {method: 'DELETE', api: 'v1', path: '/user/avatar'});
   }
 
-  /** A list change shown at once; `undo` puts it back into the list as it is then when Forgejo refuses. */
+  /** On failure, `undo` applies to the current list so concurrent changes survive. */
   private async optimistic<K extends 'emails' | 'keys' | 'gpg'>(kind: K, apply: (v: Kinds[K]) => Kinds[K], undo: (v: Kinds[K]) => Kinds[K], send: () => Promise<unknown>): Promise<void> {
     const cur = this.value(kind);
     if (cur) this.put(kind, apply(cur));
@@ -260,7 +239,6 @@ function need<T>(v: T | undefined): T {
 
 const sources = new WeakMap<object, SettingsSource>();
 
-/** The session's settings source (started on first use). */
 export function settingsSource(app: App): SettingsSource | undefined {
   const s = app.session;
   const code = codeSource(app);

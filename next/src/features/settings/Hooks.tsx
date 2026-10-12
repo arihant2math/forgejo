@@ -6,11 +6,6 @@ import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Tooltip, Select, SegmentedControl, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
 
-// A repository's webhooks (/{owner}/{repo}/settings/hooks): the hooks from
-// API v1 (kept for the next visit, their authorization headers in memory
-// only), a dialog that creates a Forgejo webhook or edits a Forgejo or
-// Gitea one (other types — Slack, Matrix, … — are edited in the classic
-// UI), a test delivery, and deletion after a confirmation.
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {ClassicLink, classicHref} from '../../app/ClassicLink.tsx';
@@ -117,7 +112,6 @@ const GROUPS = ['Repository', 'Issues', 'Pull requests', 'Actions'] as const;
 
 const HOOK_FIELDS: Record<string, keyof HookForm> = {url: 'url', 'content type': 'contentType', branchfilter: 'branchFilter', 'config option: url': 'url'};
 
-/** Creates a Forgejo webhook, or edits one (its current authorization header is asked for first: an edit sends it back). */
 const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo: string; hook: Hook | undefined; onClose: () => void; onSaved: (h: Hook) => void}) {
   const app = useApp();
   const offline = useOffline();
@@ -127,7 +121,7 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
   const [errors, setErrors] = useState<FieldErrors<keyof HookForm>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
-  // The list kept on this device has no authorization headers: the hook as it is now, before an edit can be saved.
+  // Cached hooks omit secrets; fetch the authorization header before saving to avoid clearing it.
   useEffect(() => {
     if (!hook || current) return undefined;
     let live = true;

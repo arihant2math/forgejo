@@ -22,7 +22,6 @@ afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 const watcher = (id: number, login: string, extra: Partial<Watcher> = {}): Watcher =>
   ({id, login, full_name: '', avatar_url: '', website: '', location: '', created: '2024-03-05T10:00:00Z', ...extra});
 
-/** acme/website (watched by `count`), with API v1 answering the subscribers by page. */
 function setup(path: string, pages: Record<number, Watcher[]>, count: number) {
   const s = fakeSession({
     workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'user:1', units: [], reason: 'self'}, {group: 'repo:20', units: [], reason: 'member'}]},
@@ -59,14 +58,12 @@ describe('a repository\'s watchers (#255)', () => {
     await router.load();
     const {container} = render(<App app={app} router={router}/>);
     const panel = await screen.findByRole('region', {name: 'Watchers'});
-    // Not the not-found page, and the page's title.
     expect(screen.queryByText(/not found/i)).toBeNull();
     expect(document.title).toContain('Watchers · acme/website');
     expect(within(panel).getByRole('banner').textContent).toBe('Watchers3');
     const bob = await within(panel).findByRole('link', {name: 'Bob Builder'});
     expect(bob.getAttribute('href')).toBe('/bob');
     expect(within(panel).getByText('bob')).toBeTruthy();
-    // The website only, as the classic card.
     const site = within(panel).getByRole('link', {name: 'https://bob.example/'});
     expect(site.getAttribute('target')).toBe('_blank');
     expect(within(panel).queryByText('Paris')).toBeNull();
@@ -75,7 +72,6 @@ describe('a repository\'s watchers (#255)', () => {
     const dave = within(panel).getByRole('link', {name: 'dave'}).closest('li');
     expect(dave?.textContent).toMatch(/daveJoined Mar 5, 2024$/);
     expect(dave?.querySelector('time')?.getAttribute('dateTime')).toBe('2024-03-05T10:00:00Z');
-    // One page: no pagination.
     expect(within(panel).queryByRole('navigation', {name: 'Pages'})).toBeNull();
     expect(calls).toContain(`/api/v1/repos/acme/website/subscribers?limit=${String(WATCHERS_PER_PAGE)}&page=1`);
     expect(classConflicts(container)).toEqual([]);

@@ -4,7 +4,7 @@
 import {Text} from '@primer/react';
 import type {ReactNode} from 'react';
 
-/** A resource row with its own controls, not a single selectable menu item. */
+/** Independent row controls must not behave as a single selectable menu item. */
 export function SettingsEntry({leading, title, meta, description, actions}: {leading?: ReactNode; title: ReactNode; meta?: ReactNode; description?: ReactNode; actions?: ReactNode}) {
   return <li className="flex min-w-0 flex-wrap items-center gap-2 border-t border-muted px-4 py-3 first:border-t-0">
     {leading && <span className="flex shrink-0 items-center text-muted">{leading}</span>}

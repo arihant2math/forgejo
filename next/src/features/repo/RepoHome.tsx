@@ -1,14 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's home (/{owner}/{repo}), the Code tab's first page: its
-// name and kind; above its files, like GitHub's, the branch picker (to that
-// branch's tree), the numbers of branches and tags (their pages), Go to file
-// (FileFinder.tsx, key T) and the Code menu (clone URLs, archives:
-// CodeMenu.tsx), all from the pool at once; the latest commit with its History; its top-level files and its README from the code
-// cache (by commit and blob SHA: there offline once seen); and beside them
-// the side pane (AboutSidebar.tsx: what it is, its releases and languages).
-// The tabs lead to everything else. Its own chunk.
 
 import {DataRow, ResourceRows} from './layout.tsx';
 import {Label, Tooltip} from '@primer/react';
@@ -69,7 +61,6 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
       <PageBody>
         <div className="flex flex-col @xl:min-h-full @xl:flex-row">
           <PageColumn wide>
-            {/* GitHub's repository title row: the name and its kind, the repository's actions at its end (only here: #252). */}
             <div className="flex flex-wrap items-center gap-2">
               <Summary repoId={repoId}/>
               <div className="ms-auto flex flex-wrap items-center gap-2">
@@ -91,7 +82,6 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
   );
 });
 
-/** The repository's name and kind (its description and topics are in the side pane's About, like GitHub's). */
 const Summary = observer(function Summary({repoId}: {repoId: number}) {
   const r = usePool().model('Repository').get(repoId)?.data;
   if (!r) return null;
@@ -104,10 +94,9 @@ const Summary = observer(function Summary({repoId}: {repoId: number}) {
   );
 });
 
-/** At most this many top-level entries are listed (the branch's tree in the code view has them all). */
+/** Bound the overview list; the code view exposes the full tree. */
 const MAX_ENTRIES = 60;
 
-/** The default branch's latest commit, its top-level files and its README. */
 const Files = observer(function Files({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const navigate = useNavigate();
   const pool = usePool();
@@ -123,9 +112,6 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
       </FilesPanel>
     );
   }
-  // GitHub's bar above the files: on the left the branch picker and how many branches and tags there are (their
-  // pages); on the right Go to file and the Code menu. From the pool and the configuration: there at once, the same
-  // size before and after the tree arrives; it wraps on a narrow page.
   const branches = refs.branches.size;
   const tags = refs.tags.size;
   const toolbar = (
@@ -140,7 +126,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
       </div>
     </div>
   );
-  // The latest commit's bar, with the history on the right (API v1 has no commit count the pool holds: "History").
+  // API v1 exposes no commit count here, so the link uses "History".
   const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha} showRef={false}/>;
   const history = (
     <RouterLinkButton variant="invisible" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', {kind: 'branch', ref: branch}))}>History</RouterLinkButton>
@@ -155,12 +141,10 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
   const src = useSource();
   const click = useLinkClick();
   const key = CodeSource.treeKey(repoId, sha, '');
-  // The README is asked for with the tree, not after it (README.md, by far the most common name: the server reads
-  // and renders it in one round trip; another name is asked once the tree names it), and the highlighter starts
-  // meanwhile for its code blocks.
+  // Fetch the common README.md alongside the tree to avoid a serial round trip; warm its highlighter too.
   useEffect(() => {
     void src.renderedAt(repoId, sha, 'README.md', {kind: 'branch', name: branch}).catch(() => undefined);
-    // Not once the page is gone (an idle callback can come after an unmount, or after a test environment closed).
+    // Idle callbacks can outlive the page or test environment.
     let live = true;
     whenIdle(() => {
       if (live) src.preheat();

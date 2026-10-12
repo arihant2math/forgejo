@@ -4,12 +4,6 @@
 import {AccountList, AccountRow} from './AccountList.tsx';
 import {Banner, SegmentedControl, Avatar, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
 
-// The viewer's settings (the classic /user/settings pages at their own
-// addresses, laid out like GitHub's settings): a side list of the pages
-// beside the page — Profile, Account (email addresses), Appearance, SSH and
-// GPG keys here, the other pages in the classic UI. The profile paints from
-// the pool's User at once; the rest comes from API v1, kept in the code
-// cache (data.ts). Writes are online only. Its own chunk.
 
 import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -46,7 +40,6 @@ const SECTIONS: {id: Section; label: string; icon: OcticonType; to: string; kind
   {id: 'keys', label: 'SSH and GPG keys', icon: KeyIcon, to: '/user/settings/keys', kinds: ['keys', 'gpg']},
 ];
 
-/** The settings pages only the classic UI has (its settings menu, less what depends on the instance's features). */
 const CLASSIC: {label: string; icon: OcticonType; to: string}[] = [
   {label: 'Security', icon: ShieldCheckIcon, to: '/user/settings/security'},
   {label: 'Applications', icon: BrowserIcon, to: '/user/settings/applications'},
@@ -79,7 +72,6 @@ function useSource(): SettingsSource {
   return src;
 }
 
-/** Loads what a page shows when it opens (the device's copy at once, then Forgejo). */
 function useLoad(src: SettingsSource, ...kinds: Kind[]): void {
   const key = kinds.join(',');
   useEffect(() => {
@@ -87,13 +79,11 @@ function useLoad(src: SettingsSource, ...kinds: Kind[]): void {
   }, [src, key]);
 }
 
-/** A write's failure in words (the token's scope named when that is why). */
 function failure(err: unknown): string {
   if (scopeRefused(err)) return 'Forgejo Next may not change your account with this sign-in. Sign out and in again, or change it in the classic UI.';
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Every settings page: the header, the side list of pages, the page. */
 function SettingsPage({section, children}: {section: Section; children: ReactNode}) {
   const page = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
@@ -117,7 +107,6 @@ const UserOfflineNote = observer(function UserOfflineNote() {
   return connectivity.online ? null : <Banner variant="warning" title="You are offline" description={onlineOnly('Changing account settings')}/>;
 });
 
-/** The settings pages (GitHub's settings list). Pointing at one starts loading what it shows. */
 function SideNav({section}: {section: Section}) {
   const app = useApp();
   const src = useSource();
@@ -136,7 +125,6 @@ function SideNav({section}: {section: Section}) {
   );
 }
 
-/** What a page shows while a slot has nothing yet, or why it has nothing. */
 function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; skeleton: ReactNode}) {
   if (slot.state === 'loading') return <>{skeleton}</>;
   if (slot.state === 'offline') return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`${what} are not on this device`}</Blankslate.Heading><Blankslate.Description>Connect to load them.</Blankslate.Description></Blankslate>;
@@ -152,12 +140,10 @@ function RowsSkeleton({rows = 2}: {rows?: number}) {
   );
 }
 
-/** Why a write cannot be done now, or undefined (online). */
 function useOffline(action: string): string | undefined {
   return connectivity.online ? undefined : onlineOnly(action);
 }
 
-// ---- Profile ----
 
 const LABELS: Record<ProfileField, string> = {full_name: 'Name', pronouns: 'Pronouns', website: 'Website', location: 'Location', description: 'Bio'};
 
@@ -173,7 +159,7 @@ const ProfileView = observer(function ProfileView() {
   useLoad(src, 'settings');
   const user = data.pool.model('User').get(userId);
   const settings = src.value('settings');
-  // The pool's User paints first (what everyone sees), the settings replace it when they arrive (private pronouns).
+  // Settings include private pronouns; the public pool profile is only a fallback.
   const current: Profile = settings ? profileOf(settings) : profileOf({
     full_name: user?.get('full_name') ?? '', pronouns: user?.get('pronouns') ?? '', website: user?.get('website') ?? '',
     location: user?.get('location') ?? '', description: user?.get('description') ?? '',
@@ -210,7 +196,7 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
     setErrors({});
     setFormError(undefined);
     src.patch(payload, false).then(() => {
-      // What was saved is the current value now; an edit typed meanwhile stays a draft.
+      // Clear only saved draft values, preserving edits typed during the request.
       setDraft((d) => keepUnsaved(d, payload));
       notify(app, {tone: 'success', title: 'Profile saved'});
     }, (err: unknown) => {
@@ -272,7 +258,6 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
   );
 });
 
-/** The profile picture: the pool's, a new one shown at once while it uploads (until the pool brings its address). */
 const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}) {
   const app = useApp();
   const {data, userId} = useSession();
@@ -369,7 +354,6 @@ const PrivacySection = observer(function PrivacySection({src, settings, slot, vi
   );
 });
 
-/** A yes/no setting: changed at once, put back when Forgejo refuses. */
 const Toggle = observer(function Toggle({src, settings, field, label, hint, offline}: {
   src: SettingsSource; settings: UserSettings; field: 'hide_email' | 'hide_pronouns' | 'hide_activity' | 'enable_repo_unit_hints'; label: string; hint: string;
   offline: string | undefined;
@@ -384,7 +368,6 @@ const Toggle = observer(function Toggle({src, settings, field, label, hint, offl
   );
 });
 
-/** An optimistic settings change; a refusal is put back and said. */
 function useChange(src: SettingsSource): (patch: SettingsPatch, what: string) => void {
   const app = useApp();
   return (patch, what) => {
@@ -394,7 +377,6 @@ function useChange(src: SettingsSource): (patch: SettingsPatch, what: string) =>
   };
 }
 
-// ---- Appearance ----
 
 const NEXT_THEMES: {value: ThemePreference; label: string}[] = [
   {value: 'system', label: 'System'},
@@ -448,7 +430,6 @@ const AppearanceView = observer(function AppearanceView() {
   );
 });
 
-/** One of the instance's choices (a theme, a language), in a menu. */
 function ChoiceMenu({label, value, options, fallback, disabled, onChange}: {
   label: string; value: string; options: APIOption[]; fallback?: string; disabled: string | undefined; onChange: (v: string) => void;
 }) {
@@ -467,7 +448,6 @@ function ChoiceMenu({label, value, options, fallback, disabled, onChange}: {
   );
 }
 
-// ---- Account ----
 
 const AccountView = observer(function AccountView() {
   const src = useSource();
@@ -581,13 +561,11 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
   );
 });
 
-/** A link to a classic page inside a sentence. */
 function TextClassic({to, children}: {to: string; children: ReactNode}) {
   const app = useApp();
   return <PrimerLink href={classicHref(app, to)} data-classic="">{children}</PrimerLink>;
 }
 
-/** Asks before a delete. */
 function Confirm({title, description, action, onConfirm, onClose}: {title: string; description: ReactNode; action: string; onConfirm: () => void; onClose: () => void}) {
   return (
     <ConfirmationDialog title={title} confirmButtonContent={action} confirmButtonType="danger" onClose={(gesture) => {
@@ -597,7 +575,6 @@ function Confirm({title, description, action, onConfirm, onClose}: {title: strin
   );
 }
 
-// ---- Keys ----
 
 const KeysView = observer(function KeysView() {
   const src = useSource();

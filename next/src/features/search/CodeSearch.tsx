@@ -21,7 +21,6 @@ import {Blankslate} from '@primer/react/experimental';
 
 interface Answer {enabled: boolean; total: number; results: Hit[]; repositories: Record<string, string>}
 
-/** A line of a hit: its number, its text with the words that matched marked; a context line dimmed. */
 function HitCode({line, context = false}: {line: ShownLine; context?: boolean}) {
   return (
     <div className="flex min-h-5 font-mono text-sm whitespace-pre">
@@ -61,7 +60,6 @@ export default observer(function CodeSearch() {
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [app, q, page, repoId, connected]);
-  // The matching lines only (the hits: rows, the cursor's stops), each with its context (#248).
   const rows = useMemo(() => matchRows(answer?.results ?? []), [answer]);
   const virtual = useVirtualizer({
     count: rows.length, getScrollElement: () => scroller, overscan: 5, ...pageListRect(),
@@ -71,7 +69,6 @@ export default observer(function CodeSearch() {
     const row = rows[index];
     const name = row && answer?.repositories[String(row.hit.RepoID)];
     const [owner, repo] = name?.split('/') ?? [];
-    // The app's code view of the file at the searched commit, at the line (a classic address would be rewritten to it).
     return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
@@ -96,7 +93,6 @@ export default observer(function CodeSearch() {
         return (
           <div key={`${String(row.hit.RepoID)}:${row.hit.Filename}:${String(row.line.num)}`} data-index={item.index} ref={virtual.measureElement} className="absolute inset-x-0 top-0 pb-2" style={{transform: `translateY(${String(item.start)}px)`}}>
             <DenseRow id={`code-hit-${String(item.index)}`} role="option" tabIndex={-1} active={cursor === item.index} selected={cursor === item.index} href={href} onClick={(e) => { click(e, href); }}>{name} / {row.hit.Filename}:{row.line.num}</DenseRow>
-            {/* The same link as the row (a click on the code opens the line too); the context lines are dimmed. */}
             <a href={href} tabIndex={-1} aria-hidden onClick={(e) => { click(e, href); }} className="block overflow-x-auto">
               {row.before.map((l) => <HitCode key={l.num} line={l} context/>)}
               <HitCode line={row.line}/>

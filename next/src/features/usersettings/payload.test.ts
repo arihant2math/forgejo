@@ -17,10 +17,8 @@ const settings: UserSettings = {
 
 test('a profile form sends only what it changed, trimmed', () => {
   expect(profilePayload({}, profile)).toBeUndefined();
-  // Edited back to the current value (spaces aside): nothing to send.
   expect(profilePayload({full_name: ' Ada Lovelace '}, profile)).toBeUndefined();
   expect(profilePayload({full_name: '  Ada King ', location: 'London'}, profile)).toEqual({full_name: 'Ada King'});
-  // Clearing a field is a change (to empty).
   expect(profilePayload({website: '  '}, profile)).toEqual({website: ''});
   expect(profilePayload({description: '\nLine one\n\nLine two\n'}, profile)).toEqual({description: 'Line one\n\nLine two'});
 });
@@ -56,7 +54,6 @@ test('an optimistic patch, and its undo when Forgejo refuses', () => {
   const on = applyPatch(settings, {hide_email: true});
   expect(on.hide_email).toBe(true);
   expect(revertPatch(on, settings, {hide_email: true})).toEqual(settings);
-  // A field changed since (a later write) keeps its newer value.
   const later = {...on, hide_email: true, theme: 'forgejo-dark'};
   expect(revertPatch(later, settings, {theme: 'gitea-dark'}).theme).toBe('forgejo-dark');
   expect(diffStyleOf('')).toBe('unified');

@@ -1,14 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's wiki (its own chunk): a page (Home at /wiki) rendered as
-// Forgejo renders it, with the wiki's pages, its _Sidebar and its _Footer
-// around it, who changed it last and a link to its revisions (classic); the
-// page list; a page's editor and a new page (the markdown editor; online
-// only, API v1); deleting a page (confirmed). Pages come from the wiki
-// source (data.ts): from memory or the device first, then from Forgejo, so
-// a page seen before paints at once and offline. Links to other pages fetch
-// them on hover. Writers only see the writing controls; the server decides.
 
 import {createLink, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -40,7 +32,6 @@ import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental'
 
 const WikiNavItem = createLink(NavList.Item);
 
-/** Pages listed in the side pane at most (the page list has them all). */
 const SIDE_PAGES = 40;
 
 function useWiki(): WikiSource {
@@ -55,14 +46,12 @@ interface WikiProps {
   repoId: number;
 }
 
-/** Whether the viewer may write the wiki (write access, not archived: observes the pool). */
 function useWritable(repoId: number): boolean {
   const s = useSession();
   const archived = usePool().model('Repository').get(repoId)?.get('archived') === true;
   return canWrite(s, repoId) && !archived;
 }
 
-/** Loads the page list while a wiki page is open (again when the connection comes back). */
 function useList(src: WikiSource, {owner, repo, repoId}: WikiProps): Slot<WikiList> {
   const back = connectivity.online;
   useEffect(() => {
@@ -71,7 +60,6 @@ function useList(src: WikiSource, {owner, repo, repoId}: WikiProps): Slot<WikiLi
   return src.list(repoId);
 }
 
-/** Every wiki view's frame: the repository header (the page's title and controls), the body. */
 function WikiFrame({owner, repo, repoId, title, docTitle, controls, children}: {
   owner: string; repo: string; repoId: number | undefined; title: string; docTitle?: string; controls?: ReactNode; children: ReactNode;
 }) {
@@ -83,7 +71,6 @@ function WikiFrame({owner, repo, repoId, title, docTitle, controls, children}: {
   );
 }
 
-/** A wiki route's repository, or its "not available" page. */
 function WithRepo({title, children}: {title: string; children: (p: WikiProps) => ReactNode}) {
   const {owner, repo, repoId} = useRepoPage();
   if (repoId === undefined) {
@@ -92,37 +79,30 @@ function WithRepo({title, children}: {title: string; children: (p: WikiProps) =>
   return <>{children({owner, repo, repoId})}</>;
 }
 
-// ---- Routes ----
 
-/** /{owner}/{repo}/wiki: its Home. */
 export function WikiHome() {
   return <WithRepo title="Wiki">{(p) => <PageView key={`${String(p.repoId)}:${HOME}`} {...p} page={HOME}/>}</WithRepo>;
 }
 
-/** /{owner}/{repo}/wiki/{page}. */
 export function WikiPageView() {
   const {page = HOME} = useParams({strict: false});
   return <WithRepo title={pageTitle(page)}>{(p) => <PageView key={`${String(p.repoId)}:${page}`} {...p} page={page}/>}</WithRepo>;
 }
 
-/** /{owner}/{repo}/wiki/-/pages. */
 export function WikiPages() {
   return <WithRepo title="Pages">{(p) => <PagesView key={p.repoId} {...p}/>}</WithRepo>;
 }
 
-/** /{owner}/{repo}/wiki/-/new[?title=…]. */
 export function WikiNew() {
   const title = useSearch({strict: false, select: (s: {title?: string}) => s.title}) ?? '';
   return <WithRepo title="New page">{(p) => <Editor key={`${String(p.repoId)}:new`} {...p} page={undefined} initialTitle={title}/>}</WithRepo>;
 }
 
-/** /{owner}/{repo}/wiki/{page}/-/edit. */
 export function WikiEdit() {
   const {page = HOME} = useParams({strict: false});
   return <WithRepo title={`Edit ${pageTitle(page)}`}>{(p) => <EditView key={`${String(p.repoId)}:${page}`} {...p} page={page}/>}</WithRepo>;
 }
 
-// ---- A page ----
 
 const PageView = observer(function PageView({owner, repo, repoId, page}: WikiProps & {page: string}) {
   const src = useWiki();
@@ -150,7 +130,6 @@ const PageView = observer(function PageView({owner, repo, repoId, page}: WikiPro
   );
 });
 
-/** The header's controls: Pages, Edit, New page, and More (delete, revisions, the classic page). */
 function PageControls({owner, repo, repoId, page, title, exists, writable, view}: WikiProps & {page: string; title: string; exists: boolean; writable: boolean; view: WikiView}) {
   const app = useApp();
   const src = useWiki();
@@ -192,7 +171,6 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
   );
 }
 
-/** The page's body: its rendering, who changed it last, its footer; or why there is none. */
 const PageContent = observer(function PageContent({owner, repo, repoId, page, slot, list, writable}: WikiProps & {
   page: string; slot: Slot<WikiPageRecord>; list: Slot<WikiList>; writable: boolean;
 }) {
@@ -202,7 +180,7 @@ const PageContent = observer(function PageContent({owner, repo, repoId, page, sl
   return <Unloaded loaded={unloadedOf(slot)} what="This page"/>;
 });
 
-/** A slot's state for the code views' placeholders (Unloaded): no page is "Not found". */
+/** A missing page maps to Not found, not an unloaded placeholder. */
 function unloadedOf(s: Slot<unknown>): Exclude<Loaded<unknown>, {state: 'ready'}> {
   switch (s.state) {
     case 'missing':
@@ -245,7 +223,6 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
   );
 }
 
-/** A wiki's rendered markdown: its links to other pages of the wiki fetch them on hover. */
 function WikiMarkdown({owner, repo, repoId, html, empty}: WikiProps & {html: string; empty?: string}) {
   const src = useWiki();
   const app = useApp();
@@ -262,7 +239,6 @@ function WikiMarkdown({owner, repo, repoId, html, empty}: WikiProps & {html: str
   return <div onPointerOver={onPointerOver}><Markdown html={html}/></div>;
 }
 
-/** No such page: the wiki has none at all (or no wiki), or not this one. */
 const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writable}: WikiProps & {page: string; list: Slot<WikiList>; writable: boolean}) {
   const none = list.state === 'ready' && list.value.kind !== 'pages';
   useNotFound(!none && list.state !== 'loading');
@@ -276,7 +252,6 @@ const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writab
   );
 });
 
-/** A repository without wiki pages: no wiki, a wiki elsewhere, or no page yet ("Create the first page"). */
 function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclude<WikiList, {kind: 'pages'}>; writable: boolean}) {
   const admin = repoAccess(useSession(), repoId) === 'admin';
   switch (list.kind) {
@@ -297,7 +272,6 @@ function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclud
   }
 }
 
-/** The side pane: the wiki's own sidebar (_Sidebar), its pages. */
 const WikiAside = observer(function WikiAside({owner, repo, repoId, current, list, sidebar, writable}: WikiProps & {
   current: string | undefined; list: Slot<WikiList>; sidebar: string | undefined; writable: boolean;
 }) {
@@ -334,7 +308,6 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
   );
 });
 
-// ---- The page list ----
 
 const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) {
   const app = useApp();
@@ -385,14 +358,11 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
   );
 });
 
-// ---- Writing ----
 
-/** A page's editor once its text is here. */
 const EditView = observer(function EditView({owner, repo, repoId, page}: WikiProps & {page: string}) {
   const src = useWiki();
   const back = connectivity.online;
-  // The text Forgejo has now, not the device's copy of it (saving an older text would undo a newer change): asked
-  // for again; offline (or Forgejo not answering) the copy is all there is, and saving waits for a connection.
+  // Refresh before editing to avoid overwriting newer server text; offline saves wait for a connection.
   const [asked, setAsked] = useState(false);
   useEffect(() => {
     let live = true;
@@ -404,7 +374,7 @@ const EditView = observer(function EditView({owner, repo, repoId, page}: WikiPro
     };
   }, [src, repoId, owner, repo, page, back]);
   const slot = src.page(repoId, page);
-  // Once the editor is open it keeps its text: the page asked for again (back online) never replaces what is typed.
+  // Revalidation must not replace text once the editor is open.
   const [opened, setOpened] = useState<WikiPageRecord | undefined>(undefined);
   const now = asked && slot.state === 'ready' ? slot.value : undefined;
   if (now && !opened) setOpened(now);
@@ -421,7 +391,6 @@ const EditView = observer(function EditView({owner, repo, repoId, page}: WikiPro
   );
 });
 
-/** A new page (page undefined) or a page's editor: title, text (Write / Preview as the wiki renders it), commit message. */
 const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle}: WikiProps & {page: WikiPageRecord | undefined; initialTitle: string}) {
   const app = useApp();
   const src = useWiki();
@@ -448,7 +417,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
     }
     setSaving(true);
     setError(undefined);
-    // The title always (API v1 renames a page saved without one to "unnamed"): the same title keeps its name.
+    // Always send the title: API v1 otherwise renames the page to "unnamed".
     const edit = {title: t, text, message: message.trim()};
     const done = page ? src.edit(repoId, owner, repo, page.name, edit) : src.create(repoId, owner, repo, edit);
     done.then((name) => {

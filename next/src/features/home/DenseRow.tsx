@@ -15,11 +15,8 @@ interface DenseRowProps extends HTMLAttributes<HTMLElement> {
 /** 20px line + 8px padding on each side + 1px separator. Keep virtual lists in sync. */
 export const DENSE_ROW_HEIGHT = 37;
 
-/** A contained, fixed-height data row for dashboard, activity, notifications and search.
- * Keyboard navigation and selection belong to the containing feature's listbox.
- * As a link, only the name (children) turns accent + underline on hover: `no-underline` keeps Primer's
- * BaseStyles `a:hover` underline off the whole row, which would underline the muted metadata too and draw a
- * second, default-coloured underline under the accent name. */
+/** Keyboard navigation belongs to the containing listbox.
+ * `no-underline` suppresses Primer's whole-link hover underline so only the name is underlined. */
 export function DenseRow({href, selected, active, leading, trailing, children, role, ...rest}: DenseRowProps) {
   const Tag = href === undefined ? 'div' : 'a';
   return <Tag {...rest} href={href} role={role} data-home-row=""

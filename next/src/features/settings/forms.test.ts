@@ -72,7 +72,6 @@ describe('merge styles', () => {
     expect(mergeStyleToggle(s, 'squash', false)).toEqual({patch: {allow_squash_merge: false, default_merge_style: 'merge'}});
     const one = {...s, allowed: {...s.allowed, merge: false}};
     expect(mergeStyleToggle(one, 'squash', false)).toEqual({error: 'At least one way of merging must stay allowed.'});
-    // Marking merged by hand is no way of merging: it can always go.
     const manual = {...one, allowed: {...one.allowed, 'manually-merged': true}};
     expect(mergeStyleToggle(manual, 'manually-merged', false)).toEqual({patch: {allow_manual_merge: false}});
   });

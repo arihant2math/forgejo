@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The local search index's page side: one MiniSearch worker per session
-// (workers/search.worker.ts, over Comlink), fed from the pool — every issue
-// and pull request on this device in batches when it starts, then the
-// changes the pool applies (coalesced, at most every 250 ms). Started the
-// first time the palette opens (its chunk), so the boot route never pays
-// for it.
+// Start the session's worker on palette use to keep it out of boot; batch pool changes to avoid blocking the page.
 
 import {type Remote, wrap} from 'comlink';
 import {untracked} from 'mobx';
@@ -21,11 +16,11 @@ const BATCH = 5000;
 const FLUSH_MS = 250;
 
 export interface LocalAnswer extends SearchAnswer {
-  /** Round trip from the page (ms): posting the query, searching, the answer back. */
+  /** Full page-to-worker round trip, in ms. */
   rtt: number;
 }
 
-/** The worker's URL below this deployment's base (Vite writes it below its own build base). */
+/** Respect the deployment base used by Vite for worker assets. */
 function workerPath(app: App): string {
   const at = workerUrl.indexOf('assets/');
   return at >= 0 ? `${app.config.base}${workerUrl.slice(at)}` : workerUrl;
@@ -39,12 +34,12 @@ export class LocalSearch {
   private readonly off: () => void;
   private pendingUpsert = new Set<number>();
   private pendingRemove = new Set<number>();
-  /** What is indexed of each issue ("title\0number\0repo"): unchanged issues are not sent again. */
+  /** Indexed fingerprints prevent resending unchanged issues. */
   private readonly indexed = new Map<number, string>();
-  /** Repository names as indexed: only a rename re-indexes a repository's issues. */
+  /** Repository renames require reindexing their issues. */
   private readonly repoNames = new Map<number, string>();
   private timer: ReturnType<typeof setTimeout> | undefined;
-  /** Resolves when the documents on this device when it started are indexed. */
+  /** Resolves after the initial local documents are indexed. */
   readonly ready: Promise<void>;
   size = 0;
 
@@ -59,10 +54,9 @@ export class LocalSearch {
           if (c.entity) this.pendingUpsert.add(c.id);
           else this.pendingRemove.add(c.id);
         } else if (c.model === 'Repository' && c.entity) {
-          // A rename (not a star or a push): its issues' "owner/repo" changes.
           const name = (c.entity.data as Repository).full_name;
           const was = this.repoNames.get(c.id);
-          // (First seen here: its issues may have been indexed without its name.)
+          // Issues may already be indexed without a repository name.
           if (was === name) continue;
           this.repoNames.set(c.id, name);
           for (const e of untracked(() => [...this.pool.model('Issue').by('repo_id', c.id)])) this.pendingUpsert.add(e.id);
@@ -82,7 +76,6 @@ export class LocalSearch {
     return n;
   }
 
-  /** The issue's document, or undefined when what is indexed of it is unchanged. */
   private doc(i: Issue): SearchDoc | undefined {
     const d = {id: i.id, title: i.title, repo: this.repoName(i.repo_id), number: i.number};
     const key = `${d.title}\0${String(d.number)}\0${d.repo}`;
@@ -92,7 +85,7 @@ export class LocalSearch {
   }
 
   private async loadAll(): Promise<void> {
-    // Plain reads (no MobX tracking); documents are built and sent one batch at a time, the page breathing in between.
+    // Avoid MobX tracking and yield between batches so indexing does not block the page.
     const all = untracked(() => [...this.pool.model('Issue').all()]);
     for (let i = 0; i < all.length; i += BATCH) {
       const docs = all.slice(i, i + BATCH).map((e) => this.doc(e.data)).filter((d) => d !== undefined);
@@ -114,7 +107,7 @@ export class LocalSearch {
     const ids = new Set([...this.pendingUpsert, ...this.pendingRemove]);
     this.pendingUpsert = new Set();
     this.pendingRemove = new Set();
-    // What the pool holds now decides (an issue added and removed within one batch is removed).
+    // Read final pool state: an item added then removed within the batch must stay removed.
     const issues = this.pool.model('Issue');
     const docs: SearchDoc[] = [];
     const rm: number[] = [];
@@ -131,7 +124,7 @@ export class LocalSearch {
     if (rm.length) this.size = await this.api.remove(rm);
   }
 
-  /** Searches the index (after the initial load). */
+  /** Wait for the initial load before searching. */
   async search(query: string, limit = 20): Promise<LocalAnswer> {
     await this.ready;
     const t0 = performance.now();
@@ -140,7 +133,7 @@ export class LocalSearch {
     try {
       performance.measure('search:local', {start: t0, end: t0 + rtt, detail: {worker: a.ms, size: a.size, hits: a.hits.length}});
     } catch {
-      // No User Timing.
+      // User Timing is optional.
     }
     return {...a, rtt};
   }
@@ -154,7 +147,6 @@ export class LocalSearch {
 
 const indexes = new WeakMap<Session, LocalSearch>();
 
-/** The session's local search index, started on first use. */
 export function localSearch(app: App): LocalSearch | undefined {
   const s = app.session;
   if (!s || typeof Worker === 'undefined') return undefined;

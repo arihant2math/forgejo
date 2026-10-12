@@ -1,9 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sidebar's saved views (its own chunk, loaded when the app is idle: the
-// boot route does not carry it; it sits below the workspace, so arriving
-// moves nothing above it).
+// Load below the workspace on idle to keep boot small without moving existing content.
 
 import {Link, useRouterState} from '@tanstack/react-router';
 import {useRef, useState} from 'react';
@@ -32,10 +30,6 @@ export const SidebarViews = observer(function SidebarViews() {
   );
 });
 
-/**
- * A saved view (kept on this device: the tooltip says so); right click renames or removes it, as does the view's
- * menu in the list's header once it is open.
- */
 function ViewItem({view, onOpen, onRemove, onRename}: {view: SavedView; onOpen: () => void; onRemove: () => void; onRename: (name: string) => void}) {
   const [renaming, setRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);

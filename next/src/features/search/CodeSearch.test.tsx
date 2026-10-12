@@ -28,7 +28,7 @@ test('repository results contain safe highlighted text and commit-pinned line li
   vi.mocked(online).mockResolvedValue({enabled: false, total: 1, repositories: {'10': 'alice/project'}, results: [{RepoID: 10, Filename: 'src/main.ts', CommitID: 'abcdef', Lines: [{Num: 7, FormattedContent: '<span>const <span class="search-highlight">symbol</span> = &lt;danger&gt;</span>'}]}]});
   const router = await mount('/search?type=code&repoId=10&q=symbol');
   const row = await screen.findByRole('option', {name: 'alice/project / src/main.ts:7'});
-  // The app's own code view, at the line: no rewrite of a classic address that could lose the anchor (#207).
+  // Link directly to the code view so classic-address rewriting cannot lose the line anchor.
   expect(row.getAttribute('href')).toBe('/alice/project/src/commit/abcdef/src/main.ts#L7');
   fireEvent.click(row);
   await waitFor(() => { expect(router.state.location.pathname).toBe('/alice/project/src/commit/abcdef/src/main.ts'); });
@@ -69,13 +69,10 @@ test('only matching lines are results; context is shown dimmed in its hit, and t
   ]});
   const router = await mount('/search?type=code&repoId=10&q=zoom');
   await screen.findByRole('option', {name: 'alice/project / config.go:17'});
-  // Two hits, not six rows: no context line and no blank line is a result.
   expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['alice/project / config.go:17', 'alice/project / projection.go:18']);
-  // The context is there, dimmed, in the hit's entry; the match is marked.
   expect(screen.getByText('func Default() Config {').closest('.text-muted')).not.toBeNull();
   expect(screen.getByText('Zoom').closest('.text-muted')).toBeNull();
   expect(screen.getByText('Zoom').tagName).toBe('MARK');
-  // The keys go from hit to hit, and Enter opens the hit's line.
   const list = screen.getByRole('listbox', {name: 'Code search results'});
   fireEvent.keyDown(list, {key: 'ArrowDown'});
   fireEvent.keyDown(list, {key: 'ArrowDown'});

@@ -4,7 +4,6 @@
 import type {ReactNode} from 'react';
 import {Text} from '@primer/react';
 
-/** A bordered data section; its body holds contained rows or an activity chart. */
 export function DashboardSection({title, actions, label, padded = false, children}: {
   title: ReactNode; actions?: ReactNode; label?: string | undefined; padded?: boolean; children: ReactNode;
 }) {

@@ -1,17 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's wiki: read through API v1 (`/repos/{owner}/{repo}/wiki/…`)
-// and rendered by Forgejo (B9 /markup with `wiki`: links resolve to the
-// wiki's pages, images to its files). The wiki is not in the sync pool, so
-// what was fetched is kept in the code cache (memory LRU over IndexedDB,
-// code/cache.ts) by repository and page — the page's text, its rendering
-// and its last commit — and shown at once the next time (offline too),
-// while the page is asked for again in the background (stale while
-// revalidate): a page whose last commit and sidebar did not change is not
-// rendered again. A page is fetched ahead on hover (links, rows), so
-// opening it paints from memory. Writes (create, edit, delete) are online
-// only, through API v1, and update the cache with Forgejo's answer.
+// Wiki data is not synced: cache by repository/page and revalidate on access.
+// Render through Forgejo for wiki-relative links; reuse unchanged page/sidebar renderings.
 
 import {observable, runInAction} from 'mobx';
 import {online, RequestFailed} from '../../app/api.ts';
@@ -21,21 +12,18 @@ import {codeSource} from '../../code/source.ts';
 import type {APIMarkupRequest, APIMarkupResponse} from '../../protocol/types.gen.ts';
 import {decodeContent, encodeContent, FOOTER, pageOfSubUrl, SIDEBAR} from './paths.ts';
 
-/** API v1's WikiCommit. */
 interface ApiWikiCommit {
   sha: string;
   author?: {name?: string; email?: string; date?: string} | null;
   message?: string;
 }
 
-/** API v1's WikiPageMetaData. */
 interface ApiWikiMeta {
   title: string;
   sub_url: string;
   last_commit?: ApiWikiCommit | null;
 }
 
-/** API v1's WikiPage. */
 interface ApiWikiPage extends ApiWikiMeta {
   content_base64?: string;
   commit_count?: number;
@@ -43,23 +31,19 @@ interface ApiWikiPage extends ApiWikiMeta {
   footer?: string;
 }
 
-/** A part of a page shown around it (the wiki's _Sidebar, _Footer), rendered. */
 export interface WikiPart {
   text: string;
   html: string;
 }
 
-/** A page as shown (cached by repository and page). */
 export interface WikiPageRecord {
-  /** The page's name (its web path, decoded: paths.ts). */
+  /** Decoded web-path name. */
   name: string;
   title: string;
-  /** Its last commit (in the wiki's repository). */
   sha: string;
   author: string;
   date: string;
   message: string;
-  /** How many commits changed it (its revisions). */
   commitCount: number;
   text: string;
   html: string;
@@ -67,7 +51,6 @@ export interface WikiPageRecord {
   footer: WikiPart | null;
 }
 
-/** A page as the wiki lists it. */
 export interface WikiPageMeta {
   name: string;
   title: string;
@@ -76,10 +59,6 @@ export interface WikiPageMeta {
   author: string;
 }
 
-/**
- * The wiki's page list, or why there is none: `disabled` (the repository has no wiki), `external` (its wiki is
- * elsewhere: `url`), `empty` (a wiki without a page yet).
- */
 export type WikiList =
   | {kind: 'pages'; pages: WikiPageMeta[]}
   | {kind: 'disabled'}
@@ -88,21 +67,20 @@ export type WikiList =
 
 export type Slot<T> =
   | {state: 'loading'}
-  /** `stale`: from the cache, asked for again. */
+  /** `stale` means cached data awaiting revalidation. */
   | {state: 'ready'; value: T; stale: boolean}
-  /** No such page (Forgejo answered 404). */
+  /** Forgejo confirmed absence with 404. */
   | {state: 'missing'}
-  /** Offline (or unreachable) and not on this device. */
+  /** Unreachable and no locally cached value. */
   | {state: 'offline'}
   | {state: 'error'; message: string; status: number};
 
-/** An answer this recent is not asked for again (a hover's prefetch, then the click). */
+/** Avoid a duplicate read between hover prefetch and click. */
 const FRESH = 30_000;
 
-/** Rendered texts kept in memory per session (the sidebar and footer are the same on every page). */
+/** Shared sidebar/footer renderings are reused across pages in the session. */
 const RENDERED_MAX = 64;
 
-/** Entries per request of the page list (the server looks up each page's last commit). */
 const LIST_LIMIT = 200;
 const LIST_MAX_REQUESTS = 25;
 
@@ -128,12 +106,11 @@ export class WikiSource {
     return `wikil:${String(repoId)}`;
   }
 
-  /** What is known of a page now (observed; memory only: the view's first frame). */
+  /** Observable memory-only read for the first frame. */
   page(repoId: number, page: string): Slot<WikiPageRecord> {
     return this.slot<WikiPageRecord>(WikiSource.pageKey(repoId, page));
   }
 
-  /** What is known of the page list now (observed). */
   list(repoId: number): Slot<WikiList> {
     return this.slot<WikiList>(WikiSource.listKey(repoId));
   }
@@ -151,7 +128,6 @@ export class WikiSource {
     });
   }
 
-  /** Loads a page (the cache first, then Forgejo unless asked for in the last moments). */
   loadPage(repoId: number, owner: string, repo: string, page: string, force = false): Promise<void> {
     const key = WikiSource.pageKey(repoId, page);
     return this.load(key, force, async (old: WikiPageRecord | undefined) => {
@@ -161,7 +137,6 @@ export class WikiSource {
     });
   }
 
-  /** Loads the page list (and, when there is none, why). */
   loadList(repoId: number, owner: string, repo: string, force = false): Promise<void> {
     return this.load(WikiSource.listKey(repoId), force, async () => {
       const pages: WikiPageMeta[] = [];
@@ -172,7 +147,7 @@ export class WikiSource {
           pages.push(...part.map(metaOf));
         }
       } catch (err) {
-        // No wiki repository yet, or no wiki: the repository says which.
+        // An empty list can mean no pages or a disabled wiki; ask the repository to distinguish.
         if (!(err instanceof RequestFailed) || err.status !== 404) throw err;
         return await this.noPages(owner, repo);
       }
@@ -180,16 +155,15 @@ export class WikiSource {
     });
   }
 
-  /** Fetches a page ahead (a link hovered): errors are the view's to show when it opens. */
+  /** Prefetch errors belong to the view, not the hovered link. */
   prefetchPage(repoId: number, owner: string, repo: string, page: string): void {
     const key = WikiSource.pageKey(repoId, page);
-    // Hovering the same link again (one that names no page, say) asks once in a while, not on every move.
+    // Throttle repeated hovers, including missing pages.
     if (!navigator.onLine || Date.now() - (this.tried.get(key) ?? 0) < FRESH) return;
     this.tried.set(key, Date.now());
     this.loadPage(repoId, owner, repo, page).catch(() => undefined);
   }
 
-  /** Why a wiki lists no page (API v1's repository: its wiki unit, external or not, and whether it has content). */
   private async noPages(owner: string, repo: string): Promise<WikiList> {
     const r = await online<{has_wiki?: boolean; external_wiki?: {external_wiki_url?: string} | null}>(this.app, {api: 'v1', path: repoPath(owner, repo)});
     const url = r?.external_wiki?.external_wiki_url;
@@ -197,10 +171,7 @@ export class WikiSource {
     return r?.has_wiki ? {kind: 'empty'} : {kind: 'disabled'};
   }
 
-  /**
-   * One request per key at a time. The cached value is shown first (stale), then the answer replaces it; offline
-   * or unreachable the cached value stays (not stale: there is nothing newer to wait for).
-   */
+  /** Deduplicate by key; show cached data first and retain it on network failure. */
   private load<T>(key: string, force: boolean, fetcher: (old: T | undefined) => Promise<T>): Promise<void> {
     const running = this.inflight.get(key);
     if (running) return running;
@@ -209,7 +180,6 @@ export class WikiSource {
     const p = (async () => {
       let old = cur?.state === 'ready' ? cur.value : this.cache.peek<T>(key);
       old ??= await this.cache.get<T>(key);
-      // The device's copy shows while Forgejo is asked (a value already on screen stays as it is).
       if (old !== undefined && cur?.state !== 'ready') this.set(key, {state: 'ready', value: old, stale: true});
       else if (cur?.state !== 'loading' && cur !== undefined) this.set(key, {state: 'loading'});
       if (!navigator.onLine) {
@@ -241,7 +211,6 @@ export class WikiSource {
     return p;
   }
 
-  /** A page's record from API v1's answer: the parts that did not change keep their rendering. */
   private async record(repoId: number, page: string, res: ApiWikiPage, old: WikiPageRecord | undefined): Promise<WikiPageRecord> {
     const text = decodeContent(res.content_base64);
     const sidebar = page === SIDEBAR ? '' : decodeContent(res.sidebar);
@@ -262,7 +231,7 @@ export class WikiSource {
     };
   }
 
-  /** A wiki text rendered by Forgejo (B9 /markup with `wiki`), once per text in this session. */
+  /** Forgejo wiki rendering is cached by repository/text for the session. */
   render(repoId: number, text: string): Promise<string> {
     if (!text.trim()) return Promise.resolve('');
     const key = `${String(repoId)}\0${text}`;
@@ -281,9 +250,8 @@ export class WikiSource {
     return p;
   }
 
-  // ---- Writes (online only: API v1) ----
 
-  /** Creates a page; resolves with its name (Forgejo makes it from the title). */
+  /** Resolve with the page name Forgejo derives from the title. */
   async create(repoId: number, owner: string, repo: string, edit: {title: string; text: string; message: string}): Promise<string> {
     const res = await online<ApiWikiPage>(this.app, {
       method: 'POST', api: 'v1', path: `${repoPath(owner, repo)}/wiki/new`,
@@ -292,7 +260,7 @@ export class WikiSource {
     return this.saved(repoId, owner, repo, res, undefined);
   }
 
-  /** Saves a page (a new title renames it); resolves with its name afterwards. */
+  /** A title change renames the page; resolve with its resulting name. */
   async edit(repoId: number, owner: string, repo: string, page: string, edit: {title: string; text: string; message: string}): Promise<string> {
     const res = await online<ApiWikiPage>(this.app, {
       method: 'PATCH', api: 'v1', path: `${repoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`,
@@ -309,13 +277,11 @@ export class WikiSource {
     this.dropList(repoId, owner, repo, page);
   }
 
-  /** Forgejo's answer to a write: the page's record (rendered), the list asked for again. */
   private async saved(repoId: number, owner: string, repo: string, res: ApiWikiPage | undefined, was: string | undefined): Promise<string> {
     if (!res) throw new RequestFailed(502, 'Forgejo sent no page.');
     const name = pageOfSubUrl(res.sub_url);
     const key = WikiSource.pageKey(repoId, name);
     if (was !== undefined && was !== name) {
-      // Renamed: the old address has no page any more.
       this.cache.delete(WikiSource.pageKey(repoId, was));
       this.set(WikiSource.pageKey(repoId, was), {state: 'missing'});
     }
@@ -326,7 +292,7 @@ export class WikiSource {
       this.asked.set(key, Date.now());
       this.set(key, {state: 'ready', value: rec, stale: false});
     } catch {
-      // Saved, but not rendered: the page loads when it opens.
+      // Rendering failure must not turn a successful save into a failed write.
       this.cache.delete(key);
       this.asked.delete(key);
       runInAction(() => {
@@ -337,7 +303,6 @@ export class WikiSource {
     return name;
   }
 
-  /** The page list changed: asked for again (a removed page leaves it at once). */
   private dropList(repoId: number, owner: string, repo: string, removed: string | undefined): void {
     const key = WikiSource.listKey(repoId);
     const cur = this.slots.get(key) as Slot<WikiList> | undefined;
@@ -359,7 +324,6 @@ function metaOf(m: ApiWikiMeta): WikiPageMeta {
 
 const sources = new WeakMap<object, WikiSource>();
 
-/** The session's wiki source (started on first use). */
 export function wikiSource(app: App): WikiSource | undefined {
   const s = app.session;
   const code = codeSource(app);
@@ -369,7 +333,6 @@ export function wikiSource(app: App): WikiSource | undefined {
   return src;
 }
 
-/** Fetches a page ahead (a route's preload: a link hovered). */
 export function prefetchWikiPage(app: App, repoId: number, owner: string, repo: string, page: string): void {
   wikiSource(app)?.prefetchPage(repoId, owner, repo, page);
 }

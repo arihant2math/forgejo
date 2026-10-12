@@ -47,10 +47,7 @@ export const OrganizationTeams = observer(function OrganizationTeams({owner}: {o
   </ResourceSection>;
 });
 
-/**
- * Everyone in the organization (API v1 lists all members to a member, the public ones to others); its owners may
- * remove a person from the organization (from all of its teams), as on the classic Members page.
- */
+/** API v1 exposes all members to members, public members to others; removal affects every team. */
 export const OrganizationPeople = observer(function OrganizationPeople({owner}: {owner: string}) {
   const app = useApp();
   const offline = useOffline();
@@ -87,13 +84,12 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
   </ResourceSection>;
 });
 
-/** Which repositories a team grants its permission on: all of the organization's, or the list (as far as the viewer may see it). */
 export const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
   const app = useApp();
   const all = team.includes_all_repositories === true;
   const res = useResource(`team:${String(team.id)}:repos`, (signal) => (all ? Promise.resolve([]) : allPages<{id: number; full_name: string; name: string}>(app, `/teams/${String(team.id)}/repos`, signal)));
   if (all) return <p>All repositories of the organization</p>;
-  // Only an owner or a member of the team may list them: nothing said otherwise.
+  // Only owners and team members can list repositories; absence is not an empty list.
   if (!res.value) return null;
   if (!res.value.length) return <p>No repositories</p>;
   const names = res.value.slice(0, 10).map((r) => r.name).join(', ');

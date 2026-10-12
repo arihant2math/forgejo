@@ -12,7 +12,7 @@ import type {APITree, Branch, NextConfig, Release} from '../../protocol/types.ge
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 
-// The file list warms the highlighter when idle (also after a test ended): jsdom has no Worker.
+// jsdom has no Worker for the idle highlighter.
 vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 
 afterEach(() => {
@@ -44,7 +44,6 @@ function session() {
   s.data.put('Branch', 'repo:20', branch(1, 'main', SHA));
   s.data.put('Release', 'repo:20', release(1, 'v1.0.0'));
   s.data.put('Release', 'repo:20', release(2, 'v1.1.0', {is_tag: false}));
-  // A draft has no tag yet: not counted.
   s.data.put('Release', 'repo:20', release(3, 'v2.0.0', {draft: true, sha: ''}));
   s.auth.token = () => Promise.resolve('token');
   return s;
@@ -73,11 +72,9 @@ describe('the overview\'s file bar', () => {
     expect(within(toolbar).getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/acme/website/tags');
     const find = screen.getByRole('button', {name: 'Go to file'});
     const code = screen.getByRole('button', {name: 'Code'});
-    // Primer's primary Code action; neighbouring controls remain neutral.
     expect(code.getAttribute('data-variant')).toBe('primary');
     expect(within(toolbar).getByRole('link', {name: '2 tags'}).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(find.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Above the files panel, not in it.
     const files = screen.getByRole('region', {name: 'Files'});
     expect(files.contains(code)).toBe(false);
     expect(classConflicts(container)).toEqual([]);
@@ -129,7 +126,7 @@ describe('the overview\'s file bar', () => {
   });
 
   test('Go to file: T opens it; the paths are found by fuzzy match and open in the code view', async () => {
-    // The file view it opens highlights the file: no workers here.
+    // jsdom has no Worker for file highlighting.
     vi.stubGlobal('Worker', class {
       addEventListener = () => undefined;
       removeEventListener = () => undefined;
@@ -146,13 +143,11 @@ describe('the overview\'s file bar', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(input);
     });
-    // Every file before typing; then the matches, best first (the name's start beats a match over directories).
     expect(screen.getAllByRole('option')).toHaveLength(4);
     fireEvent.change(input, {target: {value: 'rdme'}});
     await waitFor(() => {
       expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['README.md', 'src/readme_parser.go']);
     });
-    // The highlighted result is fetched and highlighted ahead (idle), from its entry in the cached root tree.
     await waitFor(() => {
       expect(blob).toHaveBeenCalledWith(20, 'd'.repeat(40), 'README.md', 100);
     });

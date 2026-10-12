@@ -3,6 +3,7 @@
 
 // Include locally held projects and boards known through ProjectRef.
 
+import {repoGroup, groupName} from '../../data/models.ts';
 import {count} from '../../app/words.ts';
 import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
@@ -38,7 +39,7 @@ export const BoardsList = observer(function BoardsList() {
   const {repoId, ownerId} = getRouteApi('/shell/-/next/boards').useSearch();
   const owner = ownerId ? pool.model('User').get(ownerId) : undefined;
   const scope = repoId ? {repo_id: repoId, owner_id: 0} : ownerId ? {repo_id: 0, owner_id: ownerId} : undefined;
-  useHold(session.data, repoId ? `repo:${String(repoId)}` : ownerId ? `${owner?.get('type') === 'organization' ? 'org' : 'profile'}:${String(ownerId)}` : undefined);
+  useHold(session.data, repoId ? repoGroup(repoId) : ownerId ? groupName(owner?.get('type') === 'organization' ? 'org' : 'profile', ownerId) : undefined);
   const [state, setState] = useState('open');
   const projects: Board[] = [...pool.model('Project').all()].map((e) => e.data);
   for (const e of pool.model('ProjectRef').all()) {

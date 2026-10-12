@@ -4,6 +4,7 @@
 // Code views load separately. Reviews and viewed files use offline intents pinned to the displayed head;
 // merge, branch updates and auto-merge are online-only and never queued.
 
+import {issueGroup} from '../../data/models.ts';
 import {count, noun} from '../../app/words.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
@@ -182,7 +183,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const pool = usePool();
   const {data, userId: me} = useSession();
   const {intents, overlay} = editing(app);
-  useHold(data, `issue:${String(issue.id)}`);
+  useHold(data, issueGroup(issue.id));
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [aside, setAside] = useState<HTMLElement | null>(null);
   const diffRef = useRef<DiffHandle>(null);

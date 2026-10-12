@@ -3,6 +3,7 @@
 
 // Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
+import {repoGroup} from '../../data/models.ts';
 import {count, noun as plural} from '../../app/words.ts';
 import {createLink, Link, useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
@@ -155,7 +156,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   const releases: ReleaseRow[] = [...pool.model('Release').by('repo_id', repoId)].map((release) => ({...release.data, release}));
   const p = pulse(rows, releases, from, Infinity);
 
-  const pager = closedPager(data, `repo:${String(repoId)}`);
+  const pager = closedPager(data, repoGroup(repoId));
   const long = LONG.has(period);
   useEffect(() => {
     if (!long) return undefined;

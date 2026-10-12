@@ -3,6 +3,7 @@
 
 // Users and organizations share names; check the pool and then the server.
 
+import {groupName} from '../../data/models.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useState} from 'react';
@@ -56,7 +57,7 @@ export const NewOrg = observer(function NewOrg() {
       const id = typeof made.value?.id === 'number' ? made.value.id : 0;
       const login = typeof made.value?.username === 'string' ? made.value.username : typeof made.value?.name === 'string' ? made.value.name : trimmed;
       const go = () => navigate({to: '/$owner', params: {owner: login}});
-      if (id) await openWhenSynced(app, `org:${String(id)}`, made.syncId, go);
+      if (id) await openWhenSynced(app, groupName('org', id), made.syncId, go);
       else await go();
     }, (err: unknown) => {
       setBusy(false);

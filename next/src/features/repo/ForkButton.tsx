@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {repoGroup} from '../../data/models.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -72,7 +73,7 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
   }, [app, path, ownerLogin, isOnline]);
   const why = !isOnline ? onlineOnly('Forking a repository') : !owner ? 'Choose an owner.' : checking ? 'Checking for an existing fork…' : existing ? undefined : problem ?? (availability === 'taken' ? 'This name is taken.' : undefined);
   const openFork = async (fork: Fork, syncId?: number) => {
-    await openWhenSynced(app, `repo:${String(fork.id)}`, syncId, () => navigate({to: '/$owner/$repo', params: {owner: fork.owner.login, repo: fork.name}}));
+    await openWhenSynced(app, repoGroup(fork.id), syncId, () => navigate({to: '/$owner/$repo', params: {owner: fork.owner.login, repo: fork.name}}));
     close();
   };
   const create = async () => {

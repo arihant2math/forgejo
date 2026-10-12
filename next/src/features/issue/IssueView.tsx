@@ -3,6 +3,7 @@
 
 // Render cached summaries immediately; the held issue group supplies conversation details.
 
+import {issueGroup, repoGroup} from '../../data/models.ts';
 import {count} from '../../app/words.ts';
 import {createLink, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {openCreate} from '../../app/create.ts';
@@ -157,7 +158,7 @@ const PullTabs = observer(function PullTabs({issue, owner, repo, index, tab}: {i
 function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTMLDivElement | null}) {
   const app = useApp();
   const {data} = useSession();
-  useHold(data, `issue:${String(issue.id)}`);
+  useHold(data, issueGroup(issue.id));
   useEffect(() => {
     runInAction(() => {
       app.ui.issueTarget = [issue.id];
@@ -328,7 +329,7 @@ const PullByline = observer(function PullByline({pr, author}: {pr: PullRequest; 
 /** Missing closed issues may still arrive through the repository's closed-tier pager. */
 const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: string; repo: string; repoId: number; index: number}) {
   const {data} = useSession();
-  const pager = closedPager(data, `repo:${String(repoId)}`);
+  const pager = closedPager(data, repoGroup(repoId));
   useEffect(() => {
     if (!pager.done && !pager.loading) pager.more();
   }, [pager, pager.loading, pager.done]);

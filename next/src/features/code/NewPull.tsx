@@ -28,8 +28,8 @@ import {repoLabels} from '../issues/candidates.ts';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
-import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
+import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon, TriangleDownIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, Button, ButtonGroup, Checkbox, FormControl, IconButton, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
 const SYNC_WAIT_MS = 5000;
@@ -185,7 +185,6 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
       }}>
         {/* Name the destination to distinguish fork-local and upstream proposals. */}
         <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
-        <Properties form={form} repoId={repoId}/>
         <FormControl>
           <FormControl.Label>Title</FormControl.Label>
           <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
@@ -197,8 +196,8 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           onChange={(b) => {
             form.setBody(b);
           }} onSubmit={create}/>
+        <Properties form={form} repoId={repoId}/>
         {head.includes(':') && <FormControl><Checkbox checked={allowEdits} onChange={(event) => { setAllowEdits(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>}
-        {!!wipPrefixes(app.config)[0] && <FormControl><Checkbox checked={draft} onChange={(event) => { setDraft(event.target.checked); }}/><FormControl.Label>Create draft pull request</FormControl.Label></FormControl>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="mr-auto flex items-center gap-1 text-sm text-muted">
             {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
@@ -210,10 +209,26 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
             form.flush();
             onCancel();
           }}>Cancel</Button>
-          {/* Inactive retains the explanation tooltip (offline, a title). */}
-          <Tooltip text={why ?? `Merge ${head} into ${base}`} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(why) || form.busy} aria-disabled={Boolean(why) || form.busy} onClick={create}>
-            {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
-          </Button></Tooltip>
+          <ButtonGroup>
+            {/* Inactive retains the explanation tooltip (offline, a title). */}
+            <Tooltip text={why ?? `Merge ${head} into ${base}`} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(why) || form.busy} aria-disabled={Boolean(why) || form.busy} onClick={create}>
+              {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
+            </Button></Tooltip>
+            {/* Forgejo drafts are a title prefix, so the choice needs a configured prefix. */}
+            {!!wipPrefixes(app.config)[0] && (
+              <ActionMenu>
+                <ActionMenu.Anchor><IconButton variant="primary" icon={TriangleDownIcon} aria-label="Pull request type"/></ActionMenu.Anchor>
+                <ActionMenu.Overlay align="end"><ActionList selectionVariant="single">
+                  {([false, true] as const).map((d) => (
+                    <ActionList.Item key={String(d)} selected={draft === d} onSelect={() => { setDraft(d); }}>
+                      {d ? 'Create draft pull request' : 'Create pull request'}
+                      <ActionList.Description variant="block">{d ? 'Cannot be merged until marked ready for review' : 'Open a pull request that is ready for review'}</ActionList.Description>
+                    </ActionList.Item>
+                  ))}
+                </ActionList></ActionMenu.Overlay>
+              </ActionMenu>
+            )}
+          </ButtonGroup>
         </div>
       </div>
     </section>
@@ -288,7 +303,13 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
   const ms = milestones.find((m) => m.id === form.milestone);
   return (
     <div className="flex flex-wrap items-center gap-1">
+      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
+        form.toggle('reviewers', id);
+      }}/>
       {writable && <>
+        <PeoplePick label="Assignees" placeholder="Assign to…" icon={PersonIcon} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
+          form.toggle('assignees', id);
+        }}/>
         <ChoicePanel multiple title="Labels" placeholder="Add labels…" empty="This repository has no labels."
           choices={labels.map((l) => ({
             value: String(l.id), label: l.name, words: l.description, leading: <IssueLabelToken text={l.name} fillColor={`#${l.color.replace(/^#/, '')}`}/>, checked: form.labels.includes(l.id),
@@ -301,9 +322,6 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
               {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
-        <PeoplePick label="Assignees" placeholder="Assign to…" icon={PersonIcon} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
-          form.toggle('assignees', id);
-        }}/>
         <ChoicePanel title="Milestone" placeholder="Add to the milestone…"
           choices={[
             {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
@@ -315,9 +333,6 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
           ]}
           anchor={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
-      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
-        form.toggle('reviewers', id);
-      }}/>
     </div>
   );
 });

@@ -19,7 +19,7 @@ import {type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summari
 import {runLook, statusLook} from './Actions.tsx';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
-import {CheckCircleIcon, DotFillIcon, XCircleIcon} from '@primer/octicons-react';
+import {CheckIcon, DotFillIcon, XIcon} from '@primer/octicons-react';
 
 export interface CheckItem {
   key: string;
@@ -162,7 +162,7 @@ export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, 
   return local ?? fetched.get(key);
 }
 
-const ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
+const ICON = {success: CheckIcon, failure: XIcon, pending: DotFillIcon} as const;
 const TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
 const WORDS = {success: 'Checks passed', failure: 'Some checks failed', pending: 'Checks are not done yet'} as const;
 

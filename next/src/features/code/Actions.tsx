@@ -123,15 +123,15 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
     case 'failure':
       return {tone: 'danger', text: 'Failed'};
     case 'running':
-      return {tone: 'accent', text: 'Running'};
+      return {tone: 'running', text: 'Running'};
     case 'waiting':
       return {tone: 'warning', text: 'Waiting'};
     case 'blocked':
       return {tone: 'warning', text: 'Blocked'};
     case 'cancelled':
-      return {tone: 'muted', text: 'Cancelled'};
+      return {tone: 'cancelled', text: 'Cancelled'};
     case 'skipped':
-      return {tone: 'muted', text: 'Skipped'};
+      return {tone: 'skipped', text: 'Skipped'};
     default:
       return {tone: 'muted', text: status || 'Unknown'};
   }

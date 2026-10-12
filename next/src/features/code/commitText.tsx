@@ -69,7 +69,7 @@ export function CommitMessage({owner, repo, text, inRow = false}: {owner: string
 export function linkedCommitRow(owner: string, repo: string): (c: CommitInfo) => RowParts {
   return (c) => ({
     ...commitRow(c),
-    main: <><CommitMessage owner={owner} repo={repo} text={summary(c.message)} inRow/> <span className="text-muted">{c.authorName}</span></>,
+    main: <><CommitMessage owner={owner} repo={repo} text={summary(c.message)} inRow/> <span className="ml-2 text-sm text-muted">{c.authorName}</span></>,
   });
 }
 

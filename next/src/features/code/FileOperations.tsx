@@ -124,11 +124,11 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
   };
   if (!allowed) return children;
   return <div onDragOver={(event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();}} onDrop={(event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));}}>
-    <ActionMenu><ActionMenu.Anchor><Button variant="invisible" size="small" type="button" disabled={!online} title={blocked}>Add file</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
+    <div className="mb-2"><ActionMenu><ActionMenu.Button size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
       <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
       {target && <ActionList.Item onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</ActionList.Item>}
-    </ActionList></ActionMenu.Overlay></ActionMenu>
+    </ActionList></ActionMenu.Overlay></ActionMenu></div>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
     {children}
     {mode && !dialog && <Dialog title={mode === 'create' ? 'Create new file' : 'Upload files'} width="xlarge" onClose={() => { setMode(undefined); }} footerButtons={[{content: 'Commit changes…', buttonType: 'primary', disabled: Boolean(problem) || Boolean(blocked), onClick: () => { setDialog(true); }}]}>

@@ -17,6 +17,7 @@ import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, 
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon} from '@primer/octicons-react';
 import {Button, TextInput} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 const labels: Record<Kind, string> = {code: 'Code', repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
@@ -89,7 +90,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   const loading = connected && !page && !error && allowed;
   return <>
     <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
-      <TextInput aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
+      <TextInput size="small" className="w-64" aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
       <ActionMenu>
         <ActionMenu.Button size="small">{sorts.find((sort) => sort.value === search.sort)?.label}</ActionMenu.Button>
         <ActionMenu.Overlay><ActionList selectionVariant="single" aria-label="Sort results">
@@ -105,16 +106,16 @@ const DiscoveryResults = observer(function DiscoveryResults() {
               <ActionList.Item key={option.value} selected={search.archived === option.value} onSelect={() => { patch({archived: option.value}); }}>{option.label}</ActionList.Item>)}
           </ActionList></ActionMenu.Overlay>
         </ActionMenu>
-        <TextInput aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
+        <TextInput size="small" className="w-56" aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
       </>}
-      {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl aria-label="State" onChange={(index) => {
+      {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl size="small" aria-label="State" onChange={(index) => {
         const state = index === undefined ? undefined : (['all', 'open', 'closed'] as const)[index];
         if (state) patch({state});
       }}>{(['all', 'open', 'closed'] as const).map((state) =>
         <SegmentedControl.Button key={state} selected={search.state === state}>{state.slice(0, 1).toUpperCase() + state.slice(1)}</SegmentedControl.Button>)}</SegmentedControl>}
     </PageHeader>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2">
-      <SegmentedControl aria-label={explore ? 'Explore type' : 'Search type'} variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
+      <SegmentedControl size="small" aria-label={explore ? 'Explore type' : 'Search type'} variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
         const type = index === undefined ? undefined : available[index];
         if (type) patch({type});
       }}>{available.map((kind) => <SegmentedControl.Button key={kind} selected={search.type === kind}
@@ -126,8 +127,8 @@ const DiscoveryResults = observer(function DiscoveryResults() {
     <PageBody ref={setScroller}>
       {!allowed && <p role="status" className="p-4 text-muted">This discovery page is disabled by the instance administrator.</p>}
       {loading && <p role="status" className="p-4 text-muted">Searching Forgejo…</p>}
-      {error && <div role="alert" className="p-4"><p>{error}</p><Button type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
-      {allowed && page && !rows.length && <p role="status" className="p-4 text-muted">No results found.</p>}
+      {error && <div role="alert" className="p-4"><p>{error}</p><Button size="small" type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
+      {allowed && page && !rows.length && <div role="status"><Blankslate spacious><Blankslate.Heading>No results found.</Blankslate.Heading><Blankslate.Description>Try a different query or change the filters.</Blankslate.Description></Blankslate></div>}
       <div role="listbox" aria-label="Search results" aria-activedescendant={rows[cursor] ? `discovery-${String(rows[cursor]?.id)}` : undefined} tabIndex={0} onKeyDown={(event) => {
         if (!rows.length || event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key === 'Enter') {
@@ -151,9 +152,9 @@ const DiscoveryResults = observer(function DiscoveryResults() {
         </div>
       </div>
       {page && page.total > 50 && <div className="flex items-center gap-2 p-4">
-        <Button type="button" disabled={search.page === 1} onClick={() => { patch({page: search.page - 1}); }}>Previous</Button>
+        <Button size="small" type="button" disabled={search.page === 1} onClick={() => { patch({page: search.page - 1}); }}>Previous</Button>
         <span className="text-sm text-muted">Page {search.page} of {Math.ceil(page.total / 50)}</span>
-        <Button type="button" disabled={search.page * 50 >= page.total} onClick={() => { patch({page: search.page + 1}); }}>Next</Button>
+        <Button size="small" type="button" disabled={search.page * 50 >= page.total} onClick={() => { patch({page: search.page + 1}); }}>Next</Button>
       </div>}
     </PageBody>
   </>;

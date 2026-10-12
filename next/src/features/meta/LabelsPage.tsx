@@ -8,7 +8,7 @@
 // once, offline too. Writers create, edit and delete them (online: writes.ts);
 // organization labels use the same form, with organization permissions.
 
-import {getRouteApi, useNavigate} from '@tanstack/react-router';
+import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {OrganizationLabels} from './OrganizationLabels.tsx';
@@ -30,7 +30,6 @@ import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
-import {RouterLink} from '../../app/routerLinks.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -108,13 +107,13 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
           <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
-              <Blankslate><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
-              <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
+              <Blankslate spacious><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
+              <Blankslate spacious><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
           </MetadataSection>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
             <MetadataSection label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
-              <p className="border-b border-muted px-3 py-2 text-sm text-muted">They stay on their issues but are no longer offered in the pickers.</p>
+              <p className="border-b border-muted px-4 py-2 text-sm text-muted">They stay on their issues but are no longer offered in the pickers.</p>
               {rows(archived, true)}
             </MetadataSection>
           )}
@@ -150,7 +149,7 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
       )}
     </>}>
       <IssueLabelToken text={label.name} fillColor={label.color}/>
-      {label.description && <span className="ml-3 text-muted">{label.description}</span>}
+      {label.description && <span className="text-base text-muted">{label.description}</span>}
     </LabelListRow>
   );
 });
@@ -163,9 +162,9 @@ function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; co
   const pulls = count?.pulls ?? 0;
   const ids = {labels: String(label.id)};
   return (
-    <span className="flex w-40 justify-end gap-3 tabular-nums max-md:hidden">
-      {pulls > 0 && <RouterLink to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} muted className="min-w-0 truncate">{plural(pulls, 'pull request', 'pull requests')}</RouterLink>}
-      <RouterLink to="/$owner/$repo/issues" params={{owner, repo}} search={ids} muted className="min-w-0 truncate">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</RouterLink>
+    <span className="flex w-40 justify-end gap-4 text-base tabular-nums max-md:hidden">
+      {pulls > 0 && <Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{plural(pulls, 'pull request', 'pull requests')}</Link>}
+      <Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link>
     </span>
   );
 }

@@ -59,9 +59,9 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
   };
   if (!groups.length && !canReact) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-2">
       {groups.length > 0 && (
-        <ul aria-label="Reactions" className="flex flex-wrap gap-1">
+        <ul aria-label="Reactions" className="flex flex-wrap gap-2">
           {groups.map((g) => {
             const names = [...(g.mine ? ['you'] : []), ...g.others.filter(Boolean)].join(', ');
             return (

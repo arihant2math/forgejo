@@ -54,19 +54,19 @@ export const Missing = observer(function Missing({what, title, description, icon
   if (r !== 'online') {
     return (
       <div className="flex flex-col items-center">
-        <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description></Blankslate>
+        <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description></Blankslate>
         <AvailableOffline/>
       </div>
     );
   }
   return (
-    <Blankslate>
+    <Blankslate spacious>
       <Blankslate.Visual>{createElement(icon ?? QuestionIcon, {size: 24})}</Blankslate.Visual>
       <Blankslate.Heading>{title ?? (classic ? 'Not available here' : 'Not found')}</Blankslate.Heading>
       <Blankslate.Description>{description ?? missingWords(what).notFound}</Blankslate.Description>
-      <div className="flex flex-wrap justify-center gap-2">
-        {classic && <ClassicLink to={classic} variant="primary">Open this page</ClassicLink>}
-        <RouterLinkButton variant={classic ? 'default' : 'primary'} leadingVisual={HomeIcon} to="/">Go to Home</RouterLinkButton>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        {classic && <ClassicLink to={classic} size="small" variant="primary">Open this page</ClassicLink>}
+        <RouterLinkButton size="small" variant={classic ? 'default' : 'primary'} leadingVisual={HomeIcon} to="/">Go to Home</RouterLinkButton>
       </div>
     </Blankslate>
   );

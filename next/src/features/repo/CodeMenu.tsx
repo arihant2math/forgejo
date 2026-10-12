@@ -38,19 +38,19 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
   const shown: Protocol = ssh === undefined ? 'https' : protocol;
   const url = shown === 'ssh' && ssh !== undefined ? ssh : https;
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-4 p-4">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <Heading as="h2" variant="small">Clone</Heading>
           {ssh !== undefined && (
-            <SegmentedControl aria-label="Clone over" onChange={(index) => { setProtocol(index === 1 ? 'ssh' : 'https'); }}><SegmentedControl.Button selected={shown === 'https'}>HTTPS</SegmentedControl.Button><SegmentedControl.Button selected={shown === 'ssh'}>SSH</SegmentedControl.Button></SegmentedControl>
+            <SegmentedControl size="small" aria-label="Clone over" onChange={(index) => { setProtocol(index === 1 ? 'ssh' : 'https'); }}><SegmentedControl.Button selected={shown === 'https'}>HTTPS</SegmentedControl.Button><SegmentedControl.Button selected={shown === 'ssh'}>SSH</SegmentedControl.Button></SegmentedControl>
           )}
         </div>
-        <div className="flex items-center gap-2"><TextInput readOnly monospace block value={url} aria-label={`Clone URL (${shown === 'ssh' ? 'SSH' : 'HTTPS'})`}/><IconButton icon={CopyIcon} aria-label="Copy the clone URL" onClick={() => { onCopy(url); }}/></div>
+        <div className="flex items-center gap-2"><TextInput size="small" readOnly monospace block value={url} aria-label={`Clone URL (${shown === 'ssh' ? 'SSH' : 'HTTPS'})`}/><IconButton size="small" icon={CopyIcon} aria-label="Copy the clone URL" onClick={() => { onCopy(url); }}/></div>
         <p className="text-sm text-muted">{HINTS[shown]}</p>
       </div>
       {archives.length > 0 && (
-        <div className="border-t border-default pt-3">
+        <div className="border-t border-default pt-4">
           <ActionList aria-label="Download">
             {archives.map((a) => (
               <ActionList.LinkItem key={a.format} href={a.href} download><ActionList.LeadingVisual><FileZipIcon/></ActionList.LeadingVisual>{ARCHIVE_LABELS[a.format]}</ActionList.LinkItem>

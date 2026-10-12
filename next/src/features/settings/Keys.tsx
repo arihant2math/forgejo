@@ -53,7 +53,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
       }}>Add key</Button>}>
       <ResourceList res={res} what="The deploy keys" empty={{icon: KeyIcon, title: 'No deploy keys', description: 'Add one to let a server or a CI job clone this repository.'}}>
         {(keys) => keys.map((k) => (
-          <SettingsEntry key={k.id} leading={<KeyIcon size={12} className="shrink-0"/>} title={k.title}
+          <SettingsEntry key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} title={k.title}
             meta={<time dateTime={k.created_at} title={fullDate(k.created_at)}>{shortDate(k.created_at)}</time>}
             description={<span className="flex flex-wrap items-center gap-1"><Label variant={k.read_only ? 'default' : 'attention'}>{k.read_only ? 'Read' : 'Read and write'}</Label><code>{k.fingerprint}</code></span>}
             actions={<IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key “${k.title}”`} type="button" disabled={offline} onClick={() => {

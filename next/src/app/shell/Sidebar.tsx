@@ -168,7 +168,7 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
   const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
   return (
-    <NavList.Group role="group" aria-label={owner.login}>
+    <NavList.Group hideDivider role="group" aria-label={owner.login}>
       <RouterNavItem to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}} {...(!open && here !== undefined ? {'aria-current': 'location' as const} : {})}>
         <NavList.LeadingVisual><OwnerAvatar id={owner.id} login={owner.login}/></NavList.LeadingVisual>
         {owner.login}
@@ -281,8 +281,8 @@ export function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <div className="flex min-w-0 items-center gap-1">
-          <div className="min-w-0 flex-1"><AccountMenu/></div>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0 flex-1 pl-2"><AccountMenu/></div>
           <IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Hide the sidebar" description="Hide the sidebar" keybindingHint={KEYMAP['sidebar.toggle'].keys} type="button" onClick={toggleSidebar}/>
         </div>
         <NavList aria-label="Quick actions"><SidebarCreate/><SidebarSearch/></NavList>

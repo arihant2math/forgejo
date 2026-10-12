@@ -76,6 +76,13 @@ function contrast(a: string, b: string): number {
 }
 
 describe('tokens.css', () => {
+  test('Primer uses a 16px rem root while the UI body stays 14px', () => {
+    const base = readFileSync(new URL('base.css', import.meta.url), 'utf8');
+    expect(block('html', base)).toContain('font-size: var(--base-size-16)');
+    expect(block('body', base)).toContain('font-size: var(--text-base)');
+    expect(resolve('var(--base-size-16)', 'light')).toBe('1rem');
+    expect(resolve('var(--text-base)', 'light')).toBe('0.875rem');
+  });
   test.each(['light', 'dark'] as const)('every token resolves in Primer\'s %s theme', (theme) => {
     for (const [name, value] of [...tokens, ...root]) expect(() => resolve(value, theme), name).not.toThrow();
   });

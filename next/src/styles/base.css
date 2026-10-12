@@ -16,7 +16,9 @@ html {
   background-color: var(--bgColor-inset);
   color: var(--fgColor-default);
   font-family: var(--font-sans);
-  font-size: var(--text-base);
+  /* Primer's rem-based scale assumes a 16px root. The UI body stays 14px below;
+   * using the body token here shrinks every Primer control, label and radius by 12.5%. */
+  font-size: var(--base-size-16);
   line-height: var(--text-base--line-height);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -25,6 +27,7 @@ html {
 }
 
 body {
+  font-size: var(--text-base);
   min-height: 100dvh;
   overflow: hidden;
 }

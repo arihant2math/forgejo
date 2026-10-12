@@ -60,7 +60,7 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
       {content: 'Cancel', onClick: onClose},
       {content: label ? 'Save' : 'Create label', buttonType: 'primary', disabled: saving || !connectivity.online, onClick: () => { save(); }},
     ]}>
-      <form className="flex flex-col gap-3" onSubmit={save}>
+      <form className="flex flex-col gap-4" onSubmit={save}>
         {!connectivity.online && <p role="status">{onlineOnly('Saving a label')}</p>}
         <div className="flex min-h-control items-center"><DraftPill name={d.name.trim() || 'Label preview'} color={d.color} exclusive={d.exclusive}/></div>
         <FormControl id={`${id}-name`}><FormControl.Label>Name</FormControl.Label>

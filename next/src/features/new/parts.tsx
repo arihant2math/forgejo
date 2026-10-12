@@ -36,9 +36,9 @@ export function Field({id, label, required, optional, hint, error, children}: {
 /** A part of the form under a hairline, with its heading. */
 export function Section({title, description, children}: {title?: string; description?: ReactNode; children: ReactNode}) {
   return (
-    <section className="flex min-w-0 flex-col gap-3 border-t border-muted pt-4">
+    <section className="flex min-w-0 flex-col gap-4 border-t border-muted pt-4">
       {title && (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-1">
           <Heading as="h2" variant="small">{title}</Heading>
           {description && <p className="text-sm text-muted">{description}</p>}
         </div>
@@ -58,15 +58,15 @@ export interface ChoiceOption<V extends string> {
 }
 
 /** One of a few described options (GitHub's visibility radios): a radio group, arrow keys move. */
-export function Choice<V extends string>({name, label, value, options, onChange}: {
-  name: string; label: string; value: V; options: readonly ChoiceOption<V>[]; onChange: (v: V) => void;
+export function Choice<V extends string>({name, label, value, options, onChange, hideLabel = false}: {
+  name: string; label: string; value: V; options: readonly ChoiceOption<V>[]; onChange: (v: V) => void; hideLabel?: boolean;
 }) {
   return (
     <RadioGroup name={name} onChange={(selected) => { if (selected) onChange(selected as V); }}>
-      <RadioGroup.Label>{label}</RadioGroup.Label>
+      <RadioGroup.Label visuallyHidden={hideLabel}>{label}</RadioGroup.Label>
       {options.map((o) => <FormControl key={o.value} disabled={Boolean(o.disabled)}>
         <Radio value={o.value} checked={value === o.value}/>
-        <FormControl.LeadingVisual><o.icon/></FormControl.LeadingVisual>
+        <FormControl.LeadingVisual><span className="flex items-center justify-center"><o.icon size={16}/></span></FormControl.LeadingVisual>
         <FormControl.Label>{o.label}</FormControl.Label>
         <FormControl.Caption>{o.disabled ?? o.description}</FormControl.Caption>
       </FormControl>)}

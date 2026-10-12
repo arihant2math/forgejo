@@ -15,7 +15,7 @@ import {Ago, Sha, summary} from './bits.tsx';
 import {codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {Link} from '@tanstack/react-router';
 
 const ENTRY_ICON = {tree: FileDirectoryFillIcon, blob: FileIcon, symlink: FileSymlinkFileIcon, commit: FileSubmoduleIcon} as const;
 
@@ -62,14 +62,14 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-default">{name}</span>}
       </>}
       {message !== undefined ? <>
-        <span className="min-w-0 truncate"><RouterLink {...codeTo(owner, repo, `commit/${commit}`)} muted className="min-w-0 truncate">{summary(message)}</RouterLink></span>
-        {date !== undefined && <span className="shrink-0 tabular-nums"><Ago at={date}/></span>}
-      </> : kind !== 'commit' && <RouterLink {...codeTo(owner, repo, `commit/${commit}`)} muted className="min-w-0 truncate"><Sha sha={commit}/></RouterLink>}
+        <span className="min-w-0 truncate"><Link {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate text-default hover:text-accent hover:underline">{summary(message)}</Link></span>
+        {date !== undefined && <span className="ml-auto shrink-0 text-sm text-muted tabular-nums"><Ago at={date}/></span>}
+      </> : kind !== 'commit' && <Link {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate text-default hover:text-accent hover:underline"><Sha sha={commit}/></Link>}
     </>
   );
 });
 
 /** A directory's listing panel (the header: RefCommit; actions: e.g. the overview's History link). */
 export function FilesPanel({title, actions, children}: {title: ReactNode; actions?: ReactNode; children: ReactNode}) {
-  return <section aria-label="Files" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default bg-muted px-4 py-3"><div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>{actions}</div>{children}</section>;
+  return <section aria-label="Files" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base"><div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>{actions}</div>{children}</section>;
 }

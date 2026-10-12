@@ -33,7 +33,6 @@ import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from '.
 import {repoLabels} from './candidates.ts';
 import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {RouterLink} from '../../app/routerLinks.tsx';
 import {Label as PrimerLabel} from '@primer/react';
 
 export function labelColor(color: string): string {
@@ -217,8 +216,8 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
  */
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
-  if (!id || !u.login) return <span className="font-medium text-default">{id ? u.name : fallback}</span>;
-  return <span className="font-medium"><RouterLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} muted>{u.name}</RouterLink></span>;
+  if (!id || !u.login) return <span className="font-semibold text-default">{id ? u.name : fallback}</span>;
+  return <Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold text-default hover:text-accent hover:underline">{u.name}</Link>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {
@@ -274,7 +273,7 @@ export const AuthorCell = observer(function AuthorCell({issue}: {issue: Entity<'
   const login = pool.model('User').get(id)?.get('login');
   if (!id || !login) return null;
   return (
-    <span title={`Opened by ${userLabel(pool, id)}`} className="max-w-28 truncate whitespace-nowrap">
+    <span title={`Opened by ${userLabel(pool, id)}`} className="w-12 truncate whitespace-nowrap text-sm text-muted">
       <span className="sr-only">by </span>{login}
     </span>
   );
@@ -336,14 +335,14 @@ export const PullStateCell = observer(function PullStateCell({issue}: {issue: En
       {draft && <PrimerLabel>Draft</PrimerLabel>}
       {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
       {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
-      {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 12, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint>}
+      {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 16, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint>}
     </>
   );
 });
 
 /** A pinned issue's mark in a row (pinned to its repository's list). */
 export const PinCell = observer(function PinCell({issue}: {issue: Entity<'Issue'>}) {
-  return issuePinned(useOverlay(), issue) ? <Hint label="Pinned"><PinIcon size={12} className="shrink-0"/></Hint> : null;
+  return issuePinned(useOverlay(), issue) ? <Hint label="Pinned"><PinIcon size={16} className="shrink-0"/></Hint> : null;
 });
 
 /** When the issue was last updated, compact ("3d"), with the full date on hover. */
@@ -374,8 +373,9 @@ export function AgoCell({at, label}: {at: string; label?: string}) {
   return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-12 whitespace-nowrap text-right tabular-nums">{ago(at)}</span>;
 }
 
-export const TitleCell = observer(function TitleCell({issue}: {issue: Entity<'Issue'>}) {
-  return <>{issueTitle(useOverlay(), issue)}</>;
+export const TitleCell = observer(function TitleCell({issue, className}: {issue: Entity<'Issue'>; className?: string}) {
+  const title = issueTitle(useOverlay(), issue);
+  return <span className={className} title={title}>{title}</span>;
 });
 
 /**
@@ -387,7 +387,7 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   const n = editing(app).intents.pendingOn(issueId);
   if (!n) return null;
   const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
-  return <span title={label}><DotFillIcon aria-label={label} className="text-attention"/></span>;
+  return <span title={label} className="inline-flex shrink-0"><DotFillIcon size={16} aria-label={label} className="text-attention"/></span>;
 });
 
 /** How many rows of a list are selected (X), with the way out; nothing without a selection (lists, the inbox). */

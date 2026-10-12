@@ -29,7 +29,7 @@ export function ShortcutsDialog() {
   };
   return (
     <Dialog title="Keyboard shortcuts" width="large" onClose={close} footerButtons={[{content: 'Close', onClick: close}]}>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {order.map((scope) => (
           <section key={scope} aria-labelledby={`shortcuts-${scope}`} className="flex flex-col gap-1">
             <Heading as="h2" variant="small" id={`shortcuts-${scope}`}>

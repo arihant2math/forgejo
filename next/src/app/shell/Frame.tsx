@@ -26,13 +26,13 @@ export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolea
 }
 
 const drawer = clsx(
-  'relative flex w-sidebar shrink-0 flex-col border-r border-default bg-default md:sidebar-hidden:hidden',
+  'relative flex w-sidebar shrink-0 flex-col border-r border-default bg-inset md:sidebar-hidden:hidden',
   'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-popover max-md:hidden max-md:w-pane max-md:shadow-dialog max-md:drawer-open:flex',
 );
 
 /** The sidebar's fixed top (account, search). */
 export function SidebarTop({children}: {children: ReactNode}) {
-  return <div className="flex flex-col gap-px p-2">{children}</div>;
+  return <div className="flex flex-col gap-2 p-2">{children}</div>;
 }
 
 /** The sidebar's scrolling part (navigation, workspace). */

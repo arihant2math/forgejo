@@ -84,9 +84,9 @@ export function ListSkeleton({rows = 3}: {rows?: number}) {
   return (
     <ul className="flex flex-col">
       {Array.from({length: rows}, (_, i) => (
-        <li key={i} aria-hidden className="flex items-center gap-3 border-b border-muted py-2 last:border-b-0">
+        <li key={i} aria-hidden className="flex items-center gap-2 border-b border-muted px-4 py-3 last:border-b-0">
           <SkeletonAvatar size={20}/>
-          <span className="flex flex-1 flex-col gap-1.5"><SkeletonBox className="h-3 w-40"/><SkeletonBox className="h-3 w-24"/></span>
+          <span className="flex flex-1 flex-col gap-1"><SkeletonBox className="h-3 w-40"/><SkeletonBox className="h-3 w-24"/></span>
         </li>
       ))}
     </ul>
@@ -112,6 +112,6 @@ export function ResourceList<T>({res, what, empty, children}: {
     );
   }
   if (!res.value.length) return <Blankslate><Blankslate.Visual><empty.icon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty.title}</Blankslate.Heading><Blankslate.Description>{empty.description}</Blankslate.Description>{empty.action}</Blankslate>;
-  return <ul className="flex flex-col">{children(res.value)}</ul>;
+  return <ul className="flex flex-col rounded-md border border-default">{children(res.value)}</ul>;
 }
 

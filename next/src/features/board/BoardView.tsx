@@ -92,7 +92,7 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
         <PageHeader icon={ProjectIcon} title="Board"/>
         <PageBody>
           {loading ?
-            <div className="flex gap-3 p-3" aria-busy>{[0, 1, 2].map((i) => <SkeletonBox className="h-72 w-column" key={i}/>)}</div> :
+            <div className="flex gap-4 p-4" aria-busy>{[0, 1, 2].map((i) => <SkeletonBox className="h-72 w-column" key={i}/>)}</div> :
             <Missing icon={ProjectIcon} what="This board"/>}
         </PageBody>
       </>
@@ -600,7 +600,7 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       // The default column (where new cards and the cards of a deleted column go) says so.
       badge={column.default ? <Label>Default</Label> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
-      <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative min-h-12 w-full"
+      <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative min-h-12 w-full outline-none"
         style={{height: virtualizer.getTotalSize()}}
         onFocus={(e) => {
           if (e.target !== e.currentTarget) return;
@@ -622,10 +622,10 @@ const Column = observer(function Column({model, column, index, count, dragging, 
         })}
       </div>
       {editable && (
-        <div className="flex flex-wrap gap-1">
-          <Button variant="invisible" leadingVisual={PlusIcon} type="button" onClick={onAdd}>Add existing issue…</Button>
+        <div className="flex flex-col items-start gap-1 pb-2">
+          <Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" onClick={onAdd}>Add existing issue…</Button>
           {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
-          <Tooltip text="Cards are issues: a board holds no notes. The new issue goes in this column."><Button variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></Tooltip>
+          <Tooltip text="Cards are issues: a board holds no notes. The new issue goes in this column."><Button size="small" variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></Tooltip>
         </div>
       )}
     </BoardColumn>
@@ -826,7 +826,7 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   if (editing) {
     return (
       <BoardColumnDraft>
-        <TextInput ref={field} aria-label="New column name" placeholder="Column name" value={title} className="w-full" maxLength={100} onChange={(e) => {
+        <TextInput size="small" ref={field} aria-label="New column name" placeholder="Column name" value={title} className="w-full" maxLength={100} onChange={(e) => {
             setTitle(e.target.value);
           }} onBlur={() => {
             if (!title.trim()) setEditing(false);
@@ -845,7 +845,7 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   }
   return (
     <div className="flex w-column shrink-0 flex-col">
-      <Tooltip text={tip}><Button variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} inactive={offline} onClick={() => {
+      <Tooltip text={tip}><Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} inactive={offline} onClick={() => {
         setEditing(true);
       }}>Add column</Button></Tooltip>
     </div>

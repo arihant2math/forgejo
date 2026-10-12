@@ -75,7 +75,7 @@ const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Mi
       </RepoHeader>
       <Summary r={r} m={m}/>
       <ListBody model={model} label={`Issues and pull requests of ${m.title}`}
-        empty={<Blankslate><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing open in this milestone</Blankslate.Heading><Blankslate.Description>Add issues and pull requests to it from their milestone (M).</Blankslate.Description></Blankslate>}/>
+        empty={<Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing open in this milestone</Blankslate.Heading><Blankslate.Description>Add issues and pull requests to it from their milestone (M).</Blankslate.Description></Blankslate>}/>
     </>
   );
 });
@@ -87,21 +87,21 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
   const [open, setOpen] = useState(false);
   const offline = !connectivity.online;
   return (
-    <section aria-label="Milestone" className="flex shrink-0 flex-col gap-2 border-b border-default px-3 py-3">
+    <section aria-label="Milestone" className="flex shrink-0 flex-col gap-2 border-b border-default px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <DueLine m={m}/>
         <span className="font-semibold text-default tabular-nums">{p.percent}% complete</span>
         <span className="text-muted tabular-nums">{p.open} open · {p.closed} closed</span>
         {m.description && (
-          <Button variant="invisible" size="small" type="button" aria-expanded={open} onClick={() => {
+          <Button variant="invisible" size="small" type="button" trailingVisual={ChevronDownIcon} aria-expanded={open} onClick={() => {
             setOpen(!open);
-          }}>{open ? 'Hide the description' : 'Show the description'}<ChevronDownIcon size={12} className="shrink-0"/></Button>
+          }}>{open ? 'Hide the description' : 'Show the description'}</Button>
         )}
       </div>
       <div className="max-w-lg"><ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
       {open && m.description && (
         <div className="max-h-dialog-body overflow-y-auto">
-          {offline ? <pre className="whitespace-pre-wrap text-sm">{m.description}</pre> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
+          {offline ? <pre className="whitespace-pre-wrap text-base">{m.description}</pre> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
         </div>
       )}
     </section>
@@ -119,7 +119,7 @@ const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Mi
     <>
       <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}>Edit</RouterLinkButton>
       <ActionMenu>
-        <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" aria-label="Milestone actions">Milestone<ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+        <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" trailingVisual={ChevronDownIcon} aria-label="Milestone actions">Milestone</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
           <ActionList.Item disabled={offline} onSelect={() => {
             void editMilestone(app, r, m, {state: closed ? 'open' : 'closed'}, `${closed ? 'Reopening' : 'Closing'} the milestone “${m.title}”`);

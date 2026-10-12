@@ -4,10 +4,14 @@
 import {CodeView, type CodeViewHandle} from '@pierre/diffs/react';
 import type {CodeViewItem, DiffLineAnnotation, FileDiffMetadata, SelectionSide} from '@pierre/diffs';
 import {useTheme} from '@primer/react';
-import {ChevronDownIcon, ChevronRightIcon} from '@primer/octicons-react';
+import {ChevronDownIcon, ChevronRightIcon, PlusIcon} from '@primer/octicons-react';
 import {IconButton} from '@primer/react';
 import {type ReactNode, type Ref, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../app/shortcuts/index.ts';
+import {useApp} from '../app/store.ts';
+import workerURL from '../workers/pierre.worker.ts?worker&url';
+import {pierreWorker} from './pierreWorker.ts';
+import {pierreHTMLSupported} from './pierreSupport.ts';
 import type {DiffHandle, DiffViewProps} from '../features/code/DiffView.tsx';
 import {useDiffSettings} from '../features/code/DiffSettings.tsx';
 import {ImageDiff, isImageDiff} from '../features/code/ImageDiff.tsx';
@@ -41,17 +45,21 @@ function otherSide(file: DiffFile | undefined, index: number, additions: boolean
 function CommentButton({getLine, onComment}: {getLine: () => {lineNumber: number} | undefined; onComment: (range: boolean) => void}) {
   const [label, setLabel] = useState('Comment on line');
   const labelLine = () => {const line = getLine(); if (line) setLabel(`Comment on line ${String(line.lineNumber)}`);};
-  return <button type="button" className="rounded-sm bg-accent-emphasis px-2 text-onEmphasis" aria-label={label} title={label}
-    onPointerEnter={labelLine} onFocus={labelLine} onClick={(event) => {onComment(event.shiftKey);}}>+</button>;
+  return <IconButton icon={PlusIcon} type="button" size="small" variant="primary" aria-label={label}
+    onPointerEnter={labelLine} onFocus={labelLine} onClick={(event) => {onComment(event.shiftKey);}}/>;
 }
 
 /** Worker-parsed, worker-highlighted multi-file review. Threads remain our durable/offline React flows. */
 export function ReviewSurface(props: DiffViewProps & {fallback: (ref: Ref<DiffHandle>) => ReactNode}) {
+  // Forward the ref to the safe renderer; no ref.current is read here.
+  // eslint-disable-next-line react-hooks/refs
+  if (!pierreHTMLSupported()) return props.fallback(props.ref ?? null);
   return <PierreProvider><ReviewBody {...props}/></PierreProvider>;
 }
 
 function ReviewBody({repoId, base, head, files, scroller, extras, onFile, ref, fallback}: DiffViewProps & {fallback: (ref: Ref<DiffHandle>) => ReactNode}) {
   const source = useSource();
+  const {config: {base: appBase}} = useApp();
   const {split, whitespace} = useDiffSettings();
   const {resolvedColorScheme} = useTheme();
   const viewer = useRef<CodeViewHandle<Annotation, undefined>>(null);
@@ -66,7 +74,9 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, ref, f
   const pending = useRef<{f: number; l?: number} | null>(null);
   useViewSize(scroller);
   useEffect(() => {
-    const worker = new Worker(new URL('../workers/pierre.worker.ts', import.meta.url), {type: 'module'});
+    let worker: Worker;
+    try {worker = pierreWorker(appBase, workerURL, 'diffs-parse');}
+    catch {void Promise.resolve().then(() => {setFailed(true);}); return undefined;}
     const timeout = setTimeout(() => {setFailed(true); worker.terminate();}, 30_000);
     worker.onmessage = (event: MessageEvent<{files?: FileDiffMetadata[]; error?: boolean}>) => {
       clearTimeout(timeout);
@@ -80,7 +90,7 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, ref, f
     worker.onerror = () => {clearTimeout(timeout); setFailed(true); worker.terminate();};
     worker.postMessage(files);
     return () => {clearTimeout(timeout); worker.terminate();};
-  }, [files, repoId, base, head, whitespace]);
+  }, [files, repoId, base, head, whitespace, appBase]);
 
   const items = useMemo<CodeViewItem<Annotation>[]>(() => metadata?.map((fileDiff, f) => {
     const annotations: DiffLineAnnotation<Annotation>[] = [];
@@ -199,7 +209,7 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, ref, f
         const {f, l, notes, image, empty} = annotation.metadata;
         if (image && files[f]) return <ImageDiff repoId={repoId} base={base} head={head} file={files[f]}/>;
         if (empty) return <p className="px-4 py-2 text-muted">{empty}</p>;
-        return notes ? extras?.notesOf(f) : extras?.thread(f, l);
+        return <div className="py-2 text-base text-default">{notes ? extras?.notesOf(f) : extras?.thread(f, l)}</div>;
       }}
       renderGutterUtility={(getHoveredLine, item) => <CommentButton getLine={getHoveredLine} onComment={(range) => {
         const line = getHoveredLine();

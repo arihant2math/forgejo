@@ -420,7 +420,7 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
   }
   // ⌘↵ creates from anywhere in the form (the Write/Preview tabs, the property buttons), not only from the fields.
   return (
-    <div className="flex flex-col gap-3" onKeyDownCapture={(e) => {
+    <div className="flex flex-col gap-4" onKeyDownCapture={(e) => {
       if (e.key === 'Escape' && e.target instanceof HTMLElement && e.target.closest('button[aria-expanded="false"]')) {
         e.preventDefault();
         e.stopPropagation();
@@ -492,7 +492,7 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const ms = pool.model('Milestone').get(form.milestone)?.data;
   // Every property filters as you type (a repository with many labels or people stays usable).
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-2">
       <FilteredSelect title="Repository" placeholder="Repository" placeholderText="Create in the repository…"
         message={{title: 'No repository is on this device.', body: '', variant: 'empty'}}
         items={repos.map((r) => ({id: r.id, text: r.name}))}
@@ -546,9 +546,9 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
         }}>Discard</Button></>}
         {!connectivity.online && <span>Offline: it syncs when you are back.</span>}
       </span>
-      <Button variant="invisible" type="button" onClick={onCancel}>Cancel</Button>
+      <Button variant="invisible" size="small" type="button" onClick={onCancel}>Cancel</Button>
       {/* aria-disabled, not disabled: the tooltip (with ⌘↵) still shows and says what is missing. */}
-      {!form.choosing && <Tooltip text={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" aria-disabled={!ready} onClick={onCreate}>
+      {!form.choosing && <Tooltip text={uploading ? 'Wait for the attachments to finish uploading.' : ready ? 'Create the issue (works offline)' : 'Add a title first'} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" aria-disabled={!ready} onClick={onCreate}>
         Create issue
       </Button></Tooltip>}
     </>

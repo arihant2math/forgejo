@@ -197,7 +197,7 @@ function Who({id, fallback}: {id: number; fallback?: string}) {
 
 /** When, compact, with the full date on hover. */
 function When({at}: {at: string}) {
-  return <time dateTime={at} title={fullDate(at)} className="text-muted">{agoWords(at)}</time>;
+  return <time dateTime={at} title={fullDate(at)} className="text-sm text-muted">{agoWords(at)}</time>;
 }
 
 /** "edited": a comment changed after it was posted (Forgejo counts its edits: content_version; the time on hover). */
@@ -211,16 +211,16 @@ function Card({poster, original, at, badge, children, footer, id, linked}: {
   poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string; linked?: boolean;
 }) {
   return (
-    <article id={id} aria-current={linked ? 'location' : undefined} className={clsx('flex gap-3 py-3', linked && '-mx-2 rounded-md bg-accent-muted px-2')}>
+    <article id={id} aria-current={linked ? 'location' : undefined} className={clsx('flex gap-4 py-3', linked && '-mx-2 rounded-md bg-accent-muted px-2')}>
       <UserAvatar id={poster} size="lg" linked/>
       <div className="flex min-w-0 flex-1 flex-col rounded-md border border-default">
-        <header className="flex flex-wrap items-center gap-x-2 rounded-t-md border-b border-default bg-muted px-3 py-2 text-base">
+        <header className="flex flex-wrap items-center gap-x-2 rounded-t-md border-b border-default bg-muted px-4 py-2 text-base">
           <Who id={poster} fallback={original}/>
           <When at={at}/>
           {badge}
         </header>
-        <div className="p-3">{children}</div>
-        {footer && <div className="px-3 pb-3">{footer}</div>}
+        <div className="p-4">{children}</div>
+        {footer && <div className="px-4 pb-4">{footer}</div>}
       </div>
     </article>
   );
@@ -360,7 +360,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
         {c.get('invalidated') && <> · <Label>Outdated</Label></>}
       </span>
       {lines.length > 0 && (
-        <div className="overflow-x-auto rounded-sm border border-muted" role="presentation">
+        <div className="overflow-x-auto rounded-md border border-muted" role="presentation">
           {lines.map((l, i) => (
             <div key={i} className={clsx('flex font-mono text-sm', l.startsWith('+') ? 'bg-diff-addition-line' : l.startsWith('-') && 'bg-diff-deletion-line')}>
               <span className="w-6 shrink-0 text-center text-muted select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>
@@ -398,10 +398,10 @@ const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: 
   const d = c.data as Comment;
   const ev = swapFrom === undefined ? describeEvent(d) : {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
   return (
-    <div className="flex min-h-control items-center gap-3 py-1 text-base text-muted">
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-neutral-muted">{createElement(ev.icon, {size: 16})}</span>
+    <div className="flex min-h-control items-center gap-4 py-2 text-base text-muted">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-neutral-muted">{createElement(ev.icon, {size: 16})}</span>
       <span className="min-w-0">
-        <Who id={d.poster_id} fallback={d.original_author}/> {ev.text} <When at={d.created_at}/>
+        <Who id={d.poster_id} fallback={d.original_author}/> {ev.text}<span className="ml-2 inline-block"><When at={d.created_at}/></span>
       </span>
     </div>
   );
@@ -544,7 +544,7 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
 const ProjectName = observer(function ProjectName({id}: {id: number}) {
   const pool = usePool();
   const title = pool.model('Project').get(id)?.get('title') ?? pool.model('ProjectRef').get(id)?.get('title');
-  return <span className="font-medium text-default">{title ?? 'a project'}</span>;
+  return <span className="font-semibold text-default">{title ?? 'a project'}</span>;
 });
 
 /** A team a review was requested from ("@acme/core" when the organization is known). */
@@ -552,7 +552,7 @@ const TeamName = observer(function TeamName({id}: {id: number}) {
   const pool = usePool();
   const t = pool.model('Team').get(id);
   const org = t ? pool.model('User').get(t.get('org_id'))?.get('login') : undefined;
-  return <span className="font-medium text-default">{t ? `${org ? `${org}/` : ''}${t.get('name')}` : 'a team'}</span>;
+  return <span className="font-semibold text-default">{t ? `${org ? `${org}/` : ''}${t.get('name')}` : 'a team'}</span>;
 });
 
 /**
@@ -577,7 +577,7 @@ const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
 const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   const m = usePool().model('Milestone').get(id);
   const {owner, repo} = useParams({strict: false});
-  const title = <span className="font-medium text-default">{m?.get('title') ?? 'a milestone'}</span>;
+  const title = <span className="font-semibold text-default">{m?.get('title') ?? 'a milestone'}</span>;
   // The milestone's page (the repository's: an issue's milestone is its repository's).
   if (!m || !owner || !repo) return title;
   return <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink>;

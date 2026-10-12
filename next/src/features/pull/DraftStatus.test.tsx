@@ -39,7 +39,7 @@ function setup(title: string, pr: Partial<PullRequest> = {}) {
 test('#178: a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
   const {entity, wrap} = setup('WIP: Add the footer');
   wrap(<><IssueSidebar issue={entity}/><h1><PullStateCell issue={entity}/></h1></>);
-  const status = screen.getByText('Status').parentElement;
+  const status = screen.getByRole('heading', {name: 'Status'}).closest('section');
   expect(status?.textContent).toContain('Draft');
   expect(status?.textContent).not.toContain('Open');
   expect(within(screen.getByRole('heading', {level: 1})).getByText('Draft')).toBeTruthy();
@@ -48,7 +48,7 @@ test('#178: a draft pull request\'s Status says Draft, and its header marks carr
 test('#178: a ready pull request stays Open', () => {
   const {entity, wrap} = setup('Add the footer');
   wrap(<IssueSidebar issue={entity}/>);
-  expect(screen.getByText('Status').parentElement?.textContent).toContain('Open');
+  expect(screen.getByRole('heading', {name: 'Status'}).closest('section')?.textContent).toContain('Open');
 });
 
 test('#200: a fork\'s head names its owner', () => {

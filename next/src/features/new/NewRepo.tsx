@@ -222,7 +222,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               </Field>
               {!tpl && formats.length > 1 && (
                 <div className="flex flex-col gap-1">
-                  <span className="text-base font-medium text-default">Object format</span>
+                  <span className="text-base font-semibold text-default">Object format</span>
                   <div className="flex"><SegmentedControl aria-label="Object format" onChange={(index) => { setFormat(formats[index] ?? ''); }}>
                     {formats.map((f) => <SegmentedControl.Button key={f} selected={format === f}>{FORMAT_LABELS[f] ?? f}</SegmentedControl.Button>)}
                   </SegmentedControl></div>

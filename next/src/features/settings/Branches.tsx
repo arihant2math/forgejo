@@ -57,7 +57,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
       }}>Add rule</Button>}>
       <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
         {(rules) => rules.map((r) => (
-          <SettingsEntry key={r.rule_name} leading={<ShieldCheckIcon size={12} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
+          <SettingsEntry key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
             description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Label key={s}>{s}</Label>)}</span>}
             actions={<>
               <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={`Edit the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
@@ -164,8 +164,8 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
           <FormControl.Caption>{matches.length ? `Matches ${matches.slice(0, 3).join(', ')}${matches.length > 3 ? ` and ${String(matches.length - 3)} more` : ''}.` : 'A branch name, or a glob pattern such as release/* (no branch matches yet).'}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
         )}
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-default">Who may push</legend>
-          <SegmentedControl aria-label="Who may push" onChange={(index) => {
+          <legend className="pb-2 text-base font-semibold text-default">Who may push</legend>
+          <SegmentedControl size="small" aria-label="Who may push" onChange={(index) => {
             const choice = PUSH[index ?? -1];
             if (choice) set('push', choice.value);
           }}>{PUSH.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.push === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
@@ -179,7 +179,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
           </>}
         </fieldset>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-default">Before merging</legend>
+          <legend className="pb-2 text-base font-semibold text-default">Before merging</legend>
           <FormControl id="rule-approvals"><FormControl.Label>Required approvals</FormControl.Label>
             <TextInput className="w-24" inputMode="numeric" value={form.approvals} onChange={(e) => {
                 set('approvals', e.target.value);
@@ -207,7 +207,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
           )}
         </fieldset>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-default">Commits and files</legend>
+          <legend className="pb-2 text-base font-semibold text-default">Commits and files</legend>
           {check('signed', 'Require signed commits')}
           <FormControl id="rule-protected"><FormControl.Label>Protected files</FormControl.Label>
             <TextInput className="w-full" value={form.protectedFiles} spellCheck={false} onChange={(e) => {

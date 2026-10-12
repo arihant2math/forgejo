@@ -29,11 +29,11 @@ export const DraftControl = observer(function DraftControl({issue}: {issue: Enti
   useShortcut('pull.ready', toggle, allowed && draft);
   useShortcut('pull.draft', toggle, allowed && !draft && !!prefixes[0]);
   if (!allowed) return null;
-  if (draft) return <Button variant="primary" type="button" onClick={toggle}>Ready for review</Button>;
+  if (draft) return <Button className="self-start" size="small" variant="primary" type="button" onClick={toggle}>Ready for review</Button>;
   if (!prefixes[0]) return null;
   return (
     <ActionMenu>
-      <ActionMenu.Button>Pull request actions</ActionMenu.Button>
+      <ActionMenu.Button className="self-start" size="small">Pull request actions</ActionMenu.Button>
       <ActionMenu.Overlay>
         <ActionList>
           <ActionList.Item onSelect={toggle}>Convert to draft</ActionList.Item>

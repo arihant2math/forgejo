@@ -4,7 +4,7 @@
 // User profiles and organizations on the canonical /{owner} route.
 
 import {ResourceSection, DataRow, ResourceRows} from '../repo/layout.tsx';
-import {Avatar, UnderlineNav} from '@primer/react';
+import {Avatar, Heading, UnderlineNav, CounterLabel} from '@primer/react';
 
 import {useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
@@ -195,18 +195,18 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
       </PageHeader>
       <PageBody>
         <PageColumn>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <Avatar size={64} alt={info.login} src={info.avatar_url}/>
             <div className="flex min-w-0 flex-col">
-              <h2 className="truncate text-xl font-semibold text-default">{info.full_name || info.login}</h2>
+              <Heading as="h2" variant="medium" className="truncate">{info.full_name || info.login}</Heading>
               <p className="truncate text-base text-muted">{info.full_name ? `${info.login} · ` : ''}{isOrg ? 'Organization' : 'User'}</p>
             </div>
           </div>
-          {info.description && <p className="text-md text-muted">{info.description}</p>}
-          {info.location && <p className="text-sm text-muted">{info.location}</p>}
-          {info.website && /^https?:\/\//i.test(info.website) && <a className="text-sm text-accent" href={info.website} target="_blank" rel="noreferrer">{info.website}</a>}
+          {info.description && <p className="text-base text-default">{info.description}</p>}
+          {info.location && <p className="text-base text-muted">{info.location}</p>}
+          {info.website && /^https?:\/\//i.test(info.website) && <a className="text-base text-accent hover:underline" href={info.website} target="_blank" rel="noreferrer">{info.website}</a>}
           {!isOrg && <>
-            <div className="flex gap-3"><LinkButton variant="invisible" size="small" href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0}followers · {info.following_count ?? 0}following</LinkButton></div>
+            <div className="flex gap-2"><LinkButton variant="invisible" size="small" href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0} followers · {info.following_count ?? 0} following</LinkButton></div>
             {!me && <Follow owner={info.login}/>}
           </>}
           {section && <OfflineNote/>}
@@ -250,16 +250,16 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}
   }
   const list = [...rows.values()].sort((a, b) => b.updated.localeCompare(a.updated));
   return (
-    <ResourceSection label="Repositories" title={<>Repositories <span className="tabular-nums">{list.length || ''}</span></>}
+    <ResourceSection label="Repositories" title={<>Repositories <CounterLabel>{list.length}</CounterLabel></>}
       actions={canCreate && (
         <RouterLinkButton variant="invisible" size="small" leadingVisual={RepoIcon} to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}>New repository</RouterLinkButton>
       )}>
       <ResourceRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</ResourceRows>
       {remote.state !== 'ready' && away ?
-        list.length ? <p className="px-3 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
+        list.length ? <p className="px-4 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
           <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
         list.length ? null :
-          remote.state === 'loading' ? <div className="px-3 py-3"><SkeletonText lines={3}/></div> :
+          remote.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
             <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
     </ResourceSection>
   );
@@ -273,11 +273,11 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
   const remote = useRemote<APIRepo[]>(`${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=50&page=${String(page)}`);
   const away = reach(data.status.connection) !== 'online';
   return <ResourceSection label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
-    {kind === 'stars' && <p className="px-3 py-1 text-sm text-muted">Most recently starred first.</p>}
+    {kind === 'stars' && <p className="px-4 py-2 text-sm text-muted">Most recently starred first.</p>}
     {remote.state === 'ready' ? <>
       <ResourceRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</ResourceRows>
       {!remote.value.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
-      <div className="flex gap-2 px-3 py-2"><Button size="small" type="button" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="small" type="button" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
+      <div className="flex gap-2 px-4 py-2"><Button size="small" type="button" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="small" type="button" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
     </> : away ? <Blankslate><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>Connect to load these repositories.</Blankslate.Description></Blankslate> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <Blankslate><Blankslate.Heading>Could not load repositories</Blankslate.Heading></Blankslate>}
   </ResourceSection>;
 });
@@ -288,13 +288,13 @@ function RepoLine({r}: {r: RepoRow}) {
   const href = hrefOf(app, `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
   return (
     // Every row leads with an icon (a lock for a private one), so that the names line up.
-    <DataRow href={href} onClick={(e) => click(e, href)} leading={r.private ? <span title="Private" aria-label="Private"><LockIcon size={12} className="shrink-0"/></span> : <RepoIcon size={12} className="shrink-0"/>}
+    <DataRow href={href} onClick={(e) => click(e, href)} leading={r.private ? <span title="Private" aria-label="Private"><LockIcon size={16} className="shrink-0"/></span> : <RepoIcon size={16} className="shrink-0"/>}
       trailing={<>
         {r.fork && <Label>Fork</Label>}
         {r.archived && <Label variant="attention">Archived</Label>}
         <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
       </>}>
-      <span className="font-medium">{r.fullName ?? r.name}</span>{r.description && <span className="ml-3 text-muted">{r.description}</span>}
+      <span className="font-semibold">{r.fullName ?? r.name}</span>{r.description && <span className="ml-2 text-muted">{r.description}</span>}
     </DataRow>
   );
 }
@@ -306,12 +306,12 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   const click = useLinkClick();
   const boards = [...data.pool.model('Project').by('owner_id', ownerId)].filter((p) => !p.get('repo_id') && !p.get('closed'));
   return (
-    <ResourceSection label="Boards" title={<><ProjectIcon size={12} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
+    <ResourceSection label="Boards" title={<><ProjectIcon size={16} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
       <RouterLink to="/-/next/boards" search={{ownerId}} muted className="min-w-0 truncate">All boards, including closed</RouterLink>
       {!boards.length && <Blankslate><Blankslate.Heading>No boards on this device</Blankslate.Heading><Blankslate.Description>Boards appear here after they have been synced.</Blankslate.Description></Blankslate>}
       {boards.map((b) => {
         const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
-        return <DataRow key={b.id} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={12} className="shrink-0"/>}>{b.get('title')}</DataRow>;
+        return <DataRow key={b.id} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={16} className="shrink-0"/>}>{b.get('title')}</DataRow>;
       })}
     </ResourceSection>
   );

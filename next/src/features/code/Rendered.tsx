@@ -77,7 +77,7 @@ export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: AP
   const body = renderable(entry.name) === 'markup' ?
     <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
     <PlainReadme repoId={repoId} entry={entry} path={path}/>;
-  return <section id={README_ID} aria-label="README" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default bg-muted px-4 py-3"><BookIcon size={16}/>{entry.name}</div><div className="p-4">{body}</div></section>;
+  return <section id={README_ID} aria-label="README" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base font-semibold"><BookIcon size={16}/>{entry.name}</div><div className="p-4">{body}</div></section>;
 }
 
 /** A markup file at a commit, rendered by the server from the repository (renderedAt). */
@@ -96,5 +96,5 @@ function PlainReadme({repoId, entry, path}: {repoId: number; entry: APITreeEntry
   const blob = useLoad(key, () => src.peek<FileContent>(key), () => src.blob(repoId, entry.sha, path, entry.size));
   if (blob.state !== 'ready') return <Unloaded loaded={blob} what="The README" skeleton={<SkeletonText lines={6}/>}/>;
   if (blob.value.kind !== 'text') return <p className="text-base text-muted">The README is not a text file.</p>;
-  return <pre className="font-mono text-code whitespace-pre-wrap text-default">{blob.value.text}</pre>;
+  return <pre className="font-mono text-base whitespace-pre-wrap text-default">{blob.value.text}</pre>;
 }

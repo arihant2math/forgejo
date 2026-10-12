@@ -189,7 +189,7 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
             }} {...(errors.url ? {validationStatus: 'error' as const} : {})}/>
         <FormControl.Caption>Forgejo sends a POST request here for each event.</FormControl.Caption>{errors.url && <FormControl.Validation variant="error">{errors.url}</FormControl.Validation>}</FormControl>
         <FormControl id="hook-content-type"><FormControl.Label>Content type</FormControl.Label>
-          <Select id="hook-content-type" value={form.contentType} onChange={(event) => {
+          <Select size="small" id="hook-content-type" value={form.contentType} onChange={(event) => {
               set('contentType', event.target.value as HookForm['contentType']);
             }}><Select.Option value="json">application/json</Select.Option><Select.Option value="form">application/x-www-form-urlencoded</Select.Option></Select>
         {errors.contentType && <FormControl.Validation variant="error">{errors.contentType}</FormControl.Validation>}</FormControl>
@@ -211,8 +211,8 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
             }} {...(errors.branchFilter ? {validationStatus: 'error' as const} : {})} monospace/>
         <FormControl.Caption>A glob pattern of the branches whose events are sent (empty or *: all).</FormControl.Caption>{errors.branchFilter && <FormControl.Validation variant="error">{errors.branchFilter}</FormControl.Validation>}</FormControl>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-default">Events</legend>
-          <SegmentedControl aria-label="Events" onChange={(index) => {
+          <legend className="pb-1 text-base font-semibold text-default">Events</legend>
+          <SegmentedControl size="small" aria-label="Events" onChange={(index) => {
             const choice = MODES[index ?? -1];
             if (choice) set('mode', choice.value);
           }}>{MODES.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.mode === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>

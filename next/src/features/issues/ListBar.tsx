@@ -32,7 +32,7 @@ import {priorityIcon, statusIcon} from './cells.tsx';
 import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
-import {ChevronDownIcon, FileSubmoduleIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
+import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
 import {IssueLabelToken, SelectPanel, SegmentedControl, TextInput, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
@@ -123,7 +123,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
       }}/>
       <FilterMenu search={search} repoId={repoId} set={set} byMilestone={!hideGroups.includes('milestone')}/>
       <ActionMenu>
-        <ActionMenu.Anchor><Button variant={modified ? 'default' : 'invisible'} size="small" leadingVisual={RowsIcon} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button></ActionMenu.Anchor>
+        <ActionMenu.Anchor><Button variant="default" size="small" leadingVisual={RowsIcon} {...(modified ? {count: Number(search.group !== undefined) + Number(search.sort !== undefined)} : {})} type="button" aria-label={modified ? 'Display (changed)' : 'Display'}>Display</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
           {!stateButtons && (
             <>
@@ -172,7 +172,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
     <>
       <SelectionCount cursor={cursor}/>
       <ActionMenu>
-        <ActionMenu.Anchor><Button size="small" leadingVisual={TasklistIcon} type="button">Edit selected<ChevronDownIcon size={12} className="shrink-0"/></Button></ActionMenu.Anchor>
+        <ActionMenu.Anchor><Button size="small" leadingVisual={TasklistIcon} trailingAction={ChevronDownIcon} type="button">Edit selected</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
           <SelectionActions ids={cursor.selected.values()} navigate={(path) => void navigate({to: path})}/>
         </ActionList></ActionMenu.Overlay>
@@ -228,7 +228,7 @@ function SearchField({inputRef, value, onChange, onSettle}: {inputRef: RefObject
     }, 300);
   };
   return (
-    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 shrink-0"
+    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="w-48 shrink-0"
       onChange={(e) => {
         change(e.target.value);
       }}
@@ -321,7 +321,7 @@ function workspaceFilters(pool: ReturnType<typeof usePool>, search: ListSearch, 
   }
   const repos = [...pool.model('Repository').all()].map((e) => e.data).sort((a, b) => a.full_name.localeCompare(b.full_name));
   for (const r of repos) {
-    out.push({value: `o:${String(r.id)}`, label: r.full_name, words: 'repository', group: 'Repository', icon: FileSubmoduleIcon, checked: search.repo === r.id, onSelect: () => {
+    out.push({value: `o:${String(r.id)}`, label: r.full_name, words: 'repository', group: 'Repository', icon: RepoIcon, checked: search.repo === r.id, onSelect: () => {
       set({repo: search.repo === r.id ? undefined : r.id});
     }});
   }
@@ -400,7 +400,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
     {...(visible.length <= 50 && visible.some((option) => option.group) ? {groupMetadata: panelGroups(visible)} : {})}
     filterValue={query} onFilterChange={setQuery} showSelectedOptionsFirst={false} virtualized={items.length > 50} loading={false}
     {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No matches', body: 'Nothing to filter by is on this device.'}} : {})}
-    renderAnchor={(props) => <Button {...{...props}} variant={active.length ? 'default' : 'invisible'} size="small" leadingVisual={FilterIcon} type="button">
+    renderAnchor={(props) => <Button {...{...props}} variant="default" size="small" leadingVisual={FilterIcon} type="button">
       <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
     </Button>}/>;
 
@@ -453,8 +453,8 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
   return (
     <>
       <ActionMenu>
-        <ActionMenu.Anchor><Button variant="invisible" size="small" leadingVisual={StackIcon} type="button" aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
-            {view.name}{changed && <span className="text-muted">· changed</span>}<ChevronDownIcon size={12} className="shrink-0"/>
+        <ActionMenu.Anchor><Button variant="invisible" size="small" leadingVisual={StackIcon} trailingAction={ChevronDownIcon} type="button" aria-label={`View “${view.name}”${changed ? ' (changed)' : ''}`}>
+            {view.name}{changed && <span className="text-sm text-muted">· changed</span>}
           </Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
           <ActionList.Item disabled={!changed} onSelect={() => {

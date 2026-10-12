@@ -29,7 +29,8 @@ import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {codeSplat} from '../../code/refs.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {GoToFile} from '../code/FileFinder.tsx';
-import {CodeLink} from '../code/nav.tsx';
+import {codeTo} from '../code/nav.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {RefMenu} from '../code/RefMenu.tsx';
 import {ReadmePanel, readmeOf} from '../code/Rendered.tsx';
 import {Unloaded} from '../code/states.tsx';
@@ -130,10 +131,10 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   const toolbar = (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha, path: ''}} view="src"/>
-      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={GitBranchIcon} owner={owner} repo={repo} to="branches"><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span></Button>
-      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={TagIcon} owner={owner} repo={repo} to="tags"><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span></Button>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitBranchIcon} {...codeTo(owner, repo, 'branches')}><span className="tabular-nums">{`${String(branches)} ${plural(branches, 'branch', 'branches')}`}</span></RouterLinkButton>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={TagIcon} {...codeTo(owner, repo, 'tags')}><span className="tabular-nums">{`${String(tags)} ${plural(tags, 'tag')}`}</span></RouterLinkButton>
       <div className="ms-auto flex flex-wrap items-center gap-2">
-        <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
+        <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
         <GoToFile owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha}}/>
         <CodeMenu owner={owner} repo={repo} branch={branch}/>
       </div>
@@ -142,7 +143,7 @@ const Files = observer(function Files({owner, repo, repoId}: {owner: string; rep
   // The latest commit's bar, with the history on the right (API v1 has no commit count the pool holds: "History").
   const title = <RefCommit owner={owner} repo={repo} repoId={repoId} kind="branch" name={branch} sha={sha} showRef={false}/>;
   const history = (
-    <Button as={CodeLink} variant="invisible" size="small" leadingVisual={HistoryIcon} owner={owner} repo={repo} to={codeSplat('commits', {kind: 'branch', ref: branch})}>History</Button>
+    <RouterLinkButton variant="invisible" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', {kind: 'branch', ref: branch}))}>History</RouterLinkButton>
   );
   return <Tree owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} title={title} toolbar={toolbar} actions={history}/>;
 });
@@ -181,9 +182,9 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
       <ResourceRows><FilesPanel title={title} actions={actions}>
         {tree.state === 'ready' ?
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
-          <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-3 py-3"><SkeletonText lines={5}/></div>}/>}
+          <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-4 py-3"><SkeletonText lines={5}/></div>}/>}
         {entries.length > MAX_ENTRIES && (
-          <DataRow href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={12} className="shrink-0"/>}>
+          <DataRow href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={16} className="shrink-0"/>}>
             {entries.length - MAX_ENTRIES} more
           </DataRow>
         )}

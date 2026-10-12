@@ -21,19 +21,19 @@ import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 /** `action`: the way on from a "Not found" (the list it would be in). */
 export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
   const r = reach(useApp().session?.data.status.connection);
-  const retry = loaded.state !== 'loading' && loaded.retry ? <Button type="button" onClick={loaded.retry}><RedoIcon size={12} className="shrink-0"/>Retry</Button> : undefined;
+  const retry = loaded.state !== 'loading' && loaded.retry ? <Button size="small" type="button" leadingVisual={RedoIcon} onClick={loaded.retry}>Retry</Button> : undefined;
   switch (loaded.state) {
     case 'loading':
       return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-48"/></div>;
     case 'offline':
       // Connected, yet the request got no answer (a dropped connection, a timeout): not "offline" — said, with a Retry.
-      if (r === 'online') return <Blankslate><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{`${what} could not be loaded: the request to Forgejo failed.`}</Blankslate.Description>{retry}</Blankslate>;
-      return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'unreachable' ? 'Can’t reach Forgejo' : 'Not available offline'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description>{<span className="flex flex-col items-center gap-3">{r === 'unreachable' && retry}<AvailableOffline/></span>}</Blankslate>;
+      if (r === 'online') return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{`${what} could not be loaded: the request to Forgejo failed.`}</Blankslate.Description>{retry}</Blankslate>;
+      return <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'unreachable' ? 'Can’t reach Forgejo' : 'Not available offline'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description>{<span className="flex flex-col items-center gap-4">{r === 'unreachable' && retry}<AvailableOffline/></span>}</Blankslate>;
     case 'error':
-      if (loaded.status === 404) return <Blankslate><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{missingWords(what).notFound}</Blankslate.Description>{action}</Blankslate>;
-      if (loaded.status === 413) return <Blankslate><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Too large to show here</Blankslate.Heading><Blankslate.Description>{missingWords(what).tooLarge}</Blankslate.Description></Blankslate>;
-      if (loaded.message === 'signed out' || loaded.message.includes('SignedOut')) return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signed out</Blankslate.Heading><Blankslate.Description>Sign in again (the sync indicator above) to load this.</Blankslate.Description></Blankslate>;
-      return <Blankslate><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{loaded.message}</Blankslate.Description>{retry}</Blankslate>;
+      if (loaded.status === 404) return <Blankslate spacious><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{missingWords(what).notFound}</Blankslate.Description>{action}</Blankslate>;
+      if (loaded.status === 413) return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Too large to show here</Blankslate.Heading><Blankslate.Description>{missingWords(what).tooLarge}</Blankslate.Description></Blankslate>;
+      if (loaded.message === 'signed out' || loaded.message.includes('SignedOut')) return <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signed out</Blankslate.Heading><Blankslate.Description>Sign in again (the sync indicator above) to load this.</Blankslate.Description></Blankslate>;
+      return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{loaded.message}</Blankslate.Description>{retry}</Blankslate>;
   }
 });
 
@@ -48,6 +48,6 @@ export const EmptyRepo = observer(function EmptyRepo({owner, repo, repoId}: {own
   const branch = r.default_branch || 'main';
   const commands = `git remote add origin ${httpsCloneUrl(app.config.app_url, owner, repo)}\ngit push -u origin ${branch}`;
   return (
-    <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This repository is empty</Blankslate.Heading><Blankslate.Description>Push a first commit to it from an existing repository:</Blankslate.Description>{<FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha: '', path: ''}}><pre className="max-w-full overflow-x-auto rounded-md border border-default bg-inset px-3 py-2 text-left font-mono text-code text-default select-all">{commands}</pre></FileOperations>}</Blankslate>
+    <Blankslate spacious><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This repository is empty</Blankslate.Heading><Blankslate.Description>Push a first commit to it from an existing repository:</Blankslate.Description>{<FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha: '', path: ''}}><pre className="max-w-full overflow-x-auto rounded-md border border-default bg-inset px-4 py-2 text-left font-mono text-code text-default select-all">{commands}</pre></FileOperations>}</Blankslate>
   );
 });

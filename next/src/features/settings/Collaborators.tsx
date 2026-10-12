@@ -80,10 +80,10 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
       actions={<AddPerson disabled={offline} members={members} onAdd={add}/>}>
       <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
-          <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={32}/> : <SkeletonAvatar size={32}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
+          <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
             description={c.approximate ? 'Checking the exact role…' : undefined}
             actions={<>
-              <Select aria-label={`${c.login}’s role`} value={c.role} disabled={offline} onChange={(event) => {
+              <Select size="small" aria-label={`${c.login}’s role`} value={c.role} disabled={offline} onChange={(event) => {
                 const role = event.target.value as Role;
                 if (role !== c.role) setRole(c, role);
               }}>{ROLES.map((role) => <Select.Option key={role.value} value={role.value}>{role.label}</Select.Option>)}</Select>

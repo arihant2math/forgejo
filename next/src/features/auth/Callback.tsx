@@ -45,7 +45,7 @@ export default function Callback() {
   }
   return (
     <CenteredScreen>
-      <Blankslate><Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signing in…</Blankslate.Heading><Blankslate.Description>Getting your workspace ready.</Blankslate.Description></Blankslate>
+      <Blankslate spacious><Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signing in…</Blankslate.Heading><Blankslate.Description>Getting your workspace ready.</Blankslate.Description></Blankslate>
     </CenteredScreen>
   );
 }

@@ -33,7 +33,7 @@ import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/i
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
-import {ActionMenu, ActionList, Checkbox, CounterLabel, Heading} from '@primer/react';
+import {ActionMenu, ActionList, Checkbox, CounterLabel, Text} from '@primer/react';
 import {IssueRowFrame} from './IssueRowFrame.tsx';
 import {LabelGlyph} from './cells.tsx';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
@@ -45,7 +45,7 @@ import {issuePath, issuesOf} from './edits.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
-import {IssueDraftIcon, FileSubmoduleIcon, PersonIcon} from '@primer/octicons-react';
+import {IssueDraftIcon, RepoIcon, PersonIcon} from '@primer/octicons-react';
 
 const ROW = 40; // Fixed-height feature rows (h-10), including group headers.
 
@@ -389,10 +389,10 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         <UpdatedCell issue={issue}/>
       </>}
     >
-      <span className={showRepo ? 'mr-2 text-muted tabular-nums' : 'mr-2 inline-block min-w-12 text-muted tabular-nums'}>
+      <span className={showRepo ? 'shrink-0 text-sm text-muted tabular-nums' : 'inline-block min-w-12 shrink-0 text-sm text-muted tabular-nums @max-md:min-w-10'}>
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
-      <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
+      <TitleCell issue={issue} className="min-w-0 truncate font-semibold group-hover:text-accent group-hover:underline"/><PendingCell issueId={issue.id}/>
     </IssueRowFrame>
   );
 });
@@ -435,9 +435,9 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
   } else if (row.kind === 'assignee') {
     leading = row.value ? <UserAvatar id={row.value}/> : <PersonIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'repo') {
-    leading = <FileSubmoduleIcon size={16} className="shrink-0"/>;
+    leading = <RepoIcon size={16} className="shrink-0"/>;
   }
-  return <div className="flex h-10 items-center gap-2 border-b border-default bg-muted px-3">
-    {leading}<Heading as="h3" variant="small" className="min-w-0 truncate">{row.label}</Heading><CounterLabel>{row.count}</CounterLabel>
+  return <div className="flex h-10 items-center gap-2 border-b border-default bg-muted px-4">
+    {leading}<Text as="h3" size="medium" weight="semibold" className="min-w-0 truncate">{row.label}</Text><CounterLabel>{row.count}</CounterLabel>
   </div>;
 });

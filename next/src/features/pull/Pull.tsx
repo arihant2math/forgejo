@@ -59,22 +59,23 @@ import {pullSettingsOf} from '../settings/forms.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
-import {Ago, commitRow, Sha} from '../code/bits.tsx';
+import {Ago, commitRow, Sha, summary} from '../code/bits.tsx';
 import {withChecks} from '../code/commitChecks.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
-import {DotFillIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
+import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
-import {Banner, Heading, SegmentedControl, Tooltip} from '@primer/react';
+import {Banner, BranchName, ButtonGroup, Heading, SegmentedControl, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
 function CheckMark({tone}: {tone: string}) {
   const color = tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-attention' : 'text-muted';
-  return <span className={color}><DotFillIcon size={12}/></span>;
+  const Icon = tone === 'success' ? CheckCircleIcon : tone === 'danger' ? XCircleIcon : ClockIcon;
+  return <span className={`flex shrink-0 ${color}`}><Icon size={16}/></span>;
 }
 
 export type PullTabName = 'files' | 'commits' | 'checks';
@@ -699,7 +700,10 @@ const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabP
     <div ref={setScroller} className="h-full overflow-y-auto">
       {info.state !== 'ready' ? <Unloaded loaded={info} what="These commits"/> :
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={withChecks(commitRow, owner, repo, pr)}
+          row={withChecks((c) => {
+            const parts = commitRow(c);
+            return {...parts, main: <span className="flex min-w-0 items-center gap-2 text-base"><span className="truncate font-semibold hover:text-accent hover:underline">{summary(c.message)}</span><span className="shrink-0 text-muted">{c.authorName}</span></span>};
+          }, owner, repo, pr)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>}
     </div>
   );
@@ -869,8 +873,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   if (pr.merged) {
     state = (
       <>
-        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
-        {pr.merge_commit_sha && repo && <> as <PrimerLink as={CodeLink} owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></PrimerLink></>}
+        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <time className="text-sm font-normal text-muted" dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
+        {pr.merge_commit_sha && repo && <span className="text-sm font-normal text-muted">as <PrimerLink as={CodeLink} owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></PrimerLink></span>}
       </>
     );
   } else if (closed) state = 'Closed without merging';
@@ -884,15 +888,16 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // author waiting on CI sees what it said where they land.
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
-    <div className="mt-4"><section aria-label="Merge" className="rounded-md border border-default p-3">
-      <p className="flex flex-wrap items-center gap-2 text-base text-default">{state}</p>
-      {checksLine && <p className="flex flex-wrap items-center gap-2 text-sm text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
-      {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p className="text-sm">{checksTab}</p>}
+    <div className="mt-4"><section aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
+      <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 font-semibold text-default">{state}</div>
+      <div className="flex flex-col gap-2 px-4 py-3">
+      {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
+      {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p>{checksTab}</p>}
       {!pr.merged && !closed && waitingApproval && <ApprovalPanel issueId={issue.id} actions={check?.actions ?? undefined} waiting={(sum?.awaitingApproval ?? 0) > 0}/>}
       {!pr.merged && !closed && !waitingApproval && check?.actions?.poster_trust === 'explicitly' && <ApprovalPanel issueId={issue.id} actions={check.actions} waiting={false}/>}
       {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
-        <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
-          The branch <code>{pr.head_branch}</code> can be deleted{pr.merged ? ': its work is merged' : ''}.
+        <p className="flex flex-wrap items-center gap-2 text-muted">
+          The branch <BranchName as="span">{pr.head_branch}</BranchName> can be deleted{pr.merged ? ': its work is merged' : ''}.
           <Tooltip text={(offlineWhy('Deleting the branch')) ?? ''}><PrimerButton size="small" leadingVisual={TrashIcon} type="button" inactive={!isOnline || busy} onClick={() => {
             setDeleteConfirm(true);
           }}>Delete branch</PrimerButton></Tooltip>
@@ -903,17 +908,17 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         {!isOnline && <p className="text-muted">{onlineOnly('Deleting the branch')}</p>}
       </PrimerDialog>}
       {!pr.merged && !closed && <DraftControl issue={issue}/>}
-      {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
+      {!pr.merged && !closed && changesRequested && <p className="text-danger">Changes requested</p>}
       {auto && !pr.merged && <p className="text-sm text-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && write && (
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-          <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? 'Merge changes'}><PrimerButton variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} leadingVisual={GitMergeIcon} inactive={!isOnline || busy || !!mergeWhy || !primary}
+          <ButtonGroup>
+          <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? 'Merge changes'}><PrimerButton size="small" variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} leadingVisual={GitMergeIcon} inactive={!isOnline || busy || !!mergeWhy || !primary}
             onClick={() => {
               if (primary) setStyle(primary.style as MergeStyle);
             }}>{primary?.label ?? 'Merge'}…</PrimerButton></Tooltip>
           <ActionMenu>
-            <ActionMenu.Anchor><IconButton icon={ChevronDownIcon} variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
+            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
                 aria-label="Choose merge method" description={offlineWhy('Merging') ?? mergeWhy ?? 'Choose merge method'}/></ActionMenu.Anchor>
             <ActionMenu.Overlay><ActionList>
               {options.styles.map(({style: s, label}) => (
@@ -923,21 +928,21 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               ))}
             </ActionList></ActionMenu.Overlay>
           </ActionMenu>
-          </div>
+          </ButtonGroup>
           {auto ?
-            <Tooltip text={(offlineWhy('Canceling the auto-merge')) ?? ''}><PrimerButton type="button" inactive={!isOnline || busy} onClick={() => {
+            <Tooltip text={(offlineWhy('Canceling the auto-merge')) ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
             }}>Cancel auto-merge</PrimerButton></Tooltip> :
-            checks === 'pending' && primary && <Tooltip text={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'}><PrimerButton variant={changesRequested ? 'default' : 'primary'} leadingVisual={GitMergeIcon} type="button" inactive={!isOnline || busy || !!mergeWhy} onClick={() => {
+            checks === 'pending' && primary && <Tooltip text={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'}><PrimerButton size="small" variant={changesRequested ? 'default' : 'primary'} leadingVisual={GitMergeIcon} type="button" inactive={!isOnline || busy || !!mergeWhy} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
             }}>Merge when checks succeed</PrimerButton></Tooltip>}
-          {pr.commits_behind > 0 && <div className="flex items-center gap-1">
-            <Tooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton type="button" inactive={!isOnline || busy || conflict} onClick={() => {
+          {pr.commits_behind > 0 && <ButtonGroup>
+            <Tooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton size="small" type="button" inactive={!isOnline || busy || conflict} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
             }}>Update branch</PrimerButton></Tooltip>
           {config && <ActionMenu>
-            <ActionMenu.Anchor><IconButton icon={ChevronDownIcon} aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} description={offlineWhy('Updating the branch') ?? conflictWhy ?? 'Choose branch update method'}/></ActionMenu.Anchor>
+            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} description={offlineWhy('Updating the branch') ?? conflictWhy ?? 'Choose branch update method'}/></ActionMenu.Anchor>
             <ActionMenu.Overlay><ActionList>
               <ActionList.Item onSelect={() => {
                 run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
@@ -947,7 +952,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               }}>Update with rebase</ActionList.Item>}
             </ActionList></ActionMenu.Overlay>
           </ActionMenu>}
-          </div>}
+          </ButtonGroup>}
           {!isOnline && <span className="text-sm text-muted">{onlineOnly('Merging')}</span>}
           {isOnline && conflictWhy && <span className="text-sm text-muted">{conflictWhy}</span>}
         </div>
@@ -967,6 +972,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           run({done: `Merged into ${pr.base_branch}`, failed: 'Merging failed', merging: true}, {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style, ...body, ...seen}, timeout: 60_000});
         }}/>
       )}
+      </div>
     </section></div>
   );
 });
@@ -988,7 +994,7 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
   };
   return (
     <PrimerDialog title={label} subtitle={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} width="large" onClose={onClose} footerButtons={[{content: 'Cancel', onClick: onClose}, {content: 'Merge', buttonType: 'primary', inactive: !!reason, leadingVisual: GitMergeIcon, onClick: merge}]}>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {reason && <Banner variant="warning" title={reason}/>}
         {checks === 'pending' && (
           <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>

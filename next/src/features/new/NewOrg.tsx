@@ -93,7 +93,7 @@ export const NewOrg = observer(function NewOrg() {
             </Field>
 
             <Section title="Visibility">
-              <Choice name="new-org-visibility" label="Visibility" value={visibility} onChange={setVisibility} options={[
+              <Choice name="new-org-visibility" label="Visibility" hideLabel value={visibility} onChange={setVisibility} options={[
                 {value: 'public', label: 'Public', icon: GlobeIcon, description: 'Anyone can see the organization.'},
                 {value: 'limited', label: 'Limited', icon: PeopleIcon, description: 'Only signed-in users can see the organization.'},
                 {value: 'private', label: 'Private', icon: EyeClosedIcon, description: 'Only its members can see the organization.'},

@@ -74,19 +74,21 @@ const DocumentTitle = observer(function DocumentTitle({text}: {text: string | un
  */
 export function PageHeader({title, icon, context, children, docTitle}: PageHeaderProps) {
   return (
-    <header className="shrink-0 border-b border-default px-4 py-3">
-    <PrimerPageHeader>
+    <header className="min-h-header shrink-0 border-b border-default px-4 py-2">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
-      <PrimerPageHeader.TitleArea>
-        <PrimerPageHeader.LeadingAction><SidebarToggle/></PrimerPageHeader.LeadingAction>
-        {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
-        <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
-      </PrimerPageHeader.TitleArea>
-      <PrimerPageHeader.Actions className="flex flex-wrap items-center gap-2">
-        {children}<SyncIndicator/>
-      </PrimerPageHeader.Actions>
-    </PrimerPageHeader>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <PrimerPageHeader>
+            {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
+            <PrimerPageHeader.LeadingAction hidden={false} className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex"><SidebarToggle/></PrimerPageHeader.LeadingAction>
+            <PrimerPageHeader.TitleArea className="min-w-0">
+              {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+              <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+            </PrimerPageHeader.TitleArea>
+          </PrimerPageHeader>
+        </div>
+        <div className={headerActions}>{children}<SyncIndicator/></div>
+      </div>
     </header>
   );
 }
@@ -117,36 +119,44 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
   return (
     <header className="shrink-0">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      <div className="px-4 py-3">
-      <PrimerPageHeader>
-        <PrimerPageHeader.ContextBar hidden={false}>
+      <div className="min-h-header px-4 py-2">
+        <PrimerPageHeader>
           <PrimerPageHeader.ContextArea hidden={false}>
-            <div className="flex min-w-0 items-center gap-2">
-              <SidebarToggle/>
-              <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav>
-            </div>
+            <PrimerPageHeader.ContextBar hidden={false}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SidebarToggle/>
+                <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav>
+              </div>
+            </PrimerPageHeader.ContextBar>
+            <PrimerPageHeader.ContextAreaActions hidden={false}>
+              <div className="flex items-center gap-2">{actions}<SyncIndicator/></div>
+            </PrimerPageHeader.ContextAreaActions>
           </PrimerPageHeader.ContextArea>
-          <PrimerPageHeader.ContextAreaActions hidden={false}>
-            <div className="flex items-center gap-2">{actions}<SyncIndicator/></div>
-          </PrimerPageHeader.ContextAreaActions>
-        </PrimerPageHeader.ContextBar>
-      </PrimerPageHeader>
+        </PrimerPageHeader>
       </div>
       {tabs}
       {title !== undefined && (
-        <div className="border-b border-default px-4 py-3">
-        <PrimerPageHeader>
-          <PrimerPageHeader.TitleArea variant="subtitle">
-            {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
-            <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
-          </PrimerPageHeader.TitleArea>
-          {children && <PrimerPageHeader.Actions className="flex flex-wrap items-center gap-2">{children}</PrimerPageHeader.Actions>}
-        </PrimerPageHeader>
+        <div className="min-h-header border-b border-default px-4 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <PrimerPageHeader>
+                <PrimerPageHeader.TitleArea className="min-w-0">
+                  {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+                  <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+                </PrimerPageHeader.TitleArea>
+              </PrimerPageHeader>
+            </div>
+            {children && <div className={headerActions}>{children}</div>}
+          </div>
         </div>
       )}
     </header>
   );
 }
+
+// The shell arranges the toolbar (Primer controls are left untouched). A narrow panel puts it below the title;
+// a quiet sync indicator has no visible controls and must not introduce an empty row.
+const headerActions = 'flex min-w-0 flex-wrap items-center gap-2 @max-xl:with-controls:basis-full';
 
 /** The sidebar's toggle, while the sidebar is not beside the page. */
 function SidebarToggle() {

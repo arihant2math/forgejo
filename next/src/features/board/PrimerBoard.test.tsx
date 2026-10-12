@@ -47,13 +47,17 @@ test('Primer lanes retain fixed-height, contained, selected link cards and named
   mount(<BoardColumn title="Backlog" count={1} columnId={11}>
     <div role="listbox" aria-label="Backlog"><BoardCard href="/alice/sandbox/issues/1" active dragging meta="#1" title="Refresh docs"/></div>
   </BoardColumn>);
-  expect(screen.getByRole('heading', {name: 'Backlog'})).toBeTruthy();
+  const heading = screen.getByRole('heading', {name: 'Backlog'});
+  expect(heading.tagName).toBe('H2');
+  expect(heading.classList.contains('text-base')).toBe(true);
   const card = within(screen.getByRole('listbox', {name: 'Backlog'})).getByRole('option');
   expect(card.getAttribute('href')).toBe('/alice/sandbox/issues/1');
   expect(card.getAttribute('aria-selected')).toBe('true');
   expect(card.hasAttribute('data-dragging')).toBe(true);
   expect(card.classList.contains('h-card')).toBe(true);
   expect(card.classList.contains('contain-content')).toBe(true);
+  expect(card.classList.contains('py-1')).toBe(true);
+  expect(card.firstElementChild?.classList.contains('h-5')).toBe(true);
 });
 
 test('SelectPanel adds picked issues offline and offers a typed new issue with Enter', async () => {

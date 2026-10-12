@@ -33,7 +33,7 @@ import {HomeSkeleton} from './Home.tsx';
 import Feed from './Feed.tsx';
 import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedIcon, CloudOfflineIcon, UploadIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {Button, CounterLabel, LinkButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {KeybindingHint, SkeletonBox, Blankslate} from '@primer/react/experimental';
 
@@ -130,15 +130,15 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   const {data} = useSession();
   if (reach(data.status.connection) !== 'online') {
     return rows ? (
-      <DashboardSection label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
-        <DenseRow role="presentation" leading={<CloudOfflineIcon size={12} className="shrink-0"/>}><span className="text-muted">Review requests load when you are online.</span></DenseRow>
+      <DashboardSection label="Review requested" title={<><EyeIcon size={16}/><span className="text-default">Review requested</span></>}>
+        <DenseRow role="presentation" leading={<CloudOfflineIcon size={16}/>}><span className="text-muted">Review requests load when you are online.</span></DenseRow>
       </DashboardSection>
     ) : null;
   }
   rows = Math.max(rows, min);
   if (!rows) return null;
   return (
-    <DashboardSection label="Review requested" title={<><EyeIcon size={12} className="shrink-0"/><span className="text-default">Review requested</span></>}>
+    <DashboardSection label="Review requested" title={<><EyeIcon size={16}/><span className="text-default">Review requested</span></>}>
       {Array.from({length: rows}, (_, i) => (
         <DenseRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></DenseRow>
       ))}
@@ -177,7 +177,7 @@ function Section({title, icon: SectionIcon, items, all}: SectionProps) {
   const href = all && hrefOf(app, all);
   return (
     <DashboardSection label={title}
-      title={<><SectionIcon size={16}/><span className="text-default">{title}</span><span className="tabular-nums">{items.length}</span></>}
+      title={<><SectionIcon size={16}/><span className="text-default">{title}</span><CounterLabel>{items.length}</CounterLabel></>}
       actions={href && <LinkButton variant="invisible" size="small" href={href} onClick={(e) => click(e, href)}>View all</LinkButton>}>
       {items.slice(0, ROWS).map((x) => (x.issue ?
         <Row key={x.issue.id} issue={x.issue} at={x.at}/> :
@@ -240,7 +240,7 @@ function Hints() {
 function Welcome() {
   const {ui, config} = useApp();
   return (
-    <Blankslate><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<Tooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
+    <Blankslate spacious><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<Tooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
           runInAction(() => {
             ui.paletteOpen = true;
           });

@@ -14,7 +14,7 @@
 // SHA in the code cache: there at once when seen before, offline too. Its own
 // chunk.
 
-import {useNavigate, useParams} from '@tanstack/react-router';
+import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
@@ -29,7 +29,7 @@ import {issueState} from '../../intents/view.ts';
 import type {APIActivityAuthor, APICommitActivity, APIContributors} from '../../protocol/types.gen.ts';
 import {DenseRow} from '../home/DenseRow.tsx';
 import {DashboardSection} from '../home/DashboardSection.tsx';
-import {Avatar, NavList} from '@primer/react';
+import {Avatar, BranchName, Heading, NavList} from '@primer/react';
 import {clsx} from 'clsx';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
@@ -42,7 +42,7 @@ import {ColumnChart, DivergingChart, Meter, Split} from './charts.tsx';
 import {
   commitSummary, fillWeeks, lastWeeks, yearAtLeast, type Period, PERIODS, parsePeriod, periodLabel, periodStart, pulse, type PulseIssue, type PulseRelease, weekOf,
 } from './pulse.ts';
-import {GraphIcon, ChevronDownIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
+import {GraphIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
@@ -129,9 +129,7 @@ function PeriodMenu({period}: {period: Period}) {
   const {owner = '', repo = ''} = useParams({strict: false});
   return (
     <ActionMenu>
-      <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" aria-label={`Period: ${periodLabel(period)}`}>
-          <span className="text-muted">Period:</span>{periodLabel(period)}<ChevronDownIcon size={12} className="shrink-0"/>
-        </Button></ActionMenu.Anchor>
+      <ActionMenu.Button size="small" aria-label={`Period: ${periodLabel(period)}`}>Period: {periodLabel(period)}</ActionMenu.Button>
       <ActionMenu.Overlay><ActionList>
         <ActionList.Group selectionVariant="single">
           {PERIODS.map((p) => <ActionList.Item key={p.id} selected={period === p.id} onSelect={() => {
@@ -188,7 +186,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   const range = `${shortDate(new Date(from).toISOString(), 0)} – ${shortDate(new Date(now).toISOString(), 0)}`;
   return (
     <>
-      <DashboardSection label="Overview" title={<><span className="text-default">Overview</span><span>{range}</span></>}>
+      <DashboardSection label="Overview" title={<><span className="text-default">Overview</span><span className="text-sm font-normal text-muted">{range}</span></>}>
         {loading ? <OverviewSkeleton/> : (
           <div className="flex flex-col">
             <div className="flex flex-col gap-4 border-b border-muted p-4 @xl:flex-row">
@@ -209,7 +207,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
       {long && <OlderNote pager={pager}/>}
       <Commits owner={owner} repo={repo} repoId={repoId} from={from}/>
       {p.releases.items.length > 0 && (
-        <DashboardSection label="Releases" title={<><TagIcon size={12} className="shrink-0"/><span className="text-default">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span>by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
+        <DashboardSection label="Releases" title={<><TagIcon size={16}/><span className="text-default">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span className="text-sm font-normal text-muted">by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
           {p.releases.items.slice(0, MAX_ROWS).map((r) => <ReleaseItem key={r.id} owner={owner} repo={repo} release={r.release}/>)}
         </DashboardSection>
       )}
@@ -233,7 +231,7 @@ const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : ma
 
 function OverviewSkeleton() {
   return (
-    <div className="flex flex-col gap-3 p-4" aria-busy>
+    <div className="flex flex-col gap-4 p-4" aria-busy>
       <SkeletonBox className="h-3 w-48"/>
       <SkeletonBox className="h-2 w-full"/>
       <SkeletonBox className="h-3 w-64"/>
@@ -244,7 +242,7 @@ function OverviewSkeleton() {
 function Share({title, a, b, aLabel, bLabel}: {title: string; a: number; b: number; aLabel: string; bLabel: string}) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <span className="text-base font-medium text-default tabular-nums">{title}</span>
+      <span className="text-base font-semibold text-default tabular-nums">{title}</span>
       <Split a={a} b={b} label={`${count(a)} ${aLabel}, ${count(b)} ${bLabel}`}/>
     </div>
   );
@@ -255,8 +253,8 @@ const TONES = {done: 'text-done', success: 'text-success'} as const;
 function Stat({href, icon: StatIcon, tone, value, label}: {href: string; icon: OcticonType; tone: keyof typeof TONES; value: number; label: string}) {
   return (
     <a href={href} className="flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-3 text-center hover:bg-control-transparent-hover focus-visible:outline-focus">
-      <span className={clsx('flex items-center gap-1.5 text-xl font-semibold tabular-nums', TONES[tone])}><StatIcon size={16}/>{count(value)}</span>
-      <span className="text-sm text-muted">{label}</span>
+      <span className={clsx('flex items-center gap-1 text-xl font-semibold tabular-nums', TONES[tone])}><StatIcon size={16}/>{count(value)}</span>
+      <span className="text-base text-muted">{label}</span>
     </a>
   );
 }
@@ -298,8 +296,8 @@ function List({id, icon: SectionIcon, title, noun, items, authors, at, all, hint
       <DashboardSection label={`${title} ${noun}s`} title={<>
         <SectionIcon size={16}/>
         <span className="text-default tabular-nums">{count(items.length)} {title} {plural(items.length, noun)}</span>
-        {authors !== undefined && <span className="tabular-nums">by {count(authors)} {plural(authors, 'person', 'people')}</span>}
-        {hint && <span className="truncate max-md:hidden">· {hint}</span>}
+        {authors !== undefined && <span className="text-sm font-normal text-muted tabular-nums">by {count(authors)} {plural(authors, 'person', 'people')}</span>}
+        {hint && <span className="truncate text-sm font-normal text-muted max-md:hidden">· {hint}</span>}
       </>} actions={items.length > shown.length ? (
         open ?
           <LinkButton variant="invisible" size="small" href={href} onClick={(e) => {
@@ -341,7 +339,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, release}: {owner
   return (
     <DenseRow role={undefined} href={href} onClick={(e) => {
       click(e, href);
-    }} leading={<TagIcon size={12} className="shrink-0"/>} trailing={<>
+    }} leading={<TagIcon size={16}/>} trailing={<>
       {r.prerelease && <span>Pre-release</span>}
       <span className="font-mono">{r.tag_name}</span>
       <AgoCell at={r.created_at}/>
@@ -356,9 +354,9 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
   const name = who.name !== '' ? who.name : who.login;
   return (
     <>
-      {who.avatar_url !== '' && <Avatar alt={name} src={who.avatar_url} size={size === 'sm' ? 20 : 32}/>}
+      {who.avatar_url !== '' ? <Avatar alt={name} src={who.avatar_url} size={size === 'sm' ? 20 : 32}/> : <span aria-hidden className={size === 'sm' ? 'size-5 shrink-0' : 'size-8 shrink-0'}/>}
       {who.login ?
-        <RouterLink to="/$owner" params={{owner: who.login}} className="truncate">{name}</RouterLink> :
+        <Link to="/$owner" params={{owner: who.login}} className="truncate text-default hover:text-accent hover:underline">{name}</Link> :
         <span className="truncate text-default">{name !== '' ? name : 'Someone'}</span>}
     </>
   );
@@ -367,7 +365,7 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
 /** Commits of the period on the default branch, and who made them (from the cached year of history). */
 const Commits = observer(function Commits({owner, repo, repoId, from}: {owner: string; repo: string; repoId: number; from: number}) {
   const {branch, sha, empty} = useHead(repoId);
-  const title = <><GitCommitIcon size={12} className="shrink-0"/><span className="text-default">Commits</span>{branch && <span className="font-mono">{branch}</span>}</>;
+  const title = <><GitCommitIcon size={16}/><span className="text-default">Commits</span>{branch && <BranchName as="span">{branch}</BranchName>}</>;
   if (!sha) {
     return (
       <DashboardSection label="Commits" title={title} padded>
@@ -405,13 +403,13 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
         </p>
         {top.length > 0 && (
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium text-default">Top committers</h3>
-            <ol className="flex flex-col gap-1.5">
+            <Heading as="h3" variant="small">Top committers</Heading>
+            <ol className="flex flex-col gap-2">
               {top.map(({author, commits}) => {
                 const who = a.authors[author] ?? {name: 'Someone', login: '', avatar_url: ''};
                 return (
-                  <li key={author} className="flex items-center gap-3">
-                    <span className="flex w-32 min-w-0 shrink-0 items-center gap-2 @xl:w-48"><Author who={who} size="sm"/></span>
+                  <li key={author} className="flex items-center gap-2">
+                    <span className="flex h-5 w-32 min-w-0 shrink-0 items-center gap-2 @xl:w-48"><Author who={who} size="sm"/></span>
                     <span className="flex min-w-0 flex-1 items-center gap-2">
                       <Meter value={commits} max={most}/>
                       <span className="w-20 shrink-0 text-right text-sm text-muted tabular-nums">{count(commits)} {plural(commits, 'commit')}</span>
@@ -422,8 +420,8 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
             </ol>
           </div>
         )}
-        <p className="text-sm text-muted">
-          <RouterLink to="/$owner/$repo/activity/contributors" params={{owner, repo}} muted className="min-w-0 truncate">All contributors</RouterLink>
+        <p className="text-base">
+          <RouterLink to="/$owner/$repo/activity/contributors" params={{owner, repo}} className="min-w-0 truncate">All contributors</RouterLink>
         </p>
       </div>
     </DashboardSection>
@@ -432,7 +430,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
 
 function CommitsSkeleton() {
   return (
-    <div className="flex flex-col gap-3 px-6 py-4" aria-busy>
+    <div className="flex flex-col gap-4 p-4" aria-busy>
       <SkeletonBox className="h-3 w-96"/>
       {['w-56', 'w-40', 'w-32'].map((w) => <span key={w} className="flex items-center gap-2"><SkeletonBox className="size-4"/><SkeletonBox className={`h-2 ${w}`}/></span>)}
     </div>
@@ -445,7 +443,7 @@ function CommitsSkeleton() {
 function Statistics({repoId, children, skeleton}: {repoId: number; children: (s: APIContributors, branch: string) => ReactNode; skeleton: ReactNode}) {
   const {branch, sha, empty} = useHead(repoId);
   if (!sha) {
-    return <Blankslate><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty ? 'No commits yet' : 'No code on this device yet'}</Blankslate.Heading><Blankslate.Description>{empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}</Blankslate.Description></Blankslate>;
+    return <Blankslate spacious><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty ? 'No commits yet' : 'No code on this device yet'}</Blankslate.Heading><Blankslate.Description>{empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}</Blankslate.Description></Blankslate>;
   }
   return <StatisticsAt key={sha} repoId={repoId} sha={sha} branch={branch} skeleton={skeleton}>{children}</StatisticsAt>;
 }
@@ -455,7 +453,7 @@ function StatisticsAt({repoId, sha, branch, children, skeleton}: {repoId: number
   const key = CodeSource.contributorsKey(repoId, sha);
   const loaded = useLoad(key, () => src.peek<APIContributors>(key), () => src.contributors(repoId, sha));
   if (loaded.state !== 'ready') return <Unloaded loaded={loaded} what="These statistics" skeleton={skeleton}/>;
-  if (!loaded.value.total.length) return <Blankslate><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits to count</Blankslate.Heading><Blankslate.Description>The default branch has only merge commits.</Blankslate.Description></Blankslate>;
+  if (!loaded.value.total.length) return <Blankslate spacious><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits to count</Blankslate.Heading><Blankslate.Description>The default branch has only merge commits.</Blankslate.Description></Blankslate>;
   return <>{children(loaded.value, branch)}</>;
 }
 
@@ -511,10 +509,10 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
           const add = c.weeks.reduce((n, w) => n + w.additions, 0);
           const del = c.weeks.reduce((n, w) => n + w.deletions, 0);
           return (
-            <li key={`${c.login}:${c.name}:${String(i)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-default bg-default p-3">
+            <li key={`${c.login}:${c.name}:${String(i)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-default bg-default p-4">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="flex min-w-0 flex-col">
-                  <span className="flex min-w-0 items-center gap-2 font-medium"><Author who={c} size="md"/></span>
+                  <span className="flex min-w-0 items-center gap-2 font-semibold"><Author who={c} size="md"/></span>
                   <span className="text-sm text-muted tabular-nums">
                     {count(c.commits)} {plural(c.commits, 'commit')} · <span className="text-success">+{count(add)}</span> <span className="text-danger">−{count(del)}</span>
                   </span>

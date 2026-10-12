@@ -68,7 +68,7 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
   };
   // Named as what it is (classic's and GitHub's "Suggested change"): the lines it replaces and their replacement.
   return <section aria-label="Suggested change" className="flex flex-col gap-2">
-    <span className="text-sm font-medium text-muted">Suggested change</span>
+    <span className="text-base font-semibold text-default">Suggested change</span>
     <div>
       {original.map((line, i) => <CodeLine key={`old${i}`} tone="del" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
       {suggestion.text.split('\n').map((line, i) => <CodeLine key={i} tone="add" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}

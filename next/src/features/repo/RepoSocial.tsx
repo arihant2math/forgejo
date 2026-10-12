@@ -20,7 +20,7 @@ import {reach} from '../../app/online.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {EyeIcon, StarIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button, ActionMenu, ActionList, CounterLabel, ButtonGroup} from '@primer/react';
+import {Button, ActionMenu, ActionList, ButtonGroup} from '@primer/react';
 
 /** What a Watch row selects (livesync's Watch entity). */
 export interface WatchFlags {
@@ -211,10 +211,10 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
   return <div className="flex flex-wrap items-center gap-2">
     {away && <span className="text-sm text-muted">Available when online</span>}
     {s.failed && !away && <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={() => { void s.load(app, owner, repo); }}>Retry star/watch status</Button>}
-    <ButtonGroup><Button leadingVisual={StarIcon} size="small" type="button" disabled={!away && (!s.ready || s.pending)} inactive={away} aria-pressed={s.starred} onClick={star}>
-      {s.starred ? 'Unstar' : 'Star'}{s.stars !== undefined && <CounterLabel>{s.stars}</CounterLabel>}
+    <ButtonGroup><Button {...(s.stars !== undefined ? {count: s.stars} : {})} leadingVisual={StarIcon} size="small" type="button" disabled={!away && (!s.ready || s.pending)} inactive={away} aria-pressed={s.starred} onClick={star}>
+      {s.starred ? 'Unstar' : 'Star'}
     </Button></ButtonGroup>
-    <ActionMenu><ActionMenu.Button size="small" leadingVisual={EyeIcon} disabled={!away && (!s.ready || s.pending)} inactive={away}>{s.watching ? 'Watching' : 'Watch'}{s.watchers !== undefined && <CounterLabel>{s.watchers}</CounterLabel>}</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+    <ButtonGroup><ActionMenu><ActionMenu.Button {...(s.watchers !== undefined ? {count: s.watchers} : {})} size="small" leadingVisual={EyeIcon} disabled={!away && (!s.ready || s.pending)} inactive={away}>{s.watching ? 'Watching' : 'Watch'}</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Repository notifications</ActionList.GroupHeading>
       <ActionList.Item selected={level === 'none'} onSelect={() => { watch('none'); }}>Participating and mentions</ActionList.Item>
       <ActionList.Item selected={level === 'all'} onSelect={() => { watch('all'); }}>All activity</ActionList.Item>
@@ -225,6 +225,6 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
       <ActionList.Item onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>Watchers</ActionList.Item>
       <ActionList.Divider/>
       <ActionList.Group><ActionList.GroupHeading>New releases are announced by email only (when this server sends mail), not in the Inbox.</ActionList.GroupHeading>
-    </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu>
+    </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu></ButtonGroup>
   </div>;
 });

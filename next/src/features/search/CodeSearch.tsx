@@ -75,15 +75,15 @@ export default observer(function CodeSearch() {
     return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
-  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><TextInput aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2"><SegmentedControl aria-label="Search type" variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
+  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><TextInput size="small" aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2"><SegmentedControl size="small" aria-label="Search type" variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
         const type = index === undefined ? undefined : kinds[index];
         if (type) void navigate({to: '/search', search: discoverySearch({q, type})});
-      }}>{kinds.map((kind) => <SegmentedControl.Button key={kind} selected={kind === 'code'}>{kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}</SegmentedControl.Button>)}</SegmentedControl>{repoId && <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
+      }}>{kinds.map((kind) => <SegmentedControl.Button key={kind} selected={kind === 'code'}>{kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}</SegmentedControl.Button>)}</SegmentedControl>{repoId && <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}
-      {answer && !answer.enabled && !repoId && <Blankslate><Blankslate.Heading>Global code search is unavailable</Blankslate.Heading><Blankslate.Description>The repository code indexer is disabled on this instance.</Blankslate.Description></Blankslate>}
-      {answer && (answer.enabled || repoId) && !rows.length && <Blankslate><Blankslate.Heading>{q ? 'No matching code' : 'Search file contents'}</Blankslate.Heading><Blankslate.Description>Enter a word or symbol to find matching files and lines.</Blankslate.Description></Blankslate>}
+      {answer && !answer.enabled && !repoId && <Blankslate spacious><Blankslate.Heading>Global code search is unavailable</Blankslate.Heading><Blankslate.Description>The repository code indexer is disabled on this instance.</Blankslate.Description></Blankslate>}
+      {answer && (answer.enabled || repoId) && !rows.length && <Blankslate spacious><Blankslate.Heading>{q ? 'No matching code' : 'Search file contents'}</Blankslate.Heading><Blankslate.Description>Enter a word or symbol to find matching files and lines.</Blankslate.Description></Blankslate>}
       {!answer && !error && <p role="status" className="p-4">Searching code…</p>}
       <div role="listbox" aria-label="Code search results" aria-activedescendant={rows[cursor] ? `code-hit-${String(cursor)}` : undefined} tabIndex={0} onKeyDown={(e) => {
         if (e.key === 'Enter') { e.preventDefault(); open(); }
@@ -105,6 +105,6 @@ export default observer(function CodeSearch() {
           </div>
         );
       })}</div>
-      {answer && answer.total > 50 && <div className="flex gap-2 p-4"><Button type="button" disabled={page <= 1} onClick={() => { patch({page: page - 1}); }}>Previous</Button><span>Page {page}</span><Button type="button" disabled={page * 50 >= answer.total || page >= 100} onClick={() => { patch({page: page + 1}); }}>Next</Button></div>}
+      {answer && answer.total > 50 && <div className="flex items-center gap-2 p-4"><Button size="small" type="button" disabled={page <= 1} onClick={() => { patch({page: page - 1}); }}>Previous</Button><span className="text-sm text-muted">Page {page}</span><Button size="small" type="button" disabled={page * 50 >= answer.total || page >= 100} onClick={() => { patch({page: page + 1}); }}>Next</Button></div>}
     </PageBody></>;
 });

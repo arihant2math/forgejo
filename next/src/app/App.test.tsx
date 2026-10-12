@@ -477,7 +477,7 @@ describe('signed in', () => {
     const title = screen.getByRole('heading', {level: 1, name: 'Issues'});
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tabs.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(title.closest('[data-component="PageHeader"]') ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
+    expect(within(title.closest('header') ?? document.body).getByRole('button', {name: /New issue/})).toBeTruthy();
     expect(within(crumbs.parentElement ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
     expect(s.data.held.get('repo:20')).toBe(1);
     await act(() => router.navigate({to: '/'}));

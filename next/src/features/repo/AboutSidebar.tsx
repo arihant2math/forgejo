@@ -13,7 +13,7 @@
 
 import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type MouseEvent, type ReactNode, type ReactElement, type ElementType, useId} from 'react';
+import {type MouseEvent, type ReactNode, type ReactElement, cloneElement, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
@@ -28,8 +28,9 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {languageShares, percent, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Label, Heading, CounterLabel, Link as PrimerLink, ProgressBar} from '@primer/react';
+import {Label, Heading, CounterLabel, ProgressBar} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
+import {TopicTag} from '@primer/react/experimental';
 
 interface RepoProps {
   owner: string;
@@ -66,13 +67,13 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   if (!description && !site && topics.length === 0) return <p className="text-base text-muted">No description, website, or topics provided.</p>;
   return (
     <>
-      {description && <p className="text-md text-default">{description}</p>}
+      {description && <p className="text-base text-default">{description}</p>}
       {site && (
         <SidebarLinks>
-          <SidebarLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span className="truncate">{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></SidebarLink>
+          <SidebarLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span>{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></SidebarLink>
         </SidebarLinks>
       )}
-      {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><Label variant="accent">{t}</Label></li>)}</ul>}
+      {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><TopicTag as="span">{t}</TopicTag></li>)}</ul>}
     </>
   );
 });
@@ -86,7 +87,7 @@ const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
   if (!p) return null;
   return (
     <p className="flex min-w-0 items-center gap-2 text-base text-muted">
-      <RepoForkedIcon size={12} className="shrink-0"/>
+      <RepoForkedIcon size={16} className="shrink-0"/>
       <span className="shrink-0">Forked from</span>
       <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
     </p>
@@ -172,10 +173,10 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
   const tags = tagCount(all);
   const releasesTo = codeTo(owner, repo, 'releases');
   return (
-    <SidebarSection title={count > 0 ? <RouterLink {...releasesTo} muted className="min-w-0 truncate">Releases</RouterLink> : 'Releases'} count={count > 0 ? count : undefined}>
+    <SidebarSection title={count > 0 ? <Link {...releasesTo} className="min-w-0 truncate text-default hover:text-accent hover:underline">Releases</Link> : 'Releases'} count={count > 0 ? count : undefined}>
       {latest ?
         <Link {...releasesTo} className="interactive group flex min-w-0 items-start gap-2">
-          <span className="flex h-row shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
+          <span className="flex h-5 shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
           <span className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate text-base font-semibold text-default group-hover:text-accent">{latest.name || latest.tag_name}</span>
@@ -185,7 +186,7 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
           </span>
         </Link> :
         <p className="text-base text-muted">No releases published.</p>}
-      {count > 1 && <p className="text-sm"><RouterLink {...releasesTo} muted className="min-w-0 truncate">+ {count - 1} {plural(count - 1, 'release')}</RouterLink></p>}
+      {count > 1 && <p className="text-base"><Link {...releasesTo} className="text-default hover:text-accent hover:underline">+ {count - 1} {plural(count - 1, 'release')}</Link></p>}
       {tags > 0 && (
         <SidebarLinks>
           <SidebarLink icon={TagIcon} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></SidebarLink>
@@ -212,20 +213,22 @@ function LanguagesAt({repoId, sha}: {repoId: number; sha: string}) {
   const total = shares.reduce((sum, share) => sum + share.value, 0);
   return (
     <SidebarSection title="Languages">
-      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-3">{shares.map((share) => <li key={share.label}>{share.label} <span className="text-muted">{percent(share.value, total)}</span></li>)}</ul>
+      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={languageDots[share.tone]}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
     </SidebarSection>
   );
 }
+
+const languageDots = {1: 'var(--bgColor-accent-emphasis)', 2: 'var(--bgColor-success-emphasis)', 3: 'var(--bgColor-attention-emphasis)', 4: 'var(--bgColor-done-emphasis)', 5: 'var(--bgColor-danger-emphasis)', other: 'var(--bgColor-neutral-emphasis)'} as const;
 
 const languageColors = {1: 'accent.emphasis', 2: 'success.emphasis', 3: 'attention.emphasis', 4: 'done.emphasis', 5: 'danger.emphasis', other: 'neutral.emphasis'} as const;
 
 function SidebarSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
   const id = useId();
-  return <section aria-labelledby={id} className="flex flex-col gap-3 border-b border-default py-4"><div className="flex items-center gap-2"><Heading id={id} as="h2" variant="small">{title}</Heading>{count !== undefined && <CounterLabel>{count}</CounterLabel>}</div>{children}</section>;
+  return <section aria-labelledby={id} className="flex flex-col gap-4 border-b border-default py-4 last:border-b-0"><div className="flex items-center gap-2"><Heading id={id} as="h2" variant="small">{title}</Heading>{count !== undefined && <CounterLabel>{count}</CounterLabel>}</div>{children}</section>;
 }
 function SidebarLinks({label, children}: {label?: string; children: ReactNode}) {
   return <ul {...(label ? {'aria-label': label} : {})} className="flex flex-col gap-2">{children}</ul>;
 }
-function SidebarLink({icon: Icon, count, children, tone}: {icon: OcticonType; count?: number | undefined; children: ReactElement<{children?: ReactNode}>; tone?: 'accent'}) {
-  return <li className="flex min-w-0 items-center gap-2"><Icon className="shrink-0 text-muted"/><PrimerLink as={children.type as ElementType} {...{...children.props}} muted={tone !== 'accent'} {...(count !== undefined && typeof children.props.children === 'string' ? {'aria-label': `${count.toLocaleString()} ${children.props.children}`} : {})} className="min-w-0 truncate">{count !== undefined && <strong>{count.toLocaleString()} </strong>}{children.props.children}</PrimerLink></li>;
+function SidebarLink({icon: Icon, count, children, tone}: {icon: OcticonType; count?: number | undefined; children: ReactElement<{children?: ReactNode; className?: string; 'aria-label'?: string}>; tone?: 'accent'}) {
+  return <li className="flex min-w-0 items-center gap-2 text-base"><Icon size={16} className="shrink-0 text-muted"/>{cloneElement(children, {className: `min-w-0 truncate hover:text-accent hover:underline ${tone === 'accent' ? 'text-accent' : 'text-default'}`, ...(count !== undefined && typeof children.props.children === 'string' ? {'aria-label': `${count.toLocaleString()} ${children.props.children}`} : {})}, <>{count !== undefined && <strong className="font-semibold">{count.toLocaleString()} </strong>}{children.props.children}</>)}</li>;
 }

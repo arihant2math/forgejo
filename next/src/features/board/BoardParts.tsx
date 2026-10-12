@@ -3,7 +3,7 @@
 
 import {type HTMLAttributes, type ReactNode, type Ref, useCallback, useEffect, useRef} from 'react';
 import {clsx} from 'clsx';
-import {CounterLabel, Heading} from '@primer/react';
+import {CounterLabel} from '@primer/react';
 
 export interface BoardColumnProps {
   /** The column's name (its listbox is labelled by it). */
@@ -58,7 +58,7 @@ export function BoardLanes({ref, children, ...rest}: BoardLanesProps) {
       el.current = node;
       if (typeof ref === 'function') ref(node);
       else if (ref) ref.current = node;
-    }} onScroll={update} className="edge-fade-x flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto p-3">
+    }} onScroll={update} className="edge-fade-x flex min-h-0 flex-1 items-stretch gap-2 overflow-x-auto p-4">
       {children}
     </div>
   );
@@ -74,9 +74,9 @@ const lane = 'flex w-column shrink-0 flex-col rounded-md border border-default b
 export function BoardColumn({title, count, leading, badge, actions, children, bodyRef, columnId}: BoardColumnProps) {
   return (
     <section data-column={columnId} className={clsx(lane, 'focus-visible-within')}>
-      <header className="flex shrink-0 items-center gap-2 p-3">
+      <header className="flex min-h-10 shrink-0 items-center gap-2 px-4 py-2">
         {leading}
-        <Heading as="h2" variant="small" className="min-w-0 truncate">{title}</Heading>
+        <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
         <CounterLabel>{count}</CounterLabel>
         {badge}
         {actions && <span className="ml-auto flex items-center">{actions}</span>}
@@ -121,24 +121,24 @@ export function BoardCard({active, dragging, meta, title, footer, href, ...rest}
       data-active={active ? '' : undefined}
       data-dragging={dragging ? '' : undefined}
       className={clsx(
-        'flex h-card cursor-default flex-col gap-1 overflow-hidden rounded-md border border-default bg-default px-2.5 py-1.5 contain-content select-none',
+        'group flex h-card cursor-default flex-col gap-1 overflow-hidden rounded-md border border-default bg-default px-2 py-1 contain-content select-none',
         'hover:border-emphasis data-active:border-accent-emphasis data-dragging:opacity-disabled',
       )}
       {...props}
     >
-      <div className="flex h-4 items-center gap-1.5 text-sm text-muted tabular-nums">{meta}</div>
-      <div className="clamp-title min-h-0 text-base text-default">{title}</div>
-      {footer && <div className="mt-auto flex min-w-0 items-center gap-1">{footer}</div>}
+      <div className="flex h-5 shrink-0 items-center gap-1 text-sm text-muted tabular-nums">{meta}</div>
+      <div className="clamp-title min-h-0 text-base font-semibold text-default group-hover:text-accent group-hover:underline">{title}</div>
+      {footer && <div className="mt-auto flex min-w-0 shrink-0 items-center gap-1">{footer}</div>}
     </Tag>
   );
 }
 
 /** A column being added: the lane's look, its name being typed where the header goes. */
 export function BoardColumnDraft({children}: {children: ReactNode}) {
-  return <section aria-label="New column" className={clsx(lane, 'gap-1 p-1.5')}>{children}</section>;
+  return <section aria-label="New column" className={clsx(lane, 'gap-2 p-2')}>{children}</section>;
 }
 
 /** The insertion line shown while dragging a card (moved by transform: `drag-layer`). */
 export function DropIndicator({ref}: {ref: Ref<HTMLDivElement>}) {
-  return <div ref={ref} aria-hidden hidden className="drag-layer h-0.5 w-column rounded-full bg-accent-emphasis"/>;
+  return <div ref={ref} aria-hidden hidden className="drag-layer h-0.5 w-column rounded-md bg-accent-emphasis"/>;
 }

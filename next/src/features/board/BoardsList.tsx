@@ -8,7 +8,7 @@
 // projects are few. J/K walk them, Enter opens one, and Back finds the cursor
 // on the board it opened.
 
-import {getRouteApi, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -22,8 +22,7 @@ import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
 import {Blankslate} from '@primer/react/experimental';
-import {RouterLink} from '../../app/routerLinks.tsx';
-import {Heading, Label, SegmentedControl, Text} from '@primer/react';
+import {Label, SegmentedControl, Text} from '@primer/react';
 
 interface Place {
   key: string;
@@ -102,22 +101,22 @@ export const BoardsList = observer(function BoardsList() {
   return (
     <>
       <PageHeader icon={ProjectIcon} title="Boards">
-        <SegmentedControl aria-label="Board state" onChange={(index) => { setState(index === 1 ? 'closed' : 'open'); }}>
+        <SegmentedControl size="small" aria-label="Board state" onChange={(index) => { setState(index === 1 ? 'closed' : 'open'); }}>
           <SegmentedControl.Button selected={state === 'open'}>Open</SegmentedControl.Button>
           <SegmentedControl.Button selected={state === 'closed'}>Closed</SegmentedControl.Button>
         </SegmentedControl>
-        <NewBoard scope={scope}/>
+        <NewBoard scope={scope} primary/>
       </PageHeader>
       <PageBody>
-        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <div key={key} className="flex items-center gap-3 p-3" aria-busy><ProjectIcon size={16}/><Text>{p.title}</Text><Text size="small">Creating board…</Text></div>)}
+        {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <div key={key} className="flex items-center gap-2 px-4 py-3" aria-busy><ProjectIcon size={16}/><Text>{p.title}</Text><span className="text-sm text-muted">Creating board…</span></div>)}
         {sorted.length === 0 ?
-          <Blankslate><Blankslate.Visual><ProjectIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{state === 'closed' ? 'No closed boards' : 'No open boards'}</Blankslate.Heading><Blankslate.Description>Projects of your repositories and organizations show here.</Blankslate.Description></Blankslate> :
+          <Blankslate spacious><Blankslate.Visual><ProjectIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{state === 'closed' ? 'No closed boards' : 'No open boards'}</Blankslate.Heading><Blankslate.Description>Projects of your repositories and organizations show here.</Blankslate.Description></Blankslate> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
-              <section key={pl.key} aria-label={pl.key || 'Other'} className="rounded-md border border-default">
-                <header className="flex items-center justify-between gap-3 border-b border-default bg-muted p-3"><Heading as="h2" variant="small">{pl.repo ?
-                  <RouterLink to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.key}</RouterLink> :
-                  pl.owner ? <RouterLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{pl.owner}</RouterLink> : 'Other'}</Heading>
+              <section key={pl.key} aria-label={pl.key || 'Other'} className="overflow-hidden rounded-md border border-default">
+                <header className="flex min-h-10 items-center justify-between gap-2 bg-muted px-4 py-2"><h2 className="min-w-0 truncate text-base font-semibold">{pl.repo ?
+                  <Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.key}</Link> :
+                  pl.owner ? <Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.owner}</Link> : 'Other'}</h2>
                 {pl.owner && <NewBoard scope={pl.scope}/>}</header>
                 <ul>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
@@ -137,12 +136,12 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
   const columns = pool.model('ProjectColumn').by('project_id', project.id).size;
   const cards = pool.model('ProjectIssue').by('project_id', project.id).size;
   return (
-    <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-start gap-3 border-b border-muted p-3 last:border-b-0 data-active:bg-accent-muted">
-      <ProjectIcon size={16} className="shrink-0 text-muted"/>
+    <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-center gap-2 border-t border-muted px-4 py-3 data-active:bg-accent-muted">
+      <span className="flex h-5 shrink-0 self-start items-center text-muted"><ProjectIcon size={16}/></span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <RouterLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate">{project.title}</RouterLink>
-        <Text size="small">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</Text>
-        {project.description && <Text size="small">{project.description}</Text>}
+        <Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold text-default hover:text-accent hover:underline">{project.title}</Link>
+        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</span>
+        {project.description && <p className="text-base text-muted">{project.description}</p>}
       </div>
       {project.closed && <Label variant="done">Closed</Label>}
     </li>

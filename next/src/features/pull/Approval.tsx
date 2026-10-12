@@ -91,7 +91,7 @@ export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, 
   }
   if (actions?.poster_trust === 'explicitly' && can) {
     return (
-      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+      <p className="flex flex-wrap items-center gap-2 text-base text-muted">
         The author of this pull request is always trusted to run workflows.
         {why && <span>{why}</span>}
         <Tooltip text={why ?? 'Each of their runs will need approval again'}>

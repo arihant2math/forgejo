@@ -9,6 +9,7 @@
 
 import type {ComponentProps, ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
+import {Button} from '@primer/react';
 
 /** Syntax classes by token class (workers/highlight.ts SYN): plain, keyword, string, comment, function, constant, parameter, punctuation, link. */
 const SYN = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'] as const;
@@ -116,13 +117,13 @@ export interface CodeLineProps {
 export function CodeLine({gutter, tone = 'none', active, linked, trailing, action, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined} data-linked={linked ? '' : undefined}
-      className={clsx('group flex h-line w-max min-w-full font-mono text-code contain-layout', linked ? 'bg-control-transparent-selected text-default' : lineTone[tone])}>
+      className={clsx('group flex w-max min-w-full items-center font-mono text-base contain-layout', tone === 'hunk' ? 'h-8' : 'h-line', linked ? 'bg-control-transparent-selected text-default' : lineTone[tone])}>
       {/* The cursor's edge is the gutter's own (sticky, it would cover an edge drawn on the row). */}
-      <span data-active={active ? '' : undefined} className={clsx('row-cursor sticky left-0 flex shrink-0', linked ? 'bg-control-transparent-selected' : gutterTone[tone])}>
+      <span data-active={active ? '' : undefined} className={clsx('row-cursor sticky left-0 flex shrink-0 items-center self-stretch', linked ? 'bg-control-transparent-selected' : gutterTone[tone])}>
         {gutter}
         {action && <span className="absolute inset-y-0 right-0 flex items-center">{action}</span>}
       </span>
-      <span className="code-text pr-6 pl-3">{children}</span>
+      <span className="code-text pr-6 pl-4">{children}</span>
       {trailing}
     </div>
   );
@@ -136,14 +137,13 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, actio
  * one per line as it scrolls (measured: those cost frames). Its label is its
  * accessible name and title.
  */
-export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<'button'>) {
+export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<typeof Button>) {
   return (
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
       {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
-      <button type="button" tabIndex={-1} aria-label={label} title={label} {...props}
-        className="interactive flex size-control-sm items-center justify-center rounded-sm bg-accent-emphasis text-onEmphasis hover:bg-accent-emphasis">
+      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...{...props}}>
         {children}
-      </button>
+      </Button>
     </span>
   );
 }
@@ -167,10 +167,10 @@ export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boo
 /** The blame column of a line: the commit's summary and age on the first line of a part, empty below it. */
 export function BlameCell({first, summary, meta, children}: {first: boolean; summary?: string | undefined; meta?: string | undefined; children?: ReactNode}) {
   return (
-    <span className={clsx('flex w-blame-narrow shrink-0 items-center gap-2 overflow-hidden border-r @xl:w-blame border-muted px-2 font-sans text-sm text-muted', first && 'border-t')}>
+    <span className={clsx('flex w-blame-narrow shrink-0 items-center self-stretch gap-2 overflow-hidden border-r @xl:w-blame border-muted bg-muted px-2 font-sans text-base text-default', first && 'border-t')}>
       {first && <>
         <span className="min-w-0 flex-1 truncate">{children ?? summary}</span>
-        {meta && <span className="shrink-0 text-muted tabular-nums">{meta}</span>}
+        {meta && <span className="shrink-0 text-sm text-muted tabular-nums">{meta}</span>}
       </>}
     </span>
   );
@@ -183,9 +183,9 @@ export function BlameCell({first, summary, meta, children}: {first: boolean; sum
 export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
   return (
     <button type="button" aria-expanded={expanded} onClick={onToggle}
-      className="interactive flex h-line w-full items-center gap-2 bg-inset px-3 text-left font-sans text-sm text-default hover:bg-control-transparent-hover">
+      className="interactive flex h-line w-full items-center gap-2 bg-muted px-4 text-left font-sans text-base text-default hover:bg-control-transparent-hover">
       {mark}
-      <span className="min-w-0 flex-1 truncate font-medium">{children}</span>
+      <span className="min-w-0 flex-1 truncate font-semibold">{children}</span>
       {meta && <span className="text-muted tabular-nums">{meta}</span>}
     </button>
   );
@@ -194,7 +194,7 @@ export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded
 /** Lines added and removed ("+12 −3"). */
 export function DiffStat({additions, deletions}: {additions: number; deletions: number}) {
   return (
-    <span className="flex shrink-0 gap-1.5 font-mono text-sm tabular-nums">
+    <span className="flex shrink-0 items-center gap-2 font-mono text-sm tabular-nums">
       <span className="text-success">+{additions}</span>
       <span className="text-danger">−{deletions}</span>
     </span>
@@ -218,9 +218,9 @@ export function CodeFileHeader({path, oldPath, status, stat, leading, children, 
   ref?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div ref={ref} className="flex h-row items-center gap-2 border-y border-default bg-inset px-3 text-base">
+    <div ref={ref} className="flex h-10 items-center gap-2 border-y border-default bg-muted px-4 text-base">
       {leading}
-      <span className="min-w-0 truncate font-mono text-code text-default" title={oldPath ? `${oldPath} → ${path}` : path}>
+      <span className="min-w-0 truncate font-mono text-base font-semibold text-default" title={oldPath ? `${oldPath} → ${path}` : path}>
         {oldPath && <span className="text-muted">{oldPath} → </span>}{path}
       </span>
       {status && <span className="shrink-0 text-sm text-muted">{status}</span>}

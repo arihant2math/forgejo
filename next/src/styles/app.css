@@ -55,6 +55,8 @@
  * (app/shell/sidebar.ts): attributes on <html>, so toggling restyles without re-rendering the shell. */
 @custom-variant sidebar-hidden (&:where([data-sidebar="hidden"] *));
 @custom-variant drawer-open (&:where([data-drawer="open"] *));
+/* Header toolbars only occupy a narrow-panel row when they contain visible controls, not a quiet live region. */
+@custom-variant with-controls (&:has(button, a, input, select));
 
 /* Motion: the only transition in the app. Entering a state is instant
  * (--speed-in), leaving it fades out (--speed-out); colours and opacity only. */
@@ -267,4 +269,28 @@
 /* A diff's comment threads start under the code (past the line numbers). */
 @utility pl-thread {
   padding-left: var(--thread-indent);
+}
+
+/* Markdown in a conversation (issue and pull request bodies, comments, the composer's preview): Primer's
+ * markdown-body is sized for READMEs; conversations use the UI's body scale, as on github.com. A utility, so it sits
+ * above the `primer` layer that holds markdown-body. */
+@utility conversation-markdown {
+  & :where(.markdown-body) {
+    font-size: var(--text-body-size-medium);
+    line-height: var(--text-body-lineHeight-medium);
+  }
+
+  & :where(.markdown-body) :is(h2, h3, h4, h5, h6) {
+    font-size: var(--text-title-size-small);
+    font-weight: var(--base-text-weight-semibold);
+  }
+
+  & :where(.markdown-body) li:has(> input[type="checkbox"], > p > input[type="checkbox"]) {
+    list-style-type: none;
+  }
+
+  & :where(.markdown-body) input[type="checkbox"] {
+    margin-inline-end: var(--base-size-8);
+    vertical-align: middle;
+  }
 }

@@ -31,8 +31,8 @@ import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-
 import {Button, IconButton, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 
-/** A file header row: the header (h-row, 32) after an 8 px gap. */
-export const FILE_ROW = 40;
+/** A file header row: the Primer header (40px) after an 8px gap. */
+export const FILE_ROW = 48;
 const EMPTY_ROW = 40;
 
 /** What a pull request adds to its diff: threads, notes, the comment button, per-file actions, collapsing. */
@@ -157,7 +157,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   // Stable per row list: the virtualizer recomputes every row's position (O(rows)) whenever these change.
   const estimateSize = useCallback((i: number) => {
     const t = rows[i]?.t;
-    return t === 'file' ? FILE_ROW : t === 'empty' ? EMPTY_ROW : t === 'thread' || t === 'notes' ? 120 : LINE;
+    return t === 'file' ? FILE_ROW : t === 'empty' ? EMPTY_ROW : t === 'hunk' ? 32 : t === 'thread' || t === 'notes' ? 120 : LINE;
   }, [rows]);
   const getItemKey = useCallback((i: number) => rowKey(rows[i]), [rows]);
   const getScrollElement = useCallback(() => scroller, [scroller]);
@@ -332,7 +332,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
     case 'file':
       return <div className="sticky left-0 w-view pt-2 font-sans"><FileHeader file={file} f={row.f} extras={extras}/></div>;
     case 'notes':
-      return <div className="sticky left-0 w-view font-sans">{extras?.notesOf(row.f)}</div>;
+      return <div className="sticky left-0 w-view py-2 font-sans text-base text-default">{extras?.notesOf(row.f)}</div>;
     case 'empty':
       return <div className="sticky left-0 flex h-row w-view items-center px-4 font-sans text-sm text-muted">{emptyReason(file)}</div>;
     case 'hunk': {
@@ -344,7 +344,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
         <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}
           trailing={expandable && (
             // Opaque (the row's own background): pinned to the right on a narrow view, it covers the header's text.
-            <span className="sticky right-0 flex items-center gap-1 bg-inherit pr-2 pl-2 font-sans">
+            <span className="sticky right-0 ml-auto flex items-center gap-2 self-stretch bg-muted px-2 font-sans">
               <ExpandButton label={`Show ${String(Math.min(row.hidden, EXPAND_STEP))} more unchanged lines`} onClick={() => {
                 onExpand(row.f, row.h, false);
               }}>{row.hidden > EXPAND_STEP ? `Expand ${String(EXPAND_STEP)}` : 'Expand'}</ExpandButton>
@@ -400,7 +400,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       );
     }
     case 'thread':
-      return <div className="sticky left-0 w-view font-sans">{extras?.thread(row.f, row.l)}</div>;
+      return <div className="sticky left-0 w-view py-2 font-sans text-base text-default">{extras?.thread(row.f, row.l)}</div>;
   }
 });
 
@@ -444,7 +444,7 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
   return (
     <section aria-label="Changed files" className="sticky left-0 w-view border-b border-muted py-1">
-      <div className="flex h-control items-center gap-2 px-4 text-sm text-muted">
+      <div className="flex h-control items-center gap-2 px-4 text-base text-default">
         <IconButton icon={open ? ChevronDownIcon : ChevronRightIcon} variant="invisible" size="small" aria-label={open ? 'Hide the files' : 'Show the files'} type="button" aria-expanded={open} onClick={() => {
           setOpen((o) => !o);
         }}/>
@@ -452,7 +452,7 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
         <DiffStat additions={additions} deletions={deletions}/>
       </div>
       {open && files.map((f, i) => (
-        <a className="flex items-center gap-2 px-4 py-2 text-default hover:bg-control-transparent-hover" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`}
+        <a className="flex items-center gap-2 px-4 py-2 text-base text-default hover:bg-control-transparent-hover hover:text-accent hover:underline" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`}
           onClick={(e) => {
             e.preventDefault();
             diff.current?.toFile(i);

@@ -18,6 +18,7 @@ let selected: CodeViewLineSelection | null = null;
 const raw = vi.fn(() => Promise.resolve({kind: 'text' as const, text: 'one\nTWO\nthree\nfour\n'}));
 
 vi.mock('../features/code/hooks.ts', () => ({useSource: () => ({raw})}));
+vi.mock('../app/store.ts', () => ({useApp: () => ({config: {base: '/'}})}));
 vi.mock('../features/code/DiffSettings.tsx', () => ({useDiffSettings: () => ({split: false, whitespace: ''})}));
 vi.mock('../app/shortcuts/index.ts', () => ({useShortcut: () => undefined, useShortcutScope: () => undefined}));
 vi.mock('./PierreProvider.tsx', () => ({
@@ -80,6 +81,13 @@ async function ready() {
   if (!lastProps) throw new Error('no viewer');
   return lastProps;
 }
+
+test('Trusted Types browsers keep the safe review renderer instead of hitting Pierre HTML sinks', () => {
+  vi.stubGlobal('trustedTypes', {});
+  render(<ReviewSurface {...props}/>);
+  expect(screen.getByText('Plain fallback')).toBeTruthy();
+  expect(lastProps).toBeUndefined();
+});
 
 test('old/new conversations and outdated notes become correctly positioned React annotations', async () => {
   const x = extras();

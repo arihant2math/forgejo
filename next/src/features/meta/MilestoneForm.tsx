@@ -128,7 +128,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
               </span>
             <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{(tried ? problems.due : undefined) && <FormControl.Validation id={`${id}-due-e`} variant="error">{tried ? problems.due : undefined}</FormControl.Validation>}</FormControl>
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-default">Description</span>
+              <span className="text-base font-semibold text-default">Description</span>
               <MarkdownField repoId={r.repoId} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {
                 setD((x) => ({...x, description}));
               }} onSubmit={save}/>

@@ -61,7 +61,7 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
         <ListControls model={model}/>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo
-        empty={<Blankslate><Blankslate.Visual>{pulls ? <GitPullRequestIcon size={24}/> : <IssueOpenedIcon size={24}/>}</Blankslate.Visual><Blankslate.Heading>All clear</Blankslate.Heading><Blankslate.Description>{DESCRIPTIONS[search.type ?? 'all']}</Blankslate.Description></Blankslate>}/>
+        empty={<Blankslate spacious><Blankslate.Visual>{pulls ? <GitPullRequestIcon size={24}/> : <IssueOpenedIcon size={24}/>}</Blankslate.Visual><Blankslate.Heading>All clear</Blankslate.Heading><Blankslate.Description>{DESCRIPTIONS[search.type ?? 'all']}</Blankslate.Description></Blankslate>}/>
     </>
   );
 });

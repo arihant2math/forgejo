@@ -9,11 +9,11 @@ export function IssueRowFrame({leading, trailing, children, active = false, sele
   Omit<ComponentPropsWithoutRef<'a'>, 'href'> & {href?: string | undefined; leading: ReactNode; trailing: ReactNode; active?: boolean; selected?: boolean}) {
   return <a {...props} aria-selected={props.role === 'option' ? selected : undefined}
     data-active={active ? '' : undefined} data-selected={selected ? '' : undefined}
-    className={clsx('group @container relative row-cursor contain-content flex h-10 items-center gap-2 border-b border-muted px-3 text-sm text-default no-underline hover:bg-control-transparent-hover',
+    className={clsx('group @container relative row-cursor contain-content flex h-10 items-center gap-2 border-b border-muted px-4 text-base text-default no-underline hover:bg-control-transparent-hover',
       selected && 'bg-accent-muted', className)}
     style={props.style}>
     <span className="flex shrink-0 items-center gap-2">{leading}</span>
-    <span className="min-w-0 flex-1 truncate">{children}</span>
-    <span className="flex shrink-0 items-center gap-2 text-muted">{trailing}</span>
+    <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
+    <span className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</span>
   </a>;
 }

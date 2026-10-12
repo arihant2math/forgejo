@@ -19,10 +19,10 @@ export function DenseRow({href, selected, active, leading, trailing, children, r
   return <Tag {...rest} href={href} role={role} data-home-row=""
     data-active={active ? '' : undefined} data-selected={selected ? '' : undefined}
     aria-selected={role === 'option' ? Boolean(selected) : undefined}
-    className={clsx('relative flex h-8 min-w-0 items-center gap-2 border-b border-muted px-3 text-default contain-content hover:bg-control-transparent-hover focus-visible:outline-focus',
+    className={clsx('group relative flex h-8 min-w-0 items-center gap-2 border-b border-muted px-4 text-base text-default contain-content hover:bg-control-transparent-hover focus-visible:outline-focus',
       'data-active:not-data-selected:bg-control-transparent-selected data-selected:bg-accent-muted')}>
     {leading && <span className="flex shrink-0 items-center gap-2 text-muted">{leading}</span>}
-    <span className="min-w-0 flex-1 truncate">{children}</span>
+    <span className={clsx("min-w-0 flex-1 truncate", href !== undefined && "group-hover:text-accent group-hover:underline")}>{children}</span>
     {trailing && <span className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</span>}
   </Tag>;
 }

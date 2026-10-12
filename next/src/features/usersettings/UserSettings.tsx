@@ -146,7 +146,7 @@ function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; s
 
 function RowsSkeleton({rows = 2}: {rows?: number}) {
   return (
-    <div aria-busy className="flex flex-col gap-3 py-1">
+    <div aria-busy className="flex flex-col gap-2 py-2">
       {Array.from({length: rows}, (_, i) => <SkeletonBox className="h-3 w-2/3" key={i}/>)}
     </div>
   );
@@ -260,12 +260,12 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
           );
         })}
         <FormActions note={offline}>
-          {payload && <PrimerButton variant="invisible" type="button" disabled={saving} onClick={() => {
+          {payload && <PrimerButton size="small" variant="invisible" type="button" disabled={saving} onClick={() => {
             setDraft({});
             setErrors({});
             setFormError(undefined);
           }}>Discard changes</PrimerButton>}
-          <PrimerButton variant="primary" type="submit" disabled={saving || Boolean(offline) || !payload}>{saving ? 'Saving…' : 'Save profile'}</PrimerButton>
+          <PrimerButton size="small" variant="primary" type="submit" disabled={saving || Boolean(offline) || !payload}>{saving ? 'Saving…' : 'Save profile'}</PrimerButton>
         </FormActions>
       </form>
     </FormSection>
@@ -329,8 +329,8 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
         {shown ? <Avatar size={96} alt={login} src={shown}/> : <SkeletonAvatar size={96}/>}
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
-            <PrimerButton leadingVisual={UploadIcon} type="button" disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</PrimerButton>
-            <PrimerButton variant="invisible" leadingVisual={TrashIcon} type="button" disabled={busy || Boolean(offline)} onClick={remove}>Remove</PrimerButton>
+            <PrimerButton size="small" leadingVisual={UploadIcon} type="button" disabled={busy || Boolean(offline)} onClick={() => input.current?.click()}>{busy ? 'Saving…' : 'Upload a picture'}</PrimerButton>
+            <PrimerButton size="small" variant="invisible" leadingVisual={TrashIcon} type="button" disabled={busy || Boolean(offline)} onClick={remove}>Remove</PrimerButton>
           </div>
           {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <p className="text-sm text-muted">{offline ?? 'A square picture looks best.'}</p>}
         </div>
@@ -358,7 +358,7 @@ const PrivacySection = observer(function PrivacySection({src, settings, slot, vi
         <ClassicLink to="/user/settings" size="small" variant="default">Change</ClassicLink>
       </SettingRow>
       {settings ? (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col">
           <Toggle src={src} settings={settings} field="hide_email" label="Hide my email address" hint="Others do not see your primary address on your profile." offline={offline}/>
           <Toggle src={src} settings={settings} field="hide_pronouns" label="Hide my pronouns" hint="Your pronouns are shown to you only." offline={offline}/>
           <Toggle src={src} settings={settings} field="hide_activity" label="Hide my activity" hint="Your activity is not shown on your profile page." offline={offline}/>
@@ -378,7 +378,7 @@ const Toggle = observer(function Toggle({src, settings, field, label, hint, offl
   const id = useId();
   return (
     <SettingRow id={id} title={label} description={hint}>
-      <ToggleSwitch aria-labelledby={`${id}-label`} aria-describedby={`${id}-description`} checked={settings[field]} disabled={Boolean(offline)}
+      <ToggleSwitch size="small" aria-labelledby={`${id}-label`} aria-describedby={`${id}-description`} checked={settings[field]} disabled={Boolean(offline)}
  onChange={(on) => { change({[field]: on}, label); }}/>
     </SettingRow>
   );
@@ -413,7 +413,7 @@ const AppearanceView = observer(function AppearanceView() {
     <>
       <FormSection title="Forgejo Next" description="How this app looks on this device.">
         <SettingRow title="Theme" description="System follows your device's light or dark mode.">
-          <SegmentedControl aria-label="Theme" onChange={(index) => {
+          <SegmentedControl size="small" aria-label="Theme" onChange={(index) => {
             const theme = NEXT_THEMES[index ?? -1];
             if (theme) setThemePreference(theme.value);
           }}>{NEXT_THEMES.map((theme) => <SegmentedControl.Button key={theme.value} selected={themeState.preference === theme.value}>{theme.label}</SegmentedControl.Button>)}</SegmentedControl>
@@ -434,7 +434,7 @@ const AppearanceView = observer(function AppearanceView() {
             </SettingRow>
             <SettingRow title="Diff view" description="How the classic UI shows a change.">
               {offline ? <span className="text-sm text-muted">{diffStyleOf(settings.diff_view_style) === 'split' ? 'Split' : 'Unified'}</span> :
-                <SegmentedControl aria-label="Diff view" onChange={(index) => {
+                <SegmentedControl size="small" aria-label="Diff view" onChange={(index) => {
                   if (index !== undefined) change({diff_view_style: index === 0 ? 'unified' : 'split'}, 'Diff view');
                 }}><SegmentedControl.Button selected={diffStyleOf(settings.diff_view_style) === 'unified'}>Unified</SegmentedControl.Button><SegmentedControl.Button selected={diffStyleOf(settings.diff_view_style) === 'split'}>Split</SegmentedControl.Button></SegmentedControl>}
             </SettingRow>
@@ -476,11 +476,11 @@ const AccountView = observer(function AccountView() {
     <>
       <EmailsSection src={src}/>
       <FormSection title="Password" description="Change your password, or set one for an account that signs in elsewhere.">
-        <div><ClassicLink to="/user/settings/account" variant="default">Change your password</ClassicLink></div>
+        <div><ClassicLink size="small" to="/user/settings/account" variant="default">Change your password</ClassicLink></div>
       </FormSection>
       <FormSection title="Delete your account">
         <Banner variant="critical" title="Deleting your account is permanent" description="Your repositories, organizations you alone own and everything you wrote go with it."/>
-        <div><ClassicLink to="/user/settings/account" variant="default">Delete your account</ClassicLink></div>
+        <div><ClassicLink size="small" to="/user/settings/account" variant="default">Delete your account</ClassicLink></div>
       </FormSection>
     </>
   );
@@ -509,7 +509,7 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
       {list ? (
         <AccountList title={`${String(list.length)} ${list.length === 1 ? 'address' : 'addresses'}`}>
           {list.map((e) => (
-            <AccountRow key={e.email} leading={<MailIcon size={12} className="shrink-0"/>} trailing={<>
+            <AccountRow key={e.email} leading={<MailIcon size={16} className="shrink-0"/>} trailing={<>
               {e.primary && <Label variant="accent">Primary</Label>}
               {e.verified ? <Label variant="success">Verified</Label> : <Label variant="attention">Unverified</Label>}
               {!e.primary && e.verified && <PrimerButton variant="invisible" size="small" type="button" inactive={Boolean(offline)} onClick={() => {
@@ -574,7 +574,7 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
               setEmail(e.target.value);
               setError(undefined);
             }} {...(error ? {validationStatus: 'error' as const} : {})}/>
-          <PrimerButton leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
+          <PrimerButton size="small" leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
         </div>
       </Field>
     </form>
@@ -631,15 +631,15 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
       {list ? (list.length ? (
         <AccountList title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
           {list.map((k) => (
-            <AccountRow key={k.id} leading={<KeyIcon size={12} className="shrink-0"/>} trailing={<>
+            <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
               <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
               }}/>
             </>}>
-              <span className="font-medium">{k.title}</span>
-              {k.fingerprint && <span className="ml-3 font-mono text-sm text-muted" title={k.fingerprint}>{k.fingerprint}</span>}
+              <span className="font-semibold">{k.title}</span>
+              {k.fingerprint && <code className="ml-4 text-sm text-muted" title={k.fingerprint}>{k.fingerprint}</code>}
             </AccountRow>
           ))}
         </AccountList>
@@ -684,7 +684,7 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
     });
   };
   return (
-    <form className="flex flex-col gap-3 rounded-md border border-default p-3" onSubmit={(e) => {
+    <form className="flex flex-col gap-4 rounded-md border border-default p-4" onSubmit={(e) => {
       e.preventDefault();
       add();
     }}>
@@ -700,8 +700,8 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
           }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
       </Field>
       <FormActions note={offline}>
-        <PrimerButton variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
-        <PrimerButton variant="primary" type="submit" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add SSH key'}</PrimerButton>
+        <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
+        <PrimerButton size="small" variant="primary" type="submit" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add SSH key'}</PrimerButton>
       </FormActions>
     </form>
   );
@@ -727,7 +727,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
           {list.map((k) => {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (
-              <AccountRow key={k.id} leading={<LockIcon size={12} className="shrink-0"/>} trailing={<>
+              <AccountRow key={k.id} leading={<LockIcon size={16} className="shrink-0"/>} trailing={<>
                 {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
                 {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
                 <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
@@ -735,8 +735,8 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
                   setRemoving(k);
                 }}/>
               </>}>
-                <span className="font-mono font-medium">{spacedKeyId(k.key_id)}</span>
-                {emails && <span className="ml-3 text-muted" title={emails}>{emails}</span>}
+                <code className="font-semibold">{spacedKeyId(k.key_id)}</code>
+                {emails && <span className="ml-4 text-muted" title={emails}>{emails}</span>}
               </AccountRow>
             );
           })}
@@ -780,7 +780,7 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
     });
   };
   return (
-    <form className="flex flex-col gap-3 rounded-md border border-default p-3" onSubmit={(e) => {
+    <form className="flex flex-col gap-4 rounded-md border border-default p-4" onSubmit={(e) => {
       e.preventDefault();
       add();
     }}>
@@ -791,8 +791,8 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
           }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
       </Field>
       <FormActions note={offline}>
-        <PrimerButton variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
-        <PrimerButton variant="primary" type="submit" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add GPG key'}</PrimerButton>
+        <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
+        <PrimerButton size="small" variant="primary" type="submit" disabled={saving || Boolean(offline) || !key.trim()}>{saving ? 'Adding…' : 'Add GPG key'}</PrimerButton>
       </FormActions>
     </form>
   );

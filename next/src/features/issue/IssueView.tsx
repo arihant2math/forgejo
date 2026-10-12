@@ -193,7 +193,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
     // The properties beside the conversation when the page is wide, after it when it is not (a phone, a narrow
     // window: the title and the description come first).
     <div className="flex min-h-full flex-col @xl:flex-row">
-      <article className="flex min-w-0 flex-1 flex-col gap-3 px-4 py-4 @xl:px-8 @xl:py-6">
+      <article className="conversation-markdown flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6">
         <TitleSection issue={issue}/>
         <Byline issue={issue}/>
         <PropertiesSummary issue={issue}/>
@@ -270,7 +270,7 @@ const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
     <div className="flex flex-wrap items-center gap-2">
       <StateLabel status={status}>{merged ? 'Merged' : state === 'open' ? 'Open' : 'Closed'}</StateLabel>
       <p className="text-base text-muted">
-      <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
+      <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this<time className="ml-1" dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
       </p>
     </div>
@@ -292,7 +292,7 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={IssueOpenedIcon} title={indexLabel(index)} detail="issues"/>
       <PageBody>
         {searching ?
-          <div className="flex flex-col gap-3 px-8 py-6" aria-busy><SkeletonBox className="h-5 w-96"/><SkeletonText lines={2}/></div> :
+          <div className="flex flex-col gap-4 px-8 py-6" aria-busy><SkeletonBox className="h-5 w-96"/><SkeletonText lines={2}/></div> :
           // Every page of the repository's issues has been asked: Forgejo has no such issue the viewer can see, and
           // its classic page would say the same (no classic link to a 404).
           // A temporary address (an issue created offline) on a device that did not create it: its number is not

@@ -6,6 +6,7 @@
 
 import {shortSha} from '../../code/refs.ts';
 import {Avatar} from '@primer/react';
+import {GitCommitIcon} from '@primer/octicons-react';
 import type {CommitInfo} from '../../code/source.ts';
 
 import {ago, fullDate} from '../issues/format.ts';
@@ -30,9 +31,9 @@ export function summary(message: string): string {
 /** A commit as a RowList row: author, summary, SHA, time. */
 export function commitRow(c: CommitInfo): RowParts {
   return {
-    leading: c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : null,
-    main: <>{summary(c.message)} <span className="text-muted">{c.authorName}</span></>,
-    trailing: <><Sha sha={c.sha}/><Ago at={c.date}/></>,
+    leading: c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : <span className="inline-flex w-5 items-center justify-center"><GitCommitIcon size={16}/></span>,
+    main: <>{summary(c.message)} <span className="ml-2 text-sm text-muted">{c.authorName}</span></>,
+    trailing: <><Sha sha={c.sha}/><span className="w-12 text-right"><Ago at={c.date}/></span></>,
   };
 }
 

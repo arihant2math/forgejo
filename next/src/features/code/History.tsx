@@ -49,7 +49,7 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
-        <Blankslate><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>It does not exist, was deleted, or is not on this device.</Blankslate.Description></Blankslate>)}
+        <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>It does not exist, was deleted, or is not on this device.</Blankslate.Description></Blankslate>)}
     </CodeFrame>
   );
 });
@@ -123,7 +123,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   const {s, more, connected} = useCommitPages(repoId, at.sha, at.path);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
-    if (s.done) return <Blankslate><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
+    if (s.done) return <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
     return <Unloaded loaded={{state: 'loading'}} what="This history"/>;
   }
   return (
@@ -132,7 +132,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
         row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
-        <div className="flex justify-center p-3">
+        <div className="flex justify-center p-4">
           {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.retry}>Retry</Button>}</span> :
             <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>

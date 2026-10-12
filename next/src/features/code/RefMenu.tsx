@@ -8,7 +8,6 @@
 // tag's target), which may also take a commit typed by its SHA.
 
 import {useNavigate} from '@tanstack/react-router';
-import {BranchName} from '@primer/react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {codeSplat, type RefKind, type RefTable, type Resolved, shortSha} from '../../code/refs.ts';
@@ -54,7 +53,7 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
       choices={options}
       anchor={
         <Button size="small" leadingVisual={kindIcon(at.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`Ref: ${label}`}>
-          <BranchName as="span" className="max-w-xs truncate">{label}</BranchName>
+          <span className="block max-w-xs truncate">{label}</span>
         </Button>
       }/>
   );
@@ -88,7 +87,7 @@ export const RefPicker = observer(function RefPicker({repoId, label, value, onCh
 
       anchor={
         <Button size="small" leadingVisual={kindIcon(value.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`${label}: ${shown || 'none'}`}>
-          <BranchName as="span" className="max-w-xs truncate">{shown || 'Choose…'}</BranchName>
+          <span className="block max-w-xs truncate">{shown || 'Choose…'}</span>
         </Button>
       }/>
   );

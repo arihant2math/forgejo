@@ -608,9 +608,9 @@ export const TitleSection = observer(function TitleSection({issue}: {issue: Enti
   const title = issueTitle(overlay, issue);
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
   if (text === undefined) {
-    if (!mayEdit) return <Heading as="h2" variant="large">{title}</Heading>;
+    if (!mayEdit) return <Heading as="h2" variant="medium">{title}</Heading>;
     return <div className="flex items-start gap-2">
-      <Heading as="h2" variant="large" className="flex-1">{title}</Heading>
+      <Heading as="h2" variant="medium" className="flex-1">{title}</Heading>
       <Button variant="invisible" size="small" leadingVisual={PencilIcon} onClick={() => { setText(title); }}>Rename</Button>
     </div>;
   }

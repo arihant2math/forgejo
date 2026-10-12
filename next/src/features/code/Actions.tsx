@@ -10,7 +10,7 @@
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
 import {Banner} from '@primer/react';
-import {Avatar, Link as PrimerLink} from '@primer/react';
+import {Avatar} from '@primer/react';
 import {AnsiText, LogLine as LogTextLine, StepHeader} from './LogParts.tsx';
 import {CheckStatus, RunStatus, type StatusTone} from './CheckStatus.tsx';
 import {CodeRow} from './CodeRow.tsx';
@@ -108,7 +108,7 @@ function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef
       return <RouterLink to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(t.number)}} muted className="min-w-0 truncate">#{t.number}</RouterLink>;
     case 'branch':
     case 'tag':
-      return <PrimerLink as={CodeLink} owner={owner} repo={repo} to={codeSplat('src', {kind: t.kind, ref: t.name})}><BranchName as="span">{t.name}</BranchName></PrimerLink>;
+      return <CodeLink owner={owner} repo={repo} to={codeSplat('src', {kind: t.kind, ref: t.name})} className="text-default hover:text-accent hover:underline">{t.name}</CodeLink>;
     default:
       return <BranchName as="span">{t.name}</BranchName>;
   }
@@ -214,23 +214,23 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
             const look = runLook(r);
             const t = took(r.started, finished(r.status) ? r.stopped : undefined, now);
             return {
-              leading: <span title={look.text}><CheckStatus tone={look.tone}/></span>,
-              main: <>{r.title} <span className="text-muted">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Label variant="attention">Needs approval</Label></> : <span className="sr-only">, {look.text}</span>}</>,
+              leading: <span className="inline-flex items-center" title={look.text}><CheckStatus tone={look.tone}/></span>,
+              main: <>{r.title} <span className="ml-2 text-sm text-muted">{r.workflow_id} #{r.run_number}</span>{awaitsApproval(r) ? <> <Label variant="attention">Needs approval</Label></> : <span className="sr-only">, {look.text}</span>}</>,
               trailing: <>
                 <TriggerText gitRef={r.ref}/>
                 <span className="max-md:hidden">{eventText(r.event)}</span>
                 {t && <span className="tabular-nums" title={finished(r.status) ? 'Duration' : 'Running for'}>{t}</span>}
-                <time dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time>
+                <time className="w-12 text-right" dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time>
               </>,
             };
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
         all.length ?
-          <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No runs match</Blankslate.Heading><Blankslate.Description>No run of this repository matches the filter.</Blankslate.Description>{<Button size="small" type="button" onClick={() => {
+          <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No runs match</Blankslate.Heading><Blankslate.Description>No run of this repository matches the filter.</Blankslate.Description>{<Button size="small" type="button" onClick={() => {
             setFilter('all');
             setWorkflow(undefined);
           }}>Show all runs</Button>}</Blankslate> :
-          <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No workflow runs</Blankslate.Heading><Blankslate.Description>This repository has no Actions runs on this device.</Blankslate.Description></Blankslate>)}
+          <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No workflow runs</Blankslate.Heading><Blankslate.Description>This repository has no Actions runs on this device.</Blankslate.Description></Blankslate>)}
     </CodeFrame>
   );
 });
@@ -286,16 +286,16 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
       {job && <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={job} palette/>}
     </>}>
       {(scroller) => (!run ?
-        <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
+        <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
         <div className="flex min-h-full flex-col">
           {/* What started it: the workflow, the event, its pull request or branch, the commit, who. */}
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-default px-4 py-2 text-sm text-muted">
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-default px-4 py-2 text-base text-muted">
             <span className="font-mono text-default">{run.workflow_id}</span>
             <span>{eventText(run.event)}</span>
             <TriggerLink owner={props.owner} repo={props.repo} gitRef={run.ref}/>
-            {run.commit_sha && <PrimerLink as={CodeLink} owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`}><span className="font-mono tabular-nums">{shortSha(run.commit_sha)}</span></PrimerLink>}
-            {actor && <span className="flex items-center gap-1.5">{actor.avatar_url ? <Avatar alt={actor.full_name || actor.login} src={actor.avatar_url} size={20}/> : null}{actor.login}</span>}
-            <time dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
+            {run.commit_sha && <CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`} className="font-mono text-sm text-muted hover:text-accent hover:underline">{shortSha(run.commit_sha)}</CodeLink>}
+            {actor && <span className="flex items-center gap-2 text-default">{actor.avatar_url ? <Avatar alt={actor.full_name || actor.login} src={actor.avatar_url} size={20}/> : null}{actor.login}</span>}
+            <time className="text-sm" dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
           </p>
           {awaitsApproval(run) && <div className="border-b border-default px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">
@@ -314,7 +314,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           </nav>
           <section aria-label="Log" className="min-w-0 flex-1">
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
-              <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No such job</Blankslate.Heading></Blankslate>}
+              <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No such job</Blankslate.Heading></Blankslate>}
           </section>
           </div>
           <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
@@ -338,7 +338,7 @@ function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
 }
 
 /** A display row of a log: a step's header, or one of its lines. */
-type LogRow = {t: 'step'; s: number} | {t: 'line'; l: number};
+type LogRow = {t: 'step'; s: number} | {t: 'step-space'} | {t: 'line'; l: number};
 
 const JobLog = observer(function JobLog({repoId, job, scroller, approval = false}: {repoId: number; job: ActionRunJob; scroller: HTMLDivElement | null; approval?: boolean}) {
   const feed = useJobLog(repoId, job);
@@ -360,7 +360,8 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
       return out;
     }
     steps.forEach((st, s) => {
-      out.push({t: 'step', s});
+      // Step controls occupy two 20 px slots; log text remains on its original line grid.
+      out.push({t: 'step', s}, {t: 'step-space'});
       if (closed.has(s)) return;
       for (let l = st.log_index; l < Math.min(count, st.log_index + st.log_length); l++) out.push({t: 'line', l});
     });
@@ -369,7 +370,7 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
   }, [count, steps, closed]);
   const line = useCallback((i: number): ReactNode => {
     const r = rows[i];
-    if (!r) return null;
+    if (!r || r.t === 'step-space') return null;
     if (r.t === 'step') {
       const st = steps[r.s];
       if (!st) return null;
@@ -395,9 +396,9 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
     );
   }, [rows, steps, closed, log.lines]);
   if (!count && !steps.length) {
-    if (log.expired) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log removed</Blankslate.Heading><Blankslate.Description>This log was removed by the instance's log retention.</Blankslate.Description></Blankslate>;
-    if (source === 'none' && !connectivity.online) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This job's log is not on this device.</Blankslate.Description></Blankslate>;
-    if (feed.closed) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log not available</Blankslate.Heading><Blankslate.Description>{feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}</Blankslate.Description></Blankslate>;
+    if (log.expired) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log removed</Blankslate.Heading><Blankslate.Description>This log was removed by the instance's log retention.</Blankslate.Description></Blankslate>;
+    if (source === 'none' && !connectivity.online) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This job's log is not on this device.</Blankslate.Description></Blankslate>;
+    if (feed.closed) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log not available</Blankslate.Heading><Blankslate.Description>{feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}</Blankslate.Description></Blankslate>;
     return <p className="px-4 py-3 text-sm text-muted">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;

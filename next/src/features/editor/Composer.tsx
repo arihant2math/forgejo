@@ -343,10 +343,10 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
         });
       }}/>}
       <div className={props.invalid ? 'rounded-md border border-danger-emphasis focus-ring-within' : 'rounded-md border border-default focus-ring-within'}>
-        <div className="flex flex-wrap items-center gap-2 border-b border-default bg-muted p-2">{header}</div>
+        <div className="flex flex-wrap items-center gap-2 rounded-t-md border-b border-default bg-muted px-4 py-2">{header}</div>
         {preview ?
           <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region" className="outline-none"
-            style={{minHeight: `calc(var(--text-md--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 3)`}}>
+            style={{minHeight: `calc(var(--text-base) * var(--text-base--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 6)`}}>
             <MarkdownPreview repoId={repoId} text={props.value} render={render}/>
           </div> :
           Editor ?
@@ -410,18 +410,18 @@ export const MarkdownPreview = observer(function MarkdownPreview({repoId, text, 
       live = false;
     };
   }, [app, repoId, text, offline]);
-  if (!text.trim()) return <p className="min-h-16 px-2 py-1.5 text-base text-muted">Nothing to preview.</p>;
+  if (!text.trim()) return <p className="min-h-16 px-4 py-3 text-base text-muted">Nothing to preview.</p>;
   if (offline) {
     return (
-      <div className="flex flex-col gap-2 px-2 py-1.5">
+      <div className="flex flex-col gap-2 px-4 py-3">
         <p className="text-sm text-muted">The preview needs a connection (Forgejo renders it). Your text as written:</p>
-        <div className="markdown-body whitespace-pre-wrap">{text}</div>
+        <div className="conversation-markdown"><div className="markdown-body whitespace-pre-wrap">{text}</div></div>
       </div>
     );
   }
   if (state.text !== text) {
-    return <div className="flex flex-col gap-2 px-2 py-1.5" aria-busy><SkeletonText lines={2}/></div>;
+    return <div className="flex flex-col gap-2 px-4 py-3" aria-busy><SkeletonText lines={2}/></div>;
   }
-  if (state.error !== undefined) return <p role="alert" className="px-2 py-1.5 text-sm text-danger">{state.error}</p>;
-  return <div className="min-h-16 px-2 py-1.5"><Markdown html={state.html ?? ''}/></div>;
+  if (state.error !== undefined) return <p role="alert" className="px-4 py-3 text-sm text-danger">{state.error}</p>;
+  return <div className="conversation-markdown min-h-16 px-4 py-3"><Markdown html={state.html ?? ''}/></div>;
 });

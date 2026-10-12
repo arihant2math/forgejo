@@ -286,7 +286,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}
     triage(app, untracked(() => model.cursor.selected.values()), to, said);
   };
   return (
-    <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-1">
+    <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-2">
       <span className="px-1 text-sm whitespace-nowrap text-muted tabular-nums">{ids.length} selected</span>
       <Tooltip text={statuses.includes('unread') ? 'Mark the selected notifications read' : 'No selected notifications are unread'} keybindingHint={shortcutHint('inbox.read')}><Button variant="invisible" size="small" leadingVisual={ReadIcon} type="button" inactive={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button></Tooltip>
       <Tooltip text={statuses.every((st) => st === 'unread') ? 'All selected notifications are already unread' : 'Mark the selected notifications unread'} keybindingHint={shortcutHint('inbox.unread')}><Button variant="invisible" size="small" leadingVisual={MailIcon} type="button" inactive={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button></Tooltip>
@@ -312,7 +312,7 @@ const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}:
     <PageBody ref={setScroller}>
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
-        <Blankslate><Blankslate.Visual><BellSlashIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}</Blankslate.Heading><Blankslate.Description>{filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}</Blankslate.Description></Blankslate>}
+        <Blankslate spacious><Blankslate.Visual><BellSlashIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}</Blankslate.Heading><Blankslate.Description>{filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}</Blankslate.Description></Blankslate>}
     </PageBody>
   );
 });
@@ -540,9 +540,9 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
                     <NoteRow id={r.id} model={model} onClick={click} byRepo={byRepo}/>
                     <RowActions id={r.id} model={model} open={open} refocus={refocus}/>
                   </> :
-                  <div role="presentation" className="flex h-8 items-center gap-2 border-b border-default bg-muted px-3">
+                  <div role="presentation" className="flex h-8 items-center gap-2 border-b border-default bg-muted px-4">
                     {r.key === 'pinned' ? <PinIcon size={16}/> : r.key.startsWith('repo:') ? <FileSubmoduleIcon size={16}/> : null}
-                    <span className="min-w-0 truncate">{r.label}</span><CounterLabel>{r.count}</CounterLabel>
+                    <span className="min-w-0 truncate font-semibold">{r.label}</span><CounterLabel>{r.count}</CounterLabel>
                   </div>}
               </div>
             );
@@ -621,7 +621,7 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
   };
   return (
     <div data-note={id} aria-hidden className="absolute inset-y-0 right-0 flex items-center pe-2">
-      <div className="flex items-center gap-0.5 rounded-md border border-default bg-overlay p-0.5">
+      <div className="flex items-center gap-1 rounded-md border border-default bg-overlay">
         <IconButton icon={unread ? ReadIcon : MailIcon} variant="invisible" size="small" aria-label={unread ? 'Mark read' : 'Mark unread'} keybindingHint={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], unread ? (st) => (st === 'unread' ? 'read' : undefined) : () => 'unread', unread ? 'read' : 'unread');
         }}/>
@@ -696,9 +696,9 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
       </>}
     >
       {/* The title gives way first, then the actor's name; why it is here stays (a phone, #229). */}
-      <span className="flex min-w-0 items-baseline">
+      <span className="flex min-w-0 items-center">
         {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
-        <span className={clsx('shrink-4 truncate', reason ? 'min-w-24' : 'min-w-0', unread ? 'font-medium text-default' : 'text-muted')}>
+        <span className={clsx('shrink-4 truncate', reason ? 'min-w-24' : 'min-w-0', unread ? 'font-semibold text-default' : 'text-default')}>
           {issue ? <TitleCell issue={issue}/> : subject ? subject.title : subjectWords(n.get('subject'))}
         </span>
         {reason && <Why why={reason.why} actor={reason.actor}/>}
@@ -711,8 +711,8 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
 function Why({why, actor}: {why: string; actor: number}) {
   const user = useUser(actor);
   return <>
-    <span className="ms-1 shrink-0 whitespace-nowrap text-muted">· {why}</span>
-    {actor && user.name ? <span className="ms-1 min-w-0 truncate text-muted">· {user.name}</span> : null}
+    <span className="ms-2 shrink-0 whitespace-nowrap text-sm text-muted">· {why}</span>
+    {actor && user.name ? <span className="ms-2 min-w-0 truncate text-sm text-muted">· {user.name}</span> : null}
   </>;
 }
 

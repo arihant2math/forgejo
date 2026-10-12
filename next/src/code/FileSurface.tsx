@@ -6,6 +6,7 @@ import {useTheme} from '@primer/react';
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {type ReactNode, useMemo} from 'react';
 import {useViewSize} from '../features/code/Lines.tsx';
+import {pierreHTMLSupported} from './pierreSupport.ts';
 import {githubTheme, PierreProvider, primerCodeCSS, WorkerReady} from './PierreProvider.tsx';
 
 /** A single VirtualizedFile in CodeView's measured viewport. No network reads here. */
@@ -20,7 +21,7 @@ export function FileSurface({name, text, cacheKey, scroller, children, fallback}
   // Linked files retain real #L anchors in the light DOM, Shift+click ranges,
   // and the permalink/history menu. Pierre's numbers live in a shadow root.
   // Blame and these deep links deliberately share the accessible line renderer.
-  if (/^#?L\d/.test(hash)) return fallback;
+  if (!pierreHTMLSupported() || /^#?L\d/.test(hash)) return fallback;
   const pick = (n: number) => {void navigate({to: '.', hash: `L${String(n)}`, search: true, replace: true});};
   return <PierreProvider><WorkerReady fallback={fallback}>
     {children}

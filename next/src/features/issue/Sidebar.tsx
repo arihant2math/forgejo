@@ -10,7 +10,7 @@
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reviewVerdicts} from '../../code/review.ts';
-import {useParams} from '@tanstack/react-router';
+import {Link, useParams} from '@tanstack/react-router';
 import {createElement, type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
@@ -30,7 +30,7 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {scopedValue} from '../issues/labels.ts';
 import {ArrowRightIcon, BellIcon, BellSlashIcon, CalendarIcon, CheckCircleIcon, ClockIcon, FileDiffIcon, GitBranchIcon, GitPullRequestDraftIcon, LockIcon, UnlockIcon, CommentIcon, PinIcon, PinSlashIcon, UndoIcon, GearIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, Heading, IconButton, IssueLabelToken, Label, SelectPanel, type SelectPanelItemInput, Text, Tooltip} from '@primer/react';
+import {Button, IconButton, IssueLabelToken, Label, SelectPanel, type SelectPanelItemInput, Text, Tooltip} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
@@ -76,8 +76,8 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
 
 /** Each sidebar field is a heading and its value, separated like GitHub's issue sidebar. */
 function SidebarSection({label, children}: {label: string; children: ReactNode}) {
-  return <section className="border-b border-muted pb-4">
-    <Heading as="h3" variant="small" className="mb-2">{label}</Heading>
+  return <section className="relative border-b border-muted pb-4 text-base">
+    <div className="mb-2 flex min-h-7 items-center pr-8 text-muted"><Text as="h3" size="medium" weight="semibold">{label}</Text></div>
     {children}
   </section>;
 }
@@ -86,11 +86,11 @@ function SidebarSection({label, children}: {label: string; children: ReactNode})
 function SidebarPicker({kind, issueIds, label, shortcut, children}: {
   kind: PickerKind; issueIds: readonly number[]; label: string; shortcut?: string | undefined; children: ReactNode;
 }) {
-  return <div className="flex items-start gap-2">
+  return <div className="flex items-center gap-2">
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</div>
-    <PickerPopover kind={kind} issueIds={issueIds} trigger={
+    <div className="absolute top-0 right-0"><PickerPopover kind={kind} issueIds={issueIds} trigger={
       <IconButton icon={GearIcon} variant="invisible" size="small" aria-label={label} description={label} {...(shortcut ? {keybindingHint: shortcut} : {})}/>
-    }/>
+    }/></div>
   </div>;
 }
 
@@ -139,7 +139,7 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
 
 const PriorityValue = observer(function PriorityValue({issue}: {issue: Entity<'Issue'>}) {
   const p = useLabelView(issue).priority;
-  if (!p) return <Text color="fg.muted">No priority</Text>;
+  if (!p) return <span className="text-muted">No priority</span>;
   return <><LabelGlyph icon={priorityIcon(p.name)} color={p.color}/><span>{scopedValue(p.name)}</span></>;
 });
 
@@ -147,7 +147,7 @@ const PriorityValue = observer(function PriorityValue({issue}: {issue: Entity<'I
 const LabelsValue = observer(function LabelsValue({issue, link}: {issue: Entity<'Issue'>; link: boolean}) {
   const labels = useLabelView(issue).other;
   const {owner, repo} = useParams({strict: false});
-  if (!labels.length) return <Text color="fg.muted">No labels</Text>;
+  if (!labels.length) return <span className="text-muted">No labels</span>;
   if (!link || !owner || !repo) return <>{labels.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelColor(l.color)}/>)}</>;
   return <>{labels.map((l) => (
     <RouterLink key={l.id} to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}} muted><IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/></RouterLink>
@@ -156,7 +156,7 @@ const LabelsValue = observer(function LabelsValue({issue, link}: {issue: Entity<
 
 const AssigneesValue = observer(function AssigneesValue({issue}: {issue: Entity<'Issue'>}) {
   const ids = issueAssigneeIds(usePool(), useOverlay(), issue.id).sort((a, b) => a - b);
-  if (!ids.length) return <Text color="fg.muted">Unassigned</Text>;
+  if (!ids.length) return <span className="text-muted">Unassigned</span>;
   return <span className="flex flex-col gap-1">{ids.map((id) => <Person key={id} id={id}/>)}</span>;
 });
 
@@ -166,7 +166,7 @@ const ReviewersValue = observer(function ReviewersValue({issue}: {issue: Entity<
   const requested = viewMembers(pool, useOverlay(), 'ReviewRequest', issue.id);
   const verdicts = reviewVerdicts([...pool.model('Review').by('issue_id', issue.id)].map((r) => r.data));
   const ids = [...new Set([...requested as Set<number>, ...verdicts.keys()])].sort((a, b) => a - b);
-  if (!ids.length) return <Text color="fg.muted">No reviewers</Text>;
+  if (!ids.length) return <span className="text-muted">No reviewers</span>;
   return (
     <span className="flex flex-col gap-1">
       {ids.map((id) => {
@@ -238,12 +238,12 @@ const MilestoneValue = observer(function MilestoneValue({issue, link}: {issue: E
   const id = issueMilestone(useOverlay(), issue);
   const m = usePool().model('Milestone').get(id);
   const {owner, repo} = useParams({strict: false});
-  if (!id) return <Text color="fg.muted">No milestone</Text>;
+  if (!id) return <span className="text-muted">No milestone</span>;
   const due = m?.get('due_on');
   const title = m?.get('title') ?? `Milestone ${String(id)}`;
   return (
     <span className="truncate">
-      {link && m && owner && repo ? <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink> : title}
+      {link && m && owner && repo ? <Link to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} className="text-default hover:text-accent hover:underline">{title}</Link> : title}
       {due && <span className="text-muted"> · due {shortDate(due)}</span>}
     </span>
   );
@@ -262,12 +262,12 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
   const column = pool.model('ProjectColumn').get(cid)?.get('title');
   // The board opens from here (the triage path: issue → its board) when it is on this device; the link truncates
   // itself (no clipping parent: its focus outline stays whole).
-  const value = title === undefined ? <Text color="fg.muted">No project</Text> : (
+  const value = title === undefined ? <span className="text-muted">No project</span> : (
     <span className="flex min-w-0 items-center gap-1">
       {/* Also a board known by its reference only (a user's or an organization's): the board page loads it. The
           card of this issue gets the cursor there. */}
       {project ?? pool.model('ProjectRef').get(pid) ?
-        <RouterLink to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}} muted className="min-w-0 truncate">{title}</RouterLink> :
+        <Link to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}} className="min-w-0 truncate text-default hover:text-accent hover:underline">{title}</Link> :
         <span className="truncate">{title}</span>}
       {column && <span className="shrink-0 text-muted">· {column}</span>}
     </span>
@@ -319,9 +319,9 @@ const DependenciesValue = observer(function DependenciesValue({issue, write}: {i
   return (
     <>
       <SidebarSection label="Blocked by">
-        {blockedBy.length ? <IssueLinks ids={blockedBy} repoId={issue.get('repo_id')}/> : !edit && <div className="flex flex-wrap items-center gap-2"><Text color="fg.muted">Nothing</Text></div>}
+        {blockedBy.length ? <IssueLinks ids={blockedBy} repoId={issue.get('repo_id')}/> : !edit && <div className="flex flex-wrap items-center gap-2"><span className="text-muted">Nothing</span></div>}
         {edit && (
-          <SidebarPicker kind="dependency" issueIds={[issue.id]} label="Change what blocks this">{!blockedBy.length && <Text color="fg.muted">Nothing</Text>}</SidebarPicker>
+          <SidebarPicker kind="dependency" issueIds={[issue.id]} label="Change what blocks this">{!blockedBy.length && <span className="text-muted">Nothing</span>}</SidebarPicker>
         )}
       </SidebarSection>
       {blocks.length > 0 && <SidebarSection label="Blocks"><IssueLinks ids={blocks} repoId={issue.get('repo_id')}/></SidebarSection>}
@@ -350,7 +350,7 @@ export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An 
   const path = issuePath(app, i);
   const text = <><span className="text-muted tabular-nums">{ref}</span> {i.get('title')}</>;
   if (!path) return <span className={inline ? undefined : 'truncate'}>{text}</span>;
-  return <RouterLink to={path} muted className={inline ? undefined : 'min-w-0 truncate'}>{text}</RouterLink>;
+  return <Link to={path} className={clsx('text-default hover:text-accent hover:underline', !inline && 'min-w-0 truncate')}>{text}</Link>;
 });
 
 const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {
@@ -359,7 +359,7 @@ const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issu
   const late = Boolean(due) && open && Date.parse(due ?? '') < Date.now();
   const value = due ?
     <span className={late ? 'flex items-center gap-2 text-danger' : 'flex items-center gap-2'} title={fullDate(due)}><CalendarIcon size={16} className="shrink-0"/>{shortDate(due)}{late && ' · overdue'}</span> :
-    <Text color="fg.muted">No due date</Text>;
+    <span className="text-muted">No due date</span>;
   return (
     <SidebarSection label="Due date">
       {write && !isTemp(issue.id) ?
@@ -414,8 +414,8 @@ const SubscribeValue = observer(function SubscribeValue({issue}: {issue: Entity<
   useShortcut('issue.subscribe', toggle);
   return (
     <SidebarSection label="Notifications">
-      <Button variant="invisible" size="small" aria-label={on ? 'Unsubscribe' : 'Subscribe'} onClick={toggle}>
-        {createElement(on ? BellIcon : BellSlashIcon, {size: 16})}<span>{on ? 'Subscribed' : 'Not subscribed'}</span>
+      <Button variant="invisible" size="small" leadingVisual={on ? BellIcon : BellSlashIcon} aria-label={on ? 'Unsubscribe' : 'Subscribe'} onClick={toggle}>
+        <span>{on ? 'Subscribed' : 'Not subscribed'}</span>
       </Button>
     </SidebarSection>
   );
@@ -444,9 +444,9 @@ const PinLockValue = observer(function PinLockValue({issue}: {issue: Entity<'Iss
     <>
       <SidebarSection label="Pinned">
         {mayPin ?
-          <Button variant="invisible" size="small" aria-label={pinned ? 'Unpin' : 'Pin to the list'} onClick={() => {
+          <Button variant="invisible" size="small" leadingVisual={pinned ? PinIcon : PinSlashIcon} aria-label={pinned ? 'Unpin' : 'Pin to the list'} onClick={() => {
             submit({kind: 'issue.pin', pinned: !pinned});
-          }}>{createElement(pinned ? PinIcon : PinSlashIcon, {size: 16})}<span>{pinned ? 'Pinned' : 'Not pinned'}</span></Button> :
+          }}><span>{pinned ? 'Pinned' : 'Not pinned'}</span></Button> :
           <div className="flex flex-col gap-1 text-muted">
             <span className="flex items-center gap-1">{createElement(pinned ? PinIcon : PinSlashIcon, {size: 16})}<span>{pinned ? 'Pinned' : 'Not pinned'}</span></span>
             <span className="text-sm text-muted">Only repository administrators can pin issues.</span>

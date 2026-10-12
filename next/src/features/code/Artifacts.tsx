@@ -114,7 +114,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
     }
   }
   return <section ref={root} aria-label="Artifacts">
-    <Heading as="h2" variant="small">Artifacts</Heading>
+    <div className="flex min-h-10 items-center border-y border-default bg-muted px-4 py-2"><Heading as="h2" variant="small">Artifacts</Heading></div>
     {!onlineNow && <p className="px-4 py-3 text-sm text-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
     {!done && <p className="px-4 py-3 text-sm text-muted">Artifacts will be available when this run finishes.</p>}
     {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-muted">Loading artifacts…</p>}

@@ -29,8 +29,8 @@ import {type EditMaker, type Format, formatEdit} from './format.ts';
 const theme = EditorView.theme({
   '&': {color: 'var(--fgColor-default)', backgroundColor: 'transparent', borderRadius: 'var(--radius-md)'},
   '&.cm-focused': {outline: 'none'},
-  '.cm-scroller': {fontFamily: 'var(--font-sans)', fontSize: 'var(--text-md)', lineHeight: 'var(--text-md--line-height)', overflow: 'auto'},
-  '.cm-content': {padding: 'calc(var(--spacing) * 1.5) calc(var(--spacing) * 2)', caretColor: 'var(--fgColor-default)'},
+  '.cm-scroller': {fontFamily: 'inherit', fontSize: 'var(--text-base)', lineHeight: 'var(--text-base--line-height)', overflow: 'auto'},
+  '.cm-content': {padding: 'calc(var(--spacing) * 3) calc(var(--spacing) * 4)', caretColor: 'var(--fgColor-default)'},
   '.cm-line': {padding: '0'},
   '.cm-cursor, .cm-dropCursor': {borderLeftColor: 'var(--fgColor-default)'},
   '.cm-placeholder': {color: 'var(--fgColor-muted)'},
@@ -45,13 +45,13 @@ const theme = EditorView.theme({
   '.tok-quote, .tok-comment': {color: 'var(--fgColor-muted)'},
   // The suggestions: a menu's look (floating surface, menu rows) from the tokens.
   '.cm-tooltip.cm-tooltip-autocomplete': {
-    backgroundColor: 'var(--overlay-bgColor)', border: '1px solid var(--borderColor-default)', borderRadius: 'var(--radius-lg)',
+    backgroundColor: 'var(--overlay-bgColor)', border: '1px solid var(--borderColor-default)', borderRadius: 'var(--radius-md)',
     boxShadow: 'var(--shadow-popover)', padding: 'var(--spacing)', zIndex: 'var(--z-popover)',
   },
-  '.cm-tooltip.cm-tooltip-autocomplete > ul': {fontFamily: 'var(--font-sans)', fontSize: 'var(--text-base)', maxHeight: 'calc(var(--spacing-row) * 8)'},
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': {fontFamily: 'inherit', fontSize: 'var(--text-base)', maxHeight: 'calc(var(--spacing-row) * 8)'},
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
     display: 'flex', alignItems: 'center', gap: 'calc(var(--spacing) * 2)', height: 'var(--spacing-control)',
-    padding: '0 calc(var(--spacing) * 2)', borderRadius: 'var(--radius-sm)', color: 'var(--fgColor-default)',
+    padding: '0 calc(var(--spacing) * 2)', borderRadius: 'var(--radius-md)', color: 'var(--fgColor-default)',
   },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {backgroundColor: 'var(--control-transparent-bgColor-hover)', color: 'var(--fgColor-default)'},
   '.cm-completionDetail': {color: 'var(--fgColor-muted)', fontStyle: 'normal', marginLeft: '0', overflow: 'hidden', textOverflow: 'ellipsis'},
@@ -64,7 +64,7 @@ class UploadChip extends WidgetType {
   override eq(other: UploadChip) { return other.name === this.name; }
   toDOM() {
     const chip = document.createElement('span');
-    chip.className = 'inline-flex rounded-sm bg-overlay px-1 text-sm text-muted';
+    chip.className = 'inline-flex text-sm text-muted';
     chip.textContent = `Uploading ${this.name}`;
     return chip;
   }
@@ -234,7 +234,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
           markdown,
           syntaxHighlighting(classHighlighter),
           theme,
-          EditorView.theme({'.cm-content': {minHeight: `calc(var(--text-md--line-height) * ${String(rows)} + var(--spacing) * 3)`}}),
+          EditorView.theme({'.cm-content': {minHeight: `calc(var(--text-base) * var(--text-base--line-height) * ${String(rows)} + var(--spacing) * 6)`}}),
           ...(placeholder ?? label ? [cmPlaceholder(placeholder ?? label)] : []),
           attrs.of(contentAttrs()),
           EditorView.updateListener.of((u) => {

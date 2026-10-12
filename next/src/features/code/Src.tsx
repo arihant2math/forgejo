@@ -39,8 +39,8 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
-import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon} from '@primer/octicons-react';
-import {Button, LinkButton, Link, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
+import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
@@ -133,12 +133,12 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
   const root = view === 'src' ? 'Code' : 'Commits';
   return (
     <span className="flex min-w-0 items-center gap-1">
-      {parts.length ? <Link as={CodeLink} owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</Link> : <span>{root}</span>}
+      {parts.length ? <CodeLink className="text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink> : <span>{root}</span>}
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
           <span className="text-muted">/</span>
           {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
-            <Link as={CodeLink} owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</Link>}
+            <CodeLink className="text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink>}
         </span>
       ))}
     </span>
@@ -163,11 +163,11 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
         <Button as={CodeLink} variant="invisible" size="small" owner={owner} repo={repo} to={`compare/${at.ref}...${def}`}>Compare</Button>
       )}
       <Button as={CodeLink} variant="invisible" size="small" leadingVisual={HistoryIcon} owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}>Commits</Button>
-      <Button type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
+      <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
-        <SegmentedControl aria-label="Show the file as" onChange={(index) => {
+        <SegmentedControl size="small" aria-label="Show the file as" onChange={(index) => {
           void navigate({...codeTo(owner, repo, codeSplat(index === 1 ? 'blame' : 'src', at, at.path)), hash: true});
         }}><SegmentedControl.Button selected={!blame}>Source</SegmentedControl.Button><SegmentedControl.Button selected={blame}>Blame</SegmentedControl.Button></SegmentedControl>
       )}
@@ -199,7 +199,7 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
   };
   return (
     <ActionMenu>
-      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button variant="invisible" size="small" type="button" aria-label="File actions">…</Button>}</ActionMenu.Anchor>
+      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="File actions"/>}</ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
         <ActionList.Item onSelect={() => {
           copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
@@ -316,7 +316,7 @@ function PreviewableFile(props: FileProps & {text: string}) {
   const toggle = (
     <span className="ml-auto">
       {/* "Markup", not a second "Source": the header's Source / Blame switch is beside it. */}
-      <SegmentedControl aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
+      <SegmentedControl size="small" aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
     </span>
   );
   if (mode === 'source') return <TextFile {...props} text={text} toolbar={toggle}/>;
@@ -415,7 +415,7 @@ function useMarkPainted(path: string): void {
 /** A file's facts above it (lines or dimensions, size) and its controls. */
 function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string | undefined; size: number | undefined; children?: ReactNode}) {
   return (
-    <div className="flex h-control items-center gap-3 border-b border-muted px-4 text-sm text-muted tabular-nums">
+    <div className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2 text-sm text-muted tabular-nums">
       {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
       {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
@@ -469,12 +469,12 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
               {/* The blame at the change's parent (the same file, by its name there): the history behind these lines. */}
               {part.previous_sha && (
                 <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
-                  className="interactive flex shrink-0 items-center rounded-sm text-muted hover:text-default" label="Blame prior to this change">
-                  <HistoryIcon size={12} className="shrink-0"/>
+                  className="interactive flex shrink-0 items-center rounded-md text-muted hover:text-default" label="Blame prior to this change">
+                  <HistoryIcon size={16} className="shrink-0"/>
                 </CodeLink>
               )}
-              <span className="shrink-0 text-default @max-xl:hidden">{commit.author_name}</span>
-              <Link as={CodeLink} owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</Link>
+              <span className="max-w-24 shrink-0 truncate text-default @max-xl:hidden">{commit.author_name}</span>
+              <CodeLink className="min-w-0 truncate text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink>
             </span>
           )}
         </BlameCell>

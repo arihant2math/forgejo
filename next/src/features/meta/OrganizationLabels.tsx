@@ -56,7 +56,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
     } finally { setBusy(false); }
   };
   return <MetadataSection label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <Tooltip text={offline ? onlineOnly('Creating an organization label') : 'Create an organization label'}><Button size="small" type="button" inactive={offline || busy} onClick={() => { setEditing({}); }}>New organization label</Button></Tooltip>}>
-    {managed && <p className="border-b border-muted px-3 py-2 text-sm text-muted">
+    {managed && <p className="border-b border-muted px-4 py-2 text-sm text-muted">
       Managed by the owners and admins of {owner}: only they can change these labels. Every repository of the organization can use them.
     </p>}
     <ResourceList res={shown} what="The organization labels" empty={{icon: TagIcon, title: 'No organization labels', description: 'These labels are available to every repository in the organization.'}}>
@@ -66,7 +66,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
           <IconButton icon={PencilIcon} variant="invisible" aria-label={offline ? onlineOnly('Editing an organization label') : `Edit organization label ${l.name}`} type="button" inactive={offline || busy} onClick={() => { setEditing({label: l}); }}/>
           <IconButton icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Deleting an organization label') : `Delete organization label ${l.name}`} type="button" inactive={offline || busy} onClick={() => { setDeleting(l); }}/>
         </span>}
-      </>}><IssueLabelToken text={l.name} fillColor={l.color}/><span className="ml-3 text-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></LabelListRow>)}
+      </>}><IssueLabelToken text={l.name} fillColor={l.color}/><span className="text-base text-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></LabelListRow>)}
     </ResourceList>
     {editing && <LabelDialog repo={{owner, repo: '', repoId: 0}} label={editing.label} count={shown.value?.length ?? 0} onClose={() => { setEditing(undefined); }} onSave={(d) => send(editing.label ? 'PATCH' : 'POST', editing.label, d)}/>}
     {deleting && <Dialog title={`Delete the label “${deleting.name}”?`} subtitle="This removes the label from every issue and pull request in the organization. This cannot be undone." width="large" onClose={() => { setDeleting(undefined); }} footerButtons={[

@@ -34,7 +34,7 @@ function Sidebar() {
       <SidebarBody>
         {navWidths.map((w, i) => <NavSkeleton key={i} width={w}/>)}
         <div className="h-control"/>
-        <NavSkeleton width="md" leading={<SkeletonAvatar size={16}/>}/>
+        <NavSkeleton width="md" leading={<SkeletonAvatar size={20}/>}/>
         {repoWidths.map((w, i) => <NavSkeleton key={i} width={w} inset/>)}
       </SidebarBody>
     </>
@@ -65,7 +65,7 @@ function Frame() {
       </HeaderStack>
       <div role="presentation" className="min-h-0 flex-1 overflow-hidden shape-detail:hidden">
         {Array.from({length: SKELETON_MAX_ROWS}, (_, i) => (
-          <div key={i} role="presentation" data-sk-row="" className="flex h-row items-center gap-3 border-b border-muted px-4">
+          <div key={i} role="presentation" data-sk-row="" className="flex h-row items-center gap-2 border-b border-muted px-4">
             <SkeletonBox className="h-3 w-10"/><SkeletonBox className="size-4"/>
             <SkeletonBox className={`h-3 ${rowWidths[i % rowWidths.length] ?? 'w-48'}`}/>
             <SkeletonBox className="ml-auto h-3 w-12"/>
@@ -73,12 +73,12 @@ function Frame() {
         ))}
       </div>
       <div className="hidden min-h-0 flex-1 shape-detail:flex">
-        <div className="flex flex-1 flex-col gap-3 px-8 py-6">
+        <div className="flex flex-1 flex-col gap-4 px-8 py-6">
           <SkeletonBox className="h-5 w-96"/>
           <div className="h-2"/>
           <SkeletonText lines={3}/>
         </div>
-        <div className="flex w-pane shrink-0 flex-col gap-3 border-l border-default p-4">
+        <div className="flex w-pane shrink-0 flex-col gap-4 border-l border-default p-4">
           <SkeletonBox className="h-3 w-20"/>
           <SkeletonBox className="h-3 w-32"/>
           <SkeletonBox className="h-3 w-24"/>

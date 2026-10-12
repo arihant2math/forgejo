@@ -3,6 +3,7 @@
 
 
 import {ChevronDownIcon, ChevronRightIcon} from '@primer/octicons-react';
+import {Button, Text} from '@primer/react';
 import {clsx} from 'clsx';
 import type {ReactNode} from 'react';
 import type {AnsiSpan} from '../../code/ansi.ts';
@@ -15,13 +16,16 @@ export function AnsiText({spans}: {spans: readonly AnsiSpan[]}) {
 export function LogLine({number, children}: {number: number; children: ReactNode}) {
   return <div className="flex h-line w-max min-w-full font-mono text-code text-default contain-layout">
     <span className="sticky left-0 w-gutter shrink-0 bg-default pr-2 text-right text-muted tabular-nums select-none">{number}</span>
-    <span className="code-text pr-6 pl-3">{children}</span>
+    <span className="code-text pr-6 pl-4">{children}</span>
   </div>;
 }
 export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
-  return <button type="button" className="flex h-line w-full items-center gap-2 bg-inset px-3 text-left text-default hover:bg-control-transparent-hover" aria-expanded={expanded} onClick={onToggle}>
-    {expanded ? <ChevronDownIcon size={16}/> : <ChevronRightIcon size={16}/>}{mark}
-    <span className="min-w-0 flex-1 truncate">{children}</span>
-    <span className="ml-auto text-sm text-muted tabular-nums">{meta}</span>
-  </button>;
+  return <div className="flex h-10 items-center gap-2 border-y border-muted bg-muted px-4">
+    <Button type="button" size="small" variant="invisible" block alignContent="start"
+      leadingVisual={expanded ? ChevronDownIcon : ChevronRightIcon}
+      trailingAction={() => <span className="text-sm font-normal whitespace-nowrap text-muted tabular-nums">{meta}</span>}
+      aria-expanded={expanded} onClick={onToggle}>
+      <span className="flex min-w-0 items-center gap-2">{mark}<Text size="medium" weight="semibold" className="truncate">{children}</Text></span>
+    </Button>
+  </div>;
 }

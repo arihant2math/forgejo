@@ -115,8 +115,8 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
               {row.label}
               {row.meta && <ActionList.Description truncate>{row.meta}</ActionList.Description>}
               {row.shortcut && <ActionList.TrailingVisual>
-                <KeybindingHint keys={row.shortcut}/>
-                {row.alternateShortcut && <> or <KeybindingHint keys={row.alternateShortcut}/></>}
+                <span className="flex items-center gap-1"><KeybindingHint keys={row.shortcut}/>
+                {row.alternateShortcut && <> or <KeybindingHint keys={row.alternateShortcut}/></>}</span>
               </ActionList.TrailingVisual>}
             </ActionList.Item>
           );
@@ -126,7 +126,7 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
   );
   return (
     <div className="flex flex-col gap-2">
-      <TextInput ref={inputRef} block leadingVisual={SearchIcon} role="combobox" aria-label="Command menu"
+      <TextInput ref={inputRef} size="small" block leadingVisual={SearchIcon} role="combobox" aria-label="Command menu"
         aria-controls={listId} aria-expanded aria-autocomplete="list"
         {...(index >= 0 ? {'aria-activedescendant': rowId(selected)} : {})}
         autoComplete="off" value={query} onChange={(event) => { onQueryChange(event.target.value); }}

@@ -19,12 +19,12 @@ const cards = [{value: 'text_only', label: 'Text only'}, {value: 'images_and_tex
 
 function failure(err: unknown): string { return err instanceof Error ? err.message : 'Something went wrong.'; }
 
-export const NewBoard = observer(function NewBoard({scope}: {scope?: BoardScope | undefined}) {
+export const NewBoard = observer(function NewBoard({scope, primary = false}: {scope?: BoardScope | undefined; primary?: boolean}) {
   const [open, setOpen] = useState(false);
   const session = useSession();
   const available = scope ? canEditBoard(session, scope) : true;
   if (!available) return null;
-  return <><Tooltip text={!connectivity.online ? onlineOnly('Creating a board') : 'Create a project board'}><Button size="small" type="button" inactive={!connectivity.online} onClick={() => { setOpen(true); }}>New board</Button></Tooltip>
+  return <><Tooltip text={!connectivity.online ? onlineOnly('Creating a board') : 'Create a project board'}><Button size="small" variant={primary ? 'primary' : 'default'} type="button" inactive={!connectivity.online} onClick={() => { setOpen(true); }}>New board</Button></Tooltip>
     {open && <BoardForm scope={scope} onClose={() => { setOpen(false); }}/>}</>;
 });
 
@@ -90,7 +90,7 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
     {content: 'Cancel', disabled: busy, onClick: onClose},
     {content: busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board', buttonType: 'primary', disabled: busy || !title.trim() || !connectivity.online, onClick: () => void save()},
   ]}>
-    <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void save(); }}>
       {!scope && !project && <FormControl id="board-location"><FormControl.Label>Location</FormControl.Label><Select id="board-location" value={target} onChange={(e) => { setTarget(e.target.value); }} disabled={busy || !!created}>{choices.map((choice) => <Select.Option key={choice.value} value={choice.value}>{choice.label}</Select.Option>)}</Select></FormControl>}
       <FormControl id="board-title"><FormControl.Label>Title</FormControl.Label><TextInput ref={titleRef} id="board-title" block value={title} maxLength={255} required disabled={busy || !!created} onChange={(e) => { setTitle(e.target.value); }}/></FormControl>
       <FormControl id="board-description"><FormControl.Label>Description</FormControl.Label><Textarea id="board-description" value={description} rows={3} disabled={busy || !!created} onChange={(e) => { setDescription(e.target.value); }} block/></FormControl>

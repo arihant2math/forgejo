@@ -10,7 +10,7 @@ export function isImageDiff(file: DiffFile): boolean {
 }
 
 export function ImageDiff({repoId, base, head, file}: {repoId: number; base: string; head: string; file: DiffFile}) {
-  return <div className="sticky left-0 flex w-view flex-wrap gap-4 p-4 font-sans text-sm">
+  return <div className="sticky left-0 flex w-view flex-wrap gap-4 p-4 font-sans text-base">
     {file.status !== 'added' && <ImageSide key={`${String(repoId)}:${base}:${file.oldPath}`} repoId={repoId} commit={base} path={file.oldPath} label="Before"/>}
     {file.status !== 'deleted' && <ImageSide key={`${String(repoId)}:${head}:${file.newPath}`} repoId={repoId} commit={head} path={file.newPath} label="After"/>}
   </div>;
@@ -41,7 +41,7 @@ function ImageSide({repoId, commit, path, label}: {repoId: number; commit: strin
     };
   }, [source, repoId, commit, path]);
   return <figure className="min-w-0 flex-1">
-    <figcaption className="mb-2 text-muted">{label}{image && ` · ${String(image.size)} bytes`}{dimensions && ` · ${dimensions}`}</figcaption>
+    <figcaption className="mb-2 text-sm text-muted">{label}{image && ` · ${String(image.size)} bytes`}{dimensions && ` · ${dimensions}`}</figcaption>
     {image ? <img src={image.url} alt={`${label}: ${path}`} className="max-h-80 max-w-full object-contain" onLoad={(event) => {
       setDimensions(`${String(event.currentTarget.naturalWidth)} × ${String(event.currentTarget.naturalHeight)}`);
     }} onError={() => {

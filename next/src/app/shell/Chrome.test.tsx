@@ -41,7 +41,12 @@ test('Primer page headers keep heading, breadcrumb, controls and live status', (
   const tabs = screen.getByRole('navigation', {name: 'Repository'});
   const commits = screen.getByRole('heading', {level: 1, name: 'Commits'});
   expect(tabs.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(commits.closest('[data-component="PageHeader"]') ?? document.body).getByRole('button', {name: 'Filter'})).toBeTruthy();
+  expect(within(commits.closest('header') ?? document.body).getByRole('button', {name: 'Filter'})).toBeTruthy();
+  // The leading action must opt out of Primer's default narrow-screen hiding: phones need the drawer toggle.
+  view.rerender(<AppContext value={app}><PrimerTheme><PageHeader title="Home"/></PrimerTheme></AppContext>);
+  const leadingAction = screen.getByRole('button', {name: 'Show the sidebar'}).closest('[data-component="PH_LeadingAction"]');
+  expect(leadingAction?.hasAttribute('data-hidden-narrow')).toBe(false);
+  expect(leadingAction?.closest('[data-component="TitleArea"]')).toBeNull();
 });
 
 test('Banner notices announce, pause while either hovered or focused, and dismiss immediately', () => {

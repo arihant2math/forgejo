@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {CounterLabel} from '@primer/react';
+import {ButtonGroup} from '@primer/react';
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -25,9 +25,9 @@ export const ForkButton = observer(function ForkButton({owner, repo, repoId}: {o
   const [open, setOpen] = useState(false);
   const isOnline = reach(session.data.status.connection) === 'online';
   return <>
-    <Tooltip text={!isOnline ? onlineOnly('Forking a repository') : 'Create a fork'}><Button leadingVisual={RepoForkedIcon} size="small" type="button" inactive={!isOnline} onClick={() => { setOpen(true); }}>
-      Fork <CounterLabel>{source?.forks_count ?? 0}</CounterLabel>
-    </Button></Tooltip>
+    <ButtonGroup><Tooltip text={!isOnline ? onlineOnly('Forking a repository') : 'Create a fork'}><Button count={source?.forks_count ?? 0} leadingVisual={RepoForkedIcon} size="small" type="button" inactive={!isOnline} onClick={() => { setOpen(true); }}>
+      Fork
+    </Button></Tooltip></ButtonGroup>
     {open && <ForkForm owner={owner} repo={repo} repoId={repoId} close={() => { setOpen(false); }}/>}
   </>;
 });

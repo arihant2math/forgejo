@@ -51,18 +51,25 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
   }, [boot, onSignIn]);
   return (
     <CenteredScreen boot={boot}>
-      <Blankslate><Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{appName ?? 'Forgejo'}</Blankslate.Heading><Blankslate.Description>{message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}</Blankslate.Description>{<span className="flex flex-col items-center gap-3">
+      <div className="w-full max-w-md px-4">
+        <Blankslate spacious>
+          <Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual>
+          <Blankslate.Heading>{appName ?? 'Forgejo'}</Blankslate.Heading>
+          <Blankslate.Description>{message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}</Blankslate.Description>
+          <div className="mt-4 flex flex-col items-center gap-4">
             {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}
             <Button variant="primary" type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
             {(boot ?? classic) && (
               // The first frame keeps their place (no shift when the app fills them in): their addresses need the app.
-              <span className={clsx('flex flex-wrap justify-center gap-x-3 text-sm', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
+              <span className={clsx('flex flex-wrap justify-center gap-2', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
                 {/* Public pages read without an account in the classic UI; or this browser leaves the app. */}
                 {classic?.page && <LinkButton variant="invisible" size="small" href={classic.page} data-classic="">View this page without signing in</LinkButton>}
                 <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>
               </span>
             )}
-          </span>}</Blankslate>
+          </div>
+        </Blankslate>
+      </div>
     </CenteredScreen>
   );
 }

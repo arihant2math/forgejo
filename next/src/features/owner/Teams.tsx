@@ -75,14 +75,14 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
   };
   return <ResourceSection label="People" title="People">
     <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
-      {(people) => people.map((m) => <PersonRow key={m.id} leading={<Avatar alt={m.login} src={m.avatar_url}/>}
-        title={<Link to="/$owner" params={{owner: m.login}}>{m.full_name || m.login}</Link>} meta={m.full_name ? m.login : undefined}
-        actions={manage && <IconButton icon={PersonIcon} variant="invisible" aria-label={offline ? onlineOnly('Removing a member') : `Remove ${m.login} from the organization`} type="button" disabled={offline || busy} onClick={() => {
+      {(people) => people.map((m) => <PersonRow key={m.id} leading={<Avatar size={20} alt={m.login} src={m.avatar_url}/>}
+        title={<Link to="/$owner" params={{owner: m.login}} className="text-default hover:text-accent hover:underline">{m.full_name || m.login}</Link>} meta={m.full_name ? m.login : undefined}
+        actions={manage && <IconButton size="small" icon={PersonIcon} variant="invisible" aria-label={offline ? onlineOnly('Removing a member') : `Remove ${m.login} from the organization`} type="button" disabled={offline || busy} onClick={() => {
           setError(undefined);
           setRemoving(m);
         }}/>}/>)}
     </ResourceList>
-    {manage && <p className="px-3 py-2 text-sm text-muted">People join the organization through its teams (Teams: add a member).</p>}
+    {manage && <p className="px-4 py-2 text-sm text-muted">People join the organization through its teams (Teams: add a member).</p>}
     {removing && <Dialog title={`Remove ${removing.login} from ${owner}?`} subtitle="They leave every team of the organization and lose the access those teams gave them." onClose={() => { if (!busy) setRemoving(undefined); }} footerButtons={[{content: 'Cancel', disabled: busy, onClick: () => { setRemoving(undefined); }}, {content: 'Remove from organization', buttonType: 'danger', disabled: busy || offline, onClick: () => { void remove(removing); }}]}>{error && <Banner variant="critical" title="Could not remove member" description={error}/>}</Dialog>}
   </ResourceSection>;
 });
@@ -121,8 +121,8 @@ const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; e
   const add = (u: FoundUser) => { void change(u.login, 'PUT'); };
   return <ResourceSection label="Team members" title="Team members" actions={editable && <><Tooltip text={offline ? onlineOnly('Changing team membership') : 'Add a team member'}><Button size="small" inactive={offline} disabled={busy} onClick={() => { setOpen(true); }}>Add member</Button></Tooltip>{open && <PeopleSearch excludeSelf={false} label="Add a team member" members={new Set((res.value ?? []).map((u) => u.id))} onPick={add} onClose={() => { setOpen(false); }}/>}</>}>
     <ResourceList res={res} what="The members" empty={{icon: PeopleIcon, title: 'No members', description: 'Add a person to this team.'}}>
-      {(members) => members.map((u) => <PersonRow key={u.id} leading={<Avatar alt={u.login} src={u.avatar_url}/>} title={u.full_name || u.login} meta={u.login}
-        actions={editable && <IconButton icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Changing team membership') : `Remove ${u.login} from team`} type="button" disabled={offline || busy} onClick={() => { void change(u.login, 'DELETE'); }}/>}/>)}
+      {(members) => members.map((u) => <PersonRow key={u.id} leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>} title={u.full_name || u.login} meta={u.login}
+        actions={editable && <IconButton size="small" icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Changing team membership') : `Remove ${u.login} from team`} type="button" disabled={offline || busy} onClick={() => { void change(u.login, 'DELETE'); }}/>}/>)}
     </ResourceList>
   </ResourceSection>;
 });
@@ -146,7 +146,7 @@ export const RepositoryTeams = observer(function RepositoryTeams({owner, repo, r
   };
   return <ResourceSection label="Repository teams" title="Teams" actions={<TeamPicker owner={owner} open={open} onOpenChange={setOpen} disabled={offline || busy} excluded={new Set((res.value ?? []).map((t) => t.id))} onPick={(t) => { void change(t, 'PUT'); }}/>}>
     <ResourceList res={res} what="The repository teams" empty={{icon: PeopleIcon, title: 'No teams with access', description: 'Give an organization team access to this repository.'}}>
-      {(teams) => teams.map((t) => <PersonRow key={t.id} title={t.name} meta={t.permission} actions={<IconButton icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Changing team access') : `Remove team ${t.name}`} type="button" disabled={offline || busy} onClick={() => { void change(t, 'DELETE'); }}/>}/>)}
+      {(teams) => teams.map((t) => <PersonRow key={t.id} title={t.name} meta={t.permission} actions={<IconButton size="small" icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Changing team access') : `Remove team ${t.name}`} type="button" disabled={offline || busy} onClick={() => { void change(t, 'DELETE'); }}/>}/>)}
     </ResourceList>
   </ResourceSection>;
 });

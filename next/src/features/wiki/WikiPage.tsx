@@ -34,7 +34,7 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Banner, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
+import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
 
@@ -216,7 +216,7 @@ function unloadedOf(s: Slot<unknown>): Exclude<Loaded<unknown>, {state: 'ready'}
 
 function ArticleSkeleton() {
   return (
-    <div className="flex flex-col gap-3" aria-busy>
+    <div className="flex flex-col gap-4" aria-busy>
       <SkeletonBox className="h-3 w-48"/>
       <SkeletonBox className="h-5 w-64"/>
       <SkeletonText lines={6}/>
@@ -309,13 +309,14 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
         <section aria-label="Wiki sidebar" className="flex flex-col gap-2">
           <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={sidebar}/>
           {writable && (
-            <RouterLink to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} className="text-sm">Edit the sidebar</RouterLink>
+            <RouterLink to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} >Edit the sidebar</RouterLink>
           )}
         </section>
       )}
+      <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 px-2"><Heading as="h2" variant="small">Pages</Heading>{pages.length > 0 && <CounterLabel>{pages.length}</CounterLabel>}</div>
       <NavList aria-label="Pages">
         <NavList.Group>
-        <NavList.GroupHeading as="h2" auxiliaryText={pages.length > 0 ? String(pages.length) : ''}>Pages</NavList.GroupHeading>
         {list.state === 'loading' && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
         {pages.slice(0, SIDE_PAGES).map((p) => (
           <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}}>{p.title}</WikiNavItem>
@@ -325,8 +326,9 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
         )}
         </NavList.Group>
       </NavList>
+      </div>
       {list.state === 'ready' && list.value.kind === 'pages' && writable && !sidebar && (
-        <RouterLink to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: SIDEBAR}} className="px-2 text-sm">Add a custom sidebar</RouterLink>
+        <RouterLink to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: SIDEBAR}} className="px-2">Add a custom sidebar</RouterLink>
       )}
     </aside>
   );
@@ -359,7 +361,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
     body = (
       <RowList items={pages} scroller={scroller} label="Pages" keyOf={(p) => p.name}
         row={(p) => ({
-          leading: <FileIcon size={12} className="shrink-0"/>,
+          leading: <FileIcon size={16} className="shrink-0"/>,
           main: p.title,
           trailing: p.date ? <>{p.author && <span>{p.author}</span>}<time dateTime={p.date} title={fullDate(p.date)}>{ago(p.date)}</time></> : undefined,
         })}
@@ -372,7 +374,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
   } else if (value) {
     body = <PageColumn><NoWiki owner={owner} repo={repo} repoId={repoId} list={value} writable={writable}/></PageColumn>;
   } else if (list.state === 'loading') {
-    body = <div className="flex flex-col gap-3 px-4 py-4" aria-busy><SkeletonText lines={8}/></div>;
+    body = <div className="flex flex-col gap-4 px-4 py-4" aria-busy><SkeletonText lines={8}/></div>;
   } else {
     body = <Unloaded loaded={unloadedOf(list)} what="This wiki's pages"/>;
   }

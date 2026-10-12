@@ -88,7 +88,7 @@ export function RepoContext({owner, repo, section, heading = false}: {owner: str
       {/* Exact: an ancestor's crumb is no "current page" (TanStack's fuzzy match marked the owner on every page). */}
       <RouterLink to="/$owner" params={{owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{owner}</RouterLink>
       <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-      {heading ? <h1 className="flex min-w-0 font-medium">{repoCrumb}</h1> : repoCrumb}
+      {heading ? <h1 className="flex min-w-0 font-semibold">{repoCrumb}</h1> : repoCrumb}
       {section && <>
         <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
         <RouterLink to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{section === 'pulls' ? 'Pull requests' : 'Issues'}</RouterLink>

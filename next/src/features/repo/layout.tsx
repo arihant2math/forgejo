@@ -3,20 +3,20 @@
 
 import {type MouseEventHandler, type ReactNode, useRef} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {Heading, Link, Text} from '@primer/react';
+import {Text} from '@primer/react';
 
 /** Bordered sections for repository data and owner resources. */
 export function ResourceSection({label, title, actions, children}: {label: string; title: ReactNode; actions?: ReactNode; children: ReactNode}) {
-  return <section aria-label={label} className="rounded-md border border-default">
-    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-default p-3"><Heading as="h2" variant="small">{title}</Heading>{actions}</header>
+  return <section aria-label={label} className="rounded-md border border-default overflow-hidden">
+    <header className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-default bg-muted px-4 py-2"><Text as="h2" size="medium" weight="semibold"><span className="flex items-center gap-2">{title}</span></Text>{actions}</header>
     {children}
   </section>;
 }
 
 /** Dense navigational row: file metadata and repository summaries are not menu items. */
 export function DataRow({href, onClick, leading, trailing, children}: {href: string; onClick?: MouseEventHandler<HTMLAnchorElement>; leading?: ReactNode; trailing?: ReactNode; children: ReactNode}) {
-  return <div className="flex min-w-0 items-center gap-2 border-b border-muted px-3 py-2">
-    {leading}<Link href={href} onClick={onClick} data-resource-row="" className="min-w-0 flex-1 truncate">{children}</Link>{trailing && <div className="flex shrink-0 items-center gap-2"><Text size="small">{trailing}</Text></div>}
+  return <div className="flex min-w-0 items-center gap-2 border-b border-muted px-4 py-2 last:border-b-0">
+    <span className="flex shrink-0 items-center text-muted">{leading}</span><a href={href} onClick={onClick} data-resource-row="" className="min-w-0 flex-1 truncate text-base text-default hover:text-accent hover:underline">{children}</a>{trailing && <div className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</div>}
   </div>;
 }
 
@@ -40,5 +40,5 @@ export function ResourceRows({children}: {children: ReactNode}) {
 
 /** User/team resource row with secondary metadata and independent actions. */
 export function PersonRow({leading, title, meta, description, actions}: {leading?: ReactNode; title: ReactNode; meta?: ReactNode; description?: ReactNode; actions?: ReactNode}) {
-  return <li className="flex items-start gap-3 border-b border-muted p-3">{leading}<div className="min-w-0 flex-1"><Text weight="semibold">{title}</Text>{meta && <Text as="span" size="small" className="ml-2">{meta}</Text>}{description && <div className="mt-1 text-muted">{description}</div>}</div>{actions}</li>;
+  return <li className="flex items-center gap-2 border-b border-muted px-4 py-3 last:border-b-0">{leading}<div className="min-w-0 flex-1"><Text weight="semibold">{title}</Text>{meta && <span className="ml-2 text-sm text-muted">{meta}</span>}{description && <div className="mt-1 text-muted">{description}</div>}</div>{actions}</li>;
 }

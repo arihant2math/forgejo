@@ -41,7 +41,10 @@ test('fixed-height feature rows stay virtualized and keep real issue links', asy
     const list = await screen.findByRole('listbox', {name: 'Issues'});
     const rows = within(list).getAllByRole('option');
     expect(rows.length).toBeLessThan(50);
-    expect(within(list).getByRole('option', {name: /Task 200/}).getAttribute('href')).toBe('/alice/demo/issues/200');
+    const first = within(list).getByRole('option', {name: /Task 200/});
+    expect(first.getAttribute('href')).toBe('/alice/demo/issues/200');
+    // Truncated titles keep a native full-title hint without per-row tooltip overlays.
+    expect(within(first).getByTitle('Task 200').textContent).toBe('Task 200');
     expect(within(list).queryByRole('option', {name: /Task 100/})).toBeNull();
     // A fixed-height list reserves 40px per issue, not just per mounted row. Scrolling brings
     // previously unmounted issues into view without depending on a containment utility's spelling.

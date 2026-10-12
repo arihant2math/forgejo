@@ -109,7 +109,7 @@ export function readThreadWhileOpen(app: App, issueId: number): () => void {
   }, {fireImmediately: true, equals: compareStructural});
 }
 
-/** Bulk-mark currently unread notifications read; return changed ids for Undo. */
+/** Bulk-mark unread notifications through the newest one's timestamp; return changed ids for Undo. */
 export function readAll(app: App, ids: readonly number[]): number[] {
   const s = app.session;
   if (!s) return [];

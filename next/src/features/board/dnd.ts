@@ -143,7 +143,6 @@ export class BoardDnd {
 
   private frame(d: Drag): void {
     if (this.drag !== d || !d.ghost) return;
-    // Reads first.
     const board = this.host.board();
     const columns = board ? [...board.querySelectorAll<HTMLElement>('[data-column]')] : [];
     let hit: {id: number; body: HTMLElement; rect: DOMRect} | undefined;
@@ -190,6 +189,7 @@ export class BoardDnd {
         ind.style.transform = `translate3d(${String(line.x)}px, ${String(line.y)}px, 0)`;
       }
     }
+    // Continue edge scrolling even when the pointer is stationary.
     if (scrollX || scrollY) this.schedule();
   }
 

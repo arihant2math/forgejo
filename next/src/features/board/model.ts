@@ -67,6 +67,7 @@ export class BoardModel {
     });
   }
 
+  /** Issue field edits notify card observers; only arrivals/departures invalidate layout. */
   private concerns(c: Applied): boolean {
     const d = c.entity?.data as {project_id?: number} | undefined;
     switch (c.model) {

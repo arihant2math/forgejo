@@ -87,7 +87,10 @@ export function dateField(dueOn: string | undefined): string {
   return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10);
 }
 
-/** End of day UTC; clear with Forgejo's 9999-12-31 sentinel because API v1 ignores missing/zero dates. */
+/**
+ * End of day UTC; API v1 ignores missing/zero dates, so clearing uses its 9999-12-31 sentinel.
+ * Sync recognizes deadline year 9999 as no deadline.
+ */
 export function dueOnOf(date: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T23:59:59Z` : '9999-12-31T12:00:00Z';
 }
@@ -114,7 +117,6 @@ export function validDate(date: string): boolean {
   return d.toISOString().slice(0, 10) === date;
 }
 
-/** What is wrong with each field of a draft (an empty object: it can be saved). */
 export function milestoneProblems(d: MilestoneDraft): MilestoneProblems {
   const out: MilestoneProblems = {};
   if (!d.title.trim()) out.title = 'A milestone needs a title.';

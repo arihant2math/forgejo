@@ -82,6 +82,7 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
           </p>
         </div>
         {label && <FormControl><Checkbox checked={d.archived} onChange={(event) => { const archived = event.target.checked; set({archived}); }}/><FormControl.Label>Archived (kept on its issues, no longer offered)</FormControl.Label></FormControl>}
+        {/* Enable implicit submission with Enter from form fields. */}
         <button type="submit" hidden/>
       </form>
     </Dialog>

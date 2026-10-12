@@ -554,7 +554,7 @@ const NoteMenu = observer(function NoteMenu({ids, open}: {ids: readonly number[]
   );
 });
 
-/** Mouse-only actions stay out of the tab order: keys and the row menu provide accessible equivalents. */
+/** Mouse-only actions are hidden from assistive tech and tab order; keys and the row menu provide equivalents. */
 const RowActions = observer(function RowActions({id, model, open, refocus}: {id: number; model: InboxModel; open: (id: number) => void; refocus: () => void}) {
   const app = useApp();
   const pool = usePool();

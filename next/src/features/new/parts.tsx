@@ -126,7 +126,10 @@ export function ScopeNote({scope, what, classic}: {scope: string; what: string; 
 
 const SYNC_WAIT_MS = 5000;
 
-/** Hold the entity's group until go settles; wait at most SYNC_WAIT_MS for its write delta before navigating. */
+/**
+ * Wait for the write delta so navigation paints from the pool; on timeout the page loads from API v1.
+ * Hold the group until go settles so the destination can take over its subscription.
+ */
 export async function openWhenSynced(app: App, group: string, v: number | undefined, go: () => Promise<unknown>): Promise<void> {
   const data = app.session?.data;
   if (!data) return;

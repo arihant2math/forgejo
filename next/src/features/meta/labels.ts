@@ -82,7 +82,6 @@ export interface LabelProblems {
   exclusive?: string;
 }
 
-/** What is wrong with a draft (empty: it can be saved). */
 export function labelProblems(d: LabelDraft): LabelProblems {
   const out: LabelProblems = {};
   const name = d.name.trim();

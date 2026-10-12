@@ -79,7 +79,10 @@ async function issueIds(app: App, flag: 'mentioned' | 'review_requested', since:
   return ids;
 }
 
-/** Refresh stale answers online; force bypasses freshness. since lazily supplies the oldest notification's creation time. */
+/**
+ * Refresh stale answers online; force bypasses freshness.
+ * since lazily gives the oldest notification's creation time: mentions also update their issues.
+ */
 export function askServerReasons(app: App, since: () => string | undefined, force = false): void {
   const s = app.session;
   if (!s) return;

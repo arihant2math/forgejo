@@ -30,7 +30,7 @@ function fixture() {
 
 test('anchored SelectPanel distinguishes focus from applied labels and keeps multi-selection open', async () => {
   const {mount, session, app} = fixture();
-  mount(<PickerPopover kind="labels" issueIds={[30]} trigger={<Button>Labels</Button>}/>);
+  mount(<PickerPopover kind="labels" issueIds={[30]} renderAnchor={(props) => <Button {...props}>Labels</Button>}/>);
   fireEvent.click(screen.getByRole('button', {name: 'Labels'}));
   const list = await screen.findByRole('listbox', {name: 'Change labels'});
   const bug = within(list).getByRole('option', {name: 'bug'});
@@ -58,7 +58,7 @@ test('label descriptions are muted secondary text, searchable and never interpre
   session.data.put('Label', 'repo:20', {id: 3, repo_id: 20, org_id: 0, name: '<b>security</b>', exclusive: false,
     description: '<img src=x onerror=alert(1)> Sensitive reports', color: '0052cc', num_issues: 0,
     num_closed_issues: 0, created_at: ''});
-  mount(<PickerPopover kind="labels" issueIds={[30]} trigger={<Button>Labels</Button>}/>);
+  mount(<PickerPopover kind="labels" issueIds={[30]} renderAnchor={(props) => <Button {...props}>Labels</Button>}/>);
   fireEvent.click(screen.getByRole('button', {name: 'Labels'}));
   const input = await screen.findByRole('combobox', {name: 'Change labels'});
   fireEvent.change(input, {target: {value: 'Sensitive'}});
@@ -87,7 +87,7 @@ test('shortcut modal names its target, applies a single value and returns focus'
 
 test('typed due dates are not filtered out and Escape returns focus without applying', async () => {
   const {mount, app, session} = fixture();
-  mount(<PickerPopover kind="due" issueIds={[30]} trigger={<Button>Due date</Button>}/>);
+  mount(<PickerPopover kind="due" issueIds={[30]} renderAnchor={(props) => <Button {...props}>Due date</Button>}/>);
   const anchor = screen.getByRole('button', {name: 'Due date'});
   anchor.focus();
   fireEvent.click(anchor);

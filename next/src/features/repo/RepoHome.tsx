@@ -5,7 +5,7 @@
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
 import {Label} from '@primer/react';
-import {Blankslate, SkeletonText} from '@primer/react/experimental';
+import {SkeletonText} from '@primer/react/experimental';
 import {CodeIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, TagIcon} from '@primer/octicons-react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
@@ -19,13 +19,15 @@ import {codeTo} from '../code/nav.tsx';
 import {RefMenu} from '../code/RefMenu.tsx';
 import {ReadmePanel, readmeOf} from '../code/Rendered.tsx';
 import {EmptyRepo, Unloaded} from '../code/states.tsx';
-import {DirEntries, FilesPanel, RefCommit} from '../code/tree.tsx';
+import {DirEntries, RefCommit} from '../code/tree.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {AboutSidebar} from './AboutSidebar.tsx';
 import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';
 import {Contribute} from './Contribute.tsx';
 import {RepoActions, RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -96,10 +98,10 @@ const Files = observer(function Files({owner, repo, repoId, scroller}: {owner: s
   const r = pool.model('Repository').get(repoId)?.data;
   if (!sha) {
     return (
-      <FilesPanel title={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
+      <BorderBox label="Files" header={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
         {r?.empty ? <EmptyRepo owner={owner} repo={repo} repoId={repoId}/> :
-          <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No code on this device yet</Blankslate.Heading><Blankslate.Description>Its branches have not arrived yet.</Blankslate.Description></Blankslate>}
-      </FilesPanel>
+          <EmptyState icon={FileSubmoduleIcon} title="No code on this device yet" description="Its branches have not arrived yet." spacious={false}/>}
+      </BorderBox>
     );
   }
   const branches = refs.branches.size;
@@ -143,11 +145,11 @@ const Tree = observer(function Tree({owner, repo, repoId, at, title, toolbar, ac
       {(addFile, dropProps) => <>
         {toolbar(addFile)}
         <div {...dropProps}>
-          <FilesPanel title={title} actions={actions}>
+          <BorderBox label="Files" header={title} actions={actions}>
             {tree.state === 'ready' ?
               <DirEntries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/> :
               <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-4 py-3"><SkeletonText lines={5}/></div>}/>}
-          </FilesPanel>
+          </BorderBox>
         </div>
         {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={at}/>}
       </>}

@@ -80,6 +80,10 @@ test('system theme follows the OS when nothing is stored', async ({page}) => {
 });
 
 test('no local DB marker: logged-out shell, then the app boots from preloaded chunks and the linked stylesheet', async ({page}) => {
+  // Views warmed when the page goes idle after first paint load chunks of their own: keep them out of the count.
+  await page.addInitScript(() => {
+    (window as {requestIdleCallback?: unknown}).requestIdleCallback = () => 0;
+  });
   const requests: string[] = [];
   const errors: string[] = [];
   page.on('request', (r) => requests.push(new URL(r.url()).pathname));

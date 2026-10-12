@@ -6,7 +6,7 @@
 
 import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
-import {online, RequestFailed} from '../../app/api.ts';
+import {failureText, online, RequestFailed} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
 import type {CodeCache} from '../../code/cache.ts';
 import {codeSource} from '../../code/source.ts';
@@ -74,7 +74,7 @@ export type Slot<T> =
   | {state: 'missing'}
   /** Unreachable and no locally cached value. */
   | {state: 'offline'}
-  | {state: 'error'; message: string; status: number};
+  | {state: 'error'; error: string; status: number};
 
 /** Avoid a duplicate read between hover prefetch and click. */
 const FRESH = 30_000;
@@ -202,7 +202,7 @@ export class WikiSource {
         } else if (status === 0) {
           this.set(key, {state: 'offline'});
         } else {
-          this.set(key, {state: 'error', message: err instanceof Error ? err.message : String(err), status});
+          this.set(key, {state: 'error', error: failureText(err), status});
         }
       }
     })().finally(() => {

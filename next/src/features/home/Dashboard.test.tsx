@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {render, screen, waitFor, within} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -42,4 +42,19 @@ test('each section follows its own data; with nothing waiting, the welcome repla
   expect(screen.queryByRole('button', {name: 'Open the command menu'})).toBeNull();
   s.data.put('Notification', 'user:1', {id: 1, user_id: 1, repo_id: 10, status: 'read', subject: 'issue', issue_id: 100, comment_id: 0, actor_id: 0, created_at: '', updated_at: ''});
   expect(await screen.findByRole('button', {name: 'Open the command menu'})).toBeTruthy();
+});
+
+test('rows link to their pages, J and K move over them across sections, Enter opens one', async () => {
+  await mount();
+  const mine = within(await screen.findByRole('region', {name: 'Your pull requests'})).getByRole('link', {name: /Faster saves/});
+  const unread = within(screen.getByRole('region', {name: 'Unread'})).getByRole('link', {name: /Footer links/});
+  expect(mine.getAttribute('href')).toBe('/alice/notes/pulls/2');
+  expect(unread.getAttribute('href')).toBe('/alice/notes/issues/1');
+  fireEvent.keyDown(document.body, {key: 'j'});
+  expect(document.activeElement).toBe(unread);
+  fireEvent.keyDown(unread, {key: 'j'});
+  expect(document.activeElement).toBe(mine);
+  expect(mine.hasAttribute('data-active')).toBe(true);
+  fireEvent.keyDown(mine, {key: 'Enter'});
+  expect(await screen.findByRole('heading', {level: 1, name: /Faster saves/})).toBeTruthy();
 });

@@ -63,7 +63,7 @@ test('a wiki from its first page to a deleted one, and offline once seen', async
   await expect(article).toContainText('The second page, edited.');
   await page.getByRole('button', {name: 'More of this page'}).click();
   await page.getByRole('menuitem', {name: 'Delete page'}).click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Delete'}).click();
+  await page.getByRole('alertdialog').getByRole('button', {name: 'Delete'}).click();
   await expect(page).toHaveURL(wiki);
   await expect.poll(async () => (await api('GET', `/repos/${USER}/${REPO}/wiki/page/Second-Page`)).status).toBe(404);
   await expect(pages.getByRole('link')).toHaveText(['Home']);

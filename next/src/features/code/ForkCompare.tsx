@@ -4,7 +4,7 @@ import {apiRepoPath} from '../../app/paths.ts';
 import {useEffect, useRef, useState} from 'react';
 import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
-import {online} from '../../app/api.ts';
+import {failureText, online} from '../../app/api.ts';
 import {sitePath} from '../../app/config.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -15,9 +15,10 @@ import {ChangedFiles, DiffView, type DiffHandle} from './DiffView.tsx';
 import {NewPull} from './NewPull.tsx';
 import type {CodeViewProps} from './CodePage.tsx';
 import {forkHead} from './proposal.ts';
+import {summary} from '../../components/Sha.tsx';
 import {Button} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & {base: string; head: string; open: boolean; scroller: HTMLDivElement | null}) {
   const app = useApp();
@@ -42,14 +43,14 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
       const raw = await fetch(sitePath(app.config, `/api/v1${path}?diff=true`), {signal: netSignal(15_000, ctl.signal), credentials: 'omit', redirect: 'manual', headers: {Authorization: `Bearer ${token}`}});
       if (!raw.ok || !info) throw new Error('Could not compare these branches.');
       const files = parseDiff(await raw.text());
-      if (!ctl.signal.aborted) setResult({files, total: info.total_commits, title: info.commits[0]?.commit.message.split('\n')[0] ?? props.head, repoId: info.head_repo_id, baseSha: info.merge_base, headSha: info.head_commit_id});
-    })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(err instanceof Error ? err.message : 'Could not compare these branches.'); });
+      if (!ctl.signal.aborted) setResult({files, total: info.total_commits, title: info.commits[0] ? summary(info.commits[0].commit.message) : props.head, repoId: info.head_repo_id, baseSha: info.merge_base, headSha: info.head_commit_id});
+    })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(failureText(err)); });
     return () => { ctl.abort(); };
   }, [app, props.owner, props.repo, props.base, props.head, connected, session]);
   if (!connected) return <Banner title="Online only" description={<>Comparing forks and opening pull requests requires a connection.</>}/>;
   if (error) return <Banner variant="critical" title="Comparison failed" description={<>{error}</>}/>;
-  if (!result) return <Blankslate><Blankslate.Heading>Loading comparison…</Blankslate.Heading></Blankslate>;
-  if (!result.total) return <Blankslate><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>This branch has no commits that the base lacks.</Blankslate.Description></Blankslate>;
+  if (!result) return <EmptyState title="Loading comparison…"/>;
+  if (!result.total) return <EmptyState title="Nothing to compare" description="This branch has no commits that the base lacks."/>;
   return <>
     <div className="sticky left-0 w-view border-b border-default px-4 py-3">
       {existing ? <RouterLinkButton variant="primary" to="/$owner/$repo/pulls/$index" params={{owner: props.owner, repo: props.repo, index: String(existing.get('number'))}}>View pull request #{existing.get('number')}</RouterLinkButton> : open ? <NewPull owner={props.owner} repo={props.repo} repoId={props.repoId} base={props.base} head={props.head} outlook={{kind: 'unknown', behind: 0}} defaults={{title: result.title, body: ''}} onCancel={() => { setOpen(false); }}/>

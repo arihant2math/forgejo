@@ -11,6 +11,7 @@ import {CodeSource, codeSource} from '../../code/source.ts';
 import type {APITree, Branch, NextConfig, Release} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
+import {primed} from '../../test/pierreWorker.ts';
 
 
 afterEach(() => {
@@ -144,16 +145,8 @@ describe('the overview\'s file bar', () => {
   });
 
   test('Go to file: T opens it; the paths are found by fuzzy match and open in the code view', async () => {
-    // jsdom has no Worker for file highlighting.
-    vi.stubGlobal('Worker', class {
-      addEventListener = () => undefined;
-      removeEventListener = () => undefined;
-      postMessage = () => undefined;
-      terminate = () => undefined;
-    });
     const {router, src} = await renderHome(base, {paths: ['docs/guide.md', 'README.md', 'src/app/App.tsx', 'src/readme_parser.go']});
     const blob = vi.spyOn(src, 'blob').mockResolvedValue({kind: 'text', text: '# Website', size: 9});
-    const highlight = vi.spyOn(src, 'highlight').mockResolvedValue(null);
     act(() => {
       fireEvent.keyDown(document.body, {key: 't'});
     });
@@ -170,7 +163,7 @@ describe('the overview\'s file bar', () => {
       expect(blob).toHaveBeenCalledWith(20, 'd'.repeat(40), 'README.md', 100);
     });
     await waitFor(() => {
-      expect(highlight).toHaveBeenCalledWith(20, 'd'.repeat(40), 'README.md', '# Website', 'idle');
+      expect(primed).toContainEqual(expect.objectContaining({name: 'README.md', contents: '# Website', cacheKey: `${'d'.repeat(40)}:README.md`}));
     });
     fireEvent.keyDown(input, {key: 'Enter'});
     await waitFor(() => {

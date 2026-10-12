@@ -6,7 +6,7 @@
 
 import {apiRepoPathOf, type RepoRef} from '../../app/paths.ts';
 import {observable, runInAction, untracked, when} from 'mobx';
-import {online, onlineWrite, type OnlineRequest} from '../../app/api.ts';
+import {failureText, online, onlineWrite, type OnlineRequest} from '../../app/api.ts';
 import type {App, Session} from '../../app/store.ts';
 import {repoGroup} from '../../data/models.ts';
 import {codeSource, encodePath} from '../../code/source.ts';
@@ -172,7 +172,7 @@ export class Drafts {
         src?.cache.put(draftsKey(repo.id), list);
         this.set(repo.id, {state: 'ready', list, stale: false});
       } catch (err) {
-        this.set(repo.id, old ? {state: 'ready', list: old, stale: false} : {state: 'error', message: err instanceof Error ? err.message : String(err)});
+        this.set(repo.id, old ? {state: 'ready', list: old, stale: false} : {state: 'error', message: failureText(err)});
       }
     })().finally(() => {
       this.inflight.delete(repo.id);

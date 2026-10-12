@@ -39,7 +39,7 @@ export function DiffSettings() {
   const s = useDiffSettings();
   const [open, setOpen] = useState(false);
   return <AnchoredOverlay open={open} onOpen={() => {setOpen(true);}} onClose={() => {setOpen(false);}} align="end"
-    renderAnchor={(props) => <IconButton {...{...props}} icon={GearIcon} size="small" variant="invisible" aria-label="Diff settings"/>}>
+    renderAnchor={(props) => <IconButton {...props} icon={GearIcon} size="small" variant="invisible" aria-label="Diff settings"/>}>
     <div className="flex flex-col gap-4 p-4">
       <SegmentedControl size="small" aria-label="Diff layout" onChange={(index) => {s.set(index === 1, s.hide);}}>
         <SegmentedControl.Button selected={!s.split}>Unified</SegmentedControl.Button><SegmentedControl.Button selected={s.split}>Split</SegmentedControl.Button>

@@ -87,7 +87,7 @@ const defs = {
   Branch: {schema: P.SchemaBranch, kinds: ['repo'], index: ['repo_id']},
   Release: {schema: P.SchemaRelease, kinds: ['repo'], index: ['repo_id']},
   CommitStatus: {schema: P.SchemaCommitStatus, kinds: ['repo'], index: ['repo_id', 'sha']},
-  ActionRun: {schema: P.SchemaActionRun, kinds: ['repo'], index: ['repo_id', 'commit_sha']},
+  ActionRun: {schema: P.SchemaActionRun, kinds: ['repo'], index: ['repo_id', 'commit_sha', 'pull_request_id']},
   ActionRunJob: {schema: P.SchemaActionRunJob, kinds: ['repo'], index: ['run_id']},
   Notification: {schema: P.SchemaNotification, kinds: ['user'], index: ['repo_id', 'issue_id', 'status']},
   Stopwatch: {schema: P.SchemaStopwatch, kinds: ['user'], index: ['issue_id']},

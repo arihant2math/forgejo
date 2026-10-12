@@ -264,7 +264,7 @@ func TestDocumentCSP(t *testing.T) {
 	assert.NotContains(t, csp, hash(`{"a":1}`), "data blocks are not hashed")
 	assert.NotContains(t, csp, "unsafe-eval")
 	assert.Contains(t, csp, "require-trusted-types-for 'script'")
-	assert.True(t, strings.HasSuffix(csp, "; trusted-types forgejo-next"), "only the forgejo-next policy (no implicit default policy): %s", csp)
+	assert.True(t, strings.HasSuffix(csp, "; trusted-types forgejo-next forgejo-next-diffs"), "only the two named policies (no default policy, no duplicates): %s", csp)
 	assert.Contains(t, csp, "object-src 'none'")
 	assert.Contains(t, csp, "connect-src 'self'")
 }

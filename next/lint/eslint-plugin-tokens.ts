@@ -231,6 +231,24 @@ const ownedSize: Partial<Record<string, RegExp>> = {
 };
 const uiModule = /^@primer\/react(?:\/experimental|\/next)?$/;
 
+/** Whether expr is the whole parameter of a renderAnchor callback: Primer's anchor props carry no className or style. */
+function isAnchorProps(context: RuleContext, expr: ESTree.Node): boolean {
+  if (expr.type !== 'Identifier') return false;
+  let scope: Scope | null = context.sourceCode.getScope(expr);
+  let variable;
+  while (scope && !variable) {
+    variable = scope.set.get(expr.name);
+    scope = scope.upper;
+  }
+  const def = variable?.defs[0];
+  if (def?.type !== 'Parameter') return false;
+  const fn = def.node;
+  if ((fn.type !== 'ArrowFunctionExpression' && fn.type !== 'FunctionExpression') || !fn.params.some((p) => p.type === 'Identifier' && p.name === expr.name)) return false;
+  const holder = fn.parent as {type: string; key?: ESTree.Node; parent?: {type: string; name?: {name?: string}}} | null | undefined;
+  if (holder?.type === 'Property') return holder.key?.type === 'Identifier' && holder.key.name === 'renderAnchor';
+  return holder?.type === 'JSXExpressionContainer' && holder.parent?.type === 'JSXAttribute' && holder.parent.name?.name === 'renderAnchor';
+}
+
 const noRestyle: RuleModule = {
   meta: {
     type: 'problem',
@@ -279,6 +297,7 @@ const noRestyle: RuleModule = {
               return undefined;
             };
             const literal = objects(attr.argument);
+            if (!literal && isAnchorProps(context, attr.argument)) continue;
             if (!literal) {
               context.report({node: attr.argument, message: `Spread props onto <${component}> as an object literal, so className/style can be checked`});
               continue;

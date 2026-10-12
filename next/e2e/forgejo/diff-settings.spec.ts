@@ -4,7 +4,7 @@
 import {expect, test} from '@playwright/test';
 import {api, b64, ok} from '../lib/api.ts';
 import {signIn} from '../lib/app.ts';
-import {blobSha, changeFiles, codeUrl, type Pull} from '../lib/code.ts';
+import {blobSha, changeFiles, codeUrl, commentOnLine, type Pull} from '../lib/code.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -23,11 +23,11 @@ test.afterAll(async () => { await api('DELETE', `/repos/${USER}/${REPO}`); });
 test('diff settings: split, remembered whitespace variant, and shared w=1 link', async ({page}) => {
   await signIn(page);
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(pull.number)}?tab=files`);
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
-  await page.getByRole('radio', {name: 'Split', exact: true}).click();
+  await page.getByRole('button', {name: 'Split', exact: true}).click();
   await page.keyboard.press('Escape');
-  const changes = page.getByRole('list', {name: 'Changes'});
+  const changes = page.getByRole('region', {name: 'Changes'});
   await changes.focus();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
@@ -35,14 +35,12 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await page.getByRole('textbox', {name: 'Review comment'}).fill('New-side draft');
   await page.getByRole('button', {name: 'Start a review', exact: true}).click();
   await expect(page.getByText('New-side draft', {exact: true})).toBeVisible();
-  const oldLine = changes.getByRole('listitem').filter({has: page.getByRole('button', {name: 'Comment on old line 1', exact: true})});
-  await oldLine.hover();
-  await oldLine.getByRole('button', {name: 'Comment on old line 1', exact: true}).click();
+  await commentOnLine(page, 'one two', 'Comment on old line 1', 'change-deletion');
   await page.getByRole('textbox', {name: 'Review comment'}).fill('Old-side draft');
-  await page.getByRole('button', {name: 'Start a review', exact: true}).click();
+  await page.getByRole('button', {name: 'Add review comment', exact: true}).click();
   await expect(page.getByText('Old-side draft', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
-  await page.getByRole('checkbox', {name: 'Hide whitespace changes'}).click();
+  await page.getByRole('button', {name: 'Hide whitespace changes'}).click();
   await page.keyboard.press('Escape');
   await expect(page.getByText('No changes', {exact: true})).toBeVisible();
   await page.goto(codeUrl(REPO, `commit/${pull.head.sha}`));
@@ -50,10 +48,10 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await page.goto(codeUrl(REPO, 'compare/main...spaces'));
   await expect(page.getByText('No changes', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
-  await expect(page.getByRole('radio', {name: 'Split', exact: true})).toBeChecked();
-  await page.getByRole('checkbox', {name: 'Hide whitespace changes'}).click();
+  await expect(page.getByRole('button', {name: 'Split', exact: true})).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', {name: 'Hide whitespace changes'}).click();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible();
   await page.goto(`${page.url()}?w=1`);
   await expect(page.getByText('No changes', {exact: true})).toBeVisible();
 });

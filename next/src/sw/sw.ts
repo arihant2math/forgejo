@@ -143,7 +143,7 @@ async function keepAvatars(urls: string[]): Promise<void> {
     const res = await fetch(url.href, {credentials: 'same-origin'}).catch(() => undefined);
     if (res?.ok && res.type === 'basic') await cache.put(url.href, res).catch(() => undefined);
   }
-  trimAvatarsSoon();
+  await trimAvatarsSoon();
 }
 
 /** The instance's sub-path ("" or "/git"). */
@@ -160,7 +160,7 @@ sw.addEventListener('fetch', (e) => {
   if (build.kill) return;
   const s = strategy(e.request, sw.location.origin, build.base, SUB);
   if (s === 'asset') e.respondWith(asset(e.request));
-  else if (s === 'avatar') e.respondWith(avatar(e.request));
+  else if (s === 'avatar') e.respondWith(avatar(e));
   // Top-level documents only (not frames); everything else is the browser's.
   else if (s === 'navigate' && e.request.destination === 'document') e.respondWith(navigate(e));
 });
@@ -170,8 +170,9 @@ const AVATARS_MAX = 500;
 const AVATAR_TRIM_DELAY = 2000;
 let avatarTrim: Promise<void> | undefined;
 
-function trimAvatarsSoon(): void {
-  avatarTrim ??= new Promise<void>((resolve) => setTimeout(resolve, AVATAR_TRIM_DELAY)).then(async () => {
+/** Settles once the trim has run: callers keep their event alive until then, so the worker is not stopped first. */
+function trimAvatarsSoon(): Promise<void> {
+  return avatarTrim ??= new Promise<void>((resolve) => setTimeout(resolve, AVATAR_TRIM_DELAY)).then(async () => {
     const cache = await caches.open(AVATAR_CACHE);
     const keys = await cache.keys();
     for (const k of keys.slice(0, Math.max(0, keys.length - AVATARS_MAX))) await cache.delete(k);
@@ -180,14 +181,13 @@ function trimAvatarsSoon(): void {
   });
 }
 
-async function avatar(req: Request): Promise<Response> {
+async function avatar(e: FetchEvent): Promise<Response> {
+  const req = e.request;
   if (!await alive()) return fetch(req);
   const cache = await caches.open(AVATAR_CACHE);
   try {
     const res = await fetch(req);
-    if (res.ok && res.type === 'basic') {
-      void cache.put(req, res.clone()).then(trimAvatarsSoon, () => undefined);
-    }
+    if (res.ok && res.type === 'basic') e.waitUntil(cache.put(req, res.clone()).then(trimAvatarsSoon, () => undefined));
     return res;
   } catch (err) {
     const hit = await cache.match(req);

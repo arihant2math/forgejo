@@ -102,3 +102,19 @@ test('a file whose path reads like a repository page is still the file (the view
     cleanup();
   }
 });
+
+test('a repository address that names no page shows not-found without looking the repository up; its next page does', async () => {
+  const fetch = vi.fn((_url: string) => Promise.resolve(new Response('{"message":"not here"}', {status: 404})));
+  vi.stubGlobal('fetch', fetch);
+  const s = fakeSession();
+  s.auth.token = () => Promise.resolve('token');
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/nobody/elsewhere/odd/address']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  expect(await screen.findByRole('heading', {level: 1, name: /^Not/})).toBeTruthy();
+  const lookups = () => fetch.mock.calls.filter(([url]) => url.startsWith('/api/v1/repos/nobody/elsewhere')).length;
+  expect(lookups()).toBe(0);
+  await router.navigate({href: '/nobody/elsewhere/issues'});
+  await waitFor(() => { expect(lookups()).toBe(1); });
+});

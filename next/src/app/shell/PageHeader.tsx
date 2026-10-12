@@ -17,6 +17,7 @@ import {IconButton, PageHeader as PrimerPageHeader, Text} from '@primer/react';
 export interface PageHeaderProps {
   title: ReactNode;
   icon?: OcticonType | undefined;
+  /** Breadcrumbs (`Crumbs`) above the title. */
   context?: ReactNode;
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
@@ -68,7 +69,7 @@ export function PageHeader({title, icon, context, children, docTitle, leaf = fal
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <div className={leaf ? 'header-leaf min-w-0 flex-1' : 'min-w-0 flex-1'}>
           <PrimerPageHeader>
-            {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
+            {context && <PrimerPageHeader.Breadcrumbs>{context}</PrimerPageHeader.Breadcrumbs>}
             <PrimerPageHeader.LeadingAction hidden={false} className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex"><SidebarToggle/></PrimerPageHeader.LeadingAction>
             <PrimerPageHeader.TitleArea className="min-w-0">
               {leaf ? (
@@ -91,18 +92,24 @@ export function PageHeader({title, icon, context, children, docTitle, leaf = fal
 }
 
 export interface StackedPageHeaderProps {
+  /** Breadcrumbs (`Crumbs`) in the top row. */
   context: ReactNode;
   actions?: ReactNode;
   tabs?: ReactNode;
-  /** Undefined omits the title row; the breadcrumb supplies the heading. */
+  /** Undefined omits the title row; a visually hidden heading then names the page after docTitle. */
   title?: ReactNode;
   icon?: OcticonType | undefined;
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
   docTitle?: string | undefined;
+  /**
+   * Set when the title is not phrasing content (a path's breadcrumb nav), which may not sit inside a heading:
+   * the title row is then a plain block and a visually hidden h1 names the page with this text, as GitHub follows its path nav with an h1.
+   */
+  heading?: string | undefined;
 }
 
-export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle}: StackedPageHeaderProps) {
+export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle, heading}: StackedPageHeaderProps) {
   return (
     <header className="shrink-0">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
@@ -112,7 +119,7 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
             <PrimerPageHeader.ContextBar hidden={false}>
               <div className="flex min-w-0 items-center gap-2">
                 <SidebarToggle/>
-                <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav>
+                {context}
               </div>
             </PrimerPageHeader.ContextBar>
             <PrimerPageHeader.ContextAreaActions hidden={false}>
@@ -122,6 +129,7 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
         </PrimerPageHeader>
       </div>
       {tabs}
+      {title === undefined && docTitle && <h1 className="sr-only">{docTitle}</h1>}
       {title !== undefined && (
         <div className="min-h-header border-b border-default px-4 py-2">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -129,7 +137,11 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
               <PrimerPageHeader>
                 <PrimerPageHeader.TitleArea className="min-w-0">
                   {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
-                  <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+                  {heading === undefined ? <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title> : <>
+                    <h1 className="sr-only">{heading}</h1>
+                    {/* Keep the heading slot's line-height so the row matches titled pages. */}
+                    <div className="flex min-h-lh min-w-0 flex-1 items-center">{title}</div>
+                  </>}
                 </PrimerPageHeader.TitleArea>
               </PrimerPageHeader>
             </div>

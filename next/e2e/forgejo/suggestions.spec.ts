@@ -4,6 +4,7 @@
 import {expect, test} from '@playwright/test';
 import {api, b64, ok} from '../lib/api.ts';
 import {signIn} from '../lib/app.ts';
+import {commentOnLine} from '../lib/code.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -20,10 +21,10 @@ test('write a line suggestion and commit it to the pull head', async ({page}) =>
     const pull = await (await ok(await api('POST', `${path}/pulls`, {head: 'suggestion', base: 'main', title: 'Suggest a change'}), 'create pull')).json() as {number: number};
     await signIn(page);
     await page.goto(`${BASE}/${USER}/${repo}/pulls/${String(pull.number)}/files`);
-    await page.getByRole('button', {name: 'Comment on line 1', exact: true}).last().click();
+    await commentOnLine(page, 'review me', 'Comment on line 1');
     await page.getByRole('button', {name: 'Add a suggestion', exact: true}).click();
     const composer = page.getByRole('textbox', {name: 'Review comment', exact: true});
-    await expect(composer).toHaveValue('```suggestion\nreview me\n```');
+    await expect.poll(() => composer.innerText()).toBe('```suggestion\nreview me\n```');
     await composer.fill('```suggestion\napplied\n```');
     await page.getByRole('button', {name: 'Add single comment', exact: true}).click();
     await page.getByRole('button', {name: 'Commit suggestion', exact: true}).click();

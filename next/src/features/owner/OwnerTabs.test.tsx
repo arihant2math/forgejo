@@ -66,6 +66,12 @@ test('the Repositories tab pages through every repository and counts them all, n
   const tabs = screen.getByRole('navigation', {name: 'Profile sections'});
   const panel = await screen.findByRole('region', {name: 'Repositories'});
   await within(panel).findByText('r1-0');
+  const first = within(panel).getByRole('link', {name: /^r1-0(?!\d)/});
+  expect(first.getAttribute('href')).toBe('/alice/r1-0');
+  fireEvent.keyDown(document.body, {key: 'j'});
+  expect(document.activeElement).toBe(first);
+  fireEvent.keyDown(first, {key: 'j'});
+  expect(document.activeElement).toBe(within(panel).getByRole('link', {name: /^r1-1(?!\d)/}));
   await waitFor(() => { expect(within(tabs).getByRole('link', {name: /Repositories/}).textContent).toContain('75'); });
   const search = calls.find((c) => c.path.startsWith('/api/v1/repos/search'));
   expect(Object.fromEntries(new URL(search?.path ?? '', 'http://localhost').searchParams)).toMatchObject({uid: '1', exclusive: 'true', sort: 'updated', order: 'desc', limit: '30', page: '1'});

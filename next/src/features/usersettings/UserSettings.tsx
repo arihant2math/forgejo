@@ -3,43 +3,51 @@
 
 import {count} from '../../app/words.ts';
 import {AccountList, AccountRow} from './AccountList.tsx';
-import {Banner, SegmentedControl, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
+import {Banner, SegmentedControl, useFormControlForwardedProps, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
 
-
-import {Link} from '@tanstack/react-router';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, RouterNavItem} from '../../app/routerLinks.tsx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useId, useRef, useState} from 'react';
 import {classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {notify} from '../../app/notices.ts';
-import {connectivity, onlineOnly} from '../../app/online.ts';
+import {failureText} from '../../app/api.ts';
+import {useOfflineReason} from '../../app/online.ts';
+import type {Resource} from '../../app/resource.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {ThemePreference} from '../../app/splash.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
-import {ago, fullDate} from '../issues/format.ts';
-import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
-import {describedBy, Field, FormActions, FormSection, SettingRow} from './form.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
+import {ListSkeleton} from '../../components/ListSkeleton.tsx';
+import {LoadState} from '../../components/LoadState.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
+import {problemOf} from '../settings/problems.ts';
 import {
-  type ApiGPGKey, type ApiPublicKey, AVATAR_MAX, diffStyleOf, expired, fieldError, gpgKeyProblem, looksLikeEmail, type Profile, PROFILE_FIELDS, PROFILE_LIMITS,
+  addEmail, addGpgKey, addKey, deleteAvatar, deleteEmail, deleteGpgKey, deleteKey, makePrimary, patchSettings, uploadAvatar, useUserSettings,
+} from './data.ts';
+import {FormActions, FormSection, SettingRow} from './form.tsx';
+import {Field} from '../../components/Field.tsx';
+import {
+  type ApiEmail, type ApiGPGKey, type ApiPublicKey, AVATAR_MAX, diffStyleOf, expired, gpgKeyProblem, looksLikeEmail, type Profile, PROFILE_API_FIELDS, PROFILE_FIELDS, PROFILE_LIMITS,
   type ProfileField, keepUnsaved, profileOf, profilePayload, profileProblems, scopeRefused, type SettingsPatch, shownProfile, sortEmails, spacedKeyId, sshKeyProblem,
   sshKeyTitle, toBase64, type UserSettings,
 } from './payload.ts';
-import {BrowserIcon, VerifiedIcon, OrganizationIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {BrowserIcon, VerifiedIcon, OrganizationIcon, PersonIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Blankslate, SkeletonBox, SkeletonAvatar} from '@primer/react/experimental';
+import {SkeletonAvatar} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
-const SECTIONS: {id: Section; label: string; icon: OcticonType; to: string; kinds: Kind[]}[] = [
-  {id: 'profile', label: 'Public profile', icon: PersonIcon, to: '/user/settings', kinds: ['settings']},
-  {id: 'account', label: 'Account', icon: MailIcon, to: '/user/settings/account', kinds: ['emails']},
-  {id: 'appearance', label: 'Appearance', icon: PaintbrushIcon, to: '/user/settings/appearance', kinds: ['settings', 'options']},
-  {id: 'keys', label: 'SSH and GPG keys', icon: KeyIcon, to: '/user/settings/keys', kinds: ['keys', 'gpg']},
+const SECTIONS: {id: Section; label: string; icon: OcticonType; to: string}[] = [
+  {id: 'profile', label: 'Public profile', icon: PersonIcon, to: '/user/settings'},
+  {id: 'account', label: 'Account', icon: MailIcon, to: '/user/settings/account'},
+  {id: 'appearance', label: 'Appearance', icon: PaintbrushIcon, to: '/user/settings/appearance'},
+  {id: 'keys', label: 'SSH and GPG keys', icon: KeyIcon, to: '/user/settings/keys'},
 ];
 
 const CLASSIC: {label: string; icon: OcticonType; to: string}[] = [
@@ -68,22 +76,9 @@ export function SettingsKeys() {
   return <SettingsPage section="keys"><KeysView/></SettingsPage>;
 }
 
-function useSource(): SettingsSource {
-  const src = settingsSource(useApp());
-  if (!src) throw new Error('settings without a session');
-  return src;
-}
-
-function useLoad(src: SettingsSource, ...kinds: Kind[]): void {
-  const key = kinds.join(',');
-  useEffect(() => {
-    for (const k of key.split(',') as Kind[]) void src.load(k);
-  }, [src, key]);
-}
-
 function failure(err: unknown): string {
   if (scopeRefused(err)) return 'Forgejo Next may not change your account with this sign-in. Sign out and in again, or change it in the classic UI.';
-  return err instanceof Error ? err.message : String(err);
+  return failureText(err);
 }
 
 function SettingsPage({section, children}: {section: Section; children: ReactNode}) {
@@ -99,7 +94,7 @@ function SettingsPage({section, children}: {section: Section; children: ReactNod
         <AccountHeader/>
         <div className="flex min-h-full flex-col @xl:flex-row">
           <SideNav section={section}/>
-          <div className="flex w-full min-w-0 max-w-xl flex-col gap-8 px-4 py-4 @xl:px-8 @xl:py-6"><UserOfflineNote/>{children}</div>
+          <div className="flex w-full min-w-0 max-w-xl flex-col gap-8 px-4 py-4 @xl:px-8 @xl:py-6"><OfflineBanner action="Changing account settings"/>{children}</div>
         </div>
       </PageBody>
     </>
@@ -124,19 +119,14 @@ const AccountHeader = observer(function AccountHeader() {
   );
 });
 
-const UserOfflineNote = observer(function UserOfflineNote() {
-  return connectivity.online ? null : <Banner variant="warning" title="You are offline" description={onlineOnly('Changing account settings')}/>;
-});
-
 function SideNav({section}: {section: Section}) {
   const app = useApp();
-  const src = useSource();
+  // Route loaders prefetch each page's settings on intent.
   return (
     <NavList aria-label="Settings pages" className="shrink-0 @xl:w-64 @xl:self-start">
-      {SECTIONS.map((page) => <NavList.Item key={page.id} as={Link} to={page.to} aria-current={page.id === section ? 'page' : false}
-        activeOptions={{exact: true}} onPointerEnter={() => { src.prefetch(...page.kinds); }} onFocus={() => { src.prefetch(...page.kinds); }}>
+      {SECTIONS.map((page) => <RouterNavItem key={page.id} to={page.to} aria-current={page.id === section ? 'page' : false} activeOptions={{exact: true}}>
         <NavList.LeadingVisual><page.icon/></NavList.LeadingVisual>{page.label}
-      </NavList.Item>)}
+      </RouterNavItem>)}
       <NavList.Group title="In the classic UI">
         {CLASSIC.map((page) => <NavList.Item key={page.to} href={classicHref(app, page.to)} data-classic="">
           <NavList.LeadingVisual><page.icon/></NavList.LeadingVisual>{page.label}
@@ -144,25 +134,6 @@ function SideNav({section}: {section: Section}) {
       </NavList.Group>
     </NavList>
   );
-}
-
-function SlotState({slot, what, skeleton}: {slot: Slot<unknown>; what: string; skeleton: ReactNode}) {
-  if (slot.state === 'loading') return <>{skeleton}</>;
-  if (slot.state === 'offline') return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`${what} are not on this device`}</Blankslate.Heading><Blankslate.Description>Connect to load them.</Blankslate.Description></Blankslate>;
-  if (slot.state === 'error') return <Banner variant="critical" title={`${what} could not be loaded`} description={slot.message}/>;
-  return null;
-}
-
-function RowsSkeleton({rows = 2}: {rows?: number}) {
-  return (
-    <div aria-busy className="flex flex-col gap-2 py-2">
-      {Array.from({length: rows}, (_, i) => <SkeletonBox className="h-3 w-2/3" key={i}/>)}
-    </div>
-  );
-}
-
-function useOffline(action: string): string | undefined {
-  return connectivity.online ? undefined : onlineOnly(action);
 }
 
 
@@ -175,11 +146,10 @@ const HINTS: Partial<Record<ProfileField, string>> = {
 };
 
 const ProfileView = observer(function ProfileView() {
-  const src = useSource();
+  const res = useUserSettings('settings');
   const {data, userId} = useSession();
-  useLoad(src, 'settings');
   const user = data.pool.model('User').get(userId);
-  const settings = src.value('settings');
+  const settings = res.value;
   // Settings include private pronouns; the public pool profile is only a fallback.
   const current: Profile = settings ? profileOf(settings) : profileOf({
     full_name: user?.get('full_name') ?? '', pronouns: user?.get('pronouns') ?? '', website: user?.get('website') ?? '',
@@ -187,21 +157,21 @@ const ProfileView = observer(function ProfileView() {
   });
   return (
     <>
-      <AvatarEditor src={src}/>
-      <ProfileForm src={src} current={current}/>
-      <PrivacySection src={src} settings={settings} slot={src.slot('settings')} visibility={user?.get('visibility') ?? ''}/>
+      <AvatarEditor/>
+      <ProfileForm res={res} current={current}/>
+      <PrivacySection res={res} visibility={user?.get('visibility') ?? ''}/>
     </>
   );
 });
 
-const ProfileForm = observer(function ProfileForm({src, current}: {src: SettingsSource; current: Profile}) {
+const ProfileForm = observer(function ProfileForm({res, current}: {res: Resource<UserSettings>; current: Profile}) {
   const app = useApp();
   const base = useId();
   const [draft, setDraft] = useState<Partial<Profile>>({});
   const [errors, setErrors] = useState<Partial<Record<ProfileField, string>>>({});
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
-  const offline = useOffline('Saving your profile');
+  const offline = useOfflineReason('Saving your profile');
   const shown = shownProfile(draft, current);
   const payload = profilePayload(draft, current);
   const save = () => {
@@ -216,15 +186,15 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
     setSaving(true);
     setErrors({});
     setFormError(undefined);
-    src.patch(payload, false).then(() => {
+    patchSettings(app, res, payload, false).then(() => {
       // Clear only saved draft values, preserving edits typed during the request.
       setDraft((d) => keepUnsaved(d, payload));
       notify(app, {tone: 'success', title: 'Profile saved'});
     }, (err: unknown) => {
-      const fe = fieldError(err);
-      const field = PROFILE_FIELDS.find((f) => f === fe.field);
+      const problem = problemOf(err, PROFILE_API_FIELDS);
+      const field = PROFILE_FIELDS.find((f) => f === problem.field);
       if (field) {
-        setErrors({[field]: fe.message});
+        setErrors({[field]: problem.message});
         document.getElementById(`${base}-${field}`)?.focus();
       } else {
         setFormError(failure(err));
@@ -245,24 +215,21 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
       }}>
         {formError !== undefined && <Banner variant="critical" title="Not saved" description={<>{formError}</>}/>}
         {PROFILE_FIELDS.map((f) => {
-          const id = `${base}-${f}`;
-          const hint = HINTS[f];
-          const described = describedBy(id, errors[f], hint !== undefined);
           const max = PROFILE_LIMITS[f] * 2;
           return (
-            <Field key={f} id={id} label={LABELS[f]} hint={hint} error={errors[f]}>
+            <Field key={f} id={`${base}-${f}`} label={LABELS[f]} hint={HINTS[f]} error={errors[f]}>
               {f === 'description' ?
-                <Textarea value={shown[f]} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
+                <Textarea value={shown[f]} maxLength={max} rows={4} onChange={(e) => {
                   edit(f, e.target.value);
                 }} onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     save();
                   }
-                }} block {...(errors[f] ? {validationStatus: 'error' as const} : {})}/> :
-                <TextInput value={shown[f]} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
+                }} block/> :
+                <TextInput value={shown[f]} maxLength={max} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
                   edit(f, e.target.value);
-                }} {...(errors[f] ? {validationStatus: 'error' as const} : {})}/>}
+                }}/>}
             </Field>
           );
         })}
@@ -279,7 +246,7 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
   );
 });
 
-const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}) {
+const AvatarEditor = observer(function AvatarEditor() {
   const app = useApp();
   const {data, userId} = useSession();
   const user = data.pool.model('User').get(userId);
@@ -289,7 +256,7 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
   const [preview, setPreview] = useState<{url: string; was: string | undefined} | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const offline = useOffline('Changing your picture');
+  const offline = useOfflineReason('Changing your picture');
   useEffect(() => () => {
     if (preview) URL.revokeObjectURL(preview.url);
   }, [preview]);
@@ -307,7 +274,7 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
     setBusy(true);
     file.arrayBuffer().then((buf) => {
       setPreview({url: URL.createObjectURL(file), was: url});
-      return src.uploadAvatar(toBase64(new Uint8Array(buf)));
+      return uploadAvatar(app, toBase64(new Uint8Array(buf)));
     }).then(() => {
       notify(app, {tone: 'success', title: 'Picture changed'});
     }, (err: unknown) => {
@@ -320,7 +287,7 @@ const AvatarEditor = observer(function AvatarEditor({src}: {src: SettingsSource}
   const remove = () => {
     setError(undefined);
     setBusy(true);
-    src.deleteAvatar().then(() => {
+    deleteAvatar(app).then(() => {
       setPreview(undefined);
       notify(app, {tone: 'success', title: 'Picture removed'});
     }, (err: unknown) => {
@@ -356,8 +323,9 @@ const VISIBILITY: Record<string, string> = {
   private: 'Private: only you and the instance\'s administrators see your profile.',
 };
 
-const PrivacySection = observer(function PrivacySection({src, settings, slot, visibility}: {src: SettingsSource; settings: UserSettings | undefined; slot: Slot<UserSettings>; visibility: string}) {
-  const offline = useOffline('Changing your privacy');
+const PrivacySection = observer(function PrivacySection({res, visibility}: {res: Resource<UserSettings>; visibility: string}) {
+  const settings = res.value;
+  const offline = useOfflineReason('Changing your privacy');
   return (
     <FormSection title="Privacy">
       <SettingRow title="Visibility" description={VISIBILITY[visibility] ?? 'Who sees your profile.'}>
@@ -365,21 +333,21 @@ const PrivacySection = observer(function PrivacySection({src, settings, slot, vi
       </SettingRow>
       {settings ? (
         <div className="flex flex-col">
-          <Toggle src={src} settings={settings} field="hide_email" label="Hide my email address" hint="Others do not see your primary address on your profile." offline={offline}/>
-          <Toggle src={src} settings={settings} field="hide_pronouns" label="Hide my pronouns" hint="Your pronouns are shown to you only." offline={offline}/>
-          <Toggle src={src} settings={settings} field="hide_activity" label="Hide my activity" hint="Your activity is not shown on your profile page." offline={offline}/>
+          <Toggle res={res} settings={settings} field="hide_email" label="Hide my email address" hint="Others do not see your primary address on your profile." offline={offline}/>
+          <Toggle res={res} settings={settings} field="hide_pronouns" label="Hide my pronouns" hint="Your pronouns are shown to you only." offline={offline}/>
+          <Toggle res={res} settings={settings} field="hide_activity" label="Hide my activity" hint="Your activity is not shown on your profile page." offline={offline}/>
           {offline && <p className="text-sm text-muted">{offline}</p>}
         </div>
-      ) : <SlotState slot={slot} what="Your privacy settings" skeleton={<RowsSkeleton rows={3}/>}/>}
+      ) : <LoadState res={res} what="Your privacy settings" skeleton={<ListSkeleton rows={3} lines={1} leading="none"/>}/>}
     </FormSection>
   );
 });
 
-const Toggle = observer(function Toggle({src, settings, field, label, hint, offline}: {
-  src: SettingsSource; settings: UserSettings; field: 'hide_email' | 'hide_pronouns' | 'hide_activity' | 'enable_repo_unit_hints'; label: string; hint: string;
+const Toggle = observer(function Toggle({res, settings, field, label, hint, offline}: {
+  res: Resource<UserSettings>; settings: UserSettings; field: 'hide_email' | 'hide_pronouns' | 'hide_activity' | 'enable_repo_unit_hints'; label: string; hint: string;
   offline: string | undefined;
 }) {
-  const change = useChange(src);
+  const change = useChange(res);
   const id = useId();
   return (
     <SettingRow id={id} title={label} description={hint}>
@@ -389,10 +357,10 @@ const Toggle = observer(function Toggle({src, settings, field, label, hint, offl
   );
 });
 
-function useChange(src: SettingsSource): (patch: SettingsPatch, what: string) => void {
+function useChange(res: Resource<UserSettings>): (patch: SettingsPatch, what: string) => void {
   const app = useApp();
   return (patch, what) => {
-    src.patch(patch, true).catch((err: unknown) => {
+    patchSettings(app, res, patch, true).catch((err: unknown) => {
       notify(app, {tone: 'danger', title: `${what}: not saved`, description: failure(err)});
     });
   };
@@ -406,12 +374,12 @@ const NEXT_THEMES: {value: ThemePreference; label: string}[] = [
 ];
 
 const AppearanceView = observer(function AppearanceView() {
-  const src = useSource();
-  useLoad(src, 'settings', 'options');
-  const settings = src.value('settings');
-  const options = src.value('options');
-  const change = useChange(src);
-  const offline = useOffline('Changing the appearance');
+  const settingsRes = useUserSettings('settings');
+  const optionsRes = useUserSettings('options');
+  const settings = settingsRes.value;
+  const options = optionsRes.value;
+  const change = useChange(settingsRes);
+  const offline = useOfflineReason('Changing the appearance');
   return (
     <>
       <FormSection title="Forgejo Next" description="How this app looks on this device.">
@@ -441,11 +409,11 @@ const AppearanceView = observer(function AppearanceView() {
                   if (index !== undefined) change({diff_view_style: index === 0 ? 'unified' : 'split'}, 'Diff view');
                 }}><SegmentedControl.Button selected={diffStyleOf(settings.diff_view_style) === 'unified'}>Unified</SegmentedControl.Button><SegmentedControl.Button selected={diffStyleOf(settings.diff_view_style) === 'split'}>Split</SegmentedControl.Button></SegmentedControl>}
             </SettingRow>
-            <Toggle src={src} settings={settings} field="enable_repo_unit_hints" label="Hints for a repository's unused features"
+            <Toggle res={settingsRes} settings={settings} field="enable_repo_unit_hints" label="Hints for a repository's unused features"
               hint="The classic UI suggests adding what a repository you own does not use yet (a wiki, releases)." offline={offline}/>
             {offline && <p className="text-sm text-muted">{offline}</p>}
           </>
-        ) : <SlotState slot={settings ? src.slot('options') : src.slot('settings')} what="Your appearance settings" skeleton={<RowsSkeleton rows={4}/>}/>}
+        ) : <LoadState res={settings ? optionsRes : settingsRes} what="Your appearance settings" skeleton={<ListSkeleton rows={4} lines={1} leading="none"/>}/>}
       </FormSection>
     </>
   );
@@ -471,11 +439,9 @@ function ChoiceMenu({label, value, options, fallback, disabled, onChange}: {
 
 
 const AccountView = observer(function AccountView() {
-  const src = useSource();
-  useLoad(src, 'emails');
   return (
     <>
-      <EmailsSection src={src}/>
+      <EmailsSection/>
       <FormSection title="Password" description="Change your password, or set one for an account that signs in elsewhere.">
         <div><ClassicLink size="small" to="/user/settings/account" variant="default">Change your password</ClassicLink></div>
       </FormSection>
@@ -486,21 +452,21 @@ const AccountView = observer(function AccountView() {
   );
 });
 
-const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSource}) {
+const EmailsSection = observer(function EmailsSection() {
   const app = useApp();
-  const slot = src.slot('emails');
-  const offline = useOffline('Changing your email addresses');
+  const res = useUserSettings('emails');
+  const offline = useOfflineReason('Changing your email addresses');
   const [removing, setRemoving] = useState<string | undefined>(undefined);
-  const list = slot.state === 'ready' ? sortEmails(slot.value) : undefined;
+  const list = res.value && sortEmails(res.value);
   const primary = (email: string) => {
-    src.makePrimary(email).then(() => {
+    makePrimary(app, res, email).then(() => {
       notify(app, {tone: 'success', title: `${email} is your primary address`});
     }, (err: unknown) => {
       notify(app, {tone: 'danger', title: 'The primary address did not change', description: failure(err)});
     });
   };
   const remove = (email: string) => {
-    src.deleteEmail(email).catch((err: unknown) => {
+    deleteEmail(app, res, email).catch((err: unknown) => {
       notify(app, {tone: 'danger', title: `${email} was not removed`, description: failure(err)});
     });
   };
@@ -523,11 +489,11 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
             </AccountRow>
           ))}
         </AccountList>
-      ) : <SlotState slot={slot} what="Your email addresses" skeleton={<RowsSkeleton/>}/>}
+      ) : <LoadState res={res} what="Your email addresses" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {list?.some((e) => !e.verified) && (
         <p className="text-sm text-muted">An unverified address waits for the link Forgejo mailed to it. <TextClassic to="/user/settings/account">Send it again in the classic UI</TextClassic>.</p>
       )}
-      <AddEmail src={src} offline={offline}/>
+      <AddEmail res={res} offline={offline}/>
       {removing !== undefined && (
         <Confirm title={`Remove ${removing}?`} description="Commits made with this address are no longer linked to you." action="Remove" onConfirm={() => {
           remove(removing);
@@ -539,9 +505,15 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
   );
 });
 
-const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource; offline: string | undefined}) {
+/** Shares its row with the Add button, so it takes the field's label and messages itself. */
+function EmailInput({value, invalid, onChange}: {value: string; invalid: boolean; onChange: (value: string) => void}) {
+  const wiring = useFormControlForwardedProps({});
+  return <TextInput id={wiring.id} aria-describedby={wiring['aria-describedby']} type="email" autoComplete="email" placeholder="you@example.com" value={value} className="min-w-0 flex-1"
+    onChange={(e) => { onChange(e.target.value); }} {...(invalid ? {validationStatus: 'error' as const} : {})}/>;
+}
+
+const AddEmail = observer(function AddEmail({res, offline}: {res: Resource<ApiEmail[]>; offline: string | undefined}) {
   const app = useApp();
-  const id = useId();
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -554,7 +526,7 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
     }
     setSaving(true);
     setError(undefined);
-    src.addEmail(e).then(() => {
+    addEmail(app, res, e).then(() => {
       setEmail('');
       notify(app, {tone: 'success', title: `Added ${e}`, description: 'If Forgejo asks for it, open the link it mailed to the address to verify it.'});
     }, (err: unknown) => {
@@ -568,12 +540,12 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
       e.preventDefault();
       add();
     }}>
-      <Field id={id} label="Add an email address" error={error} hint={offline}>
+      <Field label="Add an email address" error={error} hint={offline}>
         <div className="flex gap-2">
-          <TextInput type="email" autoComplete="email" placeholder="you@example.com" value={email} className="min-w-0 flex-1" aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
-              setEmail(e.target.value);
-              setError(undefined);
-            }} {...(error ? {validationStatus: 'error' as const} : {})}/>
+          <EmailInput value={email} invalid={Boolean(error)} onChange={(value) => {
+            setEmail(value);
+            setError(undefined);
+          }}/>
           <PrimerButton size="small" leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
         </div>
       </Field>
@@ -597,12 +569,10 @@ function Confirm({title, description, action, onConfirm, onClose}: {title: strin
 
 
 const KeysView = observer(function KeysView() {
-  const src = useSource();
-  useLoad(src, 'keys', 'gpg');
   return (
     <>
-      <SshKeys src={src}/>
-      <GpgKeys src={src}/>
+      <SshKeys/>
+      <GpgKeys/>
       <p className="text-sm text-muted">
         Verifying a key, and SSH certificate principals, are in the <TextClassic to="/user/settings/keys">classic UI</TextClassic>.
       </p>
@@ -610,19 +580,19 @@ const KeysView = observer(function KeysView() {
   );
 });
 
-const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
+const SshKeys = observer(function SshKeys() {
   const app = useApp();
-  const slot = src.slot('keys');
-  const offline = useOffline('Changing your SSH keys');
+  const res = useUserSettings('keys');
+  const offline = useOfflineReason('Changing your SSH keys');
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<ApiPublicKey | undefined>(undefined);
-  const list = slot.state === 'ready' ? slot.value : undefined;
+  const list = res.value;
   return (
     <FormSection title="SSH keys" description="The keys that may push and pull over SSH as you."
       actions={!adding && <PrimerButton size="small" leadingVisual={PlusIcon} type="button" inactive={Boolean(offline)} onClick={() => {
         setAdding(true);
       }}>New SSH key</PrimerButton>}>
-      {adding && <AddSshKey src={src} offline={offline} onDone={() => {
+      {adding && <AddSshKey res={res} offline={offline} onDone={() => {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
@@ -630,7 +600,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
           {list.map((k) => (
             <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
-              <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
+              <TimeAgo at={k.created_at} label="Added"/>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
               }}/>
@@ -640,11 +610,11 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
             </AccountRow>
           ))}
         </AccountList>
-      ) : !adding && <Blankslate><Blankslate.Visual><KeyIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No SSH keys</Blankslate.Heading><Blankslate.Description>Add one to push and pull over SSH.</Blankslate.Description></Blankslate>) :
-        <SlotState slot={slot} what="Your SSH keys" skeleton={<RowsSkeleton/>}/>}
+      ) : !adding && <EmptyState icon={KeyIcon} title="No SSH keys" description="Add one to push and pull over SSH." spacious={false}/>) :
+        <LoadState res={res} what="Your SSH keys" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {removing && (
         <Confirm title={`Delete “${removing.title ?? 'SSH key'}”?`} description="It can no longer push or pull as you." action="Delete key" onConfirm={() => {
-          src.deleteKey(removing.id).catch((err: unknown) => {
+          deleteKey(app, res, removing.id).catch((err: unknown) => {
             notify(app, {tone: 'danger', title: 'The key was not deleted', description: failure(err)});
           });
         }} onClose={() => {
@@ -655,9 +625,8 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
   );
 });
 
-const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: SettingsSource; offline: string | undefined; onDone: () => void}) {
+const AddSshKey = observer(function AddSshKey({res, offline, onDone}: {res: Resource<ApiPublicKey[]>; offline: string | undefined; onDone: () => void}) {
   const app = useApp();
-  const base = useId();
   const [title, setTitle] = useState('');
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
@@ -672,7 +641,7 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
     setSaving(true);
     setError(undefined);
     const name = sshKeyTitle(title, key);
-    src.addKey(name, key.trim()).then(() => {
+    addKey(app, res, name, key.trim()).then(() => {
       notify(app, {tone: 'success', title: `Added the SSH key “${name}”`});
       onDone();
     }, (err: unknown) => {
@@ -685,16 +654,16 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
       e.preventDefault();
       add();
     }}>
-      <Field id={`${base}-title`} label="Title" hint="Optional: the key's comment, else its type.">
-        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
+      <Field label="Title" hint="Optional: the key's comment, else its type.">
+        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" onChange={(e) => {
           setTitle(e.target.value);
         }}/>
       </Field>
-      <Field id={`${base}-key`} label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
-        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
+      <Field label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
+        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
+          }} block/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
@@ -704,19 +673,19 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
   );
 });
 
-const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
+const GpgKeys = observer(function GpgKeys() {
   const app = useApp();
-  const slot = src.slot('gpg');
-  const offline = useOffline('Changing your GPG keys');
+  const res = useUserSettings('gpg');
+  const offline = useOfflineReason('Changing your GPG keys');
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<ApiGPGKey | undefined>(undefined);
-  const list = slot.state === 'ready' ? slot.value : undefined;
+  const list = res.value;
   return (
     <FormSection title="GPG keys" description="The keys whose signatures mark your commits as verified."
       actions={!adding && <PrimerButton size="small" leadingVisual={PlusIcon} type="button" inactive={Boolean(offline)} onClick={() => {
         setAdding(true);
       }}>New GPG key</PrimerButton>}>
-      {adding && <AddGpgKey src={src} offline={offline} onDone={() => {
+      {adding && <AddGpgKey res={res} offline={offline} onDone={() => {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
@@ -727,7 +696,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
               <AccountRow key={k.id} leading={<LockIcon size={16} className="shrink-0"/>} trailing={<>
                 {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
                 {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
-                <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
+                <TimeAgo at={k.created_at} label="Added"/>
                 <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key ${k.key_id}`} type="button" disabled={Boolean(offline)} onClick={() => {
                   setRemoving(k);
                 }}/>
@@ -738,11 +707,11 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
             );
           })}
         </AccountList>
-      ) : !adding && <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No GPG keys</Blankslate.Heading><Blankslate.Description>Add one to have your signed commits verified.</Blankslate.Description></Blankslate>) :
-        <SlotState slot={slot} what="Your GPG keys" skeleton={<RowsSkeleton/>}/>}
+      ) : !adding && <EmptyState icon={LockIcon} title="No GPG keys" description="Add one to have your signed commits verified." spacious={false}/>) :
+        <LoadState res={res} what="Your GPG keys" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {removing && (
         <Confirm title={`Delete the key ${spacedKeyId(removing.key_id)}?`} description="Commits it signed no longer show as verified." action="Delete key" onConfirm={() => {
-          src.deleteGpgKey(removing.id).catch((err: unknown) => {
+          deleteGpgKey(app, res, removing.id).catch((err: unknown) => {
             notify(app, {tone: 'danger', title: 'The key was not deleted', description: failure(err)});
           });
         }} onClose={() => {
@@ -753,9 +722,8 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
   );
 });
 
-const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: SettingsSource; offline: string | undefined; onDone: () => void}) {
+const AddGpgKey = observer(function AddGpgKey({res, offline, onDone}: {res: Resource<ApiGPGKey[]>; offline: string | undefined; onDone: () => void}) {
   const app = useApp();
-  const id = useId();
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -768,7 +736,7 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
     }
     setSaving(true);
     setError(undefined);
-    src.addGpgKey(key.trim()).then((k) => {
+    addGpgKey(app, res, key.trim()).then((k) => {
       notify(app, {tone: 'success', title: `Added the GPG key ${spacedKeyId(k.key_id)}`});
       onDone();
     }, (err: unknown) => {
@@ -781,11 +749,11 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
       e.preventDefault();
       add();
     }}>
-      <Field id={id} label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
-        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" aria-describedby={describedBy(id, error, true)} onChange={(e) => {
+      <Field label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
+        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
+          }} block/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>

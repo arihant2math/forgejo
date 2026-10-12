@@ -183,7 +183,15 @@ describe('labels and milestones', () => {
     });
     expect(within(screen.getByRole('region', {name: 'Labels'})).getAllByText('triage')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', {name: 'Delete bug'}));
-    fireEvent.click(await screen.findByRole('button', {name: 'Delete label'}));
+    const confirm = await screen.findByRole('alertdialog', {name: 'Delete the label “bug”?'});
+    expect(confirm.textContent).toContain('It is removed from every issue and pull request that has it');
+    // A danger confirmation starts on Cancel, so Enter alone deletes nothing.
+    await waitFor(() => { expect(document.activeElement).toBe(within(confirm).getByRole('button', {name: 'Cancel'})); });
+    fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+    await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+    expect(sent.some((r) => r.method === 'DELETE')).toBe(false);
+    fireEvent.click(screen.getByRole('button', {name: 'Delete bug'}));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Delete label'}));
     expect(within(screen.getByRole('region', {name: 'Labels'})).queryByText('Something is broken')).toBeNull();
     await waitFor(() => {
       expect(within(screen.getByRole('region', {name: 'Labels'})).getByText('Something is broken')).toBeTruthy();
@@ -207,7 +215,9 @@ describe('labels and milestones', () => {
     fireEvent.change(due, {target: {value: '61102-02-02'}});
     fireEvent.click(screen.getByRole('button', {name: 'Create milestone'}));
     expect(due.getAttribute('aria-invalid')).toBe('true');
-    expect(document.getElementById(due.getAttribute('aria-describedby') ?? '')?.textContent).toBe('The year needs four digits.');
+    // Primer describes the field by its validation message first, then its caption.
+    expect((due.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent))
+      .toEqual(['The year needs four digits.', 'Optional. Issues of the milestone are due by then.']);
     expect(document.activeElement).toBe(due);
     expect(title.getAttribute('aria-invalid')).not.toBe('true');
     expect(screen.queryByText('A milestone needs a title.')).toBeNull();

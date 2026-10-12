@@ -13,7 +13,7 @@ How Forgejo Next works: the `livesync` backend inside the Forgejo binary, and th
 │   intents, drafts, blobs)                    │   │  ├─ /api/v1/* + Idempotency-Key → dedupe, echo    │
 │ BroadcastChannel ⇄ follower tabs             │   │  │     X-Livesync-Sync-Id, pass to API v1         │
 │ Service worker: precache, offline shell      │   │  ├─ /-/next/*   the SPA build, config, opt-in     │
-│ Workers: code (Shiki), pierre (diffs),       │   │  └─ everything else → upstream Forgejo            │
+│ Workers: code (Shiki), Pierre pool (diffs),  │   │  └─ everything else → upstream Forgejo            │
 │   search (MiniSearch)                        │   │ triggers → livesync_change → materializer         │
 └──────────────────────────────────────────────┘   │   → livesync_log (syncId) → tailers → hubs        │
                                                    └───────────────────────────────────────────────────┘
@@ -172,7 +172,7 @@ in IndexedDB.
   else falls through to the classic UI. `?ui=classic` forces the classic page. Classic pages get a "Forgejo Next"
   pill through `classic_header.tmpl` (installed as `custom/templates/custom/header.tmpl`) and `/-/next/classic.js`.
 * The document carries the config block (`protocol.NextConfig`), a strict CSP (`script-src 'self'` + hashes of the
-  inline scripts, `require-trusted-types-for 'script'`, one Trusted Types policy), and `Link: rel=modulepreload`
+  inline scripts, `require-trusted-types-for 'script'`, two named Trusted Types policies), and `Link: rel=modulepreload`
   headers for the route's view chunk from Vite's manifest (`spa_preload.go`).
 * Under a Forgejo sub-path the server rewrites the build's exact `/-/next/` literals; client code builds every URL
   from the config's `app_sub_url` / `base`.
@@ -229,9 +229,16 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
   local data.
 * The server (`spaRoutes`), the service worker (`src/sw/routes.ts` `isSpaRoute`) and the router must agree;
   `src/app/routes.test.ts` parses `spaRoutes` and checks both directions.
+* Repository pages are children of one layout route, `/$owner/$repo` (id `/shell/$owner/$repo`, the home is its
+  index): its loader resolves the repository once while its pages are open (redirecting other spellings of the name
+  to Forgejo's) and the pages read the result with `getRouteApi('/shell/$owner/$repo').useLoaderData()`
+  (`useRepoPage`). A repository it could not resolve is asked again on the next page, blocking like a first load; an
+  address under the code catch-all that names no code view skips the lookup and shows not-found.
 * Adding a route: a `createRoute` with `component: lazyView(() => import(…))`, `staticData.skeleton`, and a
   `validateSearch` from `src/app/search.ts` (search params are plain strings, as the classic UI writes them); for a
-  canonical URL also add it to `spaRoutes` and `isSpaRoute`.
+  canonical URL also add it to `spaRoutes` and `isSpaRoute`. A repository page goes under `repoRoute` with a path
+  relative to `/$owner/$repo` and no repository loader of its own: the layout resolves the repository and the page
+  reads it with `useRepoPage`.
 
 ### Data layer (`src/data`, `src/sync`)
 
@@ -256,6 +263,11 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
   network epoch's abort signal (`sync/net.ts`).
 * **Holding:** the groups kept are those reachable from the workspace, recent on-demand groups (LRU), pins and tab
   holds (`Data.hold` / `release`); unreachable groups are purged.
+* **Server reads outside the pool** (`app/resource.ts`): `useResource(key, load, opts)` gives a view its first frame
+  from memory (the session cache, or the caller's `peek` for SHA-addressed content), then IndexedDB, then Forgejo;
+  a stale value stays while it is asked again, transient failures retry while connected and on reconnect, and the
+  request is aborted with the view. `loadResource` is the same read outside React (route prefetch, loops), which a
+  view joins. `components/LoadState` renders the loading, offline, failure and empty states.
 * `openData()` (`sync/data.ts`) is the entry point; `Data` exposes `pool`, observable `status`, `hold`, `whenSynced`,
   `loadClosedPage`, `tailLog`, `barrier` and events (`revoked`, `newBuild`, …).
 
@@ -290,8 +302,7 @@ A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `
 | Worker | Purpose |
 |---|---|
 | `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer, configured by `src/code/shiki.ts`: one lazy chunk per grammar (`lang-*`), output as `(length, class code)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, queued work dropped when its `AbortSignal` fires, a stall watchdog that terminates the worker |
-| `src/workers/pierre.worker.ts` | Parses a diff's files into `@pierre/diffs` metadata, keeping the server's hunk coordinates |
-| `@pierre/diffs` worker pool | Pierre's own Shiki highlighting (`shiki-js`, GitHub light/dark themes), started by `src/code/PierreProvider.tsx` |
+| `@pierre/diffs` worker pool | Pierre's Shiki highlighting (`shiki-js`) for file views and diffs, with `src/code/shiki.ts`'s theme, grammars and limits: two workers, started on first use by `src/code/PierreProvider.tsx` and kept for the page's lifetime with their AST cache |
 | `src/workers/search.worker.ts` (Comlink) | MiniSearch index of issues/PRs (title, `owner/repo`, number; prefix and typo-tolerant), fed from the pool by `features/search/local.ts` |
 
 Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sink) and rebased on the config's
@@ -300,20 +311,39 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Code rendering
 
 * Reads go through `src/code/source.ts` (`CodeSource`): everything addressed by SHA, cached in `src/code/cache.ts`
-  (memory LRU + IndexedDB `blobs`, purged with a revoked `repo:{id}` group), with byte caps while streaming.
-* **File view:** `src/code/FileSurface.tsx` renders `@pierre/diffs` `CodeView` in a worker pool, themed by
-  `primerCodeCSS` (Primer variables). **Diff/review:** `src/code/ReviewSurface.tsx` renders Pierre's virtualized
-  diff with review threads as line annotations, anchored by `(path, side, line, commit SHA)` (`code/anchor.ts`).
-* Pierre writes HTML through `innerHTML`, which the page's Trusted Types policy forbids. Where Trusted Types exist
-  (`pierreHTMLSupported()` false), and for blame and `#L` deep links, the app's own accessible line renderer is used
-  instead (`features/code/Lines.tsx`, `DiffView.tsx`) with the code worker's highlighting. Never weaken the policy to
-  accommodate the library.
+  (memory LRU + IndexedDB `blobs`), with byte caps while streaming. A session has one cache (`sessionCache`), shared
+  with settings resources; the shell's `revoked` handler purges a revoked `repo:{id}` group through it (`purgeRevoked`).
+* **File view and diffs** render with `@pierre/diffs` (`CodeView`, virtualized, in Shadow DOM): `src/code/FileSurface.tsx`
+  (one file; `#L` links select and scroll through Pierre's line selection) and `src/code/ReviewSurface.tsx` (every
+  file of a commit, comparison or pull request; review threads are line annotations anchored by
+  `(path, side, line, commit SHA)`, `code/anchor.ts`). Both load lazily. `src/code/PierreProvider.tsx` holds Pierre's
+  configuration (`primerCodeCSS` mapping Primer's variables) and the worker pool. It registers `code/shiki.ts`'s theme
+  in memory and its curated grammars with their loaders, and every file and diff names its language through `langOf`,
+  so Pierre and the code worker highlight alike and Pierre needs no theme chunk (offline before the first code view
+  too). If the pool fails, views render plain text rather than highlight on the main thread; a grammar that does not
+  load leaves its file plain. Diffs become Pierre models from the parsed `DiffFile`s once per file
+  (`code/pierrePatch.ts`), keeping the server's hunk coordinates.
+* **Blame** keeps the app's own line renderer (`features/code/Lines.tsx`, `code/parts.tsx`) with the code worker's
+  highlighting: Pierre has no blame view.
+* **Trusted Types and Pierre:** Pierre writes HTML strings (`innerHTML`, `insertAdjacentHTML`) that it serialises
+  from its own syntax trees with `hast-util-to-html`, which escapes every text and attribute value; file contents,
+  names and tokens never reach those strings unescaped. A pnpm patch (`patches/@pierre__diffs@1.5.2.patch`) routes
+  exactly those sinks, and the SVG sprite, through `setTrustedHTML`. `src/code/pierreTrust.ts` creates the second
+  policy, `forgejo-next-diffs` (identity `createHTML`), once, and hands it only to that hook; the policy object
+  never leaves the module, so no other code can mint TrustedHTML with it. Pierre's paths that take caller-supplied
+  HTML (SSR prerendering, the editor) stay unpatched and are rejected by the CSP. `pierreTrust.test.ts` fails if an
+  upgrade leaves a sink unwrapped (and counts the sinks, so a changed count needs a look). On upgrade, `pnpm patch
+  @pierre/diffs`, then in `dist/components/File.js`, `dist/components/FileDiff.js` and
+  `dist/managers/InteractionManager.js` wrap the value of every `innerHTML =` and `insertAdjacentHTML(…, value)` in
+  `trustedHTML(…)` imported from `../utils/trustedHTML.js`, keep `dist/utils/trustedHTML.{js,d.ts}`, and keep
+  `setTrustedHTML` exported from `dist/index.{js,d.ts}`; `pnpm patch-commit` writes the new patch.
 * Primer's `<live-region>` (SelectPanel, button and tree announcements) parses its shadow template through
   `innerHTML` too: boot prebuilds the region in the body (`app/liveRegion.ts`) so Primer reuses it.
-* `src/code/shiki.ts` is the one Shiki configuration: the curated grammars, language resolution (fences by Shiki's
-  ids and aliases, paths by name and extension), the input limits and the theme. The theme maps GitHub's TextMate
-  scopes onto Primer's prettylights syntax tokens, so code follows every colour mode; highlights store class codes
-  (`TOKEN_FORMAT` versions the stored ones), never colours.
+* `src/code/shiki.ts` is the one Shiki configuration, for Pierre and the code worker: the curated grammars, language
+  resolution (fences by Shiki's ids and aliases, then by extension; paths by name and extension), the input limits and
+  the theme. The theme maps GitHub's TextMate scopes onto Primer's prettylights syntax tokens, so code follows every
+  colour mode without re-rendering; the code worker's highlights store class codes (`TOKEN_FORMAT` versions the stored
+  ones), never colours.
 * The code worker also highlights markdown code blocks, review-comment hunks and suggested changes
   (`code/DiffSnippet.tsx`), code search hits and the file editor (not cached: every version differs).
 * Job logs stream over the socket (`log_tail`), ANSI colours mapped to tokens (`code/ansi.ts`).
@@ -321,8 +351,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)
 
 * Registered after first paint (`app/sw.ts`). **Install** fetches the shell, checks its build meta, and caches every
-  hashed asset except grammars, themes and React's profiling build (`ON_DEMAND` in `tools/boot.ts`, cached on first
-  use); it waits (versioned activation). The page offers "Reload" when a new build is waiting.
+  hashed asset except grammars, themes and React's profiling build, which the build puts in `assets/lazy/`
+  (`ON_DEMAND` in `tools/boot.ts`, cached on first use); it waits (versioned activation). The page offers "Reload"
+  when a new build is waiting.
 * **Assets:** cache first. **Navigations:** network first via navigation preload; offline, failed, or an app page
   without an answer in 4 s → the cached shell, which renders from IndexedDB or says what is available offline.
   Avatars are cached network-first.
@@ -358,9 +389,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 split into what the entry imports statically (boot; Primer's boot stylesheet is linked from the page) and a `-lazy`
 chunk that loads, with its stylesheet, alongside the first view that needs it; an `app-boot` group for the entry's
 static closure; workers as ES modules; one chunk per Shiki grammar (`lang-*`) and theme (`theme-*`) in the app and
-its workers; `shiki/wasm` replaced by a stub (`tools/no-wasm.ts`: the CSP forbids WASM); hidden source maps; no
-modulepreload polyfill.
-React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
+its workers, put in `assets/lazy/` by their module ids; `shiki/wasm` replaced by a stub (`src/code/no-wasm.ts`: the
+CSP forbids WASM); hidden source maps; no modulepreload polyfill.
+React's profiling build is its own chunk in `assets/lazy/`, loaded only with `localStorage.profile = '1'`.
 
 ### RUM
 

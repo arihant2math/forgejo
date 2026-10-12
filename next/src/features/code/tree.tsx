@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useMemo} from 'react';
+import {useMemo} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
-import {branchByName, useLoad, useSource} from './hooks.ts';
+import {useApp} from '../../app/store.ts';
+import {branchByName, useLoad, useSource, warmFile} from './hooks.ts';
 import {codeSplat, type RefKind, type Resolved} from '../../code/refs.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {usePool} from '../issues/cells.tsx';
 import {Ago, Sha, summary} from './bits.tsx';
 import {codeTo, useCodeRows} from './nav.tsx';
 import {RowList, type RowParts} from './RowList.tsx';
-import {Blankslate} from '@primer/react/experimental';
 import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
-import {Link} from '@tanstack/react-router';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const ENTRY_ICON = {tree: FileDirectoryFillIcon, blob: FileIcon, symlink: FileSymlinkFileIcon, commit: FileSubmoduleIcon} as const;
 
@@ -55,24 +56,21 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-default">{name}</span>}
       </>}
       {message !== undefined ? <>
-        <span className="min-w-0 truncate"><Link {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate text-default hover:text-accent hover:underline">{summary(message)}</Link></span>
+        <span className="min-w-0 truncate"><PrimaryLink {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate">{summary(message)}</PrimaryLink></span>
         {date !== undefined && <span className="ml-auto shrink-0 text-sm text-muted tabular-nums"><Ago at={date}/></span>}
-      </> : kind !== 'commit' && <Link {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate text-default hover:text-accent hover:underline"><Sha sha={commit}/></Link>}
+      </> : kind !== 'commit' && <PrimaryLink {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate"><Sha sha={commit}/></PrimaryLink>}
     </>
   );
 });
-
-export function FilesPanel({title, actions, children}: {title: ReactNode; actions?: ReactNode; children: ReactNode}) {
-  return <section aria-label="Files" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base"><div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>{actions}</div>{children}</section>;
-}
 
 /** A directory's entries as a virtualized list against `scroller`, prefetching what the pointer or cursor rests on. */
 export function DirEntries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo: string; repoId: number; at: Resolved; tree: APITree; scroller: HTMLElement | null}) {
   const pathOf = (e: APITreeEntry) => (at.path ? `${at.path}/${e.name}` : e.name);
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
+  const {config: {base}} = useApp();
   const entries = useMemo(() => treeOrder(tree.entries), [tree]);
-  if (!entries.length) return <Blankslate><Blankslate.Visual><FileDirectoryFillIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty directory</Blankslate.Heading></Blankslate>;
+  if (!entries.length) return <EmptyState icon={FileDirectoryFillIcon} title="Empty directory" spacious={false}/>;
   return (
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}
@@ -81,9 +79,7 @@ export function DirEntries({owner, repo, repoId, at, tree, scroller}: {owner: st
       onIntent={(e) => {
         const p = pathOf(e);
         if (e.type === 'tree') void src.tree(repoId, at.sha, p).catch(() => undefined);
-        else if (e.type === 'blob') {
-          void src.blob(repoId, e.sha, p, e.size).then((c) => (c.kind === 'text' ? src.highlight(repoId, e.sha, p, c.text, 'idle') : null)).catch(() => undefined);
-        }
+        else if (e.type === 'blob') warmFile(src, base, repoId, e.sha, p, e.size);
       }}/>
   );
 }

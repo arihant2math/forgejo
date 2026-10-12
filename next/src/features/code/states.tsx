@@ -2,36 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {observer} from 'mobx-react-lite';
-import {useApp} from '../../app/store.ts';
-import {reach} from '../../app/online.ts';
+import {useApp, usePool} from '../../app/store.ts';
 import {httpsCloneUrl} from '../../code/clone.ts';
-import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
-import {OfflineState} from '../../app/Missing.tsx';
-import {missingWords} from '../../app/missingWords.ts';
-import type {Loaded} from './hooks.ts';
+import type {Unready} from '../../app/resource.ts';
+import {LoadState} from '../../components/LoadState.tsx';
 import {FileOperations} from './FileOperations.tsx';
-import {CloudOfflineIcon, FileSubmoduleIcon, RedoIcon, SearchIcon, AlertIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {FileSubmoduleIcon} from '@primer/octicons-react';
+import {Blankslate} from '@primer/react/experimental';
 
-export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
-  const r = reach(useApp().session?.data.status.connection);
-  const retry = loaded.state !== 'loading' && loaded.retry ? <Button size="small" type="button" leadingVisual={RedoIcon} onClick={loaded.retry}>Retry</Button> : undefined;
-  switch (loaded.state) {
-    case 'loading':
-      return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-48"/></div>;
-    case 'offline':
-      // An unanswered request while connected is a transport failure, not offline state.
-      if (r === 'online') return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{`${what} could not be loaded: the request to Forgejo failed.`}</Blankslate.Description>{retry}</Blankslate>;
-      return <OfflineState what={what} reach={r} retry={r === 'unreachable' && retry}/>;
-    case 'error':
-      if (loaded.status === 404) return <Blankslate spacious><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{missingWords(what).notFound}</Blankslate.Description>{action}</Blankslate>;
-      if (loaded.status === 413) return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Too large to show here</Blankslate.Heading><Blankslate.Description>{missingWords(what).tooLarge}</Blankslate.Description></Blankslate>;
-      if (loaded.message === 'signed out' || loaded.message.includes('SignedOut')) return <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signed out</Blankslate.Heading><Blankslate.Description>Sign in again (the sync indicator above) to load this.</Blankslate.Description></Blankslate>;
-      return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{loaded.message}</Blankslate.Description>{retry}</Blankslate>;
-  }
-});
+/** A page body's loading, offline and failure states. */
+export function Unloaded({loaded, what, skeleton, action}: {loaded: Unready; what: string; skeleton?: ReactNode; action?: ReactNode}) {
+  return <LoadState res={loaded} what={what} page skeleton={skeleton} action={action}/>;
+}
 
 export const EmptyRepo = observer(function EmptyRepo({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();

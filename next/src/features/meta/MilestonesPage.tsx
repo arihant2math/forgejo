@@ -4,7 +4,7 @@
 
 import type {RepoRef} from '../../app/paths.ts';
 import {clsx} from 'clsx';
-import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -12,8 +12,9 @@ import type {MilestoneSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {MetadataSection, SavingIndicator} from './LabelList.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {SavingIndicator} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {SortMenu} from './controls.tsx';
 import {SearchField} from '../issues/SearchField.tsx';
@@ -26,8 +27,9 @@ import {editMilestone, isPending, viewMilestones} from './writes.ts';
 import {CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, Label, ProgressBar, SegmentedControl} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
+import {SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
@@ -90,7 +92,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Milestones" title={
+          <BorderBox label="Milestones" header={
             <SegmentedControl aria-label="Milestone state" size="small" onChange={(index) => { go({state: index === 1 ? 'closed' : undefined}); }}>
               <SegmentedControl.Button selected={state === 'open'}>{`${String(open)} Open`}</SegmentedControl.Button>
               <SegmentedControl.Button selected={state === 'closed'}>{`${String(closed)} Closed`}</SegmentedControl.Button>
@@ -104,11 +106,11 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
               </ul>
             )}
             {!loading && shown.length === 0 && (q.trim() ?
-              <Blankslate spacious><Blankslate.Heading>No milestone matches</Blankslate.Heading><Blankslate.Description>No milestone here has these words in its title or description.</Blankslate.Description></Blankslate> :
+              <EmptyState title="No milestone matches" description="No milestone here has these words in its title or description."/> :
               state === 'closed' ?
-                <Blankslate spacious><Blankslate.Visual><CheckCircleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No closed milestones</Blankslate.Heading><Blankslate.Description>Milestones closed when their work is done are listed here.</Blankslate.Description></Blankslate> :
-                <Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No open milestones</Blankslate.Heading><Blankslate.Description>Milestones group issues and pull requests towards a release or a date.</Blankslate.Description>{create}</Blankslate>)}
-          </MetadataSection>
+                <EmptyState icon={CheckCircleIcon} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
+                <EmptyState icon={MilestoneIcon} title="No open milestones" description="Milestones group issues and pull requests towards a release or a date." action={create}/>)}
+          </BorderBox>
         </PageColumn>
       </PageBody>
       {deleting && <DeleteMilestoneDialog repo={r} milestone={deleting} onClose={() => {
@@ -131,13 +133,13 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold">
           {temp ? <span className="truncate text-default">{m.title}</span> :
-            <Link to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate text-default hover:text-accent hover:underline">{m.title}</Link>}
+            <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate">{m.title}</PrimaryLink>}
           {isPending('Milestone', m.id) && <SavingIndicator label="Saving to Forgejo"/>}
           {late && <Label variant="danger">Overdue</Label>}
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <DueLine m={m}/>
-          <span className="text-muted">Updated <time dateTime={m.updated_at} title={fullDate(m.updated_at)}>{ago(m.updated_at)}</time></span>
+          <span className="text-muted">Updated <TimeAgo at={m.updated_at} variant="words"/></span>
         </div>
         {m.description && <p className="truncate text-base text-muted">{excerpt(m.description)}</p>}
       </div>
@@ -145,8 +147,8 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         <ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-muted tabular-nums">
           <span className="font-semibold text-default">{p.percent}% complete</span>
-          {temp ? <span>{p.open} open</span> : <Link to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate text-default hover:text-accent hover:underline">{p.open} open</Link>}
-          {temp ? <span>{p.closed} closed</span> : <Link to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} className="min-w-0 truncate text-default hover:text-accent hover:underline">{p.closed} closed</Link>}
+          {temp ? <span>{p.open} open</span> : <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate">{p.open} open</PrimaryLink>}
+          {temp ? <span>{p.closed} closed</span> : <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} className="min-w-0 truncate">{p.closed} closed</PrimaryLink>}
         </div>
         {write && !temp && (
           <div className="flex flex-wrap items-center gap-2">

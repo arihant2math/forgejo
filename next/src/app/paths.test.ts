@@ -111,6 +111,10 @@ test('missing-content sentences agree with their subject', async () => {
   expect(missingWords('This repository\'s files').offline).toMatch(/^This repository's files are not/);
   expect(missingWords('This pull request\'s changes').notFound).toBe('This pull request\'s changes do not exist, or you cannot see them.');
   expect(missingWords('This repository').notFound).toBe('This repository does not exist, or you cannot see it.');
+  expect(missingWords('The webhooks').notHere).toBe('The webhooks are not on this device yet: they load once Forgejo answers.');
+  expect(missingWords('The people').notHere).toBe('The people are not on this device yet: they load once Forgejo answers.');
+  expect(missingWords('The people').notFound).toBe('The people do not exist, or you cannot see them.');
+  expect(missingWords('This status').notHere).toBe('This status is not on this device yet: it loads once Forgejo answers.');
 });
 
 test('classic pages\' way back to the app: the app\'s page for the address, else Home', () => {

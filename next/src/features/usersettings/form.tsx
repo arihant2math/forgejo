@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {FormControl, Heading, Text} from '@primer/react';
+import {Heading, Text} from '@primer/react';
 import {type ReactNode, useId} from 'react';
 
 export function FormSection({title, description, actions, children, id}: {title: string; description?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string}) {
@@ -15,19 +15,6 @@ export function FormSection({title, description, actions, children, id}: {title:
     {description && <p className="-mt-2 text-sm text-muted">{description}</p>}
     {children}
   </section>;
-}
-
-export function Field({id, label, hint, error, children}: {id: string; label: string; hint?: ReactNode; error?: string | undefined; children: ReactNode}) {
-  return <FormControl id={id}>
-    <FormControl.Label>{label}</FormControl.Label>
-    {children}
-    {error ? <FormControl.Validation id={`${id}-error`} variant="error">{error}</FormControl.Validation> :
-      hint && <FormControl.Caption id={`${id}-hint`}>{hint}</FormControl.Caption>}
-  </FormControl>;
-}
-
-export function describedBy(id: string, error: string | undefined, hint: boolean): string | undefined {
-  return error ? `${id}-error` : hint ? `${id}-hint` : undefined;
 }
 
 export function SettingRow({id, title, description, children, bordered = false}: {id?: string; title: string; description?: ReactNode; children: ReactNode; bordered?: boolean}) {

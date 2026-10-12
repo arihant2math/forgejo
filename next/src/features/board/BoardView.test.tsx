@@ -153,3 +153,40 @@ test('a card from the board in three keys: typed text that matches no issue, Ent
   await waitFor(() => { expect(document.activeElement).toBe(doing); });
   vi.unstubAllGlobals();
 });
+
+test('deleting a column asks first: Cancel has focus, Escape returns to the column, Delete sends the deletion', async () => {
+  const s = fakeSession();
+  const owner = user(1, 'alice');
+  s.data.put('User', 'profile:1', owner);
+  s.data.put('Project', 'profile:1', {id: 10, title: 'Board', description: '', owner_id: 1, repo_id: 0, creator_id: 1,
+    closed: false, template_type: 0, card_type: 0, type: 1, created_at: T, updated_at: T});
+  for (const [id, title] of [[11, 'To do'], [12, 'Empty']] as const) {
+    s.data.put('ProjectColumn', 'profile:1', {id, title, project_id: 10, default: id === 11, sorting: id, color: '', creator_id: 1, created_at: T, updated_at: T});
+  }
+  s.auth.token = () => Promise.resolve('token');
+  const sent: string[] = [];
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    sent.push(`${init?.method ?? 'GET'} ${new URL(url, 'http://localhost').pathname}`);
+    return Promise.resolve(new Response('{}', {status: 200, headers: {'Content-Type': 'application/json'}}));
+  }));
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/-/next/projects/10']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const empty = await screen.findByRole('listbox', {name: 'Empty'});
+  const ask = async () => {
+    fireEvent.click(screen.getByRole('button', {name: 'Column “Empty”'}));
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete…'}));
+    return screen.findByRole('alertdialog', {name: 'Delete “Empty”?'});
+  };
+  let dialog = await ask();
+  expect(dialog.textContent).toContain('Its cards move to the default column.');
+  await waitFor(() => { expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'})); });
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  await waitFor(() => { expect(document.activeElement).toBe(empty); });
+  expect(sent.filter((r) => r.startsWith('DELETE'))).toEqual([]);
+  dialog = await ask();
+  fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
+  await waitFor(() => { expect(sent).toContain('DELETE /-/sync/api/projects/10/columns/12'); });
+  vi.unstubAllGlobals();
+});

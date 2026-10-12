@@ -7,6 +7,7 @@
 import type {ComponentProps, ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {Button} from '@primer/react';
+import {SkeletonBox} from '@primer/react/experimental';
 import {synClass} from './shiki.ts';
 
 export interface TokenSpans {
@@ -114,11 +115,12 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, actio
 }
 
 /** Kept lightweight because virtualized diffs mount an action per visible line. */
-export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<typeof Button>) {
+export function LineAction({label, children = '+', ...props}: {label: string} & Omit<ComponentProps<typeof Button>, 'className' | 'style'>) {
   return (
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
       {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
-      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...{...props}}>
+      {/* eslint-disable-next-line tokens/no-restyle -- forwards an ActionMenu.Anchor's or a caller's handlers; the type excludes className and style. */}
+      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...props}>
         {children}
       </Button>
     </span>
@@ -158,6 +160,9 @@ export function DiffStat({additions, deletions}: {additions: number; deletions: 
   );
 }
 
+/** CodeFileHeader's height (h-10), which Pierre reserves for a diff's header before it renders. */
+export const FILE_HEADER_HEIGHT = 40;
+
 export function CodeFileHeader({path, oldPath, status, stat, leading, children, ref}: {
   path: string;
   oldPath?: string | undefined;
@@ -185,3 +190,14 @@ export function CodeFileHeader({path, oldPath, status, stat, leading, children, 
   );
 }
 
+
+const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-56'] as const;
+
+/** A code surface still loading: the file view, blame and diffs. */
+export function CodeSkeleton() {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3" aria-busy>
+      {SKELETON_LINES.map((c, i) => <SkeletonBox key={i} className={c}/>)}
+    </div>
+  );
+}

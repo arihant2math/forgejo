@@ -4,16 +4,14 @@
 // Pull-request creation is online-only and never queued.
 // Wait for the echoed sync delta before navigating so the new page can render immediately.
 
-import {labelFill} from '../issues/labels.ts';
 import {count} from '../../app/words.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
-import {Avatar} from '@primer/react';
 import {CheckStatus, type StatusTone} from './CheckStatus.tsx';
 import {makeAutoObservable, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useState} from 'react';
+import {type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
@@ -25,22 +23,24 @@ import {settleWrite} from '../../sync/data.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
 
-import {IssueLabelToken} from '@primer/react';
-import {ChoicePanel} from './ChoicePanel.tsx';
+import {summary} from '../../components/Sha.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
+import {labelKind} from '../issues/labels.ts';
 import {usePool} from '../issues/cells.tsx';
-import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
+import {repoPeople} from '../issues/people.ts';
+import {KindChip, PickerPopover, type PickerDraft} from '../issues/Picker.tsx';
+import type {Label} from '../../protocol/types.gen.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
 import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon, TriangleDownIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Button, ButtonGroup, Checkbox, FormControl, IconButton, TextInput} from '@primer/react';
+import {ActionList, ActionMenu, AriaAlert, Button, ButtonGroup, Checkbox, FormControl, IconButton, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
 const draftKey = (repoId: number, base: string, head: string) => `text:new-pull:${String(repoId)}:${base}...${head}`;
 
 /** Undefined title/body use the comparison defaults until edited. */
-class PullDraft {
+class PullDraft implements PickerDraft {
   title: string | undefined;
   body: string | undefined;
   labels: number[] = [];
@@ -53,7 +53,7 @@ class PullDraft {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly app: App;
   private readonly key: string;
-  private readonly repoId: number;
+  readonly repoId: number;
 
   constructor(app: App, repoId: number, base: string, head: string) {
     this.app = app;
@@ -61,11 +61,11 @@ class PullDraft {
     this.key = draftKey(repoId, base, head);
     const text = untracked(() => editing(app).intents.drafts.get(this.key))?.text;
     if (text?.trim()) {
-      this.title = text.split('\n')[0] ?? '';
+      this.title = summary(text);
       this.body = text.split('\n').slice(2).join('\n');
       this.restored = true;
     }
-    makeAutoObservable<PullDraft, 'timer' | 'app' | 'key' | 'repoId'>(this, {timer: false, app: false, key: false, repoId: false}, {autoBind: true});
+    makeAutoObservable<PullDraft, 'timer' | 'app' | 'key'>(this, {timer: false, app: false, key: false, repoId: false}, {autoBind: true});
   }
 
   setTitle(t: string): void {
@@ -90,12 +90,16 @@ class PullDraft {
     this.busy = on;
   }
 
-  toggle(list: 'assignees' | 'reviewers', id: number): void {
-    this[list] = this[list].includes(id) ? this[list].filter((x) => x !== id) : [...this[list], id];
+  setAssignee(id: number, on: boolean): void {
+    this.assignees = on ? [...new Set([...this.assignees, id])] : this.assignees.filter((x) => x !== id);
   }
 
-  setLabels(ids: number[]): void {
-    this.labels = ids;
+  setReviewer(id: number, on: boolean): void {
+    this.reviewers = on ? [...new Set([...this.reviewers, id])] : this.reviewers.filter((x) => x !== id);
+  }
+
+  toggleLabel(label: Label, on: boolean, all: readonly Label[]): void {
+    this.labels = withLabel(this.labels, label, on, all);
   }
 
   discard(): void {
@@ -161,10 +165,12 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   const body = form.body ?? defaults.body;
   const why = hasPendingUploads(body) ? 'Wait for the attachments to finish uploading.' : repoData?.archived ? 'This repository is archived: it takes no new pull requests.' :
     !isOnline ? onlineOnly('Opening a pull request') : !title.trim() ? 'Add a title first' : undefined;
+  const titleField = useRef<HTMLInputElement>(null);
   const create = () => {
     if (form.busy) return;
     if (!title.trim()) {
       form.setMissing(true);
+      titleField.current?.focus();
       return;
     }
     if (why || !repoData) return;
@@ -190,10 +196,10 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
         <FormControl>
           <FormControl.Label>Title</FormControl.Label>
-          <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
+          <TextInput ref={titleField} placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} onChange={(e) => {
               form.setTitle(e.target.value);
-            }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-          {missing && <p id="new-pull-title-missing" role="alert" className="text-sm text-danger">A pull request needs a title.</p>}
+            }}/>
+          {missing && <FormControl.Validation variant="error"><AriaAlert as="span">A pull request needs a title.</AriaAlert></FormControl.Validation>}
         </FormControl>
         <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={8}
           onChange={(b) => {
@@ -281,72 +287,37 @@ function peopleLogin(app: App, repoId: number, id: number): string | undefined {
   return s ? untracked(() => repoPeople(s.data.pool, repoId, s.userId).find((p) => p.id === id)?.login) : undefined;
 }
 
+/** The issue sidebar's pickers, over the form's own values. */
 const Properties = observer(function Properties({form, repoId}: {form: PullDraft; repoId: number}) {
-  const app = useApp();
   const session = useSession();
   const pool = usePool();
-  const {userId} = session;
   const writable = canWrite(session, repoId);
-  useEffect(() => {
-    loadPeople(app, repoId);
-  }, [app, repoId]);
-  const people = repoPeople(pool, repoId, userId);
-  const labels = repoLabels(pool, repoId);
-  const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).filter((m) => m.state === 'open')
-    .sort((a, b) => a.title.localeCompare(b.title));
-  const chosen = labels.filter((l) => form.labels.includes(l.id));
-  const ms = milestones.find((m) => m.id === form.milestone);
+  const people = repoPeople(pool, repoId, session.userId, [...form.assignees, ...form.reviewers]);
+  const names = (ids: readonly number[], what: string) => {
+    const chosen = people.filter((p) => ids.includes(p.id)).map((p) => p.login);
+    return chosen.length > 2 ? `${String(chosen.length)} ${what.toLowerCase()}` : chosen.join(', ') || what;
+  };
+  const chosen = repoLabels(pool, repoId).filter((l) => labelKind(l) === undefined && form.labels.includes(l.id));
+  const ms = form.milestone ? pool.model('Milestone').get(form.milestone)?.data : undefined;
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
-        form.toggle('reviewers', id);
-      }}/>
+      <PickerPopover kind="reviewers" draft={form} renderAnchor={(props) =>
+        <Button {...props} variant={form.reviewers.length ? 'default' : 'invisible'} size="small" leadingVisual={EyeIcon} type="button">{names(form.reviewers, 'Reviewers')}</Button>}/>
       {writable && <>
-        <PeoplePick label="Assignees" placeholder="Assign to…" icon={PersonIcon} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
-          form.toggle('assignees', id);
-        }}/>
-        <ChoicePanel multiple title="Labels" placeholder="Add labels…" empty="This repository has no labels."
-          choices={labels.map((l) => ({
-            value: String(l.id), label: l.name, words: l.description, leading: <IssueLabelToken text={l.name} fillColor={labelFill(l.color)}/>, checked: form.labels.includes(l.id),
-            onSelect: () => {
-              form.setLabels(withLabel(form.labels, l, !form.labels.includes(l.id), labels));
-            },
-          }))}
-          anchor={
-            <Button variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
-              {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
-            </Button>
-          }/>
-        <ChoicePanel title="Milestone" placeholder="Add to the milestone…"
-          choices={[
-            {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
-              form.setMilestone(0);
-            }},
-            ...milestones.map((m) => ({value: String(m.id), label: m.title, checked: m.id === form.milestone, onSelect: () => {
-              form.setMilestone(m.id);
-            }})),
-          ]}
-          anchor={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
+        <PickerPopover kind="assignees" draft={form} renderAnchor={(props) =>
+          <Button {...props} variant={form.assignees.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{names(form.assignees, 'Assignees')}</Button>}/>
+        <KindChip draft={form} kind="status"/>
+        <KindChip draft={form} kind="priority"/>
+        <PickerPopover kind="labels" draft={form} renderAnchor={(props) =>
+          <Button {...props} variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
+            {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
+          </Button>}/>
+        <PickerPopover kind="milestone" draft={form} renderAnchor={(props) =>
+          <Button {...props} variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
     </div>
   );
 });
-
-function PeoplePick({label, placeholder, icon, people, me, chosen, onToggle}: {
-  label: string; placeholder: string; icon: typeof PersonIcon; people: Person[]; me: number; chosen: readonly number[]; onToggle: (id: number) => void;
-}) {
-  const names = people.filter((p) => chosen.includes(p.id)).map((p) => p.login);
-  return (
-    <ChoicePanel multiple title={label} placeholder={placeholder} empty="Nobody to choose on this device."
-      choices={people.map((u) => ({
-        value: String(u.id), label: u.id === me ? `${u.login} (you)` : u.login, words: u.name, leading: u.avatar ? <Avatar alt={u.name} src={u.avatar} size={20}/> : null,
-        checked: chosen.includes(u.id), onSelect: () => {
-          onToggle(u.id);
-        },
-      }))}
-      anchor={<Button variant={names.length ? 'default' : 'invisible'} size="small" leadingVisual={icon} type="button">{names.length > 2 ? `${String(names.length)} ${label.toLowerCase()}` : names.length ? names.join(', ') : label}</Button>}/>
-  );
-}
 
 export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutlook; base: string; head: string; children?: ReactNode}) {
   const [tone, text]: [StatusTone, ReactNode] = (() => {

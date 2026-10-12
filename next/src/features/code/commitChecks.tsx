@@ -18,9 +18,9 @@ import type {NextConfig} from '../../protocol/types.gen.ts';
 import {usePool} from '../issues/cells.tsx';
 import {CHECK_SUMMARY, type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
 import {runLook, statusLook} from './Actions.tsx';
-import {CodeLink} from './nav.tsx';
+import {CodeLink, codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
-
+import {PrimaryAnchor, PrimaryLink} from '../../app/routerLinks.tsx';
 
 export interface CheckItem {
   key: string;
@@ -200,9 +200,8 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
       <ul className="flex flex-col gap-1 text-base">
         {c.items.map((it) => {
           const look = it.approval ? {tone: 'warning' as const, text: 'Needs approval'} : statusLook(it.state);
-          const nameClass = "min-w-0 truncate text-default hover:text-accent hover:underline";
-          const name = it.code ? <CodeLink owner={owner} repo={repo} to={it.code} className={nameClass}>{it.name}</CodeLink> :
-            it.href ? <a href={it.href} target="_blank" rel="noopener noreferrer" className={nameClass}>{it.name}</a> : it.name;
+          const name = it.code ? <PrimaryLink {...codeTo(owner, repo, it.code)} className="min-w-0 truncate">{it.name}</PrimaryLink> :
+            it.href ? <PrimaryAnchor href={it.href} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate">{it.name}</PrimaryAnchor> : it.name;
           return (
             <li key={it.key} className="flex flex-wrap items-center gap-2">
               <span className="flex w-4 shrink-0 items-center"><CheckStatus tone={look.tone}/></span>{name}

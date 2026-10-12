@@ -17,6 +17,7 @@ vi.mock('@tanstack/react-router', async (original) => ({
   ...await original<object>(),
   useParams: () => ({}),
   Link: ({children}: {children: ReactNode}) => <a href="#link">{children}</a>,
+  createLink: () => ({children}: {children: ReactNode}) => <a href="#link">{children}</a>,
 }));
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};

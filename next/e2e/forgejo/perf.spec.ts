@@ -14,6 +14,9 @@ import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {median, quantile, record} from '../lib/perf.ts';
 import {BUDGET} from '../../tools/budget.ts';
 
+// Pierre colours tokens with inline prettylights styles inside its Shadow DOM.
+const HIGHLIGHTED = '[data-line] span[style*="prettylights"]';
+
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 // Keep targets independent so one failure cannot suppress the other measurements.
 
@@ -281,10 +284,10 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(codeUrl(CODE_REPO, 'src/branch/main/src/main.go'));
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator(HIGHLIGHTED).first()).toBeVisible({timeout: 15_000});
   for (const f of ['other.go', 'third.ts']) {
     await page.goto(codeUrl(CODE_REPO, `src/branch/main/src/${f}`));
-    await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
+    await expect(page.locator(HIGHLIGHTED).first()).toBeVisible({timeout: 15_000});
   }
   const fetched: string[] = [];
   let measuring = false;
@@ -305,8 +308,9 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
         const want = new RegExp(`src/${name.replace('.', '\\.')}, \\d+ lines`);
         for (;;) {
           await new Promise((r) => requestAnimationFrame(r));
-          const list = [...document.querySelectorAll('[role=list]')].find((el) => want.test(el.getAttribute('aria-label') ?? ''));
-          if (list?.querySelector('.text-syn-keyword')) return performance.now() - t0;
+          const view = [...document.querySelectorAll('[role=region]')].find((el) => want.test(el.getAttribute('aria-label') ?? ''));
+          const host = view && [...view.querySelectorAll('*')].find((el) => el.shadowRoot);
+          if (host?.shadowRoot?.querySelector('[data-line] span[style*="prettylights"]')) return performance.now() - t0;
           if (performance.now() - t0 > 5000) return Number.POSITIVE_INFINITY;
         }
       }, to));
@@ -337,14 +341,14 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 30_000});
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 30_000});
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible({timeout: 30_000});
+  await expect(page.locator(HIGHLIGHTED).first()).toBeVisible({timeout: 30_000});
   const runs: ScrollRun[] = [];
   for (let run = 0; run < 3; run++) {
     runs.push(await page.evaluate(async () => {
-      const list = document.querySelector('[role=list][aria-label=Changes]');
-      let scroller = list?.parentElement ?? null;
-      while (scroller && !(scroller.scrollHeight > scroller.clientHeight && getComputedStyle(scroller).overflowY !== 'visible')) scroller = scroller.parentElement;
+      // Pierre's CodeView scrolls itself, inside the page.
+      const list = document.querySelector('[role=region][aria-label=Changes]');
+      const scroller = [...(list?.querySelectorAll<HTMLElement>('*') ?? [])].find((el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY !== 'visible');
       if (!scroller) throw new Error('no scroller');
       scroller.scrollTop = 0;
       await new Promise((r) => setTimeout(r, 300));
@@ -379,7 +383,7 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
       return {
         frames: frames.length, p50: q(0.5), p95: q(0.95), over32: frames.filter((f) => f > 32).length, longest: Math.max(0, ...longTasks),
         boundaryMax: Math.max(0, ...boundary), boundaries: boundary.length,
-        rows: document.querySelectorAll('[role=list][aria-label=Changes] > [role=listitem]').length,
+        rows: [...scroller.querySelectorAll('*')].reduce((n, el) => n + (el.shadowRoot?.querySelectorAll('[data-line]').length ?? 0), 0),
       };
     }));
   }
@@ -441,11 +445,11 @@ test('loaded list search and diff scrolling avoid long tasks at 4x CPU', async (
       }));
     }
     await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
-    await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
-    await expect(page.locator('.text-syn-keyword').first()).toBeVisible();
+    await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible();
+    await expect(page.locator(HIGHLIGHTED).first()).toBeVisible();
     await page.waitForTimeout(1000);
     const scrolling: number[][] = [];
-    await page.getByRole('list', {name: 'Changes'}).hover();
+    await page.getByRole('region', {name: 'Changes'}).hover();
     for (let run = 0; run < 3; run++) {
       scrolling.push(await measure(async () => {
         for (const direction of [1, -1]) for (let step = 0; step < 10; step++) {

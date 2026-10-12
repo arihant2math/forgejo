@@ -8,7 +8,7 @@ import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {ConvertToDraft} from '../pull/DraftControl.tsx';
 import {isDraftPull} from '../pull/draft.ts';
 import {reviewerStates} from '../pull/verdicts.ts';
-import {Link, useParams} from '@tanstack/react-router';
+import {useParams} from '@tanstack/react-router';
 import {createElement, type ReactNode, type RefObject, useEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
@@ -24,12 +24,12 @@ import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
 import {LabelGlyph, isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {scopedValue, terminalStatus} from '../issues/labels.ts';
 import {BellIcon, BellSlashIcon, CalendarIcon, CheckIcon, CommentIcon, DotFillIcon, FileDiffIcon, GearIcon, GitPullRequestDraftIcon, KeyIcon, LockIcon, PinIcon, PinSlashIcon, SyncIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, Dialog, FormControl, IconButton, IssueLabelToken, Label, Select, Text} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLink, PrimaryLink} from '../../app/routerLinks.tsx';
 
 export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
@@ -82,8 +82,8 @@ function SidebarPicker({kind, issueIds, label, shortcut, children}: {
 }) {
   return <div className="flex items-center gap-2">
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</div>
-    <div className="absolute top-0 right-0"><PickerPopover kind={kind} issueIds={issueIds} trigger={
-      <IconButton icon={GearIcon} variant="invisible" size="small" aria-label={label} description={label} {...(shortcut ? {keybindingHint: shortcut} : {})}/>
+    <div className="absolute top-0 right-0"><PickerPopover kind={kind} issueIds={issueIds} renderAnchor={(props) =>
+      <IconButton {...props} icon={GearIcon} variant="invisible" size="small" aria-label={label} description={label} {...(shortcut ? {keybindingHint: shortcut} : {})}/>
     }/></div>
   </div>;
 }
@@ -207,7 +207,7 @@ const MilestoneValue = observer(function MilestoneValue({issue}: {issue: Entity<
   const title = m?.get('title') ?? `Milestone ${String(id)}`;
   return (
     <span className="truncate">
-      {m && owner && repo ? <Link to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} className="text-default hover:text-accent hover:underline">{title}</Link> : title}
+      {m && owner && repo ? <PrimaryLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}}>{title}</PrimaryLink> : title}
       {due && <span className="text-muted"> · due {shortDate(due)}</span>}
     </span>
   );
@@ -224,7 +224,7 @@ const ProjectsValue = observer(function ProjectsValue({issue, write}: {issue: En
   const value = title === undefined ? <span className="text-muted">No project</span> : (
     <span className="flex min-w-0 items-center gap-1">
       {project ?? pool.model('ProjectRef').get(pid) ?
-        <Link to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}} className="min-w-0 truncate text-default hover:text-accent hover:underline">{title}</Link> :
+        <PrimaryLink to="/-/next/projects/$id" params={{id: String(pid)}} search={{card: issue.id}} className="min-w-0 truncate">{title}</PrimaryLink> :
         <span className="truncate">{title}</span>}
       {column && <span className="shrink-0 text-muted">· {column}</span>}
     </span>
@@ -299,7 +299,7 @@ export const IssueLink = observer(function IssueLink({id, repoId, missing = 'An 
   const path = issuePath(app, i);
   const text = <><span className="text-muted tabular-nums">{ref}</span> {i.get('title')}</>;
   if (!path) return <span className={inline ? undefined : 'truncate'}>{text}</span>;
-  return <Link to={path} className={clsx('text-default hover:text-accent hover:underline', !inline && 'min-w-0 truncate')}>{text}</Link>;
+  return <PrimaryLink to={path} className={inline ? undefined : 'min-w-0 truncate'}>{text}</PrimaryLink>;
 });
 
 const DueValue = observer(function DueValue({issue, write}: {issue: Entity<'Issue'>; write: boolean}) {

@@ -15,7 +15,8 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {creationScope, newOrgRequest, ORG_NAME_MAX, orgNameProblem, orgRefusal, type OrgVisibility, type Refusal, scopeAllows} from './forms.ts';
 import {loginTaken} from './owners.ts';
-import {Choice, Field, hintOf, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
+import {Choice, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
+import {Field} from '../../components/Field.tsx';
 import {OrganizationIcon, EyeClosedIcon, GlobeIcon, PeopleIcon} from '@primer/octicons-react';
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
@@ -79,13 +80,13 @@ export const NewOrg = observer(function NewOrg() {
             </div>
             {scopeMissing && <ScopeNote scope={scope} what="organizations" classic="/org/create"/>}
 
-            <Field id="new-org-name" label="Organization name" required error={nameError}
+            <Field label="Organization name" required error={nameError}
               hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Letters, digits, “-”, “_” and “.”; it is the organization’s address."/>}>
-              <TextInput id="new-org-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={ORG_NAME_MAX} value={name} aria-required aria-describedby={hintOf('new-org-name')} onChange={(e) => {
+              <TextInput className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={ORG_NAME_MAX} value={name} onChange={(e) => {
                   setName(e.target.value);
                 }} onBlur={() => {
                   if (name) setTouched(true);
-                }} {...(nameError ? {validationStatus: 'error' as const} : {})}/>
+                }}/>
             </Field>
 
             <Section title="Visibility">

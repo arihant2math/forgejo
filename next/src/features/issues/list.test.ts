@@ -84,6 +84,23 @@ describe('IssueListModel, a list the server names', () => {
     return {model, fetchMock, app};
   }
 
+  test('constructing a list with the URL’s search shows that view and asks nothing until setSearch', async () => {
+    const session = fakeSession({userId: 1});
+    vi.spyOn(session.auth, 'token').mockResolvedValue('t');
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('[]', {status: 200})));
+    vi.stubGlobal('fetch', fetchMock);
+    const app = createApp(fallbackConfig(), session);
+    const model = new IssueListModel(app, editing(app).overlay, {kind: 'my', pulls: true, type: 'review_requested'}, 'none', {state: 'closed'});
+    expect(model.search).toEqual({state: 'closed'});
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).not.toHaveBeenCalled();
+    model.setSearch(model.search);
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+    model.dispose();
+  });
+
   test('an empty answer is answered (not a missing connection); open items only are asked for', async () => {
     const {model, fetchMock} = reviewList(() => Promise.resolve(new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}})));
     expect(model.serverStatus).toBe('asking');

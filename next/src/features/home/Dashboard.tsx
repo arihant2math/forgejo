@@ -5,9 +5,9 @@ import {readJson, STORAGE_PREFIX, writeJson} from '../../app/storage.ts';
 import {computed, type IComputedValue, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useMemo} from 'react';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick, useSiteLink} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
-import {DashboardKeys} from './DashboardKeys.tsx';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
@@ -15,9 +15,10 @@ import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
-import {DenseRow} from './DenseRow.tsx';
-import {IssueReference as RefCell} from './IssueReference.tsx';
-import {DashboardSection} from './DashboardSection.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {IssueReference} from '../../components/IssueReference.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
+import {useRowKeys} from '../../components/rowKeys.ts';
 import {activityOf} from '../inbox/inbox.ts';
 import {AgoCell, PendingCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
 import {knownSubject, subjectOf, subjectPath} from '../inbox/subject.ts';
@@ -28,9 +29,9 @@ import {HomeSkeleton} from './Home.tsx';
 import Feed from './Feed.tsx';
 import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedIcon, CloudOfflineIcon, UploadIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, CounterLabel, LinkButton} from '@primer/react';
-import {Tooltip} from '@primer/react';
-import {KeybindingHint, SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {CounterLabel, LinkButton} from '@primer/react';
+import {Blankslate, KeybindingHint, SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const ROWS = 6;
 
@@ -80,9 +81,10 @@ export default observer(function Dashboard() {
   const pool = usePool();
   const overlay = useOverlay();
   const model = useMemo(() => new DashboardModel(app, me, pool, overlay), [app, me, pool, overlay]);
+  const keys = useRowKeys();
   if (!settled) return <HomeSkeleton/>;
   return (
-    <DashboardKeys><PageColumn>
+    <div className="contents" {...keys}><PageColumn>
       <ListSection title="Not synced yet" icon={UploadIcon} items={model.pending}/>
       {/* Reserve the previous review-list height to avoid shifting sections when the authenticated answer arrives. */}
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
@@ -91,7 +93,7 @@ export default observer(function Dashboard() {
       <ListSection title="Your pull requests" icon={GitPullRequestIcon} items={model.mine} all="/pulls?type=created_by"/>
       <Footer empty={model.empty}/>
       <Feed/>
-    </PageColumn></DashboardKeys>
+    </PageColumn></div>
   );
 });
 
@@ -124,19 +126,19 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   const {data} = useSession();
   if (reach(data.status.connection) !== 'online') {
     return rows ? (
-      <DashboardSection label="Review requested" title={<><EyeIcon size={16}/><span className="text-default">Review requested</span></>}>
-        <DenseRow role="presentation" leading={<CloudOfflineIcon size={16}/>}><span className="text-muted">Review requests load when you are online.</span></DenseRow>
-      </DashboardSection>
+      <BorderBox label="Review requested" title={<><EyeIcon size={16}/>Review requested</>}>
+        <ListRow role="presentation" leading={<CloudOfflineIcon size={16}/>}><span className="text-muted">Review requests load when you are online.</span></ListRow>
+      </BorderBox>
     ) : null;
   }
   rows = Math.max(rows, min);
   if (!rows) return null;
   return (
-    <DashboardSection label="Review requested" title={<><EyeIcon size={16}/><span className="text-default">Review requested</span></>}>
+    <BorderBox label="Review requested" title={<><EyeIcon size={16}/>Review requested</>}>
       {Array.from({length: rows}, (_, i) => (
-        <DenseRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></DenseRow>
+        <ListRow key={i} role="presentation" leading={<SkeletonBox className="size-4"/>} trailing={<SkeletonBox className="h-3 w-12"/>}><SkeletonBox className="h-3 w-64"/></ListRow>
       ))}
-    </DashboardSection>
+    </BorderBox>
   );
 });
 
@@ -166,52 +168,46 @@ interface SectionProps {
 function Section({title, icon: SectionIcon, items, all}: SectionProps) {
   const app = useApp();
   const click = useLinkClick();
-  const href = all && hrefOf(app, all);
+  const href = all && sitePath(app.config, all);
   return (
-    <DashboardSection label={title}
-      title={<><SectionIcon size={16}/><span className="text-default">{title}</span><CounterLabel>{items.length}</CounterLabel></>}
+    <BorderBox label={title}
+      title={<><SectionIcon size={16}/>{title}<CounterLabel>{items.length}</CounterLabel></>}
       actions={href && <LinkButton variant="invisible" size="small" href={href} onClick={(e) => click(e, href)}>View all</LinkButton>}>
       {items.slice(0, ROWS).map((x) => (x.issue ?
         <Row key={x.issue.id} issue={x.issue} at={x.at}/> :
         x.note && <NoteRow key={`n${String(x.note.id)}`} note={x.note} at={x.at}/>))}
-    </DashboardSection>
+    </BorderBox>
   );
 }
 
 const Row = observer(function Row({issue, at}: {issue: Entity<'Issue'>; at: string}) {
   const app = useApp();
   const pool = usePool();
-  const click = useLinkClick();
+  const link = useSiteLink();
   const path = issuePath(app, issue);
-  const href = path && hrefOf(app, path);
   const repo = pool.model('Repository').get(issue.get('repo_id'))?.get('full_name') ?? '';
   return (
-    <DenseRow role={undefined} href={href} onClick={(e) => {
-      if (href) click(e, href);
-    }} leading={<StateIcon issue={issue}/>} trailing={<>
+    <ListRow {...(path ? link(sitePath(app.config, path)) : {})} leading={<StateIcon issue={issue}/>} trailing={<>
       <PendingCell issueId={issue.id}/>
-      <RefCell repo={repo} number={issue.id > 0 ? issue.get('number') : undefined}/>
+      <IssueReference repo={repo} number={issue.id > 0 ? issue.get('number') : undefined}/>
       <AgoCell at={at}/>
     </>}>
       <TitleCell issue={issue}/>
-    </DenseRow>
+    </ListRow>
   );
 });
 
 const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notification'>; at: string}) {
   const app = useApp();
-  const click = useLinkClick();
+  const link = useSiteLink();
   const s = subjectOf(app, note.data);
-  const href = s && hrefOf(app, subjectPath(s));
   return (
-    <DenseRow role={undefined} href={href} onClick={(e) => {
-      if (href) click(e, href);
-    }} leading={s ? <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/> : <InboxIcon size={16} className="shrink-0"/>} trailing={<>
-      {s && <RefCell repo={`${s.owner}/${s.repo}`} number={s.number}/>}
+    <ListRow {...(s ? link(sitePath(app.config, subjectPath(s))) : {})} leading={s ? <StateGlyph look={stateLook(s.state === 'open' ? 'open' : 'closed', s.pull, s.state === 'merged')}/> : <InboxIcon size={16} className="shrink-0"/>} trailing={<>
+      {s && <IssueReference repo={`${s.owner}/${s.repo}`} number={s.number}/>}
       <AgoCell at={at}/>
     </>}>
       {s ? s.title : <SkeletonBox className="h-3 w-64"/>}
-    </DenseRow>
+    </ListRow>
   );
 });
 
@@ -228,10 +224,10 @@ function Hints() {
 function Welcome() {
   const {ui, config} = useApp();
   return (
-    <Blankslate spacious><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<Tooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
-          runInAction(() => {
-            ui.paletteOpen = true;
-          });
-        }}>Open the command menu</Button></Tooltip>}</Blankslate>
+    <EmptyState icon={CommandPaletteIcon} title={config.app_name} description={<Hints/>} action={<Blankslate.PrimaryAction type="button" onClick={() => {
+      runInAction(() => {
+        ui.paletteOpen = true;
+      });
+    }}>Open the command menu</Blankslate.PrimaryAction>}/>
   );
 }

@@ -25,7 +25,9 @@ import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
 import {ClockIcon, DuplicateIcon, GitPullRequestClosedIcon, GitPullRequestIcon, IssueClosedIcon, IssueReopenedIcon, KebabHorizontalIcon, LinkIcon, PencilIcon, QuoteIcon, SkipIcon, TrashIcon, TriangleDownIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Banner, Button, ButtonGroup, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
+import {ActionList, ActionMenu, Banner, Button, ButtonGroup, ConfirmationDialog, Heading, IconButton, Label as PrimerLabel, TextInput, Tooltip} from '@primer/react';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {SkeletonText} from '@primer/react/experimental';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
@@ -195,11 +197,11 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
         act(stateAction.run);
       }
     }}>
-      {confirmCancel && <Dialog title="Discard this edit?" subtitle="Your changes can be restored with Undo." width="medium"
-        onClose={() => { setConfirmCancel(false); }} footerButtons={[
-          {content: 'Keep editing', onClick: () => { setConfirmCancel(false); }},
-          {content: 'Discard', buttonType: 'danger', onClick: () => { setConfirmCancel(false); cancel(); }},
-        ]}/>}
+      {confirmCancel && <ConfirmationDialog title="Discard this edit?" cancelButtonContent="Keep editing" confirmButtonContent="Discard" confirmButtonType="danger"
+        onClose={(gesture) => {
+          setConfirmCancel(false);
+          if (gesture === 'confirm') cancel();
+        }}>Your changes can be restored with Undo.</ConfirmationDialog>}
       <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
         onChange={change} onSubmit={save} onCancel={onCancel ? () => {
           if (dirty) setConfirmCancel(true);
@@ -319,8 +321,8 @@ export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDel
     setOpen(next);
   };
   return (
-    <ActionMenu open={open} onOpenChange={setMenuOpen}>
-      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button" ref={triggerRef}/></ActionMenu.Anchor>
+    <ActionMenu open={open} onOpenChange={setMenuOpen} anchorRef={triggerRef}>
+      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button"/></ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
         {link && <ActionList.Item onSelect={() => {
           const url = new URL(window.location.href);
@@ -371,11 +373,14 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
     requestAnimationFrame(() => { fallback.current?.focus(); });
   };
   return <>
-    {confirming && <Dialog title="Delete this comment?" subtitle="It is removed for everyone. This cannot be undone." width="small"
-      returnFocusRef={triggerRef} onClose={() => { setConfirming(false); }} footerButtons={[
-        {content: 'Cancel', onClick: () => { setConfirming(false); }},
-        {content: 'Delete', buttonType: 'danger', onClick: remove},
-      ]}/>}
+    {confirming && <ConfirmationDialog title="Delete this comment?" confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
+      if (gesture === 'confirm') {
+        remove();
+        return;
+      }
+      setConfirming(false);
+      requestAnimationFrame(() => { triggerRef.current?.focus(); });
+    }}>It is removed for everyone. This cannot be undone.</ConfirmationDialog>}
     <CardMenu triggerRef={triggerRef} label="Comment actions" issueId={c.get('issue_id')}
       link={(url) => {
         if (c.get('type') === 'code') {
@@ -525,8 +530,6 @@ export function duplicateComment(number: number, text: string): string {
   return `Duplicate of #${String(number)}${text.trim() ? `\n\n${text}` : ''}`;
 }
 
-const DUPLICATE_CHOICES = 30;
-
 /** Forgejo has no native close reason: not planned is the repository's canceled workflow status. */
 function closeStatuses(pool: ReturnType<typeof usePool>, repoId: number): {notPlanned: Label | undefined; duplicate: Label | undefined} {
   const canceled = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status' && statusStage(scopedValue(l.name)) === 'canceled')
@@ -574,28 +577,26 @@ const DuplicatePicker = observer(function DuplicatePicker({issue, anchor, act, o
   const others = [...pool.model('Issue').by('repo_id', repoId)].map((e) => e.data)
     .filter((i) => i.id !== issue.id && !i.is_pull && i.number > 0)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  const q = query.trim().replace(/^#/, '').toLowerCase();
-  const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
-  const items: (SelectPanelItemInput & {id: string; number: number})[] = [];
-  if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) items.push({id: `number-${String(exact)}`, text: `#${String(exact)}`, number: exact});
-  items.push(...others.filter((i) => !q || `#${String(i.number)} ${i.title}`.toLowerCase().includes(q)).slice(0, DUPLICATE_CHOICES)
-    .map((i) => ({id: `issue-${String(i.id)}`, text: `#${String(i.number)} ${i.title}`, number: i.number})));
-  return <SelectPanel title="Close as duplicate of" open onOpenChange={(open) => { if (!open) onClose(); }} selected={undefined} loading={false}
-    placeholderText="Duplicate of… (number or title)" filterValue={query} onFilterChange={setQuery} items={items}
-    {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No issue matches', body: 'Type its number.'}} : {})}
-    anchorRef={anchor} renderAnchor={null}
-    onSelectedChange={(item: SelectPanelItemInput | undefined) => {
-      const original = items.find((option) => option.id === item?.id);
-      if (!original) return;
-      onClose();
-      act((text) => {
-        runInAction(() => {
-          editing(app).intents.submit({kind: 'comment.create', issueId: issue.id, repoId, tempId: uuid(), body: duplicateComment(original.number, text)});
-          if (duplicate) setWorkflowStatus(app, [issue], duplicate);
-          else changeState(app, [issue], 'closed');
-        });
+  const close = (number: number) => {
+    act((text) => {
+      runInAction(() => {
+        editing(app).intents.submit({kind: 'comment.create', issueId: issue.id, repoId, tempId: uuid(), body: duplicateComment(number, text)});
+        if (duplicate) setWorkflowStatus(app, [issue], duplicate);
+        else changeState(app, [issue], 'closed');
       });
-    }}/>;
+    });
+  };
+  // An issue that is not on this device can still be named by its number.
+  const q = query.trim().replace(/^#/, '');
+  const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
+  const options: PickOption[] = exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact) ?
+    [{value: `number-${String(exact)}`, label: `#${String(exact)}`, onSelect: () => { close(exact); }}] : [];
+  for (const i of exact === undefined ? others : [...others.filter((o) => o.number === exact), ...others.filter((o) => o.number !== exact)]) {
+    options.push({value: `issue-${String(i.id)}`, label: `#${String(i.number)} ${i.title}`, onSelect: () => { close(i.number); }});
+  }
+  return <LocalSelectPanel title="Close as duplicate of" placeholder="Duplicate of… (number or title)" empty="No other issue of this repository is on this device. Type an issue number to name one."
+    unmatched="Type an issue number to name one that is not on this device."
+    open onOpenChange={(open) => { if (!open) onClose(); }} anchorRef={anchor} query={query} onQueryChange={setQuery} options={options}/>;
 });
 
 export const Overrides = observer(function Overrides({issueId}: {issueId: number}) {

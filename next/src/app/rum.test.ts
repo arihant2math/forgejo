@@ -207,3 +207,36 @@ test('trimming a User Timing name keeps its newest half with their times and det
   expect(kept.at(-1)).toMatchObject({startTime: TIMING_MAX + 9, duration: 1, detail: {rows: TIMING_MAX + 9}});
   expect(performance.getEntriesByName('other')).toHaveLength(1);
 });
+
+test('the reporter trims a User Timing name once it passes TIMING_MAX, counting its re-created entries again', () => {
+  const observers: {types: string[]; deliver: (entries: PerformanceEntry[]) => void; disconnected: boolean}[] = [];
+  vi.stubGlobal('PerformanceObserver', class {
+    private readonly o: (typeof observers)[number];
+    constructor(callback: (list: {getEntries: () => PerformanceEntry[]}) => void) {
+      this.o = {types: [], deliver: (entries) => {callback({getEntries: () => entries});}, disconnected: false};
+      observers.push(this.o);
+    }
+    observe(init: {type: string}) {this.o.types.push(init.type);}
+    disconnect() {this.o.disconnected = true;}
+  });
+  const r = new RumReporter({url: '/-/sync/rum', fetch: (() => Promise.resolve(new Response(null))) as unknown as typeof fetch, storage: {getItem: () => null, setItem: () => undefined}});
+  r.start();
+  const timings = observers.find((o) => o.types.includes('mark'));
+  if (!timings) throw new Error('no User Timing observer');
+  expect(timings.types).toEqual(['mark', 'measure']);
+  const marks = (n: number) => Array.from({length: n}, () => performance.mark('list:paint'));
+  const live = () => performance.getEntriesByName('list:paint', 'mark').length;
+  timings.deliver(marks(TIMING_MAX));
+  expect(live()).toBe(TIMING_MAX);
+  timings.deliver(marks(1));
+  expect(live()).toBe(TIMING_MAX / 2);
+  // The browser delivers the re-created entries too: they count from zero, so the next trim comes TIMING_MAX / 2 later.
+  timings.deliver(performance.getEntriesByName('list:paint', 'mark'));
+  timings.deliver(marks(TIMING_MAX / 2));
+  expect(live()).toBe(TIMING_MAX);
+  timings.deliver(marks(1));
+  expect(live()).toBe(TIMING_MAX / 2);
+  r.stop();
+  expect(timings.disconnected).toBe(true);
+  vi.unstubAllGlobals();
+});

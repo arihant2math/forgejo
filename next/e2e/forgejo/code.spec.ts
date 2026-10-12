@@ -5,7 +5,7 @@
 import {expect, type Locator, test} from '@playwright/test';
 import {api, b64, ensureUser, ok} from '../lib/api.ts';
 import {signIn, watch} from '../lib/app.ts';
-import {blobSha as blobShaIn, changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
+import {blobSha as blobShaIn, changeFiles, codeUrl, commentOnLine, goFile, type Pull, tsFile} from '../lib/code.ts';
 import {cachedBlob as cached} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
@@ -63,7 +63,8 @@ test('copy a selected range permalink and pin source and blame with Y', async ({
   await page.goto(code('src/branch/main/src/main.go'));
   await page.getByRole('link', {name: 'Line 12', exact: true}).click();
   await page.getByRole('link', {name: 'Line 20', exact: true}).click({modifiers: ['Shift']});
-  await page.getByRole('button', {name: 'Line actions'}).click();
+  await expect(page).toHaveURL(/#L12-L20$/);
+  await page.getByRole('button', {name: 'File actions'}).click();
   await page.getByRole('menuitem', {name: 'Copy permalink', exact: true}).click();
   await expect(page.getByText('Link copied', {exact: true})).toBeVisible();
   const copied = await page.locator('html').getAttribute('data-copied-link');
@@ -74,8 +75,8 @@ test('copy a selected range permalink and pin source and blame with Y', async ({
   await page.goto(copied ?? '');
   await expect(page).toHaveURL(copied ?? '');
   await page.goto(`${code(`src/commit/${sha}/src/main.go`)}#L12-L20`);
-  await expect(page.locator('#L12')).toHaveAttribute('data-linked', '');
-  await expect(page.locator('#L20')).toHaveAttribute('data-linked', '');
+  await expect(page.getByRole('link', {name: 'Line 12', exact: true})).toHaveAttribute('data-selected-line', 'first');
+  await expect(page.getByRole('link', {name: 'Line 20', exact: true})).toHaveAttribute('data-selected-line', 'last');
   await page.goto(`${code('blame/branch/main/src/main.go')}#L12-L20`);
   await expect(page.getByRole('button', {name: 'Line actions'})).toBeVisible();
   await page.keyboard.press('y');
@@ -100,23 +101,25 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await expect(files.getByRole('option', {name: /<img src=x onerror=alert\(1\)>\.md|docs/}).first()).toBeVisible();
   await files.getByRole('option', {name: /^src/}).click();
   await page.getByRole('listbox', {name: 'Files'}).getByRole('option', {name: /^main\.go/}).click();
-  await expect(page.getByRole('list', {name: /src\/main\.go, \d+ lines/})).toBeVisible();
+  await expect(page.getByRole('region', {name: /src\/main\.go, \d+ lines/})).toBeVisible();
   const below = async (a: Locator, b: Locator) => ((await a.boundingBox())?.y ?? 0) >= ((await b.boundingBox())?.y ?? Infinity) + 1;
-  const crumbs = page.getByRole('navigation', {name: 'Breadcrumb'});
+  // The repository's crumbs come first; the file path has its own.
+  const crumbs = page.getByRole('navigation', {name: 'Breadcrumbs'}).first();
   const repoTabs = page.getByRole('navigation', {name: 'Repository'});
   expect(await below(repoTabs, crumbs)).toBe(true);
   expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
-  await expect(page.locator('.text-syn-keyword').first()).toHaveText(/package|import|func/);
-  await page.getByRole('radio', {name: 'Blame'}).click();
+  // Pierre colours tokens with inline theme styles inside its Shadow DOM.
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toHaveText(/package|import|func/);
+  await page.getByRole('button', {name: 'Blame', exact: true}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();
-  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syn-keyword').first()).toBeVisible();
+  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syntax-keyword').first()).toBeVisible();
   await page.goto(code('src/branch/main/docs'));
   await page.getByRole('option', {name: /onerror/}).click();
-  await expect(page.getByRole('radio', {name: 'Preview'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('button', {name: 'Preview', exact: true})).toBeVisible({timeout: 15_000});
   expect(await page.locator('main script, main [onerror]').count()).toBe(0);
-  await page.getByRole('radio', {name: 'Code'}).click();
+  await page.getByRole('button', {name: 'Code', exact: true}).click();
   await expect(page.getByText('<img src=x onerror=alert(2)>')).toBeVisible({timeout: 15_000});
   expect(await page.locator('main img').count()).toBe(0);
   await page.goto(code('src/branch/main/docs/a b.txt'));
@@ -135,7 +138,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await page.goBack();
   await page.getByRole('link', {name: 'History', exact: true}).click();
   await page.getByRole('option', {name: /Add sources/}).click();
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('src/main.go').first()).toBeVisible();
   expect(dialogs).toEqual([]);
   expect(problems).toEqual([]);
@@ -160,7 +163,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(reviewPull.number)}?tab=files`);
-  const list = page.getByRole('list', {name: 'Changes'});
+  const list = page.getByRole('region', {name: 'Changes'});
   await expect(list).toBeVisible({timeout: 30_000});
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   await page.getByRole('link', {name: 'Conversation'}).click();
@@ -168,9 +171,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
   await page.getByRole('link', {name: 'Files changed'}).click();
   await expect(list).toBeVisible();
-  const row = list.getByRole('listitem').filter({hasText: 'export const value2: number'}).first();
-  await row.hover();
-  await row.getByRole('button', {name: 'Comment on line 3'}).click();
+  await commentOnLine(page, 'export const value2: number', 'Comment on line 3');
   await page.getByRole('textbox', {name: 'Review comment'}).fill('Offline nit: name this better.');
   await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByText('Offline nit: name this better.')).toBeVisible();
@@ -226,7 +227,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await corrected.getByRole('button', {name: 'Comment actions'}).click();
   await page.getByRole('menuitem', {name: 'Delete…'}).click();
-  await page.getByRole('dialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
+  await page.getByRole('alertdialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
   await expect(page.getByText('Corrected offline nit.', {exact: true})).toHaveCount(0);
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));

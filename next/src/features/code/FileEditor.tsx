@@ -96,16 +96,20 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
   }, []);
   useEffect(() => {view.current?.dispatch({effects: wrapping.reconfigure(wrap ? EditorView.lineWrapping : [])});}, [wrap, wrapping]);
   // Highlight each version once typing pauses; a newer version drops the request for the older one.
+  // Marks of a version that no longer highlights (a name without a grammar, text too large) would only mislead.
   useEffect(() => {
     const lang = langOf(path);
-    if (!lang) return undefined;
+    if (!lang) {
+      view.current?.dispatch({effects: setTokens.of(Decoration.none)});
+      return undefined;
+    }
     const ctl = new AbortController();
     const timer = setTimeout(() => {
       const v = view.current;
       if (!v) return;
       const doc = v.state.doc;
       source.highlightText(lang, doc.toString(), ctl.signal).then((hl) => {
-        if (hl && view.current === v && v.state.doc === doc) v.dispatch({effects: setTokens.of(tokenMarks(doc, hl))});
+        if (view.current === v && v.state.doc === doc) v.dispatch({effects: setTokens.of(hl ? tokenMarks(doc, hl) : Decoration.none)});
       }, () => undefined);
     }, 250);
     return () => {

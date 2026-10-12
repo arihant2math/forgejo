@@ -7,7 +7,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, createElement, useEffect, useRef, useState} from 'react';
+import {type RefObject, useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
@@ -15,20 +15,20 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {FilteredSelect} from './FilteredSelect.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {repoPeople} from '../issues/people.ts';
-import {PickerPopover} from '../issues/Picker.tsx';
-import {priorityIcon, statusIcon, usePool} from '../issues/cells.tsx';
-import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels.ts';
+import {KindChip, PickerPopover} from '../issues/Picker.tsx';
+import {usePool} from '../issues/cells.tsx';
+import {exclusiveScope, labelKind} from '../issues/labels.ts';
 import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
 import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
+import {AriaAlert, Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
 import {FilteredActionList} from '@primer/react/experimental';
 import {Tooltip} from '@primer/react';
 
@@ -310,6 +310,7 @@ export const CreateIssue = observer(function CreateIssue() {
   const navigate = useNavigate();
   const req = app.ui.create;
   const returnFocus = useRef<HTMLElement>(null);
+  const titleField = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<Form | undefined>();
   const [previousRequest, setPreviousRequest] = useState<typeof req>();
   if (req !== previousRequest) {
@@ -332,7 +333,10 @@ export const CreateIssue = observer(function CreateIssue() {
   };
   const create = () => {
     const path = form?.create();
-    if (!path) return;
+    if (!path) {
+      if (form?.missing && !form.title.trim()) titleField.current?.focus();
+      return;
+    }
     runInAction(() => {
       app.ui.create = undefined;
     });
@@ -345,7 +349,7 @@ export const CreateIssue = observer(function CreateIssue() {
   return (
     <Dialog onClose={close} returnFocusRef={returnFocus} title="New issue" width="xlarge"
       renderFooter={() => <Dialog.Footer>{form && <Footer form={form} onCancel={close} onCreate={create}/>}</Dialog.Footer>}>
-      {form && (form.choosing ? <TemplatePicker form={form}/> : <Fields form={form} onCreate={create} onClose={close}/>)}
+      {form && (form.choosing ? <TemplatePicker form={form}/> : <Fields form={form} titleField={titleField} onCreate={create} onClose={close}/>)}
     </Dialog>
   );
 });
@@ -374,7 +378,7 @@ const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
 
 interface TemplateChoice {id: string; text: string; description?: string; descriptionVariant?: 'block'; onAction: () => void}
 
-const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; onCreate: () => void; onClose: () => void}) {
+const Fields = observer(function Fields({form, titleField, onCreate, onClose}: {form: Form; titleField: RefObject<HTMLInputElement | null>; onCreate: () => void; onClose: () => void}) {
   const app = useApp();
   useEffect(() => () => {
     form.flush();
@@ -398,7 +402,7 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
       }
     }}>
       {form.templates?.templates.length ? <Button variant="invisible" size="small" type="button" onClick={() => { runInAction(() => { form.choosing = true; }); }}>Change template</Button> : null}
-      <Title form={form} onCreate={onCreate}/>
+      <Title form={form} field={titleField} onCreate={onCreate}/>
       {form.templates?.note && <p className="text-sm text-muted">{form.templates.note}</p>}
       {form.template?.body?.length ? <TemplateFields fields={form.template.body} values={form.values} missing={form.fieldErrors} repoId={form.repoId} onChange={form.setValue}/> : <Description form={form} onCreate={onCreate}/>}
       <Properties form={form}/>
@@ -406,20 +410,20 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
   );
 });
 
-const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: () => void}) {
+const Title = observer(function Title({form, field, onCreate}: {form: Form; field: RefObject<HTMLInputElement | null>; onCreate: () => void}) {
   const missing = form.missing && !form.title.trim();
   return (
     <FormControl>
     <FormControl.Label>Title</FormControl.Label>
-    <TextInput aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} aria-describedby={missing ? 'create-title-missing' : undefined} onChange={(e) => {
+    <TextInput ref={field} placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} onChange={(e) => {
         form.setTitle(e.target.value);
       }} onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
           onCreate();
         }
-      }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-    {missing && <FormControl.Validation id="create-title-missing" variant="error">An issue needs a title.</FormControl.Validation>}
+      }}/>
+    {missing && <FormControl.Validation variant="error"><AriaAlert as="span">An issue needs a title.</AriaAlert></FormControl.Validation>}
     </FormControl>
   );
 });
@@ -444,7 +448,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const repo = pool.model('Repository').get(repoId)?.data;
   const writable = repoId > 0 && canWrite(session, repoId);
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
-  const ofKind = (k: 'status' | 'priority') => allLabels.filter((l) => labelKind(l) === k).sort((a, b) => kindRank(k, a.name) - kindRank(k, b.name));
   const plain = allLabels.filter((l) => labelKind(l) === undefined);
   const people = repoId ? repoPeople(pool, repoId, userId, form.assignees) : [];
   const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
@@ -452,42 +455,24 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const ms = pool.model('Milestone').get(form.milestone)?.data;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <FilteredSelect title="Repository" placeholder="Repository" placeholderText="Create in the repository…"
-        message={{title: 'No repository is on this device.', body: '', variant: 'empty'}}
-        items={repos.map((r) => ({id: r.id, text: r.name}))}
-        selected={repo ? {id: repoId, text: repo.full_name} : undefined}
-        onSelectedChange={(item) => { if (item) form.setRepo(Number(item.id)); }}
-        renderAnchor={(props) => cloneElement(<Button size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>, props)}/>
+      <LocalSelectPanel title="Repository" placeholder="Create in the repository…" empty="No repository is on this device."
+        options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => { form.setRepo(r.id); }}))}
+        renderAnchor={(props) => <Button {...props} size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>}/>
       {writable ? <>
-        <KindChip form={form} kind="status" labels={ofKind('status')}/>
-        <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
+        <KindChip draft={form} kind="status"/>
+        <KindChip draft={form} kind="priority"/>
         <PickerPopover kind="labels" draft={form}
-          trigger={
-            <Button variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
+          renderAnchor={(props) =>
+            <Button {...props} variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
               {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
         <PickerPopover kind="assignees" draft={form}
-          trigger={<Button variant={who.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
+          renderAnchor={(props) => <Button {...props} variant={who.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
         <PickerPopover kind="milestone" draft={form}
-          trigger={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
+          renderAnchor={(props) => <Button {...props} variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </> : repoId > 0 && <span className="px-1 text-sm text-muted">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
-  );
-});
-
-const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; kind: 'status' | 'priority'; labels: Label[]}) {
-  if (!labels.length) return null;
-  const chosen = labels.find((l) => form.labels.includes(l.id));
-  const iconOf = kind === 'status' ? statusIcon : priorityIcon;
-  const name = kind === 'status' ? 'Status' : 'Priority';
-  return (
-    <PickerPopover kind={kind} draft={form}
-      trigger={
-        <Button variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
-          {chosen ? <>{createElement(iconOf(chosen.name), {fill: chosen.color})}{scopedValue(chosen.name)}</> : name}
-        </Button>
-      }/>
   );
 });
 

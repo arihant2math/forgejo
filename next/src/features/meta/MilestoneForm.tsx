@@ -15,7 +15,7 @@ import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
 import {createMilestone, editMilestone, type MilestoneChange, viewMilestones} from './writes.ts';
-import {MilestoneIcon} from '@primer/octicons-react';
+import {MilestoneIcon, XIcon} from '@primer/octicons-react';
 import {Button, TextInput, FormControl} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
@@ -108,20 +108,15 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
           {/* noValidate: each field's problem shows under it (milestoneProblems), not as the browser's bubble. */}
           <form className="flex flex-col gap-4" noValidate onSubmit={save}>
             <FormControl id={`${id}-title`}><FormControl.Label>Title</FormControl.Label>
-              <TextInput id={`${id}-title`} value={d.title} autoFocus maxLength={255} placeholder="v1.2, Sprint 14, …" className="w-full" aria-describedby={`${id}-title-e`} onChange={(e) => {
+              <TextInput value={d.title} autoFocus maxLength={255} placeholder="v1.2, Sprint 14, …" className="w-full" onChange={(e) => {
                   setD({...d, title: e.target.value});
-                }} {...(tried && Boolean(problems.title) ? {validationStatus: 'error' as const} : {})}/>
-            {(tried ? problems.title : undefined) && <FormControl.Validation id={`${id}-title-e`} variant="error">{tried ? problems.title : undefined}</FormControl.Validation>}</FormControl>
+                }}/>
+            {tried && problems.title && <FormControl.Validation variant="error">{problems.title}</FormControl.Validation>}</FormControl>
             <FormControl id={`${id}-due`}><FormControl.Label>Due date</FormControl.Label>
-              <span className="flex items-center gap-2">
-                <TextInput id={`${id}-due`} type="date" value={d.due} max={MAX_DUE} className="w-48" aria-describedby={`${id}-due-e`} onChange={(e) => {
+              <TextInput type="date" value={d.due} max={MAX_DUE} className="w-48" onChange={(e) => {
                   setD({...d, due: e.target.value});
-                }} {...(tried && Boolean(problems.due) ? {validationStatus: 'error' as const} : {})}/>
-                {d.due && <Button variant="invisible" size="small" type="button" onClick={() => {
-                  setD({...d, due: ''});
-                }}>Clear</Button>}
-              </span>
-            <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{(tried ? problems.due : undefined) && <FormControl.Validation id={`${id}-due-e`} variant="error">{tried ? problems.due : undefined}</FormControl.Validation>}</FormControl>
+                }} {...(d.due ? {trailingAction: <TextInput.Action icon={XIcon} aria-label="Clear the due date" onClick={() => { setD({...d, due: ''}); }}/>} : {})}/>
+            <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{tried && problems.due && <FormControl.Validation variant="error">{problems.due}</FormControl.Validation>}</FormControl>
             <div className="flex flex-col gap-1">
               <span className="text-base font-semibold text-default">Description</span>
               <MarkdownField repoId={r.id} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {

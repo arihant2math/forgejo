@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {apiRepoPath} from '../../app/paths.ts';
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Button, IconButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput, Textarea} from '@primer/react';
@@ -15,17 +15,20 @@ import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
-import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
+import {ResourceList} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
+import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
 import {fetchRules, ruleApi} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
 import {PencilIcon, ShieldCheckIcon, TrashIcon} from '@primer/octicons-react';
 
 export const BranchSettings = observer(function BranchSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const res = useResource(settingsKey(repoId, 'protections'), (signal) => fetchRules(app, owner, repo, signal));
   const [editing, setEditing] = useState<BranchProtection | 'new' | undefined>(undefined);
   const removal = useRemoval(res, {path: (rule) => ruleApi(owner, repo, rule.rule_name), same: (a, b) => a.rule_name === b.rule_name, done: (rule) => `Removed the rule for ${rule.rule_name}`});
@@ -37,7 +40,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
       }}>Add rule</Button>}>
       <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
         {(rules) => rules.map((r) => (
-          <SettingsEntry key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
+          <ResourceRow key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
             description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Label key={s}>{s}</Label>)}</span>}
             actions={<>
               <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={`Edit the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
@@ -83,7 +86,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
 }) {
   const app = useApp();
   const pool = usePool();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [form, setForm] = useState<RuleForm>(() => ruleFormOf(rule));
   const [errors, setErrors] = useState<FieldErrors<keyof RuleForm>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -129,7 +132,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
         e.preventDefault();
         void save();
       }}>
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         {creating && (
           <FormControl id="rule-name"><FormControl.Label>Branch name or pattern</FormControl.Label>
             <TextInput className="w-full" value={form.name} autoFocus autoComplete="off" spellCheck={false} onChange={(e) => {

@@ -4,18 +4,19 @@
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useSiteLink} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {repoOfGroup} from '../../data/models.ts';
-import {DenseRow} from './DenseRow.tsx';
-import {DashboardSection} from './DashboardSection.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {Avatar, Heading, Select} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
 import {useSource} from '../code/hooks.ts';
 import {AgoCell, usePool} from '../issues/cells.tsx';
 import {feedDays, feedEntry, type FeedAction} from './feed.ts';
 import {Button} from '@primer/react';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface Org {username: string}
 interface SavedPage {at: string; page: number; keys: string[]; more: boolean}
@@ -49,21 +50,21 @@ export default observer(function Feed() {
     }, 100);
     return () => { active = false; controller.abort(); clearTimeout(timer); };
   }, [app, cache, connected]);
-  return <DashboardSection label="Activity" title={<span className="text-default">Activity</span>} actions={
+  return <BorderBox label="Activity" title="Activity" actions={
     <Select aria-label="Activity context" size="small" value={context} onChange={(event) => { setContext(event.target.value); }}>
       <Select.Option value="">You</Select.Option>
       {orgs.map((o) => <Select.Option key={o.username} value={o.username}>{o.username}</Select.Option>)}
     </Select>
   }>
     {login && <FeedPage key={context} context={context} login={login} connected={connected}/>}
-  </DashboardSection>;
+  </BorderBox>;
 });
 
 export function FeedPage({context, login, connected, performedOnly = false}: {context: string; login: string; connected: boolean; performedOnly?: boolean}) {
   const app = useApp();
   const session = useSession();
   const cache = useSource().cache;
-  const click = useLinkClick();
+  const link = useSiteLink();
   const [actions, setActions] = useState<FeedAction[]>([]);
   const [saved, setSaved] = useState<SavedPage>();
   const [busy, setBusy] = useState(false);
@@ -131,12 +132,11 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
       <div className="border-y border-muted bg-muted px-4 py-2"><Heading as="h3" variant="small">{day}</Heading></div>
       {rows.map((a) => {
         const entry = feedEntry(a);
-        const href = hrefOf(app, entry.path);
-        return <DenseRow key={a.id} role={undefined} href={href} onClick={(e) => click(e, href)}
-          leading={a.act_user.avatar_url ? <Avatar alt={a.act_user.login} src={a.act_user.avatar_url} size={20}/> : null} trailing={<AgoCell at={a.created}/>}>{entry.text}</DenseRow>;
+        return <ListRow key={a.id} {...link(sitePath(app.config, entry.path))}
+          leading={a.act_user.avatar_url ? <Avatar alt={a.act_user.login} src={a.act_user.avatar_url} size={20}/> : null} trailing={<AgoCell at={a.created}/>}>{entry.text}</ListRow>;
       })}
     </div>)}
-    {connected && ready && !busy && !error && !actions.length && <Blankslate narrow><Blankslate.Heading>No recent activity</Blankslate.Heading><Blankslate.Description>Watch repositories or follow people to see their updates here.</Blankslate.Description></Blankslate>}
+    {connected && ready && !busy && !error && !actions.length && <EmptyState title="No recent activity" description="Watch repositories or follow people to see their updates here." spacious={false}/>}
     {connected && <div className="flex items-center gap-2 px-4 py-2">
       <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
       {saved?.more && !error && <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}

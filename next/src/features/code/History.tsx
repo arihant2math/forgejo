@@ -12,7 +12,7 @@ import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
-import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
+import {CodeSource, type CommitInfo} from '../../code/source.ts';
 
 import {usePool} from '../issues/cells.tsx';
 import {reach} from '../../app/online.ts';
@@ -20,7 +20,8 @@ import {useSession} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
-import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
+import {AUTO_RETRY_MS, failureOf, type LoadFailure, transientFailure, transientStatus} from '../../app/resource.ts';
+import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Ago, commitDay, Sha, summary} from './bits.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
 import {CommitChecksSection, withChecks} from './commitChecks.tsx';
@@ -28,24 +29,24 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 import {RefMenu} from './RefMenu.tsx';
-import {Breadcrumbs} from './Src.tsx';
+import {CodePath} from './Src.tsx';
 import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
   const r = resolveRef(refTable(pool, props.repoId), props.kind, props.rest);
-  const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
+  const title = r ? <CodePath owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
     <RouterLinkButton variant="invisible" size="small" leadingVisual={FileCodeIcon} {...codeTo(props.owner, props.repo, codeSplat('src', r, r.path))}>Browse files</RouterLinkButton>
   </>;
   return (
-    <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
+    <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'} heading={r?.path ? `History of ${r.path}` : undefined}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
-        <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>It does not exist, was deleted, or is not on this device.</Blankslate.Description></Blankslate>)}
+        <EmptyState icon={HistoryIcon} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
     </CodeFrame>
   );
 });
@@ -55,7 +56,7 @@ interface Pages {
   pages: number;
   done: boolean;
   loading: boolean;
-  failed: Extract<Loaded<never>, {state: 'offline' | 'error'}> | undefined;
+  failed: (LoadFailure & {reload: () => void}) | undefined;
 }
 
 function useCommitPages(repoId: number, sha: string, path: string) {
@@ -89,7 +90,7 @@ function useCommitPages(repoId: number, sha: string, path: string) {
         st.tries = 0;
         more();
       };
-      setS((p) => ({...p, loading: false, failed: err instanceof NotCached ? {state: 'offline', retry} : {state: 'error', message: err instanceof Error ? err.message : String(err), status: (err as {status?: number}).status ?? 0, ...(transientFailure(err) ? {retry} : {})}}));
+      setS((p) => ({...p, loading: false, failed: {...failureOf(err), reload: retry}}));
     });
   }, [src, repoId, sha, path]);
   useEffect(() => {
@@ -104,7 +105,7 @@ function useCommitPages(repoId: number, sha: string, path: string) {
     const st = at.current;
     const back = connected && !st.connected;
     st.connected = connected;
-    if (back && s.failed?.state === 'offline') s.failed.retry?.();
+    if (back && s.failed?.state === 'offline') s.failed.reload();
   }, [connected, s.failed]);
   return {s, more, connected};
 }
@@ -115,7 +116,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
-    if (s.done) return <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
+    if (s.done) return <EmptyState icon={HistoryIcon} title="No commits"/>;
     return <Unloaded loaded={{state: 'loading'}} what="This history"/>;
   }
   return (
@@ -125,7 +126,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-4">
-          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.retry}>Retry</Button>}</span> :
+          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{connected && (s.failed.state === 'offline' || transientStatus(s.failed.status)) && <Button variant="invisible" size="small" type="button" onClick={s.failed.reload}>Retry</Button>}</span> :
             <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>
       )}

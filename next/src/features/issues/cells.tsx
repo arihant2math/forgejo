@@ -6,12 +6,12 @@
 import {count} from '../../app/words.ts';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useApp} from '../../app/store.ts';
+import {useApp, usePool} from '../../app/store.ts';
 import {isDraftPull} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
-import {editing} from '../../intents/session.ts';
+import {editing, useOverlay} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
@@ -20,7 +20,8 @@ import {SkeletonAvatar} from '@primer/react/experimental';
 import {createElement, type ReactNode} from 'react';
 import {clsx} from 'clsx';
 import {Link} from '@tanstack/react-router';
-import {ago, fullDate, shortDate} from './format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {poolHead} from '../../code/pull.ts';
 import {reviewVerdicts} from '../pull/verdicts.ts';
 import {CheckStatus} from '../code/CheckStatus.tsx';
@@ -30,6 +31,7 @@ import {repoLabels} from './candidates.ts';
 import {CircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label as PrimerLabel} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 export {labelFill as labelColor} from './labels.ts';
 
@@ -42,15 +44,7 @@ export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
   return <span className="inline-flex shrink-0" style={{color: labelFill(color)}}>{createElement(icon, {size: 16})}</span>;
 }
 
-export function usePool(): Pool {
-  const s = useApp().session;
-  if (!s) throw new Error('no session');
-  return s.data.pool;
-}
-
-export function useOverlay() {
-  return editing(useApp()).overlay;
-}
+export {usePool, useOverlay};
 
 export interface LabelView {
   status: Label | undefined;
@@ -183,7 +177,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
   if (!id || !u.login) return <span className="font-semibold text-default">{id ? u.name : fallback}</span>;
-  return <Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold text-default hover:text-accent hover:underline">{u.name}</Link>;
+  return <PrimaryLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold">{u.name}</PrimaryLink>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {
@@ -283,7 +277,7 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
 });
 
 export function AgoCell({at, label}: {at: string; label?: string}) {
-  return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-12 whitespace-nowrap text-right tabular-nums">{ago(at)}</span>;
+  return <TimeAgo at={at} label={label} className="w-12 whitespace-nowrap text-right tabular-nums"/>;
 }
 
 export const TitleCell = observer(function TitleCell({issue, className}: {issue: Entity<'Issue'>; className?: string}) {

@@ -20,14 +20,14 @@ test('Pierre workers use the app TrustedScriptURL policy below the deployment ba
     constructor(url: unknown, options: WorkerOptions) {
       // Model the enforced browser sink: a plain string (or URL) must fail.
       expect(typeof url).toBe('object');
-      expect((url as {trusted: string}).trusted).toMatch(/^\/next\/assets\/.*\.js$/);
       construct(url, options);
     }
   });
   const {pierreWorker} = await import('./pierreWorker.ts');
-  pierreWorker('/next/', '/assets/diffs.worker-123.js', 'diffs-highlight');
-  pierreWorker('/next/', '/assets/pierre.worker-456.js', 'diffs-parse');
-  expect(urls).toEqual(['/next/assets/diffs.worker-123.js', '/next/assets/pierre.worker-456.js']);
+  pierreWorker('/next/', '/-/next/assets/worker-123.js', 'diffs-highlight');
+  // The dev server serves the worker from outside the build's assets: it stays where it is.
+  pierreWorker('/next/', '/node_modules/@pierre/diffs/dist/worker/worker.js?worker_file&type=module', 'diffs-highlight');
+  expect(urls).toEqual(['/next/assets/worker-123.js', '/node_modules/@pierre/diffs/dist/worker/worker.js?worker_file&type=module']);
   expect(construct).toHaveBeenCalledTimes(2);
-  expect(construct).toHaveBeenLastCalledWith({trusted: urls[1]}, {type: 'module', name: 'diffs-parse'});
+  expect(construct).toHaveBeenLastCalledWith({trusted: urls[1]}, {type: 'module', name: 'diffs-highlight'});
 });

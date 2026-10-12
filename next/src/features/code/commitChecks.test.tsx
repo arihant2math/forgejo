@@ -104,9 +104,9 @@ test('#250: a commit row carries its check state, leading to the failed job', ()
   failedRun(s);
   const row = withChecks(commitRow, 'acme', 'atlas', repos)({sha: OLD, message: 'server: serve .mvt tiles', authorName: 'Alice', authorAvatar: '', date: T, parents: []} as never);
   show(s, <div>{row.trailing}</div>);
-  const mark = screen.getByRole('link', {name: 'Some checks failed: ci.yml / test'});
+  const mark = screen.getByRole('link', {name: 'Some checks were not successful: ci.yml / test'});
   expect(mark.getAttribute('href')).toBe('/code/actions/runs/4/jobs/0');
-  expect(screen.getByRole('img', {name: 'Some checks failed: ci.yml / test'})).toBeTruthy();
+  expect(screen.getByRole('img', {name: 'Some checks were not successful: ci.yml / test'})).toBeTruthy();
   expect(mocks.online).not.toHaveBeenCalled();
 });
 
@@ -115,11 +115,11 @@ test('#250: a commit the pool has no checks for asks API v1 once, and a passed o
   mocks.online.mockResolvedValue({state: 'success', statuses: [{id: 1, context: 'ci', status: 'success', target_url: ''}]});
   show(s, <><CommitCheckMark owner="acme" repo="atlas" repos={repos} sha={HEAD}/><CommitCheckMark owner="acme" repo="atlas" repos={repos} sha={HEAD}/></>);
   await waitFor(() => {
-    expect(screen.getAllByRole('link', {name: 'Checks passed'})).toHaveLength(2);
+    expect(screen.getAllByRole('link', {name: 'All checks have passed'})).toHaveLength(2);
   });
   expect(mocks.online).toHaveBeenCalledOnce();
   expect(mocks.online.mock.calls[0]?.[1]).toEqual({api: 'v1', path: `/repos/acme/atlas/commits/${HEAD}/status?limit=50`});
-  expect(screen.getAllByRole('link', {name: 'Checks passed'})[0]?.getAttribute('href')).toBe(`/code/commit/${HEAD}#checks`);
+  expect(screen.getAllByRole('link', {name: 'All checks have passed'})[0]?.getAttribute('href')).toBe(`/code/commit/${HEAD}#checks`);
 });
 
 test('#250: a long list asks at most four commits at a time', async () => {
@@ -146,7 +146,7 @@ test('#250: the commit page lists the commit\'s checks with links to the run and
   failedRun(s);
   show(s, <CommitChecksSection owner="acme" repo="atlas" repoId={20} sha={OLD}/>);
   const section = screen.getByRole('region', {name: 'Checks'});
-  expect(section.textContent).toContain('Checks · Some checks failed');
+  expect(section.textContent).toContain('Checks · Some checks were not successful');
   expect(screen.getByRole('link', {name: 'ci.yml / test'}).getAttribute('href')).toBe('/code/actions/runs/4/jobs/0');
   expect(screen.getByRole('link', {name: 'coverage/codecov'}).getAttribute('href')).toBe('https://codecov.example/acme/atlas');
   expect(section.textContent).toContain('Failed');

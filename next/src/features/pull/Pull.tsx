@@ -44,7 +44,8 @@ import {usePool} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {runLook, statusLook, statusTime} from '../code/Actions.tsx';
 import {RunControls} from '../code/RunControls.tsx';
-import {checksOf, cleanDescription, latestStatuses, unfinishedChecks} from './checks.ts';
+import {CheckStatus} from '../code/CheckStatus.tsx';
+import {CHECK_SUMMARY, checksOf, cleanDescription, latestStatuses, unfinishedChecks} from './checks.ts';
 import {ApprovalPanel, useMergeCheck} from './Approval.tsx';
 import {bumpMergeCheck, protectionWhy} from './mergeCheck.ts';
 import {mergedMeanwhile} from './merged.ts';
@@ -61,17 +62,11 @@ import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
-import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
+import {CheckCircleIcon, CheckIcon, ChevronDownIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
 import {Banner, BranchName, ButtonGroup, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
-
-function CheckMark({tone}: {tone: string}) {
-  const color = tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-attention' : 'text-muted';
-  const Icon = tone === 'success' ? CheckCircleIcon : tone === 'danger' ? XCircleIcon : ClockIcon;
-  return <span className={`flex shrink-0 ${color}`}><Icon size={16}/></span>;
-}
 
 export type PullTabName = 'files' | 'commits' | 'checks';
 
@@ -719,7 +714,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
             const url = s.get('target_url');
             const description = cleanDescription(s.get('description'));
             return (
-              <div key={s.id} className="flex items-center gap-2 border-b border-muted px-3 py-2"><CheckMark tone={look.tone}/><span className="min-w-0 flex-1">
+              <div key={s.id} className="flex items-center gap-2 border-b border-muted px-3 py-2"><CheckStatus tone={look.tone}/><span className="min-w-0 flex-1">
                 {/^https?:\/\//.test(url) ? <PrimerLink href={url} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{s.get('context')}</PrimerLink> : s.get('context')}
                 {description && <span className="text-muted"> {description}</span>}
               </span><span className="text-muted">{look.text}</span></div>
@@ -744,7 +739,7 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
         return (
           <div key={j.id} className="flex items-center gap-1 pr-2">
           <CodeLink className="min-w-0 flex-1" owner={owner} repo={repo} to={`actions/runs/${String(runNumber)}/jobs/${String(i)}`}>
-            <div className="flex items-center gap-2 border-b border-muted px-3 py-2"><CheckMark tone={look.tone}/><span className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 border-b border-muted px-3 py-2"><CheckStatus tone={look.tone}/><span className="min-w-0 flex-1">
               {run.get('workflow_id')} / {j.get('name')}
             </span><span className="text-muted">{statusTime(look.text, j.get('started'), j.get('stopped'))}</span></div>
           </CodeLink>
@@ -852,8 +847,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const mainVariant = changesRequested || checks === 'failure' ? 'default' : 'primary';
   const waitingApproval = (sum?.awaitingApproval ?? 0) > 0 || check?.actions?.need_approval === true;
   const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
-  const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
-  const checksTone = checks === 'failure' ? 'danger' : checks === 'pending' ? 'warning' : 'success';
+  const checksWords = waitingApproval ? 'Checks are waiting for a maintainer’s approval' : CHECK_SUMMARY[checks].label;
   const headRef = check?.head_repo ? check.head_repo.split('/') : [];
   const removeHeadBranch = () => {
     if (!isOnline || busy || headRef.length !== 2) return;
@@ -881,12 +875,12 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       </>
     );
   } else if (closed) state = 'Closed without merging';
-  else if (conflict) state = <><CheckMark tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<code>{f}</code></Fragment>)}</> : ''}</>;
-  else if (pr.status === 'checking') state = <><CheckMark tone="warning"/> Checking whether it can be merged…</>;
-  else if (mergeWhy) state = <><CheckMark tone="warning"/> {mergeWhy}</>;
-  else if (checks === 'pending') state = <><CheckMark tone="warning"/> {checksWords}{behind}</>;
-  else if (checks === 'failure') state = <><CheckMark tone="danger"/> Some checks failed{behind}</>;
-  else state = <><CheckMark tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
+  else if (conflict) state = <><CheckStatus tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<code>{f}</code></Fragment>)}</> : ''}</>;
+  else if (pr.status === 'checking') state = <><CheckStatus tone="warning"/> Checking whether it can be merged…</>;
+  else if (mergeWhy) state = <><CheckStatus tone="warning"/> {mergeWhy}</>;
+  else if (checks === 'pending') state = <><CheckStatus summary={checks}/> {checksWords}{behind}</>;
+  else if (checks === 'failure') state = <><CheckStatus summary={checks}/> {checksWords}{behind}</>;
+  else state = <>{checks === 'success' ? <CheckStatus summary={checks}/> : <CheckStatus tone="success"/>} {checks === 'success' ? `${checksWords} · can be merged` : 'Can be merged'}{behind}</>;
   // Keep CI results visible even when draft, conflict, or protection status takes the headline.
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
@@ -898,7 +892,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       <section ref={box} tabIndex={-1} aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
       <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 font-semibold text-default">{state}</div>
       <div className="flex flex-col gap-2 px-4 py-3">
-      {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
+      {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckStatus summary={checks}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
       {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p>{checksTab}</p>}
       {!pr.merged && !closed && waitingApproval && <ApprovalPanel issueId={issue.id} actions={check?.actions ?? undefined} waiting={(sum?.awaitingApproval ?? 0) > 0}/>}
       {!pr.merged && !closed && !waitingApproval && check?.actions?.poster_trust === 'explicitly' && <ApprovalPanel issueId={issue.id} actions={check.actions} waiting={false}/>}

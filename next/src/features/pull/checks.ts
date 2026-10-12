@@ -3,11 +3,19 @@
 
 // Deduplicate Actions jobs: Forgejo also reports them as commit statuses linked to their runs.
 
+import {CheckIcon, DotFillIcon, XIcon, type Icon} from '@primer/octicons-react';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
 
 export type ChecksSummary = 'none' | 'pending' | 'failure' | 'success';
+
+export const CHECK_SUMMARY: Record<ChecksSummary, {icon: Icon; tone: string; label: string}> = {
+  none: {icon: DotFillIcon, tone: 'text-muted', label: 'No checks'},
+  success: {icon: CheckIcon, tone: 'text-success', label: 'All checks have passed'},
+  failure: {icon: XIcon, tone: 'text-danger', label: 'Some checks were not successful'},
+  pending: {icon: DotFillIcon, tone: 'text-attention', label: "Some checks haven't completed yet"},
+};
 
 export interface Checks {
   statuses: Entity<'CommitStatus'>[];

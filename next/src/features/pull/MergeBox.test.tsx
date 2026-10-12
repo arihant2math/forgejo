@@ -124,7 +124,7 @@ test('#172: when the merge check fails the box still offers what the pool knows 
 test('#157: a draft with failing checks says the checks failed on the Conversation tab, with a way to them', async () => {
   setup({title: 'WIP: Add the footer', statuses: [{context: 'ci/test', state: 'failure'}]});
   expect(await screen.findByText(/Draft pull requests cannot be merged/, {selector: ':not([role="tooltip"])'})).toBeTruthy();
-  expect(screen.getByText('Some checks failed')).toBeTruthy();
+  expect(screen.getByText('Some checks were not successful')).toBeTruthy();
   expect(screen.getByRole('link', {name: 'View checks'}).getAttribute('href')).toBe('#tab=checks');
 });
 

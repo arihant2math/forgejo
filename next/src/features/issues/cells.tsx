@@ -23,10 +23,11 @@ import {Link} from '@tanstack/react-router';
 import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
 import {reviewVerdicts} from '../pull/verdicts.ts';
-import {checksOf} from '../pull/checks.ts';
+import {CheckStatus} from '../code/CheckStatus.tsx';
+import {CHECK_SUMMARY, checksOf} from '../pull/checks.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
 import {repoLabels} from './candidates.ts';
-import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
+import {CircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label as PrimerLabel} from '@primer/react';
 
@@ -248,9 +249,7 @@ export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'
   );
 });
 
-const CHECK_ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
-const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
-const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending: 'Checks running'} as const;
+
 
 /** row reserves a fixed checks slot even without checks, keeping trailing columns aligned. */
 export const PullStateCell = observer(function PullStateCell({issue, row = false}: {issue: Entity<'Issue'>; row?: boolean}) {
@@ -271,7 +270,7 @@ export const PullStateCell = observer(function PullStateCell({issue, row = false
       {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
       {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
       {checks !== 'none' ?
-        <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 16, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint> :
+        <Hint label={CHECK_SUMMARY[checks].label}><CheckStatus summary={checks}/></Hint> :
         row && <span aria-hidden data-checks-slot className="size-4 shrink-0"/>}
     </>
   );

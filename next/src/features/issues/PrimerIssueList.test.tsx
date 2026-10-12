@@ -119,7 +119,7 @@ test('#271: a pull request row keeps its labels with the title and its state, ch
       const labels = token.closest('[data-row-labels]');
       expect(labels?.parentElement).toBe(title.parentElement);
       expect(title.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      const checks = row.querySelectorAll('[data-checks-slot], [title^="Checks"]');
+      const checks = row.querySelectorAll('[data-checks-slot], [title="All checks have passed"]');
       expect(checks).toHaveLength(1);
       const trailing = row.lastElementChild;
       const author = within(row).getByTitle(/^Opened by/);
@@ -127,12 +127,12 @@ test('#271: a pull request row keeps its labels with the title and its state, ch
       expect(trailing?.contains(checks[0] ?? null)).toBe(true);
       expect(trailing?.contains(token)).toBe(false);
       expect(trailing?.lastElementChild).toBe(age);
-      expect([...trailing?.querySelectorAll('[data-checks-slot], [title^="Checks"], [title^="Opened by"], [title^="Updated"]') ?? []]).toEqual([checks[0], author, age]);
+      expect([...trailing?.querySelectorAll('[data-checks-slot], [title="All checks have passed"], [title^="Opened by"], [title^="Updated"]') ?? []]).toEqual([checks[0], author, age]);
     }
     const draft = within(list).getByRole('option', {name: /WIP: Refactor/});
     const ready = within(list).getByRole('option', {name: /Catppuccin/});
     expect(within(draft).getByText('Draft')).toBeTruthy();
     expect(draft.querySelector('[data-checks-slot]')).not.toBeNull();
-    expect(within(ready).getByTitle('Checks passed')).toBeTruthy();
+    expect(within(ready).getByTitle('All checks have passed')).toBeTruthy();
   } finally {dispose();}
 });

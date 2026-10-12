@@ -85,8 +85,17 @@ export class ViewStore {
     this.write(read(this.userId).map((v) => (v.id === id ? {...v, name: n} : v)));
   }
 
-  remove(id: string): void {
-    this.write(read(this.userId).filter((v) => v.id !== id));
+  /** Returns an Undo that puts the same view (same id) back at its place. */
+  remove(id: string): () => void {
+    const views = read(this.userId);
+    const at = views.findIndex((v) => v.id === id);
+    const view = views[at];
+    this.write(views.filter((v) => v.id !== id));
+    return () => {
+      const now = read(this.userId);
+      if (!view || now.some((v) => v.id === id)) return;
+      this.write(now.toSpliced(at, 0, view).slice(-MAX));
+    };
   }
 
   update(id: string, search: SavedView['search']): void {

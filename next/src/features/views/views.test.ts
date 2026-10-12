@@ -40,6 +40,17 @@ test('per user, shared through storage, saved/renamed/removed', () => {
   expect(new ViewStore(1).views).toEqual([]);
 });
 
+test('undoing a removal puts the same view back at its place', () => {
+  const store = new ViewStore(3);
+  const ids = ['One', 'Two', 'Three'].map((name) => store.save(name, '/issues', {})?.id);
+  const undo = store.remove(ids[1] ?? '');
+  expect(store.views.map((v) => v.name)).toEqual(['One', 'Three']);
+  undo();
+  expect(store.views.map((v) => v.id)).toEqual(ids);
+  undo();
+  expect(store.views).toHaveLength(3);
+});
+
 test('canonical ignores key order and empty values', () => {
   expect(canonical({a: 1, b: undefined, c: ''})).toBe(canonical({a: 1}));
   expect(canonical({b: 2, a: 1})).toBe(canonical({a: 1, b: 2}));

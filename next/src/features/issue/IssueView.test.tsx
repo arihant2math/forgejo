@@ -8,7 +8,7 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {type App as AppState, createApp, type Session} from '../../app/store.ts';
-import type {Intent} from '../../intents/intents.ts';
+import {type Intent, tempNum} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {IntentDb} from '../../intents/store.ts';
 import type {Label, NextConfig} from '../../protocol/types.gen.ts';
@@ -55,12 +55,33 @@ async function open(path: string, s: Session) {
   return {app, router};
 }
 
-test('a writer who is not an administrator sees the pin state and why it cannot be changed (#226)', async () => {
+test('a writer who is not an administrator can lock but not pin (#226)', async () => {
   await open('/acme/website/issues/7', session('write'));
-  expect(await screen.findByText('Only repository administrators can pin issues.')).toBeTruthy();
-  expect(screen.getByText('Not pinned')).toBeTruthy();
-  expect(screen.queryByRole('button', {name: /Not pinned/})).toBeNull();
-  expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Lock conversation'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name: /Pin issue/})).toBeNull();
+});
+
+test('locking asks for one of Forgejo\'s reasons in a dialog, then queues the lock', async () => {
+  const {app} = await open('/acme/website/issues/7', session('write'));
+  fireEvent.click(await screen.findByRole('button', {name: 'Lock conversation'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Lock conversation on this issue'});
+  const lock = within(dialog).getByRole('button', {name: 'Lock conversation on this issue'});
+  fireEvent.click(lock);
+  expect(queued(app).some((intent) => intent.kind === 'issue.lock')).toBe(false);
+  fireEvent.change(within(dialog).getByRole('combobox', {name: /Reason/}), {target: {value: 'Resolved'}});
+  fireEvent.click(lock);
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.lock', issueId: 100, locked: true, reason: 'Resolved'}));
+});
+
+test('notifications: the button says what it does, and a line says why', async () => {
+  const s = session('read');
+  s.data.put('IssueWatch', 'user:1', {id: 1, issue_id: 100, user_id: 1, is_watching: true, created_at: T, updated_at: T} as never);
+  await open('/acme/website/issues/7', s);
+  const sidebar = screen.getByRole('complementary', {name: 'Properties'});
+  const section = within(sidebar).getByRole('heading', {name: 'Notifications'}).closest('section');
+  if (!(section instanceof HTMLElement)) throw new Error('no notifications section');
+  expect(within(section).getByRole('button').textContent).toMatch(/^(Subscribe|Unsubscribe)$/);
+  expect(section.textContent).toMatch(/You’re (receiving|not receiving) notifications/);
 });
 
 test('sidebar identities keep the reference 20px avatar and medium (14px) name', async () => {
@@ -79,8 +100,7 @@ test('sidebar identities keep the reference 20px avatar and medium (14px) name',
 
 test('an administrator can pin (#226)', async () => {
   await open('/acme/website/issues/7', session('admin'));
-  expect(await screen.findByRole('button', {name: 'Pin to the list'})).toBeTruthy();
-  expect(screen.queryByText('Only repository administrators can pin issues.')).toBeNull();
+  expect(await screen.findByRole('button', {name: 'Pin issue'})).toBeTruthy();
 });
 
 test('a comment permalink scrolls to the comment and highlights it, also past the first painted items (#210)', async () => {
@@ -172,9 +192,9 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   s.data.put('Label', 'repo:20', label(3, 'status/Duplicate'));
   const {app} = await open('/acme/website/issues/7', s);
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  const field = await screen.findByRole('combobox', {name: /duplicate of/});
-  expect(screen.getByRole('option', {name: /Not planned/})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as duplicate/}));
+  const field = await screen.findByRole('combobox', {name: /Duplicate of/});
   fireEvent.change(field, {target: {value: '5'}});
   fireEvent.click(await screen.findByRole('option', {name: /#5 Footer links 404/}));
   const intents = queued(app);
@@ -183,20 +203,22 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   expect(intents).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
 });
 
-test('not planned sets the canceled status (and closes); offered only when the repository has one (#216)', async () => {
+test('close is a split button: not planned renames it and sets the canceled status; offered only when the repository has one (#216)', async () => {
   const s = session('write');
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   const {app} = await open('/acme/website/issues/7', s);
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  fireEvent.click(await screen.findByRole('option', {name: /Not planned/}));
+  expect(screen.getByRole('button', {name: 'Close issue'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as not planned/}));
+  expect(queued(app)).toEqual([]);
+  fireEvent.click(await screen.findByRole('button', {name: 'Close as not planned'}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.label', issueId: 100, labelId: 2, add: true}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
   cleanup();
   await open('/acme/website/issues/7', session('write'));
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  await screen.findByRole('combobox', {name: /duplicate of/});
-  expect(screen.queryByRole('option', {name: /Not planned/})).toBeNull();
-  expect(screen.getByText('No issue matches')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  expect(await screen.findByRole('menuitemradio', {name: /Close as completed/})).toBeTruthy();
+  expect(screen.queryByRole('menuitemradio', {name: /Close as not planned/})).toBeNull();
 });
 
 test('on a wide page the properties are a scroll region of their own, bounded by the page body (#273)', async () => {
@@ -208,5 +230,107 @@ test('on a wide page the properties are a scroll region of their own, bounded by
   expect(body?.classList.contains('@container-size')).toBe(true);
   const scroller = pane.firstElementChild;
   for (const c of ['@xl:sticky', '@xl:top-0', '@xl:max-h-page-body', '@xl:overflow-y-auto', '@xl:overscroll-contain']) expect(scroller?.classList.contains(c), c).toBe(true);
-  expect(within(pane).getByText('Not pinned')).toBeTruthy();
+  expect(within(pane).getByRole('button', {name: 'Lock conversation'})).toBeTruthy();
+});
+
+test('the timeline gives state changes GitHub\'s coloured badges and condenses other events', async () => {
+  const s = session('read');
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false});
+  s.data.put('Comment', 'issue:100', comment(1001, 100, '1', {type: 'label', label_id: 1}));
+  s.data.put('Comment', 'issue:100', comment(1002, 100, '', {type: 'close', created_at: '2026-02-01T00:00:00Z'}));
+  s.data.put('Comment', 'issue:100', comment(1003, 100, '', {type: 'reopen', created_at: '2026-02-02T00:00:00Z'}));
+  await open('/acme/website/issues/7', s);
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => {
+    expect(activity.querySelector('[data-variant="done"] .octicon-issue-closed')).not.toBeNull();
+  });
+  expect(activity.querySelector('[data-variant="open"] .octicon-issue-reopened')).not.toBeNull();
+  const labelled = within(activity).getByText('added', {exact: false}).closest('.Timeline-Item');
+  expect(labelled?.hasAttribute('data-condensed')).toBe(true);
+});
+
+/** Primer's Timeline lists: an `ol` whose only children are its items (`li`), so list semantics and `:last-child` styles hold. */
+function timelineLists(): HTMLElement[] {
+  const lists = [...document.querySelectorAll<HTMLElement>('ol.Timeline, ol[role="list"]')].filter((ol) => ol.querySelector(':scope > .Timeline-Item'));
+  for (const ol of lists) for (const child of ol.children) expect(child.matches('li.Timeline-Item'), child.outerHTML.slice(0, 80)).toBe(true);
+  return lists;
+}
+
+test('the timeline is a list of its items only, without wrappers or entries for deleted comments', async () => {
+  const s = session('write', 3);
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false});
+  s.data.put('Comment', 'issue:100', comment(1010, 100, '1', {type: 'label', label_id: 1, created_at: '2099-01-01T00:00:00Z'}));
+  const {app} = await open('/acme/website/issues/7', s);
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => { expect(activity.querySelectorAll('li.Timeline-Item')).toHaveLength(4); });
+  expect(timelineLists()).toHaveLength(2);
+  expect(activity.querySelector('li.Timeline-Item:last-child')?.hasAttribute('data-condensed')).toBe(true);
+  expect(activity.querySelectorAll('li.Timeline-Item:last-child')).toHaveLength(1);
+  act(() => { editing(app).intents.submit({kind: 'comment.delete', issueId: 100, repoId: 20, commentId: 1002}); });
+  await waitFor(() => { expect(activity.querySelectorAll('li.Timeline-Item')).toHaveLength(3); });
+  expect(document.getElementById('comment-1002')).toBeNull();
+  timelineLists();
+});
+
+test('an issue created offline keeps the description menu with Edit, without Copy link (no address yet)', async () => {
+  const s = session('write');
+  const app = createApp(config, s);
+  const t = crypto.randomUUID();
+  editing(app).intents.submit({kind: 'issue.create', issueId: tempNum(t), repoId: 20, tempId: t, title: 'Made offline', body: 'Body typed offline', labelIds: [], assigneeIds: [], milestoneId: 0});
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: [`/acme/website/issues/new-${t}`]}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const description = (await screen.findByText('Body typed offline')).closest('article');
+  if (!description) throw new Error('no description card');
+  fireEvent.click(within(description).getByRole('button', {name: 'Description actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Quote reply', 'Edit']);
+});
+
+test('a virtualized timeline measures and places the items themselves', async () => {
+  await open('/acme/website/issues/7', session('read', 60));
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => { expect(activity.querySelector('li.Timeline-Item[data-index]')).not.toBeNull(); });
+  const [list] = timelineLists().filter((ol) => activity.contains(ol));
+  for (const item of list?.children ?? []) {
+    expect(item.hasAttribute('data-index')).toBe(true);
+    expect((item as HTMLElement).style.transform).toMatch(/^translateY\(/);
+  }
+});
+
+test('the description is the conversation\'s first card, with the comment menu in GitHub\'s order', async () => {
+  const s = session('write', 1);
+  s.data.put('IssueBody', 'issue:100', {id: 100, repo_id: 20, body: 'Steps to reproduce', body_html: '<p>Steps to reproduce</p>', content_version: 0});
+  await open('/acme/website/issues/7', s);
+  const description = (await screen.findByText('Steps to reproduce')).closest('article');
+  expect(description?.textContent).toContain('opened');
+  if (!description) throw new Error('no description card');
+  fireEvent.click(within(description).getByRole('button', {name: 'Description actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit']);
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  const card = document.getElementById('comment-1001');
+  if (!card) throw new Error('no comment card');
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull(); });
+  fireEvent.click(within(card).getByRole('button', {name: 'Comment actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit', 'Delete…']);
+});
+
+test('reactions: the add button comes first, chips keep GitHub\'s order whatever the counts, and the picker is one row of toggles', async () => {
+  const s = session('read');
+  const reaction = (id: number, user: number, content: string) => ({id, issue_id: 100, comment_id: 0, user_id: user, original_author: '', content, created_at: T});
+  s.data.put('Reaction', 'issue:100', reaction(1, 2, 'heart'));
+  s.data.put('Reaction', 'issue:100', reaction(2, 3, 'heart'));
+  s.data.put('Reaction', 'issue:100', reaction(3, 3, '+1'));
+  const {app} = await open('/acme/website/issues/7', s);
+  const chips = await screen.findByRole('list', {name: 'Reactions'});
+  expect(within(chips).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+    expect.stringContaining('Thumbs up'), expect.stringContaining('Heart'),
+  ]);
+  const add = screen.getAllByRole('button', {name: 'Add a reaction'})[0];
+  if (!add) throw new Error('no add button');
+  expect(add.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(add);
+  const picker = await screen.findByRole('dialog', {name: 'Pick a reaction'});
+  expect(within(picker).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Thumbs up', 'Thumbs down', 'Laugh', 'Hooray', 'Confused', 'Heart', 'Rocket', 'Eyes']);
+  fireEvent.click(within(picker).getByRole('button', {name: 'Rocket'}));
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'reaction', issueId: 100, commentId: 0, content: 'rocket', add: true}));
 });

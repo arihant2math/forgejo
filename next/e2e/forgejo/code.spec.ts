@@ -164,9 +164,9 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await expect(list).toBeVisible({timeout: 30_000});
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   await page.getByRole('link', {name: 'Conversation'}).click();
-  await expect(page.getByRole('button', {name: 'Merge…', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Merge pull request', exact: true})).toBeDisabled();
   await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
-  await page.getByRole('link', {name: 'Files'}).click();
+  await page.getByRole('link', {name: 'Files changed'}).click();
   await expect(list).toBeVisible();
   const row = list.getByRole('listitem').filter({hasText: 'export const value2: number'}).first();
   await row.hover();
@@ -174,7 +174,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await page.getByRole('textbox', {name: 'Review comment'}).fill('Offline nit: name this better.');
   await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByText('Offline nit: name this better.')).toBeVisible();
-  await expect(page.getByText('1 pending comment')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Submit review (1 pending comment)'})).toBeVisible();
   await page.locator('body').click({position: {x: 5, y: 5}});
   await page.keyboard.press('r');
   const dialog = page.getByRole('dialog', {name: 'Submit review'});

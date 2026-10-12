@@ -91,8 +91,7 @@ export interface MarkdownEditorHandle {
   focus(): void;
   insert(text: string, position?: number): void;
   replace(placeholder: string, text: string): void;
-  format(kind: Format): void;
-  /** Applies a caller's edit of the selection (a toolbar's own tool), as one change. */
+  /** Applies an edit of the selection (a toolbar button), as one change. */
   edit(make: EditMaker): void;
 }
 
@@ -137,12 +136,6 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
       if (!v) return;
       const from = v.state.doc.toString().indexOf(placeholder);
       if (from >= 0) v.dispatch({changes: {from, to: from + placeholder.length, insert: text}, annotations: Transaction.addToHistory.of(false)});
-    },
-    format: (kind) => {
-      if (view.current) {
-        applyFormat(view.current, kind);
-        view.current.focus();
-      }
     },
     edit: (make) => {
       if (view.current) {

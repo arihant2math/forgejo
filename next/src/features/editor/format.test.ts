@@ -57,3 +57,19 @@ test('code: a fenced block for several lines or an empty caret, on lines of its 
   const nested = 'a\n```\nb';
   expect(apply(nested, formatEdit(nested, 0, nested.length, 'code'))).toBe('````\na\n```\nb\n````');
 });
+
+test('line formats prefix every selected line, numbering lists, and toggle back', () => {
+  const doc = 'intro\nfirst\nsecond\nouter';
+  const from = doc.indexOf('first');
+  const to = doc.indexOf('second') + 'second'.length;
+  const numbered = apply(doc, formatEdit(doc, from, to, 'number'));
+  expect(numbered).toBe('intro\n1. first\n2. second\nouter');
+  const e = formatEdit(doc, from, to, 'quote');
+  const quoted = apply(doc, e);
+  expect(quoted).toBe('intro\n> first\n> second\nouter');
+  expect(apply(quoted, formatEdit(quoted, e.anchor, e.head, 'quote'))).toBe(doc);
+  expect(apply('todo', formatEdit('todo', 2, 2, 'task'))).toBe('- [ ] todo');
+  const heading = formatEdit('Title', 5, 5, 'heading');
+  expect(apply('Title', heading)).toBe('### Title');
+  expect([heading.anchor, heading.head]).toEqual([9, 9]);
+});

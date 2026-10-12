@@ -21,6 +21,7 @@ import {clsx} from 'clsx';
 import {Link} from '@tanstack/react-router';
 import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
+import {reviewVerdicts} from '../pull/verdicts.ts';
 import {checksOf} from '../pull/checks.ts';
 import {kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
 import {repoLabels} from './candidates.ts';
@@ -114,7 +115,7 @@ export function stateLook(state: string, pull: boolean, merged: boolean): StateL
     if (merged) return {icon: GitMergeIcon, tone: 'merged', label: 'Merged'};
     return state === 'open' ? {icon: GitPullRequestIcon, tone: 'open', label: 'Open'} : {icon: GitPullRequestClosedIcon, tone: 'closed', label: 'Closed'};
   }
-  return state === 'open' ? {icon: IssueOpenedIcon, tone: 'open', label: 'Open'} : {icon: CheckCircleIcon, tone: 'done', label: 'Closed'};
+  return state === 'open' ? {icon: IssueOpenedIcon, tone: 'open', label: 'Open'} : {icon: IssueClosedIcon, tone: 'done', label: 'Closed'};
 }
 
 export function StateGlyph({look}: {look: StateLook}) {
@@ -261,12 +262,7 @@ export const PullStateCell = observer(function PullStateCell({issue, row = false
   const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
   const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';
   // Summary verdicts are available without loading the pull request's lazy reviews.
-  const latest = new Map<number, string>();
-  for (const r of [...pool.model('ReviewVerdict').by('issue_id', issue.id)].map((e) => e.data).sort((a, b) => a.created_at.localeCompare(b.created_at))) {
-    if (!r.reviewer_id || r.dismissed) continue;
-    latest.set(r.reviewer_id, r.state);
-  }
-  const verdicts = [...latest.values()];
+  const verdicts = [...reviewVerdicts([...pool.model('ReviewVerdict').by('issue_id', issue.id)].map((e) => e.data)).values()].map((v) => v.state);
   const review = verdicts.includes('REQUEST_CHANGES') ? 'changes' : verdicts.includes('APPROVED') ? 'approved' : undefined;
   return (
     <>

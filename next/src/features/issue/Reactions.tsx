@@ -3,14 +3,14 @@
 
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useRef} from 'react';
+import {type RefObject, useRef, useState} from 'react';
 import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {viewMembers} from '../../intents/view.ts';
 import {useOverlay, usePool} from '../issues/cells.tsx';
 import {SmileyIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {AnchoredOverlay, Button, FocusKeys, IconButton} from '@primer/react';
 
 /** Forgejo's default [ui] REACTIONS; other (custom) ones show by name. */
 const EMOJI: Record<string, string> = {
@@ -20,6 +20,12 @@ const NAMES: Record<string, string> = {
   '+1': 'Thumbs up', '-1': 'Thumbs down', 'laugh': 'Laugh', 'hooray': 'Hooray', 'confused': 'Confused', 'heart': 'Heart', 'rocket': 'Rocket', 'eyes': 'Eyes',
 };
 const DEFAULTS = Object.keys(EMOJI);
+
+/** GitHub's fixed order; custom reactions follow by name. */
+const order = (content: string) => {
+  const i = DEFAULTS.indexOf(content);
+  return i < 0 ? DEFAULTS.length : i;
+};
 
 export const Reactions = observer(function Reactions({issueId, commentId}: {issueId: number; commentId: number}) {
   const app = useApp();
@@ -41,7 +47,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
     return [...out]
       .map(([content, g]) => ({content, others: g.others, mine: mine.has(content), count: g.others.length + Number(mine.has(content))}))
       .filter((g) => g.count > 0)
-      .sort((a, b) => b.count - a.count || a.content.localeCompare(b.content));
+      .sort((a, b) => order(a.content) - order(b.content) || a.content.localeCompare(b.content));
   });
   // A comment posted offline gets reactions once Forgejo has it.
   const canReact = !isTemp(issueId) && !isTemp(commentId);
@@ -54,6 +60,7 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
   if (!groups.length && !canReact) return null;
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {canReact && <ReactionPicker mine={mine} anchor={addButton} onToggle={toggle}/>}
       {groups.length > 0 && (
         <ul aria-label="Reactions" className="flex flex-wrap gap-2">
           {groups.map((g) => {
@@ -71,20 +78,25 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
           })}
         </ul>
       )}
-      {canReact && (
-        <ActionMenu>
-          <ActionMenu.Anchor><IconButton icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button" ref={addButton}/></ActionMenu.Anchor>
-          <ActionMenu.Overlay><ActionList>
-            {DEFAULTS.map((c) => (
-              <ActionList.Item key={c} onSelect={() => {
-                toggle(c, !mine.has(c));
-              }}>
-                <span aria-hidden>{EMOJI[c]}</span> {mine.has(c) ? `Remove ${NAMES[c] ?? c}` : NAMES[c] ?? c}
-              </ActionList.Item>
-            ))}
-          </ActionList></ActionMenu.Overlay>
-        </ActionMenu>
-      )}
     </div>
   );
 });
+
+/** GitHub's picker: one row of the eight reactions, each a toggle. */
+function ReactionPicker({mine, anchor, onToggle}: {mine: ReadonlySet<unknown>; anchor: RefObject<HTMLButtonElement | null>; onToggle: (content: string, add: boolean) => void}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} anchorRef={anchor}
+      focusZoneSettings={{bindKeys: FocusKeys.ArrowHorizontal | FocusKeys.HomeAndEnd}} overlayProps={{role: 'dialog', 'aria-label': 'Pick a reaction'}}
+      renderAnchor={(props) => <IconButton {...{...props}} ref={anchor} icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button"/>}>
+      <div className="flex gap-1 p-2">
+        {DEFAULTS.map((c) => (
+          <Button key={c} variant="invisible" size="small" aria-pressed={mine.has(c)} aria-label={NAMES[c] ?? c} type="button" onClick={() => {
+            onToggle(c, !mine.has(c));
+            setOpen(false);
+          }}><span aria-hidden>{EMOJI[c]}</span></Button>
+        ))}
+      </div>
+    </AnchoredOverlay>
+  );
+}

@@ -1,13 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Virtualize long timelines against the page scroller; each item observes its own entity.
+// Long timelines are virtualized against the page scroller; each item observes its own entity.
 
 import {SuggestionCard} from '../pull/Suggestion.tsx';
+import {suggestionOnly} from '../pull/suggestions.ts';
+import {pullOf} from '../../code/pull.ts';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {createElement, createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import type {VirtuosoHandle} from 'react-virtuoso';
+import {createElement, createContext, type CSSProperties, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
+import {useVirtualizer} from '@tanstack/react-virtual';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
 import {clsx} from 'clsx';
@@ -21,23 +23,28 @@ import {shortSha} from '../../code/refs.ts';
 import {hunkFile} from '../../code/hunk.ts';
 import {DiffSnippet} from '../../code/DiffSnippet.tsx';
 import {CodeLink} from '../code/nav.tsx';
+import {useScrollMargin} from '../code/Lines.tsx';
+import {pageListRect} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
-import {commentBody, issueComments, viewMembers} from '../../intents/view.ts';
+import {commentBody, issueBody, issueComments, viewMembers} from '../../intents/view.ts';
 import {firstOf, labelColor, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import {agoWords, fullDate, shortDate} from '../issues/format.ts';
-import {CommentActions, CommentBody} from './Editing.tsx';
+import {BodySection, CardMenu, CommentActions, CommentBody, useBodyEdit} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
 import {afterPaint} from '../../app/paint.ts';
 import {textOfMarkup} from '../../app/trusted.ts';
 import {Reactions} from './Reactions.tsx';
 import {blocking, IssueLink} from './Sidebar.tsx';
 import {conversationReplies, conversationRoot, replyOnlyReview, replyRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
-import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckCircleIcon, IssueOpenedIcon, ClockIcon, EyeIcon, GitBranchIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, LockIcon, UnlockIcon, CommentIcon, MilestoneIcon, PencilIcon, PinIcon, PinSlashIcon, ReplyIcon, ProjectIcon, TagIcon, PersonIcon, PersonAddIcon, XCircleIcon} from '@primer/octicons-react';
+import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckIcon, ClockIcon, CommentIcon, DuplicateIcon, EyeIcon, FileDiffIcon, GitBranchIcon, GitCommitIcon, GitMergeIcon,
+  GitPullRequestClosedIcon, GitPullRequestIcon, IssueClosedIcon, IssueReopenedIcon, LinkIcon, LockIcon, MilestoneIcon, PencilIcon, PersonAddIcon, PersonIcon, PinIcon,
+  PinSlashIcon, ProjectIcon, ReplyIcon, SkipIcon, TagIcon, UnlockIcon, XCircleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, IssueLabelToken, Label} from '@primer/react';
+import {Button, IssueLabelToken, Label, Timeline as PrimerTimeline, type TimelineBadgeProps} from '@primer/react';
+import {FeatureFlags} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
 const VIRTUALIZE_FROM = 50;
@@ -45,15 +52,34 @@ const VIRTUALIZE_FROM = 50;
 /** `swapFrom`: a label event that replaced this label (the same field: a status changed from one to another). */
 type Item = {kind: 'comment'; id: number; at: string; swapFrom?: number} | {kind: 'review'; id: number; at: string};
 
+const itemKey = (it: Item) => `${it.kind}${String(it.id)}`;
+
+/** A virtual row's measuring ref and position (computed, so a style), set on the timeline item itself so the list holds only its items. */
+interface Row {
+  ref: (el: Element | null) => void;
+  'data-index': number;
+  className: string;
+  style: CSSProperties;
+}
+
+const LIST_SEMANTICS = {primer_react_timeline_list_semantics: true};
+
+/** Primer's Timeline as a list of items (`ol` of `li`); Primer keeps that behind a flag that is off by default. */
+function TimelineList({clipSidebar, children}: {clipSidebar?: 'start'; children: ReactNode}) {
+  return <FeatureFlags flags={LIST_SEMANTICS}><PrimerTimeline {...clipSidebar ? {clipSidebar} : {}}>{children}</PrimerTimeline></FeatureFlags>;
+}
+
 function useItems(issueId: number): Item[] {
   const pool = usePool();
   const app = useApp();
   const {overlay, intents} = editing(app);
   const comments = issueComments(pool, overlay, issueId, intents.remapped);
   const reviews = pool.model('Review').by('issue_id', issueId);
+  // A deleted comment has no item: no empty list entry, no unmeasured virtual row.
+  const live = comments.filter((c) => overlay.field('Comment', c.id, DELETED) === undefined);
   return untracked(() => {
     const out: Item[] = [];
-    for (const c of comments) {
+    for (const c of live) {
       // Review cards own their summary and code comments; avoid duplicate entries.
       if ((c.data.type === 'code' || c.data.type === 'review') && c.data.review_id) continue;
       out.push({kind: 'comment', id: c.id, at: c.data.created_at});
@@ -95,16 +121,20 @@ function mergeSwaps(pool: ReturnType<typeof usePool>, items: Item[]): Item[] {
   return out;
 }
 
-const Virtuoso = lazy(() => import('react-virtuoso').then((m) => ({default: m.Virtuoso as typeof m.Virtuoso<Item>})));
-
 /** Limit first-paint work: rendering many comment bodies can delay a slow device by a frame. */
 const FIRST_PAINT = 8;
 
+/** A first guess at an item's height; measuring corrects it once rendered. */
+const estimateSize = () => 96;
+
 /** The comment a page's address points at: `#comment-123` (the app's Copy link) or classic Forgejo's `#issuecomment-123`. */
-export function commentTarget(hash: string): number | undefined {
+function commentTarget(hash: string): number | undefined {
   const m = /^#?(?:issue)?comment-([1-9]\d{0,15})$/.exec(hash);
   return m ? Number(m[1]) : undefined;
 }
+
+/** The column holding the header, properties and description above the list: their height changes move the list (images loading, an edit). */
+const conversationColumn = (el: HTMLElement) => el.closest('article') ?? el.parentElement;
 
 const TargetContext = createContext<number | undefined>(undefined);
 
@@ -123,7 +153,16 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
   // A permalink target must render immediately to allow scrolling.
   const partial = !all && items.length > FIRST_PAINT && targetIndex < FIRST_PAINT;
   const virtual = items.length >= VIRTUALIZE_FROM && scroller !== null;
-  const virtuoso = useRef<VirtuosoHandle>(null);
+  const [place, margin] = useScrollMargin(virtual ? scroller : null, conversationColumn);
+  // New key or size functions make the virtualizer recompute every position, so they change only with the items.
+  const keys = virtual ? items.map(itemKey) : [];
+  const keySig = keys.join(',');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the signature says when the keys changed
+  const getItemKey = useCallback((i: number) => keys[i] ?? i, [keySig]);
+  const list = useVirtualizer({
+    count: items.length, enabled: virtual, getScrollElement: () => scroller, estimateSize, overscan: 4, scrollMargin: margin, getItemKey,
+    ...pageListRect(),
+  });
   const [highlight, setHighlight] = useState<number>();
   /** Scroll to each permalink once so later renders do not move the reader. */
   const scrolled = useRef('');
@@ -147,9 +186,9 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
         return;
       }
       // Virtual rows must be brought into view before seeking their DOM node.
-      if (virtual && !asked && virtuoso.current) {
+      if (virtual && !asked) {
         asked = true;
-        virtuoso.current.scrollToIndex({index: targetIndex, align: 'start'});
+        list.scrollToIndex(targetIndex, {align: 'start'});
       }
       if (++frame < SEEK_FRAMES) raf = requestAnimationFrame(seek);
     };
@@ -157,18 +196,25 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [hash, target, targetIndex, virtual]);
+  }, [hash, target, targetIndex, virtual, list]);
   if (!items.length) return null;
-  const render = (it: Item) => (it.kind === 'comment' ? <CommentItem id={it.id} swapFrom={it.swapFrom}/> : <ReviewItem id={it.id}/>);
+  const render = (it: Item, key: string | number | bigint, row?: Row) => (it.kind === 'comment' ?
+    <CommentItem key={String(key)} id={it.id} swapFrom={it.swapFrom} row={row}/> : <ReviewItem key={String(key)} id={it.id} row={row}/>);
   return (
     <TargetContext value={highlight}>
-      <section aria-label="Activity" className="flex flex-col">
+      <section aria-label="Activity">
         {!virtual ?
-          (partial ? items.slice(0, FIRST_PAINT) : items).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>) :
-          <Suspense fallback={items.slice(0, 20).map((it) => <div key={`${it.kind}${String(it.id)}`}>{render(it)}</div>)}>
-            <Virtuoso ref={virtuoso} customScrollParent={scroller} data={items} increaseViewportBy={600}
-              computeItemKey={(_, it) => `${it.kind}${String(it.id)}`} itemContent={(_, it) => render(it)}/>
-          </Suspense>}
+          <TimelineList>{(partial ? items.slice(0, FIRST_PAINT) : items).map((it) => render(it, itemKey(it)))}</TimelineList> :
+          <div ref={place} className="relative" style={{height: list.getTotalSize()}}>
+            <TimelineList>
+              {list.getVirtualItems().map((row) => {
+                const it = items[row.index];
+                return it && render(it, row.key, {
+                  ref: list.measureElement, 'data-index': row.index, className: 'absolute inset-x-0 top-0', style: {transform: `translateY(${String(row.start - margin)}px)`},
+                });
+              })}
+            </TimelineList>
+          </div>}
       </section>
     </TargetContext>
   );
@@ -179,34 +225,90 @@ function Who({id, fallback}: {id: number; fallback?: string}) {
 }
 
 function When({at}: {at: string}) {
-  return <time dateTime={at} title={fullDate(at)} className="text-sm text-muted">{agoWords(at)}</time>;
+  return <time dateTime={at} title={fullDate(at)} className="text-muted">{agoWords(at)}</time>;
 }
 
-export function Edited({updated, version}: {updated: string; version: number}) {
+/** The newest recorded edit of the description (`commentId` 0) or of a comment. */
+function lastEditOf(pool: ReturnType<typeof usePool>, issueId: number, commentId: number) {
+  const rows = commentId ? pool.model('ContentHistory').by('comment_id', commentId) : pool.model('ContentHistory').by('issue_id', issueId);
+  return [...rows].map((e) => e.data)
+    .filter((h) => h.comment_id === commentId && h.issue_id === issueId && !h.is_first_created)
+    .sort((a, b) => b.edited_at.localeCompare(a.edited_at) || b.id - a.id)[0];
+}
+
+/** `at`: when, if the edit history is known (an issue's `updated_at` moves with any activity). */
+function Edited({at, version}: {at: string | undefined; version: number}) {
   if (!(version > 0)) return null;
-  return <span className="text-sm text-muted" title={`Edited ${fullDate(updated)}`}>edited</span>;
+  return <span className="text-sm text-muted" title={at ? `Edited ${fullDate(at)}` : undefined}>edited</span>;
 }
 
-function Card({poster, original, at, badge, children, footer, id, linked}: {
-  poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string; linked?: boolean;
+/** A comment on the timeline: the author's avatar in the conversation's gutter, the box over the timeline's line. */
+function CommentEntry({poster, row, children}: {poster: number; row?: Row | undefined; children: ReactNode}) {
+  return (
+    <PrimerTimeline.Item {...row}>
+      <PrimerTimeline.Avatar className="hidden @md/conversation:block"><UserAvatar id={poster} size="lg" linked/></PrimerTimeline.Avatar>
+      <PrimerTimeline.Body className="mt-0 -ml-4 max-w-none">{children}</PrimerTimeline.Body>
+    </PrimerTimeline.Item>
+  );
+}
+
+/** `nested`: inside a review or thread, where no gutter avatar names the author. */
+function Card({poster, original, at, verb, badge, actions, children, footer, id, linked, nested = false}: {
+  poster: number; original: string; at: string; verb?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode; footer?: ReactNode;
+  id?: string | undefined; linked?: boolean; nested?: boolean;
 }) {
   return (
-    <article id={id} aria-current={linked ? 'location' : undefined} className={clsx('flex gap-4 py-3', linked && '-mx-2 rounded-md bg-accent-muted px-2')}>
-      <UserAvatar id={poster} size="lg" linked/>
-      <div className="flex min-w-0 flex-1 flex-col rounded-md border border-default">
-        <header className="flex flex-wrap items-center gap-x-2 rounded-t-md border-b border-default bg-muted px-4 py-2 text-base">
-          <Who id={poster} fallback={original}/>
-          <When at={at}/>
-          {badge}
-        </header>
-        <div className="p-4">{children}</div>
-        {footer && <div className="px-4 pb-4">{footer}</div>}
-      </div>
+    <article id={id} aria-current={linked ? 'location' : undefined}
+      className={clsx('relative flex min-w-0 flex-col rounded-md border bg-default text-base text-default', linked ? 'border-accent-emphasis' : 'border-default')}>
+      <header className={clsx('flex min-h-10 flex-wrap items-center gap-x-1 rounded-t-md border-b py-1 pr-2 pl-4', linked ? 'border-accent-emphasis bg-accent-muted' : 'border-default bg-muted')}>
+        <span className={clsx('mr-1', nested ? 'flex' : 'flex @md/conversation:hidden')}><UserAvatar id={poster} size="sm" linked/></span>
+        <Who id={poster} fallback={original}/>
+        {verb && <span className="text-muted">{verb}</span>}
+        <When at={at}/>
+        {badge}
+        {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
+      </header>
+      <div className="p-4">{children}</div>
+      {footer && <div className="px-4 pb-4">{footer}</div>}
     </article>
   );
 }
 
-const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; swapFrom?: number | undefined}) {
+/** The issue's description, the conversation's first card. */
+export const DescriptionItem = observer(function DescriptionItem({issue}: {issue: Entity<'Issue'>}) {
+  const app = useApp();
+  const pool = usePool();
+  const {edit, start, stop, mayEdit} = useBodyEdit(issue);
+  const actions = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (!edit && refocus.current) actions.current?.focus();
+    refocus.current = false;
+  }, [edit]);
+  const version = pool.model('IssueBody').get(issue.id)?.get('content_version') ?? 0;
+  const lastEdit = version > 0 ? lastEditOf(pool, issue.id, 0) : undefined;
+  return (
+    <TimelineList clipSidebar="start">
+      <CommentEntry poster={issue.get('poster_id')}>
+        <Card poster={issue.get('poster_id')} original={issue.get('original_author')} at={issue.get('created_at')} verb="opened"
+          badge={<>
+            <Edited at={lastEdit?.edited_at} version={version}/>
+            {lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
+          </>}
+          actions={<CardMenu triggerRef={actions} label="Description actions" issueId={issue.id}
+            link={issue.id > 0 ? () => undefined : undefined} quote={() => issueBody(pool, editing(app).overlay, issue.id)?.text ?? ''} onEdit={mayEdit ? start : undefined}/>}
+          footer={<Reactions issueId={issue.id} commentId={0}/>}>
+          <BodySection issue={issue} edit={edit} mayEdit={mayEdit} onReopen={start} onEditDone={() => {
+            refocus.current = true;
+            stop();
+          }}/>
+        </Card>
+      </CommentEntry>
+    </TimelineList>
+  );
+});
+
+const CommentItem = observer(function CommentItem({id, swapFrom, row}: {id: number; swapFrom?: number | undefined; row?: Row | undefined}) {
   const pool = usePool();
   const overlay = useOverlay();
   const c = pool.model('Comment').get(id) ?? overlay.createdEntity('Comment', id) as Entity<'Comment'> | undefined;
@@ -214,20 +316,18 @@ const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; s
   const type = c.get('type');
   if (type === 'comment' || type === 'code' || type === 'dismiss_review') {
     if (overlay.field('Comment', id, DELETED)) return null;
-    return <CommentCard c={c} type={type}/>;
+    return <CommentEntry poster={c.get('poster_id')} row={row}><CommentCard c={c} type={type}/></CommentEntry>;
   }
-  return <EventLine comment={c} swapFrom={swapFrom}/>;
+  return <EventItem comment={c} swapFrom={swapFrom} row={row}/>;
 });
 
-export const CommentCard = observer(function CommentCard({c, type, badge}: {c: Entity<'Comment'>; type: string; badge?: ReactNode}) {
+export const CommentCard = observer(function CommentCard({c, type, badge, nested = false}: {c: Entity<'Comment'>; type: string; badge?: ReactNode; nested?: boolean}) {
   const [edit, setEdit] = useState(false);
   const actions = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
   const overlay = useOverlay();
   const pool = usePool();
-  const lastEdit = [...pool.model('ContentHistory').by('comment_id', c.id)].map((e) => e.data)
-    .filter((h) => h.comment_id === c.id && !h.is_first_created)
-    .sort((a, b) => b.edited_at.localeCompare(a.edited_at) || b.id - a.id)[0];
+  const lastEdit = c.get('content_version') > 0 ? lastEditOf(pool, c.get('issue_id'), c.id) : undefined;
   const deleted = commentBody(overlay, c).deleted;
   const linked = useContext(TargetContext) === c.id;
   useEffect(() => {
@@ -235,49 +335,66 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
     refocus.current = false;
   }, [edit]);
   if (deleted) return null;
+  // The suggestion card replaces a body that is only a suggestion; otherwise the text shows as written.
+  const suggestion = type === 'code' && !edit && suggestionOnly(c.get('body'), c.get('line')) && pullOf(pool, c.get('issue_id')) !== undefined;
   return (
-    <Card id={`comment-${String(c.id)}`} linked={linked} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+    <Card id={`comment-${String(c.id)}`} linked={linked} nested={nested} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+      verb={type === 'dismiss_review' ? 'dismissed a review' : 'commented'}
       badge={<>
         {badge}
-        <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
-        {c.get('content_version') > 0 && lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
-        {type === 'dismiss_review' ? <Label variant="attention">dismissed a review</Label> : type === 'code' ? <Label>{c.get('path')}</Label> : undefined}
-        {c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
-          setEdit(true);
-        }}/>}
+        <Edited at={lastEdit?.edited_at ?? c.get('updated_at')} version={c.get('content_version')}/>
+        {lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
+        {type === 'code' && !nested && <Label>{c.get('path')}</Label>}
       </>}
+      actions={c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
+        setEdit(true);
+      }}/>}
       footer={<Reactions issueId={c.get('issue_id')} commentId={c.id}/>}>
       {type === 'code' && !edit && <SuggestionCard comment={c.data}/>}
-      {(edit || type !== 'code' || !/^```suggestion(?: -\d+\+\d+)?\r?\n[\s\S]*?\r?\n```$/.test(c.get('body').trim())) && <CommentBody c={c} edit={edit} onEditDone={() => {
+      {!suggestion && <CommentBody c={c} edit={edit} onEditDone={() => {
         refocus.current = true;
         setEdit(false);
       }} onReopen={() => {
         setEdit(true);
-      }}/> }
+      }}/>}
     </Card>
   );
 });
 
-const REVIEW_LOOK: Record<string, {tone: 'success' | 'danger' | 'secondary'; text: string}> = {
-  APPROVED: {tone: 'success', text: 'approved'},
-  REQUEST_CHANGES: {tone: 'danger', text: 'requested changes'},
-  COMMENT: {tone: 'secondary', text: 'reviewed'},
+type BadgeVariant = NonNullable<TimelineBadgeProps['variant']>;
+
+const REVIEW_LOOK: Record<string, {icon: OcticonType; variant?: BadgeVariant; text: string}> = {
+  APPROVED: {icon: CheckIcon, variant: 'success', text: 'approved these changes'},
+  REQUEST_CHANGES: {icon: FileDiffIcon, variant: 'danger', text: 'requested changes'},
+  COMMENT: {icon: EyeIcon, text: 'reviewed'},
 };
 
-const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
+const ReviewItem = observer(function ReviewItem({id, row}: {id: number; row?: Row | undefined}) {
   const pool = usePool();
   const r = pool.model('Review').get(id);
   if (!r) return null;
-  const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'secondary' as const, text: 'reviewed'};
+  const look = REVIEW_LOOK[r.get('state')] ?? {icon: EyeIcon, text: 'reviewed'};
   const summary = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
   const html = r.get('body_html');
   const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code' && !replyRoot(pool, c));
+  const body = summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review" nested/> :
+    html && <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')} verb="commented" nested><Markdown html={html}/></Card>;
   return (
-    <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')}
-      badge={<Label variant={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Label>}>
-      {summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review"/> : html && <Markdown html={html}/>}
-      {codes.map((c) => <CodeComment key={c.id} c={c}/>)}
-    </Card>
+    <PrimerTimeline.Item {...row}>
+      <PrimerTimeline.Badge {...look.variant ? {variant: look.variant} : {}}>{createElement(look.icon)}</PrimerTimeline.Badge>
+      <PrimerTimeline.Body>
+        <div className="flex flex-wrap items-center gap-x-1">
+          <span className="mr-1 flex"><UserAvatar id={r.get('reviewer_id')} size="sm" linked/></span>
+          <Who id={r.get('reviewer_id')} fallback={r.get('original_author')}/> {look.text} <When at={r.get('created_at')}/>
+          {r.get('stale') && <Label>Outdated</Label>}
+          {r.get('dismissed') && <Label>Dismissed</Label>}
+        </div>
+        {(body || codes.length > 0) && <div className="mt-3 flex flex-col gap-3">
+          {body}
+          {codes.map((c) => <CodeComment key={c.id} c={c}/>)}
+        </div>}
+      </PrimerTimeline.Body>
+    </PrimerTimeline.Item>
   );
 });
 
@@ -332,8 +449,8 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
         {c.get('invalidated') && <> · <Label>Outdated</Label></>}
       </span>
       {hunk.lines.length > 0 && <DiffSnippet file={hunk}/>}
-      <CommentCard c={c} type="code"/>
-      {replies.map((r) => <CommentCard key={r.id} c={r} type="code"/>)}
+      <CommentCard c={c} type="code" nested/>
+      {replies.map((r) => <CommentCard key={r.id} c={r} type="code" nested/>)}
       {issue && !c.get('invalidated') && (replying ?
         <div className="flex flex-col gap-2">
           <MarkdownField repoId={issue.repo_id} attachmentIssueId={issue.id} label="Reply" value={text} rows={2} autoFocus onChange={setText} onSubmit={reply} onCancel={() => {
@@ -356,16 +473,28 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   );
 });
 
-const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: Entity<'Comment'>; swapFrom?: number | undefined}) {
+interface EventLook {
+  icon: OcticonType;
+  text: ReactNode;
+  /** State changes get GitHub's coloured badge; other events are condensed. */
+  variant?: BadgeVariant | 'neutral';
+}
+
+const EventItem = observer(function EventItem({comment: c, swapFrom, row}: {comment: Entity<'Comment'>; swapFrom?: number | undefined; row?: Row | undefined}) {
+  const pool = usePool();
   const d = c.data as Comment;
-  const ev = swapFrom === undefined ? describeEvent(d) : {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
+  const look: EventLook = swapFrom !== undefined ? {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>} :
+    d.type === 'close' || d.type === 'reopen' ? statusLook(d, statusFacts(pool, d), pool.model('Issue').get(d.issue_id)?.get('is_pull') === true) :
+    describeEvent(d);
+  const big = look.variant !== undefined;
   return (
-    <div className="flex min-h-control items-center gap-4 py-2 text-base text-muted">
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-neutral-muted">{createElement(ev.icon, {size: 16})}</span>
-      <span className="min-w-0">
-        <Who id={d.poster_id} fallback={d.original_author}/> {ev.text}<span className="ml-2 inline-block"><When at={d.created_at}/></span>
-      </span>
-    </div>
+    <PrimerTimeline.Item condensed={!big} {...row}>
+      <PrimerTimeline.Badge {...look.variant && look.variant !== 'neutral' ? {variant: look.variant} : {}}>{createElement(look.icon)}</PrimerTimeline.Badge>
+      <PrimerTimeline.Body>
+        <span className="mr-1 inline-flex align-middle"><UserAvatar id={d.poster_id} size="sm" linked/></span>
+        <Who id={d.poster_id} fallback={d.original_author}/> {look.text} <When at={d.created_at}/>
+      </PrimerTimeline.Body>
+    </PrimerTimeline.Item>
   );
 });
 
@@ -406,9 +535,18 @@ function deadlineText(d: Comment): ReactNode {
   }
 }
 
+interface StatusFacts {
+  sha: string | undefined;
+  repo: {owner_name: string; name: string} | undefined;
+  /** The pull request whose merge closed this. */
+  pull: Entity<'PullRequest'> | undefined;
+  message: string;
+  reason: {duplicateOf?: number; notPlanned?: boolean} | undefined;
+  original: Entity<'Issue'> | undefined;
+}
+
 /** Status changes keep the triggering SHA; older events can use the adjacent commit reference. */
-export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
-  const pool = usePool();
+function statusFacts(pool: ReturnType<typeof usePool>, d: Comment): StatusFacts {
   const comments = [...pool.model('Comment').by('issue_id', d.issue_id)].map((c) => c.data);
   const previous = comments.filter((c) => c.id < d.id).sort((a, b) => b.id - a.id)[0];
   const reference = comments.find((c) => c.type === 'commit_ref' && c.commit_id === d.commit_id) ??
@@ -416,20 +554,37 @@ export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
   const sha = d.commit_id !== '' ? d.commit_id : reference?.commit_id;
   const repoId = d.ref_repo_id > 0 ? d.ref_repo_id : pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0;
   const repo = pool.model('Repository').get(repoId)?.data;
-  const pull = [...pool.model('PullRequest').all()].find((p) => p.get('base_repo_id') === repoId &&
-    ((Boolean(sha) && p.get('merge_commit_sha') === sha) || (d.ref_is_pull && p.get('issue_id') === d.ref_issue_id)));
-  const action = d.type === 'close' ? 'closed this' : 'reopened this';
+  // Only a commit with no referencing pull request needs the scan for a merge commit.
+  const pull = [...d.ref_is_pull ? pool.model('PullRequest').by('issue_id', d.ref_issue_id) : sha ? pool.model('PullRequest').all() : []]
+    .find((p) => p.get('base_repo_id') === repoId && (d.ref_is_pull || p.get('merge_commit_sha') === sha));
   const message = reference?.body_html ? textOfMarkup(reference.body_html).trim().split('\n')[0] ?? '' : '';
   const reason = d.type === 'close' && !sha && !d.ref_is_pull ? closeReason(pool, comments, d) : undefined;
+  const original = reason?.duplicateOf === undefined ? undefined : [...pool.model('Issue').by('number', reason.duplicateOf)].find((i) => i.get('repo_id') === repoId);
+  return {sha, repo, pull, message, reason, original};
+}
+
+function statusLook(d: Comment, facts: StatusFacts, isPull: boolean): EventLook {
+  const text = <StatusText d={d} facts={facts}/>;
+  if (d.type === 'reopen') return {icon: isPull ? GitPullRequestIcon : IssueReopenedIcon, variant: 'open', text};
+  if (isPull) return {icon: GitPullRequestClosedIcon, variant: 'closed', text};
+  if (facts.reason?.duplicateOf !== undefined) return {icon: DuplicateIcon, variant: 'neutral', text};
+  if (facts.reason?.notPlanned) return {icon: SkipIcon, variant: 'neutral', text};
+  return {icon: IssueClosedIcon, variant: 'done', text};
+}
+
+function StatusText({d, facts: {sha, repo, pull, message, reason, original}}: {d: Comment; facts: StatusFacts}) {
   if (reason?.duplicateOf !== undefined) {
-    const original = [...pool.model('Issue').by('number', reason.duplicateOf)].find((i) => i.get('repo_id') === repoId);
     return <>closed this as a duplicate of {original ? <IssueRef id={original.id} from={d.issue_id}/> : `#${String(reason.duplicateOf)}`}</>;
   }
   if (reason?.notPlanned) return <>closed this as not planned</>;
-  return <>{action}{sha && repo && <> in <span><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
+  return <>{d.type === 'close' ? 'closed this' : 'reopened this'}{sha && repo && <> in <span><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
     <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
   </CodeLink></span></>}{pull && <> in <IssueRef id={pull.get('issue_id')} from={d.issue_id}/></>}
   {!pull && d.ref_is_pull && d.ref_issue_id > 0 && <> in <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>}</>;
+}
+
+export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
+  return <StatusText d={d} facts={statusFacts(usePool(), d)}/>;
 });
 
 /** Maximum separation in milliseconds between a close and its reason event. */
@@ -527,21 +682,17 @@ const IssueRef = observer(function IssueRef({id, from}: {id: number; from: numbe
   return <IssueLink id={id} repoId={repoId} missing="another issue" inline/>;
 });
 
-function describeEvent(d: Comment): {icon: OcticonType; text: ReactNode} {
+function describeEvent(d: Comment): EventLook {
   switch (d.type) {
-    case 'close':
-      return {icon: CheckCircleIcon, text: <StatusEvent d={d}/>};
-    case 'reopen':
-      return {icon: IssueOpenedIcon, text: <StatusEvent d={d}/>};
     case 'merge_pull':
-      return {icon: GitMergeIcon, text: 'merged this'};
+      return {icon: GitMergeIcon, variant: 'done', text: 'merged this'};
     case 'label':
       return {icon: TagIcon, text: <LabelEvent id={d.label_id} added={d.body === '1'}/>};
     case 'milestone':
       if (!d.milestone_id) return {icon: MilestoneIcon, text: <>removed this from <MilestoneRef id={d.old_milestone_id}/></>};
       return {icon: MilestoneIcon, text: <>{d.old_milestone_id ? 'moved this to' : 'added this to'} <MilestoneRef id={d.milestone_id}/></>};
     case 'assignees':
-      if (d.assignee_id === d.poster_id) return {icon: d.removed_assignee ? PersonIcon : PersonIcon, text: d.removed_assignee ? 'removed their assignment' : 'self-assigned this'};
+      if (d.assignee_id === d.poster_id) return {icon: PersonIcon, text: d.removed_assignee ? 'removed their assignment' : 'self-assigned this'};
       return {icon: d.removed_assignee ? PersonIcon : PersonAddIcon, text: <>{d.removed_assignee ? 'unassigned' : 'assigned'} <Who id={d.assignee_id}/></>};
     case 'review_request':
       return {icon: EyeIcon, text: <>{d.removed_assignee ? 'removed the review request for' : 'requested a review from'} {d.assignee_team_id ?

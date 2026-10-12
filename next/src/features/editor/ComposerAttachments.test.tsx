@@ -40,7 +40,7 @@ test('uploads a pasted screenshot, preserving later typing; failed uploads say t
   const fetcher = vi.fn((_url: string, req: RequestInit) => req.method === 'POST' ? new Promise<Response>((resolve) => { finish = resolve; }) : Promise.resolve(new Response('{"allowed":true}')));
   vi.stubGlobal('fetch', fetcher);
   render(<Field app={root}/>);
-  await waitFor(() => { expect(screen.queryByRole('button', {name: 'Attach files'})).not.toBeNull(); });
+  await waitFor(() => { expect(screen.queryByRole('button', {name: 'Paste, drop, or click to add files'})).not.toBeNull(); });
   const file = new File(['image'], 'image.png', {type: 'image/png'});
   fireEvent.paste(screen.getByRole('textbox', {name: 'Comment'}), {clipboardData: {files: [file]}});
   await waitFor(() => { expect(screen.getByTestId('text').textContent).toContain('uploading-attachment:'); });
@@ -71,7 +71,7 @@ test('offline uploads are disabled and pasted files produce a notice rather than
   const fetcher = vi.fn();
   vi.stubGlobal('fetch', fetcher);
   render(<Field app={root}/>);
-  expect(screen.getByRole('button', {name: 'Attach files'}).getAttribute('aria-disabled')).toBe('true');
+  expect(screen.getByRole('button', {name: 'Paste, drop, or click to add files'}).getAttribute('aria-disabled')).toBe('true');
   fireEvent.paste(screen.getByRole('textbox', {name: 'Comment'}), {clipboardData: {files: [new File(['x'], 'image.png')]}});
   expect(root.ui.notices.at(-1)?.title).toContain('needs a connection');
   expect(screen.getByTestId('text').textContent).toBe('before ');
@@ -83,5 +83,5 @@ test('the server can forbid Attach even for a visible repository', async () => {
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{"message":"you may not change this"}', {status: 403}))));
   render(<Field app={root}/>);
   await waitFor(() => { expect(fetch).toHaveBeenCalled(); });
-  expect(screen.queryByRole('button', {name: 'Attach files'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Paste, drop, or click to add files'})).toBeNull();
 });

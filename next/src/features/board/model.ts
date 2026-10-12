@@ -9,7 +9,7 @@ import type {App} from '../../app/store.ts';
 import {notify} from '../../app/notices.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
-import {PROJECT_FIELD} from '../../intents/intents.ts';
+import {boardField, PROJECT_FIELD} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
@@ -85,8 +85,7 @@ export class BoardModel {
 
   private compute(): BoardLayout {
     this.rev.reportObserved();
-    const field = `~board:${String(this.projectId)}`;
-    const moves = this.overlay.fieldLayers('Issue', field) as [number, Move][];
+    const moves = this.overlay.fieldLayers('Issue', boardField(this.projectId)) as [number, Move][];
     // Only the last pending project assignment per issue counts.
     const placed = new Map(this.overlay.fieldLayers('Issue', PROJECT_FIELD) as [number, {project: number; column: number}][]);
     return untracked(() => {

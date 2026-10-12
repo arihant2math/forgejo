@@ -66,3 +66,22 @@ test('a revoked repository\'s content is purged, in memory and in IndexedDB', as
   expect(await new CodeCache(d).get('blob:7:x')).toBeUndefined();
   expect(await new CodeCache(d).get('blob:8:y')).toBe('other');
 });
+
+test('getMany and putMany: many values in one transaction each, revoked repositories skipped', async () => {
+  const d = await db();
+  const c = new CodeCache(d, {budget: 1e9});
+  await c.purgeRepo(9);
+  c.putMany([['home-action:5:1', {id: 1}], ['home-action:6:2', {id: 2}], ['home-action:9:3', {id: 3}]]);
+  await flush();
+  const fresh = new CodeCache(d, {budget: 1e9});
+  const origin = d.transaction.bind(d);
+  let opened = 0;
+  d.transaction = ((...args: Parameters<IDBDatabase['transaction']>) => {
+    opened++;
+    return origin(...args);
+  }) as IDBDatabase['transaction'];
+  expect(await fresh.getMany(['home-action:5:1', 'home-action:6:2', 'home-action:9:3', 'home-action:5:4'])).toEqual([{id: 1}, {id: 2}, undefined, undefined]);
+  expect(opened).toBe(2); // one read, one access-time update
+  expect(await fresh.getMany(['home-action:5:1'])).toEqual([{id: 1}]);
+  expect(opened).toBe(2);
+});

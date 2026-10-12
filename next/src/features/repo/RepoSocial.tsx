@@ -14,6 +14,8 @@ import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
+import {groupName, repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {EyeIcon, StarIcon, PeopleIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, ButtonGroup} from '@primer/react';
 
@@ -173,10 +175,7 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
         for (const w of pool.model('Watch').by('repo_id', repoId)) if (w.get('user_id') === userId) return w.data;
         return undefined;
       },
-      synced: async (syncId) => {
-        const signal = AbortSignal.timeout(CONFIRM_MS);
-        await Promise.all([`repo:${String(repoId)}`, `user:${String(userId)}`].map((g) => data.whenSynced(g, syncId, signal).catch(() => undefined)));
-      },
+      synced: (syncId) => settleWrite(data, [repoGroup(repoId), groupName('user', userId)], syncId, CONFIRM_MS),
     });
     states.set(repoId, state);
   }

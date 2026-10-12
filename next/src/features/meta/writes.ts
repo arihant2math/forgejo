@@ -9,6 +9,8 @@ import {failureText, onlineWrite, type OnlineRequest} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import type {App} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import type {Label, Milestone} from '../../protocol/types.gen.ts';
 import {type LabelDraft, normalizeColor} from './labels.ts';
 import {dueOnOf, type MilestoneDraft} from './milestones.ts';
@@ -80,12 +82,7 @@ async function write<T>(app: App, r: RepoRef, what: string, req: OnlineRequest, 
   try {
     const {value, syncId} = await onlineWrite<T>(app, req);
     const data = app.session?.data;
-    if (syncId !== undefined && data) {
-      await Promise.race([
-        data.whenSynced(`repo:${String(r.repoId)}`, syncId, AbortSignal.timeout(CONFIRM_MS)).catch(() => undefined),
-        new Promise((resolve) => setTimeout(resolve, CONFIRM_MS)),
-      ]);
-    }
+    if (data) await settleWrite(data, repoGroup(r.repoId), syncId, CONFIRM_MS);
     runInAction(settle);
     return value ?? ({} as T);
   } catch (err) {

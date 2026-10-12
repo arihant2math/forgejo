@@ -12,6 +12,7 @@ import type {App, Session} from '../app/store.ts';
 import {
   APIPrefix, type APIBlame, type APICommitActivity, type APIContributors, type APIMarkupRequest, type APIMarkupResponse, type APITree, type APITreeEntry,
 } from '../protocol/types.gen.ts';
+import {repoOfGroup} from '../data/models.ts';
 import {netSignal} from '../sync/net.ts';
 import type {Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
@@ -179,7 +180,8 @@ export class CodeSource {
     this.cache = new CodeCache(s.data.db);
     this.hl = new Highlighter(opts.spawn ?? (() => this.spawn()));
     this.off = s.data.on('revoked', ({group}) => {
-      if (group.startsWith('repo:')) void this.cache.purgeRepo(Number(group.slice(5)));
+      const repo = repoOfGroup(group);
+      if (repo !== undefined) void this.cache.purgeRepo(repo);
     });
   }
 

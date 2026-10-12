@@ -9,6 +9,8 @@ import {EditorView, Decoration, type DecorationSet, keymap, lineNumbers} from '@
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {highlightSelectionMatches, openSearchPanel, search, searchKeymap} from '@codemirror/search';
 import {useApp, useSession} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
@@ -154,7 +156,7 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       if (!commitSha) throw new Error('Forgejo did not return the new commit. Check the branch before retrying.');
       await intents.discardDraft(key);
       // Wait for branch sync so the destination view can resolve the commit.
-      if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
+      await settleWrite(session.data, repoGroup(repoId), result.syncId, 4000);
       const branch = newBranch ?? at.ref;
       const proposal = newBranch ? proposalTarget(owner, repo, at.ref, newBranch, up) : undefined;
       if (proposal && openPull) {

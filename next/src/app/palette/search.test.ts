@@ -6,6 +6,7 @@ import type {EntityRecord} from '../../data/entity.ts';
 import type {Issue} from '../../protocol/types.gen.ts';
 import {Pool} from '../../data/pool.ts';
 import {issue, repo, user} from '../../test/fakeSession.ts';
+import {measure} from '../../test/timing.ts';
 import {repoScore, score, scoreNamed, searchPool, terms} from './search.ts';
 
 function pool(issues: number) {
@@ -59,9 +60,7 @@ test('50 000 issues: a keystroke searches well within a frame', () => {
   // Three rounds (the first also warms the JIT): one slow stretch of a shared machine does not decide.
   for (let round = 0; round < 3; round++) {
     for (const q of ['fo', 'foo', 'foot', 'footer', 'pag', '#4242', 'acme pag']) {
-      const t0 = performance.now();
-      searchPool(p, q);
-      times.push(performance.now() - t0);
+      times.push(measure(() => searchPool(p, q)).ms);
     }
   }
   times.sort((a, b) => a - b);
@@ -94,9 +93,9 @@ test('typing into 50 000 issues: after the first keystroke, each one narrows wit
   let prev: {query: string; matched: readonly Issue[]} | undefined;
   const times: number[] = [];
   for (const q of ['fo', 'foo', 'foot', 'foote', 'footer', 'footer w', 'footer we']) {
-    const t0 = performance.now();
-    const r = searchPool(p, q, {narrow: prev});
-    times.push(performance.now() - t0);
+    // Its cost, not the time a loaded machine spent on other processes meanwhile (#288).
+    const {value: r, ms} = measure(() => searchPool(p, q, {narrow: prev}));
+    times.push(ms);
     prev = r.matched ? {query: q, matched: r.matched} : undefined;
   }
   // The later keystrokes scan only the earlier matches.

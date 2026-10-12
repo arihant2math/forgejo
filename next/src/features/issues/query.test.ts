@@ -4,6 +4,7 @@
 import {describe, expect, test} from 'vitest';
 import type {Issue, Label, Milestone} from '../../protocol/types.gen.ts';
 import {issue, T} from '../../test/fakeSession.ts';
+import {measure} from '../../test/timing.ts';
 import {exclusiveScope, labelKind, priorityRank, scopeKind, scopedValue, statusRank} from './labels.ts';
 import {type Filter, type Query, type QueryContext, runQuery} from './query.ts';
 
@@ -142,9 +143,9 @@ describe('runQuery', () => {
     runQuery(many, q(), c); // warm up the JIT
     const times: number[] = [];
     for (const query of [q(), q({labels: [6], q: 'crash'}, {sort: 'recentupdate', group: 'status'}), q({state: 'all'}, {sort: 'priority', group: 'assignee'})]) {
-      const t0 = performance.now();
-      const r = runQuery(many, query, c);
-      times.push(performance.now() - t0);
+      // Its cost, not the time a loaded machine spent on other processes meanwhile (#288).
+      const {value: r, ms} = measure(() => runQuery(many, query, c));
+      times.push(ms);
       expect(r.ids.length).toBeGreaterThan(0);
     }
     console.warn(`runQuery over 10 000 issues: ${times.map((t) => t.toFixed(1)).join(' / ')} ms`);

@@ -90,8 +90,9 @@ describe('write primitives', () => {
     p.put('Issue', 3, 'repo:2', 7, issue(3, 2, 'c'));
     p.put('Issue', 3, 'repo:3', 8, issue(3, 3, 'moved'));
     const d = p.takeDirty();
-    expect(d.get('Issue')).toEqual(new Map([['repo:1', new Set([1])], ['repo:2', new Set([3])], ['repo:3', new Set([3])]]));
-    expect(d.get('Label')).toEqual(new Map([['repo:1', new Set([2])]]));
+    const bucket = (b: number, ids: number[]) => new Map([[b, new Set(ids)]]);
+    expect(d.get('Issue')).toEqual(new Map([['repo:1', bucket(1, [1, 513])], ['repo:2', bucket(3, [3])], ['repo:3', bucket(3, [3])]]));
+    expect(d.get('Label')).toEqual(new Map([['repo:1', bucket(2, [2])]]));
     expect(p.dirtyCount).toBe(0);
     expect([...p.model('Issue')._slot('repo:1', 1)].map((e) => e.id)).toEqual([513]);
     expect([...p.model('Issue')._slot('repo:2', 3)]).toEqual([]);
@@ -108,9 +109,9 @@ describe('stale persisted records', () => {
     // A copy left in repo:1 by a crash between the chunks of a move.
     p.load('Issue', [{id: 1, g: 'repo:1', v: 5, d: issue(1, 1, 'stale copy')}]);
     expect(p.model('Issue').get(1)?.group).toBe('repo:2');
-    expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:1', new Set([1])]]));
+    expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:1', new Map([[1, new Set([1])]])]]));
     p.del('Issue', 1, 'repo:3', 8);
-    expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:3', new Set([1])]]));
+    expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:3', new Map([[1, new Set([1])]])]]));
   });
 
   test('a bootstrap line at the watermark of an earlier purge is accepted, an embedded one is not', () => {
@@ -245,19 +246,22 @@ describe('follower mirror', () => {
     expect([...p.model('Issue').all()].map((e) => e.id).sort()).toEqual([1, 3]);
   });
 
-  test('mirrorBucket replaces a bucket\'s content, and a move across groups survives either order', () => {
+  test('mirrorChanges applies a flush\'s changes, and a move across groups survives either order', () => {
     const p = new Pool();
     const rec = (id: number, g: string, v: number) => ({id, g, v, d: issue(id, Number(g.slice(5)), `t${v}`)});
-    p.mirrorBucket('Issue', 'repo:1', 1, [rec(1, 'repo:1', 1), rec(513, 'repo:1', 1)], 1);
-    expect(p.model('Issue').size).toBe(2);
-    p.mirrorBucket('Issue', 'repo:2', 1, [rec(1, 'repo:2', 2)], 2);
-    p.mirrorBucket('Issue', 'repo:1', 1, [], 2);
-    expect([...p.model('Issue').all()].map((e) => [e.id, e.group])).toEqual([[1, 'repo:2']]);
+    p.mirrorChanges('Issue', 'repo:1', [rec(1, 'repo:1', 1), rec(513, 'repo:1', 1), rec(2, 'repo:1', 1)], [], 1);
+    expect(p.model('Issue').size).toBe(3);
+    p.mirrorChanges('Issue', 'repo:2', [rec(1, 'repo:2', 2)], [], 2);
+    p.mirrorChanges('Issue', 'repo:1', [], [1, 513], 2);
+    expect([...p.model('Issue').all()].map((e) => [e.id, e.group]).sort()).toEqual([[1, 'repo:2'], [2, 'repo:1']]);
     const q = new Pool();
-    q.mirrorBucket('Issue', 'repo:1', 1, [rec(1, 'repo:1', 1)], 1);
-    q.mirrorBucket('Issue', 'repo:1', 1, [], 2);
-    q.mirrorBucket('Issue', 'repo:2', 1, [rec(1, 'repo:2', 2)], 2);
+    q.mirrorChanges('Issue', 'repo:1', [rec(1, 'repo:1', 1)], [], 1);
+    q.mirrorChanges('Issue', 'repo:1', [], [1], 2);
+    q.mirrorChanges('Issue', 'repo:2', [rec(1, 'repo:2', 2)], [], 2);
     expect([...q.model('Issue').all()].map((e) => [e.id, e.group])).toEqual([[1, 'repo:2']]);
+    // A state older than the flush that removed it stays removed (a hydration read before that flush).
+    q.mirror('Issue', 1, rec(1, 'repo:1', 1), 1);
+    expect(q.model('Issue').get(1)?.group).toBe('repo:2');
   });
 
   test('a cleared model ignores older reads', () => {

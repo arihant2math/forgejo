@@ -7,7 +7,7 @@ import {afterEach, expect, test, vi} from 'vitest';
 import FileEditor from './FileEditor.tsx';
 
 const mocks = vi.hoisted(() => ({
-  write: vi.fn(), navigate: vi.fn(), notify: vi.fn(),
+  write: vi.fn(), navigate: vi.fn(), notify: vi.fn(), highlight: vi.fn((_lang: string, _text: string, _signal?: AbortSignal): Promise<unknown> => Promise.resolve(null)),
   session: {data: {status: {connection: 'live'}, whenSynced: vi.fn(() => Promise.resolve())}},
   branches: new Map<string, string>([['main', 'a'.repeat(40)]]),
   upstream: undefined as {owner: string; name: string; defaultBranch: string} | undefined,
@@ -19,7 +19,7 @@ vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), o
 vi.mock('@tanstack/react-router', async (original) => ({...await original<object>(), useNavigate: () => mocks.navigate}));
 vi.mock('../../intents/session.ts', () => ({editing: () => ({intents: {drafts: new Map(), keepText: vi.fn(), discardDraft: vi.fn()}})}));
 vi.mock('../issues/cells.tsx', () => ({usePool: () => ({model: () => ({get: () => ({data: {archived: false, mirror: false}})})})}));
-vi.mock('./hooks.ts', () => ({useSource: () => ({snippet: () => Promise.resolve(null)}), refTable: () => ({branches: mocks.branches, tags: new Map(), defaultBranch: 'main'})}));
+vi.mock('./hooks.ts', () => ({useSource: () => ({highlightText: mocks.highlight}), refTable: () => ({branches: mocks.branches, tags: new Map(), defaultBranch: 'main'})}));
 vi.mock('./refOps.ts', () => ({branchProtected: () => Promise.resolve(false)}));
 vi.mock('../editor/Composer.tsx', () => ({MarkdownPreview: () => null}));
 vi.mock('./upstream.ts', async (original) => ({...await original<object>(), useUpstream: () => mocks.upstream}));
@@ -177,4 +177,51 @@ test('in a fork, the notice\'s pull request action goes to the upstream (#173)',
     params: {owner: 'upstream-org', repo: 'design', view: 'compare', _splat: 'main...acme:later'}, search: {expand: '1'},
   }));
   mocks.branches.delete('later');
+});
+
+/** Each line's first word as a keyword. */
+function firstWords(text: string) {
+  const spans: number[] = [];
+  const starts: number[] = [];
+  for (const line of text.split('\n')) {
+    starts.push(spans.length / 2);
+    const word = /^\S*/.exec(line)?.[0].length ?? 0;
+    if (word) spans.push(word, 1);
+    if (line.length > word) spans.push(line.length - word, 0);
+  }
+  starts.push(spans.length / 2);
+  return {spans: Uint32Array.from(spans), starts: Uint32Array.from(starts)};
+}
+
+test('highlighting arrives once typing pauses, stays on its words while typing, and an outdated request is dropped', async () => {
+  const signals: AbortSignal[] = [];
+  let answer: (() => void) | undefined;
+  mocks.highlight.mockImplementation((_lang, text, signal) => {
+    if (signal) signals.push(signal);
+    return new Promise((resolve) => {
+      answer = () => {
+        resolve(firstWords(text));
+      };
+    });
+  });
+  const {view} = editor();
+  await waitFor(() => {
+    expect(signals).toHaveLength(1);
+  });
+  act(() => {
+    view.dispatch({changes: {from: 0, insert: 'Now '}});
+  });
+  expect(signals[0]?.aborted).toBe(true);
+  await waitFor(() => {
+    expect(signals).toHaveLength(2);
+  });
+  expect(mocks.highlight.mock.calls[1]?.[1]).toBe(`Now ${TEXT}`);
+  act(() => answer?.());
+  await waitFor(() => {
+    expect([...view.contentDOM.querySelectorAll('.text-syntax-keyword')].map((e) => e.textContent)).toEqual(['Now', 'The', 'teh']);
+  });
+  act(() => {
+    view.dispatch({changes: {from: 0, insert: 'So '}});
+  });
+  expect([...view.contentDOM.querySelectorAll('.text-syntax-keyword')].map((e) => e.textContent)).toEqual(['Now', 'The', 'teh']);
 });

@@ -4,7 +4,6 @@
 // Read the local session and load the route before rendering; the static shell stays visible until then.
 // Token refresh and sync run in the background.
 
-import {createMemoryHistory} from '@tanstack/react-router';
 import {optIn} from '../auth/optin.ts';
 import {isSpaRoute, sitePathOf} from '../sw/routes.ts';
 import {loadConfig, uiPath} from './config.ts';
@@ -18,13 +17,15 @@ import {type App, createApp} from './store.ts';
 export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   const config = await loadConfig();
   const callback = location.pathname.startsWith(uiPath(config, 'callback'));
-  preloadRoute(app0(config));
+  // Built before the session exists, so the route's view chunk loads while IndexedDB opens.
+  const router = createAppRouter(createApp(config, undefined));
+  preloadRoute(router, config);
   // Load the queue in parallel with IndexedDB without adding it to the boot bundle.
   const queueModule = callback ? undefined : import('../intents/session.ts');
   queueModule?.catch(() => undefined);
   const session = callback ? undefined : await openSession(config);
   const app = createApp(config, session);
-  const router = createAppRouter(app);
+  router.update({...router.options, context: {app}});
   // Apply queued overlays before the first frame; an empty queue must not delay boot.
   const queue = session && queueModule ? startQueue(app, session, queueModule) : undefined;
   await Promise.all([router.load(), queue]);
@@ -43,22 +44,17 @@ async function startQueue(app: App, session: NonNullable<App['session']>, m: Pro
   if (pending > 0) await started;
 }
 
-function app0(config: App['config']): App {
-  return createApp(config, undefined);
-}
-
-/** Preload the current route while IndexedDB opens, before the router has a session. */
-function preloadRoute(app: App): void {
+/** Preload the current route's view; at the base URL, the route the last visit ended on. */
+function preloadRoute(router: AppRouter, config: App['config']): void {
   try {
-    const sub = app.config.app_sub_url;
+    const sub = config.app_sub_url;
     let path = location.pathname.startsWith(sub) ? location.pathname.slice(sub.length) || '/' : location.pathname;
     const last = readSplash().route;
-    if (`${sub}${path}`.replace(/\/$/, '') === app.config.base.replace(/\/$/, '') && last?.startsWith(`${sub}/`)) {
+    if (`${sub}${path}`.replace(/\/$/, '') === config.base.replace(/\/$/, '') && last?.startsWith(`${sub}/`)) {
       path = last.slice(sub.length).split('?')[0] ?? '/';
     }
-    const probe = createAppRouter({...app, config: {...app.config, app_sub_url: ''}}, createMemoryHistory());
-    for (const m of probe.matchRoutes(path, {})) {
-      const route = (probe.routesById as Record<string, {options: {component?: unknown}} | undefined>)[m.routeId];
+    for (const m of router.matchRoutes(path, {})) {
+      const route = (router.routesById as Record<string, {options: {component?: unknown}} | undefined>)[m.routeId];
       const component = route?.options.component as {preload?: () => Promise<void>} | undefined;
       void component?.preload?.().catch(() => undefined);
     }

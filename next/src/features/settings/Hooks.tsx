@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {SettingsEntry} from './SettingsEntry.tsx';
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
-import {Banner, Tooltip, Select, SegmentedControl, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
+import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
-import {ClassicLink, classicHref} from '../../app/ClassicLink.tsx';
+import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {classicHref} from '../../app/classic.ts';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
@@ -25,31 +26,14 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
   const offline = useOffline();
   const res = useResource(settingsKey(repoId, 'hooks'), (signal) => fetchHooks(app, owner, repo, signal), storedHooks);
   const [editing, setEditing] = useState<Hook | 'new' | undefined>(undefined);
-  const [deleting, setDeleting] = useState<Hook | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
   const base = repoApi(owner, repo);
+  const removal = useRemoval(res, {path: (h) => `${base}/hooks/${String(h.id)}`, same: (a, b) => a.id === b.id, done: () => 'Webhook deleted'});
   const test = (h: Hook) => {
     online(app, {method: 'POST', api: 'v1', path: `${base}/hooks/${String(h.id)}/tests`}).then(() => {
       notify(app, {tone: 'success', title: 'Test delivery sent', description: `A push event to ${hookUrl(h)}. Its delivery is listed in the classic UI.`});
     }, (err: unknown) => {
       notify(app, {tone: 'danger', title: 'The test delivery was not sent', description: problemOf(err).message});
     });
-  };
-  const remove = async (h: Hook) => {
-    if (busy || offline) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await online(app, {method: 'DELETE', api: 'v1', path: `${base}/hooks/${String(h.id)}`});
-      res.update((list) => (list ?? []).filter((x) => x.id !== h.id));
-      setDeleting(undefined);
-      notify(app, {tone: 'success', title: 'Webhook deleted'});
-    } catch (err) {
-      setError(problemOf(err).message);
-    } finally {
-      setBusy(false);
-    }
   };
   const repoPath = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
@@ -72,8 +56,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
                 }}/> :
                 <Tooltip text="Opens in the classic Forgejo UI"><LinkButton variant="invisible" size="small" href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</LinkButton></Tooltip>}
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the webhook" type="button" disabled={offline} onClick={() => {
-                setError(undefined);
-                setDeleting(h);
+                removal.ask(h);
               }}/>
             </>}/>
         ))}
@@ -88,12 +71,8 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
         res.update((list) => [...(list ?? []).filter((x) => x.id !== saved.id), saved].sort((a, b) => a.id - b.id));
         setEditing(undefined);
       }}/>}
-      <RepositoryConfirmation open={deleting !== undefined} onOpenChange={(o) => {
-        if (!o && !busy) setDeleting(undefined);
-      }} title="Delete this webhook?" description={deleting ? `Forgejo stops sending events to ${hookUrl(deleting)}.` : undefined}
-      confirmLabel="Delete webhook" busy={busy} error={error} onConfirm={() => {
-        if (deleting) void remove(deleting);
-      }}/>
+      <RepositoryConfirmation {...removal.dialog} title="Delete this webhook?" description={removal.target ? `Forgejo stops sending events to ${hookUrl(removal.target)}.` : undefined}
+        confirmLabel="Delete webhook"/>
     </FormSection>
   );
 });
@@ -103,9 +82,9 @@ function hookUrl(h: Hook): string {
 }
 
 const MODES: readonly {value: EventsMode; label: string}[] = [
-  {value: 'push', label: 'Push only'},
-  {value: 'all', label: 'Everything'},
-  {value: 'choose', label: 'Choose'},
+  {value: 'push', label: 'Just the push event.'},
+  {value: 'all', label: 'Send me everything.'},
+  {value: 'choose', label: 'Let me select individual events.'},
 ];
 
 const GROUPS = ['Repository', 'Issues', 'Pull requests', 'Actions'] as const;
@@ -204,12 +183,16 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
               set('branchFilter', e.target.value);
             }} {...(errors.branchFilter ? {validationStatus: 'error' as const} : {})} monospace/>
         <FormControl.Caption>A glob pattern of the branches whose events are sent (empty or *: all).</FormControl.Caption>{errors.branchFilter && <FormControl.Validation variant="error">{errors.branchFilter}</FormControl.Validation>}</FormControl>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-semibold text-default">Events</legend>
-          <SegmentedControl size="small" aria-label="Events" onChange={(index) => {
-            const choice = MODES[index ?? -1];
-            if (choice) set('mode', choice.value);
-          }}>{MODES.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.mode === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
+        <RadioGroup name="hook-events" onChange={(value) => {
+          const choice = MODES.find((m) => m.value === value);
+          if (choice) set('mode', choice.value);
+        }}>
+          <RadioGroup.Label>Which events would you like to trigger this webhook?</RadioGroup.Label>
+          {MODES.map((choice) => (
+            <FormControl key={choice.value}><Radio value={choice.value} checked={form.mode === choice.value}/><FormControl.Label>{choice.label}</FormControl.Label></FormControl>
+          ))}
+        </RadioGroup>
+        {(form.mode === 'choose' || errors.events) && <div className="flex flex-col gap-2">
           {form.mode === 'choose' && GROUPS.map((g) => (
             <div key={g} role="group" aria-label={g} className="flex flex-col gap-1">
               <span className="text-sm text-muted">{g}</span>
@@ -221,7 +204,7 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
             </div>
           ))}
           {errors.events && <p className="text-sm text-danger">{errors.events}</p>}
-        </fieldset>
+        </div>}
         <FormControl><Checkbox checked={form.active} onChange={(event) => { const v = event.target.checked; set('active', v); }}/><FormControl.Label>Active (deliveries are sent)</FormControl.Label></FormControl>
         {failure && <Banner variant="critical" title={ready ? 'Not saved' : 'The webhook could not be loaded'} description={<>{failure}</>}/>}
       </form>

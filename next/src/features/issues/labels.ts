@@ -53,6 +53,12 @@ export function statusStage(value: string): StatusStage | undefined {
   return undefined;
 }
 
+/** Done and canceled statuses close an issue. */
+export function terminalStatus(name: string): boolean {
+  const stage = statusStage(scopedValue(name));
+  return stage === 'done' || stage === 'canceled';
+}
+
 /** Unknown status values sort between in-progress and review. */
 export function statusRank(value: string): number {
   const s = statusStage(value);

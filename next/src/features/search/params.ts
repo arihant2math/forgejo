@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-export const kinds = ['repositories', 'issues', 'pulls', 'users', 'organizations', 'code'] as const;
+export const kinds = ['code', 'repositories', 'issues', 'pulls', 'users', 'organizations'] as const;
 export type Kind = typeof kinds[number];
 export interface DiscoverySearch {
   q: string;

@@ -121,19 +121,34 @@ export function clientSchemas(): Record<ModelName, number> {
   return out;
 }
 
+/** Group kinds named by a numeric id. */
+export type IdGroupKind = Exclude<GroupKind, 'profiles'>;
+
+const PREFIXES = new Map<string, IdGroupKind>([
+  [P.GroupPrefixUser, 'user'], [P.GroupPrefixOrg, 'org'], [P.GroupPrefixRepo, 'repo'], [P.GroupPrefixIssue, 'issue'],
+  [P.GroupPrefixProfile, 'profile'], [P.GroupPrefixOwner, 'owner'], [P.GroupPrefixTeam, 'team'],
+]);
+
+/** A group's name (protocol.GroupName). */
+export function groupName(kind: IdGroupKind, id: number): string {
+  return `${kind}:${String(id)}`;
+}
+
+export const repoGroup = (repoId: number): string => groupName('repo', repoId);
+export const issueGroup = (issueId: number): string => groupName('issue', issueId);
+
 /** The kind of a group name, or undefined for pseudo groups and malformed names (protocol.ParseGroup). */
 export function groupKind(group: string): GroupKind | undefined {
   if (group === P.GroupProfilesPublic || group === P.GroupProfilesLimited) return 'profiles';
   const i = group.indexOf(':');
   if (i < 0) return undefined;
-  const prefix = group.slice(0, i);
-  const id = group.slice(i + 1);
-  if (!/^[1-9][0-9]*$/.test(id)) return undefined;
-  switch (prefix) {
-    case 'user': case 'org': case 'repo': case 'issue': case 'profile': case 'owner': case 'team':
-      return prefix;
-  }
-  return undefined;
+  if (!/^[1-9][0-9]*$/.test(group.slice(i + 1))) return undefined;
+  return PREFIXES.get(group.slice(0, i));
+}
+
+/** The repository id of a `repo:<id>` group, else undefined. */
+export function repoOfGroup(group: string): number | undefined {
+  return groupKind(group) === 'repo' ? groupId(group) : undefined;
 }
 
 /** The numeric id of a group name (0 for the profile directories, NaN when malformed). */

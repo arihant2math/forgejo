@@ -6,5 +6,5 @@
 
 .a {
   color: var(--color-fg);
-  animation: var(--animate-exit);
+  opacity: var(--opacity-disabled);
 }

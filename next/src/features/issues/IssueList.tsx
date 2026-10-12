@@ -19,6 +19,7 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {ActionMenu, ActionList, Checkbox, CounterLabel, Text} from '@primer/react';
 import {IssueRowFrame} from './IssueRowFrame.tsx';
+import {IssueReference} from '../home/IssueReference.tsx';
 import {LabelGlyph} from './cells.tsx';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {
@@ -161,14 +162,14 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     move(-1);
   });
   useShortcut('list.select', () => {
-    if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
+    if (cursor.activeId !== undefined) cursor.toggle(cursor.activeId);
   });
   useShortcut('list.open', () => {
     if (cursor.activeId === undefined) return;
     open(cursor.activeId);
   }, true, () => cursor.activeId !== undefined);
   useShortcut('list.clear', () => {
-    cursor.selected.clear();
+    cursor.clearSelection();
   }, true, () => untracked(() => cursor.selected.size) > 0);
   useShortcut('issue.state', picker('status'));
   useShortcut('issue.labels', picker('labels'));
@@ -193,7 +194,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
       open(cursor.activeId, e.metaKey || e.ctrlKey);
     } else if (e.key === 'Escape' && untracked(() => cursor.selected.size)) {
       e.preventDefault();
-      cursor.selected.clear();
+      cursor.clearSelection();
     }
   };
 
@@ -221,7 +222,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     check: (id, e) => {
       if (e.shiftKey) cursor.selectRange(id, ids);
       else {
-        cursor.selected.toggle(id);
+        cursor.toggle(id);
         cursor.setActive(id);
       }
       listRef.current?.focus({preventScroll: true});
@@ -354,9 +355,8 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         <UpdatedCell issue={issue}/>
       </>}
     >
-      <span className={showRepo ? 'shrink-0 text-sm text-muted tabular-nums' : 'inline-block min-w-12 shrink-0 text-sm text-muted tabular-nums @max-md:min-w-10'}>
-        {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
-      </span>
+      {showRepo && id > 0 ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> :
+        <span className="inline-block min-w-12 shrink-0 text-sm text-muted tabular-nums @max-md:min-w-10">{id < 0 ? 'New' : `#${String(issue.get('number'))}`}</span>}
       <TitleCell issue={issue} className="min-w-0 truncate font-semibold group-hover:text-accent group-hover:underline"/><PendingCell issueId={issue.id}/>
       <span data-row-labels className="flex shrink-0 items-center @max-lg:hidden"><LabelsCell issue={issue}/></span>
     </IssueRowFrame>
@@ -382,8 +382,7 @@ const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: numbe
 });
 
 const RepoRef = observer(function RepoRef({repoId, number}: {repoId: number; number: number}) {
-  const name = usePool().model('Repository').get(repoId)?.get('name');
-  return <>{name ?? ''}#{number}</>;
+  return <IssueReference repo={usePool().model('Repository').get(repoId)?.get('full_name') ?? ''} number={number}/>;
 });
 
 const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'group'}>}) {

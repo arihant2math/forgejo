@@ -3,7 +3,7 @@
 
 // Use the cached default-branch tree so file search also works offline after the tree is loaded.
 
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {codeSource} from '../../code/source.ts';
 import type {App} from '../store.ts';
 import {score} from './search.ts';
@@ -13,6 +13,9 @@ interface Tree {
   repo: string;
   ref: string;
   paths: readonly string[];
+  /** Lower-cased once per tree, not per keystroke. */
+  lower: readonly string[];
+  names: readonly string[];
 }
 
 /** The repository's file paths at its default branch's head (undefined: unknown here, offline, or refused). */
@@ -24,7 +27,10 @@ function treeOf(app: App, repoId: number): Promise<Tree | undefined> {
   const branch = [...s.data.pool.model('Branch').by('repo_id', repoId)].find((b) => b.get('name') === r.default_branch && !b.get('is_deleted'));
   const sha = branch?.get('commit_id');
   if (!sha) return Promise.resolve(undefined);
-  return src.paths(repoId, sha).then((t) => ({owner: r.owner_name, repo: r.name, ref: r.default_branch, paths: t.paths}), () => undefined);
+  return src.paths(repoId, sha).then((t) => {
+    const lower = t.paths.map((p) => p.toLowerCase());
+    return {owner: r.owner_name, repo: r.name, ref: r.default_branch, paths: t.paths, lower, names: lower.map((p) => p.slice(p.lastIndexOf('/') + 1))};
+  }, () => undefined);
 }
 
 export interface FileHit {
@@ -35,9 +41,7 @@ export interface FileHit {
   score: number;
 }
 
-function pathScore(path: string, words: readonly string[]): number {
-  const lower = path.toLowerCase();
-  const name = lower.slice(lower.lastIndexOf('/') + 1);
+function pathScore(lower: string, name: string, words: readonly string[]): number {
   const inName = score(name, words);
   if (inName >= 0) return inName * 2;
   return score(lower, words);
@@ -59,11 +63,15 @@ export function useFiles(app: App, repoId: number, query: string, limit = 6): Fi
     };
   }, [app, repoId, want, tree.repoId]);
   const t = tree.repoId === repoId ? tree.tree : undefined;
-  if (!want || !t) return [];
-  const hits: FileHit[] = [];
-  for (const path of t.paths) {
-    const s = pathScore(path, words);
-    if (s >= 0) hits.push({owner: t.owner, repo: t.repo, ref: t.ref, path, score: s});
-  }
-  return hits.sort((a, b) => b.score - a.score || a.path.length - b.path.length).slice(0, limit);
+  const key = words.join(' ');
+  return useMemo(() => {
+    if (!want || !t) return [];
+    const w = key.split(' ');
+    const hits: FileHit[] = [];
+    for (let i = 0; i < t.paths.length; i++) {
+      const s = pathScore(t.lower[i] ?? '', t.names[i] ?? '', w);
+      if (s >= 0) hits.push({owner: t.owner, repo: t.repo, ref: t.ref, path: t.paths[i] ?? '', score: s});
+    }
+    return hits.sort((a, b) => b.score - a.score || a.path.length - b.path.length).slice(0, limit);
+  }, [want, t, key, limit]);
 }

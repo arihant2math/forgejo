@@ -18,7 +18,6 @@ export interface Splash {
   skeleton?: {shape?: SkeletonShape; rows?: number; header?: SkeletonHeader};
   /** User id marking a local IndexedDB; absent shows the logged-out shell. */
   user?: string;
-  initial?: string;
   /** Site path and query resumed at the app's base URL. */
   route?: string;
 }
@@ -42,8 +41,7 @@ export function applySplash(win: Window): void {
     // Storage blocked or corrupt: render the defaults.
   }
   const pref = s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system';
-  // Primer reads data-color-mode; app checks read the matching data-theme.
-  html.dataset.theme = html.dataset.colorMode = pref === 'system' ?
+  html.dataset.colorMode = pref === 'system' ?
     (win.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') :
     pref;
   if (typeof s.sidebarWidth === 'number' && Number.isFinite(s.sidebarWidth)) {
@@ -61,9 +59,6 @@ export function applySplash(win: Window): void {
   const style = win.document.createElement('style');
   style.textContent = `[data-sk-row]:nth-child(n+${rows + 1}){display:none}`;
   win.document.head.append(style);
-  if (typeof s.initial === 'string' && /^[\p{L}\p{N}]{1,2}$/u.test(s.initial)) {
-    html.style.setProperty('--splash-initial', JSON.stringify(s.initial));
-  }
   // Capture sign-in clicks before React loads; LoggedOut replays them.
   win.addEventListener('click', (e) => {
     const t = e.target instanceof Element ? e.target.closest('[data-early="signin"]') : null;
@@ -108,13 +103,10 @@ export function forgetRoute(): void {
   }
 }
 
-/** User-specific preferences cleared at sign-out. */
-export const LOCAL_PREFS = ['forgejo-next:sidebar', 'forgejo-next:board', 'forgejo-next:views', 'forgejo-next:home'] as const;
-
-/** Clears the local user marker and preferences so the next boot shows the logged-out shell. */
+/** Clears the local user marker so the next boot shows the logged-out shell. */
 export function forgetUser(): void {
   try {
-    const {user: _user, initial: _initial, route: _route, ...rest} = readSplash();
+    const {user: _user, route: _route, ...rest} = readSplash();
     localStorage.setItem(SPLASH_KEY, JSON.stringify(rest));
   } catch {
     // Storage blocked.

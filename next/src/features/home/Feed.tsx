@@ -7,6 +7,7 @@ import {failureText, online} from '../../app/api.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
+import {repoOfGroup} from '../../data/models.ts';
 import {DenseRow} from './DenseRow.tsx';
 import {DashboardSection} from './DashboardSection.tsx';
 import {Avatar, Heading, Select} from '@primer/react';
@@ -84,7 +85,7 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
         const hit = await cache.get<SavedPage>(key);
         if (!alive()) return;
         if (page === 1 && hit) {
-          const rows = await Promise.all(hit.keys.map((k) => cache.get<FeedAction>(k)));
+          const rows = await cache.getMany<FeedAction>(hit.keys);
           if (!alive()) return;
           setActions(rows.filter((r): r is FeedAction => r !== undefined));
           setSaved(hit);
@@ -93,9 +94,10 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
         const path = context ? `/orgs/${encodeURIComponent(context)}/activities/feeds` : `/users/${encodeURIComponent(login)}/activities/feeds`;
         const rows = await online<FeedAction[]>(app, {api: 'v1', path: `${path}?only-performed-by=${String(performedOnly)}&page=${String(page)}&limit=${String(LIMIT)}`, signal: controller.signal}) ?? [];
         if (!alive()) return;
-        const next = {at: new Date().toISOString(), page, more: rows.length === LIMIT, keys: rows.map((r) => `home-action:${String(r.repo.id)}:${String(r.id)}`)};
-        rows.forEach((r) => { cache.put(`home-action:${String(r.repo.id)}:${String(r.id)}`, r); });
-        cache.put(key, next);
+        // One entry per action, keyed by repository, so a revoked repository's actions are purged with its content.
+        const entries = rows.map((r) => [`home-action:${String(r.repo.id)}:${String(r.id)}`, r] as const);
+        const next = {at: new Date().toISOString(), page, more: rows.length === LIMIT, keys: entries.map(([k]) => k)};
+        cache.putMany([...entries, [key, next]]);
         setSaved(next);
         setActions((old) => page === 1 ? rows : [...old, ...rows.filter((r) => !old.some((o) => o.id === r.id))]);
       } catch (err) {
@@ -115,11 +117,10 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
   }, [app, cache, connected, context, login, key, page, attempt, performedOnly]);
 
   useEffect(() => session.data.on('revoked', ({group}) => {
-    if (group.startsWith('repo:')) {
-      const repo = Number(group.slice(5));
-      void cache.purgeRepo(repo);
-      setActions((rows) => rows.filter((r) => r.repo.id !== repo));
-    }
+    const repo = repoOfGroup(group);
+    if (repo === undefined) return;
+    void cache.purgeRepo(repo);
+    setActions((rows) => rows.filter((r) => r.repo.id !== repo));
   }), [session, cache]);
 
   return <div aria-busy={busy}>

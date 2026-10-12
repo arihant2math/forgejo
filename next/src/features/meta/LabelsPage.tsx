@@ -14,7 +14,9 @@ import type {Label} from '../../protocol/types.gen.ts';
 import {MetadataSection, LabelListRow, SavingIndicator} from './LabelList.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import type {LabelCount} from './counts.ts';
-import {PageSearch, SortMenu} from './controls.tsx';
+import {SortMenu} from './controls.tsx';
+import {SearchField} from '../issues/SearchField.tsx';
+import {useShortcutScope} from '../../app/shortcuts/index.ts';
 import {IssueNav} from './IssueNav.tsx';
 import {DeleteLabelDialog, LabelDialog} from './LabelDialog.tsx';
 import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts';
@@ -45,6 +47,8 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const s = useSession();
   const pool = s.data.pool;
   const search = labelsApi.useSearch();
+  // The search field's shortcut lives in the list scope.
+  useShortcutScope('list');
   const navigate = useNavigate();
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const q = typed ?? search.q ?? '';
@@ -69,7 +73,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && own.length === 0 && org.length === 0;
   const create = write && (
-    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" leadingVisual={TagIcon} type="button" inactive={offline} onClick={() => {
+    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" type="button" inactive={offline} onClick={() => {
       setEditing({});
     }}>New label</Button></Tooltip>
   );
@@ -86,7 +90,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={TagIcon} title="Labels">
         <IssueNav owner={owner} repo={repo} repoId={repoId} current="labels"/>
-        <PageSearch label="Search labels" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
+        <SearchField label="Search labels" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
           setTyped(undefined);
           go({q: text.trim() || undefined});
         }}/>

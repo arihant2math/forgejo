@@ -14,7 +14,7 @@ test('repository code search opens a matching line', async ({browser}) => {
     const ctx = await browser.newContext();
     try {
       const page = await signedIn(ctx);
-      await page.goto(`${BASE}/${ALICE.user}/${repo}`);
+      await page.goto(`${BASE}/${ALICE.user}/${repo}/src/branch/main`);
       await page.getByRole('button', {name: 'Search code', exact: true}).click();
       await page.getByRole('textbox', {name: 'Search code', exact: true}).fill('uniqueSearchSymbol95');
       await page.getByRole('option').filter({hasText: 'search.txt:1'}).click();

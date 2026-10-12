@@ -73,10 +73,6 @@ export function resumeNotice(app: App, id: number): void {
 }
 
 export function dismiss(app: App, id: number): void {
-  removeNotice(app, id);
-}
-
-export function removeNotice(app: App, id: number): void {
   const t = timers.get(id);
   if (t?.timer) clearTimeout(t.timer);
   timers.delete(id);

@@ -59,7 +59,15 @@ export class Tab {
         return () => this.caught.delete(fn);
       },
       onRevoked: () => () => undefined,
-      whenSynced: (_g, v) => (this.position >= v ? Promise.resolve() : new Promise((resolve) => this.waiters.push({v, resolve}))),
+      whenSynced: (_g, v, signal) => (this.position >= v ? Promise.resolve() : new Promise((resolve, reject) => {
+        const w = {v, resolve};
+        this.waiters.push(w);
+        signal?.addEventListener('abort', () => {
+          const i = this.waiters.indexOf(w);
+          if (i >= 0) this.waiters.splice(i, 1);
+          reject(new Error('aborted'));
+        }, {once: true});
+      })),
       token: () => Promise.resolve('tok'),
       refresh: () => Promise.resolve('tok'),
       apiBase: '/api/v1',

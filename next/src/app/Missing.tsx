@@ -13,7 +13,7 @@ import {CloudOfflineIcon, QuestionIcon, HomeIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLinkButton} from '../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
-import {missingWords} from './missingWords.ts';
+import {missingWords, offlineTitle} from './missingWords.ts';
 
 export interface MissingProps {
   /** What is missing, as the subject of a sentence ("This repository"). */
@@ -27,19 +27,27 @@ export interface MissingProps {
   classic?: string | undefined;
 }
 
+/** Content that is not on this device while Forgejo cannot be asked: what is available instead. */
+export function OfflineState({what, reach: r, retry}: {what: string; reach: 'offline' | 'unreachable'; retry?: ReactNode}) {
+  return (
+    <div className="flex flex-col items-center">
+      <Blankslate spacious>
+        <Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual>
+        <Blankslate.Heading>{offlineTitle(r)}</Blankslate.Heading>
+        <Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description>
+        {retry}
+      </Blankslate>
+      <AvailableOffline/>
+    </div>
+  );
+}
+
 export const Missing = observer(function Missing({what, title, description, icon, classic}: MissingProps) {
   const app = useApp();
   const r = reach(app.session?.data.status.connection);
   useNotFound(r === 'online' && !classic);
-  usePageStatus(r === 'offline' ? 'Not available offline' : r === 'unreachable' ? 'Can’t reach Forgejo' : undefined);
-  if (r !== 'online') {
-    return (
-      <div className="flex flex-col items-center">
-        <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description></Blankslate>
-        <AvailableOffline/>
-      </div>
-    );
-  }
+  usePageStatus(r === 'online' ? undefined : offlineTitle(r));
+  if (r !== 'online') return <OfflineState what={what} reach={r}/>;
   return (
     <Blankslate spacious>
       <Blankslate.Visual>{createElement(icon ?? QuestionIcon, {size: 24})}</Blankslate.Visual>

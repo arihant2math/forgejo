@@ -110,25 +110,6 @@ export function DivergingChart({label, columns, caption, start, end}: {
   );
 }
 
-export function ContributionHeatmap({rows}: {rows: readonly {timestamp: number; contributions: number}[]}) {
-  const [end] = useState(() => new Date());
-  end.setUTCHours(0, 0, 0, 0);
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 364 - start.getUTCDay());
-  const counts = new Map(rows.map((r) => [new Date(r.timestamp * 1000).toISOString().slice(0, 10), r.contributions]));
-  const max = Math.max(1, ...rows.map((r) => r.contributions));
-  const days = Array.from({length: Math.round((end.getTime() - start.getTime()) / 86400000) + 1}, (_, i) => {
-    const date = new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10);
-    return {date, value: counts.get(date) ?? 0};
-  });
-  return <figure className="p-4">
-    <figcaption className="text-sm text-muted">{days.reduce((n, d) => n + d.value, 0)} contributions in the last year</figcaption>
-    <svg role="img" aria-label="Daily contribution heatmap" viewBox={`0 0 ${String(Math.ceil(days.length / 7) * 10)} 70`} className="w-full">
-      {days.map((d, i) => <rect key={d.date} x={Math.floor(i / 7) * 10} y={(i % 7) * 10} width={8} height={8} rx={1} className={d.value ? 'fill-accent' : 'fill-skeleton'} fillOpacity={d.value ? 0.25 + 0.75 * d.value / max : 1}><title>{`${d.date}: ${String(d.value)} contributions`}</title></rect>)}
-    </svg>
-  </figure>;
-}
-
 function Axis({start, end}: {start: string | undefined; end: string | undefined}) {
   return (
     <div aria-hidden className="flex justify-between gap-2 text-xs text-muted tabular-nums">

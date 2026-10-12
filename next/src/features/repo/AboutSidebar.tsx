@@ -22,7 +22,6 @@ import {languageShares, percent, licenseOf, plural, releaseSummary, tagCount} fr
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label, Heading, CounterLabel, ProgressBar} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
 import {TopicTag} from '@primer/react/experimental';
 
 interface RepoProps {
@@ -36,7 +35,6 @@ export function AboutSidebar(props: RepoProps) {
     <>
       <SidebarSection title="About">
         <Description repoId={props.repoId}/>
-        <ForkOf repoId={props.repoId}/>
         <SidebarLinks label="Repository">
           <TreeLinks {...props}/>
           <SidebarLink icon={PulseIcon}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></SidebarLink>
@@ -67,21 +65,6 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
       )}
       {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><TopicTag as="span">{t}</TopicTag></li>)}</ul>}
     </>
-  );
-});
-
-const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
-  const pool = usePool();
-  const r = pool.model('Repository').get(repoId);
-  const parentId = r?.get('fork') ? r.get('parent_id') : 0;
-  const p = parentId > 0 ? pool.model('Repository').get(parentId) : undefined;
-  if (!p) return null;
-  return (
-    <p className="flex min-w-0 items-center gap-2 text-base text-muted">
-      <RepoForkedIcon size={16} className="shrink-0"/>
-      <span className="shrink-0">Forked from</span>
-      <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
-    </p>
   );
 });
 
@@ -198,14 +181,13 @@ function LanguagesAt({repoId, sha}: {repoId: number; sha: string}) {
   const total = shares.reduce((sum, share) => sum + share.value, 0);
   return (
     <SidebarSection title="Languages">
-      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={languageDots[share.tone]}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
+      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={`${LANGUAGE_TONES[share.tone]}.emphasis`} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={`var(--bgColor-${LANGUAGE_TONES[share.tone]}-emphasis)`}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
     </SidebarSection>
   );
 }
 
-const languageDots = {1: 'var(--bgColor-accent-emphasis)', 2: 'var(--bgColor-success-emphasis)', 3: 'var(--bgColor-attention-emphasis)', 4: 'var(--bgColor-done-emphasis)', 5: 'var(--bgColor-danger-emphasis)', other: 'var(--bgColor-neutral-emphasis)'} as const;
-
-const languageColors = {1: 'accent.emphasis', 2: 'success.emphasis', 3: 'attention.emphasis', 4: 'done.emphasis', 5: 'danger.emphasis', other: 'neutral.emphasis'} as const;
+/** The bar and the legend's dots share Primer's emphasis background of each slot. */
+const LANGUAGE_TONES = {1: 'accent', 2: 'success', 3: 'attention', 4: 'done', 5: 'danger', other: 'neutral'} as const;
 
 function SidebarSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
   const id = useId();

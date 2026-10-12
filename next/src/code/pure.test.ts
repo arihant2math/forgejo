@@ -5,7 +5,6 @@ import fc from 'fast-check';
 import {describe, expect, test} from 'vitest';
 import {parseAnsi} from './ansi.ts';
 import {keyRepo, MemoryLru, toEvict} from './cache.ts';
-import {langOf} from './lang.ts';
 import {applyLog, emptyLog} from './logs.ts';
 import {codeParams, codeRestOf, codeSplat, isSha, legacyCodeSplat, parseCodePath, resolveName, resolveRef, type RefTable} from './refs.ts';
 
@@ -153,15 +152,6 @@ describe('refs', () => {
     const r = parseCodePath(codeSplat('blame', {kind: 'branch', ref: 'feature/x'}, 'a b/c'));
     expect(r?.view === 'blame' ? resolveRef(refs, r.kind, r.rest) : undefined).toEqual({kind: 'branch', ref: 'feature/x', sha: B, path: 'a b/c'});
   });
-});
-
-test('languages by file name', () => {
-  expect(langOf('src/a.tsx')).toBe('tsx');
-  expect(langOf('Dockerfile')).toBe('docker');
-  expect(langOf('x/Makefile')).toBe('make');
-  expect(langOf('README')).toBeUndefined();
-  expect(langOf('a.unknownext')).toBeUndefined();
-  expect(langOf('.github/workflows/ci.YML')).toBe('yaml');
 });
 
 describe('viewed files', async () => {

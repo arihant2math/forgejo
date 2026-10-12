@@ -69,9 +69,9 @@ export const sidebar = (page: Page) => page.getByRole('complementary', {name: 'S
 export const issueList = (page: Page) => page.getByRole('listbox', {name: 'Issues'});
 export const issueTitle = (page: Page) => page.getByRole('main').getByRole('heading', {level: 2});
 export const activity = (page: Page) => page.getByRole('region', {name: 'Activity'});
-/** A property row of the issue sidebar (Status, Labels, Assignees, …): its value. */
+/** A Primer issue sidebar section (Status, Labels, Assignees, …), identified by its heading. */
 export const sidebarProp = (page: Page, name: string) =>
-  page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: new RegExp(`^${name}$`)}).locator('xpath=following-sibling::dd[1]');
+  page.getByRole('complementary', {name: 'Properties'}).locator('section').filter({has: page.getByRole('heading', {name, exact: true})});
 
 /** Opens the label picker (L) on the issue page and toggles `name`. */
 export async function toggleLabel(page: Page, name: string): Promise<void> {

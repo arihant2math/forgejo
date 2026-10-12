@@ -11,7 +11,7 @@ import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
-import {createElement, type ReactNode, useEffect, useRef, useState} from 'react';
+import {createElement, type ReactNode, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -24,6 +24,7 @@ import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
+import {ensurePickerLiveRegion} from '../issues/pickerLiveRegion.ts';
 import {labelColor, LabelGlyph, isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
@@ -465,6 +466,7 @@ function ConversationLock({locked, submit}: {locked: boolean; submit: (patch: {k
   const anchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
+  useLayoutEffect(() => {if (open) ensurePickerLiveRegion();}, [open]);
   const items = locked ? [{id: 'unlock', text: 'Unlock: everyone who can read it may comment again', leadingVisual: UnlockIcon}] :
     LOCK_REASONS.map((reason) => ({id: reason, text: reason}));
   return <SelectPanel title={locked ? 'Unlock the conversation' : 'Lock the conversation'} open={open} onOpenChange={setOpen}

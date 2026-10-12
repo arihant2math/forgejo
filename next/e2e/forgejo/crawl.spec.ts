@@ -275,6 +275,8 @@ test('the link crawler: every in-app link leads to a page of the app, without er
   test.setTimeout(15 * 60_000);
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
+  // Bound failed clicks so the walk can report every broken link rather than time out on the first few.
+  page.setDefaultTimeout(10_000);
   const problems = watch(page);
   const http: string[] = [];
   page.on('response', (r) => {

@@ -203,7 +203,7 @@ test('a local mutation is in the DOM within a frame of the key, before the serve
   if (!issue) throw new Error('fixture');
   await page.goto(`${BASE}/${USER}/${LIST_REPO}/issues/${String(issue.number)}`);
   await expect(page.getByRole('main').getByRole('heading', {level: 2})).toContainText(issue.title, {timeout: 30_000});
-  const labels = page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: /^Labels$/}).locator('xpath=following-sibling::dd[1]');
+  const labels = page.getByRole('complementary', {name: 'Properties'}).locator('section').filter({has: page.getByRole('heading', {name: 'Labels', exact: true})});
   await labels.evaluate((el) => {
     el.setAttribute('data-perf', 'labels');
   });
@@ -329,11 +329,11 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(codeUrl(CODE_REPO, 'src/branch/main/src/main.go'));
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('.text-syntax-keyword').first()).toBeVisible({timeout: 15_000});
   // Warm the cache: every file of the loop seen once (fetched, highlighted).
   for (const f of ['other.go', 'third.ts']) {
     await page.goto(codeUrl(CODE_REPO, `src/branch/main/src/${f}`));
-    await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
+    await expect(page.locator('.text-syntax-keyword').first()).toBeVisible({timeout: 15_000});
   }
   // Cached: the measured switches (the click on the file, not the way back to its directory) fetch nothing:
   // the file's blob and highlight come from this device.
@@ -358,7 +358,7 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
         for (;;) {
           await new Promise((r) => requestAnimationFrame(r));
           const list = [...document.querySelectorAll('[role=list]')].find((el) => want.test(el.getAttribute('aria-label') ?? ''));
-          if (list?.querySelector('.text-syn-keyword')) return performance.now() - t0;
+          if (list?.querySelector('.text-syntax-keyword')) return performance.now() - t0;
           if (performance.now() - t0 > 5000) return Number.POSITIVE_INFINITY;
         }
       }, to));
@@ -390,7 +390,7 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
   await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 30_000});
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 30_000});
+  await expect(page.locator('.text-syntax-keyword').first()).toBeVisible({timeout: 30_000});
   const runs: ScrollRun[] = [];
   for (let run = 0; run < 3; run++) {
     runs.push(await page.evaluate(async () => {
@@ -495,7 +495,7 @@ test('loaded list search and diff scrolling avoid long tasks at 4x CPU', async (
     }
     await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
     await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
-    await expect(page.locator('.text-syn-keyword').first()).toBeVisible();
+    await expect(page.locator('.text-syntax-keyword').first()).toBeVisible();
     await page.waitForTimeout(1000);
     const scrolling: number[][] = [];
     await page.getByRole('list', {name: 'Changes'}).hover();

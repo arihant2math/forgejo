@@ -27,7 +27,7 @@ test('another person’s activity opens in-app and the last page remains offline
   await expect(link).toBeVisible({timeout: 30_000});
   await link.click();
   await expect(page).toHaveURL(new RegExp(`/${USER}/${repo}/issues/${String(number)}$`));
-  await expect(page.getByRole('heading', {name: 'Activity from another person'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Activity from another person', exact: true})).toBeVisible();
   await page.goBack();
   await expect(link).toBeVisible();
   await context.setOffline(true);

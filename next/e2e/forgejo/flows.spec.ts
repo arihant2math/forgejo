@@ -14,12 +14,16 @@
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, type ApiIssue, b64, newIssue, ok, seed} from '../lib/api.ts';
-import {issueTitle, sidebarProp, signedIn, watch} from '../lib/app.ts';
+import {issueTitle, signedIn, watch} from '../lib/app.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {classicColumn, classicProject} from '../lib/projects.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
+
+/** Primer sidebar fields are a heading and its value, not definition-list rows. */
+const sidebarProp = (page: Page, name: string) =>
+  page.getByRole('complementary', {name: 'Properties'}).locator('section').filter({has: page.getByRole('heading', {name, exact: true})});
 
 const RUN = Date.now().toString(36);
 const REPO = `flows-${RUN}`;

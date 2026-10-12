@@ -13,12 +13,16 @@
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, labelId as repoLabelId, seed} from '../lib/api.ts';
-import {issueList as listbox, unsyncedButton, issueTitle, sidebarProp, signedIn, signIn, watch} from '../lib/app.ts';
+import {issueList as listbox, unsyncedButton, issueTitle, signedIn, signIn, watch} from '../lib/app.ts';
 import {storedRecords} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 test.describe.configure({mode: 'serial'});
+
+/** Primer sidebar fields are a heading and its value, not definition-list rows. */
+const sidebarProp = (page: Page, name: string) =>
+  page.getByRole('complementary', {name: 'Properties'}).locator('section').filter({has: page.getByRole('heading', {name, exact: true})});
 
 const REPO = process.env.NEXT_E2E_REPO ?? 'f4';
 const ISSUES = Number(process.env.NEXT_E2E_ISSUES ?? 400);
@@ -270,7 +274,7 @@ test('opening an issue that is in the pool shows it at once, with no spinner, be
   await expect(page.locator('[role="progressbar"], .spinner, [aria-label*="oading"]')).toHaveCount(0);
   release();
   await expect(page.locator('[aria-busy]')).toHaveCount(0, {timeout: 15_000});
-  await expect(page.locator('.prose').first()).toContainText('Steps to reproduce');
+  await expect(page.locator('.markdown-body').first()).toContainText('Steps to reproduce');
   expect(problems).toEqual([]);
   await ctx.close();
 });
@@ -409,14 +413,14 @@ test('changes by another user arrive live in an open list and an open issue', as
 
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(x.number)}`);
   await expect(issueTitle(page)).toContainText(renamed);
-  await expect(page.locator('.prose').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('.markdown-body').first()).toBeVisible({timeout: 15_000});
   const comment = `A comment from alice ${String(Date.now())} with <script>alert(1)</script> and **bold**`;
   const t1 = Date.now();
   await api('POST', `/repos/${USER}/${REPO}/issues/${String(x.number)}/comments`, {body: comment}, alice);
   await expect(page.getByRole('region', {name: 'Activity'})).toContainText('A comment from alice', {timeout: 10_000});
   results.liveCommentInDetail = {ms: Date.now() - t1};
   await expect(page.getByRole('region', {name: 'Activity'}).locator('strong', {hasText: 'bold'})).toBeVisible();
-  await expect(page.locator('.prose script')).toHaveCount(0);
+  await expect(page.locator('.markdown-body script')).toHaveCount(0);
   await api('POST', `/repos/${USER}/${REPO}/issues/${String(x.number)}/labels`, {labels: [await labelId('security')]}, alice);
   await expect(sidebarProp(page, 'Labels')).toContainText('security', {timeout: 10_000});
   await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(x.number)}`, {title: x.title}, alice);

@@ -249,7 +249,13 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await page.keyboard.press('Escape');
   // Offline, column changes say why; card moves still work (queued).
   await goOffline(devCtx, page);
-  await expect(page.getByRole('button', {name: 'Add column'})).toBeDisabled();
+  const addColumn = page.getByRole('button', {name: 'Add column'});
+  await expect(addColumn).toHaveAttribute('data-inactive', 'true');
+  await addColumn.click();
+  await expect(page.getByRole('textbox', {name: 'New column name'})).toHaveCount(0);
+  await addColumn.hover();
+  await expect(page.getByRole('tooltip')).toContainText('Adding a column');
+  await expect(page.getByRole('tooltip')).toContainText('not queued offline');
   // The card under the cursor moves (a sideways move keeps the card's rank, so it need not be the first).
   await column(page, target).getByRole('listbox').focus();
   const lastCard = column(page, target).locator('[data-active]');
@@ -439,12 +445,12 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   const text = `**bold** and #${String(target.number)}\n\n<img src=x onerror="alert(1)"><script>alert(2)</script><a href="javascript:alert(3)">x</a>`;
   await page.keyboard.type(text);
   await page.keyboard.press('ControlOrMeta+Shift+P');
-  const preview = page.locator('.prose').last();
+  const preview = page.locator('.markdown-body').last();
   await expect(preview.locator('strong')).toHaveText('bold', {timeout: 10_000});
   await expect(preview.locator('script')).toHaveCount(0);
   await expect(preview.locator('[onerror]')).toHaveCount(0);
   expect(await preview.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href') ?? '').filter((h) => /^\s*javascript:/i.test(h)))).toEqual([]);
-  await page.getByRole('radio', {name: 'Write'}).click();
+  await page.getByRole('button', {name: 'Write', exact: true}).click();
   await expect(editor).toBeFocused();
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect(page.getByRole('region', {name: 'Activity'}).locator('strong', {hasText: 'bold'})).toBeVisible({timeout: 20_000});

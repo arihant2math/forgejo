@@ -4,6 +4,7 @@
 import {observer} from 'mobx-react-lite';
 import {runInAction} from 'mobx';
 import {canWrite} from '../../app/access.ts';
+import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import type {Entity} from '../../data/entity.ts';
@@ -23,7 +24,12 @@ export const DraftControl = observer(function DraftControl({issue}: {issue: Enti
   const toggle = () => {
     runInAction(() => {
       const next = draftTitle(title, !draft, prefixes);
-      if (next.trim() && next.length <= 255 && next !== title) intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: next, base: title});
+      if (!next.trim() || next.length > 255 || next === title) return;
+      const ref = {kind: 'issue.title' as const, issueId: issue.id, repoId: issue.get('repo_id')};
+      intents.submit({...ref, title: next, base: title});
+      notify(app, {tone: 'neutral', title: draft ? 'Ready for review' : 'Converted to draft', series: 'pull.draft', action: {label: 'Undo', run: () => {
+        intents.submit({...ref, title, base: issueTitle(overlay, issue)});
+      }}});
     });
   };
   useShortcut('pull.ready', toggle, allowed && draft);

@@ -47,7 +47,7 @@ test('offline edits (labels, description, comments) while another user edits the
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
-  await expect(page.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
+  await expect(page.locator('.markdown-body').first()).toContainText('Line one.', {timeout: 20_000});
 
   await goOffline(ctx, page);
   await addLabel(page, 'docs');
@@ -81,7 +81,7 @@ test('offline edits (labels, description, comments) while another user edits the
   expect(all.filter((c) => c === mine)).toHaveLength(1);
   expect(all.filter((c) => c === hers)).toHaveLength(1);
   // The page: the server's rendering, no pending marks.
-  await expect(page.locator('.prose').first()).toContainText('Line three, by alice.', {timeout: 10_000});
+  await expect(page.locator('.markdown-body').first()).toContainText('Line three, by alice.', {timeout: 10_000});
   await expect(page.getByText('Not synced')).toHaveCount(0);
   await expect(activity(page)).toContainText(hers);
   expect(problems).toEqual([]);
@@ -93,14 +93,14 @@ test('a description conflict is shown in the editor and resolved there', async (
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
-  await expect(page.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
+  await expect(page.locator('.markdown-body').first()).toContainText('Line one.', {timeout: 20_000});
   await goOffline(ctx, page);
   await page.getByRole('button', {name: 'Edit the description'}).click();
   await page.getByRole('textbox', {name: 'Description'}).fill('Line one, MINE.\n\nLine two.\n\nLine three.');
   await page.getByRole('button', {name: 'Save'}).click();
   expect((await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {body: 'Line one, THEIRS.\n\nLine two.\n\nLine three.'}, alice)).ok).toBe(true);
   await goOnline(ctx, page);
-  const callout = page.getByRole('main').getByRole('note').filter({hasText: 'Your edit conflicts with a newer change'});
+  const callout = page.getByRole('main').getByRole('heading', {name: 'Your edit conflicts with a newer change', exact: true});
   await expect(callout).toBeVisible({timeout: 20_000});
   const editor = page.getByRole('textbox', {name: 'Resolve the description'});
   // The CodeMirror editor (F6): its lines as text.
@@ -137,7 +137,7 @@ test('two tabs: the follower’s offline comment is flushed once even when the l
   await leader.goto(path);
   const follower = await ctx.newPage();
   await follower.goto(path);
-  await expect(follower.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
+  await expect(follower.locator('.markdown-body').first()).toContainText('Line one.', {timeout: 20_000});
   await goOffline(ctx, follower);
   const text = `From the follower ${String(Date.now())}`;
   await follower.getByRole('textbox', {name: 'Leave a comment'}).fill(text);
@@ -177,7 +177,7 @@ test('the service worker update path: a new build waits, "Reload" activates it',
     writeFileSync(index, htmlBefore.replaceAll(version, next));
     utimesSync(index, new Date(), new Date());
     await page.reload();
-    const notice = page.getByRole('status').filter({hasText: 'A new version is ready'});
+    const notice = page.getByRole('region', {name: 'A new version is ready', exact: true});
     await expect(notice).toBeVisible({timeout: 30_000});
     await notice.getByRole('button', {name: 'Reload'}).click();
     await page.waitForLoadState('load');

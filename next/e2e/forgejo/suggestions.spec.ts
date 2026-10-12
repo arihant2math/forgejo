@@ -20,7 +20,9 @@ test('write a line suggestion and commit it to the pull head', async ({page}) =>
     const pull = await (await ok(await api('POST', `${path}/pulls`, {head: 'suggestion', base: 'main', title: 'Suggest a change'}), 'create pull')).json() as {number: number};
     await signIn(page);
     await page.goto(`${BASE}/${USER}/${repo}/pulls/${String(pull.number)}/files`);
-    await page.getByRole('button', {name: 'Comment on line 1', exact: true}).last().click();
+    const line = page.getByRole('list', {name: 'Changes'}).getByRole('listitem').filter({hasText: 'review me'});
+    await line.hover();
+    await line.getByRole('button', {name: 'Comment on line 1', exact: true}).click();
     await page.getByRole('button', {name: 'Suggest change', exact: true}).click();
     const composer = page.getByRole('textbox', {name: 'Review comment', exact: true});
     await expect(composer).toHaveValue('```suggestion\nreview me\n```');

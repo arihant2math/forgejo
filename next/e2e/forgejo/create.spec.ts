@@ -32,7 +32,7 @@ test('without the scope, the forms say so up front and offer the classic form', 
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/repo/create`);
-  const note = page.getByRole('note').filter({hasText: 'Forgejo Next cannot create repositories in your account yet'});
+  const note = page.getByRole('region', {name: 'Forgejo Next cannot create repositories yet'});
   await expect(note).toBeVisible();
   await expect(note.getByRole('link', {name: /Use the classic form/})).toHaveAttribute('href', '/repo/create?ui=classic');
   // The name is still checked as it is typed; the button says why it does not create.
@@ -40,7 +40,7 @@ test('without the scope, the forms say so up front and offer the classic form', 
   await expect(page.getByText(`never-${RUN} is available.`)).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create repository'})).toHaveAttribute('aria-disabled', 'true');
   await page.goto(`${BASE}/org/create`);
-  await expect(page.getByRole('note').filter({hasText: 'Forgejo Next cannot create organizations yet'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Forgejo Next cannot create organizations yet'})).toBeVisible();
   expect(problems).toEqual([]);
   await ctx.close();
 });
@@ -65,9 +65,9 @@ test('a new repository: from the account menu, the name checked, initialized, it
 
   const name = page.getByRole('textbox', {name: 'Repository name'});
   await name.fill('has space');
-  await expect(page.getByRole('alert').filter({hasText: 'Try “has-space”'})).toBeVisible();
+  await expect(page.getByText('Try “has-space”', {exact: false})).toBeVisible();
   await name.fill(`taken-${RUN}`);
-  await expect(page.getByRole('alert').filter({hasText: 'already has a repository'})).toBeVisible();
+  await expect(page.getByText('already has a repository', {exact: false})).toBeVisible();
   await name.fill(REPO);
   await expect(page.getByText(`${REPO} is available.`)).toBeVisible();
 
@@ -100,9 +100,9 @@ test('a new organization, then a repository in it from its page (?org= picks the
   await expect(page.getByRole('heading', {name: 'Create a new organization'})).toBeVisible();
   const name = page.getByRole('textbox', {name: 'Organization name'});
   await name.fill('repo');
-  await expect(page.getByRole('alert').filter({hasText: 'reserved'})).toBeVisible();
+  await expect(page.getByText('reserved', {exact: false})).toBeVisible();
   await name.fill(USER);
-  await expect(page.getByRole('alert').filter({hasText: 'is taken'})).toBeVisible();
+  await expect(page.getByText('is taken', {exact: false})).toBeVisible();
   await name.fill(ORG);
   await page.getByRole('radio', {name: /Limited/}).check();
   await page.getByRole('button', {name: 'Create organization'}).click();

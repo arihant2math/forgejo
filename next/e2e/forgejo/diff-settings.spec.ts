@@ -25,7 +25,7 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(pull.number)}?tab=files`);
   await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
-  await page.getByRole('radio', {name: 'Split', exact: true}).click();
+  await page.getByRole('button', {name: 'Split', exact: true}).click();
   await page.keyboard.press('Escape');
   const changes = page.getByRole('list', {name: 'Changes'});
   await changes.focus();
@@ -42,7 +42,7 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await page.getByRole('button', {name: 'Start a review', exact: true}).click();
   await expect(page.getByText('Old-side draft', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
-  await page.getByRole('checkbox', {name: 'Hide whitespace changes'}).click();
+  await page.getByRole('button', {name: 'Hide whitespace changes', exact: true}).click();
   await page.keyboard.press('Escape');
   await expect(page.getByText('No changes', {exact: true})).toBeVisible();
   await page.goto(codeUrl(REPO, `commit/${pull.head.sha}`));
@@ -50,8 +50,8 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await page.goto(codeUrl(REPO, 'compare/main...spaces'));
   await expect(page.getByText('No changes', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
-  await expect(page.getByRole('radio', {name: 'Split', exact: true})).toBeChecked();
-  await page.getByRole('checkbox', {name: 'Hide whitespace changes'}).click();
+  await expect(page.getByRole('button', {name: 'Split', exact: true})).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', {name: 'Hide whitespace changes', exact: true}).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
   await page.goto(`${page.url()}?w=1`);

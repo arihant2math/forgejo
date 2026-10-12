@@ -11,7 +11,7 @@
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type RefObject, useEffect, useRef, useState, createElement} from 'react';
+import {type RefObject, useEffect, useLayoutEffect, useRef, useState, createElement} from 'react';
 import {afterPaint} from '../../app/paint.ts';
 import {viewChange} from '../../app/shell/Frame.tsx';
 import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLabels} from '../../app/search.ts';
@@ -33,6 +33,7 @@ import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
+import {ensurePickerLiveRegion} from './pickerLiveRegion.ts';
 import {IssueLabelToken, SelectPanel, SegmentedControl, TextInput, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
@@ -377,6 +378,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const me = app.session?.userId ?? 0;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  useLayoutEffect(() => {if (open) ensurePickerLiveRegion();}, [open]);
   const active = activeFilters(pool, search, set, (app.session?.data.status.loading ?? 0) > 0);
   const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
   if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {

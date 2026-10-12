@@ -23,7 +23,7 @@ import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, PencilIcon} from '@primer/octicons-react';
-import {Avatar, CounterLabel, IconButton, NavList} from '@primer/react';
+import {Avatar, CounterLabel, IconButton, NavList, Tooltip} from '@primer/react';
 import {ChevronDownIcon, ChevronRightIcon, RepoIcon} from '@primer/octicons-react';
 
 /** New issue (C), available from the sidebar and shortcut registry. */
@@ -52,7 +52,7 @@ const InboxItem = observer(function InboxItem() {
   const {ui} = useApp();
   // The overlay-aware count once the queue runs (a read marked offline counts at once), else the pool's.
   const unread = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
-  return <RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem>;
+  return <Tooltip text={KEYMAP['go.inbox'].label} keybindingHint={KEYMAP['go.inbox'].keys} direction="e"><RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem></Tooltip>;
 });
 
 // ── Workspace: owners and their repositories ─────────────────────────────
@@ -303,8 +303,8 @@ export function Sidebar() {
         <NavList aria-label="Main">
           <RouterNavItem to="/" activeOptions={{exact: true, includeSearch: false}}><NavList.LeadingVisual><HomeIcon/></NavList.LeadingVisual>Home</RouterNavItem>
           <InboxItem/>
-          <RouterNavItem to="/issues" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><IssueOpenedIcon/></NavList.LeadingVisual>My issues</RouterNavItem>
-          <RouterNavItem to="/pulls" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><GitPullRequestIcon/></NavList.LeadingVisual>My pull requests</RouterNavItem>
+          <Tooltip text={KEYMAP['go.issues'].label} keybindingHint={KEYMAP['go.issues'].keys} direction="e"><RouterNavItem to="/issues" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><IssueOpenedIcon/></NavList.LeadingVisual>My issues</RouterNavItem></Tooltip>
+          <Tooltip text={KEYMAP['go.pulls'].label} keybindingHint={KEYMAP['go.pulls'].keys} direction="e"><RouterNavItem to="/pulls" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><GitPullRequestIcon/></NavList.LeadingVisual>My pull requests</RouterNavItem></Tooltip>
           <RouterNavItem to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}><NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Explore</RouterNavItem>
           <BoardsItem/>
           <Workspace/>

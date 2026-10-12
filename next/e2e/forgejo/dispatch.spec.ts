@@ -64,12 +64,12 @@ test('manually dispatch a never-run workflow with typed inputs on a tag, then op
   await run.click();
   const dialog = page.getByRole('dialog', {name: 'Run workflow'});
   await expect(dialog.getByLabel('count', {exact: true})).toHaveValue('2');
-  await expect(dialog.getByLabel('dry_run', {exact: true})).toBeChecked();
+  await expect(dialog.getByRole('button', {name: 'dry_run', exact: true})).toHaveAttribute('aria-pressed', 'true');
   await dialog.getByRole('button', {name: 'Run on: main'}).click();
   await page.getByRole('option', {name: 'v1', exact: true}).click();
   await expect(dialog.getByLabel('count', {exact: true})).toHaveValue('2');
   await dialog.getByLabel('target', {exact: true}).selectOption('production');
-  await dialog.getByLabel('dry_run', {exact: true}).click();
+  await dialog.getByRole('button', {name: 'dry_run', exact: true}).click();
   await dialog.getByLabel('count', {exact: true}).fill('3');
   await dialog.getByRole('button', {name: 'Run workflow', exact: true}).click();
   await expect(dialog.getByRole('alert')).toHaveText('message is required.');

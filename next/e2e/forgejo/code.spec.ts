@@ -125,21 +125,21 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   expect(await below(repoTabs, crumbs)).toBe(true);
   expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);
   // Highlighted in the worker: keyword spans (classes only, no HTML from the file).
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
-  await expect(page.locator('.text-syn-keyword').first()).toHaveText(/package|import|func/);
+  await expect(page.locator('.text-syntax-keyword').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('.text-syntax-keyword').first()).toHaveText(/package|import|func/);
   // Blame.
-  await page.getByRole('radio', {name: 'Blame'}).click();
+  await page.getByRole('button', {name: 'Blame', exact: true}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();
   // Highlighted too (the same highlighting, by blob SHA: from memory).
-  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syn-keyword').first()).toBeVisible();
+  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syntax-keyword').first()).toBeVisible();
   // Hostile file name and content: text.
   await page.goto(code('src/branch/main/docs'));
   await page.getByRole('option', {name: /onerror/}).click();
   // A markdown file opens rendered (scrubbed: no script, no event handler); its source is text.
-  await expect(page.getByRole('radio', {name: 'Preview'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('button', {name: 'Preview', exact: true})).toBeVisible({timeout: 15_000});
   expect(await page.locator('main script, main [onerror]').count()).toBe(0);
-  await page.getByRole('radio', {name: 'Markup'}).click();
+  await page.getByRole('button', {name: 'Markup', exact: true}).click();
   await expect(page.getByText('<img src=x onerror=alert(2)>')).toBeVisible({timeout: 15_000});
   expect(await page.locator('main img').count()).toBe(0);
   // A name with a space.

@@ -14,7 +14,7 @@ test('contribute from a fork and toggle maintainer edits in the sidebar', async 
   try {
     await signIn(page);
     await page.goto(`${BASE}/${USER}/${upstream}`);
-    await page.getByRole('button', {name: /^Fork ·/}).click();
+    await page.getByRole('button', {name: /^Fork\b/}).click();
     const dialog = page.getByRole('dialog', {name: 'Create a new fork'});
     await dialog.getByRole('textbox', {name: 'Repository name'}).fill(fork);
     await expect(dialog.getByText(`${fork} is available.`)).toBeVisible();

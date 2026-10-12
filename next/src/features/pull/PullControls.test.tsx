@@ -6,6 +6,7 @@ import {runInAction} from 'mobx';
 import type {ReactNode} from 'react';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
+import {undoLatest} from '../../app/notices.ts';
 import {shortcuts} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/session.ts';
 import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
@@ -126,4 +127,21 @@ test('draft: the Primer menu queues a title intent offline and swaps the palette
   expect(shortcuts.bound().has('pull.draft')).toBe(false);
   fireEvent.click(screen.getByRole('button', {name: 'Ready for review'}));
   expect(submit).toHaveBeenLastCalledWith({kind: 'issue.title', issueId: 100, repoId: 20, title: 'Add the footer', base: 'WIP: Add the footer'});
+});
+
+test('draft: making a pull ready offline can be undone, then making it a draft can be undone', async () => {
+  const {wrap, entity, app} = setup({connection: 'offline', title: 'WIP: Add the footer'});
+  const submit = vi.spyOn(editing(app).intents, 'submit');
+  wrap(<DraftControl issue={entity}/>);
+  fireEvent.click(screen.getByRole('button', {name: 'Ready for review'}));
+  expect(app.ui.notices.find((n) => n.series === 'pull.draft')?.action?.label).toBe('Undo');
+  act(() => {undoLatest(app);});
+  expect(submit).toHaveBeenLastCalledWith({kind: 'issue.title', issueId: 100, repoId: 20, title: 'WIP: Add the footer', base: 'Add the footer'});
+  expect(await screen.findByRole('button', {name: 'Ready for review'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Ready for review'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Pull request actions'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Convert to draft'}));
+  act(() => {undoLatest(app);});
+  expect(submit).toHaveBeenLastCalledWith({kind: 'issue.title', issueId: 100, repoId: 20, title: 'Add the footer', base: 'WIP: Add the footer'});
+  expect(await screen.findByRole('button', {name: 'Pull request actions'})).toBeTruthy();
 });

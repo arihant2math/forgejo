@@ -13,11 +13,13 @@ test('create, edit, close, reopen and delete a personal board without Classic', 
   const problems = watch(page);
   const title = `Planning ${String(Date.now())}`;
   await page.goto(`${BASE}/${USER}`);
+  await page.getByRole('navigation', {name: 'Profile sections', exact: true}).getByRole('link', {name: 'Boards', exact: true}).click();
   await page.getByRole('button', {name: 'New board', exact: true}).click();
   const form = page.getByRole('dialog', {name: 'New board'});
   await form.getByRole('textbox', {name: 'Title', exact: true}).fill(title);
   await form.getByRole('textbox', {name: 'Description'}).fill('Monthly planning');
-  await form.getByRole('radio', {name: 'Basic kanban'}).click();
+  await form.getByRole('button', {name: 'Basic kanban', exact: true}).click();
+  await expect(form.getByRole('button', {name: 'Basic kanban', exact: true})).toHaveAttribute('aria-pressed', 'true');
   await form.getByRole('button', {name: 'Create board'}).click();
   await expect(page.getByRole('heading', {level: 1, name: title})).toBeVisible({timeout: 30_000});
   const boardURL = page.url();
@@ -32,7 +34,8 @@ test('create, edit, close, reopen and delete a personal board without Classic', 
   await page.getByRole('menuitem', {name: 'Close board', exact: true}).click();
   await expect(page.getByText('Closed', {exact: true}).first()).toBeVisible();
   await page.goto(`${BASE}/-/next/boards`);
-  await page.getByRole('radio', {name: 'Closed', exact: true}).click();
+  await page.getByRole('button', {name: 'Closed', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Closed', exact: true})).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('link', {name: `${title} updated`, exact: true}).click();
   await page.getByRole('button', {name: 'Board settings'}).click();
   await page.getByRole('menuitem', {name: 'Reopen board'}).click();

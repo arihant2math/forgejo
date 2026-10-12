@@ -21,8 +21,7 @@
 // Touch pointers do not drag (they scroll); the card menu's "Move to" and
 // the keyboard (Shift+H/J/K/L) move cards without a pointer.
 
-/** A card's slot: `h-card` (96px, tokens.css) + the 8px gap under it. */
-export const SLOT = 104;
+import {SLOT} from './geometry.ts';
 /** The column body's top padding (pt-1). */
 const PAD_TOP = 4;
 /** The column body's side padding (px-2): the indicator spans the cards. */

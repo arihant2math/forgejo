@@ -10,6 +10,7 @@ export interface PickOption {
   value: string;
   label: string;
   words?: string | undefined;
+  description?: string | undefined;
   group?: string | undefined;
   icon?: Icon | undefined;
   leading?: ReactNode;
@@ -26,20 +27,25 @@ export function matchOptions(options: readonly PickOption[], query: string): rea
 
 /** Primer items keep selection distinct from the keyboard's active descendant. */
 export function panelItems(options: readonly PickOption[], onClose: () => void): SelectPanelItemInput[] {
-  return options.map((option) => ({
-    id: option.value,
-    text: option.label,
-    groupId: option.group ?? 'choices',
-    ...(option.leading ? {leadingVisual: () => <>{option.leading}</>} : option.icon ? {leadingVisual: option.icon} : {}),
-    ...(option.meta ? {trailingVisual: option.meta} : {}),
-    ...(option.checked === 'mixed' ? {description: 'Applied to some issues'} : option.group ? {description: option.group} : {}),
-    onAction: (_, event) => {
-      // These issue actions apply immediately, including when a selection is mixed.
-      event.preventDefault();
-      option.onSelect();
-      if (!option.keepOpen) onClose();
-    },
-  }));
+  return options.map((option) => {
+    const description = [option.description, option.checked === 'mixed' ? 'Applied to some issues' :
+      !option.description ? option.group : undefined].filter(Boolean).join(' · ');
+    return {
+      id: option.value,
+      text: option.label,
+      groupId: option.group ?? 'choices',
+      ...(option.leading ? {leadingVisual: () => <>{option.leading}</>} : option.icon ? {leadingVisual: option.icon} : {}),
+      ...(option.meta ? {trailingVisual: option.meta} : {}),
+      ...(description ? {description} : {}),
+      ...(option.description ? {descriptionVariant: 'block' as const} : {}),
+      onAction: (_, event) => {
+        // These issue actions apply immediately, including when a selection is mixed.
+        event.preventDefault();
+        option.onSelect();
+        if (!option.keepOpen) onClose();
+      },
+    };
+  });
 }
 
 export function panelGroups(options: readonly PickOption[]) {

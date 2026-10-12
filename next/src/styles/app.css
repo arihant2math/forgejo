@@ -180,6 +180,7 @@
 /* A board card's title: wraps, cut after --card-title-lines lines. */
 @utility clamp-title {
   display: -webkit-box;
+  line-height: var(--base-size-20);
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: var(--card-title-lines);

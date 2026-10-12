@@ -12,7 +12,7 @@ import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
 import {SidebarExpandIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {IconButton, PageHeader as PrimerPageHeader} from '@primer/react';
+import {IconButton, PageHeader as PrimerPageHeader, Text} from '@primer/react';
 
 export interface PageHeaderProps {
   title: ReactNode;
@@ -23,6 +23,11 @@ export interface PageHeaderProps {
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
   docTitle?: string | undefined;
+  /**
+   * A detail page (an issue, a pull request, a board) whose body shows its title large: the header's title is the
+   * breadcrumb's quiet last item, still the page's h1.
+   */
+  leaf?: boolean | undefined;
 }
 
 /** How many not-found states are on screen: while one is, the tab says "Not found", whatever the page's header. */
@@ -72,7 +77,7 @@ const DocumentTitle = observer(function DocumentTitle({text}: {text: string | un
  * panel the breadcrumb takes a row above and the controls wrap below the title.
  * Panel width, not viewport width, accounts for the space taken by the sidebar.
  */
-export function PageHeader({title, icon, context, children, docTitle}: PageHeaderProps) {
+export function PageHeader({title, icon, context, children, docTitle, leaf = false}: PageHeaderProps) {
   return (
     <header className="min-h-header shrink-0 border-b border-default px-4 py-2">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
@@ -82,8 +87,16 @@ export function PageHeader({title, icon, context, children, docTitle}: PageHeade
             {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
             <PrimerPageHeader.LeadingAction hidden={false} className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex"><SidebarToggle/></PrimerPageHeader.LeadingAction>
             <PrimerPageHeader.TitleArea className="min-w-0">
-              {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
-              <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+              {leaf ? (
+                // Keep the heading slot's line-height so smaller leaf text does not move the page below.
+                <div className="flex min-h-lh min-w-0 items-center gap-2">
+                  {icon && pageIcon(icon)}
+                  <Text as="h1" size="medium" weight="normal" aria-current="page">{title}</Text>
+                </div>
+              ) : <>
+                {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+                <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+              </>}
             </PrimerPageHeader.TitleArea>
           </PrimerPageHeader>
         </div>

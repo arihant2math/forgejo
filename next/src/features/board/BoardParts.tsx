@@ -4,6 +4,7 @@
 import {type HTMLAttributes, type ReactNode, type Ref, useCallback, useEffect, useRef} from 'react';
 import {clsx} from 'clsx';
 import {CounterLabel} from '@primer/react';
+import {CARD_HEIGHT} from './geometry.ts';
 
 export interface BoardColumnProps {
   /** The column's name (its listbox is labelled by it). */
@@ -121,14 +122,15 @@ export function BoardCard({active, dragging, meta, title, footer, href, ...rest}
       data-active={active ? '' : undefined}
       data-dragging={dragging ? '' : undefined}
       className={clsx(
-        'group flex h-card cursor-default flex-col gap-1 overflow-hidden rounded-md border border-default bg-default px-2 py-1 contain-content select-none',
+        'group flex cursor-default flex-col overflow-hidden rounded-md border border-default bg-default px-2 py-1 contain-content select-none',
         'hover:border-emphasis data-active:border-accent-emphasis data-dragging:opacity-disabled',
       )}
       {...props}
+      style={{height: CARD_HEIGHT}}
     >
-      <div className="flex h-5 shrink-0 items-center gap-1 text-sm text-muted tabular-nums">{meta}</div>
-      <div className="clamp-title min-h-0 text-base font-semibold text-default group-hover:text-accent group-hover:underline">{title}</div>
-      {footer && <div className="mt-auto flex min-w-0 shrink-0 items-center gap-1">{footer}</div>}
+      <div className="mb-1 flex h-5 shrink-0 items-center gap-1 text-sm text-muted tabular-nums">{meta}</div>
+      <div className="clamp-title h-10 shrink-0 text-base font-semibold text-default group-hover:text-accent group-hover:underline">{title}</div>
+      {footer && <div className="mt-2 flex h-5 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap">{footer}</div>}
     </Tag>
   );
 }

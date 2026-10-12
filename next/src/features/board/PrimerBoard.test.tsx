@@ -15,10 +15,12 @@ import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
+import {LabelsCell} from '../issues/cells.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {BoardCard, BoardColumn} from './BoardParts.tsx';
 import {BoardPage} from './BoardView.tsx';
 import {BoardModel} from './model.ts';
+import {CARD_HEIGHT, SLOT} from './geometry.ts';
 import {BoardSettings, NewBoard} from './ProjectDialogs.tsx';
 
 vi.mock('@tanstack/react-router', async (original) => ({...await original<typeof RouterModule>(), useNavigate: () => vi.fn().mockResolvedValue(undefined), useParams: () => ({id: '10'}), useSearch: () => undefined}));
@@ -54,10 +56,37 @@ test('Primer lanes retain fixed-height, contained, selected link cards and named
   expect(card.getAttribute('href')).toBe('/alice/sandbox/issues/1');
   expect(card.getAttribute('aria-selected')).toBe('true');
   expect(card.hasAttribute('data-dragging')).toBe(true);
-  expect(card.classList.contains('h-card')).toBe(true);
+  expect(card.style.height).toBe(`${String(CARD_HEIGHT)}px`);
+  expect(CARD_HEIGHT).toBe(104);
+  expect(SLOT).toBe(CARD_HEIGHT + 8);
   expect(card.classList.contains('contain-content')).toBe(true);
   expect(card.classList.contains('py-1')).toBe(true);
   expect(card.firstElementChild?.classList.contains('h-5')).toBe(true);
+});
+
+test('two-line titles reserve 40px and keep labels in a separate, contained single line', () => {
+  const {s, mount} = fixture();
+  for (const [index, name] of ['bug', 'enhancement', 'good first issue'].entries()) {
+    const id = index + 1;
+    s.data.put('Label', 'repo:20', {id, repo_id: 20, org_id: 0, name, exclusive: false, description: '', color: 'e11d21',
+      num_issues: 0, num_closed_issues: 0, created_at: T});
+    s.data.put('IssueLabel', 'repo:20', {id, issue_id: 30, label_id: id});
+  }
+  const cardIssue = s.data.pool.model('Issue').get(30);
+  if (!cardIssue) throw new Error('Missing issue fixture');
+  const title = 'Preview window flickers when resizing the terminal in tmux';
+  mount(<BoardCard meta="#1" title={title} footer={<LabelsCell issue={cardIssue} max={2}/>}/>);
+  const titleRow = screen.getByText(title);
+  for (const name of ['clamp-title', 'h-10', 'shrink-0']) {
+    expect(titleRow.classList.contains(name)).toBe(true);
+  }
+  const labelsRow = titleRow.nextElementSibling;
+  for (const name of ['mt-2', 'h-5', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap']) {
+    expect(labelsRow?.classList.contains(name)).toBe(true);
+  }
+  expect(screen.getByText('bug')).toBeTruthy();
+  expect(screen.getByText('enhancement')).toBeTruthy();
+  expect(screen.getByText('+1').getAttribute('title')).toBe('good first issue');
 });
 
 test('SelectPanel adds picked issues offline and offers a typed new issue with Enter', async () => {

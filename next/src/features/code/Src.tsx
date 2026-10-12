@@ -10,12 +10,13 @@
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {Missing} from '../../app/Missing.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {observer} from 'mobx-react-lite';
 import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {discoverySearch} from '../search/params.ts';
 import {editableText} from './fileWrite.ts';
-import {FileOperations} from './FileOperations.tsx';
+import {FileOperations, type FileDropProps} from './FileOperations.tsx';
 import {notify} from '../../app/notices.ts';
 import {permalink} from '../../code/permalink.ts';
 import {sitePath} from '../../app/config.ts';
@@ -105,10 +106,11 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   useShortcut('code.permalink', () => {
     void navigate({...codeTo(props.owner, props.repo, codeSplat(props.blame ? 'blame' : 'src', {...at, kind: 'commit', ref: at.sha}, at.path)), hash: true, replace: true});
   });
-  const controls = <SrcControls {...props} entry={entry}/>;
-  let body: (scroller: HTMLDivElement | null) => ReactNode;
+  const folder = !at.path || entry?.type === 'tree';
+  const target = at.path && entry ? {sha: folder ? at.sha : entry.sha, folder} : undefined;
+  let body: (scroller: HTMLDivElement | null, dropProps: FileDropProps) => ReactNode;
   if (!at.path || entry?.type === 'tree') {
-    body = (scroller) => <DirView {...props} scroller={scroller}/>;
+    body = (scroller, dropProps) => <DirView {...props} scroller={scroller} dropProps={dropProps}/>;
   } else if (tree.state !== 'ready') {
     body = () => <Unloaded loaded={tree} what="This file or folder"/>;
   } else if (!entry) {
@@ -120,7 +122,12 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   }
   // The tab names the file or directory (every file would otherwise be "Code · acme/atlas").
   const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
-  return <CodeFrame view={props} title={title} controls={controls} docTitle={docTitle}>{body}</CodeFrame>;
+  const frame = (operations: ReactNode, dropProps: FileDropProps) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations}/>} docTitle={docTitle}>
+    {(scroller) => body(scroller, dropProps)}
+  </CodeFrame>;
+  // Keep write actions absent while an unknown path resolves, and for missing paths.
+  if (at.path && !entry) return frame(null, {});
+  return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
 /**
@@ -145,7 +152,7 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
   );
 }
 
-const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry}: SrcProps & {at: Resolved; entry: APITreeEntry | undefined}) {
+const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry, operations}: SrcProps & {at: Resolved; entry: APITreeEntry | undefined; operations: ReactNode}) {
   const app = useApp();
   const pool = usePool();
   const navigate = useNavigate();
@@ -153,16 +160,16 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
   const def = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
   return (
     <>
-      {file && <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={entry ? {sha: entry.sha, folder: false} : undefined}/>}
+      {operations}
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={at} view={blame ? 'blame' : 'src'}/>
       {at.kind === 'branch' && def && at.ref !== def && (
-        <Button as={CodeLink} variant="invisible" size="small" owner={owner} repo={repo} to={`compare/${def}...${at.ref}`}>Compare</Button>
+        <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${def}...${at.ref}`)}>Compare</RouterLinkButton>
       )}
       {/* A tag: what the default branch has gained since it ("previous tag vs main"). */}
       {at.kind === 'tag' && def && (
-        <Button as={CodeLink} variant="invisible" size="small" owner={owner} repo={repo} to={`compare/${at.ref}...${def}`}>Compare</Button>
+        <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${at.ref}...${def}`)}>Compare</RouterLinkButton>
       )}
-      <Button as={CodeLink} variant="invisible" size="small" leadingVisual={HistoryIcon} owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}>Commits</Button>
+      <RouterLinkButton variant="default" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', at, at.path))}>Commits</RouterLinkButton>
       <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
@@ -173,7 +180,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       )}
       {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
       {file && (
-        <LinkButton variant="invisible" size="small" href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</LinkButton>
+        <LinkButton variant="default" size="small" href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</LinkButton>
       )}
     </>
   );
@@ -199,7 +206,7 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
   };
   return (
     <ActionMenu>
-      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="File actions"/>}</ActionMenu.Anchor>
+      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="default" size="small" aria-label="File actions"/>}</ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
         <ActionList.Item onSelect={() => {
           copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
@@ -213,7 +220,7 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
 
 // ---- directory ----
 
-const DirView = observer(function DirView({owner, repo, repoId, at, scroller}: SrcProps & {at: Resolved; scroller: HTMLDivElement | null}) {
+const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dropProps}: SrcProps & {at: Resolved; scroller: HTMLDivElement | null; dropProps: FileDropProps}) {
   const src = useSource();
   const key = CodeSource.treeKey(repoId, at.sha, at.path);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, at.sha, at.path));
@@ -222,11 +229,11 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller}: S
   // The Overview's look: a panel headed by the ref's latest commit, the README under it.
   return (
     <PageColumn wide>
-      <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={at.path ? {sha: at.sha, folder: true} : undefined}>
-      <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
-        <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
-      </FilesPanel>
-      </FileOperations>
+      <div {...dropProps}>
+        <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
+          <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
+        </FilesPanel>
+      </div>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/>}
     </PageColumn>
   );
@@ -291,10 +298,10 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
   const allowed = writer && props.at.kind === 'branch' && editableText(props.text);
   useShortcut('code.editFile', () => {setEditing(true);}, allowed && !editing);
   if (editing) return <Suspense fallback={<CodeSkeleton/>}><FileEditor owner={props.owner} repo={props.repo} repoId={props.repoId} at={props.at} sha={props.entry.sha} original={props.text} onCancel={() => {setEditing(false);}}/></Suspense>;
+  const edit = allowed ? <Button variant="default" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button> : null;
   return <>
-    {allowed && <div className="flex justify-end border-b border-muted px-4 py-2"><Button variant="invisible" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
     {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-muted">Fork this repository to edit this file.</p>}
-    {props.text === '' ? <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
+    {props.text === '' ? <><FileMeta lines={0} size={props.entry.size}>{edit}</FileMeta><Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate></> : props.blame ? <BlameView {...props} edit={edit}/> : renderable(props.at.path) ? <PreviewableFile {...props} edit={edit}/> : <TextFile {...props} edit={edit}/>}
   </>;
 });
 
@@ -309,15 +316,16 @@ export function CodeSkeleton() {
 }
 
 /** A markdown or SVG file: rendered (Preview, the default) or its markup with line numbers (Markup). */
-function PreviewableFile(props: FileProps & {text: string}) {
+function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const {repoId, entry, at, text} = props;
   const [mode, setMode] = useState<'preview' | 'source'>(() => (hashRange(location.hash) ? 'source' : 'preview'));
   const kind = renderable(at.path);
   const toggle = (
-    <span className="ml-auto">
+    <>
       {/* "Markup", not a second "Source": the header's Source / Blame switch is beside it. */}
       <SegmentedControl size="small" aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
-    </span>
+      {props.edit}
+    </>
   );
   if (mode === 'source') return <TextFile {...props} text={text} toolbar={toggle}/>;
   return (
@@ -352,13 +360,13 @@ export function hashRange(hash: string): [number, number] | undefined {
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
-function TextFile(props: FileProps & {text: string; toolbar?: ReactNode}) {
+function TextFile(props: FileProps & {text: string; edit: ReactNode; toolbar?: ReactNode}) {
   return typeof Worker === 'undefined' ? <LinkedTextFile {...props}/> : <FileSurface name={props.at.path} text={props.text} scroller={props.scroller} cacheKey={props.entry.sha} fallback={<LinkedTextFile {...props}/>}>
-    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.toolbar}</FileMeta>
+    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.toolbar ?? props.edit}</FileMeta>
   </FileSurface>;
 }
 
-const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
+const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, edit, toolbar}: FileProps & {text: string; edit: ReactNode; toolbar?: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
   const {range, view, initial, pick} = useLineLinks();
@@ -373,7 +381,7 @@ const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, en
   useMarkPainted(at.path);
   return (
     <>
-      <FileMeta lines={lines.length} size={entry.size}>{toolbar}</FileMeta>
+      <FileMeta lines={lines.length} size={entry.size}>{toolbar ?? edit}</FileMeta>
       <Lines ref={view} count={lines.length} scroller={scroller} line={line} label={`${at.path}, ${String(lines.length)} lines`} initial={initial}/>
     </>
   );
@@ -419,7 +427,7 @@ function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string 
       {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
       {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
-      {children}
+      {children && <div className="ml-auto flex items-center gap-2">{children}</div>}
     </div>
   );
 }
@@ -439,7 +447,7 @@ function ImageFile({bytes, type, path, size}: {bytes: ArrayBuffer; type: string;
 
 // ---- blame ----
 
-const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, text, scroller}: FileProps & {text: string}) {
+const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, text, scroller, edit}: FileProps & {text: string; edit: ReactNode}) {
   const src = useSource();
   const key = `blame:${String(repoId)}:${at.sha}:${at.path}`;
   const blame = useLoad(key, () => src.peek<APIBlame>(key), () => src.blame(repoId, at.sha, at.path));
@@ -489,6 +497,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
     <>
       <FileMeta lines={lines.length} size={entry.size}>
         {blame.value.uses_ignore_revs && <span>Ignoring the revisions in .git-blame-ignore-revs</span>}
+        {edit}
       </FileMeta>
       <Lines ref={view} initial={initial} count={lines.length} scroller={scroller} line={line} label={`Blame of ${at.path}`}/>
     </>

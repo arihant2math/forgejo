@@ -1,6 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-import {lazy, Suspense, useEffect, useState, type ReactNode} from 'react';
+import {lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode} from 'react';
 import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
@@ -24,8 +24,12 @@ import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
 import {Button, ActionMenu, ActionList, Dialog, TextInput} from '@primer/react';
 
+export type FileDropProps = Pick<ComponentProps<'div'>, 'onDragOver' | 'onDrop'>;
+
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
-  owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined; children?: ReactNode;
+  owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined;
+  /** Render the actions in a toolbar while keeping the tree's drop target in place. */
+  children?: ReactNode | ((controls: ReactNode, dropProps: FileDropProps) => ReactNode);
 }) {
   const app = useApp();
   const session = useSession();
@@ -122,15 +126,24 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       else setError(failureText(err));
     } finally {setBusy(false); setProgress('');}
   };
-  if (!allowed) return children;
-  return <div onDragOver={(event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();}} onDrop={(event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));}}>
-    <div className="mb-2"><ActionMenu><ActionMenu.Button size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+  if (!allowed) return typeof children === 'function' ? children(null, {}) : children;
+  const dropProps: FileDropProps = {
+    onDragOver: (event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();},
+    onDrop: (event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));},
+  };
+  const controls = <>
+    <ActionMenu><ActionMenu.Button variant="default" size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
       <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
       {target && <ActionList.Item onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</ActionList.Item>}
-    </ActionList></ActionMenu.Overlay></ActionMenu></div>
+    </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
-    {children}
+  </>;
+  return <>
+    {typeof children === 'function' ? children(controls, dropProps) : <div {...dropProps}>
+      <div className={children ? 'mb-2' : undefined}>{controls}</div>
+      {children}
+    </div>}
     {mode && !dialog && <Dialog title={mode === 'create' ? 'Create new file' : 'Upload files'} width="xlarge" onClose={() => { setMode(undefined); }} footerButtons={[{content: 'Commit changes…', buttonType: 'primary', disabled: Boolean(problem) || Boolean(blocked), onClick: () => { setDialog(true); }}]}>
       {mode === 'create' ? <><TextInput aria-label="File path" placeholder="dir/name.ext" value={path} onChange={(event) => {setPath(event.target.value); void intents.keepText({key: pathKey, title: 'New file path', issueId: 0, repoId, text: event.target.value});}}/><Suspense fallback={<p>Loading editor…</p>}><CodeEditor value={text} path={path} wrap onChange={(value) => {setText(value); void intents.keepText({key, title: `New file in ${dir || repo}`, issueId: 0, repoId, text: value});}}/></Suspense></> : <div className="flex flex-col gap-3">
         <p className="text-sm text-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
@@ -142,7 +155,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
     </Dialog>}
     {mode && dialog && <CommitDialog allowPull={!repository?.empty} branch={at.ref} defaultMessage={mode === 'delete' ? `Delete ${at.path}` : mode === 'create' ? `Create ${fullPath(path)}` : `Upload ${String(files.length)} files`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={blocked ?? problem ?? (protectedBranch === undefined ? 'Checking branch protection…' : undefined)} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false); if (mode === 'delete') setMode(undefined);}} onCommit={(fields) => {void commit(fields);}}/>}
     {progress && <p role="status" className="text-sm text-muted">{progress}</p>}
-  </div>;
+  </>;
 });
 
 function readBase64(file: File): Promise<string> {

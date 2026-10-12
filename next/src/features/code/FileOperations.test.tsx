@@ -58,6 +58,14 @@ test('uploads preserve relative paths, can be removed, and commit base64 in one 
   expect(mocks.write.mock.calls[0]?.[1]).toMatchObject({method: 'POST', body: {files: [{operation: 'create', path: 'docs/folder/a.txt', content: 'aGVsbG8='}]}});
 });
 
+test('toolbar actions retain the directory drop target', async () => {
+  render(<FileOperations {...props}>{(controls, dropProps) => <><header>{controls}</header><main {...dropProps}>Directory files</main></>}</FileOperations>);
+  expect(screen.getByRole('banner').contains(screen.getByRole('button', {name: 'Add file'}))).toBe(true);
+  fireEvent.drop(screen.getByRole('main'), {dataTransfer: {types: ['Files'], files: [new File(['hello'], 'dropped.txt')]}});
+  const dialog = await screen.findByRole('dialog', {name: 'Upload files'});
+  expect(within(dialog).getByText('dropped.txt · 5 B')).toBeTruthy();
+});
+
 test('offline file changes are disabled with a reason', () => {
   mocks.session.data.status.connection = 'offline';
   render(<FileOperations {...props}/>);

@@ -138,7 +138,7 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
   }
   const tabTitle = page && !home ? `${page} · ${owner}/${repo}` : `${owner}/${repo}`;
   if (repoId === undefined || detail) {
-    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{children}</PageHeader>;
+    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle} leaf={detail !== undefined}>{children}</PageHeader>;
   }
   return home ?
     <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :

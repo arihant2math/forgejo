@@ -4,6 +4,7 @@
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {Button} from '@primer/react';
+import {ProjectIcon} from '@primer/octicons-react';
 import {runInAction} from 'mobx';
 import {UnsyncedPanel} from './Unsynced.tsx';
 import {createMemoryHistory, createRootRoute, createRouter, RouterProvider} from '@tanstack/react-router';
@@ -47,6 +48,24 @@ test('Primer page headers keep heading, breadcrumb, controls and live status', (
   const leadingAction = screen.getByRole('button', {name: 'Show the sidebar'}).closest('[data-component="PH_LeadingAction"]');
   expect(leadingAction?.hasAttribute('data-hidden-narrow')).toBe(false);
   expect(leadingAction?.closest('[data-component="TitleArea"]')).toBeNull();
+});
+
+test.each([true, false])('a detail page\'s header title is a quiet breadcrumb leaf, still the page\'s h1 (leaf: %s)', (leaf) => {
+  const app = createApp(config, fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: []}}));
+  render(<AppContext value={app}><PrimerTheme>
+    <PageHeader title="Current page" icon={ProjectIcon} context={<span>dev / fzf</span>} leaf={leaf}><Button size="small">Action</Button></PageHeader>
+  </PrimerTheme></AppContext>);
+  const header = screen.getByText('Current page').closest('header');
+  if (!header) throw new Error('Missing page header');
+  const heading = within(header).getByRole('heading', {level: 1, name: 'Current page'});
+  expect(heading.getAttribute('aria-current')).toBe(leaf ? 'page' : null);
+  if (leaf) {
+    expect(heading.getAttribute('data-size')).toBe('medium');
+    expect(heading.getAttribute('data-weight')).toBe('normal');
+  }
+  expect(header.querySelector('svg')?.getAttribute('width')).toBe('16');
+  expect(within(header).getByRole('navigation', {name: 'Breadcrumb'}).textContent).toBe('dev / fzf');
+  expect(within(header).getByRole('button', {name: 'Action'})).toBeTruthy();
 });
 
 test('Banner notices announce, pause while either hovered or focused, and dismiss immediately', () => {

@@ -37,7 +37,8 @@ import {issuePath} from '../issues/edits.ts';
 import {KeyedFlags} from '../issues/flags.ts';
 import {findCard} from './board.ts';
 import {createColumn, deleteColumn, editColumn, orderColumns} from './columns.ts';
-import {BoardDnd, SLOT} from './dnd.ts';
+import {BoardDnd} from './dnd.ts';
+import {SLOT} from './geometry.ts';
 import {rememberBoard} from '../../app/lastBoard.ts';
 import {openCreate} from '../../app/create.ts';
 import {BoardModel} from './model.ts';
@@ -427,7 +428,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const hidden = model.hiddenCount;
   return (
     <>
-      <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')}>
+      <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')} leaf>
         {closed && <Label variant="done">Closed</Label>}
         {!editable && <span title={readOnlyReason}><Label>Read-only</Label></span>}
         {hidden > 0 && <Label>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Label>}

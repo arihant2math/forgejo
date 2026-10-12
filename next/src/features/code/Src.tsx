@@ -38,7 +38,7 @@ import {BorderBox} from '../../components/BorderBox.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {CopyIcon, DownloadIcon, FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
 import {ButtonGroup, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 const FileSurface = lazy(async () => ({default: (await import('../../code/FileSurface.tsx')).FileSurface}));

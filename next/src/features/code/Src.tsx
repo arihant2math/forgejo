@@ -31,6 +31,7 @@ import {GoToFile} from './FileFinder.tsx';
 import {RefMenu} from './RefMenu.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
+import {ListSkeleton} from '../../components/ListSkeleton.tsx';
 import {DirEntries, FilesPanel, formatSize, RefCommit} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {CopyIcon, DownloadIcon, FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
@@ -63,19 +64,11 @@ const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: b
   const pool = usePool();
   const {data} = useSession();
   const loaded = hasRefs(pool, repoId);
-  if (!loaded && data.status.loading > 0) return <ListSkeleton/>;
+  if (!loaded && data.status.loading > 0) return <ListSkeleton rows={8} lines={1} leading="icon"/>;
   return (
     <Missing icon={GitBranchIcon} what={named ? 'This branch or tag' : 'This repository’s code'}/>
   );
 });
-
-function ListSkeleton() {
-  return (
-    <div className="flex flex-col" aria-busy>
-      {Array.from({length: 8}, (_, i) => <div key={i} className="flex items-center gap-2 px-4 py-2"><SkeletonBox className="size-4"/><SkeletonBox className="h-3 w-48"/></div>)}
-    </div>
-  );
-}
 
 const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   const {repoId, at} = props;
@@ -200,7 +193,7 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dr
   const src = useSource();
   const key = CodeSource.treeKey(repoId, at.sha, at.path);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, at.sha, at.path));
-  if (tree.state !== 'ready') return <Unloaded loaded={tree} what="This directory" skeleton={<ListSkeleton/>}/>;
+  if (tree.state !== 'ready') return <Unloaded loaded={tree} what="This directory" skeleton={<ListSkeleton rows={8} lines={1} leading="icon"/>}/>;
   const readme = readmeOf(tree.value.entries);
   return (
     <PageColumn wide>

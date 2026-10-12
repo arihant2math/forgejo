@@ -9,12 +9,12 @@ import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
-import {onlineOnly} from '../../app/online.ts';
+import {onlineOnly, useReach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {PeopleSearch} from '../settings/Collaborators.tsx';
-import {ResourceList, useOffline} from '../settings/bits.tsx';
+import {ResourceList} from '../settings/bits.tsx';
 import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
-import {useResource} from '../settings/resource.ts';
+import {useResource} from '../../app/resource.ts';
 import {TrashIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {ActionList, ActionMenu, Button as PrimerButton, IconButton} from '@primer/react';
 
@@ -55,7 +55,7 @@ export const OrganizationTeams = observer(function OrganizationTeams({owner}: {o
 /** API v1 exposes all members to members, public members to others; removal affects every team. */
 export const OrganizationPeople = observer(function OrganizationPeople({owner}: {owner: string}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const perms = useOrgPermissions(owner);
   const manage = perms.fresh && perms.value?.is_owner === true;
   const path = `/orgs/${encodeURIComponent(owner)}/members`;
@@ -109,7 +109,7 @@ export const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
 
 const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; editable: boolean}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const base = `/teams/${String(id)}/members`;
@@ -135,7 +135,7 @@ const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; e
 
 export const RepositoryTeams = observer(function RepositoryTeams({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const base = `${repoApi(owner, repo)}/teams`;

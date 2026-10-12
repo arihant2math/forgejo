@@ -57,7 +57,7 @@ function open(factory: IDBFactory, server: Server): Promise<Data> {
   FakeWS.all = [];
   return openData({
     userId: 1, auth: {token: () => Promise.resolve('tok'), refresh: () => Promise.resolve('tok')}, endpoint: '/-/sync',
-    // The filler Repository store slows phase 2; peeking at it would delay phase 1 (and the leader) as well.
+    // Filler slows background hydration; peeking at it would also delay route hydration and leadership.
     peekModels: [],
     env: {indexedDB: factory, IDBKeyRange, locks: null, BroadcastChannel: null, transport: {WebSocket: FakeWS as unknown as typeof WebSocket, fetch: server.fetch, base: 'http://x/'}},
   });
@@ -75,7 +75,7 @@ test('a group released before it was hydrated does not come back from hydration'
   const d = await open(factory, offline());
   d.pin(G, false);
   await d.hydrated;
-  // Wait for leadership and phase-one hydration rather than a fixed delay.
+  // Wait for leadership and route hydration rather than a fixed delay.
   await vi.waitFor(() => {
     expect(d.pool.model('Issue').size).toBe(0);
   });

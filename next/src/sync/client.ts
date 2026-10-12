@@ -214,7 +214,7 @@ export class SyncClient {
     return this.groups.get(group)?.position;
   }
 
-  /** Resolves when the pool holds all group entries through v. Never rejects; unheld groups may wait forever. */
+  /** Resolves when the pool holds all group entries through v; abort rejects, unheld groups may wait forever. */
   whenAt(group: string, v: number, signal?: AbortSignal): Promise<void> {
     if ((this.position(group) ?? -1) >= v) return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -345,8 +345,8 @@ export class SyncClient {
   }
 
   /** One tail per job; late/gapped holders can rewind it, so listeners must deduplicate repeats.
-     * Reconnect resumes received lines; messages arrive as log events.
-     */
+   * Reconnect resumes received lines; messages arrive as log events.
+   */
   tailLog(jobId: number, holder: string, from?: {taskId: number; offset: number}): void {
     let t = this.tails.get(jobId);
     if (!t) this.tails.set(jobId, t = {holders: new Set(), taskId: 0, offset: 0});
@@ -884,6 +884,7 @@ export class SyncClient {
         if (!fresh) drop.add(m);
         next[m] = client[m];
       } else if (stored[m] !== client[m] && server[m] !== stored[m]) {
+        // Rebuild only if data differs from both build and server; server-matching data stays for schemaMismatch.
         drop.add(m);
         next[m] = client[m];
       }
@@ -1160,6 +1161,7 @@ export class SyncClient {
         const st = this.groups.get(group);
         if (!st || ctrl.signal.aborted || !this.live.has(group)) return false;
         const needs = st.needs;
+        // Model-only reloads require a completed full bootstrap underneath them.
         const models = needs && !needs.all && st.watermark !== undefined ? needs.models : undefined;
         const res = await load(this.pool, {
           endpoint: this.o.endpoint, token: await this.o.auth.token(), group, models, signal: ctrl.signal,

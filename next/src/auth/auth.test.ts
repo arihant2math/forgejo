@@ -138,10 +138,10 @@ describe('session', () => {
         posted.push(m);
       }
       addEventListener() {
-        // This fake only records outgoing messages.
+        // Outgoing-only fake.
       }
       close() {
-        // No resources are allocated by this fake.
+        // No resources to release.
       }
     }
     const s = await session(server, null, BC as unknown as typeof BroadcastChannel);

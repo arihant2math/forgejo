@@ -125,13 +125,13 @@ export function chainOf(i: Intent): string {
   // The inbox is one queue: a notification marked unread right after "Mark all read" reaches Forgejo after it.
   if (i.kind === 'notification.status' || i.kind === 'notification.readAll') return 'n:inbox';
   if (i.kind === 'board.move') return `b:${String(i.projectId)}`;
-  // Independent properties have separate queues so retries cannot block unrelated issue edits.
+  // Independent requests do not read main-chain changes; separate queues keep retries from blocking unrelated edits.
   const own = OWN_CHAIN[i.kind];
   if (own) return `i:${String(i.issueId)}:${own}`;
   return `i:${String(i.issueId)}`;
 }
 
-/** Dependent state, label, title, body, milestone, and comment edits share the issue chain. */
+/** State and labels share the main chain because closing moves status labels; other dependent edits stay ordered too. */
 const OWN_CHAIN: Partial<Record<IntentKind, string>> = {
   'issue.pin': 'pin', 'issue.lock': 'lock', 'issue.subscribe': 'subscribe', 'issue.reviewer': 'reviewer', 'issue.deadline': 'deadline',
   'issue.assignee': 'assignee', 'issue.dependency': 'dependency', 'issue.project': 'project', 'pr.viewed': 'viewed', 'reaction': 'reaction',

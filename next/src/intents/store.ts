@@ -101,7 +101,6 @@ export class IntentDb {
     const finished = done(tx);
     let out: IntentRecord;
     const existing = await request(store.index('id').get(rec.id) as IDBRequest<IntentRecord | undefined>);
-    // A resolved intent takes the place of the one it replaces in the queue (its entity's order is kept).
     const old = replaces.intent === undefined ? undefined : await request(store.index('id').getKey(replaces.intent)) as number | undefined;
     if (existing) out = existing;
     else if (old !== undefined) {

@@ -274,8 +274,8 @@ export class Pool {
   }
 
   /** Keeps newer versions; returns whether state changed.
-     * Authoritative own-group bootstrap lines may equal a tombstone, purge, or floor watermark.
-     */
+   * Own-group snapshots can equal a tombstone, purge, or floor: the same log head does not contradict them.
+   */
   put<M extends ModelName>(m: M, id: number, g: string, v: number, d: ModelTypes[M], authoritative = false): boolean {
     this.seen(v);
     const store = this.stores[m];

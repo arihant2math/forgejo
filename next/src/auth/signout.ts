@@ -48,6 +48,7 @@ export async function dropPreviousUser(userId: number, factory?: IDBFactory): Pr
 
 export interface SignOutParts {
   auth: AuthSession;
+  /** Stops this tab’s data-layer writes before the database is wiped. */
   close: () => Promise<void>;
   /** Ends Forgejo's own (classic) web session too, or the next person on the device signs back in with one click. */
   endWebSession?: () => Promise<void>;

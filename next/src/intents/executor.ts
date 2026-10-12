@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Apply locally before persisting; never send until the intent and its frozen request are durable.
+// Apply locally, then persist the intent and frozen request before sending; storage failures use in-memory handoff.
 // Only the caught-up leader sends, serially per entity; temporary references wait for remapping.
 // Retries reuse the same key and request. Conflicts park; failures preserve user text as drafts.
 // Keep overlays until sync confirms the write to avoid flicker.

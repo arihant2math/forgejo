@@ -27,7 +27,7 @@ export interface DataOptions {
   transport?: 'auto' | 'ws' | 'sse';
   /** Groups the current route shows: hydrated first and held by this tab. */
   route?: string[];
-  /** Models peeked at in phase 1 (see Data.peek; default Repository: the sidebar and route lookups by name). */
+  /** Models peeked at for the first route (default Repository: sidebar and route lookups by name). */
   peekModels?: readonly ModelName[];
   /** Ask the browser not to evict the database (default true). */
   persistStorage?: boolean;

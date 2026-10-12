@@ -48,11 +48,11 @@ export function yieldToBrowser(idle: boolean): Promise<void> {
 export class Hydrator {
   private readonly db: IDBDatabase;
   private readonly sink: Sink;
-  /** Groups read completely (phase 1, or `ensure`). */
+  /** Fully hydrated groups; skip their buckets in background reads. */
   readonly hydrated = new Set<string>();
   private restDone = false;
   private restRunning: Promise<HydrateStats> | undefined;
-  /** Phase 2 stops waiting for idle periods. */
+  /** Background reads skip idle waits when eager. */
   eager = false;
   /** The entities seen per model (followers reconcile with it; see Pool.retainSeen). */
   readonly seen = new Map<ModelName, Set<number>>();
@@ -112,7 +112,7 @@ export class Hydrator {
     }));
     const seq = await seqP;
     let records = 0;
-    // Mark first: a concurrent phase 2 chunk must skip them from now on.
+    // Mark before delivering: concurrent background chunks must skip these groups.
     for (const g of todo) this.hydrated.add(g);
     results.forEach((recs, i) => {
       const r = reqs[i];
@@ -137,7 +137,7 @@ export class Hydrator {
     return out;
   }
 
-  /** Phase 2: every store, chunked. Resolves when everything is loaded; runs once. */
+  /** Loads remaining buckets in chunks; runs once and resolves after full hydration. */
   rest(): Promise<HydrateStats> {
     this.restRunning ??= this.runRest(true);
     return this.restRunning;

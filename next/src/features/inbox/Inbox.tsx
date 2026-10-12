@@ -6,7 +6,7 @@ import {ActionList, ActionMenu, Button, Checkbox, SegmentedControl, Tooltip} fro
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {afterPaint} from '../../app/paint.ts';
 import type {InboxSearch} from '../../app/search.ts';
@@ -108,6 +108,7 @@ const ListHeader = observer(function ListHeader({model}: {model: InboxModel}) {
   const app = useApp();
   const overlay = useOverlay();
   const pool = usePool();
+  const selectAll = useId();
   const {ids: listed} = model.result.get();
   const ids = model.cursor.selected.values();
   if (!listed.length) return null;
@@ -123,7 +124,7 @@ const ListHeader = observer(function ListHeader({model}: {model: InboxModel}) {
   };
   return (
     <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-1">
-      <Checkbox aria-label={ids.length ? 'Clear the selection' : 'Select all notifications'} checked={all} indeterminate={ids.length > 0 && !all} onChange={() => {
+      <Checkbox id={selectAll} aria-label={ids.length ? 'Clear the selection' : undefined} checked={all} indeterminate={ids.length > 0 && !all} onChange={() => {
         if (ids.length) model.cursor.clearSelection();
         else model.cursor.selected.replace(listed);
       }}/>
@@ -135,7 +136,7 @@ const ListHeader = observer(function ListHeader({model}: {model: InboxModel}) {
         <Tooltip text={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'} keybindingHint={shortcutHint('inbox.unsubscribe')}><Button size="small" leadingVisual={BellSlashIcon} type="button" inactive={!!cannotUnsubscribe} onClick={() => {
           unsubscribe(app, untracked(() => model.cursor.selected.values()));
         }}>Unsubscribe</Button></Tooltip>
-      </div> : <span className="text-sm text-muted">Select all</span>}
+      </div> : <label htmlFor={selectAll} className="text-sm text-muted">Select all</label>}
     </div>
   );
 });

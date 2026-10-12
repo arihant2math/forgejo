@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {useState} from 'react';
+import {useLayoutEffect, useRef, useState} from 'react';
 
 const CELL = 10;
 const STEP = 13;
@@ -18,6 +18,12 @@ const fill = (level: number) => `var(--contribution-default-bgColor-${String(lev
 /** The server reports 15-minute buckets; cells are local calendar days, Sunday first, as on GitHub. */
 export function ContributionHeatmap({rows}: {rows: readonly {timestamp: number; contributions: number}[]}) {
   const [today] = useState(() => new Date());
+  const scroller = useRef<HTMLDivElement>(null);
+  // Narrow screens open on the latest weeks, as on GitHub.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, []);
   const first = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 364);
   first.setDate(first.getDate() - first.getDay());
   const counts = new Map<string, number>();
@@ -37,15 +43,15 @@ export function ContributionHeatmap({rows}: {rows: readonly {timestamp: number; 
   for (let w = 0; w < weeks; w++) {
     const day = days[w * 7];
     if (!day || (w > 0 && days[(w - 1) * 7]?.month === day.month)) continue;
-    // A partial first month too narrow for its name yields to the next one.
-    if (w === 0 && days[14]?.month !== day.month) continue;
+    // A partial first month too narrow for its name yields to the next one; a month starting in the last column has no room.
+    if ((w === 0 && days[14]?.month !== day.month) || w === weeks - 1) continue;
     months.push({week: w, name: new Date(2000, day.month, 1).toLocaleDateString('en-US', {month: 'short'})});
   }
   const width = LEFT + weeks * STEP;
   const height = TOP + 7 * STEP;
   return <figure className="flex flex-col gap-2 px-4 py-3">
     <figcaption className="text-sm text-muted">{days.reduce((n, d) => n + d.value, 0)} contributions in the last year</figcaption>
-    <div className="overflow-x-auto">
+    <div ref={scroller} role="group" aria-label="Contribution heatmap, scrollable" tabIndex={0} className="overflow-x-auto">
       <svg role="img" aria-label="Daily contribution heatmap" width={width} height={height} viewBox={`0 0 ${String(width)} ${String(height)}`} className="text-xs text-muted">
         <g aria-hidden fill="currentColor">
           {months.map((m) => <text key={m.week} x={LEFT + m.week * STEP} y={TOP - 5}>{m.name}</text>)}

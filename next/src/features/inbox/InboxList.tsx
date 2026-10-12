@@ -297,15 +297,19 @@ const NoteMenu = observer(function NoteMenu({ids, open}: {ids: readonly number[]
   );
 });
 
-/** A pointer checkbox over the row's leading space, outside its link; X and the option's selected state serve the keyboard and assistive tech. */
+/**
+ * A pointer checkbox over the row's leading space, outside its link; X and the option's selected state serve the
+ * keyboard and assistive tech. The whole leading space, the row's height, is its target, so a touch that misses the
+ * box selects instead of opening the row.
+ */
 const RowCheck = observer(function RowCheck({id, model, onClick}: {id: number; model: InboxModel; onClick: RowClick}) {
   const checked = model.cursor.selected.has(id);
   return (
-    <div aria-hidden className="absolute inset-y-0 left-0 flex items-center ps-4">
-      <Checkbox tabIndex={-1} checked={checked} aria-label="Select" onMouseDown={(e) => { e.preventDefault(); }} onChange={() => undefined} onClick={(e) => {
-        if (e.shiftKey) onClick(id, e);
-        else model.cursor.toggle(id);
-      }}/>
+    <div aria-hidden className="absolute inset-y-0 left-0 flex w-10 cursor-pointer items-center ps-4" onMouseDown={(e) => { e.preventDefault(); }} onClick={(e) => {
+      if (e.shiftKey) onClick(id, e);
+      else model.cursor.toggle(id);
+    }}>
+      <Checkbox tabIndex={-1} checked={checked} aria-label="Select" onChange={() => undefined}/>
     </div>
   );
 });

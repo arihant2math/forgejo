@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {render, screen} from '@testing-library/react';
+import {render, screen, waitFor} from '@testing-library/react';
 import {TextInput} from '@primer/react';
 import {expect, test} from 'vitest';
 import {Field} from './Field.tsx';
@@ -22,4 +22,12 @@ test('an error replaces the hint, marks the input invalid and is its description
   expect(input.getAttribute('aria-invalid')).toBe('true');
   expect(input.getAttribute('aria-required')).toBe('true');
   expect(screen.queryByText('Short and memorable.')).toBeNull();
+});
+
+test('an error that appears is announced through Primer\'s live region', async () => {
+  const view = render(<Field label="Name"><TextInput/></Field>);
+  view.rerender(<Field label="Name" error="Spaces are not allowed."><TextInput/></Field>);
+  await waitFor(() => {
+    expect(document.querySelector('live-region')?.shadowRoot?.textContent).toContain('Spaces are not allowed.');
+  });
 });

@@ -6,7 +6,7 @@
 
 import {count} from '../../app/words.ts';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react';
+import {Fragment, type KeyboardEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react';
 import {failureText, online, RequestFailed} from '../../app/api.ts';
 import {connectivity, onlineOnly, reach} from '../../app/online.ts';
 import {canWrite} from '../../app/access.ts';
@@ -24,7 +24,7 @@ import {untracked} from 'mobx';
 import {loadPeople, repoPeople} from '../issues/people.ts';
 import {BoldIcon, ClockIcon, CodeIcon, HeadingIcon, ItalicIcon, LinkIcon, ListOrderedIcon, ListUnorderedIcon, PaperclipIcon, QuoteIcon, TasklistIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, IconButton, SegmentedControl, Textarea, Tooltip} from '@primer/react';
+import {ActionBar, Button, SegmentedControl, Textarea, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
@@ -313,26 +313,26 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
       <SegmentedControl.Button selected={!preview}>Write</SegmentedControl.Button>
       <SegmentedControl.Button selected={preview}>Preview</SegmentedControl.Button>
     </SegmentedControl>
-    <span className="ml-auto flex flex-wrap items-center">
+    <ActionBar aria-label="Formatting tools" size="small" gap="none" flush className="min-w-0 flex-1">
       {FORMATS.map((group, g) => (
-        <span key={g} className="flex items-center">
-          {g > 0 && <span aria-hidden className="mx-1 h-4 border-l border-default"/>}
+        <Fragment key={g}>
+          {g > 0 && <ActionBar.Divider/>}
           {group.map(([kind, icon, label, key]) => (
-            <IconButton icon={icon} variant="invisible" size="small" aria-label={label} description={label} {...key ? {keybindingHint: `Mod+${key}`} : {}} type="button" key={kind} disabled={preview} onClick={() => {
+            <ActionBar.IconButton icon={icon} aria-label={label} description={label} {...key ? {keybindingHint: `Mod+${key}`} : {}} type="button" key={kind} disabled={preview} onClick={() => {
               edit((doc, from, to) => formatEdit(doc, from, to, kind));
             }}/>
           ))}
-        </span>
+        </Fragment>
       ))}
-      {tools && tools.length > 0 && <span className="flex items-center">
-        <span aria-hidden className="mx-1 h-4 border-l border-default"/>
+      {tools && tools.length > 0 && <>
+        <ActionBar.Divider/>
         {tools.map((tool) => (
-          <IconButton icon={tool.icon} variant="invisible" size="small" aria-label={tool.label} description={tool.label} type="button" key={tool.id} disabled={preview} onClick={() => {
+          <ActionBar.IconButton icon={tool.icon} aria-label={tool.label} description={tool.label} type="button" key={tool.id} disabled={preview} onClick={() => {
             edit(tool.edit);
           }}/>
         ))}
-      </span>}
-    </span>
+      </>}
+    </ActionBar>
   </>;
   return (
     <div onKeyDown={onKeyDown}>

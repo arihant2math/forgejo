@@ -28,7 +28,8 @@ import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
 import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {ActionList, Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
+import {Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
+import {FilteredActionList} from '@primer/react/experimental';
 import {Tooltip} from '@primer/react';
 
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
@@ -40,6 +41,13 @@ function templateDraft(app: App, repoId: number): TemplateDraft | undefined {
   const text = untracked(() => editing(app).intents.drafts.get(templateDraftKey(repoId)))?.text;
   if (!text) return undefined;
   try { return JSON.parse(text) as TemplateDraft; } catch { return undefined; }
+}
+
+/** A new issue's draft is stored as its title, a blank line and its body. */
+function textDraft(app: App, repoId: number): {title: string; body: string; restored: boolean} {
+  const text = untracked(() => editing(app).intents.drafts.get(draftKey(repoId)))?.text ?? '';
+  const [title = '', , ...body] = text.split('\n');
+  return {title, body: body.join('\n'), restored: Boolean(text.trim())};
 }
 
 function rememberRepo(repoId: number): void {
@@ -169,12 +177,16 @@ class Form {
     this.app = app;
     this.board = board;
     this.prefill = title?.trim() ?? '';
-    const repos = repoChoices(app, board);
-    this.repoId = [initialRepo, lastRepo(), recentActivityRepo(app, repos)].find((id) => id > 0 && repos.some((r) => r.id === id)) ?? repos[0]?.id ?? 0;
-    const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
-    this.title = this.prefill || (text.split('\n')[0] ?? '');
-    this.body = text.split('\n').slice(2).join('\n');
-    this.restored = Boolean(text.trim());
+    // Built while the dialog renders, so the scans stay untracked; the activity scan (every issue and comment) runs
+    // only when no known repository applies.
+    const repos = untracked(() => repoChoices(app, board));
+    const ok = (id: number) => id > 0 && repos.some((r) => r.id === id);
+    const last = lastRepo();
+    this.repoId = ok(initialRepo) ? initialRepo : ok(last) ? last : untracked(() => recentActivityRepo(app, repos)) || (repos[0]?.id ?? 0);
+    const draft = textDraft(app, this.repoId);
+    this.title = this.prefill || draft.title;
+    this.body = draft.body;
+    this.restored = draft.restored;
     makeAutoObservable<Form, 'timer' | 'done' | 'app'>(this, {timer: false, done: false, app: false}, {autoBind: true});
   }
 
@@ -190,11 +202,11 @@ class Form {
 
   setRepo(id: number): void {
     const {intents} = editing(this.app);
-    const theirs = untracked(() => intents.drafts.get(draftKey(id)))?.text ?? '';
-    if (theirs.trim()) {
+    const theirs = textDraft(this.app, id);
+    if (theirs.restored) {
       this.flush();
-      this.title = theirs.split('\n')[0] ?? '';
-      this.body = theirs.split('\n').slice(2).join('\n');
+      this.title = theirs.title;
+      this.body = theirs.body;
       this.restored = true;
     } else {
       clearTimeout(this.timer);
@@ -341,32 +353,17 @@ export const CreateIssue = observer(function CreateIssue() {
 const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
   const set = form.templates;
   const [filter, setFilter] = useState('');
-  const listRef = useRef<HTMLUListElement>(null);
   if (!set) return <p className="text-sm text-muted" role="status">Loading issue templates…</p>;
+  const choices: TemplateChoice[] = set.templates.map((t) => ({id: t.file_name, text: t.name, description: t.about, descriptionVariant: 'block', onAction: () => { form.choose(t); }}));
+  if (set.config.blank_issues_enabled) choices.push({id: '', text: 'Blank issue', onAction: () => { form.choose(); }});
+  const q = filter.toLocaleLowerCase();
+  const items = choices.filter((c) => `${c.text} ${c.description ?? ''}`.toLocaleLowerCase().includes(q));
   return <div className="flex flex-col gap-2">
     <p className="text-sm text-muted">Choose an issue template</p>
     {set.note && <p className="text-sm text-muted">{set.note}</p>}
-    <FormControl><FormControl.Label>Issue templates</FormControl.Label>
-      <TextInput autoFocus placeholder="Find a template…" value={filter} onChange={(event) => { setFilter(event.target.value); }}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowDown' || event.key === 'Enter') {
-            event.preventDefault();
-            const first = listRef.current?.querySelector<HTMLElement>('[role="option"]');
-            if (event.key === 'Enter') first?.click();
-            else first?.focus();
-          }
-        }}/>
-    </FormControl>
-    <ActionList ref={listRef} aria-label="Issue templates" role="listbox">
-      {set.templates.filter((t) => `${t.name} ${t.about}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map((t) =>
-        <ActionList.Item role="option" key={t.file_name} onSelect={() => { form.choose(t); }}>
-          {t.name}<ActionList.Description variant="block">{t.about}</ActionList.Description>
-        </ActionList.Item>)}
-      {set.config.blank_issues_enabled && 'blank issue'.includes(filter.toLocaleLowerCase()) &&
-        <ActionList.Item role="option" onSelect={() => { form.choose(); }}>Blank issue</ActionList.Item>}
-    </ActionList>
-    {!set.templates.some((t) => `${t.name} ${t.about}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())) &&
-      !(set.config.blank_issues_enabled && 'blank issue'.includes(filter.toLocaleLowerCase())) && <p role="status">No matching templates</p>}
+    <FilteredActionList aria-label="Issue templates" items={items} filterValue={filter} onFilterChange={setFilter} placeholderText="Find a template…"
+      textInputProps={{'aria-label': 'Issue templates', autoFocus: true}}
+      {...(items.length ? {} : {message: <p className="p-2 text-sm text-muted">No matching templates</p>, messageText: {title: 'No matching templates', description: ''}})}/>
     {set.config.contact_links.filter((l) => /^https?:\/\//i.test(l.url)).map((l) => <div key={l.url}>
       <LinkButton variant="invisible" href={l.url} target="_blank" rel="noopener noreferrer">{l.name}↗</LinkButton>
       <p className="text-sm text-muted">{l.about}</p>
@@ -374,6 +371,8 @@ const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
     <Properties form={form}/>
   </div>;
 });
+
+interface TemplateChoice {id: string; text: string; description?: string; descriptionVariant?: 'block'; onAction: () => void}
 
 const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; onCreate: () => void; onClose: () => void}) {
   const app = useApp();

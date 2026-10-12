@@ -19,6 +19,7 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {ActionMenu, ActionList, Checkbox, CounterLabel, Text} from '@primer/react';
 import {IssueRowFrame} from './IssueRowFrame.tsx';
+import {IssueReference} from '../home/IssueReference.tsx';
 import {LabelGlyph} from './cells.tsx';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {
@@ -354,9 +355,8 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         <UpdatedCell issue={issue}/>
       </>}
     >
-      <span className={showRepo ? 'shrink-0 text-sm text-muted tabular-nums' : 'inline-block min-w-12 shrink-0 text-sm text-muted tabular-nums @max-md:min-w-10'}>
-        {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
-      </span>
+      {showRepo && id > 0 ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> :
+        <span className="inline-block min-w-12 shrink-0 text-sm text-muted tabular-nums @max-md:min-w-10">{id < 0 ? 'New' : `#${String(issue.get('number'))}`}</span>}
       <TitleCell issue={issue} className="min-w-0 truncate font-semibold group-hover:text-accent group-hover:underline"/><PendingCell issueId={issue.id}/>
       <span data-row-labels className="flex shrink-0 items-center @max-lg:hidden"><LabelsCell issue={issue}/></span>
     </IssueRowFrame>
@@ -382,8 +382,7 @@ const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: numbe
 });
 
 const RepoRef = observer(function RepoRef({repoId, number}: {repoId: number; number: number}) {
-  const name = usePool().model('Repository').get(repoId)?.get('name');
-  return <>{name ?? ''}#{number}</>;
+  return <IssueReference repo={usePool().model('Repository').get(repoId)?.get('full_name') ?? ''} number={number}/>;
 });
 
 const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'group'}>}) {

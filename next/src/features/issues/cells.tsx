@@ -303,19 +303,6 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
   return <AgoCell at={issue.get('updated_at')} label="Updated"/>;
 });
 
-export function RefCell({repo, number}: {repo: string; number: number | undefined}) {
-  const ref = number === undefined ? '' : `#${String(number)}`;
-  // Retain the repository at phone width to distinguish cross-repository references.
-  const slash = repo.indexOf('/') + 1;
-  return (
-    <span title={repo ? `${repo}${ref}` : undefined} className="flex min-w-0 tabular-nums">
-      {repo && <span className="max-md:hidden">{repo.slice(0, slash)}</span>}
-      {repo && <span className="truncate max-md:max-w-24">{repo.slice(slash)}</span>}
-      <span className="shrink-0">{ref}</span>
-    </span>
-  );
-}
-
 export function AgoCell({at, label}: {at: string; label?: string}) {
   return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-12 whitespace-nowrap text-right tabular-nums">{ago(at)}</span>;
 }

@@ -205,6 +205,14 @@ describe('a filter on a deleted label (#158)', () => {
   });
 });
 
+describe('My lists', () => {
+  test('an ungrouped row names its repository with its owner, as other issue references do', async () => {
+    await renderApp('/issues?group=none', session());
+    const r = await screen.findByRole('option', {name: /Footer links are broken/});
+    expect(within(r).getByTitle('acme/website #7')).toBeTruthy();
+  });
+});
+
 describe('the filter menu', () => {
   test('lists the filters in effect and clears them all, keeping the search and the state', async () => {
     const {router} = await renderApp('/acme/website/issues?poster=3&labels=1&q=docs&state=all', session());

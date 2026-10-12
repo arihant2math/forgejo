@@ -24,7 +24,7 @@ export const NewBoard = observer(function NewBoard({scope, primary = false}: {sc
   const session = useSession();
   const available = scope ? canEditBoard(session, scope) : true;
   if (!available) return null;
-  return <><Tooltip text={!connectivity.online ? onlineOnly('Creating a board') : 'Create a project board'}><Button size="small" variant={primary ? 'primary' : 'default'} type="button" inactive={!connectivity.online} onClick={() => { setOpen(true); }}>New board</Button></Tooltip>
+  return <><Tooltip text={!connectivity.online ? onlineOnly('Creating a board') : 'Create a project board'}><Button size="small" variant={primary ? 'primary' : 'default'} type="button" inactive={!connectivity.online} aria-disabled={!connectivity.online} onClick={() => { if (connectivity.online) setOpen(true); }}>New board</Button></Tooltip>
     {open && <BoardForm scope={scope} onClose={() => { setOpen(false); }}/>}</>;
 });
 
@@ -119,7 +119,7 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
   };
   const reason = !connectivity.online ? onlineOnly('Changing a board') : 'Manage this board';
   return <>
-    <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={busy} inactive={!connectivity.online} aria-describedby={!connectivity.online ? "board-settings-offline" : undefined}>Board settings</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
+    <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={busy || !connectivity.online} aria-describedby={!connectivity.online ? "board-settings-offline" : undefined}>Board settings</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
       <ActionList.Item onSelect={() => { setEdit(true); }}>Edit board</ActionList.Item>
       <ActionList.Item onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</ActionList.Item>
       <ActionList.Divider/><ActionList.Item variant="danger" onSelect={() => { setError(''); setRemove(true); }}>Delete board…</ActionList.Item>

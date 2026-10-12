@@ -229,7 +229,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating a repository needs a connection.</span>}
                 {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a name). */}
-                <Tooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy}>
+                <Tooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy} aria-disabled={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create repository'}
                 </Button></Tooltip>
               </div>

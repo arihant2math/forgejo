@@ -78,10 +78,10 @@ function button(name: string | RegExp): HTMLButtonElement {
   return first;
 }
 
-/** Primer keeps unavailable actions focusable with `inactive` so their reason remains discoverable. */
+/** Unavailable actions stay focusable (Primer's `inactive` look) and say so with aria-disabled. */
 function disabled(name: string | RegExp): boolean {
   const action = button(name);
-  return action.disabled || action.getAttribute('aria-disabled') === 'true' || action.hasAttribute('data-inactive');
+  return action.disabled || action.getAttribute('aria-disabled') === 'true';
 }
 
 beforeEach(() => {

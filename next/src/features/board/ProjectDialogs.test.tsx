@@ -42,7 +42,9 @@ test('board settings edits and clears the description through livesync, and is d
   await waitFor(() => { expect(onlineWrite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({method: 'PATCH', api: 'sync', path: '/projects/10', body: {title: 'Renamed', description: '', card_type: 'text_only'}})); });
   await waitFor(() => { expect(screen.queryByRole('dialog', {name: 'Edit board'})).toBeNull(); });
   runInAction(() => { connectivity.online = false; });
-  await waitFor(() => { expect(settings.getAttribute('data-inactive')).toBe('true'); });
+  await waitFor(() => { expect((settings as HTMLButtonElement).disabled).toBe(true); });
+  fireEvent.click(settings);
+  expect(screen.queryByRole('menuitem', {name: 'Edit board'})).toBeNull();
   expect(screen.getByText(/Changing a board.*not queued offline/)).toBeTruthy();
 });
 

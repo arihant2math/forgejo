@@ -59,7 +59,7 @@ test('a burst of avatar fetches trims the avatar cache once, down to its cap', a
   const png = {ok: true, type: 'basic', clone: () => png};
   vi.stubGlobal('fetch', () => Promise.resolve(png));
   vi.stubGlobal('__NEXT_BUILD__', {version: 'test', base: '/-/next/', assets: [], lazy: [], kill: false});
-  interface AvatarFetch {request: {url: string; mode: string; destination: string; method: string}; respondWith: (p: Promise<unknown>) => void}
+  interface AvatarFetch {request: {url: string; mode: string; destination: string; method: string}; respondWith: (p: Promise<unknown>) => void; waitUntil: (p: Promise<unknown>) => void}
   let fetchListener: (event: AvatarFetch) => void = () => undefined;
   vi.stubGlobal('self', {
     registration: {scope: 'http://localhost/'},
@@ -68,14 +68,23 @@ test('a burst of avatar fetches trims the avatar cache once, down to its cap', a
   });
   await import('./sw.ts');
   const responses: Promise<unknown>[] = [];
+  const kept: Promise<unknown>[] = [];
+  let trimmed = false;
   for (let i = 0; i < 5; i++) {
     fetchListener({
       request: {url: `http://localhost/avatars/${String(i)}`, mode: 'no-cors', destination: 'image', method: 'GET'},
       respondWith: (p) => { responses.push(p); },
+      waitUntil: (p) => { kept.push(p); },
     });
   }
   await Promise.all(responses);
-  await vi.advanceTimersByTimeAsync(2000);
+  // Every fetch keeps the worker alive until the one trim has run.
+  expect(kept).toHaveLength(5);
+  const alive = Promise.all(kept).then(() => { trimmed = true; });
+  await vi.advanceTimersByTimeAsync(1999);
+  expect(trimmed).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  await alive;
   expect(cache.keys).toHaveBeenCalledTimes(1);
   expect(entries).toHaveLength(500);
   expect(entries.at(-1)).toBe('http://localhost/avatars/4');

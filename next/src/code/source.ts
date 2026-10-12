@@ -104,7 +104,7 @@ export interface CommitInfo {
 export interface CompareInfo {
   commits: CommitInfo[];
   total: number;
-  /** Paths the listed commits touch (new names only); absent in older cached answers. */
+  /** Paths the listed commits touch (renames as removed + added, so both names); absent in older cached answers. */
   files?: string[] | undefined;
 }
 

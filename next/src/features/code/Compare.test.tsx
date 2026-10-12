@@ -50,7 +50,7 @@ function session() {
 const commit = (sha: string, message: string, parent: string) => ({sha, commit: {message, author: {name: 'Alice', email: 'a@x', date: T}}, author: null, parents: [{sha: parent}]});
 const DIFF = 'diff --git a/footer.txt b/footer.txt\n--- a/footer.txt\n+++ b/footer.txt\n@@ -1 +1 @@\n-old\n+new\n';
 
-function stubForgejo(): string[] {
+function stubForgejo({legacy = false} = {}): string[] {
   const asked: string[] = [];
   vi.stubGlobal('fetch', vi.fn((url: string) => {
     asked.push(url);
@@ -60,7 +60,8 @@ function stubForgejo(): string[] {
     if (url.endsWith(`/compare/${MAIN}...${AHEAD}`)) return json({total_commits: 1, commits: [commit(AHEAD, 'Fix the footer links', MAIN)]});
     if (url.endsWith(`/compare/${AHEAD}...${MAIN}`)) return json({total_commits: 0, commits: []});
     if (url.endsWith(`/compare/${MAIN}...${STALE}`)) return json({total_commits: 1, commits: [commit(STALE, 'Reword the footer', FORKED)]});
-    if (url.endsWith(`/compare/${STALE}...${MAIN}`)) return json({total_commits: 2, commits: [commit(MAIN, 'b', 'f'.repeat(40)), commit('f'.repeat(40), 'a', FORKED)], files: [{filename: 'footer.txt'}, {filename: 'other.txt'}, {filename: 'footer.txt'}]});
+    if (url.endsWith(`/compare/${STALE}...${MAIN}`)) return json({total_commits: 2, commits: [commit(MAIN, 'b', 'f'.repeat(40)), commit('f'.repeat(40), 'a', FORKED)], ...legacy ? {} : {files: [{filename: 'footer.txt'}, {filename: 'other.txt'}, {filename: 'footer.txt'}]}});
+    if (url.endsWith(`/repos/20/diff/${FORKED}/${MAIN}`)) return Promise.resolve(new Response(DIFF));
     if (url.endsWith(`/repos/20/diff/${MAIN}/${AHEAD}`)) return Promise.resolve(new Response(DIFF));
     if (url.endsWith(`/repos/20/diff/${FORKED}/${STALE}`)) return Promise.resolve(new Response(DIFF));
     if (url.endsWith(`/repos/20/diff/${MERGED}/${MAIN}`)) return Promise.resolve(new Response(DIFF));
@@ -130,4 +131,11 @@ test('a branch behind its base: the overlap comes from the base side\'s commit l
   await open('/acme/website/compare/main...stale');
   expect((await screen.findByText(/Both branches change 1 file since they diverged/)).textContent).toContain('(footer.txt)');
   expect(asked.filter((u) => u.includes(`/diff/${FORKED}/${MAIN}`))).toEqual([]);
+});
+
+test('a base-side comparison without paths (cached before they were kept): the overlap comes from its diff', async () => {
+  const asked = stubForgejo({legacy: true});
+  await open('/acme/website/compare/main...stale');
+  expect((await screen.findByText(/Both branches change 1 file since they diverged/)).textContent).toContain('(footer.txt)');
+  expect(asked.filter((u) => u.includes(`/diff/${FORKED}/${MAIN}`))).toHaveLength(1);
 });

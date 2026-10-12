@@ -256,7 +256,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   const pair = branchPair(pool, repoId, props.base, props.head);
   const pr = pair ? openPullOf(pool, repoId, props.base, props.head) : undefined;
   const pullable = pair && !pr;
-  const outlook = useOutlook({repoId, baseSha, headSha, info, mb, diff, on: pullable});
+  const outlook = useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on: pullable});
   const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
   const existing = pr && (
     <div className="sticky left-0 w-view border-b border-default px-4 py-3">
@@ -316,8 +316,8 @@ function touched(files: readonly DiffFile[]): string[] {
   return [...new Set(files.flatMap((f) => (f.status === 'renamed' ? [f.oldPath, f.newPath] : [filePath(f)])))];
 }
 
-function useOutlook({repoId, baseSha, headSha, info, mb, diff, on}: {
-  repoId: number; baseSha: string; headSha: string; info: Loaded<CompareInfo>; mb: Loaded<string>; diff: Loaded<DiffFile[]>; on: boolean;
+function useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on}: {
+  repoId: number; baseSha: string; headSha: string; info: Loaded<CompareInfo>; mb: Loaded<string>; diff: Loaded<DiffFile[]>; from: string | undefined; on: boolean;
 }): MergeOutlook {
   const src = useSource();
   const ready = on && info.state === 'ready' && info.value.commits.length > 0;
@@ -325,13 +325,19 @@ function useOutlook({repoId, baseSha, headSha, info, mb, diff, on}: {
   const behind = useLoad(behindKey, () => (behindKey ? src.peek<CompareInfo>(behindKey) : undefined), () => src.compare(repoId, headSha, baseSha));
   const behindN = behind.state === 'ready' ? behind.value.total || behind.value.commits.length : undefined;
   const headFiles = useMemo(() => (diff.state === 'ready' ? touched(diff.value) : undefined), [diff]);
+  // Answers cached before compares kept their paths have none: read the merge-base-to-base diff for those.
+  const legacy = behind.state === 'ready' && behind.value.files === undefined && !!behindN;
+  const baseDiff = useDiff(repoId, legacy ? from ?? '' : '', legacy && from ? baseSha : '');
+  const legacyFiles = useMemo(() => (baseDiff.state === 'ready' ? touched(baseDiff.value) : undefined), [baseDiff]);
   if (failed(mb) || failed(diff) || failed(behind)) return {kind: 'unknown', behind: behindN ?? 0};
   return mergeOutlook({
     baseSha, headSha,
     ahead: info.state === 'ready' ? info.value.commits.length : undefined,
     behind: behindN,
     headFiles,
-    baseFiles: behind.state === 'ready' ? baseSideFiles(behind.value) : undefined,
+    baseFiles: behind.state !== 'ready' ? undefined :
+      !legacy ? baseSideFiles(behind.value) :
+        legacyFiles ?? (failed(baseDiff) ? null : undefined),
   });
 }
 

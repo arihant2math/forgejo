@@ -7,7 +7,7 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import type {APIMergeCheck, ActionRun, CommitStatus, NextConfig, PullRequest, RepoUnit} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
-import {MergeBox} from './Pull.tsx';
+import {MergeBox} from './MergeBox.tsx';
 
 // The merge box does not render standalone code pages; avoid loading their repository route shell.
 vi.mock('../code/CodePage.tsx', () => ({CodeFrame: () => null}));

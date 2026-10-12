@@ -48,7 +48,7 @@ import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 // Keep code surfaces out of the conversation chunk.
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
-const MergeBox = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.MergeBox));
+const MergeBox = lazyComponent(() => import('../pull/MergeBox.tsx').then((m) => m.MergeBox));
 
 /** Observes only issues with this repository and number, not the whole repository. */
 export function findIssue(pool: Pool, repoId: number, index: number): Entity<'Issue'> | undefined {

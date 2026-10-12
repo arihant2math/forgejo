@@ -8,7 +8,8 @@ import {AppContext, createApp} from '../../app/store.ts';
 import {fallbackConfig} from '../../app/config.ts';
 import {editing} from '../../intents/session.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
-import {Rendered, TitleSection} from './Editing.tsx';
+import {Rendered} from './TextEditing.tsx';
+import {TitleSection} from './Editing.tsx';
 
 afterEach(cleanup);
 

@@ -6,7 +6,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {Pool} from '../../data/pool.ts';
 import type {Comment, Issue, Label, PullRequest, Repository} from '../../protocol/types.gen.ts';
-import {StatusEvent} from './Timeline.tsx';
+import {StatusEvent} from './TimelineEvents.tsx';
 
 const state = vi.hoisted(() => ({pool: undefined as Pool | undefined}));
 vi.mock('../issues/cells.tsx', async (original) => ({...await original<object>(), usePool: () => state.pool}));

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from '@playwright/test';
-import {api, ensureUser, newIssue, ok} from '../lib/api.ts';
+import {api, apiJson, ensureUser, newIssue, ok} from '../lib/api.ts';
 import {issueTitle, signIn, watch} from '../lib/app.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 
@@ -15,6 +15,9 @@ test.beforeAll(async () => {
   await ok(await api('POST', '/user/repos', {name: repo, private: true}), 'create private repo');
   await ok(await api('PUT', `/repos/${USER}/${repo}/collaborators/${ALICE.user}`, {permission: 'write'}), 'add collaborator');
   number = (await newIssue(USER, repo, 'Activity from another person', '', aliceAuth)).number;
+  // Forgejo records feed actions from a queue: wait until the feed has it (the page asks once, as GitHub's does).
+  await expect.poll(async () => (await apiJson<{op_type: string; repo: {name: string}}[]>('GET', `/users/${USER}/activities/feeds?limit=20`))
+    .some((a) => a.op_type === 'create_issue' && a.repo.name === repo), {timeout: 30_000}).toBe(true);
 });
 test.afterAll(async () => { await api('DELETE', `/repos/${USER}/${repo}`); });
 

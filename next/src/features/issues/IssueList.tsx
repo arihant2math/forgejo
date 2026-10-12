@@ -379,13 +379,13 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         if (!path) handlers.aux(id, e);
       }}
       leading={<><SelectBox id={id} cursor={cursor} handlers={handlers}/><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      // Labels give way first on a narrow list, then (a phone) the pin, due date and assignees: the title keeps its
-      // room, and the row its state and age.
+      // The trailing metadata reads right to left in fixed columns (age, author, then a pull request's checks slot
+      // and its Draft/review badge), so they line up down the list; what varies in width (assignees, due date, pin)
+      // sits left of them. On a phone the pin, due date, assignees and author give way: the row keeps its state and age.
       trailing={<>
-        <span className="contents @max-md:hidden"><PinCell issue={issue}/></span>
-        <PullStateCell issue={issue}/>
-        <span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span>
-        <span className="contents @max-md:hidden"><DueCell issue={issue}/><AssigneesCell issue={issue}/><AuthorCell issue={issue}/></span>
+        <span className="contents @max-md:hidden"><PinCell issue={issue}/><DueCell issue={issue}/><AssigneesCell issue={issue}/></span>
+        <PullStateCell issue={issue} row/>
+        <span className="contents @max-md:hidden"><AuthorCell issue={issue}/></span>
         <UpdatedCell issue={issue}/>
       </>}
     >
@@ -393,6 +393,8 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
       <TitleCell issue={issue} className="min-w-0 truncate font-semibold group-hover:text-accent group-hover:underline"/><PendingCell issueId={issue.id}/>
+      {/* The labels follow the title they describe (GitHub's lists do), and give way first on a narrow list. */}
+      <span data-row-labels className="flex shrink-0 items-center @max-lg:hidden"><LabelsCell issue={issue}/></span>
     </IssueRowFrame>
   );
 });

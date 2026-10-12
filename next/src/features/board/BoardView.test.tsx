@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {configure, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {test, expect, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -10,6 +10,11 @@ import {createApp} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
+
+// Focus comes back from a closing dialog after its exit: on a loaded machine that takes longer than Testing Library's
+// default second, and a test's many steps longer than Vitest's default 5 s (#288). Only the waits are longer.
+configure({asyncUtilTimeout: 10_000});
+vi.setConfig({testTimeout: 30_000});
 
 test('opening a board focuses its card; arrows can enter and leave an empty column', async () => {
   const s = fakeSession();

@@ -312,8 +312,10 @@ const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending
 /**
  * A pull request's state in a row: draft, its checks at the head (as the merge box sums them), and the reviews'
  * verdict (changes requested wins over approved; each reviewer's latest review counts). Nothing for an issue.
+ * In a list row (`row`) the checks keep a fixed 16px slot, empty without checks, so the checks, the author and
+ * the age line up down the list whichever pull requests have checks.
  */
-export const PullStateCell = observer(function PullStateCell({issue}: {issue: Entity<'Issue'>}) {
+export const PullStateCell = observer(function PullStateCell({issue, row = false}: {issue: Entity<'Issue'>; row?: boolean}) {
   const pool = usePool();
   const overlay = useOverlay();
   const prefixes = wipPrefixes(useApp().config);
@@ -335,7 +337,9 @@ export const PullStateCell = observer(function PullStateCell({issue}: {issue: En
       {draft && <PrimerLabel>Draft</PrimerLabel>}
       {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
       {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
-      {checks !== 'none' && <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 16, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint>}
+      {checks !== 'none' ?
+        <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 16, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint> :
+        row && <span aria-hidden data-checks-slot className="size-4 shrink-0"/>}
     </>
   );
 });

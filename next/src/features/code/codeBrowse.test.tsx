@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
+import {pierreFake} from '../../test/pierre.tsx';
 
 const MAIN = 'a'.repeat(40);
 const OLDER = 'b'.repeat(40);
@@ -189,18 +190,20 @@ test('a directory keeps Add file in the heading toolbar and still opens uploads'
 
 async function linkedLine(n: number) {
   await waitFor(() => {
-    expect(document.getElementById(`L${String(n)}`)?.hasAttribute('data-linked')).toBe(true);
+    const rows = within(screen.getByRole('region', {name: 'config.go, 20 lines'})).getAllByRole('listitem');
+    expect(rows.flatMap((row, i) => (row.hasAttribute('data-selected') ? [i + 1] : []))).toEqual([n]);
   }, {timeout: 3000});
 }
 
 test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)', async () => {
-  vi.stubGlobal('Worker', undefined);
   stubForgejo(fileServer);
   const router = await open(`/alice/website/src/commit/${MAIN}/config.go#L17`);
   await linkedLine(17);
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
-  expect(document.getElementById('L16')?.hasAttribute('data-linked')).toBe(false);
+  await waitFor(() => {
+    expect(pierreFake.scrolls.at(-1)).toEqual({type: 'line', id: `${BLOB}:config.go`, lineNumber: 17, align: 'center'});
+  });
   cleanup();
   const branch = await open('/alice/website/src/branch/main/config.go#L17');
   await linkedLine(17);
@@ -208,11 +211,23 @@ test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)
 });
 
 test('a code search hit opens its file at the line it names, highlighted (#246)', async () => {
-  vi.stubGlobal('Worker', undefined);
   stubForgejo(fileServer);
   const router = await open('/search?type=code&repoId=20&q=zoom');
   fireEvent.click(await screen.findByRole('option', {name: 'alice/website / config.go:17'}));
   await linkedLine(17);
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
+});
+
+test('a click on a line number links the line without scrolling the view; the file menu copies the line link', async () => {
+  stubForgejo(fileServer);
+  const router = await open(`/alice/website/src/commit/${MAIN}/config.go`);
+  fireEvent.click(await screen.findByRole('button', {name: 'Line 5'}, {timeout: 3000}));
+  const scrolls = pierreFake.scrolls.length;
+  await linkedLine(5);
+  await act(() => Promise.resolve());
+  expect(router.state.location.hash).toBe('L5');
+  expect(pierreFake.scrolls).toHaveLength(scrolls);
+  fireEvent.click(screen.getByRole('button', {name: 'File actions'}));
+  expect(await screen.findByRole('menuitem', {name: 'Copy line link'})).toBeTruthy();
 });

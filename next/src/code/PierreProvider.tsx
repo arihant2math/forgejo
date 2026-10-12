@@ -1,49 +1,57 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {WorkerPoolContextProvider, useWorkerPool} from '@pierre/diffs/react';
-import {type ReactNode, useEffect, useMemo, useState} from 'react';
+// The one place for @pierre/diffs configuration: theme, highlighting limits, the worker pool and its Trusted Types policy.
+
+import type {FileContents} from '@pierre/diffs';
+import {WorkerPoolContext} from '@pierre/diffs/react';
+import {getOrCreateWorkerPoolSingleton, type WorkerPoolManager} from '@pierre/diffs/worker';
+import {type ReactNode, useCallback, useSyncExternalStore} from 'react';
 import {useApp} from '../app/store.ts';
 // Make the library worker the bundle entry: its package marks worker imports as side-effect-free.
 // Importing it from a wrapper would let Rollup/Rolldown erase its message handler.
 import workerURL from '@pierre/diffs/worker/worker.js?worker&url';
 import {pierreWorker} from './pierreWorker.ts';
+import './pierreTrust.ts';
 
-export const githubTheme = {light: 'github-light', dark: 'github-dark'} as const;
+const githubTheme = {light: 'github-light', dark: 'github-dark'} as const;
+const TOKENIZE_MAX_LINE = 400;
 
-const highlighterOptions = {theme: githubTheme, preferredHighlighter: 'shiki-js', tokenizeMaxLineLength: 400} as const;
+/** Never terminated: navigation keeps the warm workers and their AST cache. */
+function workerPool(base: string): WorkerPoolManager {
+  return getOrCreateWorkerPoolSingleton({
+    poolOptions: {poolSize: 2, totalASTLRUCacheSize: 64, workerFactory: () => pierreWorker(base, workerURL, 'diffs-highlight')},
+    highlighterOptions: {theme: githubTheme, preferredHighlighter: 'shiki-js', tokenizeMaxLineLength: TOKENIZE_MAX_LINE},
+  });
+}
 
-/** One singleton pool, shared by all mounted file and review surfaces. */
-export function PierreProvider({children}: {children: ReactNode}) {
+/**
+ * Provides the pool, created on first use. `plain` turns true when its workers fail: views then render
+ * unhighlighted rather than fall back to Pierre's main-thread Shiki.
+ */
+export function PierreProvider({children}: {children: (plain: boolean) => ReactNode}) {
   const {config: {base}} = useApp();
-  const poolOptions = useMemo(() => ({poolSize: 2, totalASTLRUCacheSize: 64,
-    workerFactory: () => pierreWorker(base, workerURL, 'diffs-highlight'),
-  }), [base]);
-  return <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>{children}</WorkerPoolContextProvider>;
+  const pool = workerPool(base);
+  const subscribe = useCallback((changed: () => void) => pool.subscribeToStatChanges(changed), [pool]);
+  const plain = useSyncExternalStore(subscribe, () => !pool.isWorkingPool());
+  return <WorkerPoolContext.Provider value={plain ? undefined : pool}>{children(plain)}</WorkerPoolContext.Provider>;
 }
 
-/** Do not allow Pierre's main-thread Shiki fallback on a worker/CSP failure. */
-export function WorkerReady({children, fallback}: {children: ReactNode; fallback: ReactNode}) {
-  const pool = useWorkerPool();
-  const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (!pool) return undefined;
-    void pool.initialize().then(() => {
-      if (active) {
-        if (pool.isWorkingPool()) setReady(true);
-        else setFailed(true);
-      }
-    }, () => {if (active) setFailed(true);});
-    return () => {active = false;};
-  }, [pool]);
-  if (!pool || failed) return fallback;
-  return ready ? children : <div aria-busy="true" aria-label="Preparing code view"/>;
+/** A file view's contents; the cache key is the blob SHA, so warm-ups and views share the pool's AST cache. */
+export function fileContents(sha: string, name: string, contents: string, plain = false): FileContents {
+  return {name, contents, cacheKey: `${sha}:${name}`, ...(plain ? {lang: 'text'} : {})};
 }
+
+/** Highlights a file at idle priority ahead of its view (no-op when the pool does not run). */
+export function primeFile(base: string, sha: string, name: string, contents: string): void {
+  const pool = workerPool(base);
+  if (pool.isWorkingPool()) pool.primeFileHighlightCache(fileContents(sha, name, contents)).catch(() => undefined);
+}
+
+export const themeOptions = (dark: boolean) => ({theme: githubTheme, themeType: dark ? 'dark' : 'light'} as const);
 
 // Slots live in a shadow root: inherit Primer's typography and functional tokens.
-export const primerCodeCSS = `:host {
+const primerCodeCSS = `:host {
   --diffs-font-family: var(--fontStack-monospace);
   --diffs-header-font-family: var(--fontStack-system);
   --diffs-font-size: var(--text-body-size-medium);
@@ -68,3 +76,5 @@ export const primerCodeCSS = `:host {
 [data-column-number][data-line-type="change-deletion"] { --diffs-computed-diff-line-bg: var(--diffBlob-deletion-num-bgColor); color: var(--fgColor-muted); }
 [data-diff-span] { border-radius: var(--borderRadius-medium); }
 `;
+
+export const renderOptions = {unsafeCSS: primerCodeCSS, tokenizeMaxLineLength: TOKENIZE_MAX_LINE, tokenizeMaxLength: 500_000} as const;

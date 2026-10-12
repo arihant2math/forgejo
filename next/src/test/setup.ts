@@ -4,7 +4,11 @@
 // jsdom lacks a few browser APIs Primer, the router and the theme code use.
 
 import {cleanup} from '@testing-library/react';
-import {afterEach} from 'vitest';
+import {afterEach, vi} from 'vitest';
+
+// Pierre renders into Shadow DOM from workers: views render through light-DOM stand-ins (src/test/pierre*.ts*).
+vi.mock('@pierre/diffs/react', () => import('./pierre.tsx'));
+vi.mock('@pierre/diffs/worker', () => import('./pierreWorker.ts'));
 
 const noop = () => undefined;
 // jsdom declares some of these as undefined properties, so test the value, not `in`.

@@ -105,3 +105,11 @@ export function refTable(pool: Pool, repoId: number): RefTable {
 export function hasRefs(pool: Pool, repoId: number): boolean {
   return pool.model('Branch').by('repo_id', repoId).size > 0;
 }
+
+/** Reads a file and highlights it at idle priority in the code view's workers, ahead of its view. */
+export function warmFile(src: CodeSource, base: string, repoId: number, sha: string, path: string, size?: number): void {
+  void src.blob(repoId, sha, path, size).then(async (c) => {
+    if (c.kind !== 'text') return;
+    (await import('../../code/PierreProvider.tsx')).primeFile(base, sha, path, c.text);
+  }).catch(() => undefined);
+}

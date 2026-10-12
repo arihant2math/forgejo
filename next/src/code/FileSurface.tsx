@@ -1,49 +1,74 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {CodeView} from '@pierre/diffs/react';
+import type {CodeViewItem, CodeViewLineSelection} from '@pierre/diffs';
+import {CodeView, type CodeViewHandle, useStableCallback} from '@pierre/diffs/react';
 import {useTheme} from '@primer/react';
-import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {type ReactNode, useMemo} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useViewSize} from '../features/code/Lines.tsx';
-import {pierreHTMLSupported} from './pierreSupport.ts';
-import {githubTheme, PierreProvider, primerCodeCSS, WorkerReady} from './PierreProvider.tsx';
+import {fileContents, PierreProvider, renderOptions, themeOptions} from './PierreProvider.tsx';
 
-/** A single VirtualizedFile in CodeView's measured viewport. No network reads here. */
-export function FileSurface({name, text, cacheKey, scroller, children, fallback}: {
-  name: string; text: string; cacheKey: string; scroller: HTMLDivElement | null; children: ReactNode; fallback: ReactNode;
-}) {
-  const hash = useRouterState({select: (s) => s.location.hash});
-  const navigate = useNavigate();
+/** 0-based, ordered, inclusive. */
+export type LineRange = readonly [number, number];
+
+interface FileSurfaceProps {
+  name: string;
+  text: string;
+  /** The blob SHA. */
+  sha: string;
+  lines: number;
+  scroller: HTMLDivElement | null;
+  /** The selected lines (the URL's #L fragment), scrolled into view when they change from outside. */
+  range: LineRange | undefined;
+  onSelect: (range: LineRange) => void;
+}
+
+/** A file in Pierre's virtualized CodeView. No network reads here. */
+export function FileSurface(props: FileSurfaceProps) {
+  useViewSize(props.scroller);
+  return <PierreProvider>{(plain) => <FileBody {...props} plain={plain}/>}</PierreProvider>;
+}
+
+function FileBody({name, text, sha, lines, range, onSelect, plain}: FileSurfaceProps & {plain: boolean}) {
   const {resolvedColorScheme} = useTheme();
-  useViewSize(scroller);
-  const items = useMemo(() => [{id: `${cacheKey}:${name}`, type: 'file' as const, file: {name, contents: text, cacheKey: `${cacheKey}:${name}`}, version: 0}], [name, text, cacheKey]);
-  // Pierre's shadow-root numbers cannot provide light-DOM anchors or permalink menus.
-  if (!pierreHTMLSupported() || /^#?L\d/.test(hash)) return fallback;
-  const pick = (n: number) => {void navigate({to: '.', hash: `L${String(n)}`, search: true, replace: true});};
-  return <PierreProvider><WorkerReady fallback={fallback}>
-    {children}
-    <div role="list" aria-label={`${name}, ${String(text.split('\n').length - (text.endsWith('\n') ? 1 : 0))} lines`}>
-      <CodeView items={items} className="h-view overflow-auto" options={{theme: githubTheme,
-        themeType: resolvedColorScheme === 'dark' ? 'dark' : 'light', disableFileHeader: true,
-        unsafeCSS: primerCodeCSS, enableLineSelection: true, tokenizeMaxLineLength: 400, tokenizeMaxLength: 500_000,
-        onLineNumberClick: (line) => {pick(line.lineNumber);},
-        onPostRender: (node) => {
-          // Keep line-number accessible names and keyboard links, not just pointer selection.
-          for (const number of node.shadowRoot?.querySelectorAll<HTMLElement>('[data-column-number]') ?? []) {
-            const n = Number(number.getAttribute('data-column-number'));
-            if (!n) continue;
-            number.setAttribute('role', 'link');
-            number.setAttribute('aria-label', `Line ${String(n)}`);
-            number.tabIndex = 0;
-            number.onkeydown = (event) => {if (event.key === 'Enter') {event.preventDefault(); pick(n);}};
-          }
-        },
-      }} onSelectedLinesChange={(selection) => {
-        if (!selection) return;
-        const {start, end} = selection.range;
-        void navigate({to: '.', hash: start === end ? `L${String(start)}` : `L${String(Math.min(start, end))}-L${String(Math.max(start, end))}`, search: true, replace: true});
+  const dark = resolvedColorScheme === 'dark';
+  const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
+  const id = `${sha}:${name}`;
+  const items = useMemo<CodeViewItem<undefined>[]>(() => [{id, type: 'file', file: fileContents(sha, name, text, plain), version: 0}], [id, sha, name, text, plain]);
+  // The range last picked in the view: it is already visible, so it must not scroll.
+  const picked = useRef('');
+  const select = useStableCallback((next: LineRange) => {
+    picked.current = `${String(next[0])}-${String(next[1])}`;
+    onSelect(next);
+  });
+  const options = useMemo(() => ({
+    ...themeOptions(dark), ...renderOptions, disableFileHeader: true, enableLineSelection: true,
+    onPostRender: (node: HTMLElement) => {
+      // Keyboard and screen-reader access to line links, which Pierre offers to pointers only.
+      for (const number of node.shadowRoot?.querySelectorAll<HTMLElement>('[data-column-number]:not([role])') ?? []) {
+        const n = Number(number.getAttribute('data-column-number'));
+        if (!n) continue;
+        number.setAttribute('role', 'link');
+        number.setAttribute('aria-label', `Line ${String(n)}`);
+        number.tabIndex = 0;
+        number.onkeydown = (event) => {if (event.key === 'Enter') {event.preventDefault(); select([n - 1, n - 1]);}};
+      }
+    },
+  }), [dark, select]);
+  const start = range?.[0];
+  const end = range?.[1];
+  const selection = useMemo<CodeViewLineSelection | null>(() => start === undefined || end === undefined ? null : {id, range: {start: start + 1, end: end + 1}}, [id, start, end]);
+  useEffect(() => {
+    if (start === undefined || picked.current === `${String(start)}-${String(end)}`) return;
+    viewer.current?.scrollTo({type: 'line', id, lineNumber: start + 1, align: 'center'});
+  }, [id, start, end]);
+  return <div role="region" aria-label={`${name}, ${String(lines)} ${lines === 1 ? 'line' : 'lines'}`}>
+    <CodeView ref={viewer} items={items} className="h-view overflow-auto" options={options} selectedLines={selection}
+      onSelectedLinesChange={(next) => {
+        if (!next) return;
+        const a = Math.min(next.range.start, next.range.end);
+        const b = Math.max(next.range.start, next.range.end);
+        select([a - 1, b - 1]);
       }}/>
-    </div>
-  </WorkerReady></PierreProvider>;
+  </div>;
 }

@@ -146,6 +146,7 @@
   --spacing-blame: 240px; /* the blame column */
   --spacing-blame-narrow: 112px; /* the blame column in a narrow container (a phone): the age and summary */
   --spacing-dialog-body: 60vh; /* a dialog's scrolling content (the shortcuts help) */
+  --spacing-page-body: 100cqh; /* the page body's height, inside it when it is a size container (PageBody bounded) */
   --spacing-fade: 32px; /* the faded edge of a sideways scroller that has more to show (a board's columns) */
   --spacing-checker: 8px; /* a transparent image's checkerboard squares (the image view) */
 

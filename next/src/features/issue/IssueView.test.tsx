@@ -202,3 +202,18 @@ test('not planned sets the canceled status (and closes); offered only when the r
   expect(screen.queryByRole('option', {name: /Not planned/})).toBeNull();
   expect(screen.getByText('No issue matches')).toBeTruthy();
 });
+
+test('on a wide page the properties are a scroll region of their own, bounded by the page body (#273)', async () => {
+  await open('/acme/website/issues/7', session('write'));
+  const pane = screen.getByRole('complementary', {name: 'Properties'});
+  // The page body (the conversation's scroller, whose scroll the router restores) stays the page's one scroller…
+  const body = pane.closest('[data-scroll-restoration-id="page"]');
+  expect(body?.classList.contains('overflow-y-auto')).toBe(true);
+  // …and is a size container: the properties stick to its top, are at most as tall as it (max-h-page-body: 100cqh) and scroll
+  // themselves, without chaining to the conversation. jsdom has no layout: e2e/forgejo/issue-layout.spec.ts
+  // measures it in a browser.
+  expect(body?.classList.contains('@container-size')).toBe(true);
+  const scroller = pane.firstElementChild;
+  for (const c of ['@xl:sticky', '@xl:top-0', '@xl:max-h-page-body', '@xl:overflow-y-auto', '@xl:overscroll-contain']) expect(scroller?.classList.contains(c), c).toBe(true);
+  expect(within(pane).getByText('Not pinned')).toBeTruthy();
+});

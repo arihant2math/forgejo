@@ -7,6 +7,7 @@ import {test, expect, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
+import {connectivity} from '../../app/online.ts';
 import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
@@ -189,4 +190,25 @@ test('deleting a column asks first: Cancel has focus, Escape returns to the colu
   fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
   await waitFor(() => { expect(sent).toContain('DELETE /-/sync/api/projects/10/columns/12'); });
   vi.unstubAllGlobals();
+});
+
+test('offline, Add column is disabled and does not open the name field', async () => {
+  const s = fakeSession();
+  s.data.put('User', 'profile:1', user(1, 'alice'));
+  s.data.put('Project', 'profile:1', {id: 10, title: 'Board', description: '', owner_id: 1, repo_id: 0, creator_id: 1,
+    closed: false, template_type: 0, card_type: 0, type: 1, created_at: T, updated_at: T});
+  s.data.put('ProjectColumn', 'profile:1', {id: 11, title: 'To do', project_id: 10, default: true, sorting: 1, color: '', creator_id: 1, created_at: T, updated_at: T});
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/-/next/projects/10']}));
+  await router.load();
+  connectivity.online = false;
+  try {
+    render(<App app={app} router={router}/>);
+    const add = await screen.findByRole('button', {name: 'Add column'});
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(add);
+    expect(screen.queryByRole('textbox', {name: 'New column name'})).toBeNull();
+  } finally {
+    connectivity.online = true;
+  }
 });

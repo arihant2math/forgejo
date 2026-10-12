@@ -798,8 +798,8 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
   }
   return (
     <div className="flex w-column shrink-0 flex-col">
-      <Tooltip text={tip}><Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} inactive={offline} onClick={() => {
-        setEditing(true);
+      <Tooltip text={tip}><Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} inactive={offline} aria-disabled={offline} onClick={() => {
+        if (!offline) setEditing(true);
       }}>Add column</Button></Tooltip>
     </div>
   );

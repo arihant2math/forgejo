@@ -61,7 +61,7 @@ export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; br
   const [open, setOpen] = useState(false);
   const archives = branch ? ARCHIVE_FORMATS.map((format) => ({format, href: sitePath(app.config, archivePath(owner, repo, branch, format))})) : [];
   return (
-    <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} align="end" width="medium" overlayProps={{role: 'dialog', 'aria-label': 'Clone repository'}} renderAnchor={(props) => <Button {...{...props}} variant="primary" size="small" leadingVisual={CodeIcon} trailingVisual={ChevronDownIcon}>Code</Button>}>
+    <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} align="end" width="medium" overlayProps={{role: 'dialog', 'aria-label': 'Clone repository'}} renderAnchor={(props) => <Button {...props} variant="primary" size="small" leadingVisual={CodeIcon} trailingVisual={ChevronDownIcon}>Code</Button>}>
         <CodeMenuPanel https={httpsCloneUrl(app.config.app_url, owner, repo)} ssh={sshCloneUrl(app.config.ssh_clone_prefix, owner, repo)} archives={archives}
           onCopy={(url) => {
             void navigator.clipboard.writeText(url).then(() => {

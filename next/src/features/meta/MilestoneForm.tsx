@@ -54,7 +54,7 @@ const EditLookup = observer(function EditLookup({r, id}: {r: RepoRef; id: number
       <RepoHeader owner={r.owner} repo={r.name} repoId={r.id} icon={MilestoneIcon} title="Edit milestone"/>
       <PageBody>
         {s.data.status.loading > 0 ? <PageColumn><SkeletonText lines={4}/></PageColumn> :
-          <Missing what="This milestone" classic={id ? `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/milestone/${String(id)}/edit` : undefined}/>}
+          <Missing what="This milestone" classic={id ? `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/milestones/${String(id)}/edit` : undefined}/>}
       </PageBody>
     </>
   );

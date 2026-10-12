@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {type ComponentType, type ReactNode, useEffect, useReducer} from 'react';
+import {type ComponentType, type ReactNode, useEffect, useReducer, useRef} from 'react';
 
 export interface LazyComponent<P extends object> {
   (props: P): ReactNode;
@@ -23,22 +23,31 @@ function cachedLoader<T>(load: () => Promise<T>): {loaded: T | undefined; preloa
   return chunk;
 }
 
-/** Avoids Suspense's reveal delay for keyboard overlays; renders fallback until loaded. */
+/** Avoids Suspense's reveal delay for keyboard overlays; renders fallback until loaded, retrying once back online. */
 export function lazyComponent<P extends object>(load: () => Promise<ComponentType<P>>, fallback: ReactNode = null): LazyComponent<P> {
   const chunk = cachedLoader(load);
   function Lazy(props: P) {
-    const [, rerender] = useReducer((n: number) => n + 1, 0);
+    const [attempt, rerender] = useReducer((n: number) => n + 1, 0);
+    const failedOffline = useRef(false);
     useEffect(() => {
       let mounted = true;
+      const retry = () => { if (mounted) rerender(); };
       if (!chunk.loaded) {
-        chunk.preload().then(() => {
-          if (mounted) rerender();
-        }, (err: unknown) => {
-          if (mounted) console.error('loading a chunk failed', err);
+        chunk.preload().then(retry, (err: unknown) => {
+          if (!mounted) return;
+          // Offline before the worker cached the chunk is not an error. Some browsers keep a failed module for the
+          // document's lifetime, so the retry once back online may fail the same way: the next page load has it.
+          if (!navigator.onLine) {
+            failedOffline.current = true;
+            window.addEventListener('online', retry, {once: true});
+          } else if (!failedOffline.current) console.error('loading a chunk failed', err);
         });
       }
-      return () => { mounted = false; };
-    }, []);
+      return () => {
+        mounted = false;
+        window.removeEventListener('online', retry);
+      };
+    }, [attempt]);
     return chunk.loaded ? <chunk.loaded {...props}/> : fallback;
   }
   return Object.assign(Lazy, {preload: chunk.preload});

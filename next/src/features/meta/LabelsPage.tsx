@@ -104,7 +104,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${count(active.length, 'label', 'labels')}`}</span>}>
+          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : count(active.length, 'label', 'labels')}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
               <Blankslate spacious><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :

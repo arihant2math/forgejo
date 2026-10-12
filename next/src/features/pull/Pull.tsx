@@ -848,7 +848,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const mainVariant = changesRequested || checks === 'failure' ? 'default' : 'primary';
   const waitingApproval = (sum?.awaitingApproval ?? 0) > 0 || check?.actions?.need_approval === true;
   const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
-  const checksWords = waitingApproval ? 'Checks are waiting for a maintainer’s approval' : CHECK_SUMMARY[checks].label;
+  const checksWords = waitingApproval && checks !== 'failure' ? 'Checks are waiting for a maintainer’s approval' : CHECK_SUMMARY[checks].label;
   const headRef = check?.head_repo ? check.head_repo.split('/') : [];
   const removeHeadBranch = () => {
     if (!isOnline || busy || headRef.length !== 2) return;
@@ -1016,7 +1016,7 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
     }}>
       {reason && <Banner variant="warning" title={reason}/>}
       {!auto && checks === 'pending' && (
-        <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>
+        <Banner variant="warning" title={`${count(unfinished, 'check has', 'checks have')} not finished`} description={<>
           Merging now does not wait for {unfinished === 1 ? 'it' : 'them'}. Auto-merge waits.
         </>}/>
       )}

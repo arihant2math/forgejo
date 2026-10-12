@@ -36,7 +36,7 @@ interface Standing {
 }
 
 export function standingText(s: Pick<Standing, 'ahead' | 'behind' | 'branch' | 'upstream'>): string {
-  const n = (k: number) => `${count(k, 'commit', 'commits')}`;
+  const n = (k: number) => count(k, 'commit', 'commits');
   const up = `${s.upstream.owner}/${s.upstream.name}`;
   if (s.ahead && s.behind) return `This branch is ${n(s.ahead)} ahead of ${up}:${s.upstream.defaultBranch} and ${n(s.behind)} behind ${up}:${s.branch}.`;
   if (s.ahead) return `This branch is ${n(s.ahead)} ahead of ${up}:${s.upstream.defaultBranch}.`;

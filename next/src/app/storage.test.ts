@@ -35,6 +35,6 @@ test('blocked storage never throws', () => {
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('full'); });
   vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
   expect(readJson('test')).toBeUndefined();
-  expect(() => writeJson('test', 1)).not.toThrow();
-  expect(() => writeJson('test', undefined)).not.toThrow();
+  expect(() => { writeJson('test', 1); }).not.toThrow();
+  expect(() => { writeJson('test', undefined); }).not.toThrow();
 });

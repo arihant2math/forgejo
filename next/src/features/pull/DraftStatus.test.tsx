@@ -86,5 +86,7 @@ test('draft detection reads optimistic titles and ignores ordinary issues', () =
   intents.submit({kind: 'issue.title', issueId: entity.id, repoId: 20, title: 'WIP: Add the footer', base: 'Add the footer'});
   expect(isDraftPull(app, overlay, entity)).toBe(true);
   s.data.put('Issue', 'repo:20', issue(101, 20, 8, 'WIP: Ordinary issue'));
-  expect(isDraftPull(app, overlay, s.data.pool.model('Issue').get(101)!)).toBe(false);
+  const ordinary = s.data.pool.model('Issue').get(101);
+  if (!ordinary) throw new Error('no ordinary issue');
+  expect(isDraftPull(app, overlay, ordinary)).toBe(false);
 });

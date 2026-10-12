@@ -507,7 +507,7 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
   return (
     <FormSection title="Email addresses" description="Forgejo sends notifications to your primary address. Any verified address links your commits to you.">
       {list ? (
-        <AccountList title={`${count(list.length, 'address', 'addresses')}`}>
+        <AccountList title={count(list.length, 'address', 'addresses')}>
           {list.map((e) => (
             <AccountRow key={e.email} leading={<MailIcon size={16} className="shrink-0"/>} trailing={<>
               {e.primary && <Label variant="accent">Primary</Label>}
@@ -626,7 +626,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <AccountList title={`${count(list.length, 'key', 'keys')}`}>
+        <AccountList title={count(list.length, 'key', 'keys')}>
           {list.map((k) => (
             <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
@@ -720,7 +720,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <AccountList title={`${count(list.length, 'key', 'keys')}`}>
+        <AccountList title={count(list.length, 'key', 'keys')}>
           {list.map((k) => {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (

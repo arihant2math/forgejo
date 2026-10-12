@@ -5,7 +5,7 @@
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 import {splashScript} from '../../tools/vite-plugin-shell.ts';
 import {
-  applySplash, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, SKELETON_DEFAULT_ROWS, SKELETON_MAX_ROWS, writeSplash, type Splash,
+  applySplash, forgetUser, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, SKELETON_DEFAULT_ROWS, SKELETON_MAX_ROWS, writeSplash, type Splash,
 } from './splash.ts';
 
 const html = document.documentElement;
@@ -123,5 +123,11 @@ describe('readSplash / writeSplash', () => {
     writeSplash({theme: 'dark'});
     writeSplash({user: '42'});
     expect(readSplash()).toEqual({theme: 'dark', user: '42'});
+  });
+
+  test('signing out forgets every user marker, an older build\'s initial too, and keeps the rest', () => {
+    localStorage.setItem('splash', JSON.stringify({theme: 'dark', user: '42', route: '/x', initial: 'A'}));
+    forgetUser();
+    expect(readSplash()).toEqual({theme: 'dark'});
   });
 });

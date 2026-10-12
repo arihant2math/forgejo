@@ -177,6 +177,8 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
     });
     model.dispose();
     window.dispatchEvent(new Event('online'));
+    // send() awaits the auth token before fetching, so let that settle first.
+    await new Promise((r) => setTimeout(r, 20));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

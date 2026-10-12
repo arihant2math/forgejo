@@ -7,7 +7,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {createElement, useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
@@ -21,9 +21,9 @@ import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {repoPeople} from '../issues/people.ts';
-import {PickerPopover} from '../issues/Picker.tsx';
-import {priorityIcon, statusIcon, usePool} from '../issues/cells.tsx';
-import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels.ts';
+import {KindChip, PickerPopover} from '../issues/Picker.tsx';
+import {usePool} from '../issues/cells.tsx';
+import {exclusiveScope, labelKind} from '../issues/labels.ts';
 import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
@@ -444,7 +444,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const repo = pool.model('Repository').get(repoId)?.data;
   const writable = repoId > 0 && canWrite(session, repoId);
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
-  const ofKind = (k: 'status' | 'priority') => allLabels.filter((l) => labelKind(l) === k).sort((a, b) => kindRank(k, a.name) - kindRank(k, b.name));
   const plain = allLabels.filter((l) => labelKind(l) === undefined);
   const people = repoId ? repoPeople(pool, repoId, userId, form.assignees) : [];
   const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
@@ -456,8 +455,8 @@ const Properties = observer(function Properties({form}: {form: Form}) {
         options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => { form.setRepo(r.id); }}))}
         renderAnchor={(props) => <Button {...props} size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>}/>
       {writable ? <>
-        <KindChip form={form} kind="status" labels={ofKind('status')}/>
-        <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
+        <KindChip draft={form} kind="status"/>
+        <KindChip draft={form} kind="priority"/>
         <PickerPopover kind="labels" draft={form}
           renderAnchor={(props) =>
             <Button {...props} variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
@@ -470,21 +469,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
           renderAnchor={(props) => <Button {...props} variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </> : repoId > 0 && <span className="px-1 text-sm text-muted">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
-  );
-});
-
-const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; kind: 'status' | 'priority'; labels: Label[]}) {
-  if (!labels.length) return null;
-  const chosen = labels.find((l) => form.labels.includes(l.id));
-  const iconOf = kind === 'status' ? statusIcon : priorityIcon;
-  const name = kind === 'status' ? 'Status' : 'Priority';
-  return (
-    <PickerPopover kind={kind} draft={form}
-      renderAnchor={(props) =>
-        <Button {...props} variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
-          {chosen ? <>{createElement(iconOf(chosen.name), {fill: chosen.color})}{scopedValue(chosen.name)}</> : name}
-        </Button>
-      }/>
   );
 });
 

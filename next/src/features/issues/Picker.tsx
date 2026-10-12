@@ -4,7 +4,7 @@
 // Shortcuts open modal pickers; property buttons anchor them. Changes use the intent overlay.
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactElement, type RefObject, useEffect, useRef, useState} from 'react';
+import {createElement, type ReactElement, type RefObject, useEffect, useRef, useState} from 'react';
 import {type App, type PickerKind, useApp} from '../../app/store.ts';
 import {LocalSelectPanel, type AnchorProps} from '../../components/LocalSelectPanel.tsx';
 import {matchOptions, type PickOption} from '../../components/pickOptions.ts';
@@ -12,9 +12,9 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issueProject, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar} from '@primer/react';
+import {Avatar, Button} from '@primer/react';
 import {shortDate} from './format.ts';
-import {labelColor, LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, UserAvatar} from './cells.tsx';
+import {labelColor, LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, usePool, UserAvatar} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
 import {loadPeople, personLogin, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
@@ -81,6 +81,24 @@ export function PickerPopover({kind, issueIds = [], draft, renderAnchor}: {
   return <PickerPanel app={app} kind={kind} issueIds={issueIds} draft={draft} open={open} variant="anchored"
     onClose={() => {setOpen(false);}} onOpen={() => {setOpen(true);}} renderAnchor={renderAnchor}/>;
 }
+
+/** A form's Status or Priority chip: the scoped labels the Labels picker leaves out until searched. None when the repository has none. */
+export const KindChip = observer(function KindChip({draft, kind}: {draft: PickerDraft; kind: 'status' | 'priority'}) {
+  const pool = usePool();
+  const labels = repoLabels(pool, draft.repoId).filter((l) => labelKind(l) === kind);
+  if (!labels.length) return null;
+  const chosen = labels.find((l) => draft.labels.includes(l.id));
+  const iconOf = kind === 'status' ? statusIcon : priorityIcon;
+  const name = kind === 'status' ? 'Status' : 'Priority';
+  return (
+    <PickerPopover kind={kind} draft={draft}
+      renderAnchor={(props) =>
+        <Button {...props} variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
+          {chosen ? <>{createElement(iconOf(chosen.name), {fill: chosen.color})}{scopedValue(chosen.name)}</> : name}
+        </Button>
+      }/>
+  );
+});
 
 function close(app: App): void {
   runInAction(() => {

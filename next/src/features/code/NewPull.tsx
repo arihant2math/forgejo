@@ -24,9 +24,10 @@ import {draftTitle, wipPrefixes} from '../pull/draft.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
+import {labelKind} from '../issues/labels.ts';
 import {usePool} from '../issues/cells.tsx';
 import {repoPeople} from '../issues/people.ts';
-import {PickerPopover, type PickerDraft} from '../issues/Picker.tsx';
+import {KindChip, PickerPopover, type PickerDraft} from '../issues/Picker.tsx';
 import type {Label} from '../../protocol/types.gen.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
 import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon, TriangleDownIcon} from '@primer/octicons-react';
@@ -291,7 +292,7 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
     const chosen = people.filter((p) => ids.includes(p.id)).map((p) => p.login);
     return chosen.length > 2 ? `${String(chosen.length)} ${what.toLowerCase()}` : chosen.join(', ') || what;
   };
-  const chosen = repoLabels(pool, repoId).filter((l) => form.labels.includes(l.id));
+  const chosen = repoLabels(pool, repoId).filter((l) => labelKind(l) === undefined && form.labels.includes(l.id));
   const ms = form.milestone ? pool.model('Milestone').get(form.milestone)?.data : undefined;
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -300,6 +301,8 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
       {writable && <>
         <PickerPopover kind="assignees" draft={form} renderAnchor={(props) =>
           <Button {...props} variant={form.assignees.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{names(form.assignees, 'Assignees')}</Button>}/>
+        <KindChip draft={form} kind="status"/>
+        <KindChip draft={form} kind="priority"/>
         <PickerPopover kind="labels" draft={form} renderAnchor={(props) =>
           <Button {...props} variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
             {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}

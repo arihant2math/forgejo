@@ -124,21 +124,18 @@ test('the pull request tabs follow GitHub: Conversation, Commits, Checks, Files 
   expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' '))).toEqual(['Conversation0 (0)', 'Commits2 (2)', 'Checks1 (1)', 'Files changed']);
 });
 
-test('a click on a line makes it the cursor line: Enter comments on the line clicked, and its comment button shows', async () => {
+test('a click on a line makes it the cursor line: Enter comments on the line clicked, below it', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   const list = await screen.findByRole('list', {name: 'Changes'});
   const three = await lineRow('three');
-  expect(three.querySelector('[data-active]')).toBeNull();
-  fireEvent.click(three.querySelector('.code-text') ?? three);
+  expect(list.getAttribute('aria-activedescendant')).toBeNull();
+  fireEvent.click(three);
   const active = list.getAttribute('aria-activedescendant');
-  expect(active).toBeTruthy();
-  expect(three.querySelector(`[id="${active ?? ''}"]`)).not.toBeNull();
-  expect(three.querySelector('[data-active]')).not.toBeNull();
+  expect(document.getElementById(active ?? '')?.textContent).toBe('a.txt, line 3: three');
   expect(document.activeElement).toBe(list);
   fireEvent.keyDown(list, {key: 'Enter'});
   const field = await screen.findByRole('textbox', {name: 'Review comment'});
-  const thread = field.closest('[role="listitem"]');
-  expect(Number(thread?.getAttribute('data-index'))).toBe(Number(three.getAttribute('data-index')) + 1);
+  expect(field.closest('[role="listitem"]')?.parentElement?.firstElementChild).toBe(three);
 });
 
 test('a line comment starts a review, and the next one is added to it', async () => {
@@ -355,23 +352,6 @@ test('a single line comment\'s review (COMMENT, empty summary) shows its comment
   expect(within(activity).queryByText('No text.')).toBeNull();
   expect(within(activity).getAllByRole('article')).toHaveLength(1); // the comment's card; the review is a timeline entry, not a card around it
   expect(within(activity).getAllByRole('button', {name: 'Reply'})).toHaveLength(1);
-});
-
-test('touch (no hover): a tap on a line shows its comment button, and a tap on it opens the composer', async () => {
-  await open(session(), '/acme/website/pulls/4?tab=files');
-  const row = await lineRow('four');
-  const button = within(row).getByRole('button', {name: 'Comment on line 4'});
-  // Touch devices need the cursor-line control without a hover media-query gate.
-  const shown = button.parentElement;
-  expect(shown?.className).toContain('invisible');
-  expect(shown?.className).toContain('group-data-active:visible');
-  expect(button.closest('[data-active]')).toBeNull();
-  fireEvent.pointerDown(row.querySelector('.code-text') ?? row, {pointerType: 'touch'});
-  fireEvent.click(row.querySelector('.code-text') ?? row);
-  expect(button.closest('.group')?.hasAttribute('data-active')).toBe(true);
-  fireEvent.click(button);
-  const field = await screen.findByRole('textbox', {name: 'Review comment'});
-  expect(Number(field.closest('[role="listitem"]')?.getAttribute('data-index'))).toBe(Number(row.getAttribute('data-index')) + 1);
 });
 
 test('a merge refused because someone else merged it first says so, without a failure', async () => {

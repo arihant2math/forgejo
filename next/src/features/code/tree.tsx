@@ -4,7 +4,8 @@
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useMemo} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
-import {branchByName, useLoad, useSource} from './hooks.ts';
+import {useApp} from '../../app/store.ts';
+import {branchByName, useLoad, useSource, warmFile} from './hooks.ts';
 import {codeSplat, type RefKind, type Resolved} from '../../code/refs.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -71,6 +72,7 @@ export function DirEntries({owner, repo, repoId, at, tree, scroller}: {owner: st
   const pathOf = (e: APITreeEntry) => (at.path ? `${at.path}/${e.name}` : e.name);
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
+  const {config: {base}} = useApp();
   const entries = useMemo(() => treeOrder(tree.entries), [tree]);
   if (!entries.length) return <Blankslate><Blankslate.Visual><FileDirectoryFillIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty directory</Blankslate.Heading></Blankslate>;
   return (
@@ -81,9 +83,7 @@ export function DirEntries({owner, repo, repoId, at, tree, scroller}: {owner: st
       onIntent={(e) => {
         const p = pathOf(e);
         if (e.type === 'tree') void src.tree(repoId, at.sha, p).catch(() => undefined);
-        else if (e.type === 'blob') {
-          void src.blob(repoId, e.sha, p, e.size).then((c) => (c.kind === 'text' ? src.highlight(repoId, e.sha, p, c.text, 'idle') : null)).catch(() => undefined);
-        }
+        else if (e.type === 'blob') warmFile(src, base, repoId, e.sha, p, e.size);
       }}/>
   );
 }

@@ -34,9 +34,7 @@ describe('write primitives', () => {
     p.put('Issue', 1, 'repo:1', 5, issue(1, 1, 'a'));
     expect(p.del('Issue', 1, 'repo:1', 7)).toBe(true);
     expect(p.model('Issue').get(1)).toBeUndefined();
-    // An older state in that group (an overlapping bootstrap) cannot bring it back.
     expect(p.put('Issue', 1, 'repo:1', 6, issue(1, 1, 'stale'))).toBe(false);
-    // A newer state, or a state in another group, can.
     expect(p.put('Issue', 1, 'repo:2', 6, issue(1, 2, 'moved'))).toBe(true);
     expect(p.model('Issue').get(1)?.group).toBe('repo:2');
   });
@@ -68,9 +66,7 @@ describe('write primitives', () => {
       for (let i = 1; i <= n; i++) p.del('Issue', i, 'repo:1', i + 1);
     });
     expect(performance.now() - t0).toBeLessThan(2000);
-    // The last MAX_TOMBSTONES / 2 at least are kept.
     for (let i = n - MAX_TOMBSTONES / 2 + 1; i <= n; i += 997) expect(p.put('Issue', i, 'repo:1', i, issue(i, 1, 'stale'))).toBe(false);
-    // A floor covering the group drops its tombstones (and makes them unnecessary).
     p.setFloor('repo:1', n + 1);
     expect(p.put('Issue', n, 'repo:1', n, issue(n, 1, 'stale'))).toBe(false);
   });
@@ -113,7 +109,6 @@ describe('stale persisted records', () => {
     p.load('Issue', [{id: 1, g: 'repo:1', v: 5, d: issue(1, 1, 'stale copy')}]);
     expect(p.model('Issue').get(1)?.group).toBe('repo:2');
     expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:1', new Set([1])]]));
-    // The same with a delete for a group the entity is not held in.
     p.del('Issue', 1, 'repo:3', 8);
     expect(p.takeDirty().get('Issue')).toEqual(new Map([['repo:3', new Set([1])]]));
   });
@@ -191,7 +186,6 @@ describe('reactivity', () => {
     });
     expect(got).toEqual([undefined, 'five']);
     expect(sizes).toEqual([0, 2]);
-    // Moving issue 6 to another repository changes the bucket, not issue 5's observer.
     p.batch(() => p.put('Issue', 6, 'repo:2', 2, issue(6, 2, 'six')));
     expect(sizes).toEqual([0, 2, 1]);
     expect(got).toEqual([undefined, 'five']);
@@ -256,7 +250,6 @@ describe('follower mirror', () => {
     const rec = (id: number, g: string, v: number) => ({id, g, v, d: issue(id, Number(g.slice(5)), `t${v}`)});
     p.mirrorBucket('Issue', 'repo:1', 1, [rec(1, 'repo:1', 1), rec(513, 'repo:1', 1)], 1);
     expect(p.model('Issue').size).toBe(2);
-    // Flush 2: issue 1 moved to repo:2 (both buckets written), 513 deleted.
     p.mirrorBucket('Issue', 'repo:2', 1, [rec(1, 'repo:2', 2)], 2);
     p.mirrorBucket('Issue', 'repo:1', 1, [], 2);
     expect([...p.model('Issue').all()].map((e) => [e.id, e.group])).toEqual([[1, 'repo:2']]);
@@ -276,8 +269,6 @@ describe('follower mirror', () => {
   });
 });
 
-// ---- convergence (PLAN §9: fuzzing the delta applier for idempotency and ordering) ----
-
 interface Entry {v: number; g: string; id: number; op: 'U' | 'D'; title?: string}
 type Ev =
   | {k: 'entry'; e: Entry}
@@ -286,7 +277,6 @@ type Ev =
 
 const GROUPS = ['repo:1', 'repo:2', 'repo:3'];
 
-/** A server history: creates, updates, moves (D in the old group + U in the new one) and deletes. */
 const historyArb = fc.array(fc.record({
   id: fc.integer({min: 1, max: 6}),
   kind: fc.constantFrom('upsert', 'move', 'delete'),
@@ -373,7 +363,6 @@ describe('convergence', () => {
           s: fc.constant(s),
           // Per group: the watermark of the bootstrap that covers it (0 = none: every entry is delivered).
           ws: fc.tuple(...GROUPS.map(() => fc.integer({min: 0, max: head}))),
-          // Noise: extra entries (any, also older ones), extra (possibly incomplete) bootstraps.
           extra: fc.array(fc.integer({min: 1, max: Math.max(1, head)}), {maxLength: 30}),
           extraBoots: fc.array(fc.record({g: fc.constantFrom(...GROUPS), w: fc.integer({min: 0, max: head}), complete: fc.boolean()}), {maxLength: 4}),
           order: fc.array(fc.double({min: 0, max: 1, noNaN: true}), {minLength: 200, maxLength: 200}),
@@ -389,7 +378,6 @@ describe('convergence', () => {
           const b = boots.size + 1;
           const lines = snapshot(s, g, w);
           boots.set(b, {g, w, ids: new Set(lines.map((l) => l.id))});
-          // The lines arrive in up to two chunks, then the end line; other messages may come in between.
           const cut = Math.min(lines.length, split[b % split.length] ?? 0);
           const parts: Ev[] = [{k: 'lines', b, lines: lines.slice(0, cut)}, {k: 'lines', b, lines: lines.slice(cut)}];
           if (complete) parts.push({k: 'end', b});
@@ -449,14 +437,12 @@ describe('convergence', () => {
       apply(p, {k: 'lines', b: 1, lines: lines1}, boots);
       for (const e of s.log) if (e.g === g && e.v <= Math.min(b, head)) apply(p, {k: 'entry', e}, boots);
       p.purgeGroup(g);
-      // In flight when the revocation arrived, as frames or as profiles embedded in other groups'
-      // bootstraps (the group's own bootstrap lines stop at the purge: SyncClient's live() check).
+      // Simulate in-flight frames or embedded profiles; own-group bootstrap lines stop at revocation.
       p.batch(() => {
         for (const l of lines1) p.put('Issue', l.id, l.g, l.v, issue(l.id, 0, l.title ?? ''));
       });
       expect([...p.groupEntities(g)]).toEqual([]);
-      // Re-granted: a fresh bootstrap at the current head — on a quiet server the same watermark
-      // as everything the client saw (the purge's floor must not reject it).
+      // A quiet server can re-grant at the purge watermark; authoritative lines must still be accepted.
       const fresh = Math.max(1, head);
       const lines2 = snapshot(s, g, fresh);
       boots.set(2, {g, w: fresh, ids: new Set(lines2.map((l) => l.id))});

@@ -7,7 +7,7 @@ import {Pool} from '../data/pool.ts';
 import type {BootstrapEnd, BootstrapHeader} from '../protocol/types.gen.ts';
 import {below, parseCursor, replaceGroup, unixSeconds} from './replace.ts';
 
-const OLD = '2025-01-01T00:00:00Z'; // before the cutoff
+const OLD = '2025-01-01T00:00:00Z';
 const NEW = '2026-06-01T00:00:00Z';
 const CUTOFF = unixSeconds('2026-01-01T00:00:00Z');
 const G = 'repo:1';
@@ -28,7 +28,6 @@ function header(h: Partial<BootstrapHeader>, noCutoff = false): BootstrapHeader 
 
 const END: BootstrapEnd = {type: 'end', count: 0, refs: []};
 
-/** A repository held with an open issue (1), a closed old issue (2) with a label, a PR and an auto-merge, and statuses. */
 function seeded(): Pool {
   const p = new Pool();
   put(p, 'Issue', 1, 10, {state: 'open', updated_at: NEW});
@@ -95,18 +94,14 @@ describe('summary replacement', () => {
   test('the floor rejects stale states in scope, not the closed tier', () => {
     const p = seeded();
     replaceGroup(p, {group: G, header: header({}), end: END, received: new Map(), heldUnits: ['issues']});
-    // An open issue as of v 90 ≤ watermark that the response did not contain: stale.
     put(p, 'Issue', 7, 90, {state: 'open', updated_at: NEW});
     expect(p.model('Issue').get(7)).toBeUndefined();
-    // An old closed issue: the summary does not cover it.
     put(p, 'Issue', 8, 90, {state: 'closed', updated_at: OLD});
     expect(p.model('Issue').get(8)).toBeDefined();
-    // A label of a held closed-tier issue, an aged status: not covered either.
     put(p, 'IssueLabel', 21, 90, {issue_id: 2, label_id: 6});
     put(p, 'CommitStatus', 52, 90, {updated_at: OLD});
     expect(ids(p, 'IssueLabel')).toEqual([20, 21]);
     expect(ids(p, 'CommitStatus')).toEqual([50, 52]);
-    // A newer state passes.
     put(p, 'Issue', 7, 101, {state: 'open', updated_at: NEW});
     expect(p.model('Issue').get(7)).toBeDefined();
   });
@@ -142,7 +137,6 @@ describe('closed pages', () => {
 
   test('replaces the closed tier between its cursors', () => {
     const p = new Pool();
-    // Closed issues, (updated, id): (1000,1) (2000,2) (2000,3) (3000,4); issue 5 is open.
     put(p, 'Issue', 1, 10, {state: 'closed', updated_at: at(1000)});
     put(p, 'Issue', 2, 10, {state: 'closed', updated_at: at(2000)});
     put(p, 'Issue', 3, 10, {state: 'closed', updated_at: at(2000)});
@@ -151,8 +145,7 @@ describe('closed pages', () => {
     put(p, 'IssueLabel', 11, 10, {issue_id: 3, label_id: 1});
     put(p, 'IssueLabel', 12, 10, {issue_id: 2, label_id: 1});
     put(p, 'IssueLabel', 13, 10, {issue_id: 1, label_id: 1});
-    // Page: before "3000" (exclusive), next "2000.2" (inclusive): the range holds (2000,2), (2000,3).
-    // The page contained issue 3 (not 2) and none of the labels.
+    // Range [2000.2, 3000) includes issues 2 and 3, but the response contains only 3 and no labels.
     replaceGroup(p, {
       group: G, header: header({tier: 'closed', before: '3000', watermark: 100}, true),
       end: {type: 'end', count: 1, refs: [], next: '2000.2'},

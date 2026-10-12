@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sync client against a scripted server: a fake WebSocket / EventSource
-// and a fake fetch that serves NDJSON bootstraps.
-
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {MetaCache} from '../data/meta.ts';
 import {clientSchemas} from '../data/models.ts';
@@ -85,7 +82,6 @@ describe('first session', () => {
     expect(t.pool.model('Issue').get(1)?.get('title')).toBe('a2');
     expect(t.pool.model('Issue').get(2)).toBeUndefined();
     expect(t.c.groups.get('repo:1')?.position).toBe(30);
-    // A delta of a group this session does not hold is ignored.
     ws.emit({type: 'delta', to: 31, changes: [issueChange(9, 31, 'x', 'repo:9')]});
     expect(t.pool.model('Issue').get(9)).toBeUndefined();
   });
@@ -125,7 +121,6 @@ describe('resume', () => {
       expect(t.c.groups.get('repo:1')?.units).toEqual(['issues', 'pulls']);
     });
     expect(t.server.requests.find((r) => r.includes('bootstrap'))).toBe('/-/sync/bootstrap?group=repo%3A1');
-    // Units changed: even the closed tier went.
     expect(t.pool.model('Issue').get(1)).toBeUndefined();
     expect(t.c.groups.get('repo:1')?.needs).toBeUndefined();
     expect(t.c.groups.get('repo:1')?.position).toBe(80);
@@ -183,7 +178,6 @@ describe('revocation and release', () => {
     expect(t.c.groups.get('repo:1')).toBeUndefined();
     expect(t.c.isHeld('repo:1')).toBe(false);
     expect(revoked).toEqual(['repo:1']);
-    // A frame of the group still in flight cannot bring it back.
     ws.emit({type: 'delta', to: 21, changes: [issueChange(1, 21, 'late')]});
     expect(t.pool.model('Issue').size).toBe(0);
   });
@@ -218,13 +212,11 @@ describe('revocation and release', () => {
     });
     expect(t.server.requests).toContain('/-/sync/load?group=issue%3A7');
     t.c.release('issue:7', 'tab:a');
-    expect(t.c.isHeld('issue:7')).toBe(true); // recent
-    // Pinned, then unpinned: still "recent" until the LRU drops it.
+    expect(t.c.isHeld('issue:7')).toBe(true);
     t.c.pin('issue:7', true);
     expect(t.c.groups.get('issue:7')?.holders).toEqual(['recent', 'pin']);
     t.c.pin('issue:7', false);
     expect(t.c.isHeld('issue:7')).toBe(true);
-    // The LRU: a cap of 0 issue groups drops it at the next hold.
     (t.c as unknown as {o: {recentCaps: Record<string, number>}}).o.recentCaps = {issue: 0};
     t.c.hold('repo:3', 'tab:b');
     expect(t.c.isHeld('issue:7')).toBe(false);
@@ -443,7 +435,6 @@ describe('schemas', () => {
     t.c.on('schemaMismatch', (e) => mismatch.push(e.models));
     const ws = await connected(t);
     expect(t.persister.clearModels).toHaveBeenCalledWith(['Label']);
-    // Only the groups that can hold labels reload them (before the session even opened).
     await vi.waitFor(() => {
       expect(t.server.requests).toContain('/-/sync/bootstrap?group=repo%3A1&model=Label');
     });
@@ -471,7 +462,7 @@ describe('review regressions', () => {
     t.c.groups.update('profiles:public', (x) => {
       x.holders = [];
     });
-    t.c.hold('repo:99', 'tab:z'); // recompute
+    t.c.hold('repo:99', 'tab:z');
     expect(t.c.isHeld('profiles:public')).toBe(false);
     expect(t.pool.model('User').get(9)).toBeUndefined();
     expect(t.persister.dropGroups).toHaveBeenCalledWith(['profiles:public']);
@@ -596,14 +587,14 @@ describe('review regressions', () => {
     t.c.groups.update('repo:1', (x) => {
       x.holders = [];
     });
-    t.c.hold('repo:2', 'tab:z'); // recompute: repo:1 released
+    t.c.hold('repo:2', 'tab:z');
     expect(ws.last('unsubscribe')?.groups).toEqual(['repo:1']);
     let open!: () => void;
     t.server.boots.set('repo:1', [{watermark: 40, gate: new Promise<void>((r) => {
       open = r;
     })}]);
     t.c.hold('repo:1', 'tab:a');
-    // The answer to the first subscribe arrives now, then a frame: neither concerns the new hold.
+    // A response to the released hold must not affect its replacement.
     ws.emit({type: 'subscribed', granted: [{group: 'repo:1', units: []}], refused: []});
     ws.emit({type: 'caught_up', sync_id: 30});
     ws.emit({type: 'delta', to: 50, changes: []});
@@ -665,7 +656,6 @@ describe('whenAt (the B7 sync-id echo)', () => {
     });
     expect(title).toBe('the write');
     expect(t.c.position('repo:1')).toBe(58);
-    // A position raised by caught_up / delta.to counts too.
     let later = false;
     void t.c.whenAt('repo:1', 70).then(() => {
       later = true;
@@ -682,7 +672,6 @@ describe('job log tails (B9)', () => {
     const t = setup();
     const got: unknown[] = [];
     t.c.on('log', ({msg}) => got.push(msg));
-    // Asked before the session is welcomed: sent after the welcome.
     t.c.tailLog(42, 'tab:a');
     const ws = await connected(t);
     expect(ws.sent.filter((m) => m.type === 'log_tail')).toEqual([]);
@@ -697,7 +686,6 @@ describe('job log tails (B9)', () => {
     t.c.tailLog(42, 'tab:b');
     expect(ws.sent.filter((m) => m.type === 'log_tail').at(-1)).toEqual({type: 'log_tail', job_id: 42});
     ws.emit({type: 'log', job_id: 42, task_id: 7, offset: 0, lines: [{t: 1, c: 'a'}, {t: 2, c: 'b'}, {t: 3, c: 'c'}]});
-    // The connection drops: the new session resumes from the 3 lines received.
     ws.close(1006);
     await vi.waitFor(() => {
       expect(FakeWS.all.length).toBe(2);
@@ -711,12 +699,10 @@ describe('job log tails (B9)', () => {
     await vi.waitFor(() => {
       expect(ws2.sent.filter((m) => m.type === 'log_tail')).toEqual([{type: 'log_tail', job_id: 42, task_id: 7, offset: 3}]);
     });
-    // One holder leaves: still tailed; the tab closing drops the other.
     t.c.untailLog(42, 'tab:a');
     expect(ws2.sent.filter((m) => m.type === 'log_untail')).toEqual([]);
     t.c.releaseHolder('tab:b');
     expect(ws2.sent.filter((m) => m.type === 'log_untail')).toEqual([{type: 'log_untail', job_id: 42}]);
-    // log_closed always reaches the listeners.
     ws2.emit({type: 'log_closed', job_id: 42, reason: 'forbidden'});
     expect(got.at(-1)).toEqual({type: 'log_closed', job_id: 42, reason: 'forbidden'});
   });

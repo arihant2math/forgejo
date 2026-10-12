@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Two tabs of one user in one process: a fake Web Locks manager, Node's
-// BroadcastChannel, one (fake) IndexedDB and the scripted server.
-
 import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
 import {afterEach, expect, test, vi} from 'vitest';
@@ -79,7 +76,6 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
     expect(a.pool.model('Issue').size).toBe(2);
   });
 
-  // A second tab: a follower that mirrors IndexedDB.
   const b = await tab(server, factory, locks);
   await b.hydrated;
   expect(b.role.leader).toBe(false);
@@ -90,7 +86,6 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
     expect(b.status.connection).toBe('catching_up');
   });
 
-  // Live changes reach the follower after the leader's flush.
   ws.emit({type: 'subscribed', granted: [{group: 'repo:1', units: ['issues']}], refused: []});
   ws.emit({type: 'delta', to: 22, changes: [issueChange(1, 22, 'one!'), {v: 22, g: 'repo:1', m: 'Issue', id: 2, op: 'D'}]});
   await vi.waitFor(() => {
@@ -98,14 +93,12 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
     expect(b.pool.model('Issue').get(2)).toBeUndefined();
   });
 
-  // The follower's hold goes to the leader, which loads the group.
   server.boots.set('issue:1', [{watermark: 23, lines: [{v: 23, g: 'issue:1', m: 'Comment', id: 9, op: 'U', d: {id: 9, issue_id: 1}}]}]);
   b.hold('issue:1');
   await vi.waitFor(() => {
     expect(b.pool.model('Comment').get(9)).toBeDefined();
   });
 
-  // The follower asks the leader for a barrier.
   const barrier = b.barrier();
   await vi.waitFor(() => {
     expect(ws.last('barrier')).toBeDefined();
@@ -113,7 +106,6 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
   ws.emit({type: 'barrier_ok', id: ws.last('barrier')?.id as string, sync_id: 30});
   await expect(barrier).resolves.toBe(30);
 
-  // The leader goes away: the follower takes over and resumes from the persisted positions.
   const before = FakeWS.all.length;
   opened.splice(opened.indexOf(a), 1);
   await a.close();

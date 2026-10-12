@@ -18,13 +18,10 @@ test('subscribed as Forgejo decides: a pending change, else the explicit choice,
     return issueSubscribed(data.pool, o, i, 5);
   };
   expect(sub()).toBe(false);
-  // Took part: a review comment counts.
   data.put('Comment', 'issue:10', comment(1, 10, 'lgtm', {poster_id: 5, type: 'review'}));
   expect(sub()).toBe(true);
-  // An explicit unsubscribe wins.
   data.put('IssueWatch', 'user:5', {id: 1, user_id: 5, issue_id: 10, is_watching: false, created_at: T, updated_at: T});
   expect(sub()).toBe(false);
-  // A pending subscribe wins over that.
   o.add('a', [{t: 'member', model: 'IssueSubscriber', owner: 10, member: 5, present: true}]);
   expect(sub()).toBe(true);
 });

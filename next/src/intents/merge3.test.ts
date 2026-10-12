@@ -74,7 +74,6 @@ describe('merge3', () => {
     theirs[0] = 'T';
     const mine = [...big];
     mine[2999] = 'M';
-    // Prefix/suffix trimming keeps this cheap: a clean merge.
     expect(merge3(big.join('\n'), theirs.join('\n'), mine.join('\n')).text).toBe([...theirs.slice(0, 2999), 'M'].join('\n'));
   });
 });

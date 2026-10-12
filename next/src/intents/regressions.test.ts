@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Regressions from the F5 data-integrity review: each scenario lost or stranded an intent.
-
 import {untracked} from 'mobx';
 import {describe, expect, test, vi} from 'vitest';
 import {FakeForgejo, REPO} from '../test/fakeForgejo.ts';
@@ -47,16 +45,15 @@ describe('review regressions (data integrity)', () => {
     const orig = 'one\ntwo\nthree';
     const b1 = 'ONE\ntwo\nthree';
     tab.intents.submit({...ref, kind: 'issue.body', text: b1, baseText: orig, baseVersion: 0});
-    // The user changes their mind: back to the original (the editor showed b1, an unsynced edit: version -1).
     tab.intents.submit({...ref, kind: 'issue.body', text: orig, baseText: b1, baseVersion: -1});
     await new Promise((r) => setTimeout(r, 20));
     server.online = true;
     tab.setConnection('live');
-    // No delivery yet: B1's echo has not reached this tab's pool when B2 is prepared.
+    // Prepare the second edit before the first echo reaches the pool.
     await vi.waitFor(() => { expect(tab.intents.pending).toBe(0); }, {timeout: 3000});
     tab.deliver();
     
-    expect(server.issues.get(1)?.body).toBe(orig); // the user's last word
+    expect(server.issues.get(1)?.body).toBe(orig);
     world.close();
   });
 
@@ -91,7 +88,7 @@ describe('review regressions (data integrity)', () => {
     await new Promise((r) => setTimeout(r, 20));
     spy.mockRestore();
     
-    await tab.intents.reread(); // e.g. the tab comes back to the foreground (session.ts visibilitychange)
+    await tab.intents.reread();
     
     expect(tab.intents.pending + tab.intents.drafts.size).toBe(1);
     world.close();
@@ -172,7 +169,7 @@ describe('review regressions (data integrity)', () => {
     const tab = must(world.tabs[0]);
     tab.intents.submit({...ref, kind: 'issue.state', state: 'closed', base: 'open'});
     await world.settle(60);
-    tab.caughtUp(); // more caught_up events while live: still held
+    tab.caughtUp();
     tab.intents.submit({...ref, kind: 'issue.title', title: 'x', base: 'Issue 1'});
     await world.settle(60);
     
@@ -182,7 +179,6 @@ describe('review regressions (data integrity)', () => {
 });
 
 describe('review regressions (conflict policy)', () => {
-  /** Offline, then online with deltas arriving late (as in a browser). */
   async function lateOnline(world: World, server: FakeForgejo): Promise<void> {
     world.lag = 5;
     server.online = true;
@@ -265,7 +261,7 @@ describe('review regressions (conflict policy)', () => {
     await world.settle();
     expect(server.comments.get(c.id)?.deleted).toBe(true);
     expect([...tab.intents.drafts.values()].map((d) => d.text)).toContain('mine');
-    expect(tab.intents.pending).toBe(1); // the description conflict, for the user
+    expect(tab.intents.pending).toBe(1);
     world.close();
   });
 
@@ -450,7 +446,6 @@ describe('review regressions (round 2)', () => {
     tab.setConnection('live');
     await world.settle();
     expect(tab.intents.conflictOf('comment.edit', c.id)).toBeDefined();
-    // Deleted on the server meanwhile.
     const sc = must(server.comments.get(c.id));
     sc.deleted = true;
     server.log.push({v: ++server.v, m: 'Comment', id: c.id, g: 'issue:1', op: 'D'});

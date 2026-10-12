@@ -1,15 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The client's catalogue of synced models (PLAN §4.4, §5.3): the DTO type of
-// each model, its schema version (from the generated protocol), the group
-// kinds it can live in (the server's placement rules, mirrored from
-// services/livesync/hub/models.go) and the fields it is indexed on, in the
-// pool and in IndexedDB.
-
 import * as P from '../protocol/types.gen.ts';
 
-/** The DTO type of every model, keyed by the model name (protocol.Model*). */
 export interface ModelTypes {
   Repository: P.Repository;
   User: P.User;
@@ -57,22 +50,17 @@ export interface ModelTypes {
 
 export type ModelName = keyof ModelTypes;
 
-/** Group kinds (protocol.GroupPrefix*). */
 export type GroupKind = 'user' | 'org' | 'repo' | 'issue' | 'profile' | 'profiles' | 'owner' | 'team';
 
 interface ModelDef {
   /** Schema version this client understands (protocol.Schema*). */
   schema: number;
-  /** Kinds of groups the model's entities can be placed in. */
   kinds: readonly GroupKind[];
   /** Fields indexed in the pool (`ModelStore.by`). */
   index?: readonly string[];
 }
 
-// Keep `kinds` in sync with services/livesync/hub/models.go (models.test.ts
-// parses that file and compares). Schema versions come from the generated
-// protocol, so a server-side bump reaches the client with the next
-// gen-protocol.sh run.
+// Keep placement rules aligned with services/livesync/hub/models.go (checked by models.test.ts).
 const defs = {
   Repository: {schema: P.SchemaRepository, kinds: ['repo'], index: ['owner_id', 'full_name']},
   User: {schema: P.SchemaUser, kinds: ['org', 'profile', 'profiles'], index: ['login']},
@@ -127,7 +115,6 @@ export function isModel(m: string): m is ModelName {
   return Object.hasOwn(defs, m);
 }
 
-/** The schema versions this client understands. */
 export function clientSchemas(): Record<ModelName, number> {
   const out = {} as Record<ModelName, number>;
   for (const m of MODEL_NAMES) out[m] = MODELS[m].schema;
@@ -156,18 +143,13 @@ export function groupId(group: string): number {
   return kind === 'profiles' ? 0 : Number(group.slice(group.indexOf(':') + 1));
 }
 
-/** Whether a group of this kind can hold entities of the model. */
 export function canHold(kind: GroupKind, model: ModelName): boolean {
   return (MODELS[model].kinds).includes(kind);
 }
 
-/** The models a group of this kind can hold. */
 export function modelsOfKind(kind: GroupKind): ModelName[] {
   return MODEL_NAMES.filter((m) => canHold(kind, m));
 }
 
-/**
- * "Structure" kinds: small groups hydrated before anything else (PLAN §5.2:
- * structure plus the current route's repository first, the rest when idle).
- */
+/** Small groups hydrated before the idle background pass. */
 export const STRUCTURE_KINDS: readonly GroupKind[] = ['user', 'profile', 'profiles', 'org', 'owner'];

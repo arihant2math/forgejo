@@ -1,15 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Tab coordination (PLAN §5.3): one leader tab per (origin, user), elected
-// with the Web Locks API — the lock is held for the tab's lifetime and
-// passes to a waiting tab when the leader closes or crashes. The leader owns
-// the sync session and every IndexedDB write. Tabs talk over a
-// BroadcastChannel: the leader announces each committed flush (followers
-// mirror IndexedDB from it), its status and events; followers send the
-// groups they hold, and requests (barrier, closed pages; F5: intents).
-// Without Web Locks (very old browsers, tests) every tab is its own leader;
-// without BroadcastChannel tabs do not hear each other.
+// Elect one leader per user with a lifetime Web Lock; followers mirror its committed flushes.
+// Without locks each tab leads; without BroadcastChannel tabs cannot coordinate.
 
 import type {BucketWrite} from '../data/persist.ts';
 import type {ModelName} from '../data/models.ts';
@@ -58,7 +51,6 @@ export class Tabs {
     if (locks) this.locks = locks;
   }
 
-  /** Whether tabs can hear each other. */
   get hasChannel(): boolean {
     return this.channel !== undefined;
   }
@@ -91,7 +83,6 @@ export class Tabs {
     this.locks.request(`${this.name}:leader`, {signal: this.abort.signal}, () => {
       if (this.closed) return undefined;
       onLeader();
-      // Held until the tab closes (or close()).
       return new Promise<void>((resolve) => {
         this.releaseLock = resolve;
       });

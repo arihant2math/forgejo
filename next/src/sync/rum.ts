@@ -1,33 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// RUM (PLAN §5.8), the collecting half, which is on the boot route and
-// stays tiny:
-//
-//   * boot marks are User Timing entries: `appStart` (the boot script, F1),
-//     `dataOpen`, `wsOpen` and `caughtUp` (F2), the measures
-//     `hydrate:route` / `hydrate:all` (data.ts) and `firstPaintFromCache`
-//     (the shell, F3); app/rum.ts reads them from the performance timeline;
-//   * samples (`sample`): one timing per mutation stage (the intents'
-//     localApplied → acked → confirmed) and per interaction;
-//   * counts (`count`): the offline queue's outcomes and conflicts;
-//   * the offline queue's depth (`queueDepth`): its largest size since the
-//     last report.
-//
-// Values are numbers keyed by fixed names (protocol.RUMMark / RUMEvent):
-// never ids, texts, URLs or anything else of the user. app/rum.ts batches
-// them to POST /-/sync/rum.
+// Boot-route RUM collection; app/rum.ts batches reports.
+// Fixed names and numeric values only: never collect user ids, text, or URLs.
 
 import type {RUMEvent, RUMMark} from '../protocol/types.gen.ts';
 
 const marked = new Set<string>();
 
-/**
- * When this page load was first hidden, and first offline (performance.now(); Infinity while it has not
- * been). A boot mark after the page was hidden measures the user's absence, and a network mark (the
- * socket, catching up) after it went offline measures the network's: app/rum.ts does not report those
- * (as web-vitals drops metrics of pages loaded in the background). Marks from local data still count
- * offline: a warm boot offline is one of the targets.
+/** First hidden/offline timestamps (performance.now; Infinity if none).
+ * Exclude later boot/network marks to avoid timing user absence or outages; local offline marks still count.
  */
 const since = {hidden: Number.POSITIVE_INFINITY, offline: Number.POSITIVE_INFINITY};
 if (typeof document !== 'undefined' && typeof navigator !== 'undefined') {
@@ -41,12 +23,11 @@ if (typeof document !== 'undefined' && typeof navigator !== 'undefined') {
   });
 }
 
-/** See `since`. */
+/** First hidden/offline timestamps from performance.now(); Infinity if not disturbed. */
 export function disturbedSince(): Readonly<{hidden: number; offline: number}> {
   return since;
 }
 
-/** Marks `name` the first time it happens in this page. */
 export function markOnce(name: string): void {
   if (marked.has(name)) return;
   marked.add(name);
@@ -57,7 +38,7 @@ export function markOnce(name: string): void {
   }
 }
 
-/** A measure from `start` (a mark name or a timestamp) to now. */
+/** Measures milliseconds from start to the current performance timestamp. */
 export function measure(name: string, start: number): void {
   try {
     performance.measure(name, {start, end: performance.now()});
@@ -97,7 +78,6 @@ export function sample(mark: RUMMark, ms: number): void {
   buf.samples.set(mark, list);
 }
 
-/** Counts `n` occurrences of `event`. */
 export function count(event: RUMEvent, n = 1): void {
   buf.counts.set(event, (buf.counts.get(event) ?? 0) + n);
 }
@@ -107,7 +87,7 @@ export function queueDepth(n: number): void {
   if (n > buf.queueMax) buf.queueMax = n;
 }
 
-/** What was collected since the last call, emptied. */
+/** Returns and clears the collected values. */
 export function takeCollected(): {samples: Map<RUMMark, number[]>; counts: Map<RUMEvent, number>; queueMax: number} {
   const b = buf;
   buf = fresh();

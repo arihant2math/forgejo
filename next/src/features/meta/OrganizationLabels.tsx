@@ -8,7 +8,7 @@ import {onlineOnly, useReach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {MetadataSection, LabelListRow} from './LabelList.tsx';
-import {useOrgPermissions} from '../owner/Teams.tsx';
+import {useOrgPermissions} from '../owner/permissions.ts';
 import {ResourceList} from '../settings/bits.tsx';
 import {allPages} from '../settings/requests.ts';
 import {useResource} from '../../app/resource.ts';

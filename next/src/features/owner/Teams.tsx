@@ -10,31 +10,17 @@ import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {onlineOnly, useReach} from '../../app/online.ts';
-import {useApp, useSession} from '../../app/store.ts';
+import {useApp} from '../../app/store.ts';
 import {PeopleSearch} from '../settings/Collaborators.tsx';
 import {ResourceList} from '../settings/bits.tsx';
 import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
 import {useResource} from '../../app/resource.ts';
+import {useOrgPermissions} from './permissions.ts';
 import {TrashIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {ActionList, ActionMenu, Button as PrimerButton, IconButton} from '@primer/react';
 
 interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
-
-export interface OrgPermissions {is_owner: boolean; is_admin: boolean; can_create_repository?: boolean}
-
-const NO_PERMISSIONS: OrgPermissions = {is_owner: false, is_admin: false};
-
-/** The viewer's permissions in an organization; an empty owner (a user's page) asks nothing. */
-export function useOrgPermissions(owner: string) {
-  const app = useApp();
-  const s = useSession();
-  const viewer = s.data.pool.model('User').get(s.userId)?.get('login');
-  return useResource(`org:${owner}:permissions:${viewer ?? ''}`, async (signal) => {
-    if (!viewer || !owner) return NO_PERMISSIONS;
-    return await online<OrgPermissions>(app, {api: 'v1', path: `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(owner)}/permissions`, signal}) ?? NO_PERMISSIONS;
-  });
-}
 
 export const OrganizationTeams = observer(function OrganizationTeams({owner}: {owner: string}) {
   const app = useApp();

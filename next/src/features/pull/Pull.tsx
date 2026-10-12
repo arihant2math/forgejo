@@ -765,6 +765,9 @@ const METHOD: Record<MergeStyle, {item: string; button: string; confirm: string}
   'manually-merged': {item: 'Mark as merged manually', button: 'Mark as merged', confirm: 'Confirm marking as merged'},
 };
 
+/** GitHub lists its three methods first. */
+const METHOD_ORDER = Object.keys(METHOD);
+
 /** Merge actions are online-only, never queued, and require write access. */
 export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
@@ -913,7 +916,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
                 <ActionMenu.Anchor><IconButton size="small" icon={TriangleDownIcon} variant={mainVariant} disabled={!isOnline || busy || !!mergeWhy || !chosen}
                   aria-label="Select merge method" description={offlineWhy('Merging') ?? mergeWhy ?? 'Select merge method'}/></ActionMenu.Anchor>
                 <ActionMenu.Overlay width="medium"><ActionList selectionVariant="single">
-                  {options.styles.map((m) => (
+                  {[...options.styles].sort((a, b) => METHOD_ORDER.indexOf(a.style) - METHOD_ORDER.indexOf(b.style)).map((m) => (
                     <ActionList.Item key={m.style} selected={m.style === chosen?.style} onSelect={() => {
                       setMethod(m.style);
                     }}>{METHOD[m.style].item}<ActionList.Description variant="block">{m.description}</ActionList.Description></ActionList.Item>
@@ -988,7 +991,7 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
     onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: deletable && drop});
   };
   return (
-    <section aria-label={auto ? 'Confirm auto-merge' : 'Confirm merge'} className="flex flex-col gap-3 border-t border-muted pt-3">
+    <section aria-label={auto ? 'Confirm auto-merge' : 'Confirm merge'} className="flex flex-col gap-3">
       {reason && <Banner variant="warning" title={reason}/>}
       {!auto && checks === 'pending' && (
         <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>

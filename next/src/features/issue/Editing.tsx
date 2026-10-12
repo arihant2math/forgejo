@@ -24,7 +24,7 @@ import {repoLabels} from '../issues/candidates.ts';
 import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
-import {ClockIcon, DuplicateIcon, IssueClosedIcon, IssueReopenedIcon, KebabHorizontalIcon, LinkIcon, PencilIcon, QuoteIcon, SkipIcon, TrashIcon, TriangleDownIcon} from '@primer/octicons-react';
+import {ClockIcon, DuplicateIcon, GitPullRequestClosedIcon, GitPullRequestIcon, IssueClosedIcon, IssueReopenedIcon, KebabHorizontalIcon, LinkIcon, PencilIcon, QuoteIcon, SkipIcon, TrashIcon, TriangleDownIcon} from '@primer/octicons-react';
 import {ActionList, ActionMenu, Banner, Button, ButtonGroup, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
 
@@ -498,7 +498,8 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
         stateAction={mayChangeState ? {
           label: (hasText) => (state === 'closed' ? `Reopen ${hasText ? 'with comment' : noun}` :
             chosen === 'not-planned' ? 'Close as not planned' : `Close ${hasText ? 'with comment' : noun}`),
-          icon: state === 'closed' ? <IssueReopenedIcon className="text-success"/> : chosen === 'not-planned' ? <SkipIcon className="text-muted"/> : <IssueClosedIcon className="text-done"/>,
+          icon: issue.get('is_pull') ? state === 'closed' ? <GitPullRequestIcon className="text-success"/> : <GitPullRequestClosedIcon className="text-danger"/> :
+            state === 'closed' ? <IssueReopenedIcon className="text-success"/> : chosen === 'not-planned' ? <SkipIcon className="text-muted"/> : <IssueClosedIcon className="text-done"/>,
           run: (body) => {
             runInAction(() => {
               if (body.trim()) intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});

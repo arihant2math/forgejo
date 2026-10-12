@@ -109,7 +109,7 @@ const FIRST_PAINT = 8;
 const estimateSize = () => 96;
 
 /** The comment a page's address points at: `#comment-123` (the app's Copy link) or classic Forgejo's `#issuecomment-123`. */
-export function commentTarget(hash: string): number | undefined {
+function commentTarget(hash: string): number | undefined {
   const m = /^#?(?:issue)?comment-([1-9]\d{0,15})$/.exec(hash);
   return m ? Number(m[1]) : undefined;
 }
@@ -207,7 +207,7 @@ function When({at}: {at: string}) {
   return <time dateTime={at} title={fullDate(at)} className="text-muted">{agoWords(at)}</time>;
 }
 
-export function Edited({updated, version}: {updated: string; version: number}) {
+function Edited({updated, version}: {updated: string; version: number}) {
   if (!(version > 0)) return null;
   return <span className="text-sm text-muted" title={`Edited ${fullDate(updated)}`}>edited</span>;
 }
@@ -217,7 +217,7 @@ function CommentEntry({poster, children}: {poster: number; children: ReactNode})
   return (
     <PrimerTimeline.Item>
       <PrimerTimeline.Avatar className="hidden @md/conversation:block"><UserAvatar id={poster} size="lg" linked/></PrimerTimeline.Avatar>
-      <PrimerTimeline.Body className="-ml-4">{children}</PrimerTimeline.Body>
+      <PrimerTimeline.Body className="mt-0 -ml-4 max-w-none">{children}</PrimerTimeline.Body>
     </PrimerTimeline.Item>
   );
 }

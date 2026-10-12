@@ -22,7 +22,7 @@ test('squash-only default, live settings, and confirmed rebase update', async ({
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(pull.number)}`);
-  const box = page.getByRole('region', {name: 'Merge'});
+  const box = page.getByRole('region', {name: 'Merge', exact: true});
   await expect(box.getByRole('button', {name: 'Squash and merge', exact: true})).toBeEnabled({timeout: 30_000});
   await box.getByRole('button', {name: 'Select merge method'}).click();
   await expect(page.getByRole('menuitemradio')).toHaveCount(1);

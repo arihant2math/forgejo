@@ -4,13 +4,13 @@
 import {SkeletonAvatar} from '@primer/react/experimental';
 
 import type {SelectPanelItemInput} from '@primer/react';
-import {SelectPanel, Select, SegmentedControl, Avatar, Button, IconButton, ConfirmationDialog} from '@primer/react';
+import {SelectPanel, Select, Avatar, Button, IconButton, ConfirmationDialog, Dialog, FormControl, Radio, RadioGroup} from '@primer/react';
 import {SettingsEntry} from './SettingsEntry.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 
 // Sync represents administrators as writers; API v1 supplies exact roles.
 import {observer} from 'mobx-react-lite';
-import {type ReactElement, useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -71,7 +71,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
 
   return (
     <FormSection id="settings-collaborators" title="Collaborators" description="People with access to this repository besides its owner."
-      actions={<AddPerson disabled={offline} members={members} onAdd={add}/>}>
+      actions={<AddPerson repo={repo} disabled={offline} members={members} onAdd={add}/>}>
       <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
           <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
@@ -96,8 +96,9 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
   );
 });
 
-function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: ReadonlySet<number>; onAdd: (u: FoundUser, role: Role) => void}) {
+function AddPerson({repo, disabled, members, onAdd}: {repo: string; disabled: boolean; members: ReadonlySet<number>; onAdd: (u: FoundUser, role: Role) => void}) {
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<FoundUser | undefined>(undefined);
   const [role, setRole] = useState<Role>('write');
   const button = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
@@ -105,22 +106,40 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
     if (!open && wasOpen.current) button.current?.focus();
     wasOpen.current = open;
   }, [open]);
+  const close = () => { setPicked(undefined); };
   return (
     <>
       <Button ref={button} variant="primary" size="small" leadingVisual={PersonAddIcon} disabled={disabled} onClick={() => { setOpen(true); }}>Add people</Button>
-      {open && <PeopleSearch members={members} subtitle={<SegmentedControl aria-label="Role" onChange={(index) => {
-        const choice = ROLES[index ?? -1];
-        if (choice) setRole(choice.value);
-      }}>{ROLES.map((choice) => <SegmentedControl.Button key={choice.value} selected={role === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
-        onPick={(user) => {
-          setOpen(false);
-          onAdd(user, role);
-        }} onClose={() => { setOpen(false); }}/>}
+      {open && <PeopleSearch members={members} onPick={(user) => {
+        setRole('write');
+        setPicked(user);
+        setOpen(false);
+      }} onClose={() => { setOpen(false); }}/>}
+      {picked && (
+        <Dialog title={`Add ${picked.login} to ${repo}`} width="medium" returnFocusRef={button} onClose={close} footerButtons={[
+          {content: 'Cancel', onClick: close},
+          {content: `Add ${picked.login} to this repository`, buttonType: 'primary', disabled, onClick: () => {
+            onAdd(picked, role);
+            close();
+          }},
+        ]}>
+          <RadioGroup name="collaborator-role" onChange={(value) => { if (value) setRole(value as Role); }}>
+            <RadioGroup.Label>Choose a role</RadioGroup.Label>
+            {ROLES.map((choice) => (
+              <FormControl key={choice.value}>
+                <Radio value={choice.value} checked={role === choice.value}/>
+                <FormControl.Label>{choice.label}</FormControl.Label>
+                <FormControl.Caption>{choice.description}</FormControl.Caption>
+              </FormControl>
+            ))}
+          </RadioGroup>
+        </Dialog>
+      )}
     </>
   );
 }
 
-export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true, subtitle}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean; subtitle?: ReactElement}) {
+export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean}) {
   const app = useApp();
   const anchor = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const {userId} = useSession();
@@ -145,7 +164,7 @@ export function PeopleSearch({members, onPick, onClose, label = 'Add a collabora
   const q = query.trim();
   const users = q && found.q === q ? found.users.filter((user) => !excludeSelf || user.id !== userId) : [];
   const empty = !q ? 'Type a login or a name.' : found.q !== q ? 'Searching…' : found.error ?? 'Nobody by that name.';
-  return <SelectPanel title={label} {...(subtitle ? {subtitle} : {})} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
+  return <SelectPanel title={label} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
     renderAnchor={null} anchorRef={anchor} selected={undefined} filterValue={query} onFilterChange={setQuery}
     placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > 50}
     {...(users.length ? {} : {message: {title: empty, variant: found.error ? 'error' as const : 'empty' as const, body: ''}})}

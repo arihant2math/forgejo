@@ -8,10 +8,10 @@ import {isWebUrl} from './forms.ts';
 
 export type Role = 'read' | 'write' | 'admin';
 
-export const ROLES: readonly {value: Role; label: string}[] = [
-  {value: 'read', label: 'Read'},
-  {value: 'write', label: 'Write'},
-  {value: 'admin', label: 'Admin'},
+export const ROLES: readonly {value: Role; label: string; description: string}[] = [
+  {value: 'read', label: 'Read', description: 'Can read and clone this repository, and open and comment on issues and pull requests.'},
+  {value: 'write', label: 'Write', description: 'Can also push to it and manage its issues and pull requests.'},
+  {value: 'admin', label: 'Admin', description: 'Can also change its settings and collaborators, and delete it.'},
 ];
 
 export interface Collaborator {

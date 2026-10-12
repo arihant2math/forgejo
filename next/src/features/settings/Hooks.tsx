@@ -4,7 +4,7 @@
 import {SettingsEntry} from './SettingsEntry.tsx';
 import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
-import {Banner, Tooltip, Select, SegmentedControl, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
+import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -103,9 +103,9 @@ function hookUrl(h: Hook): string {
 }
 
 const MODES: readonly {value: EventsMode; label: string}[] = [
-  {value: 'push', label: 'Push only'},
-  {value: 'all', label: 'Everything'},
-  {value: 'choose', label: 'Choose'},
+  {value: 'push', label: 'Just the push event.'},
+  {value: 'all', label: 'Send me everything.'},
+  {value: 'choose', label: 'Let me select individual events.'},
 ];
 
 const GROUPS = ['Repository', 'Issues', 'Pull requests', 'Actions'] as const;
@@ -204,12 +204,16 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
               set('branchFilter', e.target.value);
             }} {...(errors.branchFilter ? {validationStatus: 'error' as const} : {})} monospace/>
         <FormControl.Caption>A glob pattern of the branches whose events are sent (empty or *: all).</FormControl.Caption>{errors.branchFilter && <FormControl.Validation variant="error">{errors.branchFilter}</FormControl.Validation>}</FormControl>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-semibold text-default">Events</legend>
-          <SegmentedControl size="small" aria-label="Events" onChange={(index) => {
-            const choice = MODES[index ?? -1];
-            if (choice) set('mode', choice.value);
-          }}>{MODES.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.mode === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
+        <RadioGroup name="hook-events" onChange={(value) => {
+          const choice = MODES.find((m) => m.value === value);
+          if (choice) set('mode', choice.value);
+        }}>
+          <RadioGroup.Label>Which events would you like to trigger this webhook?</RadioGroup.Label>
+          {MODES.map((choice) => (
+            <FormControl key={choice.value}><Radio value={choice.value} checked={form.mode === choice.value}/><FormControl.Label>{choice.label}</FormControl.Label></FormControl>
+          ))}
+        </RadioGroup>
+        {(form.mode === 'choose' || errors.events) && <div className="flex flex-col gap-2">
           {form.mode === 'choose' && GROUPS.map((g) => (
             <div key={g} role="group" aria-label={g} className="flex flex-col gap-1">
               <span className="text-sm text-muted">{g}</span>
@@ -221,7 +225,7 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
             </div>
           ))}
           {errors.events && <p className="text-sm text-danger">{errors.events}</p>}
-        </fieldset>
+        </div>}
         <FormControl><Checkbox checked={form.active} onChange={(event) => { const v = event.target.checked; set('active', v); }}/><FormControl.Label>Active (deliveries are sent)</FormControl.Label></FormControl>
         {failure && <Banner variant="critical" title={ready ? 'Not saved' : 'The webhook could not be loaded'} description={<>{failure}</>}/>}
       </form>

@@ -4,7 +4,7 @@
 import {SettingsEntry} from './SettingsEntry.tsx';
 import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
-import {Banner, SegmentedControl, Button, IconButton, Label, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
+import {Banner, Button, IconButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput, Textarea} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
@@ -90,10 +90,10 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
   );
 });
 
-const PUSH: readonly {value: PushMode; label: string}[] = [
-  {value: 'writers', label: 'Anyone with write access'},
-  {value: 'listed', label: 'Only some people'},
-  {value: 'none', label: 'No one'},
+const PUSH: readonly {value: PushMode; label: string; caption: string}[] = [
+  {value: 'writers', label: 'Anyone with write access', caption: 'Everyone who can write to the repository may push to matching branches.'},
+  {value: 'listed', label: 'Only some people', caption: 'Only the people listed here may push; everyone else goes through pull requests.'},
+  {value: 'none', label: 'No one', caption: 'Changes reach matching branches only by merging pull requests.'},
 ];
 
 const RULE_FIELDS: Record<string, keyof RuleForm> = {rulename: 'name', branchname: 'name', 'user does not exist': 'pushUsers', requiredapprovals: 'approvals'};
@@ -158,12 +158,16 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
               }} {...(errors.name ? {validationStatus: 'error' as const} : {})} monospace/>
           <FormControl.Caption>{matches.length ? `Matches ${matches.slice(0, 3).join(', ')}${matches.length > 3 ? ` and ${String(matches.length - 3)} more` : ''}.` : 'A branch name, or a glob pattern such as release/* (no branch matches yet).'}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
         )}
-        <fieldset className="flex flex-col gap-2">
-          <legend className="pb-2 text-base font-semibold text-default">Who may push</legend>
-          <SegmentedControl size="small" aria-label="Who may push" onChange={(index) => {
-            const choice = PUSH[index ?? -1];
+        <div className="flex flex-col gap-2">
+          <RadioGroup name="rule-push" onChange={(value) => {
+            const choice = PUSH.find((p) => p.value === value);
             if (choice) set('push', choice.value);
-          }}>{PUSH.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.push === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
+          }}>
+            <RadioGroup.Label>Who may push</RadioGroup.Label>
+            {PUSH.map((choice) => (
+              <FormControl key={choice.value}><Radio value={choice.value} checked={form.push === choice.value}/><FormControl.Label>{choice.label}</FormControl.Label><FormControl.Caption>{choice.caption}</FormControl.Caption></FormControl>
+            ))}
+          </RadioGroup>
           {form.push === 'listed' && <>
             <FormControl id="rule-push-users"><FormControl.Label>People who may push</FormControl.Label>
               <TextInput className="w-full" value={form.pushUsers} autoComplete="off" spellCheck={false} onChange={(e) => {
@@ -172,7 +176,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
             <FormControl.Caption>Logins, separated by commas.</FormControl.Caption>{errors.pushUsers && <FormControl.Validation variant="error">{errors.pushUsers}</FormControl.Validation>}</FormControl>
             {check('pushDeployKeys', 'Deploy keys with write access may push too')}
           </>}
-        </fieldset>
+        </div>
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-base font-semibold text-default">Before merging</legend>
           <FormControl id="rule-approvals"><FormControl.Label>Required approvals</FormControl.Label>

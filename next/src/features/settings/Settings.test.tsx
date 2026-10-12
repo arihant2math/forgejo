@@ -175,6 +175,34 @@ test('the side nav: GitHub\'s groups, classic-only pages inside them, only the o
   expect(within(nav).getByRole('link', {name: /^Webhooks/}).hasAttribute('data-classic')).toBe(false);
 });
 
+test('webhook events are a radio group with GitHub\'s choices', async () => {
+  stub((c) => (c.url.startsWith('/api/v1/repos/alice/notes/') ? {body: []} : undefined));
+  await open('/alice/notes/settings/hooks');
+  fireEvent.click(await screen.findByRole('button', {name: 'Add webhook'}));
+  const events = within(screen.getByRole('dialog', {name: 'Add a webhook'})).getByRole('group', {name: 'Which events would you like to trigger this webhook?'});
+  expect(within(events).getAllByRole('radio').map((r) => [r.parentElement?.parentElement?.textContent, (r as HTMLInputElement).checked])).toEqual([
+    ['Just the push event.', true], ['Send me everything.', false], ['Let me select individual events.', false],
+  ]);
+  expect(screen.queryByRole('group', {name: 'Issues'})).toBeNull();
+  fireEvent.click(within(events).getByRole('radio', {name: 'Let me select individual events.'}));
+  expect(screen.getByRole('group', {name: 'Issues'})).toBeTruthy();
+});
+
+test('who may push to a protected branch is a radio group with captions', async () => {
+  stub((c) => (c.url.startsWith('/api/v1/repos/alice/notes/') ? {body: []} : undefined));
+  await open('/alice/notes/settings/branches');
+  const add = await screen.findByRole('button', {name: 'Add rule'});
+  await waitFor(() => { expect((add as HTMLButtonElement).disabled).toBe(false); });
+  fireEvent.click(add);
+  const push = within(screen.getByRole('dialog', {name: 'Protect a branch'})).getByRole('group', {name: 'Who may push'});
+  const radios = within(push).getAllByRole<HTMLInputElement>('radio');
+  expect(radios.map((r) => r.checked)).toEqual([true, false, false]);
+  expect(within(push).getByText(/only by merging pull requests/)).toBeTruthy();
+  expect(screen.queryByRole('textbox', {name: 'People who may push'})).toBeNull();
+  fireEvent.click(within(push).getByRole('radio', {name: 'Only some people'}));
+  expect(screen.getByRole('textbox', {name: 'People who may push'})).toBeTruthy();
+});
+
 test('someone who does not administer the repository gets the refusal once Forgejo says so', async () => {
   stub((c) => (c.url === '/api/v1/repos/acme/website' ? {body: {id: 20, permissions: {admin: false, push: true, pull: true}}} : undefined));
   await open('/acme/website/settings');

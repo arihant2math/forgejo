@@ -51,3 +51,17 @@ test('server results outside the pool are visible and the next page is reflected
   await waitFor(() => { expect(router.state.location.search).toMatchObject({page: '2'}); });
   await waitFor(() => { expect(vi.mocked(discover).mock.calls.some((call) => call[1].page === 2)).toBe(true); });
 });
+
+test('result rows are links whose hover underlines the name only, not the whole row (#286)', async () => {
+  runInAction(() => { connectivity.online = false; });
+  await mount();
+  const row = await screen.findByRole('option', {name: 'alice/one'});
+  // Primer's BaseStyles underline every unclassed a:hover: the row opts out, its name opts in (group-hover).
+  expect(row.tagName).toBe('A');
+  expect(row.classList).toContain('no-underline');
+  expect(row.classList).not.toContain('hover:underline');
+  const [name] = [...row.children];
+  expect(name?.textContent).toBe('alice/one');
+  expect(name?.classList).toContain('group-hover:underline');
+  expect(name?.classList).toContain('group-hover:text-accent');
+});

@@ -116,13 +116,13 @@ test('pull commit rows keep their summaries, authors and commit links', async ()
   expect(within(first).getByTitle(HEAD)).toBeTruthy();
 });
 
-test('the pull request tabs follow GitHub: Conversation, Commits, Checks, Files changed, with the counts the pool knows', async () => {
+test('the pull request tabs follow GitHub: Conversation, Commits, Checks, Files changed, with the counts the pool knows, 0 included', async () => {
   const s = session();
   s.data.put('CommitStatus', 'repo:20', {id: 70, repo_id: 20, sha: HEAD, index: 1, context: 'ci', state: 'success', target_url: '', description: '', creator_id: 1, created_at: T, updated_at: T});
   await open(s, '/acme/website/pulls/4');
   const nav = await screen.findByRole('navigation', {name: 'Pull request'});
   const tabs = within(nav).getAllByRole('link');
-  expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' '))).toEqual(['Conversation', 'Commits2 (2)', 'Checks1 (1)', 'Files changed']);
+  expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' '))).toEqual(['Conversation0 (0)', 'Commits2 (2)', 'Checks1 (1)', 'Files changed']);
 });
 
 test('a click on a line makes it the cursor line: Enter comments on the line clicked, and its comment button shows', async () => {

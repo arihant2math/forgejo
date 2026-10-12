@@ -18,6 +18,7 @@ import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp, useSession} from '../../app/store.ts';
+import {notify} from '../../app/notices.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
@@ -39,7 +40,7 @@ import {poolHead, pullOf} from '../../code/pull.ts';
 import {wipPrefixes} from '../pull/draft.ts';
 import {scopedValue, statusStage} from '../issues/labels.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
-import {CopyIcon, IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
+import {CheckIcon, CopyIcon, IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
 import {BranchName, Button, IconButton, Label, StateLabel, UnderlineNav} from '@primer/react';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
@@ -126,7 +127,7 @@ const PullTabLink = createLink(UnderlineNav.Item);
 
 const PULL_TABS: [PullTabName | undefined, string][] = [[undefined, 'Conversation'], ['commits', 'Commits'], ['checks', 'Checks'], ['files', 'Files changed']];
 
-/** Counters come from what the pool knows; a count that needs the diff is left out. */
+/** Counters come from what the pool knows (0 included, as on GitHub); a count that needs the diff is left out. */
 const PullTabs = observer(function PullTabs({issue, owner, repo, index, tab}: {issue: Entity<'Issue'>; owner: string; repo: string; index: string; tab: PullTabName | undefined}) {
   const pool = usePool();
   const pr = pullOf(pool, issue.id);
@@ -143,7 +144,7 @@ const PullTabs = observer(function PullTabs({issue, owner, repo, index, tab}: {i
         const n = counters[label];
         return (
           <PullTabLink key={label} to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : false}
-            {...n ? {counter: n} : {}} activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
+            {...n === undefined ? {} : {counter: n}} activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
               void PullTab.preload().catch(() => undefined);
             }}>{label}</PullTabLink>
         );
@@ -261,7 +262,7 @@ const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: E
   );
 });
 
-/** GitHub's state label and byline; a pull request's names its branches, as GitHub does instead of a sidebar section. */
+/** GitHub's state label and byline; a pull request's names its branches, as GitHub does. */
 export const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const pool = usePool();
@@ -282,15 +283,25 @@ export const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}
     <div className="flex flex-wrap items-center gap-2">
       <StateLabel status={look}>{label}</StateLabel>
       <p className="min-w-0 text-base text-muted">
-        {pr ? <PullByline pr={pr} author={author}/> : <>{author} opened this issue <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time></>}
+        {pr ? <PullByline pr={pr} author={author}/> : <>{author} opened this {issue.get('is_pull') ? 'pull request' : 'issue'} <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time></>}
         {comments > 0 && <> · {comments} {comments === 1 ? 'comment' : 'comments'}</>}
       </p>
     </div>
   );
 });
 
+/** How long the copy button shows its check after copying. */
+const COPIED_MS = 2000;
+
 const PullByline = observer(function PullByline({pr, author}: {pr: PullRequest; author: ReactNode}) {
+  const app = useApp();
   const pool = usePool();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return undefined;
+    const timer = setTimeout(() => { setCopied(false); }, COPIED_MS);
+    return () => { clearTimeout(timer); };
+  }, [copied]);
   const fork = pr.head_repo_id !== pr.base_repo_id;
   const headOwner = fork ? pool.model('Repository').get(pr.head_repo_id)?.get('owner_name') : undefined;
   const head = headOwner ? `${headOwner}:${pr.head_branch}` : pr.head_branch;
@@ -303,9 +314,10 @@ const PullByline = observer(function PullByline({pr, author}: {pr: PullRequest; 
     <>
       {pr.merged ? <><UserName id={pr.merger_id}/> merged {commits}into</> : <>{author} wants to merge {commits}into</>}{' '}
       <BranchName as="span">{pr.base_branch}</BranchName> from <BranchName as="span">{head}</BranchName>
-      <span className="inline-flex align-middle"><IconButton icon={CopyIcon} variant="invisible" size="small" aria-label="Copy head branch name" onClick={() => {
-        void navigator.clipboard.writeText(pr.head_branch).catch(() => undefined);
-      }}/></span>
+      <span className="inline-flex align-middle"><IconButton icon={copied ? CheckIcon : CopyIcon} variant="invisible" size="small"
+        aria-label={copied ? 'Copied!' : 'Copy head branch name'} onClick={() => {
+          navigator.clipboard.writeText(pr.head_branch).then(() => { setCopied(true); }, () => notify(app, {tone: 'warning', title: 'Could not copy the branch name'}));
+        }}/></span>
       {fork && <Label>Fork</Label>}{deleted && <> <Label>Deleted</Label></>}
       {pr.merged && pr.merged_at && <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></>}
     </>

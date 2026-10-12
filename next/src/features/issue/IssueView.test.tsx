@@ -8,7 +8,7 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {type App as AppState, createApp, type Session} from '../../app/store.ts';
-import type {Intent} from '../../intents/intents.ts';
+import {type Intent, tempNum} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {IntentDb} from '../../intents/store.ts';
 import type {Label, NextConfig} from '../../protocol/types.gen.ts';
@@ -247,6 +247,54 @@ test('the timeline gives state changes GitHub\'s coloured badges and condenses o
   expect(activity.querySelector('[data-variant="open"] .octicon-issue-reopened')).not.toBeNull();
   const labelled = within(activity).getByText('added', {exact: false}).closest('.Timeline-Item');
   expect(labelled?.hasAttribute('data-condensed')).toBe(true);
+});
+
+/** Primer's Timeline lists: an `ol` whose only children are its items (`li`), so list semantics and `:last-child` styles hold. */
+function timelineLists(): HTMLElement[] {
+  const lists = [...document.querySelectorAll<HTMLElement>('ol.Timeline, ol[role="list"]')].filter((ol) => ol.querySelector(':scope > .Timeline-Item'));
+  for (const ol of lists) for (const child of ol.children) expect(child.matches('li.Timeline-Item'), child.outerHTML.slice(0, 80)).toBe(true);
+  return lists;
+}
+
+test('the timeline is a list of its items only, without wrappers or entries for deleted comments', async () => {
+  const s = session('write', 3);
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false});
+  s.data.put('Comment', 'issue:100', comment(1010, 100, '1', {type: 'label', label_id: 1, created_at: '2099-01-01T00:00:00Z'}));
+  const {app} = await open('/acme/website/issues/7', s);
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => { expect(activity.querySelectorAll('li.Timeline-Item')).toHaveLength(4); });
+  expect(timelineLists()).toHaveLength(2);
+  expect(activity.querySelector('li.Timeline-Item:last-child')?.hasAttribute('data-condensed')).toBe(true);
+  expect(activity.querySelectorAll('li.Timeline-Item:last-child')).toHaveLength(1);
+  act(() => { editing(app).intents.submit({kind: 'comment.delete', issueId: 100, repoId: 20, commentId: 1002}); });
+  await waitFor(() => { expect(activity.querySelectorAll('li.Timeline-Item')).toHaveLength(3); });
+  expect(document.getElementById('comment-1002')).toBeNull();
+  timelineLists();
+});
+
+test('an issue created offline keeps the description menu with Edit, without Copy link (no address yet)', async () => {
+  const s = session('write');
+  const app = createApp(config, s);
+  const t = crypto.randomUUID();
+  editing(app).intents.submit({kind: 'issue.create', issueId: tempNum(t), repoId: 20, tempId: t, title: 'Made offline', body: 'Body typed offline', labelIds: [], assigneeIds: [], milestoneId: 0});
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: [`/acme/website/issues/new-${t}`]}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const description = (await screen.findByText('Body typed offline')).closest('article');
+  if (!description) throw new Error('no description card');
+  fireEvent.click(within(description).getByRole('button', {name: 'Description actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Quote reply', 'Edit']);
+});
+
+test('a virtualized timeline measures and places the items themselves', async () => {
+  await open('/acme/website/issues/7', session('read', 60));
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => { expect(activity.querySelector('li.Timeline-Item[data-index]')).not.toBeNull(); });
+  const [list] = timelineLists().filter((ol) => activity.contains(ol));
+  for (const item of list?.children ?? []) {
+    expect(item.hasAttribute('data-index')).toBe(true);
+    expect((item as HTMLElement).style.transform).toMatch(/^translateY\(/);
+  }
 });
 
 test('the description is the conversation\'s first card, with the comment menu in GitHub\'s order', async () => {

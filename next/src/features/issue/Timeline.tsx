@@ -8,7 +8,7 @@ import {suggestionOnly} from '../pull/suggestions.ts';
 import {pullOf} from '../../code/pull.ts';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {createElement, createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState} from 'react';
+import {createElement, createContext, type CSSProperties, type ReactNode, useCallback, useContext, useEffect, useRef, useState} from 'react';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
@@ -43,6 +43,7 @@ import {ArrowSwitchIcon, BookmarkIcon, CalendarIcon, CheckIcon, ClockIcon, Comme
   PinSlashIcon, ProjectIcon, ReplyIcon, SkipIcon, TagIcon, UnlockIcon, XCircleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, IssueLabelToken, Label, Timeline as PrimerTimeline, type TimelineBadgeProps} from '@primer/react';
+import {FeatureFlags} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
 const VIRTUALIZE_FROM = 50;
@@ -52,15 +53,32 @@ type Item = {kind: 'comment'; id: number; at: string; swapFrom?: number} | {kind
 
 const itemKey = (it: Item) => `${it.kind}${String(it.id)}`;
 
+/** A virtual row's measuring ref and position (computed, so a style), set on the timeline item itself so the list holds only its items. */
+interface Row {
+  ref: (el: Element | null) => void;
+  'data-index': number;
+  className: string;
+  style: CSSProperties;
+}
+
+const LIST_SEMANTICS = {primer_react_timeline_list_semantics: true};
+
+/** Primer's Timeline as a list of items (`ol` of `li`); Primer keeps that behind a flag that is off by default. */
+function TimelineList({clipSidebar, children}: {clipSidebar?: 'start'; children: ReactNode}) {
+  return <FeatureFlags flags={LIST_SEMANTICS}><PrimerTimeline {...clipSidebar ? {clipSidebar} : {}}>{children}</PrimerTimeline></FeatureFlags>;
+}
+
 function useItems(issueId: number): Item[] {
   const pool = usePool();
   const app = useApp();
   const {overlay, intents} = editing(app);
   const comments = issueComments(pool, overlay, issueId, intents.remapped);
   const reviews = pool.model('Review').by('issue_id', issueId);
+  // A deleted comment has no item: no empty list entry, no unmeasured virtual row.
+  const live = comments.filter((c) => overlay.field('Comment', c.id, DELETED) === undefined);
   return untracked(() => {
     const out: Item[] = [];
-    for (const c of comments) {
+    for (const c of live) {
       // Review cards own their summary and code comments; avoid duplicate entries.
       if ((c.data.type === 'code' || c.data.type === 'review') && c.data.review_id) continue;
       out.push({kind: 'comment', id: c.id, at: c.data.created_at});
@@ -114,6 +132,9 @@ function commentTarget(hash: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
+/** The column holding the header, properties and description above the list: their height changes move the list (images loading, an edit). */
+const conversationColumn = (el: HTMLElement) => el.closest('article') ?? el.parentElement;
+
 const TargetContext = createContext<number | undefined>(undefined);
 
 /** Allow the lazy group and virtualized rows up to 120 frames to reveal a permalink target. */
@@ -131,7 +152,7 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
   // A permalink target must render immediately to allow scrolling.
   const partial = !all && items.length > FIRST_PAINT && targetIndex < FIRST_PAINT;
   const virtual = items.length >= VIRTUALIZE_FROM && scroller !== null;
-  const [place, margin] = useScrollMargin(virtual ? scroller : null);
+  const [place, margin] = useScrollMargin(virtual ? scroller : null, conversationColumn);
   // New key or size functions make the virtualizer recompute every position, so they change only with the items.
   const keys = virtual ? items.map(itemKey) : [];
   const keySig = keys.join(',');
@@ -176,23 +197,22 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
     };
   }, [hash, target, targetIndex, virtual, list]);
   if (!items.length) return null;
-  const render = (it: Item) => (it.kind === 'comment' ? <CommentItem id={it.id} swapFrom={it.swapFrom}/> : <ReviewItem id={it.id}/>);
+  const render = (it: Item, key: string | number | bigint, row?: Row) => (it.kind === 'comment' ?
+    <CommentItem key={String(key)} id={it.id} swapFrom={it.swapFrom} row={row}/> : <ReviewItem key={String(key)} id={it.id} row={row}/>);
   return (
     <TargetContext value={highlight}>
       <section aria-label="Activity">
         {!virtual ?
-          <PrimerTimeline>{(partial ? items.slice(0, FIRST_PAINT) : items).map((it) => <div key={itemKey(it)}>{render(it)}</div>)}</PrimerTimeline> :
+          <TimelineList>{(partial ? items.slice(0, FIRST_PAINT) : items).map((it) => render(it, itemKey(it)))}</TimelineList> :
           <div ref={place} className="relative" style={{height: list.getTotalSize()}}>
-            <PrimerTimeline>
+            <TimelineList>
               {list.getVirtualItems().map((row) => {
                 const it = items[row.index];
-                return it && (
-                  <div key={row.key} data-index={row.index} ref={list.measureElement} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(row.start - margin)}px)`}}>
-                    {render(it)}
-                  </div>
-                );
+                return it && render(it, row.key, {
+                  ref: list.measureElement, 'data-index': row.index, className: 'absolute inset-x-0 top-0', style: {transform: `translateY(${String(row.start - margin)}px)`},
+                });
               })}
-            </PrimerTimeline>
+            </TimelineList>
           </div>}
       </section>
     </TargetContext>
@@ -207,15 +227,24 @@ function When({at}: {at: string}) {
   return <time dateTime={at} title={fullDate(at)} className="text-muted">{agoWords(at)}</time>;
 }
 
-function Edited({updated, version}: {updated: string; version: number}) {
+/** The newest recorded edit of the description (`commentId` 0) or of a comment. */
+function lastEditOf(pool: ReturnType<typeof usePool>, issueId: number, commentId: number) {
+  const rows = commentId ? pool.model('ContentHistory').by('comment_id', commentId) : pool.model('ContentHistory').by('issue_id', issueId);
+  return [...rows].map((e) => e.data)
+    .filter((h) => h.comment_id === commentId && h.issue_id === issueId && !h.is_first_created)
+    .sort((a, b) => b.edited_at.localeCompare(a.edited_at) || b.id - a.id)[0];
+}
+
+/** `at`: when, if the edit history is known (an issue's `updated_at` moves with any activity). */
+function Edited({at, version}: {at: string | undefined; version: number}) {
   if (!(version > 0)) return null;
-  return <span className="text-sm text-muted" title={`Edited ${fullDate(updated)}`}>edited</span>;
+  return <span className="text-sm text-muted" title={at ? `Edited ${fullDate(at)}` : undefined}>edited</span>;
 }
 
 /** A comment on the timeline: the author's avatar in the conversation's gutter, the box over the timeline's line. */
-function CommentEntry({poster, children}: {poster: number; children: ReactNode}) {
+function CommentEntry({poster, row, children}: {poster: number; row?: Row | undefined; children: ReactNode}) {
   return (
-    <PrimerTimeline.Item>
+    <PrimerTimeline.Item {...row}>
       <PrimerTimeline.Avatar className="hidden @md/conversation:block"><UserAvatar id={poster} size="lg" linked/></PrimerTimeline.Avatar>
       <PrimerTimeline.Body className="mt-0 -ml-4 max-w-none">{children}</PrimerTimeline.Body>
     </PrimerTimeline.Item>
@@ -256,13 +285,17 @@ export const DescriptionItem = observer(function DescriptionItem({issue}: {issue
     refocus.current = false;
   }, [edit]);
   const version = pool.model('IssueBody').get(issue.id)?.get('content_version') ?? 0;
+  const lastEdit = version > 0 ? lastEditOf(pool, issue.id, 0) : undefined;
   return (
-    <PrimerTimeline clipSidebar="start">
+    <TimelineList clipSidebar="start">
       <CommentEntry poster={issue.get('poster_id')}>
         <Card poster={issue.get('poster_id')} original={issue.get('original_author')} at={issue.get('created_at')} verb="opened"
-          badge={<Edited updated={issue.get('updated_at')} version={version}/>}
-          actions={issue.id > 0 && <CardMenu triggerRef={actions} label="Description actions" issueId={issue.id}
-            link={() => undefined} quote={() => issueBody(pool, editing(app).overlay, issue.id)?.text ?? ''} onEdit={mayEdit ? start : undefined}/>}
+          badge={<>
+            <Edited at={lastEdit?.edited_at} version={version}/>
+            {lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
+          </>}
+          actions={<CardMenu triggerRef={actions} label="Description actions" issueId={issue.id}
+            link={issue.id > 0 ? () => undefined : undefined} quote={() => issueBody(pool, editing(app).overlay, issue.id)?.text ?? ''} onEdit={mayEdit ? start : undefined}/>}
           footer={<Reactions issueId={issue.id} commentId={0}/>}>
           <BodySection issue={issue} edit={edit} mayEdit={mayEdit} onReopen={start} onEditDone={() => {
             refocus.current = true;
@@ -270,11 +303,11 @@ export const DescriptionItem = observer(function DescriptionItem({issue}: {issue
           }}/>
         </Card>
       </CommentEntry>
-    </PrimerTimeline>
+    </TimelineList>
   );
 });
 
-const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; swapFrom?: number | undefined}) {
+const CommentItem = observer(function CommentItem({id, swapFrom, row}: {id: number; swapFrom?: number | undefined; row?: Row | undefined}) {
   const pool = usePool();
   const overlay = useOverlay();
   const c = pool.model('Comment').get(id) ?? overlay.createdEntity('Comment', id) as Entity<'Comment'> | undefined;
@@ -282,9 +315,9 @@ const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; s
   const type = c.get('type');
   if (type === 'comment' || type === 'code' || type === 'dismiss_review') {
     if (overlay.field('Comment', id, DELETED)) return null;
-    return <CommentEntry poster={c.get('poster_id')}><CommentCard c={c} type={type}/></CommentEntry>;
+    return <CommentEntry poster={c.get('poster_id')} row={row}><CommentCard c={c} type={type}/></CommentEntry>;
   }
-  return <EventItem comment={c} swapFrom={swapFrom}/>;
+  return <EventItem comment={c} swapFrom={swapFrom} row={row}/>;
 });
 
 export const CommentCard = observer(function CommentCard({c, type, badge, nested = false}: {c: Entity<'Comment'>; type: string; badge?: ReactNode; nested?: boolean}) {
@@ -293,9 +326,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge, nested
   const refocus = useRef(false);
   const overlay = useOverlay();
   const pool = usePool();
-  const lastEdit = [...pool.model('ContentHistory').by('comment_id', c.id)].map((e) => e.data)
-    .filter((h) => h.comment_id === c.id && !h.is_first_created)
-    .sort((a, b) => b.edited_at.localeCompare(a.edited_at) || b.id - a.id)[0];
+  const lastEdit = c.get('content_version') > 0 ? lastEditOf(pool, c.get('issue_id'), c.id) : undefined;
   const deleted = commentBody(overlay, c).deleted;
   const linked = useContext(TargetContext) === c.id;
   useEffect(() => {
@@ -310,8 +341,8 @@ export const CommentCard = observer(function CommentCard({c, type, badge, nested
       verb={type === 'dismiss_review' ? 'dismissed a review' : 'commented'}
       badge={<>
         {badge}
-        <Edited updated={c.get('updated_at')} version={c.get('content_version')}/>
-        {c.get('content_version') > 0 && lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
+        <Edited at={lastEdit?.edited_at ?? c.get('updated_at')} version={c.get('content_version')}/>
+        {lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}
         {type === 'code' && !nested && <Label>{c.get('path')}</Label>}
       </>}
       actions={c.id > 0 && <CommentActions c={c} triggerRef={actions} onEdit={() => {
@@ -337,7 +368,7 @@ const REVIEW_LOOK: Record<string, {icon: OcticonType; variant?: BadgeVariant; te
   COMMENT: {icon: EyeIcon, text: 'reviewed'},
 };
 
-const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
+const ReviewItem = observer(function ReviewItem({id, row}: {id: number; row?: Row | undefined}) {
   const pool = usePool();
   const r = pool.model('Review').get(id);
   if (!r) return null;
@@ -348,7 +379,7 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   const body = summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review" nested/> :
     html && <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')} verb="commented" nested><Markdown html={html}/></Card>;
   return (
-    <PrimerTimeline.Item>
+    <PrimerTimeline.Item {...row}>
       <PrimerTimeline.Badge {...look.variant ? {variant: look.variant} : {}}>{createElement(look.icon)}</PrimerTimeline.Badge>
       <PrimerTimeline.Body>
         <div className="flex flex-wrap items-center gap-x-1">
@@ -455,7 +486,7 @@ interface EventLook {
   variant?: BadgeVariant | 'neutral';
 }
 
-const EventItem = observer(function EventItem({comment: c, swapFrom}: {comment: Entity<'Comment'>; swapFrom?: number | undefined}) {
+const EventItem = observer(function EventItem({comment: c, swapFrom, row}: {comment: Entity<'Comment'>; swapFrom?: number | undefined; row?: Row | undefined}) {
   const pool = usePool();
   const d = c.data as Comment;
   const look: EventLook = swapFrom !== undefined ? {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>} :
@@ -463,7 +494,7 @@ const EventItem = observer(function EventItem({comment: c, swapFrom}: {comment: 
     describeEvent(d);
   const big = look.variant !== undefined;
   return (
-    <PrimerTimeline.Item condensed={!big}>
+    <PrimerTimeline.Item condensed={!big} {...row}>
       <PrimerTimeline.Badge {...look.variant && look.variant !== 'neutral' ? {variant: look.variant} : {}}>{createElement(look.icon)}</PrimerTimeline.Badge>
       <PrimerTimeline.Body>
         <span className="mr-1 inline-flex align-middle"><UserAvatar id={d.poster_id} size="sm" linked/></span>

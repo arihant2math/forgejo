@@ -301,8 +301,8 @@ export const BodySection = observer(function BodySection({issue, edit, mayEdit, 
 /** A comment's menu, in GitHub's order: Copy link and Quote reply, then Edit, then Delete. */
 export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDelete}: {
   triggerRef: RefObject<HTMLButtonElement | null>; label: string; issueId: number;
-  /** Points the page's address at this card. */
-  link: (url: URL) => void;
+  /** Points the page's address at this card; none: no Copy link (an issue created offline has no address yet). */
+  link?: ((url: URL) => void) | undefined;
   quote: () => string;
   onEdit?: (() => void) | undefined;
   onDelete?: (() => void) | undefined;
@@ -322,13 +322,13 @@ export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDel
     <ActionMenu open={open} onOpenChange={setMenuOpen}>
       <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button" ref={triggerRef}/></ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
-        <ActionList.Item onSelect={() => {
+        {link && <ActionList.Item onSelect={() => {
           const url = new URL(window.location.href);
           url.search = '';
           url.hash = '';
           link(url);
           void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
-        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
+        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>}
         <ActionList.Item onSelect={() => {
           setOpen(false);
           const text = selection.current || quote();
@@ -497,7 +497,7 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
         label="Leave a comment" saveLabel="Comment" rows={4} focusShortcut="issue.comment" quote
         stateAction={mayChangeState ? {
           label: (hasText) => (state === 'closed' ? `Reopen ${hasText ? 'with comment' : noun}` :
-            chosen === 'not-planned' ? 'Close as not planned' : `Close ${hasText ? 'with comment' : noun}`),
+            chosen === 'not-planned' && !hasText ? 'Close as not planned' : `Close ${hasText ? 'with comment' : noun}`),
           icon: issue.get('is_pull') ? state === 'closed' ? <GitPullRequestIcon className="text-success"/> : <GitPullRequestClosedIcon className="text-danger"/> :
             state === 'closed' ? <IssueReopenedIcon className="text-success"/> : chosen === 'not-planned' ? <SkipIcon className="text-muted"/> : <IssueClosedIcon className="text-done"/>,
           run: (body) => {
@@ -506,6 +506,8 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
               if (state === 'open' && chosen === 'not-planned' && notPlanned) setWorkflowStatus(app, [issue], notPlanned);
               else intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
             });
+            // A reason applies to one close; after a reopen the button starts from "completed" again.
+            setReason('completed');
           },
           more: reasons ? (act, anchor) => <CloseReasons issue={issue} act={act} anchor={anchor} reason={chosen} notPlanned={notPlanned !== undefined} onReason={setReason}/> : undefined,
         } : undefined}

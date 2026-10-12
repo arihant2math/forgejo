@@ -3,7 +3,7 @@
 
 // Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
-import {Link, useNavigate, useParams} from '@tanstack/react-router';
+import {createLink, Link, useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
@@ -32,7 +32,7 @@ import {ColumnChart, DivergingChart, Meter, Split} from './charts.tsx';
 import {
   commitSummary, fillWeeks, lastWeeks, yearAtLeast, type Period, PERIODS, parsePeriod, periodLabel, periodStart, pulse, type PulseIssue, type PulseRelease, weekOf,
 } from './pulse.ts';
-import {GraphIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, DiffIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
+import {GraphIcon, IssueClosedIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
@@ -40,12 +40,14 @@ import {RouterLink} from '../../app/routerLinks.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
-const SECTIONS: {id: Section; label: string; icon: OcticonType}[] = [
-  {id: 'pulse', label: 'Pulse', icon: GraphIcon},
-  {id: 'contributors', label: 'Contributors', icon: PeopleIcon},
-  {id: 'code-frequency', label: 'Code frequency', icon: DiffIcon},
-  {id: 'recent-commits', label: 'Recent commits', icon: GitCommitIcon},
-];
+const SECTIONS = [
+  {id: 'pulse', label: 'Pulse', to: '/$owner/$repo/activity'},
+  {id: 'contributors', label: 'Contributors', to: '/$owner/$repo/activity/contributors'},
+  {id: 'recent-commits', label: 'Commits', to: '/$owner/$repo/activity/recent-commits'},
+  {id: 'code-frequency', label: 'Code frequency', to: '/$owner/$repo/activity/code-frequency'},
+] as const satisfies readonly {id: Section; label: string; to: string}[];
+
+const ActivityNavItem = createLink(NavList.Item);
 
 /** Longer periods may exceed the summary's recency window and need closed-tier data. */
 const LONG: ReadonlySet<Period> = new Set(['quarterly', 'semiyearly', 'yearly']);
@@ -73,8 +75,6 @@ function ActivityPage({section, controls, children}: {section: Section; controls
 
 const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner: string; repo: string; repoId: number; section: Section}) {
   const src = useSource();
-  const app = useApp();
-  const click = useLinkClick();
   const sha = useHead(repoId).sha;
   const warm = () => {
     if (sha) void src.contributors(repoId, sha).catch(() => undefined);
@@ -82,11 +82,10 @@ const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner
   return (
     <NavList aria-label="Activity pages" className="shrink-0 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start">
       {SECTIONS.map((s) => (
-        <NavList.Item key={s.id} href={hrefOf(app, `/${owner}/${repo}/activity${s.id === 'pulse' ? '' : `/${s.id}`}`)} onClick={(event) => { click(event, hrefOf(app, `/${owner}/${repo}/activity${s.id === 'pulse' ? '' : `/${s.id}`}`)); }}
-          aria-current={s.id === section ? 'page' : false}
+        <ActivityNavItem key={s.id} to={s.to} params={{owner, repo}} activeProps={{}} activeOptions={{exact: true}} aria-current={s.id === section ? 'page' : false}
           {...(s.id === 'pulse' ? {} : {onPointerEnter: warm, onFocus: warm})}>
-          <NavList.LeadingVisual><s.icon size={16}/></NavList.LeadingVisual>{s.label}
-        </NavList.Item>
+          {s.label}
+        </ActivityNavItem>
       ))}
     </NavList>
   );
@@ -181,7 +180,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
             <div className="flex">
               <Stat href="#merged" icon={GitMergeIcon} tone="done" value={p.merged.items.length} label={`merged pull ${plural(p.merged.items.length, 'request')}`}/>
               <Stat href="#opened" icon={GitPullRequestIcon} tone="success" value={p.opened.items.length} label={`open pull ${plural(p.opened.items.length, 'request')}`}/>
-              <Stat href="#closed" icon={CheckCircleIcon} tone="done" value={p.closed.items.length} label={`closed ${plural(p.closed.items.length, 'issue')}`}/>
+              <Stat href="#closed" icon={IssueClosedIcon} tone="done" value={p.closed.items.length} label={`closed ${plural(p.closed.items.length, 'issue')}`}/>
               <Stat href="#new" icon={IssueOpenedIcon} tone="success" value={p.created.items.length} label={`new ${plural(p.created.items.length, 'issue')}`}/>
             </div>
           </div>
@@ -198,7 +197,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
         all={`${base}/pulls?state=closed&sort=recentupdate`}/>
       <List id="opened" icon={GitPullRequestIcon} title="open pull" noun="request" items={p.opened.items} authors={p.opened.authors} at={(r) => r.created_at}
         all={`${base}/pulls?sort=newest`}/>
-      <List id="closed" icon={CheckCircleIcon} title="closed" noun="issue" items={p.closed.items} authors={p.closed.authors} at={(r) => r.closed_at ?? r.updated_at}
+      <List id="closed" icon={IssueClosedIcon} title="closed" noun="issue" items={p.closed.items} authors={p.closed.authors} at={(r) => r.closed_at ?? r.updated_at}
         all={`${base}/issues?state=closed&sort=recentupdate`}/>
       <List id="new" icon={IssueOpenedIcon} title="new" noun="issue" items={p.created.items} authors={p.created.authors} at={(r) => r.created_at}
         all={`${base}/issues?state=all&sort=newest`}/>

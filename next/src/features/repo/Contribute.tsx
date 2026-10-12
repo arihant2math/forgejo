@@ -41,11 +41,10 @@ export function standingText(s: Pick<Standing, 'ahead' | 'behind' | 'branch' | '
   return `This branch is ${n(s.behind)} behind ${up}:${s.branch}.`;
 }
 
-export const Contribute = observer(function Contribute({owner, repo}: {owner: string; repo: string}) {
+export const Contribute = observer(function Contribute({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   const session = useSession();
-  const repoId = [...session.data.pool.model('Repository').all()].find((r) => r.data.owner_name === owner && r.data.name === repo)?.data.id ?? 0;
-  const writer = repoId > 0 && canWrite(session, repoId);
+  const writer = canWrite(session, repoId);
   const isOnline = reach(session.data.status.connection) === 'online';
   const [standing, setStanding] = useState<{key: string; value: Standing}>();
   const [round, setRound] = useState(0);

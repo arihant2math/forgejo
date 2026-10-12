@@ -4,7 +4,7 @@
 import type {SelectPanelItemInput} from '@primer/react';
 import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection, SettingRow} from '../usersettings/form.tsx';
-import {Banner, ToggleSwitch, Select, SelectPanel, Button, TextInput, FormControl, Textarea} from '@primer/react';
+import {Banner, BranchName, ToggleSwitch, Select, SelectPanel, Button, IconButton, TextInput, FormControl, Textarea} from '@primer/react';
 
 
 import {useNavigate} from '@tanstack/react-router';
@@ -22,14 +22,15 @@ import {
 } from './forms.ts';
 import {problemOf} from './problems.ts';
 import {deleteRepo, patchRepo, transferRepo} from './requests.ts';
-import {GitBranchIcon} from '@primer/octicons-react';
+import {ArrowSwitchIcon} from '@primer/octicons-react';
 
 export const GeneralSettings = observer(function GeneralSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const pool = usePool();
   const r = pool.model('Repository').get(repoId)?.data;
   if (!r) return null;
-  const units = new Set([...pool.model('RepoUnit').by('repo_id', repoId)].map((u) => u.get('type')));
-  const pulls = [...pool.model('RepoUnit').by('repo_id', repoId)].find((u) => u.get('type') === 'pulls')?.data.config;
+  const rows = [...pool.model('RepoUnit').by('repo_id', repoId)];
+  const units = new Set(rows.map((u) => u.get('type')));
+  const pulls = rows.find((u) => u.get('type') === 'pulls')?.data.config;
   return (
     <>
       {r.archived && <Banner variant="warning" title="This repository is archived" description={<>It is read-only. Unarchive it in the danger zone below to change it again.</>}/>}
@@ -135,24 +136,32 @@ const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: 
   const pool = usePool();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
+  const [picked, setPicked] = useState<string | undefined>(undefined);
   const offline = useOffline();
   const opt = useOptimistic(r.default_branch);
   const branches = [...refTable(pool, r.id).branches.keys()].sort((a, b) => (a === r.default_branch ? -1 : b === r.default_branch ? 1 : a.localeCompare(b)));
   return (
     <FormSection id="settings-branch" title="Default branch" description="The branch the repository opens on, and the base of new pull requests.">
       <div className="flex items-center gap-2">
-        <SelectPanel title="Default branch" open={open} onOpenChange={setOpen} filterValue={filter} onFilterChange={setFilter} placeholderText="Find a branch…" loading={false} virtualized={branches.length > 50}
+        {opt.shown ? <BranchName as="span">{opt.shown}</BranchName> : <span className="text-muted">None</span>}
+        <SelectPanel title="Switch default branch" open={open} onOpenChange={setOpen} filterValue={filter} onFilterChange={setFilter} placeholderText="Find a branch…" loading={false} virtualized={branches.length > 50}
           {...(branches.length ? {} : {message: {title: r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.', variant: 'empty' as const, body: ''}})}
           items={branches.filter((b) => b.toLowerCase().includes(filter.toLowerCase())).map((b) => ({id: b, text: b}))}
           selected={opt.shown ? {id: opt.shown, text: opt.shown} : undefined}
-          renderAnchor={(props) => <Button size="small" {...{...props}} leadingVisual={GitBranchIcon} disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
+          renderAnchor={(props) => <IconButton size="small" {...{...props}} icon={ArrowSwitchIcon} disabled={offline || r.archived} aria-label="Switch to another branch"/>}
           onSelectedChange={(item: SelectPanelItemInput | undefined) => {
-            if (!item || item.id === opt.shown) return;
-            const branch = String(item.id);
-            sendChange(app, opt, branch, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: branch}), `The default branch is ${branch}`);
             setOpen(false);
+            if (item && item.id !== opt.shown) setPicked(String(item.id));
           }}/>
       </div>
+      <RepositoryConfirmation open={picked !== undefined} onOpenChange={(o) => { if (!o) setPicked(undefined); }} title={`Switch the default branch to ${picked ?? ''}?`}
+        description="Changing your default branch can have unintended consequences that can affect new pull requests and clones."
+        confirmLabel="I understand, update the default branch." onConfirm={() => {
+          if (picked === undefined || offline) return;
+          const branch = picked;
+          setPicked(undefined);
+          sendChange(app, opt, branch, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: branch}), `The default branch is ${branch}`);
+        }}/>
     </FormSection>
   );
 });
@@ -292,25 +301,22 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
     else if (!busy) close();
   };
   const button = (kind: Danger, label: string) => (
-    <Button size="small" type="button" disabled={offline} onClick={() => {
+    <Button size="small" variant="danger" type="button" disabled={offline} onClick={() => {
       setOpen(kind);
     }}>{label}</Button>
   );
   return (
     <FormSection id="settings-danger" title="Danger zone">
-      <Banner variant="critical" title="Repository danger zone" description="These operations affect access, ownership or permanently delete repository data."/>
       <div className="rounded-md border border-danger-emphasis">
-      <SettingRow bordered id="danger-visibility" title="Visibility" description={priv.shown ? 'Private: only people with access see it.' : 'Public: everyone can see it.'}
-        >{button('visibility', priv.shown ? 'Make public' : 'Make private')}</SettingRow>
-      <SettingRow bordered id="danger-archive" title={archived.shown ? 'Unarchive this repository' : 'Archive this repository'}
-        description={archived.shown ? 'Make it writable again.' : 'Make it read-only: no pushes, issues or pull requests; it can be unarchived.'}
-        >{button('archive', archived.shown ? 'Unarchive' : 'Archive')}</SettingRow>
+      <SettingRow bordered id="danger-visibility" title="Change repository visibility" description={`This repository is currently ${priv.shown ? 'private' : 'public'}.`}
+        >{button('visibility', 'Change visibility')}</SettingRow>
       <SettingRow bordered id="danger-transfer" title="Transfer ownership" description="Give it to another user or an organization you can create repositories in."
         >{button('transfer', 'Transfer')}</SettingRow>
+      <SettingRow bordered id="danger-archive" title={archived.shown ? 'Unarchive this repository' : 'Archive this repository'}
+        description={archived.shown ? 'Make it writable again.' : 'Make it read-only: no pushes, issues or pull requests; it can be unarchived.'}
+        >{button('archive', archived.shown ? 'Unarchive this repository' : 'Archive this repository')}</SettingRow>
       <SettingRow bordered id="danger-delete" title="Delete this repository" description="Its code, issues, pull requests, wiki and releases are deleted. This cannot be undone."
-        children={<Button size="small" variant="danger" type="button" disabled={offline} onClick={() => {
-          setOpen('delete');
-        }}>Delete</Button>}/>
+        >{button('delete', 'Delete this repository')}</SettingRow>
       </div>
 
       <RepositoryConfirmation open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}

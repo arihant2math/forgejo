@@ -222,7 +222,7 @@ describe('signed in', () => {
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(header ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
     const homeTitle = within(screen.getByRole('main')).getByRole('heading', {level: 2, name: /^website/});
-    expect(within(homeTitle.parentElement ?? document.body).getByRole('button', {name: 'New issue'})).toBeTruthy();
+    expect(within(homeTitle.closest<HTMLElement>('[data-scroll-restoration-id="page"]') ?? document.body).queryByRole('button', {name: 'New issue'})).toBeNull();
     await waitFor(() => {
       expect(document.title).toBe('acme/website · Forgejo');
     });

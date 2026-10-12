@@ -85,7 +85,7 @@ export const ContainedIn = observer(function ContainedIn({owner, repo, repoId, s
 function RefList({owner, repo, kind, names}: {owner: string; repo: string; kind: 'branch' | 'tag'; names: readonly string[]}) {
   const [all, setAll] = useState(false);
   const shown = all ? names : names.slice(0, SHOWN);
-  const what = kind === 'tag' ? (noun(names.length, 'tag', 'tags')) : (noun(names.length, 'branch', 'branches'));
+  const what = kind === 'tag' ? noun(names.length, 'tag', 'tags') : noun(names.length, 'branch', 'branches');
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="flex items-center gap-1">{kind === 'tag' ? <TagIcon size={16}/> : <GitBranchIcon size={16}/>}{`In ${String(names.length)} ${what}:`}</span>

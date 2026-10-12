@@ -1017,7 +1017,7 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
       {reason && <Banner variant="warning" title={reason}/>}
       {!auto && checks === 'pending' && (
         <Banner variant="warning" title={`${count(unfinished, 'check has', 'checks have')} not finished`} description={<>
-          Merging now does not wait for {unfinished === 1 ? 'it' : 'them'}. Auto-merge waits.
+          Merging now does not wait for {noun(unfinished, 'it', 'them')}. Auto-merge waits.
         </>}/>
       )}
       {!auto && checks === 'failure' && <Banner variant="critical" title="Some checks failed" description={<>Merging now merges changes whose checks did not pass.</>}/>}

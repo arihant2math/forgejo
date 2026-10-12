@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {noun} from '../../app/words.ts';
 import {runInAction, untracked} from 'mobx';
 import {canWrite} from '../../app/access.ts';
 import {classicHref} from '../../app/classic.ts';
@@ -91,7 +92,7 @@ function withoutBlocked(app: App, issues: readonly Entity<'Issue'>[]): Entity<'I
     notify(app, {
       tone: 'warning',
       title: blocked.length === 1 ? `#${String(untracked(() => issue.data.number))} cannot be closed yet` : `${String(blocked.length)} issues cannot be closed yet`,
-      description: `It is blocked by ${refs}, still open. Close ${by.length === 1 ? 'it' : 'them'} first, or remove the dependency.`,
+      description: `It is blocked by ${refs}, still open. Close ${noun(by.length, 'it', 'them')} first, or remove the dependency.`,
     });
   }
   return issues.filter((i) => !blocked.some(([b]) => b === i));

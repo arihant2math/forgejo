@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {count} from '../words.ts';
+import {count, noun} from '../words.ts';
 import {runInAction} from 'mobx';
 import {useState} from 'react';
 import {Dialog} from '@primer/react';
@@ -18,7 +18,7 @@ export function SignOutDialog({pending}: {pending: number}) {
   };
   return (
     <Dialog title="Sign out with unsynced changes?"
-      subtitle={`${count(pending, 'change has', 'changes have')} not reached Forgejo yet. Signing out deletes ${pending === 1 ? 'it' : 'them'} from this device.`}
+      subtitle={`${count(pending, 'change has', 'changes have')} not reached Forgejo yet. Signing out deletes ${noun(pending, 'it', 'them')} from this device.`}
       width="medium" onClose={cancel} footerButtons={[
         {content: 'Cancel', onClick: cancel},
         {content: 'Sign out anyway', buttonType: 'danger', disabled: busy, onClick: () => {

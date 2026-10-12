@@ -114,3 +114,11 @@ test('result rows are links whose hover underlines the name only, not the whole 
   expect(name?.classList).toContain('group-hover:underline');
   expect(name?.classList).toContain('group-hover:text-accent');
 });
+
+test('Explore uses the telescope header icon', async () => {
+  runInAction(() => { connectivity.online = false; });
+  await mount('/explore/repos');
+  const heading = await screen.findByRole('heading', {name: 'Explore', level: 1});
+  expect(heading.closest('header')?.querySelector('.octicon-telescope')).not.toBeNull();
+  expect(heading.closest('header')?.querySelector('.octicon-search')).toBeNull();
+});

@@ -15,19 +15,24 @@ import {PeopleSearch} from '../settings/Collaborators.tsx';
 import {ResourceList, useOffline} from '../settings/bits.tsx';
 import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
-import {TrashIcon, PersonIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton} from '@primer/react';
+import {TrashIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, Button as PrimerButton, IconButton} from '@primer/react';
 
 interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
 
+export interface OrgPermissions {is_owner: boolean; is_admin: boolean; can_create_repository?: boolean}
+
+const NO_PERMISSIONS: OrgPermissions = {is_owner: false, is_admin: false};
+
+/** The viewer's permissions in an organization; an empty owner (a user's page) asks nothing. */
 export function useOrgPermissions(owner: string) {
   const app = useApp();
   const s = useSession();
   const viewer = s.data.pool.model('User').get(s.userId)?.get('login');
   return useResource(`org:${owner}:permissions:${viewer ?? ''}`, async (signal) => {
-    if (!viewer) return {is_owner: false, is_admin: false};
-    return await online<{is_owner: boolean; is_admin: boolean}>(app, {api: 'v1', path: `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(owner)}/permissions`, signal}) ?? {is_owner: false, is_admin: false};
+    if (!viewer || !owner) return NO_PERMISSIONS;
+    return await online<OrgPermissions>(app, {api: 'v1', path: `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(owner)}/permissions`, signal}) ?? NO_PERMISSIONS;
   });
 }
 
@@ -74,10 +79,15 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
     <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
       {(people) => people.map((m) => <PersonRow key={m.id} leading={<Avatar size={20} alt={m.login} src={m.avatar_url}/>}
         title={<Link to="/$owner" params={{owner: m.login}} className="text-default hover:text-accent hover:underline">{m.full_name || m.login}</Link>} meta={m.full_name ? m.login : undefined}
-        actions={manage && <IconButton size="small" icon={PersonIcon} variant="invisible" aria-label={offline ? onlineOnly('Removing a member') : `Remove ${m.login} from the organization`} type="button" disabled={offline || busy} onClick={() => {
-          setError(undefined);
-          setRemoving(m);
-        }}/>}/>)}
+        actions={manage && <ActionMenu>
+          <ActionMenu.Anchor><IconButton size="small" icon={KebabHorizontalIcon} variant="invisible" aria-label={`Member options for ${m.login}`} type="button"/></ActionMenu.Anchor>
+          <ActionMenu.Overlay align="end"><ActionList>
+            <ActionList.Item variant="danger" disabled={busy} {...(offline ? {inactiveText: onlineOnly('Removing a member')} : {})} onSelect={() => {
+              setError(undefined);
+              setRemoving(m);
+            }}>Remove from organization…</ActionList.Item>
+          </ActionList></ActionMenu.Overlay>
+        </ActionMenu>}/>)}
     </ResourceList>
     {manage && <p className="px-4 py-2 text-sm text-muted">People join the organization through its teams (Teams: add a member).</p>}
     {removing && <Dialog title={`Remove ${removing.login} from ${owner}?`} subtitle="They leave every team of the organization and lose the access those teams gave them." onClose={() => { if (!busy) setRemoving(undefined); }} footerButtons={[{content: 'Cancel', disabled: busy, onClick: () => { setRemoving(undefined); }}, {content: 'Remove from organization', buttonType: 'danger', disabled: busy || offline, onClick: () => { void remove(removing); }}]}>{error && <Banner variant="critical" title="Could not remove member" description={error}/>}</Dialog>}

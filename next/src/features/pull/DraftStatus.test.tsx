@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {render, screen, within} from '@testing-library/react';
+import {fireEvent, render, screen, within} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
@@ -12,6 +12,8 @@ import {PullStateCell} from '../issues/cells.tsx';
 import {isDraftPull} from './draft.ts';
 import {editing} from '../../intents/session.ts';
 import {Byline} from '../issue/IssueView.tsx';
+import {undoLatest} from '../../app/notices.ts';
+import {ReadyForReview} from './DraftControl.tsx';
 
 vi.mock('@tanstack/react-router', async (original) => ({
   ...await original<object>(),
@@ -90,4 +92,16 @@ test('draft detection reads optimistic titles and ignores ordinary issues', () =
   const ordinary = s.data.pool.model('Issue').get(101);
   if (!ordinary) throw new Error('no ordinary issue');
   expect(isDraftPull(app, overlay, ordinary)).toBe(false);
+});
+
+test('marking a draft ready for review can be undone', () => {
+  const {app, entity, wrap} = setup('WIP: Add the footer');
+  wrap(<ReadyForReview issue={entity}/>);
+  const titles = () => [...editing(app).intents.records.values()].flatMap((record) => (record.intent.kind === 'issue.title' ? [record.intent.title] : []));
+  fireEvent.click(screen.getByRole('button', {name: 'Ready for review'}));
+  expect(titles()).toEqual(['Add the footer']);
+  expect(app.ui.notices.map((n) => n.title)).toContain('Marked as ready for review');
+  undoLatest(app);
+  expect(titles()).toEqual(['Add the footer', 'WIP: Add the footer']);
+  expect(isDraftPull(app, editing(app).overlay, entity)).toBe(true);
 });

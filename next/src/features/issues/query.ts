@@ -287,6 +287,7 @@ function assigneeGroups(issue: Issue, run: Run): readonly GroupKey[] {
   }));
 }
 
+/** Unset status is not a workflow stage; put the untriaged group before ranked stages. */
 const NO_STATUS: GroupKey = {key: 'open', label: 'No status', rank: -1, name: '', value: 0};
 const CLOSED: GroupKey = {key: 'closed', label: 'Closed', rank: 4.5, name: '', value: 0};
 const NO_PRIORITY: GroupKey = {key: 'none', label: 'No priority', rank: 9, name: '', value: 0};

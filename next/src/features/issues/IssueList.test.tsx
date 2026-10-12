@@ -226,7 +226,7 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
     const list = await screen.findByRole('listbox', {name: 'Change labels'});
     expect(list.getAttribute('aria-multiselectable')).toBe('true');
     const bug = within(list).getByRole('option', {name: 'bug'});
-    // Moving the active descendant must not apply a value.
+    // Primer keeps DOM focus on the combobox; moving its active descendant must not apply a value.
     bug.focus();
     const input = screen.getByRole('combobox', {name: 'Change labels'});
     expect(document.activeElement).toBe(input);

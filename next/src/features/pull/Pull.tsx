@@ -732,6 +732,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   // Protection rules are admin-only in API v1; use Forgejo's viewer-specific verdict.
+  // Keep cached checks if it fails; Forgejo enforces eligibility when merging.
   const eligibility = useMergeCheck(issue, pr);
   if (!pr) return null;
   const repo = repository;
@@ -788,7 +789,6 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
   const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
   const checksTone = checks === 'failure' ? 'danger' : checks === 'pending' ? 'warning' : 'success';
-  // A branch that may go once the work is in (merged, or closed): the classic page's "Delete branch".
   const headRef = check?.head_repo ? check.head_repo.split('/') : [];
   const removeHeadBranch = () => {
     if (!isOnline || busy || headRef.length !== 2) return;
@@ -822,8 +822,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   else if (checks === 'pending') state = <><CheckMark tone="warning"/> {checksWords}{behind}</>;
   else if (checks === 'failure') state = <><CheckMark tone="danger"/> Some checks failed{behind}</>;
   else state = <><CheckMark tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
-  // The checks are said even when something else is the headline (a draft, a conflict, a protection rule): an
-  // author waiting on CI sees what it said where they land.
+  // Keep CI results visible even when draft, conflict, or protection status takes the headline.
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
     <div className="mt-4"><section aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">

@@ -24,6 +24,7 @@ export function matchOptions(options: readonly PickOption[], query: string): rea
   return options.filter((option) => words.every((word) => `${option.label} ${option.words ?? ''}`.toLowerCase().includes(word)));
 }
 
+/** Keep applied selection separate from Primer's keyboard active descendant. */
 export function panelItems(options: readonly PickOption[], onClose: () => void): SelectPanelItemInput[] {
   return options.map((option) => {
     const description = [option.description, option.checked === 'mixed' ? 'Applied to some issues' :

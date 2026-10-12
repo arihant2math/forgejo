@@ -156,6 +156,7 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   await lineRow('three');
   expect(screen.getByText('two')).toBeTruthy(); // all changes: the removed line
   const trigger = screen.getByRole('button', {name: 'All changes: choose the changes shown'});
+  // Keep the chevron in Primer's trailing grid cell so it cannot wrap beneath the label.
   expect(trigger.querySelector('[data-component="trailingVisual"] svg')).not.toBeNull();
   expect(trigger.querySelector('[data-component="text"] svg')).toBeNull();
   fireEvent.click(trigger);

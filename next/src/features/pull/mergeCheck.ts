@@ -36,6 +36,7 @@ export function mergeCheckKey(pool: Pool, issue: Entity<'Issue'>, pr: PullReques
   ].join(':');
 }
 
+/** Match Forgejo's check-pattern dialect: *, ?, […], {a,b}, and backslash escapes. */
 export function globRegExp(pattern: string): RegExp {
   let out = '';
   let braces = 0;

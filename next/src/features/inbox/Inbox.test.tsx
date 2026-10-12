@@ -313,3 +313,39 @@ test('repository filters are searchable Primer panels and display grouping is a 
   fireEvent.click(item);
   await waitFor(() => { expect(router.state.location.search).toMatchObject({group: 'repo'}); });
 });
+
+/** Where the virtualizer puts each of the list's slots (rows and group headers), in px from the top. */
+const slotOffsets = () => [...document.querySelectorAll<HTMLElement>('[role="listbox"][aria-label="Notifications"] > div')]
+  .map((el) => Number(/translateY\((\d+)px\)/.exec(el.style.transform)?.[1]));
+
+test('rows and group headers have fixed heights, and the virtualizer places them by those heights (#274)', async () => {
+  await renderInbox('/notifications', {4: 'pinned'});
+  const options = screen.getAllByRole('option');
+  expect(options.length).toBe(4);
+  // A notification row: DenseRow's fixed 38px (h-dense-row), not the old 32px (h-8).
+  for (const o of options) {
+    expect(o.className).toContain('h-dense-row');
+    expect(o.className).not.toContain('h-8');
+  }
+  const headers = [...document.querySelectorAll('[data-inbox-group]')];
+  expect(headers.map((h) => h.textContent)).toEqual([expect.stringContaining('Pinned'), expect.stringContaining('Latest')]);
+  // A group header: fixed at 40px, not a minimum its content could grow past.
+  for (const h of headers) {
+    expect(h.className).toMatch(/(?:^| )h-10(?: |$)/);
+    expect(h.className).not.toContain('min-h-');
+  }
+  // Each slot starts where the previous one ends: Pinned (40), its row (38), Latest (40), then the three unread (38).
+  expect(slotOffsets()).toEqual([0, 40, 78, 118, 156, 194]);
+  expect(document.querySelector<HTMLElement>('[role="listbox"][aria-label="Notifications"]')?.style.height).toBe('232px');
+  expect(classConflicts(document.body)).toEqual([]);
+});
+
+test('grouped by repository, the repository header is 40px and its rows follow it 38px apart (#274)', async () => {
+  await renderInbox('/notifications?group=repo');
+  const headers = [...document.querySelectorAll('[data-inbox-group]')];
+  expect(headers.map((h) => h.textContent)).toEqual([expect.stringContaining('acme/atlas')]);
+  expect(headers[0]?.className).toMatch(/(?:^| )h-10(?: |$)/);
+  for (const o of screen.getAllByRole('option')) expect(o.className).toContain('h-dense-row');
+  // The header, then the four unread notifications.
+  expect(slotOffsets()).toEqual([0, 40, 78, 116, 154]);
+});

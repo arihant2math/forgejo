@@ -13,14 +13,14 @@ import {pullOf, poolHead} from '../../code/pull.ts';
 import {conversationRoot} from './resolve.tsx';
 import {editing} from '../../intents/session.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {CodeLine, LineNo} from '../../code/parts.tsx';
-import {parseDiff, DEL} from '../../code/diff.ts';
+import {DiffSnippet} from '../../code/DiffSnippet.tsx';
+import {DEL} from '../../code/diff.ts';
+import {hunkFile, suggestionFile} from '../../code/hunk.ts';
 import {suggestionOf, replaceSuggestions} from './suggestions.ts';
 import {Banner, Button, Dialog, TextInput} from '@primer/react';
 
 function originalLines(c: Comment, start: number, end: number): string[] {
-  const file = parseDiff(`diff --git a/file b/file\n--- a/file\n+++ b/file\n${c.diff_hunk}`)[0];
-  return file?.lines.filter((l) => l.k !== DEL && l.n >= start && l.n <= end).map((l) => l.t) ?? [];
+  return hunkFile(c.path, c.diff_hunk).lines.filter((l) => l.k !== DEL && l.n >= start && l.n <= end).map((l) => l.t);
 }
 const batches = observable.map<number, Comment[]>();
 const decode = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
@@ -68,10 +68,7 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
   };
   return <section aria-label="Suggested change" className="flex flex-col gap-2">
     <span className="text-base font-semibold text-default">Suggested change</span>
-    <div>
-      {original.map((line, i) => <CodeLine key={`old${i}`} tone="del" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
-      {suggestion.text.split('\n').map((line, i) => <CodeLine key={i} tone="add" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
-    </div>
+    <DiffSnippet file={suggestionFile(comment.path, original, suggestion.text.split('\n'), suggestion.start)}/>
     <div className="flex gap-2"><Button size="small" type="button" inactive={!!why} onClick={() => {setOpen(true);}}>{batch.length ? `Commit ${batch.length} suggestions` : 'Commit suggestion'}</Button>
       <Button size="small" type="button" inactive={!!why} onClick={() => batches.set(comment.issue_id, batch.some((c) => c.id === comment.id) ? batch.filter((c) => c.id !== comment.id) : [...batch, comment])}>{batch.some((c) => c.id === comment.id) ? 'Remove from batch' : 'Add to batch'}</Button></div>
     {why && <span className="text-sm text-muted">{why}</span>}

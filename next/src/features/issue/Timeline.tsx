@@ -6,7 +6,7 @@
 import {SuggestionCard} from '../pull/Suggestion.tsx';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {createElement, createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState} from 'react';
+import {createElement, createContext, lazy, type ReactNode, Suspense, useContext, useEffect, useMemo, useRef, useState} from 'react';
 import type {VirtuosoHandle} from 'react-virtuoso';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
@@ -18,7 +18,8 @@ import {uuid} from '../../intents/intents.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {shortSha} from '../../code/refs.ts';
-import {hunkLines} from '../../code/hunk.ts';
+import {hunkFile} from '../../code/hunk.ts';
+import {DiffSnippet} from '../../code/DiffSnippet.tsx';
 import {CodeLink} from '../code/nav.tsx';
 import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
@@ -299,7 +300,9 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const issue = pool.model('Issue').get(c.get('issue_id'))?.data;
   const repo = issue ? pool.model('Repository').get(issue.repo_id)?.data : undefined;
   const files = issue && repo ? `/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.number)}` : undefined;
-  const lines = hunkLines(c.get('diff_hunk'), SNIPPET_LINES);
+  const path = c.get('path');
+  const patch = c.get('diff_hunk');
+  const hunk = useMemo(() => hunkFile(path, patch, SNIPPET_LINES), [path, patch]);
   const replies = conversationReplies(pool, c);
   const reply = () => {
     if (!issue || !text.trim() || hasPendingUploads(text)) return;
@@ -328,16 +331,7 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
           <><code>{c.get('path')}</code> line {Math.abs(c.get('line'))}</>}
         {c.get('invalidated') && <> · <Label>Outdated</Label></>}
       </span>
-      {lines.length > 0 && (
-        <div className="overflow-x-auto rounded-md border border-muted" role="presentation">
-          {lines.map((l, i) => (
-            <div key={i} className={clsx('flex font-mono text-sm', l.startsWith('+') ? 'bg-diff-addition-line' : l.startsWith('-') && 'bg-diff-deletion-line')}>
-              <span className="w-6 shrink-0 text-center text-muted select-none">{l.startsWith('+') || l.startsWith('-') ? l[0] : ''}</span>
-              <span className="code-text pr-3">{l.slice(1)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {hunk.lines.length > 0 && <DiffSnippet file={hunk}/>}
       <CommentCard c={c} type="code"/>
       {replies.map((r) => <CommentCard key={r.id} c={r} type="code"/>)}
       {issue && !c.get('invalidated') && (replying ?

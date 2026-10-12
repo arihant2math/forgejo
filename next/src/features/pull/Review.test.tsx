@@ -240,6 +240,32 @@ test('a suggestion renders as a suggested change with its commit action', async 
   expect(within(change).getByRole('button', {name: 'Add to batch'})).toBeTruthy();
 });
 
+test('a suggestion on a hunk stored with its git headers (as Forgejo stores them) shows its original lines, highlighted', async () => {
+  const asked: string[][] = [];
+  // a.txt has no grammar; pretend it has one.
+  vi.spyOn(CodeSource.prototype, 'peekDiffSnippet').mockReturnValue(undefined);
+  vi.spyOn(CodeSource.prototype, 'diffSnippet').mockImplementation((file) => {
+    asked.push(file.lines.map((l) => l.t));
+    return Promise.resolve({spans: Uint32Array.from(file.lines.flatMap((l) => [l.t.length, 1])), starts: Uint32Array.from(file.lines.map((_, i) => i).concat(file.lines.length))});
+  });
+  const s = session();
+  const hunk = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three';
+  s.data.put('Review', 'issue:300', review(40, 3, 'COMMENT', HEAD, '2026-10-02T00:00:00Z', {body: 'See inline.', body_html: '<p>See inline.</p>'}));
+  s.data.put('Comment', 'issue:300', comment(500, 300, '```suggestion\nthree!\n```', {type: 'code', poster_id: 3, review_id: 40, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-02T00:00:00Z'}));
+  await open(s, '/acme/website/pulls/4');
+  const change = await screen.findByRole('region', {name: 'Suggested change'});
+  expect(within(change).queryByText('The original lines are unavailable.')).toBeNull();
+  await waitFor(() => {
+    expect(within(change).getByText('three').classList.contains('text-syntax-keyword')).toBe(true);
+  });
+  expect(within(change).getByText('three!').classList.contains('text-syntax-keyword')).toBe(true);
+  expect(asked).toContainEqual(['three', 'three!']);
+  // The conversation shows the commented hunk's last lines, with their numbers.
+  const activity = screen.getByRole('region', {name: 'Activity'});
+  expect(within(activity).getAllByText('TWO')[0]?.classList.contains('text-syntax-keyword')).toBe(true);
+  expect(asked).toContainEqual(['one', 'two', 'TWO', 'three']);
+});
+
 test('the line composer inserts a suggestion of the line', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   fireEvent.click(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'}));

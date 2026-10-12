@@ -121,6 +121,13 @@ describe('classes', () => {
     expect(shipped.flatMap((c) => classProblem(c) ?? [])).toEqual([]);
   });
 
+  test('every custom utility in app.css is used somewhere in src/', () => {
+    const text = sourceFiles(src).map((f) => readFileSync(f, 'utf8')).join('\n');
+    const utilities = [...readFileSync(join(src, 'styles/app.css'), 'utf8').matchAll(/^@utility ([\w-]+)/gm)].map((m) => m[1] ?? '');
+    expect(utilities.length).toBeGreaterThan(10);
+    expect(utilities.filter((u) => !new RegExp(`(?<![\\w-])${u}(?![\\w-])`).test(text))).toEqual([]);
+  });
+
   test('interactive: every state primitives use appears instantly', async () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     const [css = ''] = ds.candidatesToCss(['interactive']);

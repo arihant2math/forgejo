@@ -413,13 +413,13 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   const props = page.getByRole('complementary', {name: 'Properties'});
   const was = await checkSub();
   expect(was).toBe(true);
-  await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();
+  await expect(props.getByRole('button', {name: 'Unsubscribe', exact: true})).toBeVisible();
   await page.locator('body').click({position: {x: 1, y: 1}}).catch(() => undefined);
   await page.keyboard.press('Shift+S');
-  await expect(props.getByText('Not subscribed', {exact: true})).toBeVisible();
+  await expect(props.getByRole('button', {name: 'Subscribe', exact: true})).toBeVisible();
   await expect.poll(checkSub, {timeout: 15_000}).toBe(false);
   await page.keyboard.press('Shift+S');
-  await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();
+  await expect(props.getByRole('button', {name: 'Unsubscribe', exact: true})).toBeVisible();
   await expect.poll(checkSub, {timeout: 15_000}).toBe(true);
   expect(dialogs).toBe(0);
   expect(problems).toEqual([]);

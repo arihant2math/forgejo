@@ -9,6 +9,7 @@ import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 import {IssueSidebar} from '../issue/Sidebar.tsx';
 import {PullStateCell} from '../issues/cells.tsx';
+import {Byline} from '../issue/IssueView.tsx';
 
 vi.mock('@tanstack/react-router', async (original) => ({
   ...await original<object>(),
@@ -51,10 +52,27 @@ test('#178: a ready pull request stays Open', () => {
   expect(screen.getByRole('heading', {name: 'Status'}).closest('section')?.textContent).toContain('Open');
 });
 
-test('#200: a fork\'s head names its owner', () => {
-  const {s, entity, wrap} = setup('Add the footer', {head_repo_id: 21, head_branch: 'docs/leaflet'});
+test('#200: the byline names the branches, and a fork\'s head its owner', () => {
+  const {s, entity, wrap} = setup('Add the footer', {head_repo_id: 21, head_branch: 'docs/leaflet', commits_ahead: 2});
   s.data.put('Repository', 'repo:21', repo(21, user(5, 'frank'), 'website', {fork: true, parent_id: 20, created_at: T}));
-  wrap(<IssueSidebar issue={entity}/>);
+  wrap(<Byline issue={entity}/>);
+  expect(screen.getByText(/wants to merge 2 commits into/)).toBeTruthy();
+  expect(screen.getByText('main')).toBeTruthy();
   expect(screen.getByText('frank:docs/leaflet')).toBeTruthy();
   expect(screen.getByText('Fork')).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Copy head branch name'})).toBeTruthy();
+});
+
+test('the byline\'s state label says Draft for a draft, and an issue closed with a canceled status reads as not planned', () => {
+  const {s, entity, wrap} = setup('WIP: Add the footer');
+  const {unmount} = wrap(<Byline issue={entity}/>);
+  expect(screen.getByText('Draft').closest('[data-status]')?.getAttribute('data-status')).toBe('draft');
+  unmount();
+  s.data.put('Issue', 'repo:20', issue(101, 20, 8, 'Not doing this', {state: 'closed'}));
+  s.data.put('Label', 'repo:20', {id: 2, repo_id: 20, org_id: 0, name: 'status/Canceled', exclusive: true, description: '', color: '888888', num_issues: 0, num_closed_issues: 0, created_at: T});
+  s.data.put('IssueLabel', 'repo:20', {id: 1, issue_id: 101, label_id: 2});
+  const closed = s.data.pool.model('Issue').get(101);
+  if (!closed) throw new Error('no issue');
+  wrap(<Byline issue={closed}/>);
+  expect(screen.getByText('Closed').closest('[data-status]')?.getAttribute('data-status')).toBe('issueClosedNotPlanned');
 });

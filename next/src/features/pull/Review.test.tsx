@@ -224,17 +224,31 @@ test('a reply shows in the conversation it answers, not as an empty review of it
 test('a reviewer who reviewed can be asked again from the sidebar; the verdict is named', async () => {
   const s = session();
   s.data.put('Review', 'issue:300', review(40, 3, 'REQUEST_CHANGES', MID, '2026-10-02T00:00:00Z'));
+  // A later comment review neither hides the requested changes nor adds a row.
+  s.data.put('Review', 'issue:300', review(41, 3, 'COMMENT', HEAD, '2026-10-03T00:00:00Z'));
   await open(s, '/acme/website/pulls/4');
   const sidebar = await screen.findByRole('complementary', {name: 'Properties'});
-  expect(await within(sidebar).findByText('Changes requested')).toBeTruthy();
+  expect(await within(sidebar).findByRole('img', {name: 'Changes requested'})).toBeTruthy();
   fireEvent.click(within(sidebar).getByRole('button', {name: 'Re-request review from carol'}));
   await waitFor(() => {
     expect(within(sidebar).queryByRole('button', {name: /Re-request review/})).toBeNull();
   });
-  expect(within(sidebar).getByText('Review requested')).toBeTruthy();
+  expect(within(sidebar).getByRole('img', {name: 'Awaiting review'})).toBeTruthy();
   await waitFor(() => {
     expect(fetches).toContainEqual({url: '/api/v1/repos/acme/website/pulls/4/requested_reviewers', method: 'POST', body: {reviewers: ['carol']}});
   });
+});
+
+test('reviewers who only commented are listed as such; the author is not a reviewer', async () => {
+  const s = session();
+  s.data.put('Review', 'issue:300', review(40, 3, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
+  s.data.put('Review', 'issue:300', review(41, 2, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
+  await open(s, '/acme/website/pulls/4');
+  const reviewers = (await screen.findByRole('heading', {name: 'Reviewers'})).closest('section');
+  if (!(reviewers instanceof HTMLElement)) throw new Error('no reviewers section');
+  expect(await within(reviewers).findByRole('img', {name: 'Commented'})).toBeTruthy();
+  expect(within(reviewers).getByText('carol')).toBeTruthy();
+  expect(within(reviewers).queryByText('bob')).toBeNull();
 });
 
 test('a suggestion renders as a suggested change with its commit action', async () => {

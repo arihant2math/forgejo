@@ -55,12 +55,33 @@ async function open(path: string, s: Session) {
   return {app, router};
 }
 
-test('a writer who is not an administrator sees the pin state and why it cannot be changed (#226)', async () => {
+test('a writer who is not an administrator can lock but not pin (#226)', async () => {
   await open('/acme/website/issues/7', session('write'));
-  expect(await screen.findByText('Only repository administrators can pin issues.')).toBeTruthy();
-  expect(screen.getByText('Not pinned')).toBeTruthy();
-  expect(screen.queryByRole('button', {name: /Not pinned/})).toBeNull();
-  expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Lock conversation'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name: /Pin issue/})).toBeNull();
+});
+
+test('locking asks for one of Forgejo\'s reasons in a dialog, then queues the lock', async () => {
+  const {app} = await open('/acme/website/issues/7', session('write'));
+  fireEvent.click(await screen.findByRole('button', {name: 'Lock conversation'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Lock conversation on this issue'});
+  const lock = within(dialog).getByRole('button', {name: 'Lock conversation on this issue'});
+  fireEvent.click(lock);
+  expect(queued(app).some((intent) => intent.kind === 'issue.lock')).toBe(false);
+  fireEvent.change(within(dialog).getByRole('combobox', {name: /Reason/}), {target: {value: 'Resolved'}});
+  fireEvent.click(lock);
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.lock', issueId: 100, locked: true, reason: 'Resolved'}));
+});
+
+test('notifications: the button says what it does, and a line says why', async () => {
+  const s = session('read');
+  s.data.put('IssueWatch', 'user:1', {id: 1, issue_id: 100, user_id: 1, is_watching: true, created_at: T, updated_at: T} as never);
+  await open('/acme/website/issues/7', s);
+  const sidebar = screen.getByRole('complementary', {name: 'Properties'});
+  const section = within(sidebar).getByRole('heading', {name: 'Notifications'}).closest('section');
+  if (!(section instanceof HTMLElement)) throw new Error('no notifications section');
+  expect(within(section).getByRole('button').textContent).toMatch(/^(Subscribe|Unsubscribe)$/);
+  expect(section.textContent).toMatch(/You’re (receiving|not receiving) notifications/);
 });
 
 test('sidebar identities keep the reference 20px avatar and medium (14px) name', async () => {
@@ -79,8 +100,7 @@ test('sidebar identities keep the reference 20px avatar and medium (14px) name',
 
 test('an administrator can pin (#226)', async () => {
   await open('/acme/website/issues/7', session('admin'));
-  expect(await screen.findByRole('button', {name: 'Pin to the list'})).toBeTruthy();
-  expect(screen.queryByText('Only repository administrators can pin issues.')).toBeNull();
+  expect(await screen.findByRole('button', {name: 'Pin issue'})).toBeTruthy();
 });
 
 test('a comment permalink scrolls to the comment and highlights it, also past the first painted items (#210)', async () => {
@@ -208,7 +228,7 @@ test('on a wide page the properties are a scroll region of their own, bounded by
   expect(body?.classList.contains('@container-size')).toBe(true);
   const scroller = pane.firstElementChild;
   for (const c of ['@xl:sticky', '@xl:top-0', '@xl:max-h-page-body', '@xl:overflow-y-auto', '@xl:overscroll-contain']) expect(scroller?.classList.contains(c), c).toBe(true);
-  expect(within(pane).getByText('Not pinned')).toBeTruthy();
+  expect(within(pane).getByRole('button', {name: 'Lock conversation'})).toBeTruthy();
 });
 
 test('the timeline gives state changes GitHub\'s coloured badges and condenses other events', async () => {

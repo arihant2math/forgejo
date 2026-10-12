@@ -9,7 +9,7 @@ import {canWrite} from '../../app/access.ts';
 import {issueLocked, issueTitle, issueState} from '../../intents/view.ts';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useState} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import {lazyComponent, whenIdle} from '../../app/lazy.tsx';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {reach} from '../../app/online.ts';
@@ -25,7 +25,7 @@ import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
 import {openPicker} from '../issues/actions.ts';
 import {readThreadWhileOpen} from '../inbox/actions.ts';
-import {isMerged, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
+import {isDraft, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, useLabelView, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -36,8 +36,11 @@ import {DescriptionItem, Timeline} from './Timeline.tsx';
 import type {PullTabName} from '../pull/Pull.tsx';
 import {checksOf} from '../pull/checks.ts';
 import {poolHead, pullOf} from '../../code/pull.ts';
-import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
-import {Button, StateLabel, UnderlineNav} from '@primer/react';
+import {wipPrefixes} from '../pull/draft.ts';
+import {scopedValue, statusStage} from '../issues/labels.ts';
+import type {PullRequest} from '../../protocol/types.gen.ts';
+import {CopyIcon, IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
+import {BranchName, Button, IconButton, Label, StateLabel, UnderlineNav} from '@primer/react';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 // Keep code surfaces out of the conversation chunk.
@@ -258,20 +261,54 @@ const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: E
   );
 });
 
-const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
-  const state = issueState(editing(useApp()).overlay, issue);
-  const merged = isMerged(usePool(), issue.id);
-  const pull = issue.get('is_pull');
-  const status = merged ? 'pullMerged' : pull ? state === 'open' ? 'pullOpened' : 'pullClosed' : state === 'open' ? 'issueOpened' : 'issueClosed';
+/** GitHub's state label and byline; a pull request's names its branches, as GitHub does instead of a sidebar section. */
+export const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
+  const app = useApp();
+  const pool = usePool();
+  const {overlay} = editing(app);
+  const state = issueState(overlay, issue);
+  const pr = issue.get('is_pull') ? pullOf(pool, issue.id) : undefined;
+  const {status} = useLabelView(issue);
+  const open = state === 'open';
+  const [look, label] = pr?.merged ? ['pullMerged', 'Merged'] as const :
+    pr && open && isDraft(issueTitle(overlay, issue), wipPrefixes(app.config)) ? ['draft', 'Draft'] as const :
+    issue.get('is_pull') ? open ? ['pullOpened', 'Open'] as const : ['pullClosed', 'Closed'] as const :
+    open ? ['issueOpened', 'Open'] as const :
+    status && statusStage(scopedValue(status.name)) === 'canceled' ? ['issueClosedNotPlanned', 'Closed'] as const : ['issueClosed', 'Closed'] as const;
   const at = issue.get('created_at');
+  const comments = issue.get('comments');
+  const author = <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/>;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <StateLabel status={status}>{merged ? 'Merged' : state === 'open' ? 'Open' : 'Closed'}</StateLabel>
-      <p className="text-base text-muted">
-      <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this<time className="ml-1" dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
-      {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
+      <StateLabel status={look}>{label}</StateLabel>
+      <p className="min-w-0 text-base text-muted">
+        {pr ? <PullByline pr={pr} author={author}/> : <>{author} opened this issue <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time></>}
+        {comments > 0 && <> · {comments} {comments === 1 ? 'comment' : 'comments'}</>}
       </p>
     </div>
+  );
+});
+
+const PullByline = observer(function PullByline({pr, author}: {pr: PullRequest; author: ReactNode}) {
+  const pool = usePool();
+  const fork = pr.head_repo_id !== pr.base_repo_id;
+  const headOwner = fork ? pool.model('Repository').get(pr.head_repo_id)?.get('owner_name') : undefined;
+  const head = headOwner ? `${headOwner}:${pr.head_branch}` : pr.head_branch;
+  // Infer deletion only when the head repository's branches are cached; a fork's may be absent.
+  const branches = [...pool.model('Branch').by('repo_id', pr.head_repo_id)].map((b) => b.data);
+  const known = branches.find((b) => b.name === pr.head_branch);
+  const deleted = branches.length > 0 && (known === undefined || known.is_deleted);
+  const commits = pr.commits_ahead > 0 ? `${String(pr.commits_ahead)} ${pr.commits_ahead === 1 ? 'commit' : 'commits'} ` : '';
+  return (
+    <>
+      {pr.merged ? <><UserName id={pr.merger_id}/> merged {commits}into</> : <>{author} wants to merge {commits}into</>}{' '}
+      <BranchName as="span">{pr.base_branch}</BranchName> from <BranchName as="span">{head}</BranchName>
+      <span className="inline-flex align-middle"><IconButton icon={CopyIcon} variant="invisible" size="small" aria-label="Copy head branch name" onClick={() => {
+        void navigator.clipboard.writeText(pr.head_branch).catch(() => undefined);
+      }}/></span>
+      {fork && <Label>Fork</Label>}{deleted && <> <Label>Deleted</Label></>}
+      {pr.merged && pr.merged_at && <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></>}
+    </>
   );
 });
 

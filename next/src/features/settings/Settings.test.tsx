@@ -175,6 +175,27 @@ test('the side nav: GitHub\'s groups, classic-only pages inside them, only the o
   expect(within(nav).getByRole('link', {name: /^Webhooks/}).hasAttribute('data-classic')).toBe(false);
 });
 
+test('deleting a deploy key confirms first; a refusal stays in the dialog, a success drops the row', async () => {
+  let refuse = true;
+  const calls = stub((c) => {
+    if (c.method === 'DELETE') return refuse ? {status: 500, body: {message: 'storage is down'}} : {status: 200};
+    return c.url.startsWith('/api/v1/repos/alice/notes/keys') ? {body: [{id: 7, key_id: 7, title: 'CI runner', key: 'ssh-ed25519 AAAA', fingerprint: 'SHA256:x', read_only: true, created_at: T}]} : undefined;
+  });
+  await open('/alice/notes/settings/keys');
+  fireEvent.click(await screen.findByRole('button', {name: 'Delete the key “CI runner”'}));
+  const dialog = screen.getByRole('alertdialog', {name: 'Delete the key “CI runner”?'});
+  expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  fireEvent.click(within(dialog).getByRole('button', {name: 'Delete key'}));
+  expect(await within(dialog).findByText('storage is down')).toBeTruthy();
+  expect(screen.getByText('CI runner')).toBeTruthy();
+  refuse = false;
+  fireEvent.click(within(dialog).getByRole('button', {name: 'Delete key'}));
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/v1/repos/alice/notes/keys/7', '/api/v1/repos/alice/notes/keys/7']);
+  expect(await screen.findByText('Deleted the key “CI runner”')).toBeTruthy();
+  expect(screen.queryByRole('button', {name: 'Delete the key “CI runner”'})).toBeNull();
+});
+
 test('webhook events are a radio group with GitHub\'s choices', async () => {
   stub((c) => (c.url.startsWith('/api/v1/repos/alice/notes/') ? {body: []} : undefined));
   await open('/alice/notes/settings/hooks');

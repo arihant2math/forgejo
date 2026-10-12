@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {SettingsEntry} from './SettingsEntry.tsx';
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Label, Button, IconButton, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
 
@@ -25,24 +25,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
   const offline = useOffline();
   const res = useResource(settingsKey(repoId, 'keys'), (signal) => fetchKeys(app, owner, repo, signal));
   const [adding, setAdding] = useState(false);
-  const [deleting, setDeleting] = useState<DeployKey | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
-  const remove = async (k: DeployKey) => {
-    if (busy || offline) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await online(app, {method: 'DELETE', api: 'v1', path: `${repoApi(owner, repo)}/keys/${String(k.id)}`});
-      res.update((list) => (list ?? []).filter((x) => x.id !== k.id));
-      setDeleting(undefined);
-      notify(app, {tone: 'success', title: `Deleted the key “${k.title}”`});
-    } catch (err) {
-      setError(problemOf(err).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const removal = useRemoval(res, {path: (k) => `${repoApi(owner, repo)}/keys/${String(k.id)}`, same: (a, b) => a.id === b.id, done: (k) => `Deleted the key “${k.title}”`});
   return (
     <FormSection id="settings-keys" title="Deploy keys" description="SSH keys that can clone (and, with write access, push to) this repository only."
       actions={<Button variant="primary" size="small" leadingVisual={PlusIcon} type="button" disabled={offline} onClick={() => {
@@ -54,8 +37,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
             meta={<time dateTime={k.created_at} title={fullDate(k.created_at)}>{shortDate(k.created_at)}</time>}
             description={<span className="flex flex-wrap items-center gap-1"><Label variant={k.read_only ? 'default' : 'attention'}>{k.read_only ? 'Read' : 'Read and write'}</Label><code>{k.fingerprint}</code></span>}
             actions={<IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key “${k.title}”`} type="button" disabled={offline} onClick={() => {
-              setError(undefined);
-              setDeleting(k);
+              removal.ask(k);
             }}/>}/>
         ))}
       </ResourceList>
@@ -65,12 +47,8 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
         res.update((list) => [...(list ?? []).filter((x) => x.id !== k.id), k]);
         setAdding(false);
       }}/>}
-      <RepositoryConfirmation open={deleting !== undefined} onOpenChange={(o) => {
-        if (!o && !busy) setDeleting(undefined);
-      }} title={`Delete the key “${deleting?.title ?? ''}”?`} description="Whatever uses it can no longer reach this repository."
-      confirmLabel="Delete key" busy={busy} error={error} onConfirm={() => {
-        if (deleting) void remove(deleting);
-      }}/>
+      <RepositoryConfirmation {...removal.dialog} title={`Delete the key “${removal.target?.title ?? ''}”?`} description="Whatever uses it can no longer reach this repository."
+        confirmLabel="Delete key"/>
     </FormSection>
   );
 });

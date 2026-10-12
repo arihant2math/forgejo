@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {SettingsEntry} from './SettingsEntry.tsx';
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput} from '@primer/react';
 
@@ -25,31 +25,14 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
   const offline = useOffline();
   const res = useResource(settingsKey(repoId, 'hooks'), (signal) => fetchHooks(app, owner, repo, signal), storedHooks);
   const [editing, setEditing] = useState<Hook | 'new' | undefined>(undefined);
-  const [deleting, setDeleting] = useState<Hook | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
   const base = repoApi(owner, repo);
+  const removal = useRemoval(res, {path: (h) => `${base}/hooks/${String(h.id)}`, same: (a, b) => a.id === b.id, done: () => 'Webhook deleted'});
   const test = (h: Hook) => {
     online(app, {method: 'POST', api: 'v1', path: `${base}/hooks/${String(h.id)}/tests`}).then(() => {
       notify(app, {tone: 'success', title: 'Test delivery sent', description: `A push event to ${hookUrl(h)}. Its delivery is listed in the classic UI.`});
     }, (err: unknown) => {
       notify(app, {tone: 'danger', title: 'The test delivery was not sent', description: problemOf(err).message});
     });
-  };
-  const remove = async (h: Hook) => {
-    if (busy || offline) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await online(app, {method: 'DELETE', api: 'v1', path: `${base}/hooks/${String(h.id)}`});
-      res.update((list) => (list ?? []).filter((x) => x.id !== h.id));
-      setDeleting(undefined);
-      notify(app, {tone: 'success', title: 'Webhook deleted'});
-    } catch (err) {
-      setError(problemOf(err).message);
-    } finally {
-      setBusy(false);
-    }
   };
   const repoPath = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
@@ -72,8 +55,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
                 }}/> :
                 <Tooltip text="Opens in the classic Forgejo UI"><LinkButton variant="invisible" size="small" href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</LinkButton></Tooltip>}
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the webhook" type="button" disabled={offline} onClick={() => {
-                setError(undefined);
-                setDeleting(h);
+                removal.ask(h);
               }}/>
             </>}/>
         ))}
@@ -88,12 +70,8 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
         res.update((list) => [...(list ?? []).filter((x) => x.id !== saved.id), saved].sort((a, b) => a.id - b.id));
         setEditing(undefined);
       }}/>}
-      <RepositoryConfirmation open={deleting !== undefined} onOpenChange={(o) => {
-        if (!o && !busy) setDeleting(undefined);
-      }} title="Delete this webhook?" description={deleting ? `Forgejo stops sending events to ${hookUrl(deleting)}.` : undefined}
-      confirmLabel="Delete webhook" busy={busy} error={error} onConfirm={() => {
-        if (deleting) void remove(deleting);
-      }}/>
+      <RepositoryConfirmation {...removal.dialog} title="Delete this webhook?" description={removal.target ? `Forgejo stops sending events to ${hookUrl(removal.target)}.` : undefined}
+        confirmLabel="Delete webhook"/>
     </FormSection>
   );
 });

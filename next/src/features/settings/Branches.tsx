@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {SettingsEntry} from './SettingsEntry.tsx';
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Button, IconButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput, Textarea} from '@primer/react';
 
@@ -27,25 +27,8 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
   const offline = useOffline();
   const res = useResource(settingsKey(repoId, 'protections'), (signal) => fetchRules(app, owner, repo, signal));
   const [editing, setEditing] = useState<BranchProtection | 'new' | undefined>(undefined);
-  const [deleting, setDeleting] = useState<BranchProtection | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
+  const removal = useRemoval(res, {path: (rule) => ruleApi(owner, repo, rule.rule_name), same: (a, b) => a.rule_name === b.rule_name, done: (rule) => `Removed the rule for ${rule.rule_name}`});
   const names = (res.value ?? []).map((r) => r.rule_name);
-  const remove = async (rule: BranchProtection) => {
-    if (busy || offline) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await online(app, {method: 'DELETE', api: 'v1', path: ruleApi(owner, repo, rule.rule_name)});
-      res.update((list) => (list ?? []).filter((r) => r.rule_name !== rule.rule_name));
-      setDeleting(undefined);
-      notify(app, {tone: 'success', title: `Removed the rule for ${rule.rule_name}`});
-    } catch (err) {
-      setError(problemOf(err).message);
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <FormSection id="settings-branches" title="Branch protection" description="Rules for branches whose name matches: who may push, what a pull request needs before it is merged."
       actions={<Button variant="primary" size="small" leadingVisual={ShieldCheckIcon} type="button" disabled={offline || res.value === undefined} onClick={() => {
@@ -60,8 +43,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
                 setEditing(r);
               }}/>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
-                setError(undefined);
-                setDeleting(r);
+                removal.ask(r);
               }}/>
             </>}/>
         ))}
@@ -80,12 +62,8 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
           });
           setEditing(undefined);
         }}/>}
-      <RepositoryConfirmation open={deleting !== undefined} onOpenChange={(o) => {
-        if (!o && !busy) setDeleting(undefined);
-      }} title={`Remove the rule for ${deleting?.rule_name ?? ''}?`} description="The branch can then be pushed to and merged into without its requirements."
-      confirmLabel="Remove rule" busy={busy} error={error} onConfirm={() => {
-        if (deleting) void remove(deleting);
-      }}/>
+      <RepositoryConfirmation {...removal.dialog} title={`Remove the rule for ${removal.target?.rule_name ?? ''}?`} description="The branch can then be pushed to and merged into without its requirements."
+        confirmLabel="Remove rule"/>
     </FormSection>
   );
 });

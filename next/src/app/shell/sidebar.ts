@@ -5,6 +5,9 @@
 
 import {readSplash, writeSplash} from '../splash.ts';
 
+/** The default sidebar width in CSS px (= --sidebar-width in tokens.css). */
+export const SIDEBAR_DEFAULT = 232;
+
 /** Below this width the sidebar is a drawer (= --breakpoint-md). */
 const NARROW = '(max-width: 767.98px)';
 

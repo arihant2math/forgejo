@@ -8,6 +8,7 @@ import {RouterNavItem} from '../routerLinks.tsx';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useEffect, useState, type MouseEvent} from 'react';
+import {flushSync} from 'react-dom';
 import {groupId, groupKind} from '../../data/models.ts';
 import {SidebarSplitter} from './SidebarSplitter.tsx';
 import {SkeletonAvatar, KeybindingHint} from '@primer/react/experimental';
@@ -15,22 +16,13 @@ import {repoOfPath} from '../paths.ts';
 import {KEYMAP} from '../shortcuts/index.ts';
 import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
-import {openCreate} from '../create.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
-import {AccountMenu} from './AccountMenu.tsx';
+import {AccountMenu, CreateMenu} from './Menus.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
-import {toggleSidebar} from './sidebar.ts';
-import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, PencilIcon} from '@primer/octicons-react';
+import {SIDEBAR_DEFAULT, toggleSidebar} from './sidebar.ts';
+import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, TelescopeIcon} from '@primer/octicons-react';
 import {Avatar, CounterLabel, IconButton, NavList} from '@primer/react';
 import {ChevronDownIcon, ChevronRightIcon, RepoIcon} from '@primer/octicons-react';
-
-function SidebarCreate() {
-  const app = useApp();
-  return <NavList.Item as="button" onClick={() => { openCreate(app); }}>
-    <NavList.LeadingVisual><PencilIcon/></NavList.LeadingVisual>New issue
-    <NavList.TrailingVisual><KeybindingHint keys="c"/></NavList.TrailingVisual>
-  </NavList.Item>;
-}
 
 const SidebarSearch = function SidebarSearch() {
   const {ui} = useApp();
@@ -39,7 +31,7 @@ const SidebarSearch = function SidebarSearch() {
       runInAction(() => { ui.paletteOpen = true; });
     }}>
       <NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Search
-      <NavList.TrailingVisual><KeybindingHint keys="Mod+k"/></NavList.TrailingVisual>
+      <NavList.TrailingVisual><KeybindingHint keys={KEYMAP['palette.open'].keys}/></NavList.TrailingVisual>
     </NavList.Item>
   );
 };
@@ -79,6 +71,8 @@ interface Owner {
   repos: string[];
 }
 
+const collator = new Intl.Collator();
+
 /** Orders owners with the viewer first, then by name; sorts repositories by name. */
 export function owners(session: Session, hydrating = false): Owner[] {
   const {data, userId} = session;
@@ -87,10 +81,12 @@ export function owners(session: Session, hydrating = false): Owner[] {
   const repos = data.pool.model('Repository');
   const users = data.pool.model('User');
   const peek = data.peek('Repository');
-  const {connection, loading, lastError} = data.status;
-  const arriving = hydrating || (lastError === undefined && (
-    connection === 'idle' || connection === 'connecting' || connection === 'catching_up' || (connection === 'live' && loading > 0)
-  ));
+  // Read the sync status only when metadata is missing, so a fully known workspace does not observe every load.
+  const arriving = () => {
+    if (hydrating) return true;
+    const {connection, loading, lastError} = data.status;
+    return lastError === undefined && (connection === 'idle' || connection === 'connecting' || connection === 'catching_up' || (connection === 'live' && loading > 0));
+  };
   const byId = new Map<number, Owner>();
   const owner = (id: number, login: string | undefined): Owner | undefined => {
     let o = byId.get(id);
@@ -109,7 +105,7 @@ export function owners(session: Session, hydrating = false): Owner[] {
       const r = e ? {owner_id: e.get('owner_id'), owner_name: e.get('owner_name'), name: e.get('name')} : peek.get(id);
       // Missing metadata must not hide known repositories once hydration/sync finishes or fails.
       if (!r) {
-        if (arriving) return [];
+        if (arriving()) return [];
         continue;
       }
       owner(r.owner_id, r.owner_name)?.repos.push(r.name);
@@ -118,15 +114,15 @@ export function owners(session: Session, hydrating = false): Owner[] {
     }
   }
   const list = [...byId.values()];
-  for (const o of list) o.repos.sort((a, b) => a.localeCompare(b));
-  return list.sort((a, b) => Number(b.id === userId) - Number(a.id === userId) || a.login.localeCompare(b.login));
+  for (const o of list) o.repos.sort(collator.compare);
+  return list.sort((a, b) => Number(b.id === userId) - Number(a.id === userId) || collator.compare(a.login, b.login));
 }
 
 const RepoItem = memo(function RepoItem({owner, name}: {owner: string; name: string}) {
   const key = `${owner}/${name}`.toLowerCase();
   const current = useRouterState({select: (s) => repoOfPath(s.location.pathname) === key});
   return (
-    <RouterNavItem to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : false} className="ml-4">
+    <RouterNavItem to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : false} className="ml-4" data-repo={name}>
       <NavList.LeadingVisual><RepoIcon/></NavList.LeadingVisual>{name}
     </RouterNavItem>
   );
@@ -182,7 +178,13 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
         />
       </li>
       {open && shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
-      {open && more > 0 && <NavList.Item as="button" className="ml-4" onClick={() => { setAll(true); }}>{String(more)} more</NavList.Item>}
+      {open && more > 0 && <NavList.Item as="button" className="ml-4" onClick={(event: MouseEvent<HTMLElement>) => {
+        // The button disappears: move focus to the first revealed repository, as NavList.GroupExpand does.
+        const group = event.currentTarget.closest('[role="group"]');
+        const next = owner.repos.find((name) => !shown.includes(name));
+        flushSync(() => { setAll(true); });
+        if (next !== undefined) group?.querySelector<HTMLElement>(`[data-repo="${next}"]`)?.focus();
+      }}>{String(more)} more</NavList.Item>}
     </NavList.Group>
   );
 }, sameOwner);
@@ -248,7 +250,7 @@ function BoardsItem() {
 function currentWidth(): number {
   const w = readSplash().sidebarWidth;
   if (typeof w === 'number' && Number.isFinite(w)) return Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)));
-  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 232;
+  return SIDEBAR_DEFAULT;
 }
 
 function SidebarResize() {
@@ -279,9 +281,10 @@ export function Sidebar() {
       <SidebarTop>
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1 pl-2"><AccountMenu/></div>
+          <CreateMenu/>
           <IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Hide the sidebar" description="Hide the sidebar" keybindingHint={KEYMAP['sidebar.toggle'].keys} type="button" onClick={toggleSidebar}/>
         </div>
-        <NavList aria-label="Quick actions"><SidebarCreate/><SidebarSearch/></NavList>
+        <NavList aria-label="Quick actions"><SidebarSearch/></NavList>
       </SidebarTop>
       <SidebarBody>
         <NavList aria-label="Main">
@@ -289,7 +292,7 @@ export function Sidebar() {
           <InboxItem/>
           <RouterNavItem to="/issues" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><IssueOpenedIcon/></NavList.LeadingVisual>My issues</RouterNavItem>
           <RouterNavItem to="/pulls" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><GitPullRequestIcon/></NavList.LeadingVisual>My pull requests</RouterNavItem>
-          <RouterNavItem to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}><NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Explore</RouterNavItem>
+          <RouterNavItem to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}><NavList.LeadingVisual><TelescopeIcon/></NavList.LeadingVisual>Explore</RouterNavItem>
           <BoardsItem/>
           <Workspace/>
         </NavList>

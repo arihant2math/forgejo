@@ -31,6 +31,7 @@ export interface SiteLinkProps {
   onPointerEnter: (e: {currentTarget: EventTarget}) => void;
   onPointerLeave: (e: {currentTarget: EventTarget}) => void;
   onFocus: (e: {currentTarget: EventTarget}) => void;
+  onBlur: (e: {currentTarget: EventTarget}) => void;
 }
 
 const intents = new WeakMap<EventTarget, ReturnType<typeof setTimeout>>();
@@ -55,6 +56,6 @@ export function useSiteLink(): (href: string) => SiteLinkProps {
         router.preloadRoute({to: '.', href}).catch(() => undefined);
       }, delay));
     };
-    return {href, onClick: (e) => { click(e, href); }, onPointerEnter: intent, onPointerLeave: cancel, onFocus: intent};
+    return {href, onClick: (e) => { click(e, href); }, onPointerEnter: intent, onPointerLeave: cancel, onFocus: intent, onBlur: cancel};
   };
 }

@@ -57,6 +57,17 @@ test('focus preloads too, and a plain click navigates in place', async () => {
   expect(router.state.location.pathname).toBe('/notifications');
 });
 
+test('focus that moves on before the delay does not preload', async () => {
+  const {loader} = await setup();
+  const row = screen.getByRole('link', {name: 'by site path'});
+  vi.useFakeTimers();
+  fireEvent.focus(row);
+  await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+  fireEvent.blur(row);
+  await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+  expect(loader).not.toHaveBeenCalled();
+});
+
 test('a typed row is a router link with intent preloading', async () => {
   const {loader} = await setup();
   const row = screen.getByRole('link', {name: 'typed'});

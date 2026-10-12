@@ -8,6 +8,7 @@ import {App} from '../../app/App.tsx';
 import {rememberRow} from '../../app/listReturn.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
+import {editing} from '../../intents/session.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
@@ -88,6 +89,17 @@ test('a row links to the comment it is about, and opening it goes there (#211)',
     expect(router.state.location.pathname).toBe('/acme/atlas/issues/1');
   });
   expect(router.state.location.hash).toBe('comment-1779');
+});
+
+test('opening a row reads it once: the issue page it opens does not read it again (#259)', async () => {
+  const {app, router} = await renderInbox();
+  fireEvent.click(rowOf('Follow-up 2'));
+  await waitFor(() => {
+    expect(router.state.location.pathname).toBe('/acme/atlas/issues/3');
+  });
+  await screen.findByRole('heading', {level: 1, name: /Follow-up 2/});
+  const reads = [...editing(app).intents.records.values()].map((r) => r.intent).filter((i) => i.kind === 'notification.status');
+  expect(reads).toEqual([expect.objectContaining({notificationId: 3, status: 'read', base: 'unread'})]);
 });
 
 test('secondary reason and actor truncate before the notification title', async () => {
@@ -231,6 +243,39 @@ test('mentions and review requests come from the server, also for issues never o
   });
   await act(async () => {
     await router.navigate({to: '/notifications', search: {reason: 'review-requested'}});
+  });
+  await waitFor(() => {
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('cache: evict')]);
+  });
+});
+
+test('Reason: Participating lists the threads that mention the viewer or are assigned to them (#260)', async () => {
+  search = {mentioned: [100, 103], review_requested: []};
+  const {router, s} = await renderInbox();
+  // "Follow-up 2" is assigned to alice; "cache: evict" to someone else.
+  s.data.put('IssueAssignee', 'repo:20', {id: 1, issue_id: 102, assignee_id: 1});
+  s.data.put('IssueAssignee', 'repo:20', {id: 2, issue_id: 101, assignee_id: 3});
+  await waitFor(() => {
+    expect(within(rowOf('Customer asks')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
+  });
+  await act(async () => {
+    await router.navigate({to: '/notifications', search: {reason: 'participating'}});
+  });
+  await waitFor(() => {
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Customer asks'), expect.stringContaining('Follow-up 2'), expect.stringContaining('Beta feedback'),
+    ]);
+  });
+});
+
+test('Reason: Participating includes a review request even without a local timeline (#260)', async () => {
+  search = {mentioned: [], review_requested: [101]};
+  const {router} = await renderInbox();
+  await waitFor(() => {
+    expect(within(rowOf('cache: evict')).getByText(/^· Review requested(?: ·|$)/)).toBeTruthy();
+  });
+  await act(async () => {
+    await router.navigate({to: '/notifications', search: {reason: 'participating'}});
   });
   await waitFor(() => {
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('cache: evict')]);

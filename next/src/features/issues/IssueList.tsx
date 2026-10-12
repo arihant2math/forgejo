@@ -42,6 +42,7 @@ import {
   usePool,
 } from './cells.tsx';
 import {issuePath, issuesOf} from './edits.ts';
+import {personLogin} from './people.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
@@ -429,6 +430,7 @@ const RepoRef = observer(function RepoRef({repoId, number}: {repoId: number; num
 const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'group'}>}) {
   const pool = usePool();
   let leading: ReactNode = null;
+  let detail: string | undefined;
   if ((row.kind === 'status' || row.kind === 'priority') && row.value) {
     const l = pool.model('Label').get(row.value);
     if (l) leading = <LabelGlyph icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
@@ -436,10 +438,15 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
     leading = <IssueDraftIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'assignee') {
     leading = row.value ? <UserAvatar id={row.value}/> : <PersonIcon size={16} className="shrink-0"/>;
+    // The login beside the name: two people of the same name get two headers that can be told apart (QA #263).
+    const login = row.value ? pool.model('User').get(row.value)?.get('login') : undefined;
+    detail = login ? personLogin({login, name: row.label}) : undefined;
   } else if (row.kind === 'repo') {
     leading = <RepoIcon size={16} className="shrink-0"/>;
   }
   return <div className="flex h-10 items-center gap-2 border-b border-default bg-muted px-4">
-    {leading}<Text as="h3" size="medium" weight="semibold" className="min-w-0 truncate">{row.label}</Text><CounterLabel>{row.count}</CounterLabel>
+    {leading}<Text as="h3" size="medium" weight="semibold" className="min-w-0 truncate">
+      {row.label}{detail !== undefined && <span className="ms-2 text-sm font-normal text-muted">{detail}</span>}
+    </Text><CounterLabel>{row.count}</CounterLabel>
   </div>;
 });

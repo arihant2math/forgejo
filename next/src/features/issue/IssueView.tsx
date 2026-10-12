@@ -29,6 +29,7 @@ import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
 import {openPicker} from '../issues/actions.ts';
+import {readThreadWhileOpen} from '../inbox/actions.ts';
 import {isMerged, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
@@ -114,6 +115,9 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
     // A permalink's comment (#comment-123) stays in the address.
     void navigate({to: isPull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index', params: {owner, repo, index: String(index)}, hash: true, replace: true});
   }, [isPull, onPulls, routeId, settled, index, navigate, owner, repo]);
+  // Viewing it is reading it (#259): the viewer's notifications about it, on every tab of a pull request too.
+  const issueId = issue?.id;
+  useEffect(() => (issueId === undefined ? undefined : readThreadWhileOpen(app, issueId)), [app, issueId]);
   if (!issue) return <NotHere owner={owner} repo={repo} repoId={repoId} index={index}/>;
   const pull = issue.get('is_pull') && index > 0;
   return (

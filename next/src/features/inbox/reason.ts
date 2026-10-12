@@ -41,3 +41,22 @@ export function reasonOf(pool: Pool, n: Notification, me: number, myLogin: strin
   if (issue.poster_id === me) return {why: issue.is_pull ? 'Your pull request' : 'Your issue', actor};
   return {why: n.comment_id ? 'Commented' : 'Opened', actor};
 }
+
+/**
+ * Whether the viewer takes part in a notification's thread (Reason: Participating): they opened it, commented,
+ * reviewed, or were asked to do something in it — mentioned, assigned, asked for a review (as GitHub's
+ * "participating"; #260). The server's answer names mentions and review requests also for a thread not on this
+ * device. Pure (observes what it reads).
+ */
+export function participates(pool: Pool, n: Notification, me: number, myLogin: string | undefined, server?: ServerReasons): boolean {
+  if (!me) return false;
+  if (server?.mentioned.has(n.issue_id) || server?.reviewRequested.has(n.issue_id)) return true;
+  if (pool.model('Issue').get(n.issue_id)?.data.poster_id === me) return true;
+  if ([...pool.model('IssueAssignee').by('issue_id', n.issue_id)].some((a) => a.data.assignee_id === me)) return true;
+  if ([...pool.model('Comment').by('issue_id', n.issue_id)].some((c) => c.data.poster_id === me)) return true;
+  // Their reviews, and a review asked of them (REQUEST_REVIEW).
+  if ([...pool.model('Review').by('issue_id', n.issue_id)].some((r) => r.data.reviewer_id === me)) return true;
+  // A mention in the notifying comment (on this device).
+  const why = reasonOf(pool, n, me, myLogin, server)?.why;
+  return why === 'Mentioned' || why === 'Review requested' || why === 'Assigned';
+}

@@ -96,8 +96,12 @@ describe('issue list rows', () => {
     await waitFor(() => {
       expect(within(list).getAllByRole('option', {name: /Footer links are broken/})).toHaveLength(2);
     });
-    // Headers: Alice Nakamura 1, carol 2 (#7 and #9), Unassigned 1.
-    expect(within(list).getByText('Alice Nakamura').nextElementSibling?.textContent).toBe('1');
+    // Headers: Alice Nakamura (alice) 1, carol 2 (#7 and #9), Unassigned 1. A full name is followed by the login
+    // (#263); a login alone is not said twice.
+    const alice = within(list).getByText('Alice Nakamura');
+    expect(alice.textContent).toBe('Alice Nakamuraalice');
+    expect(within(alice).getByText('alice').className).toContain('text-muted');
+    expect(alice.nextElementSibling?.textContent).toBe('1');
     expect(within(list).getByText('carol').nextElementSibling?.textContent).toBe('2');
     expect(within(list).getByText('Unassigned').nextElementSibling?.textContent).toBe('1');
     // The rows' DOM ids stay unique (the cursor's aria-activedescendant points at one).
@@ -105,6 +109,19 @@ describe('issue list rows', () => {
     expect(new Set(ids).size).toBe(ids.length);
     // The list still counts three issues, each once.
     expect(within(list).getAllByRole('option')).toHaveLength(4);
+  });
+
+  test('grouped by assignee, two people of the same name get headers told apart by their logins (#263)', async () => {
+    const s = session();
+    s.data.put('User', 'profiles:public', {...user(5, 'u-m14-next'), full_name: 'Alice Nakamura'});
+    s.data.put('IssueAssignee', 'repo:20', {id: 4, issue_id: 102, assignee_id: 5});
+    await renderApp('/acme/website/issues?group=assignee', s);
+    const list = await screen.findByRole('listbox');
+    await waitFor(() => {
+      expect(within(list).getAllByText('Alice Nakamura')).toHaveLength(2);
+    });
+    const headers = within(list).getAllByText('Alice Nakamura').map((h) => [h.textContent, h.nextElementSibling?.textContent]);
+    expect(headers).toEqual([['Alice Nakamuraalice', '1'], ['Alice Nakamurau-m14-next', '1']]);
   });
 
   test('grouped by status, an open issue without a status label is under "No status", not "Open" (#192)', async () => {

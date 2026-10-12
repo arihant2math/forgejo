@@ -15,13 +15,13 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issueProject, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {SelectPanel, type SelectPanelProps} from '@primer/react';
+import {Avatar, SelectPanel, type SelectPanelProps} from '@primer/react';
 import {ensurePickerLiveRegion} from './pickerLiveRegion.ts';
 import {matchOptions, panelGroups, panelItems, selectedItems, type PickOption} from './pickerItems.tsx';
 import {shortDate} from './format.ts';
 import {labelColor, LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, UserAvatar} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
-import {loadPeople, repoPeople} from './people.ts';
+import {loadPeople, personLogin, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
 import {clearScope, commonRepo, issuesOf, setAssignee, setLabel, setMilestone} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue} from './labels.ts';
@@ -226,8 +226,8 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     for (const u of repoPeople(pool, repoId, s.userId, current)) {
       const checked = draft ? draft.assignees.includes(u.id) : coverage(issues, (i) => issueAssigneeIds(pool, overlay, i.id).includes(u.id));
       options.push({
-        value: `u${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
-        leading: <UserAvatar id={u.id}/>,
+        value: `u${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, meta: personLogin(u), checked, keepOpen: true,
+        leading: u.avatar ? <Avatar alt={u.name} src={u.avatar} size={20}/> : <UserAvatar id={u.id}/>,
         onSelect: () => {
           if (draft) draft.setAssignee(u.id, checked !== true);
           else setAssignee(app, issues, u.id, checked !== true);
@@ -241,8 +241,8 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       if (posters.has(u.id)) continue; // nobody reviews their own pull request
       const checked = coverage(issues, (i) => requested(i).has(u.id));
       options.push({
-        value: `r${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, checked, keepOpen: true,
-        leading: <UserAvatar id={u.id}/>,
+        value: `r${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, meta: personLogin(u), checked, keepOpen: true,
+        leading: u.avatar ? <Avatar alt={u.name} src={u.avatar} size={20}/> : <UserAvatar id={u.id}/>,
         onSelect: () => {
           runInAction(() => {
             for (const i of issues) {

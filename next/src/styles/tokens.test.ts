@@ -107,6 +107,12 @@ describe('tokens.css', () => {
     expect(failures).toEqual([]);
   });
 
+  test('a single-line row sets 14px text on a 20px line (leading-row, #272), not body text\'s odd 21px', () => {
+    expect(resolve('var(--leading-row)', 'light')).toBe('1.25rem');
+    // Body text's own line height is 1.5 × 14px = 21px: what leading-row replaces beside a label or control.
+    expect(resolve('var(--text-base--line-height)', 'light')).toBe('1.5');
+  });
+
   test('motion tokens (PLAN §5.6)', () => {
     expect(root.get('--speed-in')).toBe('0s');
     expect(root.get('--speed-out')).toBe('0.15s');

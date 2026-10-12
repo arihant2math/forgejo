@@ -267,9 +267,11 @@ const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
   const status = merged ? 'pullMerged' : pull ? state === 'open' ? 'pullOpened' : 'pullClosed' : state === 'open' ? 'issueOpened' : 'issueClosed';
   const at = issue.get('created_at');
   return (
+    // One metadata line: a small state label (24px) beside the author line on a 20px line box, so both centre on the
+    // same whole pixel (a medium label beside body text's 21px line sat half a pixel apart and towered over it, #272).
     <div className="flex flex-wrap items-center gap-2">
-      <StateLabel status={status}>{merged ? 'Merged' : state === 'open' ? 'Open' : 'Closed'}</StateLabel>
-      <p className="text-base text-muted">
+      <StateLabel status={status} size="small">{merged ? 'Merged' : state === 'open' ? 'Open' : 'Closed'}</StateLabel>
+      <p className="text-base leading-row text-muted">
       <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this<time className="ml-1" dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
       </p>

@@ -125,6 +125,9 @@
   /* Code lines: one fixed line height, so code surfaces virtualize without measuring. */
   --text-code: 12px;
   --text-code--line-height: 20px;
+  /* A single-line UI row (leading-row): 14px text on a 20px line, as POLISH's rhythm asks, rather than body text's
+   * 1.5 (21px), whose odd line box centres half a pixel off the text of a label or control beside it. */
+  --leading-row: var(--base-size-20);
   --font-weight-normal: var(--base-text-weight-normal);
   --font-weight-medium: var(--base-text-weight-medium);
   --font-weight-semibold: var(--base-text-weight-semibold);

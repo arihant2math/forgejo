@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import type * as APIModule from '../../app/api.ts';
@@ -45,6 +45,10 @@ test('global search explains a disabled code indexer', async () => {
   vi.mocked(online).mockResolvedValue({enabled: false, total: 0, results: []});
   await mount('/search?type=code&q=symbol');
   await screen.findByText('Global code search is unavailable');
+  const nav = screen.getByRole('navigation', {name: 'Search type'});
+  expect(within(nav).getByRole('link', {name: /^Code/}).getAttribute('aria-current')).toBe('page');
+  expect(within(nav).getByRole('link', {name: 'Issues'}).getAttribute('href')).toMatch(/\/search\?q=symbol&type=issues$/);
+  expect(screen.queryByRole('button', {name: 'All search types'})).toBeNull();
 });
 test('the command menu on a repository page searches its code for the words typed (#208)', async () => {
   vi.mocked(online).mockResolvedValue({enabled: false, total: 0, repositories: {}, results: []});

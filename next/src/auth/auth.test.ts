@@ -121,6 +121,22 @@ describe('session', () => {
     s.close();
   });
 
+  test('a new document reuses the stored access token instead of rotating the refresh token again', async () => {
+    const server = tokenServer();
+    const first = await session(server);
+    expect(await first.token()).toBe('a1');
+    first.close();
+    const next = new AuthSession(oauth, 7, {fetch: server.fetch, indexedDB: factory, locks: null, BroadcastChannel: null});
+    expect(await next.token()).toBe('a1');
+    expect(server.calls).toHaveLength(1);
+    expect(next.status.state).toBe('ok');
+    // Refused by the server, the stored token is not handed out again.
+    expect(await next.refresh()).toBe('a2');
+    expect(server.calls).toHaveLength(2);
+    expect(await readToken(7, factory)).toMatchObject({refreshToken: 'r2', accessToken: 'a2'});
+    next.close();
+  });
+
   test('refresh() replaces a refused token', async () => {
     const server = tokenServer();
     const s = await session(server);

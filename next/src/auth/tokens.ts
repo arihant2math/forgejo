@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Keep refresh tokens separate from user data so an expired session preserves unsynced intents.
+// Keep tokens separate from user data so an expired session preserves unsynced intents.
 
 import {done, request} from '../data/idb.ts';
 
@@ -15,6 +15,9 @@ export interface TokenRecord {
   refreshToken: string;
   /** When the refresh token was stored (ms). */
   updated: number;
+  /** The access token issued with it and when it expires (ms), for the next document. */
+  accessToken?: string;
+  expiresAt?: number;
 }
 
 function open(factory: IDBFactory): Promise<IDBDatabase> {

@@ -159,6 +159,9 @@ export function DiffStat({additions, deletions}: {additions: number; deletions: 
   );
 }
 
+/** CodeFileHeader's height (h-10), which Pierre reserves for a diff's header before it renders. */
+export const FILE_HEADER_HEIGHT = 40;
+
 export function CodeFileHeader({path, oldPath, status, stat, leading, children, ref}: {
   path: string;
   oldPath?: string | undefined;

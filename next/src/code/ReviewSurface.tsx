@@ -13,7 +13,7 @@ import {ImageDiff, isImageDiff} from '../features/code/ImageDiff.tsx';
 import {useSource} from '../features/code/hooks.ts';
 import {useViewSize} from '../features/code/Lines.tsx';
 import {ADD, DEL, type DiffFile, filePath} from './diff.ts';
-import {CodeFileHeader, DiffStat} from './parts.tsx';
+import {CodeFileHeader, DiffStat, FILE_HEADER_HEIGHT} from './parts.tsx';
 import {pierreFile, pierreLang} from './pierrePatch.ts';
 import {LIMITS} from './shiki.ts';
 import {PierreProvider, renderOptions} from './PierreProvider.tsx';
@@ -178,7 +178,7 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
   });
   const commentable = !!extras?.onComment;
   const options = useMemo(() => ({
-    ...renderOptions, tokenizeMaxLength: LIMITS.diffLines, diffStyle: split ? 'split' as const : 'unified' as const, stickyHeaders: true,
+    ...renderOptions, tokenizeMaxLength: LIMITS.diffLines, itemMetrics: {diffHeaderHeight: FILE_HEADER_HEIGHT}, diffStyle: split ? 'split' as const : 'unified' as const, stickyHeaders: true,
     enableLineSelection: true, enableGutterUtility: commentable, expansionLineCount: 40, loadDiffFiles, onLineClick, onPostRender,
   }), [split, commentable, loadDiffFiles, onLineClick, onPostRender]);
   const renderCustomHeader = useCallback((item: CodeViewItem<Annotation>) => {

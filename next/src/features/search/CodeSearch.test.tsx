@@ -51,7 +51,7 @@ test('global search explains a disabled code indexer', async () => {
   expect(within(nav).getByRole('link', {name: 'Issues'}).getAttribute('href')).toMatch(/\/search\?q=symbol&type=issues$/);
   expect(screen.queryByRole('button', {name: 'All search types'})).toBeNull();
 });
-test('the command menu on a repository page searches its code for the words typed (#208)', async () => {
+test('the command menu on a repository page searches its code for the words typed', async () => {
   vi.mocked(online).mockResolvedValue({enabled: false, total: 0, repositories: {}, results: []});
   const router = await mount('/alice/project');
   fireEvent.keyDown(document.body, {key: 'k', ctrlKey: true});
@@ -62,7 +62,7 @@ test('the command menu on a repository page searches its code for the words type
   await screen.findByRole('heading', {name: 'Search code in alice/project'});
 });
 
-test('only matching lines are results; context is shown in its hit, and the keys move over hits only (#248)', async () => {
+test('only matching lines are results; context is shown in its hit, and the keys move over hits only', async () => {
   const hl = (w: string) => `<span class="search-highlight">${w}</span>`;
   vi.mocked(online).mockResolvedValue({enabled: false, total: 2, repositories: {'10': 'alice/project'}, results: [
     {RepoID: 10, Filename: 'config.go', CommitID: 'abc', Lines: [

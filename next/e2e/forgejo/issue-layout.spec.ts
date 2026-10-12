@@ -25,7 +25,7 @@ const scrolls = (pane: Locator) => pane.evaluate((aside) => {
     fits: own.getBoundingClientRect().height <= body.clientHeight + 1, top: own.getBoundingClientRect().top - body.getBoundingClientRect().top};
 });
 
-test('on a wide page the properties scroll on their own, and the conversation leaves them alone (#273)', async ({page}) => {
+test('on a wide page the properties scroll on their own, and the conversation leaves them alone', async ({page}) => {
   await ok(await api('POST', '/user/repos', {name: repo, auto_init: true, default_branch: 'main'}), 'create repo');
   const issue = await (await ok(await api('POST', `/repos/${USER}/${repo}/issues`, {title: 'A long conversation', body: 'The description.'}), 'create issue')).json() as {number: number};
   for (let i = 1; i <= 12; i++) await ok(await api('POST', `/repos/${USER}/${repo}/issues/${String(issue.number)}/comments`, {body: `Comment ${String(i)}\n\n${'A line of text. '.repeat(40)}`}), 'comment');

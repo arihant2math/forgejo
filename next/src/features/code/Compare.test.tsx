@@ -85,7 +85,7 @@ async function settle() {
   });
 }
 
-test('a branch merged into the base: nothing to compare, and no Create pull request button (#245)', async () => {
+test('a branch merged into the base: nothing to compare, and no Create pull request button', async () => {
   const asked = stubForgejo();
   await open('/acme/website/compare/main...docs%2Fmerged');
   expect(await screen.findByText('docs/merged has no commits that main lacks. There is nothing to open a pull request for.')).toBeTruthy();
@@ -95,7 +95,7 @@ test('a branch merged into the base: nothing to compare, and no Create pull requ
   expect(asked.filter((u) => u.endsWith(`/compare/${MAIN}...${MERGED}`))).toHaveLength(1);
 });
 
-test('?expand=1 on a branch with nothing to merge: the same state, no empty form (#245)', async () => {
+test('?expand=1 on a branch with nothing to merge: the same state, no empty form', async () => {
   stubForgejo();
   await open('/acme/website/compare/main...docs%2Fmerged?expand=1');
   expect(await screen.findByText(/There is nothing to open a pull request for\./)).toBeTruthy();

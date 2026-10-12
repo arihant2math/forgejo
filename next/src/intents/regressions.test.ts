@@ -186,7 +186,7 @@ describe('review regressions (conflict policy)', () => {
     await world.settle();
   }
 
-  test('M1: two offline edits of the description in a row: no false conflict, the last text wins', async () => {
+  test('two offline edits of the description in a row: no false conflict, the last text wins', async () => {
     const server = new FakeForgejo();
     server.online = false;
     const world = new World(server, 1);
@@ -201,7 +201,7 @@ describe('review regressions (conflict policy)', () => {
     world.close();
   });
 
-  test('M2: two offline edits of a comment in a row: no conflict with one’s own edit', async () => {
+  test('two offline edits of a comment in a row: no conflict with one’s own edit', async () => {
     const server = new FakeForgejo();
     const world = new World(server, 1);
     const tab = must(world.tabs[0]);
@@ -218,7 +218,7 @@ describe('review regressions (conflict policy)', () => {
     world.close();
   });
 
-  test('M3: the override notice shows even when another intent of the issue went first', async () => {
+  test('the override notice shows even when another intent of the issue went first', async () => {
     const server = new FakeForgejo();
     server.online = false;
     const overridden = vi.fn();
@@ -234,7 +234,7 @@ describe('review regressions (conflict policy)', () => {
     world.close();
   });
 
-  test('M4: a parked description conflict holds back only later description edits; deleting a comment drops its parked edit to the drafts', async () => {
+  test('a parked description conflict holds back only later description edits; deleting a comment drops its parked edit to the drafts', async () => {
     const server = new FakeForgejo();
     const world = new World(server, 1);
     const tab = must(world.tabs[0]);
@@ -265,7 +265,7 @@ describe('review regressions (conflict policy)', () => {
     world.close();
   });
 
-  test('M5: discarding a create sends what depends on it to the drafts; the issue’s other changes go on', async () => {
+  test('discarding a create sends what depends on it to the drafts; the issue’s other changes go on', async () => {
     const server = new FakeForgejo();
     server.online = false;
     const world = new World(server, 1);

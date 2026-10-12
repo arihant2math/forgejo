@@ -28,7 +28,7 @@ test('a known stall skips skeletons, keeps cached content, and retries on recove
   expect(screen.getByText('cached files')).toBeTruthy();
 });
 
-test('connected, a dropped request is asked again on its own; one that keeps failing says so with a Retry, not "offline" (#196)', async () => {
+test('connected, a dropped request is asked again on its own; one that keeps failing says so with a Retry, not "offline"', async () => {
   vi.useFakeTimers();
   try {
     app.session.data.status = observable({connection: 'live'});

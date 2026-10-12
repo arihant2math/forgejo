@@ -43,7 +43,7 @@ test('new issues use the people names, multi-selection and dated milestones of t
   expect(draft.setMilestone).toHaveBeenCalledWith(2);
 });
 
-test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart (#263)', () => {
+test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart', () => {
   const session = fakeSession({userId: 1});
   const app = createApp(fallbackConfig(), session);
   const dev = {...user(1, 'dev'), full_name: 'Dev Admin'};

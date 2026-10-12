@@ -6,7 +6,7 @@ import {abbreviatedCommit} from './refs.ts';
 
 const FULL = `edac59f0a3${'0'.repeat(30)}`;
 
-test('a code path with an abbreviated commit SHA names it and the same path with the full SHA (#186)', () => {
+test('a code path with an abbreviated commit SHA names it and the same path with the full SHA', () => {
   const commit = abbreviatedCommit('commit/edac59f0a3');
   expect(commit?.abbreviation).toBe('edac59f0a3');
   expect(commit?.full(FULL)).toBe(`commit/${FULL}`);

@@ -106,7 +106,7 @@ function seedPulls(session: ReturnType<typeof fakeSession>) {
   session.data.put('CommitStatus', 'repo:20', {id: 70, repo_id: 20, sha: HEAD, index: 1, context: 'ci', state: 'success', target_url: '', description: '', creator_id: 1, created_at: T, updated_at: T});
 }
 
-test('#271: a pull request row keeps its labels with the title and its state, checks, author and age in fixed columns', async () => {
+test('a pull request row keeps its labels with the title and its state, checks, author and age in fixed columns', async () => {
   const {dispose} = fixture(0, seedPulls, true);
   try {
     const list = await screen.findByRole('listbox', {name: 'Pull requests'});

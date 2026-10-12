@@ -99,7 +99,7 @@ test('API v1\'s combined status reads the same way', () => {
   expect(apiCommitChecks({state: '', statuses: []}, 'acme', 'atlas', config).summary).toBe('none');
 });
 
-test('#250: a commit row carries its check state, leading to the failed job', () => {
+test('a commit row carries its check state, leading to the failed job', () => {
   const s = session();
   failedRun(s);
   const row = withChecks(commitRow, 'acme', 'atlas', repos)({sha: OLD, message: 'server: serve .mvt tiles', authorName: 'Alice', authorAvatar: '', date: T, parents: []} as never);
@@ -110,7 +110,7 @@ test('#250: a commit row carries its check state, leading to the failed job', ()
   expect(mocks.online).not.toHaveBeenCalled();
 });
 
-test('#250: a commit the pool has no checks for asks API v1 once, and a passed one links to the commit\'s checks', async () => {
+test('a commit the pool has no checks for asks API v1 once, and a passed one links to the commit\'s checks', async () => {
   const s = session();
   mocks.online.mockResolvedValue({state: 'success', statuses: [{id: 1, context: 'ci', status: 'success', target_url: ''}]});
   show(s, <><CommitCheckMark owner="acme" repo="atlas" repos={repos} sha={HEAD}/><CommitCheckMark owner="acme" repo="atlas" repos={repos} sha={HEAD}/></>);
@@ -122,7 +122,7 @@ test('#250: a commit the pool has no checks for asks API v1 once, and a passed o
   expect(screen.getAllByRole('link', {name: 'All checks have passed'})[0]?.getAttribute('href')).toBe(`/code/commit/${HEAD}#checks`);
 });
 
-test('#250: a long list asks at most four commits at a time', async () => {
+test('a long list asks at most four commits at a time', async () => {
   const s = session();
   const pending: ((v: unknown) => void)[] = [];
   mocks.online.mockImplementation(() => new Promise((resolve) => {
@@ -141,7 +141,7 @@ test('#250: a long list asks at most four commits at a time', async () => {
   });
 });
 
-test('#250: the commit page lists the commit\'s checks with links to the run and the targets', () => {
+test('the commit page lists the commit\'s checks with links to the run and the targets', () => {
   const s = session();
   failedRun(s);
   show(s, <CommitChecksSection owner="acme" repo="atlas" repoId={20} sha={OLD}/>);

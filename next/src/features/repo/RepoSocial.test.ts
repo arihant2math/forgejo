@@ -42,7 +42,7 @@ test('loads each state once, interpreting only 404 as not starred or watching', 
   expect(failed.ready).toBe(false);
 });
 
-test('the counts are the pool\'s, live: none before the repository is there, then what it says (#202)', () => {
+test('the counts are the pool\'s, live: none before the repository is there, then what it says', () => {
   const {p, live} = pool(undefined, undefined);
   const state = new RepoSocialState(live);
   expect(state.stars).toBeUndefined();
@@ -115,7 +115,7 @@ test('watching uses the subscription API; the watcher count follows the pool', a
   expect(state.watchers).toBe(2);
 });
 
-test('a releases-only watch (set in the classic UI) is shown as such, never as "All activity" (#198)', async () => {
+test('a releases-only watch (set in the classic UI) is shown as such, never as "All activity"', async () => {
   const {live} = pool(4, 5, {issues: false, pull_requests: false, releases: true});
   const state = new RepoSocialState(live);
   vi.mocked(online).mockResolvedValue({subscribed: true});

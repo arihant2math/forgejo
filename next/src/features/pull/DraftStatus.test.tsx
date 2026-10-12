@@ -39,7 +39,7 @@ function setup(title: string, pr: Partial<PullRequest> = {}) {
   return {s, app, entity, wrap: (node: ReactNode) => render(<AppContext.Provider value={app}>{node}</AppContext.Provider>)};
 }
 
-test('#178: a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
+test('a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
   const {entity, wrap} = setup('WIP: Add the footer');
   wrap(<><IssueSidebar issue={entity}/><h1><PullStateCell issue={entity}/></h1></>);
   const status = screen.getByRole('heading', {name: 'Status'}).closest('section');
@@ -48,13 +48,13 @@ test('#178: a draft pull request\'s Status says Draft, and its header marks carr
   expect(within(screen.getByRole('heading', {level: 1})).getByText('Draft')).toBeTruthy();
 });
 
-test('#178: a ready pull request stays Open', () => {
+test('a ready pull request stays Open', () => {
   const {entity, wrap} = setup('Add the footer');
   wrap(<IssueSidebar issue={entity}/>);
   expect(screen.getByRole('heading', {name: 'Status'}).closest('section')?.textContent).toContain('Open');
 });
 
-test('#200: the byline names the branches, and a fork\'s head its owner', () => {
+test('the byline names the branches, and a fork\'s head its owner', () => {
   const {s, entity, wrap} = setup('Add the footer', {head_repo_id: 21, head_branch: 'docs/leaflet', commits_ahead: 2});
   s.data.put('Repository', 'repo:21', repo(21, user(5, 'frank'), 'website', {fork: true, parent_id: 20, created_at: T}));
   wrap(<Byline issue={entity}/>);

@@ -38,7 +38,7 @@ async function editorView(): Promise<EditorView> {
   return view as unknown as EditorView;
 }
 
-test('the toolbar has a Code button: a pasted log becomes a fenced block, a word inline code (#214)', async () => {
+test('the toolbar has a Code button: a pasted log becomes a fenced block, a word inline code', async () => {
   const log = 'panic: tile out of range\ngoroutine 1 [running]';
   render(<Field initial={`It crashed:\n${log}`}/>);
   const view = await editorView();

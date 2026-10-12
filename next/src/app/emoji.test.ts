@@ -11,7 +11,7 @@ test('the table is Forgejo\'s assets/emoji.json', () => {
   expect(table).toEqual(upstream);
 });
 
-test('known shortcodes become their emoji (#269)', () => {
+test('known shortcodes become their emoji', () => {
   expect(emojiOf('cherry_blossom')).toBe('🌸');
   expect(emojiOf('+1')).toBe('👍');
   expect(emojiOf('thumbsup')).toBe('👍');

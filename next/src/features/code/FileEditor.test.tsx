@@ -40,7 +40,7 @@ function editor() {
   return {content, view};
 }
 
-test('Ctrl F opens find and replace in the editor; Replace all fixes every match (#175)', async () => {
+test('Ctrl F opens find and replace in the editor; Replace all fixes every match', async () => {
   const {content, view} = editor();
   expect(document.querySelector('.cm-search')).toBeNull();
   act(() => {
@@ -63,7 +63,7 @@ test('Ctrl F opens find and replace in the editor; Replace all fixes every match
   expect(view.state.doc.toString()).toBe('Use 4px spacing.\nThe the grid is 4px.\nthe end\n');
 });
 
-test('Ctrl H opens the panel with the focus in its replace field (#175)', async () => {
+test('Ctrl H opens the panel with the focus in its replace field', async () => {
   const {content} = editor();
   act(() => {
     fireEvent.keyDown(content, {key: 'h', code: 'KeyH', ctrlKey: true});
@@ -92,7 +92,7 @@ async function commit(fields: (dialog: HTMLElement) => void) {
   });
 }
 
-test('a commit to a new branch without a pull request opens the file on that branch and says where it went (#181)', async () => {
+test('a commit to a new branch without a pull request opens the file on that branch and says where it went', async () => {
   const head = 'c'.repeat(40);
   mocks.write.mockImplementation(() => {
     mocks.branches.set('verify-nopr', head);
@@ -125,7 +125,7 @@ test('a direct commit lands on its branch; before the sync has it, on the commit
   expect(notice?.action).toBeUndefined();
 });
 
-test('in a fork, the new branch\'s pull request is proposed to the upstream, as the dialog says (#173)', async () => {
+test('in a fork, the new branch\'s pull request is proposed to the upstream, as the dialog says', async () => {
   mocks.upstream = {owner: 'acme', name: 'design-upstream', defaultBranch: 'trunk'};
   const head = 'e'.repeat(40);
   mocks.write.mockImplementation(() => {
@@ -157,7 +157,7 @@ test('in a fork, the new branch\'s pull request is proposed to the upstream, as 
   mocks.branches.delete('fix-typo');
 });
 
-test('in a fork, the notice\'s pull request action goes to the upstream (#173)', async () => {
+test('in a fork, the notice\'s pull request action goes to the upstream', async () => {
   mocks.upstream = {owner: 'upstream-org', name: 'design', defaultBranch: 'main'};
   const head = 'f'.repeat(40);
   mocks.write.mockImplementation(() => {

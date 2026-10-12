@@ -72,7 +72,7 @@ function checkBox(r: HTMLElement): HTMLInputElement {
 }
 
 describe('issue list rows', () => {
-  test('each row names its author (#217) and its assignees on hover (#191)', async () => {
+  test('each row names its author and its assignees on hover', async () => {
     await renderApp('/acme/website/issues', session());
     const r = await screen.findByRole('option', {name: /Footer links are broken/});
     expect(r.getAttribute('aria-label') ?? r.textContent).toMatch(/by bob/);
@@ -83,7 +83,7 @@ describe('issue list rows', () => {
     expect(within(r).getByTitle('Assignee: carol')).toBeTruthy();
   });
 
-  test('grouped by assignee, a shared issue is listed under each of its assignees (#189)', async () => {
+  test('grouped by assignee, a shared issue is listed under each of its assignees', async () => {
     await renderApp('/acme/website/issues?group=assignee', session());
     const list = await screen.findByRole('listbox');
     await waitFor(() => {
@@ -101,7 +101,7 @@ describe('issue list rows', () => {
     expect(within(list).getAllByRole('option')).toHaveLength(4);
   });
 
-  test('grouped by assignee, two people of the same name get headers told apart by their logins (#263)', async () => {
+  test('grouped by assignee, two people of the same name get headers told apart by their logins', async () => {
     const s = session();
     s.data.put('User', 'profiles:public', {...user(5, 'u-m14-next'), full_name: 'Alice Nakamura'});
     s.data.put('IssueAssignee', 'repo:20', {id: 4, issue_id: 102, assignee_id: 5});
@@ -114,7 +114,7 @@ describe('issue list rows', () => {
     expect(headers).toEqual([['Alice Nakamuraalice', '1'], ['Alice Nakamurau-m14-next', '1']]);
   });
 
-  test('grouped by status, an open issue without a status label is under "No status", not "Open" (#192)', async () => {
+  test('grouped by status, an open issue without a status label is under "No status", not "Open"', async () => {
     await renderApp('/acme/website/issues?group=status', session());
     const list = await screen.findByRole('listbox');
     await waitFor(() => {
@@ -125,7 +125,7 @@ describe('issue list rows', () => {
   });
 });
 
-describe('selection for the pointer (#205)', () => {
+describe('selection for the pointer', () => {
   test('a row\'s check box selects it without opening it; the bar selects all and edits the selection', async () => {
     const {app, router} = await renderApp('/acme/website/issues', session());
     const r = await screen.findByRole('option', {name: /Footer links are broken/});
@@ -182,7 +182,7 @@ describe('selection for the pointer (#205)', () => {
   });
 });
 
-describe('a filter on a deleted label (#158)', () => {
+describe('a filter on a deleted label', () => {
   test('the chip says the label was deleted, and the empty list says why and drops it', async () => {
     const {router} = await renderApp('/acme/website/issues?labels=73', session());
     expect(await screen.findByRole('button', {name: 'Label: (deleted label)'})).toBeTruthy();
@@ -242,7 +242,7 @@ describe('the empty list', () => {
   });
 });
 
-describe('the issue\'s status (#192)', () => {
+describe('the issue\'s status', () => {
   test('an open issue without a status label reads "Open · No status" where the repository has statuses', async () => {
     await renderApp('/acme/website/issues/8', session());
     const heading = await screen.findByRole('heading', {name: 'Status'});
@@ -265,7 +265,7 @@ describe('the issue\'s status (#192)', () => {
   });
 });
 
-describe('the Labels picker\'s selection semantics (#179)', () => {
+describe('the Labels picker\'s selection semantics', () => {
   test('the applied labels are the selected options; the highlighted one is not', async () => {
     const s = session();
     s.data.put('Label', 'repo:20', label(2, 'docs'));
@@ -293,7 +293,7 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
   });
 });
 
-describe('the Labels picker and status/priority labels (#215)', () => {
+describe('the Labels picker and status/priority labels', () => {
   test('a search that names a status or priority label finds it under its field, which sets it', () => {
     const s = session();
     const app = createApp(config, s);

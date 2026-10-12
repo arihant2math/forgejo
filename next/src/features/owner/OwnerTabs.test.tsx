@@ -85,7 +85,7 @@ test('the viewer\'s own profile offers Edit profile where others offer Follow', 
   expect(screen.queryByRole('button', {name: 'More of this user'})).toBeNull();
 });
 
-test('the Stars tab is its own address, most recently starred first, its times labelled (#203, #213)', async () => {
+test('the Stars tab is its own address, most recently starred first, its times labelled', async () => {
   const {app, router} = setup('/alice?tab=stars', (_m, p) => (p.endsWith('/users/alice/starred') ?
     [repoRow(5, 'acme', 'atlas', '2026-01-02T00:00:00Z'), repoRow(6, 'openlab', 'notes', '2026-01-01T00:00:00Z')] : undefined));
   await router.load();
@@ -130,7 +130,7 @@ test('loaded overview sections have one panel border and muted repository separa
   expect(within(popular).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/alice/atlas', '/alice/notes']);
 });
 
-test('the account menu has "Your stars", which opens the Stars tab (#203)', async () => {
+test('the account menu has "Your stars", which opens the Stars tab', async () => {
   const {app, router} = setup('/alice');
   await router.load();
   render(<App app={app} router={router}/>);
@@ -142,7 +142,7 @@ test('the account menu has "Your stars", which opens the Stars tab (#203)', asyn
   expect(await screen.findByRole('region', {name: 'Stars'})).toBeTruthy();
 });
 
-test('an organization\'s People: every member, removable by an owner from the row menu; teams say their repositories (#199)', async () => {
+test('an organization\'s People: every member, removable by an owner from the row menu; teams say their repositories', async () => {
   let members = [{id: 3, login: 'bob', full_name: 'Bob', avatar_url: ''}, {id: 1, login: 'alice', full_name: '', avatar_url: ''}];
   const {app, router, calls} = setup('/acme', (method, p) => {
     if (p.endsWith('/orgs/acme/members/bob') && method === 'DELETE') {

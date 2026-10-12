@@ -292,7 +292,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('a refusal Forgejo answers as a server error fails at once with its words; no Retry offered (QA round 2: pinning a 4th issue)', async () => {
+  test('a refusal Forgejo answers as a server error fails at once with its words; no Retry offered (pinning a 4th issue)', async () => {
     const server = new FakeForgejo();
     const s = scripted(server, [answer(500, {message: 'the max number of pinned issues has been readched'})]);
     const failed = vi.fn();
@@ -310,7 +310,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('adding a label Forgejo deleted meanwhile fails, named, instead of being acked silently (QA verify3)', async () => {
+  test('adding a label Forgejo deleted meanwhile fails, named, instead of being acked silently', async () => {
     const server = new FakeForgejo();
     server.deletedLabels.add(2);
     const failed = vi.fn();
@@ -329,7 +329,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('a Go error name is no message: the 404 says what is gone (QA verify3: "IsErrIssueNotExist.")', async () => {
+  test('a Go error name is no message: the 404 says what is gone ("IsErrIssueNotExist.")', async () => {
     const server = new FakeForgejo();
     const s = scripted(server, [answer(404, {message: 'IsErrIssueNotExist'})]);
     const world = new World(server, 1, {fetch: s.fetch});

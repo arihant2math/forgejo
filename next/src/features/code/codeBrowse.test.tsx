@@ -68,7 +68,7 @@ async function open(path: string, seed?: (s: ReturnType<typeof session>) => void
 }
 
 // Auto-retry plus cold page loading can exceed the default timeout under load.
-test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', {timeout: 30_000}, async () => {
+test('a history whose request dropped once is asked again on its own, and shows the commits', {timeout: 30_000}, async () => {
   let drop = 1;
   const fetch = stubForgejo((url) => {
     if (!url.startsWith('/api/v1/repos/alice/website/commits?')) return undefined;
@@ -82,7 +82,7 @@ test('a history whose request dropped once is asked again on its own, and shows 
   expect(screen.queryByText('Not available offline')).toBeNull();
 });
 
-test('a history that cannot be loaded while connected says so with a Retry, not "Not available offline" (#196)', async () => {
+test('a history that cannot be loaded while connected says so with a Retry, not "Not available offline"', async () => {
   vi.useFakeTimers({shouldAdvanceTime: true});
   let down = true;
   stubForgejo((url) => {
@@ -100,7 +100,7 @@ test('a history that cannot be loaded while connected says so with a Retry, not 
   expect(await screen.findByText('Lower the timeout')).toBeTruthy();
 });
 
-test('a short commit SHA opens the commit at its full SHA (#186)', async () => {
+test('a short commit SHA opens the commit at its full SHA', async () => {
   stubForgejo((url) => (url.startsWith('/api/v1/repos/alice/website/git/commits/abc1234567?') ? {status: 200, json: apiCommit(FULL, 'Lower the timeout')} : undefined));
   const router = await open('/alice/website/commit/abc1234567');
   await waitFor(() => {
@@ -113,14 +113,14 @@ test('a short commit SHA opens the commit at its full SHA (#186)', async () => {
   expect(router.state.location.hash).toBe('L3');
 });
 
-test('a short SHA that names no commit says so, not "this address does not name a code view" (#186)', async () => {
+test('a short SHA that names no commit says so, not "this address does not name a code view"', async () => {
   stubForgejo(() => undefined);
   await open('/alice/website/commit/abc1234567');
   expect(await screen.findByText('The commit abc1234567 does not exist, or you cannot see it.')).toBeTruthy();
   expect(screen.queryByText('This address does not name a code view.')).toBeNull();
 });
 
-test('blame links each change to the blame before it, and Raw follows the branch (#187, #162)', async () => {
+test('blame links each change to the blame before it, and Raw follows the branch', async () => {
   vi.stubGlobal('Worker', undefined);
   stubForgejo((url) => {
     if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'config.go', type: 'blob', mode: '100644', sha: BLOB, size: 30}]}};
@@ -229,7 +229,7 @@ async function linkedLine(n: number) {
   }, {timeout: 3000});
 }
 
-test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)', async () => {
+test('a pasted code link with #L17 opens the file at line 17, highlighted', async () => {
   vi.stubGlobal('Worker', undefined);
   stubForgejo(fileServer);
   const router = await open(`/alice/website/src/commit/${MAIN}/config.go#L17`);
@@ -243,7 +243,7 @@ test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)
   expect(branch.state.location.hash).toBe('L17');
 });
 
-test('a code search hit opens its file at the line it names, highlighted (#246)', async () => {
+test('a code search hit opens its file at the line it names, highlighted', async () => {
   vi.stubGlobal('Worker', undefined);
   stubForgejo(fileServer);
   const router = await open('/search?type=code&repoId=20&q=zoom');

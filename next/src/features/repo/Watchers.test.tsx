@@ -46,7 +46,7 @@ function setup(path: string, pages: Record<number, Watcher[]>, count: number) {
   return {s, app, router, calls};
 }
 
-describe('a repository\'s watchers (#255)', () => {
+describe('a repository\'s watchers', () => {
   test('the app\'s page at the classic address: each watcher\'s card (website, else location, else when they joined), their profile', async () => {
     const {app, router, calls} = setup('/acme/website/watchers', {
       1: [

@@ -19,7 +19,7 @@ describe('dashboard feed', () => {
     expect(feedEntry({...action, op_type: 'publish_release'}).path).toBe('/team/project/releases');
     expect(feedEntry({...action, op_type: 'commit_repo', content: '{"Commits":[{"Sha1":"../../evil"}]}'}).path).toBe('/team/project');
   });
-  it('names the branch or tag of ref actions and links to it or its list (#160)', () => {
+  it('names the branch or tag of ref actions and links to it or its list', () => {
     const ref = (op_type: string, ref_name: string) => feedEntry({...action, op_type, ref_name, content: ''});
     expect(ref('delete_branch', 'refs/heads/fix/foo')).toEqual({path: '/team/project/branches', text: 'alice deleted branch fix/foo in team/project'});
     expect(ref('push_tag', 'refs/tags/v1.0.0')).toEqual({path: '/team/project/src/tag/v1.0.0', text: 'alice created tag v1.0.0 in team/project'});
@@ -30,7 +30,7 @@ describe('dashboard feed', () => {
     expect(ref('delete_branch', 'old').text).toBe('alice deleted branch old in team/project');
     expect(ref('delete_tag', '')).toEqual({path: '/team/project', text: 'alice deleted a tag in team/project'});
   });
-  it('previews comments as plain text, past a leading quote, and opens the comment (#212)', () => {
+  it('previews comments as plain text, past a leading quote, and opens the comment', () => {
     const quoted = '> Accept-based negotiation breaks caching.\n\nExtensions are **simpler**, agreed.';
     expect(feedEntry({...action, op_type: 'comment_issue', content: '["85","> Accept-based negotiation breaks caching."]', comment_id: 1768, comment: {id: 1768, body: quoted}}))
       .toEqual({path: '/team/project/issues/85#comment-1768', text: 'alice commented in team/project #85 — Extensions are simpler, agreed.'});

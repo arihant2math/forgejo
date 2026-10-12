@@ -7,7 +7,7 @@
 import {useCallback, useEffect, useEffectEvent, useRef, useState} from 'react';
 import {type CodeCache, sessionCache} from '../code/cache.ts';
 import {failureText} from './api.ts';
-import {connectivity, useReach} from './online.ts';
+import {reach, useReach} from './online.ts';
 import {type App, type Session, useApp} from './store.ts';
 
 export type LoadFailure =
@@ -58,13 +58,13 @@ export function transientFailure(err: unknown): boolean {
   return typeof status === 'number' && transientStatus(status);
 }
 
-/** How a failed read without a value is shown; the raw message only reaches the console. */
-export function failureOf(err: unknown): LoadFailure {
+/** How a failed read without a value is shown; the raw message only reaches the console. `r` is reach() when it failed. */
+export function failureOf(err: unknown, r: ReturnType<typeof reach>): LoadFailure {
   if (err instanceof Error && err.name === 'NotCached') return {state: 'offline'};
   if (err instanceof Error && err.name === 'SignedOut') return {state: 'error', error: 'You are signed out.', status: 401};
   const raw = (err as {status?: unknown} | null)?.status;
   const status = typeof raw === 'number' ? raw : 0;
-  if (status === 0 && !connectivity.online) return {state: 'offline'};
+  if (status === 0 && r !== 'online') return {state: 'offline'};
   return {state: 'error', error: failureText(err), status};
 }
 
@@ -207,7 +207,7 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
         }
         // A stale value survives a transient failure; a refusal (403, 404) replaces it.
         setS((old) => (old.key !== key ? old : old.value !== undefined && transientFailure(err) ? {...old, fresh: false} :
-          {...old, value: undefined, fresh: false, failure: failureOf(err)}));
+          {...old, value: undefined, fresh: false, failure: failureOf(err, reach(app.session?.data.status.connection))}));
       }
     })();
     return () => {

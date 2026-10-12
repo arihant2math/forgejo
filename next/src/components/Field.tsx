@@ -1,11 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {FormControl} from '@primer/react';
+import {AriaAlert, FormControl} from '@primer/react';
 import type {ReactNode} from 'react';
 
 /**
- * A labelled form field: an error replaces the hint. FormControl wires a direct TextInput, Textarea, Select or
+ * A labelled form field: an error replaces the hint and is announced. FormControl wires a direct TextInput, Textarea, Select or
  * SelectPanel child to the label and messages; a control nested deeper (in a row with a button, a custom picker)
  * takes them with useFormControlForwardedProps.
  */
@@ -16,7 +16,7 @@ export function Field({id, label, required = false, optional = false, hint, erro
     <FormControl {...(id ? {id} : {})} required={required} className="min-w-0">
       <FormControl.Label>{label}{optional ? ' (optional)' : ''}</FormControl.Label>
       {children}
-      {error ? <FormControl.Validation variant="error">{error}</FormControl.Validation> :
+      {error ? <FormControl.Validation variant="error"><AriaAlert as="span">{error}</AriaAlert></FormControl.Validation> :
         hint && <FormControl.Caption>{hint}</FormControl.Caption>}
     </FormControl>
   );

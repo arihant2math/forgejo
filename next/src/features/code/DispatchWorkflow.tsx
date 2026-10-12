@@ -9,7 +9,7 @@ import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {Select, ToggleSwitch} from '@primer/react';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {refTable} from './hooks.ts';
 import {RefPicker} from './RefMenu.tsx';
 import type {RefChoice} from './refWrite.ts';

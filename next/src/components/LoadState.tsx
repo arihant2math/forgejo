@@ -38,7 +38,8 @@ function LoadStateView<T>({res, what, page = false, skeleton, action, empty, chi
     return children?.(res.value) ?? null;
   }
   if (res.state === 'loading') {
-    return skeleton ?? (page ? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-48"/></div> : <ListSkeleton/>);
+    // The Loading status stays outside the busy skeleton, where assistive tech may hold back a live region.
+    return skeleton ?? (page ? <><span role="status" className="sr-only">Loading…</span><div className="flex flex-col gap-2 px-6 py-4" aria-busy><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-48"/></div></> : <ListSkeleton/>);
   }
   // Asking again may cure no answer or a server fault, not a refusal (400, 403, 422).
   const reload = 'reload' in res && (res.state === 'offline' || transientStatus(res.status)) ? res.reload : undefined;

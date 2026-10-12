@@ -22,6 +22,14 @@ vi.mock('@tanstack/react-router', async (original) => ({
   useRouterState: () => '/',
 }));
 
+const server = vi.hoisted(() => ({
+  searchServer: vi.fn(() => Promise.resolve([])),
+  searchServerRepos: vi.fn(() => Promise.resolve([])),
+  searchServerUsers: vi.fn(() => Promise.resolve([])),
+  searchServerOrgs: vi.fn(() => Promise.resolve([])),
+}));
+vi.mock('../../features/search/server.ts', async (original) => ({...await original<object>(), ...server}));
+
 const Harness = observer(({app}: {app: App}) => (app.ui.paletteOpen ? <Palette/> : null));
 function setup() {
   const session = fakeSession();
@@ -50,6 +58,7 @@ async function type(query: string, expected: string) {
 
 afterEach(() => {
   navigate.mockClear();
+  for (const fn of Object.values(server)) fn.mockClear();
   runInAction(() => { connectivity.online = true; });
 });
 
@@ -164,4 +173,34 @@ test('GitHub prefixes limit the results to one kind', async () => {
   await type('>explore', 'Explore');
   fireEvent.keyDown(input(), {key: 'Enter'});
   expect(navigate).toHaveBeenCalledWith({to: '/explore/repos', search: discoverySearch({})});
+});
+
+test('a prefix asks Forgejo only for its kinds and picks the matching search page', async () => {
+  setup();
+  fireEvent.change(input(), {target: {value: '#footer'}});
+  await waitFor(() => { expect(server.searchServer).toHaveBeenCalled(); });
+  expect(server.searchServerRepos).not.toHaveBeenCalled();
+  expect(server.searchServerUsers).not.toHaveBeenCalled();
+  expect(screen.queryByRole('option', {name: /Search code for/})).toBeNull();
+
+  fireEvent.change(input(), {target: {value: '@acme'}});
+  await waitFor(() => { expect(server.searchServerUsers).toHaveBeenCalledWith(expect.anything(), 'acme', expect.anything()); });
+  expect(server.searchServerRepos).toHaveBeenCalledWith(expect.anything(), 'acme', expect.anything());
+  expect(server.searchServer).not.toHaveBeenCalledWith(expect.anything(), 'acme', expect.anything());
+  expect(screen.queryByRole('option', {name: /Search code for/})).toBeNull();
+  fireEvent.click(screen.getByRole('option', {name: 'See all results'}));
+  expect(navigate).toHaveBeenCalledWith(expect.objectContaining({to: '/search', search: expect.objectContaining({q: 'acme', type: 'users'}) as unknown}));
+});
+
+test('file and board prefixes ask Forgejo nothing; only files offer code search', async () => {
+  setup();
+  fireEvent.change(input(), {target: {value: '!roadmap'}});
+  await screen.findByText(/Nothing found/);
+  expect(screen.queryByRole('option', {name: 'See all results'})).toBeNull();
+  expect(screen.queryByRole('option', {name: /Search code for/})).toBeNull();
+  fireEvent.change(input(), {target: {value: '/main.go'}});
+  await screen.findByRole('option', {name: 'Search code for main.go'});
+  expect(screen.queryByRole('option', {name: 'See all results'})).toBeNull();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  for (const fn of Object.values(server)) expect(fn).not.toHaveBeenCalled();
 });

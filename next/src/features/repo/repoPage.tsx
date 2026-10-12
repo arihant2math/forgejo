@@ -20,7 +20,7 @@ import {UnderlineNav} from '@primer/react';
 
 import {ForkButton} from './ForkButton.tsx';
 import {openCounts} from './openCounts.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {BrowserIcon, BookIcon, GraphIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {ActionMenu, ActionList} from '@primer/react';

@@ -5,16 +5,15 @@ import {Avatar} from '@primer/react';
 import {GitCommitIcon} from '@primer/octicons-react';
 import type {CommitInfo} from '../../code/source.ts';
 import type {ReactNode} from 'react';
+import {clsx} from 'clsx';
+import {PRIMARY_LINK_HOVER} from '../../app/routerLinks.tsx';
 
 import {Sha, summary} from '../../components/Sha.tsx';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import type {RowParts} from './RowList.tsx';
 
-export {Sha, summary} from '../../components/Sha.tsx';
-export {TimeAgo as Ago} from '../../components/TimeAgo.tsx';
-
 export function CommitRowText({author, children}: {author: string; children: ReactNode}) {
-  return <span className="flex min-w-0 items-center gap-2 text-base"><span className="truncate font-semibold hover:text-accent hover:underline">{children}</span><span className="shrink-0 text-muted">{author}</span></span>;
+  return <span className="flex min-w-0 items-center gap-2 text-base"><span className={clsx('truncate font-semibold', PRIMARY_LINK_HOVER)}>{children}</span><span className="shrink-0 text-muted">{author}</span></span>;
 }
 
 const DAY = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', year: 'numeric'});

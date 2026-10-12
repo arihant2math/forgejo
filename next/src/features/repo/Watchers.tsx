@@ -13,7 +13,7 @@ import {send} from '../../app/api.ts';
 import {sitePath} from '../../app/config.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {fullDate, shortDate} from '../../app/time.ts';
 import {repoApi} from '../settings/requests.ts';
 import {type Resource, useResource} from '../../app/resource.ts';

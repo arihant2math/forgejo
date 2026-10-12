@@ -23,13 +23,15 @@ import {useApp, useSession} from '../../app/store.ts';
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import type {PickOption} from '../../components/pickOptions.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {loadPeople} from '../issues/people.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings} from './DiffSettings.tsx';
 import {useDiff} from './History.tsx';
-import {Ago, commitDay, summary} from './bits.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
+import {commitDay} from './bits.tsx';
+import {summary} from '../../components/Sha.tsx';
 import {linkedCommitRow} from './commitText.tsx';
 import {withChecks} from './commitChecks.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
@@ -204,7 +206,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const label = side === 'base' ? 'Choose a base ref' : 'Choose a head ref';
   const placeholder = side === 'head' ? 'Find a branch or tag, or type owner:branch\u2026' : 'Find a branch or tag\u2026';
   return (
-    <LocalSelectPanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery}
+    <LocalSelectPanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery} selectedFirst={false}
       onOpenChange={(on) => {
         if (!on || side !== 'head' || forkState === 'loading' || forkState === 'ready') return;
         setForkState('loading');
@@ -371,7 +373,7 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
         row={(b) => ({
           leading: <GitBranchIcon size={12} className="shrink-0"/>,
           main: <><BranchName as="span">{b.name}</BranchName> <span className="text-muted">{summary(byName.get(b.name)?.commit_message ?? '')}</span></>,
-          trailing: b.commitTime ? <Ago at={b.commitTime}/> : undefined,
+          trailing: b.commitTime ? <TimeAgo at={b.commitTime}/> : undefined,
         })}
         onOpen={(b) => {
           void navigate({...codeTo(owner, repo, compareSplat(base, b.name)), search: {expand: '1'} as never});

@@ -7,7 +7,7 @@ import type {ReactNode} from 'react';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import {shortcuts} from '../../app/shortcuts/index.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
 import type {Connection} from '../../sync/client.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';

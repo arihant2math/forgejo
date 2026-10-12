@@ -20,7 +20,7 @@ import {shortSha} from '../../code/refs.ts';
 
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {refTable, useLoad, useSource} from './hooks.ts';
 import {Sha, summary} from '../../components/Sha.tsx';

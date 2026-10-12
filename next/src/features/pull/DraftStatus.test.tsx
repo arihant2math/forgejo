@@ -10,7 +10,7 @@ import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 import {IssueSidebar} from '../issue/Sidebar.tsx';
 import {PullStateCell} from '../issues/cells.tsx';
 import {isDraftPull} from './draft.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {Byline} from '../issue/IssueView.tsx';
 import {undoLatest} from '../../app/notices.ts';
 import {ReadyForReview} from './DraftControl.tsx';

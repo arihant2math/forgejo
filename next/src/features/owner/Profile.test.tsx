@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {cleanup, render, screen, within} from '@testing-library/react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {ContributionHeatmap} from './ContributionHeatmap.tsx';
@@ -11,7 +12,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 9, 12, 12));
 });
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 test('heatmap fills missing days and excludes contributions outside the displayed year', () => {
   const html = renderToStaticMarkup(<ContributionHeatmap rows={[
@@ -41,4 +46,21 @@ test('month and weekday labels and a Less–More legend, as on GitHub', () => {
   const html = renderToStaticMarkup(<ContributionHeatmap rows={[]}/>);
   for (const label of ['Mon', 'Wed', 'Fri', 'Jan', 'Jun', 'Oct', 'Less', 'More']) expect(html).toContain(`>${label}<`);
   expect(html.match(/>Nov</g)).toHaveLength(1);
+});
+
+test('a month starting in the last column has no room for its name and is not labelled', () => {
+  vi.setSystemTime(new Date(2026, 2, 3, 12));
+  const html = renderToStaticMarkup(<ContributionHeatmap rows={[]}/>);
+  expect(html.match(/>Mar</g)).toHaveLength(1);
+  expect(html.match(/>Feb</g)).toHaveLength(1);
+});
+
+test('the heatmap scrolls as a named, focusable region that opens on the latest weeks', () => {
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(720);
+  const scrolledTo = vi.spyOn(Element.prototype, 'scrollLeft', 'set');
+  render(<ContributionHeatmap rows={[]}/>);
+  const region = screen.getByRole('group', {name: 'Contribution heatmap, scrollable'});
+  expect(region.tabIndex).toBe(0);
+  expect(within(region).getByRole('img', {name: 'Daily contribution heatmap'})).toBeTruthy();
+  expect(scrolledTo).toHaveBeenCalledWith(720);
 });

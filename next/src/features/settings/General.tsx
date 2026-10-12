@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
 import {FormSection, SettingRow} from '../usersettings/form.tsx';
 import {Banner, BranchName, ToggleSwitch, Select, Button, IconButton, TextInput, FormControl, Textarea} from '@primer/react';
 
@@ -14,9 +14,9 @@ import {useApp} from '../../app/store.ts';
 import type {Repository} from '../../protocol/types.gen.ts';
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {refTable} from '../code/hooks.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {sendChange, useOptimistic} from './bits.tsx';
-import {useReach} from '../../app/online.ts';
+import {onlineOnly, useReach} from '../../app/online.ts';
 import {
   defaultStyleChoices, type Details, detailsOf, detailsPatch, FEATURES, type Feature, featureState, type FieldErrors, type MergeStyle,
   mergeStyleToggle, MERGE_STYLES, newOwnerOf, type PullSettings, pullSettingsOf, type RepoPatch, sameDetails, validateDetails,
@@ -149,7 +149,8 @@ const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: 
           }}))}
           renderAnchor={(props) => <IconButton {...props} size="small" icon={ArrowSwitchIcon} disabled={offline || r.archived} aria-label="Switch to another branch"/>}/>
       </div>
-      <RepositoryConfirmation open={picked !== undefined} onOpenChange={(o) => { if (!o) setPicked(undefined); }} title={`Switch the default branch to ${picked ?? ''}?`}
+      <ConfirmByName open={picked !== undefined} onOpenChange={(o) => { if (!o) setPicked(undefined); }} title={`Switch the default branch to ${picked ?? ''}?`}
+        blocked={offline ? onlineOnly('Changing the default branch') : undefined}
         description="Changing your default branch can have unintended consequences that can affect new pull requests and clones."
         confirmLabel="I understand, update the default branch." onConfirm={() => {
           if (picked === undefined || offline) return;
@@ -291,6 +292,7 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
     }
   };
   const target = newOwnerOf(newOwner, owner);
+  const blocked = (action: string) => (offline ? onlineOnly(action) : undefined);
   const change = (kind: Danger) => (o: boolean) => {
     if (o) setOpen(kind);
     else if (!busy) close();
@@ -314,7 +316,7 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
         >{button('delete', 'Delete this repository')}</SettingRow>
       </div>
 
-      <RepositoryConfirmation open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}
+      <ConfirmByName open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} blocked={blocked('Changing the visibility')} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}
         description={priv.shown ? 'Everyone will see its code, issues and pull requests.' : 'Only its owner, collaborators and teams with access will see it. Stars and watchers without access are removed.'}
         confirmLabel={priv.shown ? 'Make public' : 'Make private'} confirmText={priv.shown ? full : undefined}
         onConfirm={() => void run(async () => {
@@ -329,7 +331,7 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
           }
           notify(app, {tone: 'success', title: to ? `${full} is private` : `${full} is public`});
         })}/>
-      <RepositoryConfirmation open={open === 'archive'} onOpenChange={change('archive')} busy={busy} error={error} tone={archived.shown ? 'primary' : 'danger'} title={archived.shown ? `Unarchive ${full}?` : `Archive ${full}?`}
+      <ConfirmByName open={open === 'archive'} onOpenChange={change('archive')} busy={busy} error={error} blocked={blocked(archived.shown ? 'Unarchiving a repository' : 'Archiving a repository')} tone={archived.shown ? 'primary' : 'danger'} title={archived.shown ? `Unarchive ${full}?` : `Archive ${full}?`}
         description={archived.shown ? 'Pushes, issues and pull requests are possible again.' : 'It becomes read-only for everyone, you included, until it is unarchived.'}
         confirmLabel={archived.shown ? 'Unarchive' : 'Archive'}
         onConfirm={() => void run(async () => {
@@ -344,7 +346,7 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
           }
           notify(app, {tone: 'success', title: to ? `${full} is archived` : `${full} is no longer archived`});
         })}/>
-      <RepositoryConfirmation open={open === 'transfer'} onOpenChange={change('transfer')} busy={busy} error={error} title={`Transfer ${full}`} confirmLabel="Transfer" confirmText={full} ready={'owner' in target}
+      <ConfirmByName open={open === 'transfer'} onOpenChange={change('transfer')} busy={busy} error={error} blocked={blocked('Transferring a repository')} title={`Transfer ${full}`} confirmLabel="Transfer" confirmText={full} ready={'owner' in target}
         description="The new owner gets every issue, pull request and setting. A user has to accept the transfer first."
         onConfirm={() => void run(async () => {
           if (!('owner' in target)) return;
@@ -362,8 +364,8 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
               setNewOwner(e.target.value);
             }}/>
         {(newOwner.trim() && 'error' in target ? target.error : undefined) && <FormControl.Validation variant="error">{newOwner.trim() && 'error' in target ? target.error : undefined}</FormControl.Validation>}</FormControl>
-      </RepositoryConfirmation>
-      <RepositoryConfirmation open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
+      </ConfirmByName>
+      <ConfirmByName open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} blocked={blocked('Deleting a repository')} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
         description="Its code, issues, pull requests, wiki, releases and packages are deleted for good."
         onConfirm={() => void run(async () => {
           await deleteRepo(app, owner, repo);

@@ -6,7 +6,7 @@ import {count} from '../../app/words.ts';
 import {compareStructural, reaction, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueSubscribed, notificationStatus} from '../../intents/view.ts';
 import {subjectOf} from './subject.ts';
 import {notify} from '../../app/notices.ts';

@@ -15,7 +15,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {CHECK_SUMMARY, type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
 import {runLook, statusLook} from './Actions.tsx';
 import {CodeLink, codeTo} from './nav.tsx';

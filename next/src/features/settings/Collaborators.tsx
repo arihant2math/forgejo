@@ -15,7 +15,7 @@ import {useEffect, useRef, useState} from 'react';
 import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {ResourceList} from './bits.tsx';
 import {useReach} from '../../app/online.ts';
 import {problemOf} from './problems.ts';

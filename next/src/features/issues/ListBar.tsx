@@ -23,7 +23,8 @@ import type {PickOption} from '../../components/pickOptions.ts';
 import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
 import {SearchField} from './SearchField.tsx';
 import {LabelGlyph} from './cells.tsx';
-import {UserAvatar, usePool} from './cells.tsx';
+import {UserAvatar} from './cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {FILTER_KEYS, narrowed} from './query.ts';
 import {issueActions} from './actions.ts';
 import {issuesOf} from './edits.ts';
@@ -381,11 +382,7 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
             setRenaming(true);
           }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename…</ActionList.Item>
           <ActionList.Item variant="danger" onSelect={() => {
-            const removed = view;
-            store.remove(view.id);
-            notify(app, {tone: 'neutral', title: `Deleted the view “${removed.name}”`, action: {label: 'Undo', run: () => {
-              store.save(removed.name, removed.path, removed.search);
-            }}});
+            notify(app, {tone: 'neutral', title: `Deleted the view “${view.name}”`, action: {label: 'Undo', run: store.remove(view.id)}});
           }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete view</ActionList.Item>
         </ActionList></ActionMenu.Overlay>
       </ActionMenu>

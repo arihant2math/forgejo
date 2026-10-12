@@ -3,7 +3,7 @@
 
 import {expect, test} from 'vitest';
 import {createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue} from '../../test/fakeSession.ts';
 import {BoardModel} from './model.ts';

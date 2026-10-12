@@ -9,7 +9,7 @@ import {lazy, Suspense, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, shortSha} from '../../code/refs.ts';
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import type {PickOption} from '../../components/pickOptions.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {type RefIndex, refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {looksLikeSha, type RefChoice} from './refWrite.ts';
@@ -65,7 +65,7 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
   return (
     <>
       <LocalSelectPanel title="Switch branches/tags" placeholder={tab === 'tags' ? 'Find a tag…' : writer ? 'Find or create a branch…' : 'Find a branch…'}
-        empty="Nothing to show" options={options} query={query} onQueryChange={setQuery}
+        empty="Nothing to show" options={options} query={query} onQueryChange={setQuery} selectedFirst={false}
         subtitle={
           <SegmentedControl size="small" fullWidth aria-label="Ref type" onChange={(i) => { setTab(i === 1 ? 'tags' : 'branches'); }}>
             <SegmentedControl.Button selected={tab === 'branches'}>Branches</SegmentedControl.Button>
@@ -110,7 +110,7 @@ export const RefPicker = observer(function RefPicker({repoId, label, value, onCh
   const what = branchesOnly ? 'a branch' : commits ? 'a branch, tag or commit SHA' : 'a branch or tag';
   const shown = value.kind === 'commit' ? shortSha(value.ref) : value.ref;
   return (
-    <LocalSelectPanel title={label} placeholder={`Find ${what}…`} options={options} query={query} onQueryChange={setQuery}
+    <LocalSelectPanel title={label} placeholder={`Find ${what}…`} options={options} query={query} onQueryChange={setQuery} selectedFirst={false}
       renderAnchor={(props) =>
         <Button {...props} size="small" leadingVisual={kindIcon(value.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`${label}: ${shown || 'none'}`}>
           <span className="block max-w-xs truncate">{shown || 'Choose…'}</span>

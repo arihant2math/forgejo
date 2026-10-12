@@ -10,7 +10,7 @@ import {notify} from '../../app/notices.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {boardField, PROJECT_FIELD} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueProject} from '../../intents/view.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 import {ListCursor} from '../issues/flags.ts';

@@ -118,6 +118,16 @@ test('a branch ahead of the base: Create pull request in the merge-status box on
   expect(screen.getAllByRole('button', {name: 'Create pull request'}).every((b) => form.contains(b))).toBe(true);
 });
 
+test('the head picker keeps the default branch first and checks the head in place', async () => {
+  stubForgejo();
+  await open('/acme/website/compare/main...fix/footer');
+  fireEvent.click(await screen.findByRole('button', {name: 'Head: fix/footer'}));
+  const options = await screen.findAllByRole('option');
+  expect(options[0]?.textContent).toContain('main');
+  expect(options.find((o) => o.getAttribute('aria-selected') === 'true')?.textContent).toContain('fix/footer');
+  expect(options[0]?.getAttribute('aria-selected')).toBe('false');
+});
+
 test('a tag compared with the default branch (the tag\'s Compare): the commits since, and no pull request', async () => {
   stubForgejo();
   await open('/acme/website/compare/v1.0...main');

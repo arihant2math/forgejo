@@ -24,7 +24,7 @@ import {refTable, useLoad, useSource} from './hooks.ts';
 import {Sha, summary} from '../../components/Sha.tsx';
 
 import {MarkdownPreview} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {fullDate, shortDate} from '../../app/time.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
@@ -408,6 +408,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
   const [open, setOpen] = useState(latest);
   const Triangle = open ? TriangleDownIcon : TriangleRightIcon;
+  const archives = r.hide_archive_links ? [] : ['zip', 'tar.gz'] as const;
   return (
     <article className="flex flex-col gap-4 border-b border-muted py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
@@ -422,15 +423,15 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
       </header>
       {r.body_html && <Markdown html={r.body_html}/>}
       {/* GitHub's Assets disclosure: uploads, then the source archives. A flex summary loses its marker, so the triangle is drawn. */}
-      <details open={open} onToggle={(e) => {
+      {assets.length + archives.length > 0 && <details open={open} onToggle={(e) => {
         setOpen(e.currentTarget.open);
       }}>
         <summary className="flex cursor-pointer items-center gap-2">
-          <Triangle size={16} className="shrink-0 text-muted"/><Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + 2}</CounterLabel>
+          <Triangle size={16} className="shrink-0 text-muted"/><Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + archives.length}</CounterLabel>
         </summary>
         <ul className="mt-2 flex flex-col rounded-md border border-default" aria-label="Assets">
           {assets.map((a) => (
-            <li key={a.id} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base">
+            <li key={a.id} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base last:border-b-0">
               <PackageIcon size={16} className="shrink-0 text-muted"/>
               <PrimerLink className="min-w-0 truncate" {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
                 {href: a.external_url, target: '_blank'} :
@@ -440,14 +441,14 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
               </span>
             </li>
           ))}
-          {(['zip', 'tar.gz'] as const).map((ext) => (
+          {archives.map((ext) => (
             <li key={ext} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base last:border-b-0">
               <FileZipIcon size={16} className="shrink-0 text-muted"/>
               <PrimerLink href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})</PrimerLink>
             </li>
           ))}
         </ul>
-      </details>
+      </details>}
       <ul className="flex flex-wrap items-center gap-2" aria-label="Compare">
         {previous && (
           <li>

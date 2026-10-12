@@ -26,10 +26,7 @@ export const SidebarViews = observer(function SidebarViews() {
       {store.views.map((v) => <ViewItem key={v.id} view={v} current={v.id === current} onOpen={() => {
         store.open(v.id);
       }} onRemove={() => {
-        store.remove(v.id);
-        notify(app, {tone: 'neutral', title: `Deleted the view “${v.name}”`, action: {label: 'Undo', run: () => {
-          store.save(v.name, v.path, v.search);
-        }}});
+        notify(app, {tone: 'neutral', title: `Deleted the view “${v.name}”`, action: {label: 'Undo', run: store.remove(v.id)}});
       }} onRename={(name) => {
         store.rename(v.id, name);
       }}/>)}</NavList.Group>

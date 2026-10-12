@@ -26,7 +26,7 @@ import {issueActions} from '../../features/issues/actions.ts';
 import {isMerged, StateGlyph, stateLook} from '../../features/issues/cells.tsx';
 import {issuePath, issuesOf} from '../../features/issues/edits.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {localSearch} from '../../features/search/local.ts';
 import {searchServer, searchServerOrgs, searchServerRepos, searchServerUsers, type ServerHit, type ServerRepo, type ServerUser} from '../../features/search/server.ts';
 import {discoverySearch} from '../../features/search/params.ts';
@@ -243,7 +243,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
   const contextRepo = untracked(() => app.ui.repoOpen);
   const poolText = wants('issue') || wants('owner') ? text : '';
   const results = useMemo(() => searcher.run(poolText, contextRepo), [searcher, poolText, contextRepo]);
-  const more = useMoreResults(app, poolText, results);
+  const more = useMoreResults(app, poolText, results, mode);
   const files = useFiles(app, untracked(() => app.ui.repoOpen || app.ui.recentRepo), wants('file') ? text : '');
   const words = text.toLowerCase().split(/\s+/).filter(Boolean);
   const pool = app.session?.data.pool;
@@ -465,16 +465,18 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
   // Read the prefix and the text from the same (live) query, so Enter right after typing searches what was typed.
   const live = scoped(query);
   const searched = live.text.trim();
-  const searchRows: Row[] = searched && live.mode !== 'command' ? [
-    {value: 'search:all', label: 'See all results', run: () => {
-      void navigate({to: '/search', search: {q: searched, type: live.mode === 'issue' ? 'issues' : 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
-    }},
-    ...repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${searched}`, run: () => {
+  const allType = live.mode === undefined ? 'repositories' : live.mode === 'issue' ? 'issues' : live.mode === 'owner' ? 'users' : undefined;
+  const codeRows = live.mode === undefined || live.mode === 'file';
+  const searchRows: Row[] = searched ? [
+    ...allType ? [{value: 'search:all', label: 'See all results', run: () => {
+      void navigate({to: '/search', search: {q: searched, type: allType, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }}] : [],
+    ...codeRows && repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${searched}`, run: () => {
       void navigate({to: '/search', search: {q: searched, type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
     }}] : [],
-    {value: 'search:code', label: `Search code for ${searched}`, run: () => {
+    ...codeRows ? [{value: 'search:code', label: `Search code for ${searched}`, run: () => {
       void navigate({to: '/search', search: {q: searched, type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
-    }},
+    }}] : [],
   ] : [];
   return (
     <PaletteList inputRef={inputRef} query={query} onQueryChange={setQuery} selected={selected}
@@ -513,11 +515,14 @@ const NONE: More = {local: [], server: [], repos: [], users: []};
 const SERVER_REPO_NAMED = 4;
 const SERVER_DELAY = 300;
 
-function useMoreResults(app: App, query: string, scan: SearchResults): More {
-  const [answer, setAnswer] = useState<{query: string; value: More}>({query: '', value: NONE});
+/** Asks the search index and Forgejo only for the kinds `mode` shows. */
+function useMoreResults(app: App, query: string, scan: SearchResults, mode: Mode | undefined): More {
+  const [answer, setAnswer] = useState<{query: string; mode: Mode | undefined; value: More}>({query: '', mode, value: NONE});
   useEffect(() => {
     const q = query.trim();
     const s = app.session;
+    const issues = mode === undefined || mode === 'issue';
+    const owners = mode === undefined || mode === 'owner';
     if (!q || !s) return undefined;
     const ctl = new AbortController();
     const shown = shownIssues(scan);
@@ -526,13 +531,13 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     const ix = localSearch(app);
     const merge = (part: Partial<More>) => {
       setAnswer((m) => {
-        const base = m.query === query ? m.value : NONE;
-        const next = {...base, ...part};
+        const same = m.query === query && m.mode === mode;
+        const next = {...same ? m.value : NONE, ...part};
         const empty = (v: More) => !v.local.length && !v.server.length && !v.repos.length && !v.users.length && v.asked === m.value.asked && v.answered === m.value.answered;
-        return m.query === query && empty(next) && empty(m.value) ? m : {query, value: next};
+        return same && empty(next) && empty(m.value) ? m : {query, mode, value: next};
       });
     };
-    void ix?.search(q, 20).then((a) => {
+    if (issues) void ix?.search(q, 20).then((a) => {
       if (ctl.signal.aborted) return;
       const local = untracked(() => a.hits.filter((h) => !shown.has(h.id)).map((h) => pool.model('Issue').get(h.id)?.data)
         .filter((i) => i !== undefined).map((issue) => ({issue, repo: repoOf(issue.repo_id)})).filter((r) => r.repo !== undefined)
@@ -542,7 +547,7 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     const asked = q.length >= 2 && connectivity.online;
     if (asked) merge({asked: true});
     const timer = asked ? setTimeout(() => {
-      let left = 3;
+      let left = (issues ? 1 : 0) + (owners ? 2 : 0);
       const ask = <K extends 'server' | 'repos' | 'users'>(key: K, p: Promise<More[K]>) => {
         void p.then((v) => {
           if (!ctl.signal.aborted) merge({[key]: v});
@@ -550,20 +555,22 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
           if (--left === 0 && !ctl.signal.aborted) merge({answered: true});
         });
       };
-      ask('server', searchServer(app, q, ctl.signal));
-      ask('repos', searchServerRepos(app, q, ctl.signal));
-      ask('users', Promise.all([searchServerUsers(app, q, ctl.signal).catch(() => []), searchServerOrgs(app, q, ctl.signal).catch(() => [])]).then((parts) => parts.flat()));
+      if (issues) ask('server', searchServer(app, q, ctl.signal));
+      if (owners) {
+        ask('repos', searchServerRepos(app, q, ctl.signal));
+        ask('users', Promise.all([searchServerUsers(app, q, ctl.signal).catch(() => []), searchServerOrgs(app, q, ctl.signal).catch(() => [])]).then((parts) => parts.flat()));
+      }
     }, SERVER_DELAY) : undefined;
     return () => {
       ctl.abort();
       clearTimeout(timer);
     };
-  }, [app, query, scan]);
+  }, [app, query, scan, mode]);
   // Keep prior answers while loading to avoid flicker; exclude issues already listed by the scan.
   return useMemo(() => {
     const q = query.trim().toLowerCase();
     const a = answer.query.trim().toLowerCase();
-    if (!q || !a || !(q.startsWith(a) || a.startsWith(q))) return NONE;
+    if (!q || !a || answer.mode !== mode || !(q.startsWith(a) || a.startsWith(q))) return NONE;
     const shown = shownIssues(scan);
     const local = answer.value.local.filter((r) => !shown.has(r.issue.id));
     for (const r of local) shown.add(r.issue.id);
@@ -572,7 +579,7 @@ function useMoreResults(app: App, query: string, scan: SearchResults): More {
     // Status must describe this query, not the previous answers.
     const status = q === a ? {asked: answer.value.asked, answered: answer.value.answered} : {};
     return local.length || server.length || repos.length || users.length || status.asked ? {local, server, repos, users, ...status} : NONE;
-  }, [answer, query, scan]);
+  }, [answer, query, scan, mode]);
 }
 
 function shownIssues(scan: SearchResults): Set<number> {

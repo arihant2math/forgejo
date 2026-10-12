@@ -7,7 +7,7 @@ import {connectivity} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {loadRepo} from '../../app/repo.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueProject} from '../../intents/view.ts';
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import type {PickOption} from '../../components/pickOptions.ts';

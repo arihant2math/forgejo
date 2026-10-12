@@ -8,7 +8,7 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp, type Session} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueLabelIds} from '../../intents/view.ts';
 import type {Label, NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';

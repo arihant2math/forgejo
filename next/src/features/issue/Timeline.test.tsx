@@ -6,10 +6,10 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {Pool} from '../../data/pool.ts';
 import type {Comment, Issue, Label, PullRequest, Repository} from '../../protocol/types.gen.ts';
-import {StatusEvent} from './Timeline.tsx';
+import {StatusEvent} from './TimelineEvents.tsx';
 
 const state = vi.hoisted(() => ({pool: undefined as Pool | undefined}));
-vi.mock('../issues/cells.tsx', async (original) => ({...await original<object>(), usePool: () => state.pool}));
+vi.mock('../../app/store.ts', async (original) => ({...await original<object>(), usePool: () => state.pool}));
 vi.mock('../code/nav.tsx', () => ({CodeLink: ({owner, repo, to, children}: {owner: string; repo: string; to: string; children: ReactNode}) =>
   <a href={`/${owner}/${repo}/${to}`}>{children}</a>}));
 vi.mock('./Sidebar.tsx', async (original) => ({...await original<object>(), IssueLink: ({id}: {id: number}) => <a href={`pulls/${String(id)}`}>#{id}</a>}));

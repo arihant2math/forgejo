@@ -9,7 +9,7 @@ import type {Unready} from '../../app/resource.ts';
 import {LoadState} from '../../components/LoadState.tsx';
 import {FileOperations} from './FileOperations.tsx';
 import {FileSubmoduleIcon} from '@primer/octicons-react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 /** A page body's loading, offline and failure states. */
 export function Unloaded({loaded, what, skeleton, action}: {loaded: Unready; what: string; skeleton?: ReactNode; action?: ReactNode}) {
@@ -23,6 +23,6 @@ export const EmptyRepo = observer(function EmptyRepo({owner, repo, repoId}: {own
   const branch = r.default_branch || 'main';
   const commands = `git remote add origin ${httpsCloneUrl(app.config.app_url, owner, repo)}\ngit push -u origin ${branch}`;
   return (
-    <Blankslate spacious><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This repository is empty</Blankslate.Heading><Blankslate.Description>Push a first commit to it from an existing repository:</Blankslate.Description>{<FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha: '', path: ''}}><pre className="max-w-full overflow-x-auto rounded-md border border-default bg-inset px-4 py-2 text-left font-mono text-code text-default select-all">{commands}</pre></FileOperations>}</Blankslate>
+    <EmptyState icon={FileSubmoduleIcon} title="This repository is empty" description="Push a first commit to it from an existing repository:" action={<FileOperations owner={owner} repo={repo} repoId={repoId} at={{kind: 'branch', ref: branch, sha: '', path: ''}}><pre className="max-w-full overflow-x-auto rounded-md border border-default bg-inset px-4 py-2 text-left font-mono text-code text-default select-all">{commands}</pre></FileOperations>}/>
   );
 });

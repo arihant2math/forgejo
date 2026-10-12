@@ -10,7 +10,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import type {Entity} from '../../data/entity.ts';
 import {notify} from '../../app/notices.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueTitle} from '../../intents/view.ts';
 import {isDraftPull, draftTitle, wipPrefixes} from './draft.ts';
 import {Button} from '@primer/react';

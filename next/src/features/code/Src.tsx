@@ -23,8 +23,8 @@ import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {BlameCell, CodeLine, CodeSkeleton, CodeTokens, LineAction, LineNo} from '../../code/parts.tsx';
 import type {LineRange} from '../../code/FileSurface.tsx';
-import {usePool} from '../issues/cells.tsx';
-import {ago} from '../issues/format.ts';
+import {usePool} from '../../app/store.ts';
+import {ago} from '../../app/time.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {hasRefs, type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Lines, type LinesHandle} from './Lines.tsx';
@@ -119,6 +119,12 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
 });
 
 /**
+ * Primer folds by count (four or more crumbs), not just width, so trails up to FOLD_OVER crumbs wrap instead. Longer
+ * ones still fold even on wide screens, unlike GitHub: an accepted trade-off.
+ */
+const FOLD_OVER = 5;
+
+/**
  * The path as breadcrumbs below the root (Code or Commits); linkLast makes a history title link its last crumb to the path's source.
  * A path renders a nav, which may not sit inside a heading: callers pass CodeFrame a `heading` whenever `at.path` is set.
  */
@@ -127,7 +133,7 @@ export function CodePath({owner, repo, at, view = 'src', linkLast = false}: {own
   if (!at.path) return root;
   const parts = at.path.split('/');
   const crumb = (label: string, splat: string): Crumb => ({label, link: codeTo(owner, repo, splat)});
-  return <Crumbs overflow="menu-with-root" crumbs={[
+  return <Crumbs overflow={parts.length + 1 > FOLD_OVER ? 'menu-with-root' : 'wrap'} crumbs={[
     crumb(root, codeSplat(view, at)),
     ...parts.map((p, i) => (i === parts.length - 1 && !linkLast ? {label: p} :
       crumb(p, codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))))),
@@ -184,7 +190,7 @@ function FileLinkMenu({owner, repo, at, line = false, folder = false, remove}: {
         }}>Copy permalink</ActionList.Item>
         {remove && <>
           <ActionList.Divider/>
-          <ActionList.Item variant="danger" disabled={remove.disabled} onSelect={remove.onSelect}>
+          <ActionList.Item variant="danger" {...remove.reason ? {inactiveText: remove.reason} : {}} onSelect={remove.onSelect}>
             <ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>{folder ? 'Delete directory' : 'Delete file'}
           </ActionList.Item>
         </>}

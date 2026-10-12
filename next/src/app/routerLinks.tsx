@@ -13,9 +13,11 @@ export const RouterLink = createLink(PrimerLink);
 
 export const RouterNavItem = createLink(NavList.Item);
 
+export const PRIMARY_LINK_HOVER = 'hover:text-accent hover:underline';
+
 /** GitHub's Link--primary, which Primer React lacks: default text, accent and underlined on hover. For plain hrefs. */
 export function PrimaryAnchor({className, ...props}: ComponentPropsWithRef<'a'>) {
-  return <a {...props} className={clsx(className, 'text-default hover:text-accent hover:underline')}/>;
+  return <a {...props} className={clsx(className, 'text-default', PRIMARY_LINK_HOVER)}/>;
 }
 
 /** A router link with GitHub's Link--primary look (names in lists, titles of rows). */

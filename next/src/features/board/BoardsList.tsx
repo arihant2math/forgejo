@@ -16,7 +16,7 @@ import type {Project} from '../../protocol/types.gen.ts';
 import {useSession} from '../../app/store.ts';
 import {useHold} from '../../app/repo.ts';
 import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {BorderBox} from '../../components/BorderBox.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
 import {Label, SegmentedControl, Text} from '@primer/react';

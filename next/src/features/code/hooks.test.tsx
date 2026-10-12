@@ -38,7 +38,6 @@ test('connected, a dropped request is asked again on its own; one that keeps fai
       const value = useLoad(k, () => undefined, load);
       return value.state === 'ready' ? <div>{value.value}</div> : <Unloaded loaded={value} what="This history"/>;
     });
-    // One failure: the skeleton stays, and the second attempt shows the history.
     const first = render(<View k="once"/>);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(screen.queryByText('Not available offline')).toBeNull();
@@ -47,7 +46,6 @@ test('connected, a dropped request is asked again on its own; one that keeps fai
     expect(load).toHaveBeenCalledTimes(2);
     expect(screen.getByText('history')).toBeTruthy();
     first.unmount();
-    // Failing every time: after the automatic retries, "Could not load" with a Retry that asks again.
     load.mockClear();
     fail = 99;
     render(<View k="always"/>);

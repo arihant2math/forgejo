@@ -1,15 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Opening a pull request from a comparison (the compare view's form; PLAN
-// §5.4: a code operation, online only, never queued — offline the button
-// says why). Title and description start as Forgejo proposes them (one
-// commit: its message; several: the head branch), then are kept as a draft
-// of this comparison while typed. Writers also set labels, assignees and a
-// milestone; anyone asks for reviews. Creating is API v1's
-// POST /repos/{owner}/{repo}/pulls; the new pull request's page opens once
-// the sync delta holding it has arrived (the echoed sync id), so it paints
-// at once instead of saying "not on this device".
+// Pull-request creation is online-only and never queued.
+// Wait for the echoed sync delta before navigating so the new page can render immediately.
 
 import {useNavigate} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
@@ -39,12 +32,11 @@ import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-reac
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
-/** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
 const SYNC_WAIT_MS = 5000;
 
 const draftKey = (repoId: number, base: string, head: string) => `text:new-pull:${String(repoId)}:${base}...${head}`;
 
-/** One comparison's form. Title and body undefined: Forgejo's proposal (`defaults`), until typed in. */
+/** Undefined title/body use the comparison defaults until edited. */
 class PullDraft {
   title: string | undefined;
   body: string | undefined;
@@ -103,7 +95,6 @@ class PullDraft {
     this.labels = ids;
   }
 
-  /** Back to Forgejo's proposal; the draft goes. */
   discard(): void {
     clearTimeout(this.timer);
     void editing(this.app).intents.discardDraft(this.key);
@@ -119,7 +110,7 @@ class PullDraft {
     }, 400);
   }
 
-  /** Writes the draft now (the page closes before the debounce). Only what was typed is a draft. */
+  /** Flush before page close bypasses the debounce; persist only edited fields. */
   flush(): void {
     if (this.timer === undefined) return;
     clearTimeout(this.timer);
@@ -131,7 +122,6 @@ class PullDraft {
     else void intents.keepText({key: this.key, title: 'A new pull request', issueId: 0, repoId: this.repoId, text: `${title}\n\n${body}`});
   }
 
-  /** Created: nothing is kept. */
   done(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -145,13 +135,11 @@ export interface NewPullProps {
   repoId: number;
   base: string;
   head: string;
-  /** Forgejo's proposal for this comparison (proposal.ts pullDefaults). */
   defaults: {title: string; body: string};
   outlook: MergeOutlook;
   onCancel: () => void;
 }
 
-/** The form: properties, title, description, and Create. */
 export const NewPull = observer(function NewPull(props: NewPullProps) {
   const {owner, repo, repoId, base, head, defaults, onCancel} = props;
   const app = useApp();
@@ -195,7 +183,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           create();
         }
       }}>
-        {/* Where it opens: a fork's own pull request and one proposed upstream read alike otherwise. */}
+        {/* Name the destination to distinguish fork-local and upstream proposals. */}
         <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
         <Properties form={form} repoId={repoId}/>
         <FormControl>
@@ -232,10 +220,6 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   );
 });
 
-/**
- * Creates the pull request, asks for its reviews, and waits (at most SYNC_WAIT_MS) until the pool holds what
- * Forgejo wrote. Returns its number.
- */
 async function openPull(app: App, a: {owner: string; repo: string; repoId: number; form: PullDraft; base: string; head: string; allowEdits: boolean; title: string; body: string}): Promise<number> {
   const s = app.session;
   if (!s) throw new Error('Not signed in.');
@@ -281,13 +265,12 @@ async function openPull(app: App, a: {owner: string; repo: string; repoId: numbe
   return number;
 }
 
-/** A person's login from the repository's people (API v1's assignees, which may not be in the pool). */
+/** API v1 assignees may not be in the synced pool. */
 function peopleLogin(app: App, repoId: number, id: number): string | undefined {
   const s = app.session;
   return s ? untracked(() => repoPeople(s.data.pool, repoId, s.userId).find((p) => p.id === id)?.login) : undefined;
 }
 
-/** Labels, assignees, milestone (writers) and reviewers, each a picker that filters as you type. */
 const Properties = observer(function Properties({form, repoId}: {form: PullDraft; repoId: number}) {
   const app = useApp();
   const session = useSession();
@@ -332,7 +315,6 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
           ]}
           anchor={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
-      {/* One's own review cannot be asked for. */}
       <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
         form.toggle('reviewers', id);
       }}/>
@@ -356,7 +338,6 @@ function PeoplePick({label, placeholder, icon, people, me, chosen, onToggle}: {
   );
 }
 
-/** Whether the branches merge, in words (shown above the commits of a comparison a pull request can be opened from). */
 export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutlook; base: string; head: string; children?: ReactNode}) {
   const [tone, text]: [StatusTone, ReactNode] = (() => {
     switch (outlook.kind) {

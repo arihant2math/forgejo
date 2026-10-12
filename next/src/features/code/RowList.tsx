@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The one list of the code views (files of a directory, commits, branches,
-// tags, workflow runs): CodeRow rows in the page's scroll container,
-// virtualized (fixed row height, nothing measured), a listbox with a
-// keyboard cursor (J/K or the arrows, Enter opens), hover/cursor prefetch.
+// Fixed-height rows virtualize against the page scroll container.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {CodeRow} from './CodeRow.tsx';
@@ -33,14 +30,10 @@ interface RowListProps<T> {
   keyOf: (item: T) => string;
   row: (item: T) => RowParts;
   onOpen: (item: T) => void;
-  /** Hover or the cursor reached it (fetch what opening it needs). */
   onIntent?: ((item: T) => void) | undefined;
-  /** The row's link (an anchor: middle-click, a new tab); a plain click still calls onOpen. */
+  /** Enables middle-click and new tabs; plain clicks still call onOpen. */
   linkOf?: ((item: T) => string) | undefined;
-  /**
-   * A cursor owned by the page (the PR's file list follows the diff: one cursor, the file in view): shown
-   * whether or not the list has focus; moving it calls onCursor.
-   */
+  /** Page-owned cursors remain visible without focus; movement calls onCursor. */
   cursor?: number | undefined;
   onCursor?: ((index: number) => void) | undefined;
 }
@@ -62,7 +55,7 @@ function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; s
 
 function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
   const id = useId();
-  // Back on this list (Back, a breadcrumb): the cursor on the row the user opened, and the focus (as the issue lists).
+  // Restore the opened row and focus when navigating Back.
   const here = useRouterState({select: (s) => `${s.location.pathname}${s.location.searchStr}`});
   const onOpen = (item: T) => {
     if (owned === undefined) rememberRow(here, keyOf(item));
@@ -74,8 +67,6 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     if (onCursor) onCursor(n);
     else setOwn(n);
   };
-  // The cursor's edge shows while the list has focus, once J/K moved it (from anywhere on the page: the list then
-  // takes the focus, Linear), or always for a page-owned cursor.
   const [focused, setFocused] = useState(false);
   const [moved, setMoved] = useState(false);
   const shown = focused || moved || owned !== undefined;
@@ -100,7 +91,6 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
   }, [hasItems]);
   const move = (d: number) => {
-    // The first J shows the cursor where it is (the first row), the next ones move it.
     const n = shown ? Math.max(0, Math.min(items.length - 1, cursor + d)) : cursor;
     setCursor(n);
     setMoved(true);
@@ -115,7 +105,6 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
   useShortcut('list.prev', () => {
     move(-1);
   });
-  // Enter also without the focus on the list, once the cursor shows (the registry's page-only Enter).
   useShortcut('list.open', () => {
     const it = items[cursor];
     if (shown && it !== undefined) onOpen(it);
@@ -153,5 +142,5 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
   );
 }
 
-/** (An observer: rows may read synced entities.) */
+/** Rows may read synced entities, so the list must observe them. */
 export const RowList = observer(RowListImpl) as typeof RowListImpl;

@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A fork's upstream (the repository it was forked from) and where a fork's
-// new branch is proposed: to the upstream's default branch, as GitHub's and
-// classic Forgejo's forks do, not inside the fork.
-
 import {useEffect, useState} from 'react';
 import {online} from '../../app/api.ts';
 import {useApp} from '../../app/store.ts';
@@ -12,24 +8,19 @@ import {usePool} from '../issues/cells.tsx';
 import {codeTo} from './nav.tsx';
 import {compareSplat, forkHead} from './proposal.ts';
 
-/** The repository a fork was forked from. */
 export interface Upstream {
   owner: string;
   name: string;
   defaultBranch: string;
 }
 
-/** API v1's repository (the fields read here). */
 interface ApiRepo {
   parent?: {owner?: {login?: string}; name?: string; default_branch?: string} | null;
 }
 
 const upstreams = new Map<string, Promise<Upstream | undefined>>();
 
-/**
- * The upstream of a fork (undefined: not a fork, or not known yet): the pool's when the device has it, else API v1's
- * `parent` (asked for once per session and fork; a public upstream need not be synced).
- */
+/** Prefer the pool, else API v1 parent; undefined means not a fork or not yet known. */
 export function useUpstream(owner: string, repo: string, repoId: number): Upstream | undefined {
   const app = useApp();
   const pool = usePool();
@@ -49,7 +40,6 @@ export function useUpstream(owner: string, repo: string, repoId: number): Upstre
         const p = j?.parent;
         return p?.owner?.login && p.name ? {owner: p.owner.login, name: p.name, defaultBranch: p.default_branch ?? ''} : undefined;
       });
-      // A failure is asked again next time.
       asked.catch(() => upstreams.delete(key));
       upstreams.set(key, asked);
     }
@@ -63,7 +53,6 @@ export function useUpstream(owner: string, repo: string, repoId: number): Upstre
   return pooled ?? (fork && fetched?.key === key ? fetched.up : undefined);
 }
 
-/** Where a new branch `head` (made from `base`) is proposed: a fork's to its upstream, else `base` in the repository. */
 export function proposalTarget(owner: string, repo: string, base: string, head: string, up: Upstream | undefined): {to: ReturnType<typeof codeTo>; into: string} {
   if (up?.defaultBranch) {
     return {to: codeTo(up.owner, up.name, compareSplat(up.defaultBranch, forkHead(owner, repo, up.owner, head))), into: `${up.owner}/${up.name}:${up.defaultBranch}`};

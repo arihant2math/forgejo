@@ -1,16 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Compare (`compare/{base}...{head}`, `compare/{head}`, `compare`): the
-// commits on head that base lacks (API v1 by full SHAs, cached) and the
-// changes since they diverged — the diff from the oldest such commit's first
-// parent (the merge base for a branch that forked from base) to head, as
-// Forgejo's three-dot compare shows. Branch and tag names resolve from the
-// pool; a side left out is the default branch, and without a head the page
-// lists the branches to choose from. Between two branches of the repository
-// it is also where a pull request is opened (NewPull.tsx): whether they
-// merge, and the form (`?expand=1` opens it at once, as Forgejo's and
-// GitHub's links do).
+// Three-dot comparisons show changes since the merge base; refs resolve from the synced pool.
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
@@ -53,12 +44,7 @@ import {Tooltip} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
-/**
- * The merge base's candidates: the parents of the new commits that are not new
- * themselves (the commits head and base share where head's history joins
- * base's). One candidate is the merge base; several (base merged into head
- * after forking) are ordered by ancestry, see mergeBase.
- */
+/** Merge-base candidates are parents of new commits that base and head already share. */
 export function baseCandidates(info: CompareInfo, base: string): string[] {
   const listed = new Set(info.commits.map((c) => c.sha));
   const out: string[] = [];
@@ -66,11 +52,7 @@ export function baseCandidates(info: CompareInfo, base: string): string[] {
   return out.length ? out : [base];
 }
 
-/**
- * The merge base of base and head (API v1 has none): the candidate every
- * other candidate is an ancestor of (`compare(c, other)` lists nothing). Each
- * question is a compare of full SHAs: cached, so asked once.
- */
+/** API v1 omits the merge base; choose the candidate descended from every other candidate. */
 export async function mergeBase(src: Pick<CodeSource, 'compare'>, repoId: number, base: string, info: CompareInfo): Promise<string> {
   const cands = baseCandidates(info, base);
   if (cands.length === 1) return cands[0] ?? base;
@@ -91,7 +73,6 @@ export async function mergeBase(src: Pick<CodeSource, 'compare'>, repoId: number
 const compareKey = (repoId: number, base: string, head: string) => `compare:${String(repoId)}:${base}:${head}`;
 const mergeBaseKey = (repoId: number, base: string, head: string) => `mergebase:${String(repoId)}:${base}:${head}`;
 
-/** The merge base, remembered by its SHAs (the comparison is immutable). */
 async function loadMergeBase(src: CodeSource, repoId: number, baseSha: string, headSha: string, info: CompareInfo): Promise<string> {
   const key = mergeBaseKey(repoId, baseSha, headSha);
   const hit = src.peek<string>(key);
@@ -101,7 +82,6 @@ async function loadMergeBase(src: CodeSource, repoId: number, baseSha: string, h
   return sha;
 }
 
-/** Fetches what a comparison's page shows (hover, the cursor on a branch to propose): it opens painted. */
 function prefetchCompare(src: CodeSource, repoId: number, baseSha: string, headSha: string): void {
   void src.compare(repoId, baseSha, headSha).then(async (info) => {
     if (!info.commits.length) return;
@@ -110,19 +90,17 @@ function prefetchCompare(src: CodeSource, repoId: number, baseSha: string, headS
   }).catch(() => undefined);
 }
 
-/** The open pull request from head into base in this repository, if the pool has one. */
 function openPullOf(pool: Pool, repoId: number, base: string, head: string) {
   return [...pool.model('PullRequest').all()].map((p) => p.data).find((p) => p.base_repo_id === repoId && p.head_repo_id === repoId &&
     p.base_branch === base && p.head_branch === head && pool.model('Issue').get(p.issue_id)?.get('state') === 'open');
 }
 
-/** Whether a pull request can be proposed between these names: two different branches of the repository. */
 function branchPair(pool: Pool, repoId: number, base: string, head: string): boolean {
   const branches = refTable(pool, repoId).branches;
   return base !== head && branches.has(base) && branches.has(head);
 }
 
-/** `?expand=1` (and `true`, as GitHub writes it). */
+/** Accept Forgejo and GitHub expand query values. */
 function expanded(v: unknown): boolean {
   return v === '1' || v === 'true' || v === 1 || v === true;
 }
@@ -130,10 +108,9 @@ function expanded(v: unknown): boolean {
 export const CompareView = observer(function CompareView(props: CodeViewProps & {base: string; head: string}) {
   const pool = usePool();
   const refs = refTable(pool, props.repoId);
-  // `?expand=1` (Forgejo's and GitHub's "open a pull request" links): the form is open from the first frame.
   const expand = useSearch({strict: false, select: (s) => expanded((s as {expand?: unknown}).expand)});
   const [open, setOpen] = useState(expand);
-  // Without a base in the address the head chooser keeps the one picked here (Forgejo's address has no place for it).
+// A headless compare URL cannot encode the selected base.
   const [picked, setPicked] = useState<string | undefined>();
   const baseName = props.base !== '' ? props.base : picked ?? refs.defaultBranch;
   const headName = props.head;
@@ -159,7 +136,6 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   }
   const base = resolveName(refs, baseName);
   const head = resolveName(refs, headName);
-  // Either side switches to another branch or tag (the other side stays).
   return (
     <CodeFrame view={props} title={title} controls={<ComparePull {...sides} onOpen={() => {
       setOpen(true);
@@ -186,7 +162,6 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const refs = refTable(pool, repoId);
   const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
   const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
-  // The form stays open on the new comparison.
   const go = (to: ReturnType<typeof codeTo>) => {
     void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
   };
@@ -202,7 +177,6 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
     },
   });
   const options = [...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))];
-  // A fork's base can be its upstream: the same head, proposed to the repository it was forked from.
   const upHead = side === 'base' && up ? head || refs.defaultBranch : '';
   if (up && upHead && refs.branches.has(upHead)) {
     options.push({
@@ -218,7 +192,6 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
         go(codeTo(owner, repo, compareSplat(base, f.value)));
       }});
     }
-    // A fork's branch typed as `owner:branch` (or `owner/repo:branch`), listed or not.
     const typed = typedForkHead(query);
     if (typed && !forks.some((f) => f.value === typed)) {
       options.unshift({value: `typed:${typed}`, label: typed, group: 'A fork\u2019s branch', icon: GitBranchIcon, onSelect: () => {
@@ -252,12 +225,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   );
 });
 
-/**
- * The open pull request of these branches, or the button that opens the form (hover loads the editor and the
- * people the pickers offer, so the form paints complete). The button is offered once the comparison (the same one
- * the page lists, cached) has commits on head that base lacks: a head merged into base, or behind it, has a
- * different tip but nothing to propose, and the page says so instead.
- */
+/** A distinct tip is not enough: only commits absent from base can be proposed. */
 const ComparePull = observer(function ComparePull({owner, repo, repoId, base, head, open, onOpen}: Sides & {onOpen: () => void}) {
   const app = useApp();
   const pool = usePool();
@@ -274,8 +242,6 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
       <RouterLinkButton variant="invisible" size="small" leadingVisual={GitPullRequestIcon} to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}>Pull request #{pr.number}</RouterLinkButton>
     );
   }
-  // Nothing to propose: not two branches, the same branch or commit, no commit that base lacks (or not known yet);
-  // or the form is open already.
   if (open || !pair || info.state !== 'ready' || info.value.commits.length === 0) return null;
   return (
     <Tooltip text={`Propose merging ${head} into ${base}`}><Button variant="primary" size="small" leadingVisual={GitPullRequestIcon} type="button" onPointerEnter={() => {
@@ -285,10 +251,6 @@ const ComparePull = observer(function ComparePull({owner, repo, repoId, base, he
   );
 });
 
-/**
- * In a fork, between two of its branches: a pull request opened here stays in the fork. Says so, and offers the
- * same head compared with the upstream's default branch (where a contribution is proposed).
- */
 const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, head, open}: Sides) {
   const up = useUpstream(owner, repo, repoId);
   if (!up?.defaultBranch) return null;
@@ -318,12 +280,10 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   const from = mb.state === 'ready' ? mb.value : undefined;
   const diff = useDiff(repoId, from ?? '', from ? headSha : '');
   const diffRef = useRef<DiffHandle>(null);
-  // A pull request can be opened between two branches of the repository, unless one is open already.
   const pullable = branchPair(pool, repoId, props.base, props.head) && !openPullOf(pool, repoId, props.base, props.head);
   const outlook = useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on: pullable});
   if (info.state !== 'ready') return <Unloaded loaded={info} what="This comparison"/>;
   if (!info.value.commits.length) {
-    // Named as the user chose them (refs, not SHAs).
     const nothing = pullable ? ' There is nothing to open a pull request for.' : '';
     return <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>{baseSha === headSha ?
       `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}</Blankslate.Description></Blankslate>;
@@ -359,16 +319,10 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
 
 const failed = (l: {state: string}) => l.state === 'error' || l.state === 'offline';
 
-/** The paths a diff touches (a rename: both). */
 function touched(files: readonly DiffFile[]): string[] {
   return [...new Set(files.flatMap((f) => (f.status === 'renamed' ? [f.oldPath, f.newPath] : [filePath(f)])))];
 }
 
-/**
- * Whether head merges into base, from what the device can load (`on`: only between branches a pull request can
- * be opened from): the commits base has that head lacks and, when base moved on, the files it changed since the
- * merge base — content-addressed and cached like the rest of the comparison.
- */
 function useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on}: {
   repoId: number; baseSha: string; headSha: string; info: Loaded<CompareInfo>; mb: Loaded<string>; diff: Loaded<DiffFile[]>; from: string | undefined; on: boolean;
 }): MergeOutlook {
@@ -388,11 +342,6 @@ function useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on}: {
   });
 }
 
-/**
- * No head yet (`compare`, the pull requests' "New pull request"): the branches to propose into the base, most
- * recently pushed first, each a link to its comparison with the form open. The cursor or the pointer on one loads
- * its comparison, so it opens painted.
- */
 const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, scroller}: Sides & {scroller: HTMLDivElement | null}) {
   const pool = usePool();
   const session = useSession();
@@ -439,10 +388,7 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
   );
 });
 
-/**
- * The viewer's forks' branches, to propose into this repository (forks are not synced: API v1, online). Nothing
- * while loading, without a fork, or offline; the head picker lists every fork's branches and takes owner:branch.
- */
+/** Forks are not synced; load their branches through API v1 while online. */
 const MyForkBranches = observer(function MyForkBranches({owner, repo, base}: {owner: string; repo: string; base: string}) {
   const app = useApp();
   const session = useSession();

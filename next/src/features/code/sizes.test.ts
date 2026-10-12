@@ -17,6 +17,5 @@ test('row heights match the design tokens', () => {
   expect(LINE).toBe(px('--spacing-line'));
   expect(LINE).toBe(px('--text-code--line-height'));
   expect(ROW).toBe(px('--spacing-row'));
-  // A file header: a 40px Primer box header after a p-2 gap (4px grid).
   expect(FILE_ROW).toBe(10 * px('--spacing') + 2 * px('--spacing'));
 });

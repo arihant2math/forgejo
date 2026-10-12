@@ -1,7 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The in-browser file editor: find and replace in the file (#175), and where a commit lands — the file on the branch
-// it went to, said in a notice (#181).
 
 import {EditorView} from '@codemirror/view';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -24,7 +22,6 @@ vi.mock('../issues/cells.tsx', () => ({usePool: () => ({model: () => ({get: () =
 vi.mock('./hooks.ts', () => ({useSource: () => ({snippet: () => Promise.resolve(null)}), refTable: () => ({branches: mocks.branches, tags: new Map(), defaultBranch: 'main'})}));
 vi.mock('./refOps.ts', () => ({branchProtected: () => Promise.resolve(false)}));
 vi.mock('../editor/Composer.tsx', () => ({MarkdownPreview: () => null}));
-// A fork's upstream (undefined: not a fork).
 vi.mock('./upstream.ts', async (original) => ({...await original<object>(), useUpstream: () => mocks.upstream}));
 
 afterEach(() => {
@@ -54,7 +51,7 @@ test('Ctrl F opens find and replace in the editor; Replace all fixes every match
     if (!p) throw new Error('no search panel');
     return p;
   });
-  // (CodeMirror selects the field, which focuses it in a browser; jsdom's select() does not.)
+  // jsdom's select() does not focus the field like CodeMirror expects in a browser.
   const find = within(panel).getByRole('textbox', {name: 'Find'});
   fireEvent.change(find, {target: {value: 'teh'}});
   fireEvent.keyUp(find, {key: 'h'});
@@ -98,7 +95,6 @@ async function commit(fields: (dialog: HTMLElement) => void) {
 test('a commit to a new branch without a pull request opens the file on that branch and says where it went (#181)', async () => {
   const head = 'c'.repeat(40);
   mocks.write.mockImplementation(() => {
-    // The push's sync: the new branch is in the pool once it arrived.
     mocks.branches.set('verify-nopr', head);
     return Promise.resolve({value: {commit: {sha: head}}, syncId: 41});
   });
@@ -112,7 +108,6 @@ test('a commit to a new branch without a pull request opens the file on that bra
   expect(mocks.navigate).toHaveBeenCalledWith({to: '/$owner/$repo/$view/$', params: {owner: 'acme', repo: 'design', view: 'src', _splat: 'branch/verify-nopr/docs/spacing.md'}});
   const notice = mocks.notify.mock.calls[0]?.[1] as {tone: string; title: string; action?: {label: string; run: () => void}};
   expect(notice).toMatchObject({tone: 'success', title: 'Committed to verify-nopr'});
-  // The way on to a pull request, from the notice.
   expect(notice.action?.label).toBe('Open a pull request');
   notice.action?.run();
   expect(mocks.navigate).toHaveBeenLastCalledWith(expect.objectContaining({params: {owner: 'acme', repo: 'design', view: 'compare', _splat: 'main...verify-nopr'}, search: {expand: '1'}}));
@@ -123,7 +118,7 @@ test('a direct commit lands on its branch; before the sync has it, on the commit
   const head = 'd'.repeat(40);
   mocks.write.mockResolvedValue({value: {commit: {sha: head}}, syncId: undefined});
   await commit(() => undefined);
-  // The pool still has main at its old head: the file at the new commit, and the notice names the branch.
+  // Without a synced branch head, navigation must use the commit SHA.
   expect(mocks.navigate).toHaveBeenCalledWith({to: '/$owner/$repo/$view/$', params: {owner: 'acme', repo: 'design', view: 'src', _splat: `commit/${head}/docs/spacing.md`}});
   const notice = mocks.notify.mock.calls[0]?.[1] as {action?: unknown} | undefined;
   expect(notice).toMatchObject({tone: 'success', title: 'Committed to main'});
@@ -145,7 +140,6 @@ test('in a fork, the new branch\'s pull request is proposed to the upstream, as 
   const dialog = await screen.findByRole('dialog', {name: 'Commit changes'});
   fireEvent.click(within(dialog).getByRole('radio', {name: /Create a new branch/}));
   fireEvent.change(within(dialog).getByRole('textbox', {name: 'New branch name'}), {target: {value: 'fix-typo'}});
-  // The checkbox names where the pull request goes.
   const pull = within(dialog).getByRole('checkbox', {name: 'Open a pull request into acme/design-upstream:trunk'});
   expect((pull as HTMLInputElement).checked).toBe(true);
   const button = within(dialog).getByRole('button', {name: 'Commit changes'});
@@ -156,7 +150,6 @@ test('in a fork, the new branch\'s pull request is proposed to the upstream, as 
   await waitFor(() => {
     expect(mocks.navigate).toHaveBeenCalled();
   });
-  // The upstream's comparison with the fork's branch (acme's own fork: owner/repo:branch), the form open.
   expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({
     params: {owner: 'acme', repo: 'design-upstream', view: 'compare', _splat: 'trunk...acme/design:fix-typo'}, search: {expand: '1'},
   }));

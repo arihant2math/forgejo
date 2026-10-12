@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Local fuzzy matching remains deferred and incremental; highlighted files are prefetched at idle priority.
+// Defer fuzzy matching and prefetch highlighted files at idle priority.
 import {useNavigate} from '@tanstack/react-router';
 import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {Button, SelectPanel, Tooltip, type SelectPanelItemInput} from '@primer/react';

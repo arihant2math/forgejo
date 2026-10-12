@@ -1,8 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Opening a pull request in the app: the compare page of two branches (pasted
-// as Forgejo's address), Forgejo's proposed title, the merge outlook, Create
-// → API v1, and the new pull request's page once the pool holds it.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
@@ -45,7 +42,6 @@ const commit = (sha: string, message: string, parent: string) => ({sha, commit: 
 
 const DIFF = 'diff --git a/footer.txt b/footer.txt\n--- a/footer.txt\n+++ b/footer.txt\n@@ -1 +1 @@\n-old\n+new\n';
 
-/** Forgejo for these tests: the comparison's commits and diff, POST /pulls answering #9 at sync id 77. */
 function stubForgejo(): {url: string; body: unknown}[] {
   const posts: {url: string; body: unknown}[] = [];
   vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
@@ -75,7 +71,6 @@ test('a pasted compare address opens the form with Forgejo\'s proposal; Create o
   await router.load();
   render(<App app={app} router={router}/>);
   expect(router.state.location.pathname).toBe('/acme/website/compare/main...fix/footer');
-  // One commit: its summary is the title, the rest of its message the description.
   const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
   expect(title.value).toBe('Fix the footer links');
   expect(await screen.findByText('Able to merge: fix/footer is ahead of main.')).toBeTruthy();
@@ -98,12 +93,11 @@ test('without a head: the branches to propose; an open pull request is linked in
   await router.load();
   const r = render(<App app={app} router={router}/>);
   expect(router.state.location.pathname).toBe('/acme/website/compare');
-  // (The rows are virtualized: jsdom lays out none of them. headChoices orders them: proposal.test.ts.)
+  // jsdom provides no layout metrics for the virtualized branch rows.
   expect(await screen.findByText('Choose a branch to merge into main')).toBeTruthy();
   expect(screen.getByRole('listbox', {name: 'Branches'})).toBeTruthy();
   expect(screen.getByRole('button', {name: 'Choose the head branch'})).toBeTruthy();
   r.unmount();
-  // These branches have an open pull request: its link, no form.
   s.data.put('Issue', 'repo:20', issue(300, 20, 4, 'Fix footer', {is_pull: true}));
   s.data.put('PullRequest', 'repo:20', {
     id: 30, issue_id: 300, number: 4, status: 'mergeable', head_repo_id: 20, base_repo_id: 20, head_branch: 'fix/footer', base_branch: 'main', merge_base: BASE,

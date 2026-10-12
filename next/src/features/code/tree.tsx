@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A directory's listing, one look on the repository's Overview and in the
-// Code tab: a panel headed by the ref's latest commit, its entries in git's
-// order (directories first), each with its icon and size.
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
@@ -26,12 +23,11 @@ export function formatSize(n: number | undefined): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Directories first, then git's order (byte order: "projection.go" before "projection_test.go"). */
+/** Directories first, then git byte order rather than locale order. */
 export function treeOrder(entries: readonly APITreeEntry[]): APITreeEntry[] {
   return [...entries].sort((a, b) => Number(b.type === 'tree') - Number(a.type === 'tree') || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-/** An entry as a row: its icon, its name, a file's size. */
 export function entryParts(e: APITreeEntry): RowParts {
   return {
     leading: (() => {const EntryIcon = ENTRY_ICON[e.type as keyof typeof ENTRY_ICON] ?? FileIcon; return <EntryIcon size={16}/>;})(),
@@ -40,10 +36,6 @@ export function entryParts(e: APITreeEntry): RowParts {
   };
 }
 
-/**
- * The ref and its latest commit (a branch's, from the pool), as a files panel's header (`showRef` false: the
- * commit alone, where a branch picker above names the ref).
- */
 export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind, name, sha, showRef = true}: {
   owner: string; repo: string; repoId: number; kind: RefKind; name: string; sha: string; showRef?: boolean;
 }) {
@@ -69,7 +61,6 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
   );
 });
 
-/** A directory's listing panel (the header: RefCommit; actions: e.g. the overview's History link). */
 export function FilesPanel({title, actions, children}: {title: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return <section aria-label="Files" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base"><div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>{actions}</div>{children}</section>;
 }

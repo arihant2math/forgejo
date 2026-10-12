@@ -1,17 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A diff, virtualized per row (PLAN §5.7): one list for every file of a
-// commit, a compare or a pull request (code/rows.ts). Code rows have one
-// fixed height; only thread rows (comments, drafts, a composer) are
-// measured. Highlighting is per file, asked of the worker when a file's rows
-// come near the view, and each row is memoized on its own data — a file's
-// highlighting arriving re-renders that file's rows only, a scroll frame
-// mounts the rows coming into view. A floating header names the file in
-// view; `[` and `]` jump between files; ↑/↓ (or a click) move a line cursor (Enter
-// comments on it). A hunk's header expands the unchanged lines above it
-// (from the new file at the head, asked once). Rows share the longest line's width (they scroll
-// sideways together); headers and threads stay pinned to the view's left.
+// Fixed-height code rows and measured thread rows share one virtual list across files.
+// Highlight files near the viewport; memoized rows limit updates to the highlighted file.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
@@ -35,7 +26,6 @@ import {Blankslate} from '@primer/react/experimental';
 export const FILE_ROW = 48;
 const EMPTY_ROW = 40;
 
-/** What a pull request adds to its diff: threads, notes, the comment button, per-file actions, collapsing. */
 export interface DiffExtras {
   threads: ReadonlySet<string>;
   notes: ReadonlySet<number>;
@@ -51,13 +41,10 @@ export interface DiffExtras {
 }
 
 export interface DiffHandle {
-  /** Scrolls to a file's header. */
   toFile(f: number): void;
-  /** Scrolls a line into view. */
   toLine(f: number, l: number): void;
   /** The file of the keyboard cursor, else the one in view. */
   current(): number;
-  /** Focuses the diff (its keyboard cursor). */
   focus(): void;
 }
 
@@ -68,22 +55,16 @@ export interface DiffViewProps {
   files: readonly DiffFile[];
   scroller: HTMLDivElement | null;
   extras?: DiffExtras | undefined;
-  /** The file in view changed (the file list follows). */
   onFile?: ((f: number) => void) | undefined;
-  /**
-   * A sticky bar (h-control, marked data-sticky-bar) is pinned above the diff in the scroller (the pull request's
-   * review bar): a file jumped to and the floating header go below it, not under it.
-   */
+  /** Keep file jumps and the floating header below the measured data-sticky-bar. */
   underBar?: boolean | undefined;
   ref?: Ref<DiffHandle>;
 }
 
 const STATUS: Record<DiffFile['status'], string | undefined> = {added: 'added', deleted: 'deleted', renamed: 'renamed', copied: 'copied', modified: undefined};
 
-/** Per-file highlighting, asked of the worker for the files near the view. */
 function useHighlights(repoId: number, base: string, head: string, count: number, whitespace: string) {
   const src = useSource();
-  // Files highlighted earlier this session paint highlighted in the first frame.
   const [hl, setHl] = useState<(Highlight | null | undefined)[]>(() => Array.from({length: count}, (_, f) => src.peekDiffHighlight(repoId, base, head, f, whitespace)));
   const [asked] = useState(() => new Set<number>(hl.flatMap((h, f) => (h === undefined ? [] : [f]))));
   const want = useCallback((f: number) => {
@@ -96,22 +77,19 @@ function useHighlights(repoId: number, base: string, head: string, count: number
         return next;
       });
     }, () => {
-      asked.delete(f); // not loaded (a grammar, the worker): asked again when the file is next near the view
+      asked.delete(f); // Retry when the file next approaches the viewport.
     });
   }, [src, repoId, base, head, asked, whitespace]);
   return {hl, want};
 }
 
-/** Unchanged lines one "expand" reveals above a hunk. */
 const EXPAND_STEP = 40;
 
-/** Hidden lines between hunks, expanded from the new file's content (asked once per file, cached by commit). */
 function useExpansion(repoId: number, head: string, files: readonly DiffFile[]) {
   const src = useSource();
   const [content, setContent] = useState<ReadonlyMap<number, readonly string[]>>(() => new Map());
   const [revealed, setRevealed] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [failed, setFailed] = useState<ReadonlySet<number>>(() => new Set());
-  // The head file's highlighting, for the expanded lines (they read like the diff's own lines).
   const [highlit, setHighlit] = useState<ReadonlyMap<number, Highlight | null>>(() => new Map());
   const expand = useCallback((f: number, h: number, all: boolean) => {
     const key = `${String(f)}:${String(h)}`;
@@ -127,7 +105,6 @@ function useExpansion(repoId: number, head: string, files: readonly DiffFile[]) 
       if (c.kind !== 'text') throw new Error('not text');
       setContent((m) => new Map(m).set(f, c.text.split('\n')));
       more();
-      // Cached by (head, path): the same file at the same commit is highlighted once.
       void src.highlight(repoId, `${head}/${file.newPath}`, file.newPath, c.text).then((h) => {
         setHighlit((m) => new Map(m).set(f, h));
       }, () => undefined);
@@ -140,8 +117,7 @@ function useExpansion(repoId: number, head: string, files: readonly DiffFile[]) 
 
 export const DiffView = observer(function DiffView(props: DiffViewProps) {
   const {whitespace} = useDiffSettings();
-  // Without workers (including a cached view in a restricted browser), keep the
-  // plain, accessible line renderer; never start Shiki on the main thread.
+  // Without workers, render plain lines rather than running Shiki on the main thread.
   return typeof Worker === 'undefined' ? <DiffBody key={`${props.base}:${props.head}:${whitespace}`} {...props}/> :
     <ReviewSurface key={`${props.base}:${props.head}:${whitespace}`} {...props} fallback={(ref) => <DiffBody {...props} ref={ref}/>}/>;
 });
@@ -161,7 +137,6 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   }, [rows]);
   const getItemKey = useCallback((i: number) => rowKey(rows[i]), [rows]);
   const getScrollElement = useCallback(() => scroller, [scroller]);
-  // What the sticky bar covers at the top of the view (its own height: no number here), measured once.
   const [inset, setInset] = useState(0);
   useLayoutEffect(() => {
     setInset(underBar ? scroller?.querySelector<HTMLElement>('[data-sticky-bar]')?.offsetHeight ?? 0 : 0);
@@ -172,13 +147,12 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     useFlushSync: false,
   });
   const {hl, want} = useHighlights(repoId, base, head, files.length, whitespace);
-  // The longest line (characters): every row is that wide, so tints span it and rows scroll sideways together.
+  // Shared width keeps row tints aligned while scrolling sideways.
   const chars = useMemo(() => {
     let n = 0;
     for (const f of files) for (const l of f.lines) if (l.t.length > n) n = l.t.length;
     return n;
   }, [files]);
-  // The keyboard cursor: a line row (↑/↓; Enter comments), or -1.
   const [cursor, setCursor] = useState(-1);
   const [rightSide, setRightSide] = useState(false);
   useEffect(() => { setCursor(-1); }, [files, split]);
@@ -188,8 +162,6 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   const last = items.at(-1)?.index ?? 0;
   const fileFirst = fileAt(fileRow, first);
   const fileLast = fileAt(fileRow, last);
-  // The file whose rows are at the top of the view, below the sticky bar (not the overscan); past the last row (the
-  // room after it), the last one.
   const topRow = items.find((it) => it.end - margin > (scroller?.scrollTop ?? 0) + inset)?.index ?? Math.max(0, rows.length - 1);
   const current = fileAt(fileRow, topRow);
   useEffect(() => {
@@ -199,7 +171,6 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     onFile?.(current);
   }, [current, onFile]);
   const listRef = useRef<HTMLDivElement>(null);
-  /** The first line row of a file at or after row `from` (-1: none). */
   const lineFrom = useCallback((from: number, step: 1 | -1) => {
     for (let r = from; r >= 0 && r < rows.length; r += step) if (rows[r]?.t === 'line') return r;
     return -1;
@@ -227,7 +198,6 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     focus: () => listRef.current?.focus({preventScroll: true}),
   }), [toFile, rows, v, current, cursor, fileRow]);
   useShortcutScope('diff');
-  // The file of the cursor, else the one at the top of the view.
   const here = cursor >= 0 ? fileAt(fileRow, cursor) : current;
   useShortcut('diff.nextFile', () => {
     toFile(here + 1);
@@ -243,11 +213,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
     setCursor(from);
     v.scrollToIndex(from, {align: 'auto'});
   };
-  /**
-   * A click or tap on a line makes it the cursor's line (on its side, split): Enter comments on the line clicked, and
-   * its comment button shows without hover (touch screens have none). Focus moves to the list unless the click went to
-   * a control of its own (the comment button, a line number).
-   */
+  /** Touch needs a persistent comment button; do not steal focus from nested controls. */
   const pick = (index: number, target: EventTarget) => {
     setCursor(index);
     const side = target instanceof Element ? target.closest('[data-side]')?.getAttribute('data-side') : undefined;
@@ -273,7 +239,6 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   const active = rows[cursor];
   return (
     <div ref={place} className="relative min-w-code font-mono" style={{'--code-chars': split ? chars * 2 : chars} as CSSProperties}>
-      {/* The file in view, over the rows (it takes no space), pinned to the view's left edge. */}
       {floating && (
         <div className={clsx('sticky z-sticky h-0', underBar ? 'top-control' : 'top-0')}>
           <div className="sticky left-0 w-view font-sans"><FileHeader file={floating} f={current} extras={extras} floating/></div>
@@ -301,8 +266,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
           );
         })}
       </div>
-      {/* Room after the last file, so that it can come to the top (`]`, the file in view): only what it lacks of a
-          view's height (a short last file), never a blank view under it. */}
+      {/* Let the last file reach the top without leaving a blank viewport below it. */}
       <div aria-hidden style={{height: `max(0px, calc(var(--view-height) - ${String(lastFileHeight + inset)}px))`}}/>
     </div>
   );
@@ -338,12 +302,10 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
     case 'hunk': {
       const h = file.hunks[row.h];
       if (!h) return null;
-      // Hidden unchanged lines above it (not for a deleted file: there is no new file to read them from).
       const expandable = row.hidden > 0 && onExpand && file.status !== 'deleted' && !file.binary;
       return (
         <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}
           trailing={expandable && (
-            // Opaque (the row's own background): pinned to the right on a narrow view, it covers the header's text.
             <span className="sticky right-0 ml-auto flex items-center gap-2 self-stretch bg-muted px-2 font-sans">
               <ExpandButton label={`Show ${String(Math.min(row.hidden, EXPAND_STEP))} more unchanged lines`} onClick={() => {
                 onExpand(row.f, row.h, false);
@@ -361,7 +323,6 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       if (split) return <div className="flex divide-x divide-muted">
         {[row.o, row.n].map((n, side) => <div key={side} className="min-w-0 flex-1"><CodeLine gutter={<LineNo n={n}/>}><CodeTokens text={row.text} hl={hl} line={row.n - 1}/></CodeLine></div>)}
       </div>;
-      // `hl` is the head file's highlighting here (its line n - 1).
       return (
         <CodeLine gutter={<><LineNo n={row.o}/><LineNo n={row.n}/><span className="inline-block w-3"/></>}><CodeTokens text={row.text} hl={hl} line={row.n - 1}/></CodeLine>
       );
@@ -404,7 +365,6 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
   }
 });
 
-/** A hunk header's expand action (mouse and keyboard: a real button, in the header's own row). */
 function ExpandButton({label, onClick, children}: {label: string; onClick: () => void; children: string}) {
   return <Tooltip text={label}><Button variant="invisible" size="small" type="button" aria-label={label} onClick={onClick}>{children}</Button></Tooltip>;
 }
@@ -431,13 +391,9 @@ const FileHeader = memo(function FileHeader({file, f, extras}: {file: DiffFile; 
   );
 });
 
-/** A commit's or a comparison's changes list opens by itself up to this many files. */
 const OPEN_FILES = 12;
 
-/**
- * Above a commit's or a comparison's diff: how many files changed (with the lines added and removed) and the files,
- * each a jump to its diff. Pinned to the view's left edge (wide lines scroll the diff sideways, not this).
- */
+/** Keep the file list pinned while wide diff lines scroll sideways. */
 export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {current: DiffHandle | null}}) {
   const [open, setOpen] = useState(files.length <= OPEN_FILES);
   const additions = files.reduce((n, f) => n + f.additions, 0);

@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Source: a directory or a file at a ref (`src/{branch|tag|commit}/{ref}/{path}`)
-// and a file's blame (`blame/…`). The ref resolves from the pool; the tree is
-// read by (repository, commit, path), files by blob SHA, highlighting by blob
-// SHA — all cached forever. Hovering an entry prefetches it, and a file seen
-// in this tab paints highlighted in its first frame (memory cache), so
-// switching between files never waits.
+// Cache trees by repository/commit/path and content/highlighting by blob SHA for offline reads.
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {Missing} from '../../app/Missing.tsx';
@@ -66,7 +61,6 @@ export const SrcView = observer(function SrcView(props: SrcProps) {
   return <SrcAt {...props} at={r}/>;
 });
 
-/** The ref is not known here: the repository's branches have not arrived yet, or it does not exist. */
 const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: boolean}) {
   const pool = usePool();
   const {data} = useSession();
@@ -90,12 +84,10 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   const src = useSource();
   const parent = parentPath(at.path);
   const name = at.path.slice(parent ? parent.length + 1 : 0);
-  // The parent directory says what the path is (and the blob's SHA and size).
   const parentKey = at.path ? CodeSource.treeKey(repoId, at.sha, parent) : undefined;
   const tree = useLoad(parentKey, () => (parentKey ? src.peek<APITree>(parentKey) : undefined), () => src.tree(repoId, at.sha, parent));
   const entry = tree.state === 'ready' ? tree.value.entries.find((e) => e.name === name) : undefined;
   const title = <Breadcrumbs owner={props.owner} repo={props.repo} at={at}/>;
-  // Backspace or Alt+↑, from a directory or a file, from anywhere on the page: up a directory.
   const navigate = useNavigate();
   const up = () => {
     if (at.path) void navigate(codeTo(props.owner, props.repo, codeSplat('src', at, parent)));
@@ -120,23 +112,18 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   } else {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
-  // The tab names the file or directory (every file would otherwise be "Code · acme/atlas").
   const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
   const frame = (operations: ReactNode, dropProps: FileDropProps) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations}/>} docTitle={docTitle}>
     {(scroller) => body(scroller, dropProps)}
   </CodeFrame>;
-  // Keep write actions absent while an unknown path resolves, and for missing paths.
+  // Do not offer writes until the path is confirmed to exist.
   if (at.path && !entry) return frame(null, {});
   return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
-/**
- * owner/repo is in the context; the title is the path, each directory a link to the same view of it (`view`:
- * the source, or a history); `linkLast` makes the last segment a link too (a history's path opens its source).
- */
+/** linkLast makes a history breadcrumb link to the path source. */
 export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
   const parts = at.path ? at.path.split('/') : [];
-  // The root is a named segment in the breadcrumb's one style, not a lone "/": the tab's name ("Code", "Commits").
   const root = view === 'src' ? 'Code' : 'Commits';
   return (
     <span className="flex min-w-0 items-center gap-1">
@@ -165,14 +152,13 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       {at.kind === 'branch' && def && at.ref !== def && (
         <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${def}...${at.ref}`)}>Compare</RouterLinkButton>
       )}
-      {/* A tag: what the default branch has gained since it ("previous tag vs main"). */}
       {at.kind === 'tag' && def && (
         <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${at.ref}...${def}`)}>Compare</RouterLinkButton>
       )}
       <RouterLinkButton variant="default" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', at, at.path))}>Commits</RouterLinkButton>
       <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
-      {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
+      {/* A link to the other view would read as a pressed button; use a switch. */}
       {file && (
         <SegmentedControl size="small" aria-label="Show the file as" onChange={(index) => {
           void navigate({...codeTo(owner, repo, codeSplat(index === 1 ? 'blame' : 'src', at, at.path)), hash: true});
@@ -186,10 +172,7 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
   );
 });
 
-/**
- * The file's raw address at the ref viewed (`raw/branch/main/…`, as Forgejo's and GitHub's Raw: a link to share that
- * follows the branch), at the commit when the view is at one.
- */
+/** Branch raw URLs follow the branch; commit raw URLs remain fixed. */
 export function rawPath(owner: string, repo: string, at: Resolved): string {
   return `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${at.kind}/${at.kind === 'commit' ? at.sha : encodePath(at.ref)}/${encodePath(at.path)}`;
 }
@@ -218,15 +201,12 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
   );
 }
 
-// ---- directory ----
-
 const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dropProps}: SrcProps & {at: Resolved; scroller: HTMLDivElement | null; dropProps: FileDropProps}) {
   const src = useSource();
   const key = CodeSource.treeKey(repoId, at.sha, at.path);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, at.sha, at.path));
   if (tree.state !== 'ready') return <Unloaded loaded={tree} what="This directory" skeleton={<ListSkeleton/>}/>;
   const readme = readmeOf(tree.value.entries);
-  // The Overview's look: a panel headed by the ref's latest commit, the README under it.
   return (
     <PageColumn wide>
       <div {...dropProps}>
@@ -249,8 +229,7 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}
       onOpen={rows.onOpen} linkOf={rows.linkOf}
-      // Hover or the cursor: fetch the entry and highlight it (idle: never ahead of what is on screen, the newest
-      // intents first), so opening it paints at once.
+      // Prefetch at idle priority so intent never delays visible content.
       onIntent={(e) => {
         const p = pathOf(e);
         if (e.type === 'tree') void src.tree(repoId, at.sha, p).catch(() => undefined);
@@ -260,8 +239,6 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
       }}/>
   );
 }
-
-// ---- file ----
 
 interface FileProps extends SrcProps {
   at: Resolved;
@@ -273,8 +250,7 @@ const FileView = observer(function FileView(props: FileProps) {
   const {repoId, entry, at} = props;
   const src = useSource();
   const key = CodeSource.blobKey(repoId, entry.sha);
-  // The stored highlighting is read with the file (IndexedDB, in parallel): a file highlighted on an earlier visit
-  // paints highlighted in its first frame, not plain and then highlighted.
+  // Read stored highlighting with content to avoid a plain-text first frame.
   const content = useLoad(key, () => src.peek<FileContent>(key), async () => (await Promise.all([
     src.blob(repoId, entry.sha, at.path, entry.size), src.loadHighlight(repoId, entry.sha, at.path),
   ]))[0]);
@@ -315,14 +291,12 @@ export function CodeSkeleton() {
   );
 }
 
-/** A markdown or SVG file: rendered (Preview, the default) or its markup with line numbers (Markup). */
 function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const {repoId, entry, at, text} = props;
   const [mode, setMode] = useState<'preview' | 'source'>(() => (hashRange(location.hash) ? 'source' : 'preview'));
   const kind = renderable(at.path);
   const toggle = (
     <>
-      {/* "Markup", not a second "Source": the header's Source / Blame switch is beside it. */}
       <SegmentedControl size="small" aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
       {props.edit}
     </>
@@ -337,21 +311,20 @@ function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   );
 }
 
-/** Splits text into lines (a final newline ends the last line; it does not start an empty one). */
+/** A final newline ends the last line without adding an empty one. */
 export function splitLines(text: string): string[] {
   const lines = text.split('\n');
   if (lines.length > 1 && lines.at(-1) === '') lines.pop();
   return lines;
 }
 
-/** The highlighting of a file by its blob SHA (memory first: a file switched back to paints highlighted). */
 function useHighlight(repoId: number, sha: string, path: string, text: string) {
   const src = useSource();
   const hl = useLoad(`hl:${String(repoId)}:${sha}:${path}`, () => src.peekHighlight(repoId, sha, path) ?? undefined, () => src.highlight(repoId, sha, path, text));
   return hl.state === 'ready' ? hl.value : null;
 }
 
-/** The lines a link names (#L12, or #L12-L20 / #L12-20), 0-based and ordered, if any. */
+/** Returns a 0-based, ordered line range from a supported fragment, or undefined. */
 export function hashRange(hash: string): [number, number] | undefined {
   const m = /^#?L(\d+)(?:-L?(\d+))?$/.exec(hash);
   if (!m) return undefined;
@@ -404,7 +377,7 @@ function useLineLinks() {
   return {range, view, initial, pick};
 }
 
-/** RUM-style measure for the e2e: a file view's first paint after the navigation that opened it. */
+/** Record navigation-to-first-paint timing for e2e measurements. */
 function useMarkPainted(path: string): void {
   useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -420,7 +393,6 @@ function useMarkPainted(path: string): void {
   }, [path]);
 }
 
-/** A file's facts above it (lines or dimensions, size) and its controls. */
 function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string | undefined; size: number | undefined; children?: ReactNode}) {
   return (
     <div className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2 text-sm text-muted tabular-nums">
@@ -432,7 +404,6 @@ function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string 
   );
 }
 
-/** An image file: its dimensions and size, then the image. */
 function ImageFile({bytes, type, path, size}: {bytes: ArrayBuffer; type: string; path: string; size: number | undefined}) {
   const [dims, setDims] = useState<string>();
   return (
@@ -445,8 +416,6 @@ function ImageFile({bytes, type, path, size}: {bytes: ArrayBuffer; type: string;
   );
 }
 
-// ---- blame ----
-
 const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, text, scroller, edit}: FileProps & {text: string; edit: ReactNode}) {
   const src = useSource();
   const key = `blame:${String(repoId)}:${at.sha}:${at.path}`;
@@ -454,7 +423,6 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
   const {range, view, initial, pick} = useLineLinks();
-  // Per line: the part it belongs to (index), and whether it starts the part.
   const parts = useMemo(() => {
     if (blame.state !== 'ready') return undefined;
     const of = new Int32Array(lines.length).fill(-1);
@@ -474,7 +442,6 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
             <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-1">
-              {/* The blame at the change's parent (the same file, by its name there): the history behind these lines. */}
               <span className="flex w-4 shrink-0 items-center">
                 {part.previous_sha && (
                   <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}

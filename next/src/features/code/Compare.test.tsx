@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The compare page's header and body agree on whether there is anything to
-// propose (#245): a branch merged into the base, or behind it, has a tip of
-// its own but no commit the base lacks — "Nothing to compare", and no "New
-// pull request" button that would open nothing. A branch ahead of the base
-// gets the button once its comparison is known, and the button opens the form.
+// A distinct tip with no commits ahead must not offer a pull-request form.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen} from '@testing-library/react';
@@ -30,7 +26,6 @@ const branch = (id: number, name: string, sha: string) => ({
   id, repo_id: 20, name, commit_id: sha, commit_message: `${name} head`, commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T,
 });
 
-/** acme/website: main; docs/merged (an ancestor of main: merged long ago); fix/footer (one commit ahead); the tag v1.0 at docs/merged. */
 function session() {
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
@@ -52,7 +47,6 @@ function session() {
 const commit = (sha: string, message: string, parent: string) => ({sha, commit: {message, author: {name: 'Alice', email: 'a@x', date: T}}, author: null, parents: [{sha: parent}]});
 const DIFF = 'diff --git a/footer.txt b/footer.txt\n--- a/footer.txt\n+++ b/footer.txt\n@@ -1 +1 @@\n-old\n+new\n';
 
-/** Forgejo: docs/merged has nothing main lacks (main has 11 commits it lacks); fix/footer one commit. */
 function stubForgejo(): string[] {
   const asked: string[] = [];
   vi.stubGlobal('fetch', vi.fn((url: string) => {
@@ -78,7 +72,6 @@ async function open(path: string) {
   return router;
 }
 
-/** Lets the comparison's answers arrive and the header settle. */
 async function settle() {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
@@ -91,7 +84,7 @@ test('a branch merged into the base: nothing to compare, and no New pull request
   expect(await screen.findByText('docs/merged has no commits that main lacks. There is nothing to open a pull request for.')).toBeTruthy();
   await settle();
   expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
-  // One comparison, asked for once (the header reads the page's).
+// The header and body share a cached comparison.
   expect(asked.filter((u) => u.endsWith(`/compare/${MAIN}...${MERGED}`))).toHaveLength(1);
 });
 

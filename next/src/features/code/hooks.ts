@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What code views share: the session's code source, loading by an immutable
-// key (first frame from memory when the value is there: no placeholder for
-// content seen before), and the ref table from the pool.
-
 import {useEffect, useRef, useState} from 'react';
 import {useApp} from '../../app/store.ts';
 import {reach} from '../../app/online.ts';
@@ -21,38 +17,26 @@ export function useSource(): CodeSource {
 export type Loaded<T> =
   | {state: 'loading'}
   | {state: 'ready'; value: T}
-  /**
-   * Not on this device, and Forgejo did not answer: offline, unreachable, or — while connected — a request that
-   * failed on the way (a dropped connection, a timeout). `retry` asks again.
-   */
+  /** No cached value and no server answer; includes transport failures while connected. */
   | {state: 'offline'; retry?: (() => void) | undefined}
   | {state: 'error'; message: string; status: number; retry?: (() => void) | undefined};
 
-/**
- * The pauses (ms) before a failed read is asked again on its own while the device is connected: one dropped request
- * (a reset connection, a timeout on a busy server) does not leave the view on a failure. After them the view says it
- * could not load, with a Retry.
- */
+/** Retry delays in milliseconds for transient reads while connected. */
 export const AUTO_RETRY_MS = [1000, 3000] as const;
 
-/** Whether a failed read may succeed when asked again: no answer (NotCached), a timeout, a rate limit, a server error. */
 export function transientFailure(err: unknown): boolean {
   if (err instanceof NotCached) return true;
   const status = (err as {status?: unknown} | null)?.status;
   return typeof status === 'number' && (status === 0 || status === 408 || status === 429 || status >= 500);
 }
 
-/**
- * A value addressed by an immutable key: `peek` answers synchronously when it
- * is in memory (the view paints it in its first frame), else `load` runs
- * once per key. undefined key: nothing to load (yet).
- */
+/** Peek synchronously by immutable key; undefined key defers loading. */
 export function useLoad<T>(key: string | undefined, peek: () => T | undefined, load: () => Promise<T>): Loaded<T> {
   const [state, setState] = useState<{key: string | undefined; loaded: Loaded<T>}>(() => {
     const v = key === undefined ? undefined : peek();
     return {key, loaded: v === undefined ? {state: 'loading'} : {state: 'ready', value: v}};
   });
-  // A new key: peek synchronously during render (no frame of the old value or a placeholder).
+  // Peek during render to avoid showing the previous key or a placeholder.
   let current = state;
   if (state.key !== key) {
     const v = key === undefined ? undefined : peek();
@@ -61,7 +45,6 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
   }
   const online = reach(useApp().session?.data.status.connection) === 'online';
   const done = current.loaded.state === 'ready';
-  // Asking again: `attempt` re-runs the load; `tries` counts the automatic retries of this key.
   const [attempt, setAttempt] = useState(0);
   const tries = useRef({key, n: 0});
   useEffect(() => {
@@ -72,7 +55,6 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
       if (live) setState({key, loaded: {state: 'ready', value}});
     }, (err: unknown) => {
       if (!live) return;
-      // Connected, and the failure may pass: asked again on its own (the skeleton stays), a few times.
       if (tries.current.key !== key) tries.current = {key, n: 0};
       const pause = online && transientFailure(err) ? AUTO_RETRY_MS[tries.current.n] : undefined;
       if (pause !== undefined) {
@@ -92,13 +74,11 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
       live = false;
       if (timer !== undefined) clearTimeout(timer);
     };
-    // `online`: back online, a key that failed offline loads again.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load/peek are per key
   }, [key, done, online, attempt]);
   if (!online && current.loaded.state === 'loading') return {state: 'offline'};
   const loaded = current.loaded;
   if (loaded.state === 'offline' || (loaded.state === 'error' && transientFailure(loaded))) {
-    // Asked for: again now, with the skeleton meanwhile (and the automatic retries again after it).
     return {...loaded, retry: () => {
       tries.current = {key, n: 0};
       setState({key, loaded: {state: 'loading'}});
@@ -108,7 +88,6 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
   return loaded;
 }
 
-/** Branches and tags → SHA, and the default branch (observes the repository's branches and releases). */
 export function refTable(pool: Pool, repoId: number): RefTable {
   const branches = new Map<string, string>();
   const tags = new Map<string, string>();
@@ -122,7 +101,7 @@ export function refTable(pool: Pool, repoId: number): RefTable {
   return {branches, tags, defaultBranch};
 }
 
-/** Whether the pool has the repository's code refs at all (its group loaded with the code unit). Observes membership. */
+/** Observes group membership to detect whether code refs are loaded. */
 export function hasRefs(pool: Pool, repoId: number): boolean {
   return pool.model('Branch').by('repo_id', repoId).size > 0;
 }

@@ -16,7 +16,7 @@ describe('the proposed title and description', () => {
 
   test('several commits (or a list cut short): the head branch', () => {
     expect(pullDefaults([{message: 'a'}, {message: 'b'}], 2, 'feature/login')).toEqual({title: 'feature/login', body: ''});
-    // The list has one commit but the comparison counts more: still the branch.
+    // A paginated list can contain one commit even when the total is greater.
     expect(pullDefaults([{message: 'a'}], 3, 'feature/login')).toEqual({title: 'feature/login', body: ''});
   });
 

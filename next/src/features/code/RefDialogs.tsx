@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The dialogs of the branches and tags views (writers, online): a new branch
-// (a name and where it starts: a branch, a tag or a commit), a new tag (a
-// name, its commit, a message for an annotated tag), and the confirmations of
-// deleting a branch (after asking Forgejo whether it is protected), a tag
-// or a release. Each waits for the pool to show its change (refOps.ts)
-// before it closes; Forgejo's refusal stays in the dialog, in its words.
+// Wait for ref changes to sync before closing; server refusals remain in the dialog.
 
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
@@ -21,7 +16,7 @@ import {RefPicker} from './RefMenu.tsx';
 import {BRANCH_MAX, branchDeleteBlock, createBranchBody, createTagBody, type RefChoice, refNameProblem, TAG_MAX, tagDeleteBlock, writeBlock} from './refWrite.ts';
 import {Dialog, FormControl, TextInput, Textarea} from '@primer/react';
 
-/** Why the viewer cannot do `action` in the repository now (archived, a mirror's refs, offline), or undefined. Observes. */
+/** Returns a reactive refusal reason, or undefined when writing is allowed. */
 export function useWriteBlock(repoId: number, action: string, refsOnly: boolean): string | undefined {
   const pool = usePool();
   const session = useSession();
@@ -29,7 +24,6 @@ export function useWriteBlock(repoId: number, action: string, refsOnly: boolean)
   return writeBlock(r && {archived: r.archived, mirror: r.mirror}, reach(session.data.status.connection) === 'online', action, refsOnly);
 }
 
-/** A write's state in a dialog: running, and Forgejo's refusal. */
 function useRun() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -52,7 +46,6 @@ function Problem({id, children}: {id: string; children: ReactNode}) {
   return <p id={id} role="alert" className="text-sm text-danger">{children}</p>;
 }
 
-/** A name field: Enter submits, the problem shown below once something was typed or Create was asked. */
 function NameField({label, placeholder, value, onChange, problem, shown, maxLength, onEnter}: {
   label: string; placeholder: string; value: string; onChange: (v: string) => void; problem: string | undefined; shown: boolean; maxLength: number; onEnter: () => void;
 }) {
@@ -73,7 +66,6 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
   );
 }
 
-/** A new branch: its name, and where it starts (`from`: the default branch unless given). */
 export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, onClose}: {repoId: number; from?: RefChoice | undefined; onClose: () => void}) {
   const app = useApp();
   const session = useSession();
@@ -113,7 +105,6 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
   );
 });
 
-/** A new tag: its name, its commit (a branch's head, another tag's, or a commit), and a message (annotated). */
 export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {repoId: number; onClose: () => void}) {
   const app = useApp();
   const session = useSession();
@@ -162,10 +153,7 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
   );
 });
 
-/**
- * Asks before something is deleted for everyone. `blocked`: why it cannot be (shown instead of Delete);
- * `pending`: a check still running (Delete waits for it).
- */
+/** `blocked` replaces Delete with a reason; `pending` disables it until checks finish. */
 export function ConfirmDelete({title, description, blocked, pending, onDelete, onClose}: {
   title: string; description: ReactNode; blocked?: string | undefined; pending?: string | undefined; onDelete: () => Promise<void>; onClose: () => void;
 }) {
@@ -190,7 +178,6 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
   );
 }
 
-/** Deletes a branch: never the default one, nor one Forgejo protects (asked when the dialog opens). */
 export const DeleteBranchDialog = observer(function DeleteBranchDialog({repoId, name, openPull, onClose}: {
   repoId: number; name: string; openPull: number | undefined; onClose: () => void;
 }) {
@@ -200,7 +187,7 @@ export const DeleteBranchDialog = observer(function DeleteBranchDialog({repoId, 
   const def = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
   const block = useWriteBlock(repoId, 'Deleting a branch', true);
   const repo = repoRef(session, repoId);
-  // Protection rules are not synced: Forgejo says (online; a failed check leaves it to Forgejo's answer).
+  // Protection rules are not synced; a failed lookup leaves enforcement to the write API.
   const prot = useLoad(block || !repo || name === def ? undefined : `protected:${String(repoId)}:${name}`, () => undefined, () => (repo ? branchProtected(app, repo, name) : Promise.resolve(false)));
   const blocked = block ?? branchDeleteBlock(name, def, prot.state === 'ready' ? prot.value : undefined);
   return (
@@ -215,7 +202,7 @@ export const DeleteBranchDialog = observer(function DeleteBranchDialog({repoId, 
   );
 });
 
-/** Deletes a tag without a release (a release's tag goes after its release). */
+/** Delete a release before deleting its tag. */
 export const DeleteTagDialog = observer(function DeleteTagDialog({repoId, name, hasRelease, onClose}: {repoId: number; name: string; hasRelease: boolean; onClose: () => void}) {
   const app = useApp();
   const session = useSession();

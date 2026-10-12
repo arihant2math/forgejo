@@ -118,7 +118,6 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       setMode(undefined); setDialog(false); setFiles([]);
       if (fields.newBranch && fields.openPull && !repository?.empty) {
         if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
-        // A fork's new branch is proposed to its upstream (the form there), not inside the fork.
         await navigate({...proposalTarget(owner, repo, at.ref, fields.newBranch, up).to, search: {expand: '1'} as never});
       } else await navigate(codeTo(owner, repo, codeSplat('src', {kind: 'commit', ref: sha}, mode === 'delete' ? parentPath(at.path) : mode === 'create' ? fullPath(path) : dir)));
     } catch (err) {

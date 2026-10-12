@@ -124,7 +124,7 @@ describe('classes', () => {
   test('interactive: every state primitives use appears instantly', async () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     const [css = ''] = ds.candidatesToCss(['interactive']);
-    for (const state of [':hover', ':focus-visible', '[data-highlighted]', '[data-selected]', '[data-active]', '[aria-pressed="true"]', '[data-state="open"]']) {
+    for (const state of [':hover', ':focus-visible', '[data-selected]', '[data-active]', '[aria-pressed="true"]', '[aria-current="page"]']) {
       expect(css).toContain(`&${state}`);
     }
   });

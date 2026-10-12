@@ -43,12 +43,7 @@ function isTextField(el: Element | null): boolean {
 /** Overlays own their keys unless data-shortcuts opts them into app shortcuts. */
 function inOverlay(el: Element | null): boolean {
   const overlay = el?.closest('[role="menu"],[role="menubar"],[role="listbox"],[role="dialog"],[role="alertdialog"]');
-  // Closing overlays release their keys before the fade ends.
-  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts') && overlay?.getAttribute('data-state') !== 'closed';
-}
-
-function leaving(el: Element): boolean {
-  return el.closest('[role="menu"],[role="dialog"],[role="alertdialog"]')?.getAttribute('data-state') === 'closed';
+  return Boolean(overlay) && !overlay?.hasAttribute('data-shortcuts');
 }
 
 interface Binding {
@@ -178,9 +173,7 @@ export class ShortcutRegistry {
     if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return false;
     const chord = chordOf(e, this.apple);
     if (!chord) return false;
-    const focused = e.target instanceof Element ? e.target : null;
-    // Closing overlays release keys even while focus remains in their fading fields.
-    const target = focused && leaving(focused) ? null : focused;
+    const target = e.target instanceof Element ? e.target : null;
     const restricted = isTextField(target) || inOverlay(target) || this.overlayOpen();
     const onPage = !target || target === target.ownerDocument.body || target.closest('[data-shortcuts]') !== null;
     const candidates = this.eligible(restricted, onPage);

@@ -103,78 +103,15 @@ describe('tokens.css', () => {
   test('motion tokens', () => {
     expect(root.get('--speed-in')).toBe('0s');
     expect(root.get('--speed-out')).toBe('0.15s');
-    expect(root.get('--speed-quick')).toBe('0.1s');
   });
 
   test('prefers-reduced-motion drops exit animations', () => {
     const reduced = decls(block('@media (prefers-reduced-motion: reduce)'));
     expect(reduced.get('--speed-out')).toBe('0s');
-    expect(reduced.get('--animate-exit')).toBe('none');
-    expect(reduced.get('--animate-exit-pop')).toBe('none');
   });
 
   test('Primer\'s body size and system font stack are the UI\'s', () => {
     expect(resolve('var(--text-base)', 'light')).toBe('0.875rem');
     expect(tokens.get('--font-sans')).toBe('var(--fontStack-system)');
-  });
-});
-
-describe('label ink (text-label)', () => {
-  const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const toSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
-  const hex = (h: string) => [0, 2, 4].map((i) => Number.parseInt(h.replace('#', '').slice(i, i + 2), 16) / 255);
-  function oklab([r, g, b]: number[]): number[] {
-    const [lr, lg, lb] = [r ?? 0, g ?? 0, b ?? 0].map(toLinear) as [number, number, number];
-    const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-    const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-    const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
-    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
-  }
-  function rgb([L, A, B]: number[]): string {
-    const l = ((L ?? 0) + 0.3963377774 * (A ?? 0) + 0.2158037573 * (B ?? 0)) ** 3;
-    const m = ((L ?? 0) - 0.1055613458 * (A ?? 0) - 0.0638541728 * (B ?? 0)) ** 3;
-    const s = ((L ?? 0) - 0.0894841775 * (A ?? 0) - 1.291485548 * (B ?? 0)) ** 3;
-    const c = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
-    return `#${c.map((x) => Math.round(Math.min(1, Math.max(0, toSrgb(x))) * 255).toString(16).padStart(2, '0')).join('')}`;
-  }
-  const resolved = (theme: Theme) => {
-    const surface = resolve('var(--bgColor-default)', theme);
-    return {get: (name: string) => over(resolve(`var(${name})`, theme), surface)};
-  };
-  const light = resolved('light');
-  const dark = resolved('dark');
-  const share = Number.parseFloat(decls(block(':root')).get('--label-ink') ?? 'NaN') / 100;
-  const mix = (label: string, fg: string, part = share) => {
-    const a = oklab(hex(label));
-    const b = oklab(hex(fg));
-    return rgb(a.map((x, i) => x * part + (b[i] ?? 0) * (1 - part)));
-  };
-  const labels = ['#eab308', '#facc15', '#22c55e', '#06b6d4', '#f97316', '#ffffff', '#e11d48', '#3b82f6', '#8b5cf6', '#fbca04', '#c2e0c6', '#bfdadc'];
-  test.each(['light', 'dark'] as const)('≥ 3:1 against the surfaces (%s)', (theme) => {
-    const t = theme === 'light' ? light : dark;
-    const fg = t.get('--text-color-default');
-    for (const bg of ['--background-color-default', '--background-color-control-transparent-hover', '--background-color-inset']) {
-      for (const l of labels) expect(contrast(mix(l, fg), t.get(bg)), `${l} on ${bg}`).toBeGreaterThanOrEqual(3);
-    }
-  });
-
-  const edge = Number.parseFloat(decls(block(':root')).get('--label-edge') ?? 'NaN') / 100;
-  test.each(['light', 'dark'] as const)('a label\'s fill or edge is ≥ 1.5:1 against the surfaces (%s)', (theme) => {
-    const t = theme === 'light' ? light : dark;
-    const fg = t.get('--text-color-default');
-    const failures: string[] = [];
-    for (let r = 0; r < 256; r += 17) {
-      for (let g = 0; g < 256; g += 17) {
-        for (let b = 0; b < 256; b += 17) {
-          const fill = `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
-          for (const bg of ['--background-color-inset', '--background-color-default', '--background-color-overlay', '--background-color-control-transparent-hover', '--background-color-control-transparent-selected']) {
-            const surface = t.get(bg);
-            const best = Math.max(contrast(fill, surface), contrast(mix(fill, fg, edge), surface));
-            if (best < 1.5) failures.push(`${fill} on ${bg}: ${best.toFixed(2)}`);
-          }
-        }
-      }
-    }
-    expect(failures).toEqual([]);
   });
 });

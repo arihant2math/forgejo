@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Hydrate structure/route groups first and remaining state when idle.
-// The elected leader syncs and persists; followers mirror committed buckets and forward requests.
+// The elected leader syncs and persists; followers mirror what its flushes changed and forward requests.
 
 import {autorun, observable, runInAction} from 'mobx';
 import {forgetUser, writeSplash} from '../app/splash.ts';
@@ -140,7 +140,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
       for (const g of c.dropped) pool.mirrorDropGroup(g, c.seq);
-      for (const w of c.buckets) pool.mirrorBucket(w.m, w.g, w.b, w.r, c.seq);
+      for (const w of c.changes) pool.mirrorChanges(w.m, w.g, w.r, w.gone, c.seq);
     });
   };
 
@@ -356,7 +356,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       ...(opts.env?.IDBKeyRange ? {keyRange: opts.env.IDBKeyRange} : {}),
       defer: (g) => !hydrator.isHydrated(g) || (client?.isLoading(g) ?? false),
       onCommit: (cm) => {
-        tabs.post({t: 'commit', seq: cm.seq, buckets: cm.buckets, cleared: cm.cleared, dropped: cm.dropped});
+        tabs.post({t: 'commit', seq: cm.seq, changes: cm.changes, cleared: cm.cleared, dropped: cm.dropped});
       },
       onError: (err) => {
         console.error('livesync: persisting failed', err);

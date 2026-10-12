@@ -248,8 +248,8 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 * **Hydration** (`data/hydrate.ts`): structure groups and the current route's groups first (`firstRoute`), the rest
   in idle chunks (`hydrated`). The leader's sync client starts after phase 1.
 * **Tabs** (`sync/tabs.ts`): the holder of Web Lock `forgejo-next:<userId>:leader` owns the socket, IndexedDB writes
-  and the intent flush. Followers hydrate from IndexedDB, mirror the leader's committed flushes over
-  BroadcastChannel, and forward holds and requests. A new leader re-reads and resumes.
+  and the intent flush. Followers hydrate from IndexedDB, mirror the entities each committed flush changed (sent over
+  BroadcastChannel), and forward holds and requests. A new leader re-reads and resumes.
 * **Sync client** (`sync/client.ts`): bootstrap first, then subscribe from the watermark; resume from persisted
   positions in `hello`; handles `bootstrap_required`, `group_revoked`, schema changes, barriers; reconnects with
   jittered backoff; falls back to SSE after two transports that never opened. Every request has a deadline and the

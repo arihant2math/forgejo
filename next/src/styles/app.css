@@ -207,12 +207,6 @@
   height: var(--view-height, 0);
 }
 
-/* Share the longest line's width so tints span rows and all code scrolls together. */
-@utility min-w-code {
-  /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- tokens only, combined at the element (--code-chars is set there) */
-  min-width: max(100%, calc(var(--code-chars, 0) * var(--code-char) + var(--thread-indent) + var(--spacing) * 12));
-}
-
 @utility pl-thread {
   padding-left: var(--thread-indent);
 }

@@ -20,8 +20,10 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
-import {OrganizationPeople, OrganizationTeams, useOrgPermissions} from './Teams.tsx';
-import {useResource, type Resource} from '../settings/resource.ts';
+import {useOrgPermissions} from './permissions.ts';
+import {OrganizationPeople, OrganizationTeams} from './Teams.tsx';
+import {useResource, type Resource} from '../../app/resource.ts';
+import {LoadState} from '../../components/LoadState.tsx';
 import {Follow, Overview, People} from './Profile.tsx';
 import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon, TagIcon} from '@primer/octicons-react';
 import {ActionMenu, ActionList, Label} from '@primer/react';
@@ -112,7 +114,7 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
         <PageHeader icon={PersonIcon} title={owner}/>
         <PageBody>
           {profile.state === 'loading' ? <PageColumn><SkeletonText lines={3}/></PageColumn> :
-            <Missing what="This user or organization" classic={profile.status === 404 ? undefined : classic}/>}
+            <Missing what="This user or organization" classic={profile.state === 'error' && profile.status === 404 ? undefined : classic}/>}
         </PageBody>
       </>
     );
@@ -243,7 +245,6 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate,
 });
 
 const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string; kind: 'stars' | 'watching'}) {
-  const {data} = useSession();
   const app = useApp();
   const search = useSearch({strict: false}) as Record<string, unknown>;
   const page = pageOf(search.page);
@@ -252,7 +253,6 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
     const r = await send<APIRepo[]>(app, {api: 'v1', path, signal});
     return {rows: r.value ?? [], total: r.totalCount};
   });
-  const away = reach(data.status.connection) !== 'online';
   const rows = res.value?.rows;
   return <ResourceSection label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
     {kind === 'stars' && <p className="px-4 py-2 text-sm text-muted">Most recently starred first.</p>}
@@ -260,7 +260,7 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
       <ResourceRows>{rows.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</ResourceRows>
       {!rows.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
       <Pager page={page} pageCount={pagesOf(res.value?.total)} more={rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, kind, false, n)}/>
-    </> : away ? <Blankslate><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>Connect to load these repositories.</Blankslate.Description></Blankslate> : res.state === 'loading' ? <SkeletonText lines={3}/> : <Blankslate><Blankslate.Heading>Could not load repositories</Blankslate.Heading></Blankslate>}
+    </> : <LoadState res={res} what="These repositories" skeleton={<SkeletonText lines={3}/>}/>}
   </ResourceSection>;
 });
 

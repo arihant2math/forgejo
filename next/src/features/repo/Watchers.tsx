@@ -3,7 +3,7 @@
 
 
 import {ResourceSection, PersonRow} from './layout.tsx';
-import {Avatar, Banner} from '@primer/react';
+import {Avatar} from '@primer/react';
 
 import {getRouteApi} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -14,12 +14,12 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../issues/format.ts';
-import {ListSkeleton} from '../settings/bits.tsx';
 import {repoApi} from '../settings/requests.ts';
-import {type Resource, settingsKey, useResource} from '../settings/resource.ts';
+import {type Resource, useResource} from '../../app/resource.ts';
+import {LoadState} from '../../components/LoadState.tsx';
+import {settingsKey} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
 import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
 import {Pager} from '../../components/Pager.tsx';
 import {Blankslate} from '@primer/react/experimental';
@@ -102,13 +102,7 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
 
 function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: number; owner: string; repo: string}) {
   const v = res.value;
-  if (v === undefined) {
-    if (res.state === 'loading') return <div className="px-4"><ListSkeleton/></div>;
-    if (res.state === 'offline') return <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device yet</Blankslate.Heading><Blankslate.Description>The watchers load when you are online.</Blankslate.Description></Blankslate>;
-    return (
-      <Banner variant="critical" title="The watchers could not be loaded" primaryAction={<Button size="small" type="button" onClick={res.reload}>Try again</Button>} description={res.error}/>
-    );
-  }
+  if (v === undefined) return <LoadState res={res} what="The watchers"/>;
   if (!v.users.length) {
     return page > 1 ?
       <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`No watchers on page ${String(page)}`}</Blankslate.Heading>{<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}</Blankslate> :

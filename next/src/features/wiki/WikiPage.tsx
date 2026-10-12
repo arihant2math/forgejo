@@ -15,7 +15,8 @@ import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import type {Loaded} from '../code/hooks.ts';
+import type {Unready} from '../../app/resource.ts';
+import {failureText} from '../../app/api.ts';
 import {Unloaded} from '../code/states.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
@@ -140,7 +141,7 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
       notify(app, {tone: 'success', title: `Deleted “${title}”`});
       void navigate({to: '/$owner/$repo/wiki', params: {owner, repo}});
     }, (err: unknown) => {
-      notify(app, {tone: 'danger', title: 'The page was not deleted', description: err instanceof Error ? err.message : String(err)});
+      notify(app, {tone: 'danger', title: 'The page was not deleted', description: failureText(err)});
     });
   };
   return (
@@ -178,10 +179,10 @@ const PageContent = observer(function PageContent({owner, repo, repoId, page, sl
 });
 
 /** A missing page maps to Not found, not an unloaded placeholder. */
-function unloadedOf(s: Slot<unknown>): Exclude<Loaded<unknown>, {state: 'ready'}> {
+function unloadedOf(s: Slot<unknown>): Unready {
   switch (s.state) {
     case 'missing':
-      return {state: 'error', message: 'Not found', status: 404};
+      return {state: 'error', error: 'Not found', status: 404};
     case 'ready':
       return {state: 'loading'};
     default:
@@ -443,7 +444,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
       void navigate({to: '/$owner/$repo/wiki/$page', params: {owner, repo, page: name}, replace: true});
     }, (err: unknown) => {
       setSaving(false);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(failureText(err));
     });
   };
   const view: WikiView = page ? {view: 'edit', page: page.name} : {view: 'new'};

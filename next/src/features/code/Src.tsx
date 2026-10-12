@@ -21,7 +21,7 @@ import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
 import {BlameCell, CodeLine, CodeTokens, LineAction, LineNo} from '../../code/parts.tsx';
-import {FileSurface} from '../../code/FileSurface.tsx';
+import type {LineRange} from '../../code/FileSurface.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -32,6 +32,7 @@ import {RefMenu} from './RefMenu.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import {type Crumb, Crumbs} from '../../components/Crumbs.tsx';
 import {Unloaded} from './states.tsx';
+import {ListSkeleton} from '../../components/ListSkeleton.tsx';
 import {DirEntries, FilesPanel, formatSize, RefCommit} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {CopyIcon, DownloadIcon, FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
@@ -39,6 +40,7 @@ import {ButtonGroup, IconButton, LinkButton, SegmentedControl, ActionMenu, Actio
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
+const FileSurface = lazy(async () => ({default: (await import('../../code/FileSurface.tsx')).FileSurface}));
 
 interface SrcProps extends CodeViewProps {
   blame: boolean;
@@ -64,19 +66,11 @@ const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: b
   const pool = usePool();
   const {data} = useSession();
   const loaded = hasRefs(pool, repoId);
-  if (!loaded && data.status.loading > 0) return <ListSkeleton/>;
+  if (!loaded && data.status.loading > 0) return <ListSkeleton rows={8} lines={1} leading="icon"/>;
   return (
     <Missing icon={GitBranchIcon} what={named ? 'This branch or tag' : 'This repository’s code'}/>
   );
 });
-
-function ListSkeleton() {
-  return (
-    <div className="flex flex-col" aria-busy>
-      {Array.from({length: 8}, (_, i) => <div key={i} className="flex items-center gap-2 px-4 py-2"><SkeletonBox className="size-4"/><SkeletonBox className="h-3 w-48"/></div>)}
-    </div>
-  );
-}
 
 const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   const {repoId, at} = props;
@@ -180,8 +174,8 @@ function FileLinkMenu({owner, repo, at, line = false, folder = false, remove}: {
     <ActionMenu>
       <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="default" size="small" aria-label={folder ? 'Directory actions' : 'File actions'}/>}</ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
-        {line ? <ActionList.Item onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</ActionList.Item> :
-          <ActionList.Item onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</ActionList.Item>}
+        {(line || (!folder && hashRange(hash))) && <ActionList.Item onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</ActionList.Item>}
+        {!line && <ActionList.Item onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</ActionList.Item>}
         <ActionList.Item onSelect={() => {
           copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
         }}>Copy permalink</ActionList.Item>
@@ -200,7 +194,7 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dr
   const src = useSource();
   const key = CodeSource.treeKey(repoId, at.sha, at.path);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, at.sha, at.path));
-  if (tree.state !== 'ready') return <Unloaded loaded={tree} what="This directory" skeleton={<ListSkeleton/>}/>;
+  if (tree.state !== 'ready') return <Unloaded loaded={tree} what="This directory" skeleton={<ListSkeleton rows={8} lines={1} leading="icon"/>}/>;
   const readme = readmeOf(tree.value.entries);
   return (
     <PageColumn wide>
@@ -224,9 +218,9 @@ const FileView = observer(function FileView(props: FileProps) {
   const {repoId, entry, at} = props;
   const src = useSource();
   const key = CodeSource.blobKey(repoId, entry.sha);
-  // Read stored highlighting with content to avoid a plain-text first frame.
+  // Blame reads stored highlighting with the content to avoid a plain-text first frame.
   const content = useLoad(key, () => src.peek<FileContent>(key), async () => (await Promise.all([
-    src.blob(repoId, entry.sha, at.path, entry.size), src.loadHighlight(repoId, entry.sha, at.path),
+    src.blob(repoId, entry.sha, at.path, entry.size), props.blame ? src.loadHighlight(repoId, entry.sha, at.path) : undefined,
   ]))[0]);
   if (content.state !== 'ready') return <Unloaded loaded={content} what="This file" skeleton={<CodeSkeleton/>}/>;
   const c = content.value;
@@ -322,11 +316,12 @@ export function CodeSkeleton() {
 
 function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const {repoId, entry, at, text} = props;
+  const lines = useMemo(() => lineCount(text), [text]);
   const kind = renderable(at.path);
   if (usePlain()) return <TextFile {...props} text={text}/>;
   return (
     <>
-      <FileMeta lines={splitLines(text).length} size={entry.size}>{props.edit}</FileMeta>
+      <FileMeta lines={lines} size={entry.size}>{props.edit}</FileMeta>
       {kind === 'svg' ? <BlobImage bytes={text} type="image/svg+xml" alt={at.path}/> :
         <PageColumn><RenderedMarkup repoId={repoId} sha={entry.sha} path={at.path} text={text} at={at}/></PageColumn>}
     </>
@@ -334,6 +329,12 @@ function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
 }
 
 /** A final newline ends the last line without adding an empty one. */
+export function lineCount(text: string): number {
+  let n = 1;
+  for (let i = text.indexOf('\n'); i >= 0 && i < text.length - 1; i = text.indexOf('\n', i + 1)) n++;
+  return n;
+}
+
 export function splitLines(text: string): string[] {
   const lines = text.split('\n');
   if (lines.length > 1 && lines.at(-1) === '') lines.pop();
@@ -355,37 +356,29 @@ export function hashRange(hash: string): [number, number] | undefined {
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
-function TextFile(props: FileProps & {text: string; edit: ReactNode}) {
-  return typeof Worker === 'undefined' ? <LinkedTextFile {...props}/> : <FileSurface name={props.at.path} text={props.text} scroller={props.scroller} cacheKey={props.entry.sha} fallback={<LinkedTextFile {...props}/>}>
-    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.edit}</FileMeta>
-  </FileSurface>;
+function TextFile({text, at, entry, scroller, edit}: FileProps & {text: string; edit: ReactNode}) {
+  const lines = useMemo(() => lineCount(text), [text]);
+  const {range, select} = useHashRange();
+  return <>
+    <FileMeta lines={lines} size={entry.size}>{edit}</FileMeta>
+    <Suspense fallback={<CodeSkeleton/>}>
+      <FileSurface name={at.path} text={text} sha={entry.sha} lines={lines} scroller={scroller} range={range} onSelect={select}/>
+    </Suspense>
+  </>;
 }
 
-const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, edit}: FileProps & {text: string; edit: ReactNode}) {
-  const lines = useMemo(() => splitLines(text), [text]);
-  const hl = useHighlight(repoId, entry.sha, at.path, text);
-  const {range, view, initial, pick} = useLineLinks();
-  const line = useCallback((i: number) => {
-    const named = range !== undefined && i >= range[0] && i <= range[1];
-    return (
-      <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={named} gutter={<LineNo n={i + 1} onPick={pick}/>} action={range?.[0] === i ? <FileLinkMenu owner={owner} repo={repo} at={at} line/> : undefined}>
-        <CodeTokens text={lines[i] ?? ''} hl={hl} line={i}/>
-      </CodeLine>
-    );
-  }, [lines, hl, range, pick, owner, repo, at]);
-  useMarkPainted(at.path);
-  return (
-    <>
-      <FileMeta lines={lines.length} size={entry.size}>{edit}</FileMeta>
-      <Lines ref={view} count={lines.length} scroller={scroller} line={line} label={`${at.path}, ${String(lines.length)} lines`} initial={initial}/>
-    </>
-  );
-});
-
-function useLineLinks() {
+function useHashRange() {
   const hash = useRouterState({select: (s) => s.location.hash});
   const range = useMemo(() => hashRange(hash), [hash]);
   const navigate = useNavigate();
+  const select = useCallback(([from, to]: LineRange) => {
+    void navigate({to: '.', hash: from === to ? `L${String(from + 1)}` : `L${String(from + 1)}-L${String(to + 1)}`, search: true, replace: true});
+  }, [navigate]);
+  return {range, select};
+}
+
+function useLineLinks() {
+  const {range, select} = useHashRange();
   const view = useRef<LinesHandle>(null);
   const [initial] = useState(() => range?.[0]);
   useEffect(() => {
@@ -393,26 +386,9 @@ function useLineLinks() {
   }, [range]);
   const pick = useCallback((n: number, extend: boolean) => {
     const from = extend && range ? range[0] + 1 : n;
-    const next = from === n ? `L${String(n)}` : `L${String(Math.min(from, n))}-L${String(Math.max(from, n))}`;
-    void navigate({to: '.', hash: next, search: true, replace: true});
-  }, [navigate, range]);
+    select([Math.min(from, n) - 1, Math.max(from, n) - 1]);
+  }, [select, range]);
   return {range, view, initial, pick};
-}
-
-/** Record navigation-to-first-paint timing for e2e measurements. */
-function useMarkPainted(path: string): void {
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      try {
-        performance.mark('code:file', {detail: {path}});
-      } catch {
-        // no User Timing
-      }
-    });
-    return () => {
-      cancelAnimationFrame(id);
-    };
-  }, [path]);
 }
 
 /** GitHub's file header: the view switch and the file's facts, then the raw-file actions and the file's own controls. */

@@ -6,6 +6,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {computed} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
+import {failureText} from '../../app/api.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
@@ -77,7 +78,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       void discover(app, search, controller.signal).then((page) => {
         if (!controller.signal.aborted) { setAnswer({key, page}); setCounts((previous) => ({...previous, [search.type]: page.total})); }
       }).catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Search failed.');
+        if (!controller.signal.aborted) setError(failureText(err));
       });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };

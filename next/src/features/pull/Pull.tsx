@@ -14,7 +14,7 @@ import {canWrite} from '../../app/access.ts';
 import {failureText, online, refused} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
-import {onlineOnly, reach} from '../../app/online.ts';
+import {onlineOnly, useReach} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -795,6 +795,11 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // Protection rules are admin-only in API v1; use Forgejo's viewer-specific verdict.
   // Keep cached checks if it fails; Forgejo enforces eligibility when merging.
   const eligibility = useMergeCheck(issue, pr);
+  const reachable = useReach() === 'online';
+  const mergeOffline = reachable ? undefined : onlineOnly('Merging');
+  const updateOffline = reachable ? undefined : onlineOnly('Updating the branch');
+  const deleteOffline = reachable ? undefined : onlineOnly('Deleting the branch');
+  const cancelOffline = reachable ? undefined : onlineOnly('Canceling the auto-merge');
   if (!pr) return null;
   const repo = repository;
   const config = [...pool.model('RepoUnit').by('repo_id', pr.base_repo_id)].find((u) => u.get('type') === 'pulls')?.data.config;
@@ -803,7 +808,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const chosen = options.styles.find((m) => m.style === method) ?? (config ? options.primary : undefined);
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
   // Treat stalled connections as offline to avoid requests hanging until their deadline.
-  const isOnline = reach(session.data.status.connection) === 'online';
+  const isOnline = mergeOffline === undefined;
   const closed = issue.get('state') === 'closed';
   const write = canWrite(session, pr.base_repo_id);
   const path = repo ? `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}` : '';
@@ -827,7 +832,6 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       setBusy(false);
     });
   };
-  const offlineWhy = (action: string) => (isOnline ? undefined : onlineOnly(action));
   // Send the displayed head so Forgejo rejects merges of unseen pushes.
   const headSeen = poolHead(pool, pr);
   const seen = headSeen ? {head_commit_id: headSeen} : {};
@@ -903,14 +907,14 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
         <p className="flex flex-wrap items-center gap-2 text-muted">
           The branch <BranchName as="span">{pr.head_branch}</BranchName> can be deleted{pr.merged ? ': its work is merged' : ''}.
-          <Tooltip text={(offlineWhy('Deleting the branch')) ?? ''}><PrimerButton size="small" leadingVisual={TrashIcon} type="button" inactive={!isOnline || busy} onClick={() => {
+          <Tooltip text={deleteOffline ?? ''}><PrimerButton size="small" leadingVisual={TrashIcon} type="button" inactive={!isOnline || busy} onClick={() => {
             setDeleteConfirm(true);
           }}>Delete branch</PrimerButton></Tooltip>
         </p>
       )}
       {deleteConfirm && headRef.length === 2 && <PrimerDialog title="Delete branch" subtitle={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} width="large" onClose={() => {setDeleteConfirm(false);}}
         footerButtons={[{content: 'Cancel', onClick: () => {setDeleteConfirm(false);}}, {content: 'Delete branch', buttonType: 'danger', leadingVisual: TrashIcon, inactive: !isOnline || busy, onClick: removeHeadBranch}]}>
-        {!isOnline && <p className="text-muted">{onlineOnly('Deleting the branch')}</p>}
+        {deleteOffline && <p className="text-muted">{deleteOffline}</p>}
       </PrimerDialog>}
       {!pr.merged && !closed && draft && <ReadyForReview issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-danger">Changes requested</p>}
@@ -919,7 +923,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         <div className="flex flex-wrap items-center gap-2">
           {!draft && !confirming && !auto && <>
             <ButtonGroup>
-              <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? (waiting ? 'Merge when all checks succeed' : 'Merge changes')}>
+              <Tooltip text={mergeOffline ?? mergeWhy ?? (waiting ? 'Merge when all checks succeed' : 'Merge changes')}>
                 <PrimerButton ref={mergeButton} size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
                   opener.current = mergeButton;
                   if (chosen) setConfirming(waiting ? 'auto' : 'now');
@@ -927,7 +931,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               </Tooltip>
               <ActionMenu>
                 <ActionMenu.Anchor><IconButton size="small" icon={TriangleDownIcon} variant={mainVariant} disabled={!isOnline || busy || !!mergeWhy || !chosen}
-                  aria-label="Select merge method" description={offlineWhy('Merging') ?? mergeWhy ?? 'Select merge method'}/></ActionMenu.Anchor>
+                  aria-label="Select merge method" description={mergeOffline ?? mergeWhy ?? 'Select merge method'}/></ActionMenu.Anchor>
                 <ActionMenu.Overlay width="medium"><ActionList selectionVariant="single">
                   {[...options.styles].sort((a, b) => METHOD_ORDER.indexOf(a.style) - METHOD_ORDER.indexOf(b.style)).map((m) => (
                     <ActionList.Item key={m.style} selected={m.style === chosen?.style} onSelect={() => {
@@ -942,15 +946,15 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               if (chosen) setConfirming('now');
             }}>Merge without waiting</PrimerButton>}
           </>}
-          {auto && <Tooltip text={(offlineWhy('Canceling the auto-merge')) ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
+          {auto && <Tooltip text={cancelOffline ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
             run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
           }}>Disable auto-merge</PrimerButton></Tooltip>}
           {pr.commits_behind > 0 && <ButtonGroup>
-            <Tooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton size="small" type="button" inactive={!isOnline || busy || conflict} onClick={() => {
+            <Tooltip text={updateOffline ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton size="small" type="button" inactive={!isOnline || busy || conflict} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
             }}>Update branch</PrimerButton></Tooltip>
           {config && <ActionMenu>
-            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} description={offlineWhy('Updating the branch') ?? conflictWhy ?? 'Choose branch update method'}/></ActionMenu.Anchor>
+            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} description={updateOffline ?? conflictWhy ?? 'Choose branch update method'}/></ActionMenu.Anchor>
             <ActionMenu.Overlay><ActionList>
               <ActionList.Item onSelect={() => {
                 run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
@@ -961,7 +965,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
             </ActionList></ActionMenu.Overlay>
           </ActionMenu>}
           </ButtonGroup>}
-          {!isOnline && <span className="text-sm text-muted">{onlineOnly('Merging')}</span>}
+          {mergeOffline && <span className="text-sm text-muted">{mergeOffline}</span>}
           {isOnline && conflictWhy && <span className="text-sm text-muted">{conflictWhy}</span>}
         </div>
       )}
@@ -970,11 +974,11 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
       {rebaseConfirm && <PrimerDialog title="Update with rebase" subtitle={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} width="large" onClose={() => {setRebaseConfirm(false);}}
         footerButtons={[{content: 'Cancel', onClick: () => {setRebaseConfirm(false);}}, {content: 'Rebase and force-push', buttonType: 'primary', inactive: !isOnline || busy || conflict || !config || !options.rebaseUpdate, onClick: rebaseHead}]}>
-        {(offlineWhy('Updating the branch') ?? conflictWhy) && <p className="text-muted">{offlineWhy('Updating the branch') ?? conflictWhy}</p>}
+        {(updateOffline ?? conflictWhy) && <p className="text-muted">{updateOffline ?? conflictWhy}</p>}
       </PrimerDialog>}
       {confirming && chosen && (
         <ConfirmMerge key={`${chosen.style}:${confirming}`} pr={pr} title={issue.get('title')} style={chosen.style} auto={confirming === 'auto'} checks={checks} unfinished={unfinished}
-          deletable={deletable} deleteDefault={deleteDefault} reason={offlineWhy('Merging') ?? mergeWhy} busy={busy} onCancel={() => {
+          deletable={deletable} deleteDefault={deleteDefault} reason={mergeOffline ?? mergeWhy} busy={busy} onCancel={() => {
             focusAfter.current = opener.current;
             setConfirming(undefined);
           }} onMerge={(body) => {

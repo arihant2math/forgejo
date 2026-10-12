@@ -3,8 +3,9 @@
 
 import {expect, test} from 'vitest';
 import {RequestFailed} from '../../app/api.ts';
+import {problemOf} from '../settings/problems.ts';
 import {
-  applyPatch, diffStyleOf, expired, fieldError, gpgKeyProblem, keepUnsaved, looksLikeEmail, mergeEmails, type Profile, profilePayload, profileProblems, revertPatch,
+  applyPatch, diffStyleOf, expired, gpgKeyProblem, keepUnsaved, looksLikeEmail, mergeEmails, type Profile, PROFILE_API_FIELDS, profilePayload, profileProblems, revertPatch,
   scopeRefused, shownProfile, sortEmails, spacedKeyId, sshKeyProblem, sshKeyTitle, toBase64, type UserSettings, validWebsite, withPrimary,
 } from './payload.ts';
 
@@ -40,12 +41,11 @@ test('Forgejo\'s limits and website check, before sending', () => {
   for (const w of ['ada.example', 'javascript:alert(1)', 'ftp://ada.example', 'https://']) expect(validWebsite(w), w).toBe(false);
 });
 
-test('a 422 names its field; other errors belong to the form', () => {
-  expect(fieldError(new RequestFailed(422, '[Website]: Website is not a valid URL'))).toEqual({field: 'website', message: 'Website is not a valid URL'});
-  expect(fieldError(new RequestFailed(422, '[FullName]: MaxSize'))).toEqual({field: 'full_name', message: 'MaxSize'});
-  expect(fieldError(new RequestFailed(422, 'Email address has been used: a@b.c'))).toEqual({field: undefined, message: 'Email address has been used: a@b.c'});
-  expect(fieldError(new RequestFailed(500, '[Website]: x')).field).toBeUndefined();
-  expect(fieldError(new Error('Forgejo could not be reached.'))).toEqual({field: undefined, message: 'Forgejo could not be reached.'});
+test('a 422 names its profile field; other errors belong to the form', () => {
+  expect(problemOf(new RequestFailed(422, '[Website]: Website is not a valid URL'), PROFILE_API_FIELDS)).toEqual({field: 'website', message: 'Website is not a valid URL'});
+  expect(problemOf(new RequestFailed(422, '[FullName]: MaxSize'), PROFILE_API_FIELDS)).toEqual({field: 'full_name', message: 'Too long.'});
+  expect(problemOf(new RequestFailed(422, 'Email address has been used: a@b.c'), PROFILE_API_FIELDS)).toEqual({message: 'Email address has been used: a@b.c'});
+  expect(problemOf(new Error('Forgejo could not be reached.'), PROFILE_API_FIELDS)).toEqual({message: 'Forgejo could not be reached.'});
   expect(scopeRefused(new RequestFailed(403, 'token does not have at least one of required scope(s): [write:user]'))).toBe(true);
   expect(scopeRefused(new RequestFailed(403, 'Forbidden'))).toBe(false);
 });

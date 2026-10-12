@@ -8,33 +8,19 @@ import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
-import {onlineOnly} from '../../app/online.ts';
-import {useApp, useSession} from '../../app/store.ts';
+import {onlineOnly, useReach} from '../../app/online.ts';
+import {useApp} from '../../app/store.ts';
 import {PeopleSearch} from '../settings/Collaborators.tsx';
-import {ResourceList, useOffline} from '../settings/bits.tsx';
+import {ResourceList} from '../settings/bits.tsx';
 import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
-import {useResource} from '../settings/resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {useOrgPermissions} from './permissions.ts';
 import {TrashIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {ActionList, ActionMenu, Button as PrimerButton, IconButton} from '@primer/react';
 import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
-
-export interface OrgPermissions {is_owner: boolean; is_admin: boolean; can_create_repository?: boolean}
-
-const NO_PERMISSIONS: OrgPermissions = {is_owner: false, is_admin: false};
-
-/** The viewer's permissions in an organization; an empty owner (a user's page) asks nothing. */
-export function useOrgPermissions(owner: string) {
-  const app = useApp();
-  const s = useSession();
-  const viewer = s.data.pool.model('User').get(s.userId)?.get('login');
-  return useResource(`org:${owner}:permissions:${viewer ?? ''}`, async (signal) => {
-    if (!viewer || !owner) return NO_PERMISSIONS;
-    return await online<OrgPermissions>(app, {api: 'v1', path: `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(owner)}/permissions`, signal}) ?? NO_PERMISSIONS;
-  });
-}
 
 export const OrganizationTeams = observer(function OrganizationTeams({owner}: {owner: string}) {
   const app = useApp();
@@ -55,7 +41,7 @@ export const OrganizationTeams = observer(function OrganizationTeams({owner}: {o
 /** API v1 exposes all members to members, public members to others; removal affects every team. */
 export const OrganizationPeople = observer(function OrganizationPeople({owner}: {owner: string}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const perms = useOrgPermissions(owner);
   const manage = perms.fresh && perms.value?.is_owner === true;
   const path = `/orgs/${encodeURIComponent(owner)}/members`;
@@ -109,7 +95,7 @@ export const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
 
 const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; editable: boolean}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const base = `/teams/${String(id)}/members`;
@@ -135,7 +121,7 @@ const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; e
 
 export const RepositoryTeams = observer(function RepositoryTeams({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const base = `${repoApi(owner, repo)}/teams`;

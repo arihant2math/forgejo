@@ -28,10 +28,10 @@ Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/lives
 | `src/data/` | Pool, entities, model catalogue, IndexedDB layout, persistence, hydration |
 | `src/sync/` | Sync client, transports (WS / SSE), bootstrap/NDJSON, tabs (leader election), `openData` |
 | `src/intents/` | Optimistic overlay, durable intent queue, conflict policies, 3-way merge |
-| `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces, Shiki configuration and highlighter driver, logs |
-| `src/components/` | Shared UI composed from Primer, one component per file (`Crumbs`, `Pager`, …) |
+| `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces and their Trusted Types policy, Shiki configuration and highlighter driver, logs |
+| `src/components/` | Shared UI composed from Primer, one component per file (`Crumbs`, `Pager`, `LoadState`, `ListSkeleton`, `OfflineBanner`, …) |
 | `src/features/<area>/` | Pages and their logic: `issues`, `issue`, `pull`, `code`, `board`, `inbox`, `home`, `repo`, `owner`, `search`, `create`, `editor`, `meta`, `settings`, `usersettings`, `views`, `wiki`, `activity`, `new`, `my`, `auth` |
-| `src/workers/` | Code (Shiki), Pierre diff parse, search (MiniSearch) workers |
+| `src/workers/` | Code (Shiki) and search (MiniSearch) workers |
 | `src/sw/` | Service worker and its pure routing decisions |
 | `src/styles/` | `tokens.css`, `app.css`, `base.css`, `fonts.css` (the only stylesheets) |
 | `src/protocol/types.gen.ts` | Wire types generated from `services/livesync/protocol` (never edit by hand) |
@@ -203,8 +203,10 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Virtualize every list that can exceed ~50 rows (TanStack Virtual). Fixed row heights come from tokens so lists
   virtualize without measuring; variable-height lists (the issue timeline) measure their rows.
 * No spinners for local data; the first frame after navigation shows content or a skeleton of the right shape.
+* Server data outside the pool (settings, profiles, code by SHA) is read with `useResource` (`app/resource.ts`) and its
+  states rendered with `LoadState`; user-facing failure text comes from `failureText` (`problemOf` for form fields).
 * Keep the boot route small: new views are `lazyView`s, heavy dependencies load lazily, heavy work (highlighting,
-  diff parsing for Pierre, search indexing) runs in workers.
+  search indexing) runs in workers.
 * Every network request has a deadline and the network epoch's signal (`sync/net.ts`).
 * Build every URL from the config's `app_sub_url` / `base` (`app/config.ts`); never concatenate `/-/next`.
 * Wire shapes come only from `src/protocol/types.gen.ts`. After changing `services/livesync/protocol`, run
@@ -233,9 +235,11 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 
 ### Security
 
-* The SPA document enforces Trusted Types with one policy (`forgejo-next`, `src/app/trusted.ts`). Server HTML goes
-  through `setMarkup` / `textOfMarkup` (allowlist scrub); no `innerHTML`, `outerHTML`, `insertAdjacentHTML` or
-  `DOMParser` elsewhere. Workers are created through `appWorkerURL`.
+* The SPA document enforces Trusted Types with two named policies: `forgejo-next` (`src/app/trusted.ts`) and
+  `forgejo-next-diffs`, private to `src/code/pierreTrust.ts` and used only by the patched `@pierre/diffs` for the HTML
+  it renders itself (ARCHITECTURE.md, Code rendering). Server HTML goes through `setMarkup` / `textOfMarkup`
+  (allowlist scrub); no `innerHTML`, `outerHTML`, `insertAdjacentHTML` or `DOMParser` elsewhere. Never add a default
+  policy or another policy. Workers are created through `appWorkerURL`.
 * Requests send the token in the `Authorization` header only (never in URLs or cookies) with `credentials: 'omit'`;
   API writes use `redirect: 'manual'` and carry `Idempotency-Key`. No third-party origins. The document sends no
   `Referer` (`no-referrer`), so the OAuth code in the callback URL never leaks.

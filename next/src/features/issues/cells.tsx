@@ -5,12 +5,12 @@
 
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useApp} from '../../app/store.ts';
+import {useApp, usePool} from '../../app/store.ts';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
-import {editing} from '../../intents/session.ts';
+import {editing, useOverlay} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
@@ -43,15 +43,7 @@ export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
   return <span className="inline-flex shrink-0" style={{color: labelColor(color)}}>{createElement(icon, {size: 16})}</span>;
 }
 
-export function usePool(): Pool {
-  const s = useApp().session;
-  if (!s) throw new Error('no session');
-  return s.data.pool;
-}
-
-export function useOverlay() {
-  return editing(useApp()).overlay;
-}
+export {usePool, useOverlay};
 
 export interface LabelView {
   status: Label | undefined;

@@ -346,6 +346,20 @@ test('a comment\'s time links to its permalink, as on GitHub', async () => {
   expect(link?.querySelector('relative-time')?.getAttribute('datetime')).toBe(new Date(Date.parse(T) + 60_000).toISOString());
 });
 
+test('a comment not yet on Forgejo has no permalink: its time is plain text', async () => {
+  const s = session('write', 1);
+  const app = createApp(config, s);
+  editing(app).intents.submit({kind: 'comment.create', issueId: 100, repoId: 20, tempId: crypto.randomUUID(), body: 'Typed offline'});
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/issues/7']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const card = (await screen.findByText('Typed offline')).closest('article');
+  if (!card) throw new Error('no pending card');
+  expect(card.querySelector('header relative-time')).not.toBeNull();
+  expect(card.querySelector('header relative-time')?.closest('a')).toBeNull();
+  expect(document.querySelector('a[href*="#comment--"]')).toBeNull();
+});
+
 test('deleting a comment asks first: Cancel has focus, Escape keeps the comment, Delete removes it', async () => {
   const {app} = await open('/acme/website/issues/7', session('write', 1));
   const card = await waitFor(() => {

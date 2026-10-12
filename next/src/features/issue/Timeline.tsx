@@ -214,7 +214,7 @@ export const DescriptionItem = observer(function DescriptionItem({issue}: {issue
   return (
     <TimelineList clipSidebar="start">
       <CommentEntry poster={issue.get('poster_id')}>
-        <Card id={issue.id > 0 ? `issue-${String(issue.id)}` : undefined} poster={issue.get('poster_id')} original={issue.get('original_author')} at={issue.get('created_at')} verb="opened"
+        <Card id={issue.id > 0 ? `issue-${String(issue.id)}` : undefined} permalink={issue.id > 0 ? `issue-${String(issue.id)}` : undefined} poster={issue.get('poster_id')} original={issue.get('original_author')} at={issue.get('created_at')} verb="opened"
           badge={<>
             <Edited at={lastEdit?.edited_at} version={version}/>
             {lastEdit && <span className="text-sm text-muted">by <Who id={lastEdit.poster_id}/></span>}

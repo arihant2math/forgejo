@@ -58,10 +58,10 @@ export function CommentEntry({poster, row, children}: {poster: number; row?: Row
   );
 }
 
-/** `nested`: inside a review or thread, where no gutter avatar names the author. */
-export function Card({poster, original, at, verb, badge, actions, children, footer, id, linked, nested = false}: {
+/** `nested`: inside a review or thread, where no gutter avatar names the author. `permalink`: the hash its time links to, on the current page; none for a card without an address yet. */
+export function Card({poster, original, at, verb, badge, actions, children, footer, id, permalink, linked, nested = false}: {
   poster: number; original: string; at: string; verb?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode; footer?: ReactNode;
-  id?: string | undefined; linked?: boolean; nested?: boolean;
+  id?: string | undefined; permalink?: string | undefined; linked?: boolean; nested?: boolean;
 }) {
   return (
     <article id={id} aria-current={linked ? 'location' : undefined}
@@ -71,7 +71,7 @@ export function Card({poster, original, at, verb, badge, actions, children, foot
           <span className={clsx('mr-1', nested ? 'flex' : 'flex @md/conversation:hidden')}><UserAvatar id={poster} size="sm" linked/></span>
           <Who id={poster} fallback={original}/>
           {verb && <span className="text-muted">{verb}</span>}
-          {id ? <RouterLink muted to="." search={true} hash={id}><TimeAgo at={at} variant="words"/></RouterLink> : <span className="text-muted"><TimeAgo at={at} variant="words"/></span>}
+          {permalink ? <RouterLink muted to="." search={true} hash={permalink}><TimeAgo at={at} variant="words"/></RouterLink> : <span className="text-muted"><TimeAgo at={at} variant="words"/></span>}
           {badge}
         </span>
       </BoxHeader>
@@ -81,7 +81,8 @@ export function Card({poster, original, at, verb, badge, actions, children, foot
   );
 }
 
-export const CommentCard = observer(function CommentCard({c, type, badge, nested = false}: {c: Entity<'Comment'>; type: string; badge?: ReactNode; nested?: boolean}) {
+/** `inFiles`: on a pull request's Files tab, where a code comment's address is its review thread. */
+export const CommentCard = observer(function CommentCard({c, type, badge, nested = false, inFiles = false}: {c: Entity<'Comment'>; type: string; badge?: ReactNode; nested?: boolean; inFiles?: boolean}) {
   const [edit, setEdit] = useState(false);
   const actions = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
@@ -98,7 +99,7 @@ export const CommentCard = observer(function CommentCard({c, type, badge, nested
   // The suggestion card replaces a body that is only a suggestion; otherwise the text shows as written.
   const suggestion = type === 'code' && !edit && suggestionOnly(c.get('body'), c.get('line')) && pullOf(pool, c.get('issue_id')) !== undefined;
   return (
-    <Card id={`comment-${String(c.id)}`} linked={linked} nested={nested} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
+    <Card id={`comment-${String(c.id)}`} permalink={c.id > 0 ? `${inFiles && type === 'code' ? 'review-thread' : 'comment'}-${String(c.id)}` : undefined} linked={linked} nested={nested} poster={c.get('poster_id')} original={c.get('original_author')} at={c.get('created_at')}
       verb={type === 'dismiss_review' ? 'dismissed a review' : 'commented'}
       badge={<>
         {badge}

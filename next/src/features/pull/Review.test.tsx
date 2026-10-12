@@ -216,6 +216,17 @@ test('a reply shows in the conversation it answers, not as an empty review of it
   expect(within(activity).getByText('requested changes')).toBeTruthy();
 });
 
+test('on the Files tab a code comment\'s time links to its review thread there, as Copy link does', async () => {
+  const s = session();
+  const hunk = '@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three';
+  s.data.put('Review', 'issue:300', review(40, 3, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
+  s.data.put('Comment', 'issue:300', comment(500, 300, 'Why three?', {type: 'code', poster_id: 3, review_id: 40, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-02T00:00:00Z', body_html: '<p>Why three?</p>'}));
+  await open(s, '/acme/website/pulls/4?tab=files');
+  const card = (await screen.findByText('Why three?')).closest('article');
+  const time = card?.querySelector('header relative-time')?.closest('a');
+  expect(time?.getAttribute('href')).toMatch(/\?tab=files#review-thread-500$/);
+});
+
 test('a reviewer who reviewed can be asked again from the sidebar; the verdict is named', async () => {
   const s = session();
   s.data.put('Review', 'issue:300', review(40, 3, 'REQUEST_CHANGES', MID, '2026-10-02T00:00:00Z'));

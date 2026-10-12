@@ -3,7 +3,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
-import {online} from '../../app/api.ts';
+import {failureText, online} from '../../app/api.ts';
 import {sitePath} from '../../app/config.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -42,7 +42,7 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
       if (!raw.ok || !info) throw new Error('Could not compare these branches.');
       const files = parseDiff(await raw.text());
       if (!ctl.signal.aborted) setResult({files, total: info.total_commits, title: info.commits[0]?.commit.message.split('\n')[0] ?? props.head, repoId: info.head_repo_id, baseSha: info.merge_base, headSha: info.head_commit_id});
-    })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(err instanceof Error ? err.message : 'Could not compare these branches.'); });
+    })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(failureText(err)); });
     return () => { ctl.abort(); };
   }, [app, props.owner, props.repo, props.base, props.head, connected, session]);
   if (!connected) return <Banner title="Online only" description={<>Comparing forks and opening pull requests requires a connection.</>}/>;

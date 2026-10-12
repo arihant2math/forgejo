@@ -5,7 +5,7 @@ import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {online} from '../../app/api.ts';
+import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {sitePath} from '../../app/config.ts';
@@ -15,7 +15,8 @@ import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {ListRow} from '../../components/ListRow.tsx';
 import {discoverySearch} from './params.ts';
-import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {Pager} from '../../components/Pager.tsx';
 import {type Hit, type MatchRow, matchRows} from './codeHits.ts';
 import {useSnippetHighlight} from '../../code/DiffSnippet.tsx';
 import {CodeTokens} from '../../code/parts.tsx';
@@ -60,7 +61,7 @@ export default observer(function CodeSearch() {
     if (!connected) { setError('Code search requires an internet connection.'); return; }
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void online<Answer>(app, {api: 'sync', path: `${repoId ? `/repos/${repoId}/search` : '/search/code'}?${new URLSearchParams({q, page: String(page)})}`, signal: controller.signal}).then((value) => { if (!controller.signal.aborted) setAnswer(value); }).catch((err: unknown) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Search failed'); });
+      void online<Answer>(app, {api: 'sync', path: `${repoId ? `/repos/${repoId}/search` : '/search/code'}?${new URLSearchParams({q, page: String(page)})}`, signal: controller.signal}).then((value) => { if (!controller.signal.aborted) setAnswer(value); }).catch((err: unknown) => { if (!controller.signal.aborted) setError(failureText(err)); });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [app, q, page, repoId, connected]);
@@ -108,6 +109,6 @@ export default observer(function CodeSearch() {
           </div>
         );
       })}</div>
-      {answer && <ResultPager page={page} pageCount={Math.min(100, Math.ceil(answer.total / 50))} href={pageHref}/>}
+      {answer && <Pager page={page} pageCount={Math.min(100, Math.ceil(answer.total / 50))} href={pageHref} className="py-2"/>}
     </PageBody></>;
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {OrganizationLabels} from './OrganizationLabels.tsx';
@@ -27,6 +27,7 @@ import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -159,8 +160,8 @@ function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; co
   const ids = {labels: String(label.id)};
   return (
     <span className="flex w-40 justify-end gap-4 text-base tabular-nums max-md:hidden">
-      {pulls > 0 && <Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{plural(pulls, 'pull request', 'pull requests')}</Link>}
-      <Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link>
+      {pulls > 0 && <PrimaryLink to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate">{plural(pulls, 'pull request', 'pull requests')}</PrimaryLink>}
+      <PrimaryLink to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</PrimaryLink>
     </span>
   );
 }

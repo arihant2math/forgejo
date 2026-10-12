@@ -6,6 +6,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {computed} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
+import {failureText} from '../../app/api.ts';
 import {sitePath} from '../../app/config.ts';
 import {useSiteLink} from '../../app/links.ts';
 import {connectivity} from '../../app/online.ts';
@@ -16,7 +17,8 @@ import {ListRow, NORMAL_ROW_HEIGHT} from '../../components/ListRow.tsx';
 import {StateGlyph, stateLook} from '../issues/cells.tsx';
 import {ActionList, ActionMenu, SegmentedControl} from '@primer/react';
 import {discover, discoverySearch, localCount, localDiscovery, type DiscoverySearch, type Kind, type ResultPage, type ResultRow} from './discovery.ts';
-import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {Pager} from '../../components/Pager.tsx';
 
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
@@ -77,7 +79,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       void discover(app, search, controller.signal).then((page) => {
         if (!controller.signal.aborted) { setAnswer({key, page}); setCounts((previous) => ({...previous, [search.type]: page.total})); }
       }).catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Search failed.');
+        if (!controller.signal.aborted) setError(failureText(err));
       });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
@@ -163,7 +165,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
           })}
         </div>
       </div>
-      {page && <ResultPager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})}/>}
+      {page && <Pager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})} className="py-2"/>}
     </PageBody>
   </>;
 });

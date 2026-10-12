@@ -26,7 +26,7 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
 import {Artifacts} from './Artifacts.tsx';
-import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
+import {codeTo, useCodeRows} from './nav.tsx';
 import {RunControls, useRunActions} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
 import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
@@ -35,7 +35,7 @@ import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx
 import {ChevronDownIcon, SyncIcon, WorkflowIcon} from '@primer/octicons-react';
 import {ActionMenu, ActionList, Button, Label, NavList} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem, PrimaryLink} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
@@ -96,7 +96,7 @@ function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef
       return <RouterLink to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(t.number)}} muted className="min-w-0 truncate">#{t.number}</RouterLink>;
     case 'branch':
     case 'tag':
-      return <CodeLink owner={owner} repo={repo} to={codeSplat('src', {kind: t.kind, ref: t.name})} className="text-default hover:text-accent hover:underline">{t.name}</CodeLink>;
+      return <PrimaryLink {...codeTo(owner, repo, codeSplat('src', {kind: t.kind, ref: t.name}))}>{t.name}</PrimaryLink>;
     default:
       return <BranchName as="span">{t.name}</BranchName>;
   }
@@ -268,7 +268,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             <span className="font-mono text-default">{run.workflow_id}</span>
             <span>{eventText(run.event)}</span>
             <TriggerLink owner={props.owner} repo={props.repo} gitRef={run.ref}/>
-            {run.commit_sha && <CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`} className="font-mono text-sm text-muted hover:text-accent hover:underline">{shortSha(run.commit_sha)}</CodeLink>}
+            {run.commit_sha && <span className="font-mono text-sm"><RouterLink muted {...codeTo(props.owner, props.repo, `commit/${run.commit_sha}`)}>{shortSha(run.commit_sha)}</RouterLink></span>}
             {actor && <span className="flex items-center gap-2 text-default">{actor.avatar_url ? <Avatar alt={actor.full_name || actor.login} src={actor.avatar_url} size={20}/> : null}{actor.login}</span>}
             <time className="text-sm" dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
           </p>

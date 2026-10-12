@@ -15,17 +15,19 @@ import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
-import {ResourceList, useOffline} from './bits.tsx';
+import {ResourceList} from './bits.tsx';
+import {useReach} from '../../app/online.ts';
 import {problemOf} from './problems.ts';
 import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator, searchUsers} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
 import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   const pool = usePool();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [removing, setRemoving] = useState<Collaborator | undefined>(undefined);
   const res = useResource(settingsKey(repoId, 'collaborators'), (signal) => fetchCollaborators(app, owner, repo, signal));
   const fromPool: Collaborator[] = [];

@@ -3,7 +3,7 @@
 
 // Include locally held projects and boards known through ProjectRef.
 
-import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -19,6 +19,7 @@ import {BorderBox} from '../../components/BorderBox.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
 import {Blankslate} from '@primer/react/experimental';
 import {Label, SegmentedControl, Text} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 interface Place {
   key: string;
@@ -107,8 +108,8 @@ export const BoardsList = observer(function BoardsList() {
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
               <BorderBox key={pl.key} label={pl.key || 'Other'} title={<span className="truncate">{pl.repo ?
-                <Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.key}</Link> :
-                pl.owner ? <Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.owner}</Link> : 'Other'}</span>}
+                <PrimaryLink to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}}>{pl.key}</PrimaryLink> :
+                pl.owner ? <PrimaryLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}}>{pl.owner}</PrimaryLink> : 'Other'}</span>}
               actions={pl.owner && <NewBoard scope={pl.scope}/>}>
                 <ul>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
@@ -131,7 +132,7 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
     <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-center gap-2 border-t border-muted px-4 py-3 first:border-t-0 data-active:bg-accent-muted">
       <span className="flex h-5 shrink-0 self-start items-center text-muted"><ProjectIcon size={16}/></span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold text-default hover:text-accent hover:underline">{project.title}</Link>
+        <PrimaryLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold">{project.title}</PrimaryLink>
         <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</span>
         {project.description && <p className="text-base text-muted">{project.description}</p>}
       </div>

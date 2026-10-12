@@ -5,12 +5,12 @@
 
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useApp} from '../../app/store.ts';
+import {useApp, usePool} from '../../app/store.ts';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
-import {editing} from '../../intents/session.ts';
+import {editing, useOverlay} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
@@ -28,6 +28,7 @@ import {repoLabels} from './candidates.ts';
 import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label as PrimerLabel} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 export function labelColor(color: string): string {
   return color.startsWith('#') ? color : `#${color}`;
@@ -42,15 +43,7 @@ export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
   return <span className="inline-flex shrink-0" style={{color: labelColor(color)}}>{createElement(icon, {size: 16})}</span>;
 }
 
-export function usePool(): Pool {
-  const s = useApp().session;
-  if (!s) throw new Error('no session');
-  return s.data.pool;
-}
-
-export function useOverlay() {
-  return editing(useApp()).overlay;
-}
+export {usePool, useOverlay};
 
 export interface LabelView {
   status: Label | undefined;
@@ -183,7 +176,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
   if (!id || !u.login) return <span className="font-semibold text-default">{id ? u.name : fallback}</span>;
-  return <Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold text-default hover:text-accent hover:underline">{u.name}</Link>;
+  return <PrimaryLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold">{u.name}</PrimaryLink>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {

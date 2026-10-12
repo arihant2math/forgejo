@@ -3,7 +3,7 @@
 
 // Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
-import {Link, useNavigate, useParams} from '@tanstack/react-router';
+import {useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
@@ -36,7 +36,7 @@ import {GraphIcon, IssueClosedIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommit
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
-import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem, PrimaryLink} from '../../app/routerLinks.tsx';
 import {codeTo} from '../code/nav.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
@@ -326,7 +326,7 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
     <>
       {who.avatar_url !== '' ? <Avatar alt={name} src={who.avatar_url} size={size === 'sm' ? 20 : 32}/> : <span aria-hidden className={size === 'sm' ? 'size-5 shrink-0' : 'size-8 shrink-0'}/>}
       {who.login ?
-        <Link to="/$owner" params={{owner: who.login}} className="truncate text-default hover:text-accent hover:underline">{name}</Link> :
+        <PrimaryLink to="/$owner" params={{owner: who.login}} className="truncate">{name}</PrimaryLink> :
         <span className="truncate text-default">{name !== '' ? name : 'Someone'}</span>}
     </>
   );

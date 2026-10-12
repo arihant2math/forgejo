@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {Pagination, UnderlineNav} from '@primer/react';
+import {UnderlineNav} from '@primer/react';
 import {useEffect, useState} from 'react';
 import {sitePath} from '../../app/config.ts';
 import {useLinkClick} from '../../app/links.ts';
@@ -37,12 +37,6 @@ export function SearchTypeNav({label, available, current, counts = {}, href}: {
         onClick={(e) => { click(e, to); }}>{LABELS[kind]}</UnderlineNav.Item>;
     })}
   </UnderlineNav>;
-}
-
-export function ResultPager({page, pageCount, href}: {page: number; pageCount: number; href: (page: number) => string}) {
-  const click = useLinkClick();
-  if (pageCount <= 1) return null;
-  return <div className="py-2"><Pagination pageCount={pageCount} currentPage={Math.min(page, pageCount)} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/></div>;
 }
 
 /** A text field's draft, committed after a pause in typing and replaced when the committed value changes. */

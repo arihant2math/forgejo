@@ -62,3 +62,49 @@ test('keeps text typed after settling while the value catches up, and still foll
   rerender(<SearchField {...props} value="bu"/>);
   expect(input.value).toBe('bu');
 });
+
+test('a value that already matched at settle time leaves no marker, so leaving and coming back still resyncs', () => {
+  vi.useFakeTimers();
+  const props = {label: 'Search titles', onChange: () => undefined, onSettle: () => undefined};
+  const {rerender} = render(<SearchField {...props} value=""/>);
+  const input = screen.getByRole<HTMLInputElement>('searchbox', {name: 'Search titles'});
+  fireEvent.change(input, {target: {value: 'bug'}});
+  rerender(<SearchField {...props} value="bug"/>);
+  act(() => {
+    vi.advanceTimersByTime(300);
+  });
+  rerender(<SearchField {...props} value=""/>);
+  expect(input.value).toBe('');
+  rerender(<SearchField {...props} value="bug"/>);
+  expect(input.value).toBe('bug');
+});
+
+test('a settled text with a trailing space keeps typing when its trimmed value arrives', () => {
+  vi.useFakeTimers();
+  const props = {label: 'Search labels', onChange: () => undefined, onSettle: () => undefined};
+  const {rerender} = render(<SearchField {...props} value=""/>);
+  const input = screen.getByRole<HTMLInputElement>('searchbox', {name: 'Search labels'});
+  fireEvent.change(input, {target: {value: 'bug '}});
+  act(() => {
+    vi.advanceTimersByTime(300);
+  });
+  fireEvent.change(input, {target: {value: 'bug f'}});
+  rerender(<SearchField {...props} value="bug"/>);
+  expect(input.value).toBe('bug f');
+});
+
+test('a marker is consumed by the next value change, so revisiting an old value later follows it', () => {
+  vi.useFakeTimers();
+  const props = {label: 'Search labels', onChange: () => undefined, onSettle: () => undefined};
+  const {rerender} = render(<SearchField {...props} value="bug"/>);
+  const input = screen.getByRole<HTMLInputElement>('searchbox', {name: 'Search labels'});
+  fireEvent.change(input, {target: {value: 'bugs'}});
+  act(() => {
+    vi.advanceTimersByTime(300);
+  });
+  rerender(<SearchField {...props} value="bugs"/>);
+  rerender(<SearchField {...props} value=""/>);
+  expect(input.value).toBe('');
+  rerender(<SearchField {...props} value="bugs"/>);
+  expect(input.value).toBe('bugs');
+});

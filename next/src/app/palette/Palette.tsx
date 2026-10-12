@@ -96,7 +96,7 @@ const COMMANDS: PaletteCommand[] = [
     if (login) void nav({href: sitePath(app.config, `/${encodeURIComponent(login)}?tab=stars`)});
   }},
   {id: 'settings', label: 'Settings', icon: GearIcon, keywords: 'preferences profile account', run: (_, nav) => void nav({to: '/user/settings'})},
-  {id: 'settings-account', label: 'Settings: Email addresses', icon: MailIcon, keywords: 'account emails password', run: (_, nav) => void nav({to: '/user/settings/account'})},
+  {id: 'settings-account', label: 'Settings: Account', icon: MailIcon, keywords: 'emails password delete', run: (_, nav) => void nav({to: '/user/settings/account'})},
   {id: 'settings-appearance', label: 'Settings: Appearance', icon: PaintbrushIcon, keywords: 'theme language diff', run: (_, nav) => void nav({to: '/user/settings/appearance'})},
   {id: 'settings-keys', label: 'Settings: SSH and GPG keys', icon: KeyIcon, keywords: 'ssh gpg keys', run: (_, nav) => void nav({to: '/user/settings/keys'})},
   {id: 'new-repo', label: 'New repository', icon: RepoIcon, aliases: ['create a repository', 'new repo'], keywords: 'create repo', run: (_, nav) => void nav({to: '/repo/create'})},

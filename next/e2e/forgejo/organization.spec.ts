@@ -18,7 +18,8 @@ test('organization labels, team membership and repository access stay in-app', a
     const page = await signedIn(ctx);
     const problems = watch(page);
     await page.goto(`${BASE}/${ORG}`);
-    await page.getByRole('button', {name: 'Labels', exact: true}).click();
+    await page.getByRole('button', {name: 'More of this organization'}).click();
+    await page.getByRole('menuitem', {name: 'Labels', exact: true}).click();
     await page.getByRole('button', {name: 'New organization label'}).click();
     await page.getByRole('textbox', {name: 'Name', exact: true}).fill('needs-triage');
     await page.getByRole('button', {name: 'Create label', exact: true}).click();
@@ -34,6 +35,7 @@ test('organization labels, team membership and repository access stay in-app', a
     await page.getByRole('button', {name: 'Delete label', exact: true}).click();
     await expect(page.getByText('triaged', {exact: true})).toHaveCount(0);
     expect(await apiJson<unknown[]>('GET', `/orgs/${ORG}/labels`)).toEqual([]);
+    await page.getByRole('dialog', {name: `Labels of ${ORG}`}).getByRole('button', {name: 'Close'}).click();
 
     await page.getByRole('link', {name: 'Teams', exact: true}).click();
     await page.getByRole('button', {name: 'Members of triage', exact: true}).click();

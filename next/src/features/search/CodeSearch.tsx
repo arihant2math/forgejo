@@ -13,8 +13,8 @@ import {codePath} from '../../app/paths.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {DenseRow} from '../home/DenseRow.tsx';
-import {SegmentedControl} from '@primer/react';
-import {discoverySearch, kinds} from './params.ts';
+import {discoverySearch} from './params.ts';
+import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
 import {type Hit, type MatchRow, matchRows} from './codeHits.ts';
 import {useSnippetHighlight} from '../../code/DiffSnippet.tsx';
 import {CodeTokens} from '../../code/parts.tsx';
@@ -47,19 +47,13 @@ export default observer(function CodeSearch() {
   const page = Math.min(100, Math.max(1, Number(raw.page) || 1));
   const connected = connectivity.online;
   const repoName = repoId === undefined ? undefined : app.session?.data.pool.model('Repository').get(repoId)?.data.full_name;
-  const [query, setQuery] = useState(q);
   const [answer, setAnswer] = useState<Answer>();
   const [error, setError] = useState('');
   const [cursor, setCursor] = useState(0);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const click = useLinkClick();
-  const patch = useCallback((changes: Record<string, unknown>) => { void navigate({to: '/search', search: discoverySearch({...raw, ...changes, type: 'code', repoId})}); }, [navigate, raw, repoId]);
-  useEffect(() => { setQuery(q); }, [q]);
-  useEffect(() => {
-    if (query === q) return;
-    const timer = setTimeout(() => { patch({q: query, page: 1}); }, 250);
-    return () => { clearTimeout(timer); };
-  }, [query, q, patch]);
+  const commitQuery = useCallback((query: string) => { void navigate({to: '/search', search: discoverySearch({...raw, q: query, page: 1, type: 'code', repoId}), replace: true}); }, [navigate, raw, repoId]);
+  const [query, setQuery] = useDraft(q, commitQuery);
   useEffect(() => {
     setAnswer(undefined); setError(''); setCursor(0);
     if (!connected) { setError('Code search requires an internet connection.'); return; }
@@ -81,11 +75,15 @@ export default observer(function CodeSearch() {
     return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
-  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}><TextInput size="small" aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/><Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'repositories'})}); }}>All search types</Button></PageHeader>
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2"><SegmentedControl size="small" aria-label="Search type" variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
-        const type = index === undefined ? undefined : kinds[index];
-        if (type) void navigate({to: '/search', search: discoverySearch({q, type})});
-      }}>{kinds.map((kind) => <SegmentedControl.Button key={kind} selected={kind === 'code'}>{kind === 'code' ? 'Code' : kind === 'pulls' ? 'Pull requests' : kind.slice(0, 1).toUpperCase() + kind.slice(1)}</SegmentedControl.Button>)}</SegmentedControl>{repoId && <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}</div>
+  const pageHref = (n: number) => searchHref(app, '/search', {q, type: 'code', repoId, page: n});
+  return <><PageHeader title={repoId ? `Search code in ${repoName ?? 'this repository'}` : 'Search code'}>
+      <TextInput size="small" aria-label="Search code" autoFocus={!q} value={query} placeholder="Word or symbol…" onKeyDown={(e) => { if (e.key === 'Enter' && query === q) { e.preventDefault(); open(); } }} onChange={(e) => { setQuery(e.target.value); }}/>
+      {repoId && <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({q, type: 'code'})}); }}>Search all repositories</Button>}
+    </PageHeader>
+    <div className="shrink-0 px-4">
+      <SearchTypeNav label="Search type" available={availableKinds(app, false)} current="code" counts={{code: answer?.total}}
+        href={(kind) => searchHref(app, '/search', kind === 'code' ? {q, type: 'code', repoId} : {q, type: kind})}/>
+    </div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}
       {answer && !answer.enabled && !repoId && <Blankslate spacious><Blankslate.Heading>Global code search is unavailable</Blankslate.Heading><Blankslate.Description>The repository code indexer is disabled on this instance.</Blankslate.Description></Blankslate>}
@@ -108,6 +106,6 @@ export default observer(function CodeSearch() {
           </div>
         );
       })}</div>
-      {answer && answer.total > 50 && <div className="flex items-center gap-2 p-4"><Button size="small" type="button" disabled={page <= 1} onClick={() => { patch({page: page - 1}); }}>Previous</Button><span className="text-sm text-muted">Page {page}</span><Button size="small" type="button" disabled={page * 50 >= answer.total || page >= 100} onClick={() => { patch({page: page + 1}); }}>Next</Button></div>}
+      {answer && <ResultPager page={page} pageCount={Math.min(100, Math.ceil(answer.total / 50))} href={pageHref}/>}
     </PageBody></>;
 });

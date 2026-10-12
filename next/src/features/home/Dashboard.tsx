@@ -1,17 +1,18 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {runInAction} from 'mobx';
+import {computed, type IComputedValue, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect} from 'react';
+import {useEffect, useMemo} from 'react';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {DashboardKeys} from './DashboardKeys.tsx';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
-import {useApp, useSession} from '../../app/store.ts';
+import {type App, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import type {Pool} from '../../data/pool.ts';
+import type {Overlay} from '../../intents/overlay.ts';
 import {issueState, notificationStatus} from '../../intents/view.ts';
 import {DenseRow} from './DenseRow.tsx';
 import {IssueReference as RefCell} from './IssueReference.tsx';
@@ -44,6 +45,32 @@ interface Item {
 /** Wait for initial sync to settle so sections and counts do not jump as groups arrive. */
 let settledOnce = false;
 
+const sameItems = (a: readonly Item[], b: readonly Item[]) => a.length === b.length && a.every((x, i) => x.issue === b[i]?.issue && x.note === b[i]?.note && x.at === b[i]?.at);
+
+/** Each section is its own cached computed, so a change re-renders only the section it alters. */
+class DashboardModel {
+  readonly unread: IComputedValue<Item[]>;
+  readonly assigned: IComputedValue<Item[]>;
+  readonly mine: IComputedValue<Item[]>;
+  readonly pending: IComputedValue<Item[]>;
+  readonly empty: IComputedValue<boolean>;
+
+  constructor(app: App, me: number, pool: Pool, overlay: Overlay) {
+    const issues = pool.model('Issue');
+    const open = (i: Entity<'Issue'> | undefined): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open';
+    this.unread = computed(() => [...pool.model('Notification').all()].filter((n) => notificationStatus(overlay, n) === 'unread')
+      .map((n): Item => {
+        const issue = issues.get(n.get('issue_id'));
+        return {issue, note: n, at: activityOf(n.data, issue?.get('updated_at') ?? knownSubject(app, n.id)?.updated)};
+      }).sort(byTime), {equals: sameItems});
+    this.assigned = computed(() => [...new Set([...pool.model('IssueAssignee').by('assignee_id', me)].map((a) => a.get('issue_id')))]
+      .map((id) => issues.get(id)).filter(open).map(updated).sort(byTime), {equals: sameItems});
+    this.mine = computed(() => [...issues.by('poster_id', me)].filter((i) => i.get('is_pull') && open(i)).map(updated).sort(byTime), {equals: sameItems});
+    this.pending = computed(() => (overlay.created('Issue') as Entity<'Issue'>[]).map((issue) => ({issue, at: issue.get('created_at')})).sort(byTime), {equals: sameItems});
+    this.empty = computed(() => !this.unread.get().length && !this.assigned.get().length && !this.mine.get().length && !this.pending.get().length);
+  }
+}
+
 export default observer(function Dashboard() {
   const app = useApp();
   const {userId: me, auth, data} = useSession();
@@ -51,35 +78,29 @@ export default observer(function Dashboard() {
   if (settled) settledOnce = true;
   const pool = usePool();
   const overlay = useOverlay();
-  const open = (i: Entity<'Issue'> | undefined): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open';
-  const issues = pool.model('Issue');
-
-  const unread = [...pool.model('Notification').all()].filter((n) => notificationStatus(overlay, n) === 'unread')
-    .map((n): Item => {
-      const issue = issues.get(n.get('issue_id'));
-      return {issue, note: n, at: activityOf(n.data, issue?.get('updated_at') ?? knownSubject(app, n.id)?.updated)};
-    }).sort(byTime);
-  const assigned = [...new Set([...pool.model('IssueAssignee').by('assignee_id', me)].map((a) => a.get('issue_id')))]
-    .map((id) => issues.get(id)).filter(open).map(updated).sort(byTime);
-  const mine = [...issues.by('poster_id', me)].filter((i) => i.get('is_pull') && open(i)).map(updated).sort(byTime);
-  const pending = (editing(app).overlay.created('Issue') as Entity<'Issue'>[]).map((issue) => ({issue, at: issue.get('created_at')})).sort(byTime);
-
+  const model = useMemo(() => new DashboardModel(app, me, pool, overlay), [app, me, pool, overlay]);
   if (!settled) return <HomeSkeleton/>;
-  const sections: SectionProps[] = [
-    {title: 'Unread', icon: InboxIcon, items: unread, all: '/notifications?filter=unread'},
-    {title: 'Assigned to you', icon: IssueOpenedIcon, items: assigned, all: '/issues?type=assigned'},
-    {title: 'Your pull requests', icon: GitPullRequestIcon, items: mine, all: '/pulls?type=created_by'},
-  ].filter((x) => x.items.length);
   return (
     <DashboardKeys><PageColumn>
-      {pending.length > 0 && <Section title="Not synced yet" icon={UploadIcon} items={pending}/>}
+      <ListSection title="Not synced yet" icon={UploadIcon} items={model.pending}/>
       {/* Reserve the previous review-list height to avoid shifting sections when the authenticated answer arrives. */}
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
-      {sections.map((x) => <Section key={x.title} {...x}/>)}
-      {sections.length || pending.length ? <p className="text-sm text-muted"><Hints/></p> : <Welcome/>}
+      <ListSection title="Unread" icon={InboxIcon} items={model.unread} all="/notifications?filter=unread"/>
+      <ListSection title="Assigned to you" icon={IssueOpenedIcon} items={model.assigned} all="/issues?type=assigned"/>
+      <ListSection title="Your pull requests" icon={GitPullRequestIcon} items={model.mine} all="/pulls?type=created_by"/>
+      <Footer empty={model.empty}/>
       <Feed/>
     </PageColumn></DashboardKeys>
   );
+});
+
+const ListSection = observer(function ListSection({items, ...rest}: Omit<SectionProps, 'items'> & {items: IComputedValue<Item[]>}) {
+  const list = items.get();
+  return list.length ? <Section {...rest} items={list}/> : null;
+});
+
+const Footer = observer(function Footer({empty}: {empty: IComputedValue<boolean>}) {
+  return empty.get() ? <Welcome/> : <p className="text-sm text-muted"><Hints/></p>;
 });
 
 const byTime = (a: Item, b: Item) => b.at.localeCompare(a.at);

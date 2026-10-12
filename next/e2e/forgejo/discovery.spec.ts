@@ -64,8 +64,8 @@ test('explore repository rows: hover underlines only the name, over one row surf
         return out;
       });
       const look = (row: ReturnType<typeof rows.nth>) => row.evaluate((a) => {
-        const [title, detail] = [...a.children];
-        if (!title || !detail) throw new Error('a repository row has a name and a description');
+        const [, title, detail] = [...a.children];
+        if (!title || !detail) throw new Error('a repository row has an icon, a name and a description');
         const styleOf = (e: Element) => { const s = getComputedStyle(e); const r = e.getBoundingClientRect(); return {color: s.color, decoration: s.textDecorationLine, box: [r.x, r.y, r.width, r.height]}; };
         return {
           row: {background: getComputedStyle(a).backgroundColor, decoration: getComputedStyle(a).textDecorationLine, height: a.getBoundingClientRect().height},

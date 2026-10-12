@@ -4,7 +4,7 @@
 
 import {createLink, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type PointerEvent, type ReactNode, useEffect, useState} from 'react';
+import {type PointerEvent, type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
@@ -26,7 +26,7 @@ import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, ConfirmationDialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
+import {AriaAlert, Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, ConfirmationDialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 import {EmptyState} from '../../components/EmptyState.tsx';
@@ -426,6 +426,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [missing, setMissing] = useState(false);
+  const titleField = useRef<HTMLInputElement>(null);
   const offline = !connectivity.online;
   const heading = page ? `Edit ${page.title}` : 'New page';
   const leave = () => {
@@ -437,6 +438,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
     const t = title.trim();
     if (!t) {
       setMissing(true);
+      titleField.current?.focus();
       return;
     }
     setSaving(true);
@@ -462,7 +464,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
           {error !== undefined && <Banner variant="critical" title="Not saved" description={error}/>}
           <FormControl required>
             <FormControl.Label>Title</FormControl.Label>
-            <TextInput placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} onChange={(e) => {
+            <TextInput ref={titleField} placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} onChange={(e) => {
                 setTitle(e.target.value);
               }} onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -470,7 +472,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
                   save();
                 }
               }}/>
-            {missing && !title.trim() && <FormControl.Validation variant="error">A page needs a title.</FormControl.Validation>}
+            {missing && !title.trim() && <FormControl.Validation variant="error"><AriaAlert as="span">A page needs a title.</AriaAlert></FormControl.Validation>}
           </FormControl>
           <MarkdownField attachments={false} repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
             onChange={setText} onSubmit={save} onCancel={leave} render={(t) => src.render(repoId, t)}/>

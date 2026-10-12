@@ -7,7 +7,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, createElement, useEffect, useRef, useState} from 'react';
+import {cloneElement, createElement, type RefObject, useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
@@ -28,7 +28,7 @@ import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
 import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
+import {AriaAlert, Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
 import {FilteredActionList} from '@primer/react/experimental';
 import {Tooltip} from '@primer/react';
 
@@ -310,6 +310,7 @@ export const CreateIssue = observer(function CreateIssue() {
   const navigate = useNavigate();
   const req = app.ui.create;
   const returnFocus = useRef<HTMLElement>(null);
+  const titleField = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<Form | undefined>();
   const [previousRequest, setPreviousRequest] = useState<typeof req>();
   if (req !== previousRequest) {
@@ -332,7 +333,10 @@ export const CreateIssue = observer(function CreateIssue() {
   };
   const create = () => {
     const path = form?.create();
-    if (!path) return;
+    if (!path) {
+      if (form?.missing && !form.title.trim()) titleField.current?.focus();
+      return;
+    }
     runInAction(() => {
       app.ui.create = undefined;
     });
@@ -345,7 +349,7 @@ export const CreateIssue = observer(function CreateIssue() {
   return (
     <Dialog onClose={close} returnFocusRef={returnFocus} title="New issue" width="xlarge"
       renderFooter={() => <Dialog.Footer>{form && <Footer form={form} onCancel={close} onCreate={create}/>}</Dialog.Footer>}>
-      {form && (form.choosing ? <TemplatePicker form={form}/> : <Fields form={form} onCreate={create} onClose={close}/>)}
+      {form && (form.choosing ? <TemplatePicker form={form}/> : <Fields form={form} titleField={titleField} onCreate={create} onClose={close}/>)}
     </Dialog>
   );
 });
@@ -374,7 +378,7 @@ const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
 
 interface TemplateChoice {id: string; text: string; description?: string; descriptionVariant?: 'block'; onAction: () => void}
 
-const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; onCreate: () => void; onClose: () => void}) {
+const Fields = observer(function Fields({form, titleField, onCreate, onClose}: {form: Form; titleField: RefObject<HTMLInputElement | null>; onCreate: () => void; onClose: () => void}) {
   const app = useApp();
   useEffect(() => () => {
     form.flush();
@@ -398,7 +402,7 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
       }
     }}>
       {form.templates?.templates.length ? <Button variant="invisible" size="small" type="button" onClick={() => { runInAction(() => { form.choosing = true; }); }}>Change template</Button> : null}
-      <Title form={form} onCreate={onCreate}/>
+      <Title form={form} field={titleField} onCreate={onCreate}/>
       {form.templates?.note && <p className="text-sm text-muted">{form.templates.note}</p>}
       {form.template?.body?.length ? <TemplateFields fields={form.template.body} values={form.values} missing={form.fieldErrors} repoId={form.repoId} onChange={form.setValue}/> : <Description form={form} onCreate={onCreate}/>}
       <Properties form={form}/>
@@ -406,12 +410,12 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
   );
 });
 
-const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: () => void}) {
+const Title = observer(function Title({form, field, onCreate}: {form: Form; field: RefObject<HTMLInputElement | null>; onCreate: () => void}) {
   const missing = form.missing && !form.title.trim();
   return (
     <FormControl>
     <FormControl.Label>Title</FormControl.Label>
-    <TextInput placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} onChange={(e) => {
+    <TextInput ref={field} placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} onChange={(e) => {
         form.setTitle(e.target.value);
       }} onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -419,7 +423,7 @@ const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: (
           onCreate();
         }
       }}/>
-    {missing && <FormControl.Validation variant="error">An issue needs a title.</FormControl.Validation>}
+    {missing && <FormControl.Validation variant="error"><AriaAlert as="span">An issue needs a title.</AriaAlert></FormControl.Validation>}
     </FormControl>
   );
 });

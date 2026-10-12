@@ -84,8 +84,21 @@ test('a new branch from a tag: API v1 is asked, the dialog closes once the pool 
   const name = within(dialog).getByRole('textbox', {name: 'Branch name'});
   // The problem is the field's validation message: its description, with the field marked invalid.
   const problem = () => document.getElementById(name.getAttribute('aria-describedby') ?? '')?.textContent;
+  // A failed Create moves focus to the invalid field, so its description (the problem) is read.
+  const createButton = within(dialog).getByRole('button', {name: 'Create branch'});
+  createButton.focus();
+  act(() => {
+    fireEvent.click(createButton);
+  });
+  expect(document.activeElement).toBe(name);
+  expect(name.getAttribute('aria-invalid')).toBe('true');
+  expect(problem()).toBeTruthy();
   fireEvent.change(name, {target: {value: 'fix footer'}});
   expect(problem()).toMatch(/Spaces/);
+  // A problem that appears while typing is also announced through Primer's live region.
+  await waitFor(() => {
+    expect(document.querySelector('live-region')?.shadowRoot?.textContent).toMatch(/Spaces/);
+  });
   expect(name.getAttribute('aria-invalid')).toBe('true');
   fireEvent.change(name, {target: {value: 'main'}});
   expect(problem()).toMatch(/exists already/);

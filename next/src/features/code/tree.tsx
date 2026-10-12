@@ -4,7 +4,7 @@
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
-import {useLoad, useSource} from './hooks.ts';
+import {branchByName, useLoad, useSource} from './hooks.ts';
 import type {RefKind} from '../../code/refs.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -40,7 +40,7 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
   owner: string; repo: string; repoId: number; kind: RefKind; name: string; sha: string; showRef?: boolean;
 }) {
   const pool = usePool();
-  const b = kind === 'branch' ? [...pool.model('Branch').by('repo_id', repoId)].find((x) => x.get('name') === name && !x.get('is_deleted'))?.data : undefined;
+  const b = kind === 'branch' ? branchByName(pool, repoId).get(name)?.data : undefined;
   const commit = b?.commit_id ?? sha;
   const src = useSource();
   const key = `commit:${String(repoId)}:${commit}`;

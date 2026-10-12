@@ -6,18 +6,18 @@
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
-import {codeSplat, type RefKind, type RefTable, type Resolved, shortSha} from '../../code/refs.ts';
+import {codeSplat, type RefKind, type Resolved, shortSha} from '../../code/refs.ts';
 import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {refTable} from './hooks.ts';
+import {type RefIndex, refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {looksLikeSha, type RefChoice} from './refWrite.ts';
 import {ChevronDownIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 
-function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): CodeChoice[] {
-  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
-  const tags = branchesOnly ? [] : [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
+function refOptions(refs: RefIndex, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): CodeChoice[] {
+  const branches = refs.branchNames;
+  const tags = branchesOnly ? [] : refs.tagNames;
   const option = (kind: RefKind, ref: string): CodeChoice => ({
     value: `${kind}:${ref}`, label: ref, group: kind === 'branch' ? 'Branches' : 'Tags', icon: kind === 'branch' ? GitBranchIcon : TagIcon,
     meta: kind === 'branch' && ref === refs.defaultBranch ? 'default' : undefined, checked: current === `${kind}:${ref}`,

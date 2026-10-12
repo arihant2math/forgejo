@@ -160,8 +160,6 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const [forkState, setForkState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [query, setQuery] = useState('');
   const refs = refTable(pool, repoId);
-  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
-  const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
   const go = (to: ReturnType<typeof codeTo>) => {
     void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
   };
@@ -176,7 +174,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
       go(codeTo(owner, repo, compareSplat(side === 'base' ? ref : base, side === 'head' ? ref : head)));
     },
   });
-  const options = [...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))];
+  const options = [...refs.branchNames.map((b) => option(b, false)), ...refs.tagNames.map((t) => option(t, true))];
   const upHead = side === 'base' && up ? head || refs.defaultBranch : '';
   if (up && upHead && refs.branches.has(upHead)) {
     options.push({

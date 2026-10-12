@@ -13,7 +13,7 @@ not cover link out to the classic UI, which keeps working unchanged.
 * `services/livesync/SURFACE.md`: every upstream Forgejo symbol livesync depends on.
 
 **Stack:** React 19, `@primer/react` + `@primer/primitives` + `@primer/octicons-react`, Tailwind 4 mapped onto
-Primer's tokens, TanStack Router and Virtual, react-virtuoso, MobX, Comlink workers, `@pierre/diffs` and Shiki for
+Primer's tokens, TanStack Router and Virtual, MobX, Comlink workers, `@pierre/diffs` and Shiki for
 code, CodeMirror 6 for markdown, MiniSearch, Vite 8 (Rolldown, Lightning CSS), Oxlint + Stylelint, `tsgo`, Vitest,
 Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/livesync`, `routers/livesync`).
 
@@ -196,8 +196,8 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Writes to synced data are intents (`editing(app).intents.submit`), never direct API calls; online-only actions
   use `online()` and are disabled offline with `onlineOnly()`. Nothing the user typed is ever dropped silently:
   failures become drafts.
-* Virtualize every list that can exceed ~50 rows (TanStack Virtual; react-virtuoso for timelines). Fixed row heights
-  come from tokens so lists virtualize without measuring.
+* Virtualize every list that can exceed ~50 rows (TanStack Virtual). Fixed row heights come from tokens so lists
+  virtualize without measuring; variable-height lists (the issue timeline) measure their rows.
 * No spinners for local data; the first frame after navigation shows content or a skeleton of the right shape.
 * Keep the boot route small: new views are `lazyView`s, heavy dependencies load lazily, heavy work (highlighting,
   diff parsing for Pierre, search indexing) runs in workers.

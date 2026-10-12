@@ -210,3 +210,36 @@ test('on a wide page the properties are a scroll region of their own, bounded by
   for (const c of ['@xl:sticky', '@xl:top-0', '@xl:max-h-page-body', '@xl:overflow-y-auto', '@xl:overscroll-contain']) expect(scroller?.classList.contains(c), c).toBe(true);
   expect(within(pane).getByText('Not pinned')).toBeTruthy();
 });
+
+test('the timeline gives state changes GitHub\'s coloured badges and condenses other events', async () => {
+  const s = session('read');
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false});
+  s.data.put('Comment', 'issue:100', comment(1001, 100, '1', {type: 'label', label_id: 1}));
+  s.data.put('Comment', 'issue:100', comment(1002, 100, '', {type: 'close', created_at: '2026-02-01T00:00:00Z'}));
+  s.data.put('Comment', 'issue:100', comment(1003, 100, '', {type: 'reopen', created_at: '2026-02-02T00:00:00Z'}));
+  await open('/acme/website/issues/7', s);
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => {
+    expect(activity.querySelector('[data-variant="done"] .octicon-issue-closed')).not.toBeNull();
+  });
+  expect(activity.querySelector('[data-variant="open"] .octicon-issue-reopened')).not.toBeNull();
+  const labelled = within(activity).getByText('added', {exact: false}).closest('.Timeline-Item');
+  expect(labelled?.hasAttribute('data-condensed')).toBe(true);
+});
+
+test('the description is the conversation\'s first card, with the comment menu in GitHub\'s order', async () => {
+  const s = session('write', 1);
+  s.data.put('IssueBody', 'issue:100', {id: 100, repo_id: 20, body: 'Steps to reproduce', body_html: '<p>Steps to reproduce</p>', content_version: 0});
+  await open('/acme/website/issues/7', s);
+  const description = (await screen.findByText('Steps to reproduce')).closest('article');
+  expect(description?.textContent).toContain('opened');
+  if (!description) throw new Error('no description card');
+  fireEvent.click(within(description).getByRole('button', {name: 'Description actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit']);
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  const card = document.getElementById('comment-1001');
+  if (!card) throw new Error('no comment card');
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull(); });
+  fireEvent.click(within(card).getByRole('button', {name: 'Comment actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit', 'Delete…']);
+});

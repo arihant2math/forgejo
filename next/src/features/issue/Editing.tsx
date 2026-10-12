@@ -217,31 +217,31 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   );
 });
 
-export const BodySection = observer(function BodySection({issue}: {issue: Entity<'Issue'>}) {
+/** The description's edit state, shared by its card's menu, its body and the edit shortcut. */
+export function useBodyEdit(issue: Entity<'Issue'>) {
   const app = useApp();
   const session = useSession();
   const {data} = session;
+  const {overlay} = editing(app);
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
-  const {overlay, intents} = editing(app);
   const [edit, setEdit] = useState<EditBase | false>(false);
-  const editButton = useRef<HTMLButtonElement>(null);
-  const refocus = useRef(false);
-  useEffect(() => {
-    if (!edit && refocus.current) editButton.current?.focus();
-    refocus.current = false;
-  }, [edit]);
-  const close = () => {
-    refocus.current = true;
-    setEdit(false);
-  };
-  const body = issueBody(data.pool, overlay, issue.id);
-  const conflict = intents.conflictOf('issue.body', issue.id);
   const start = () => {
     const b = untracked(() => issueBody(data.pool, overlay, issue.id));
     if (!b || !mayEdit) return;
     setEdit({text: b.text, version: b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1});
   };
   useShortcut('issue.edit', start);
+  return {edit, start, stop: () => { setEdit(false); }, mayEdit};
+}
+
+export const BodySection = observer(function BodySection({issue, edit, mayEdit, onEditDone, onReopen}: {
+  issue: Entity<'Issue'>; edit: EditBase | false; mayEdit: boolean; onEditDone: () => void; onReopen: () => void;
+}) {
+  const app = useApp();
+  const {data} = useSession();
+  const {overlay, intents} = editing(app);
+  const body = issueBody(data.pool, overlay, issue.id);
+  const conflict = intents.conflictOf('issue.body', issue.id);
   const repoId = issue.get('repo_id');
   if (conflict?.conflict) {
     const c = conflict.conflict;
@@ -272,47 +272,41 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     return (
       <TextEditor draftKey={`text:body:${String(issue.id)}`} title="Editing the description" issueId={issue.id} repoId={repoId}
         initial={edit.text} base={edit} label="Description" saveLabel="Save" rows={12} autoFocus
-        onCancel={close} onReopen={start}
+        onCancel={onEditDone} onReopen={onReopen}
         onSave={(text, base) => {
           const b = base ?? edit;
           intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: b.version});
-          close();
+          onEditDone();
         }}/>
     );
   }
   return (
-    <div className="flex items-start gap-2">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
-          const b = untracked(() => issueBody(data.pool, overlay, issue.id));
-          if (!b) return;
-          const text = toggleTask(b.text, index, checked);
-          if (text === b.text) return;
-          const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
-          intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
-        } : undefined}/> : <p className="text-base text-muted">No description.</p>}
-        {body.local && <NotSynced/>}
-      </div>
-      {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" description="Edit the issue description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
+    <div className="flex min-w-0 flex-col gap-1">
+      {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
+        const b = untracked(() => issueBody(data.pool, overlay, issue.id));
+        if (!b) return;
+        const text = toggleTask(b.text, index, checked);
+        if (text === b.text) return;
+        const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
+        intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
+      } : undefined}/> : <p className="text-base text-muted italic">No description provided.</p>}
+      {body.local && <NotSynced/>}
     </div>
   );
 });
 
-export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
+/** A comment's menu, in GitHub's order: Copy link and Quote reply, then Edit, then Delete. */
+export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDelete}: {
+  triggerRef: RefObject<HTMLButtonElement | null>; label: string; issueId: number;
+  /** Points the page's address at this card. */
+  link: (url: URL) => void;
+  quote: () => string;
+  onEdit?: (() => void) | undefined;
+  onDelete?: (() => void) | undefined;
+}) {
   const app = useApp();
-  const session = useSession();
-  const {intents} = editing(app);
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const selection = useRef('');
-  const fallback = useRef<HTMLElement | null>(null);
-  const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
-  const remove = () => {
-    setConfirming(false);
-    const {issue_id: issueId} = untracked(() => c.data);
-    intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
-    requestAnimationFrame(() => { fallback.current?.focus(); });
-  };
   const setMenuOpen = (next: boolean) => {
     if (next) {
       const selected = window.getSelection();
@@ -321,42 +315,77 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
     }
     setOpen(next);
   };
+  return (
+    <ActionMenu open={open} onOpenChange={setMenuOpen}>
+      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button" ref={triggerRef}/></ActionMenu.Anchor>
+      <ActionMenu.Overlay align="end"><ActionList>
+        <ActionList.Item onSelect={() => {
+          const url = new URL(window.location.href);
+          url.search = '';
+          url.hash = '';
+          link(url);
+          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
+        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
+        <ActionList.Item onSelect={() => {
+          setOpen(false);
+          const text = selection.current || quote();
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId, text}}));
+          });
+        }}><ActionList.LeadingVisual><QuoteIcon/></ActionList.LeadingVisual>Quote reply</ActionList.Item>
+        {onEdit && <>
+          <ActionList.Divider/>
+          <ActionList.Item onSelect={() => {
+            setOpen(false);
+            onEdit();
+            const card = triggerRef.current?.closest('article');
+            requestAnimationFrame(() => { card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus(); });
+          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Edit</ActionList.Item>
+        </>}
+        {onDelete && <>
+          <ActionList.Divider/>
+          <ActionList.Item variant="danger" onSelect={() => {
+            setOpen(false);
+            onDelete();
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>
+        </>}
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
+  );
+}
+
+export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
+  const app = useApp();
+  const session = useSession();
+  const {intents} = editing(app);
+  const [confirming, setConfirming] = useState(false);
+  const fallback = useRef<HTMLElement | null>(null);
+  const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
+  const remove = () => {
+    setConfirming(false);
+    const {issue_id: issueId} = untracked(() => c.data);
+    intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
+    requestAnimationFrame(() => { fallback.current?.focus(); });
+  };
   return <>
     {confirming && <Dialog title="Delete this comment?" subtitle="It is removed for everyone. This cannot be undone." width="small"
       returnFocusRef={triggerRef} onClose={() => { setConfirming(false); }} footerButtons={[
         {content: 'Cancel', onClick: () => { setConfirming(false); }},
         {content: 'Delete', buttonType: 'danger', onClick: remove},
       ]}/>}
-    <ActionMenu open={open} onOpenChange={setMenuOpen}>
-      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="Comment actions" type="button" ref={triggerRef} className="ml-auto"/></ActionMenu.Anchor>
-      <ActionMenu.Overlay align="end"><ActionList>
-        <ActionList.Item onSelect={() => {
-          setOpen(false);
-          requestAnimationFrame(() => {
-            window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
-          });
-        }}><ActionList.LeadingVisual><QuoteIcon/></ActionList.LeadingVisual>Quote reply</ActionList.Item>
-        {mayEdit && <ActionList.Item onSelect={() => {
-          setOpen(false);
-          onEdit();
-          const card = triggerRef.current?.closest('article');
-          requestAnimationFrame(() => { card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus(); });
-        }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Edit</ActionList.Item>}
-        {mayEdit && c.get('type') !== 'review' && <ActionList.Item variant="danger" onSelect={() => {
-          fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
-          setOpen(false);
-          setConfirming(true);
-        }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>}
-        <ActionList.Item onSelect={() => {
-          const url = new URL(window.location.href);
-          if (c.get('type') === 'code') {
-            url.searchParams.set('tab', 'files');
-            url.hash = `review-thread-${String(c.id)}`;
-          } else url.hash = `comment-${String(c.id)}`;
-          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
-        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
-      </ActionList></ActionMenu.Overlay>
-    </ActionMenu>
+    <CardMenu triggerRef={triggerRef} label="Comment actions" issueId={c.get('issue_id')}
+      link={(url) => {
+        if (c.get('type') === 'code') {
+          url.searchParams.set('tab', 'files');
+          url.hash = `review-thread-${String(c.id)}`;
+        } else url.hash = `comment-${String(c.id)}`;
+      }}
+      quote={() => commentBody(editing(app).overlay, c).text}
+      onEdit={mayEdit ? onEdit : undefined}
+      onDelete={mayEdit && c.get('type') !== 'review' ? () => {
+        fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
+        setConfirming(true);
+      } : undefined}/>
   </>;
 });
 
@@ -553,41 +582,58 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
   );
 });
 
+/** GitHub's issue title: the title with its muted number and an Edit button; editing saves on Enter or Save, never on blur. */
 export const TitleSection = observer(function TitleSection({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();
   const {overlay, intents} = editing(app);
   const [text, setText] = useState<string | undefined>(undefined);
+  const editButton = useRef<HTMLButtonElement>(null);
   const title = issueTitle(overlay, issue);
+  const number = issue.get('number');
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
-  if (text === undefined) {
-    if (!mayEdit) return <Heading as="h2" variant="medium">{title}</Heading>;
-    return <div className="flex items-start gap-2">
-      <Heading as="h2" variant="medium" className="flex-1">{title}</Heading>
-      <Button variant="invisible" size="small" leadingVisual={PencilIcon} onClick={() => { setText(title); }}>Rename</Button>
-    </div>;
-  }
-  const save = () => {
-    const t = text.trim();
+  const close = () => {
     setText(undefined);
-    if (t && t !== title) {
+    requestAnimationFrame(() => editButton.current?.focus());
+  };
+  if (text === undefined) {
+    return (
+      <div className="flex items-start gap-2">
+        <Heading as="h2" variant="large" className="min-w-0 flex-1">
+          {title}{number > 0 && <> <span className="font-normal text-muted">#{number}</span></>}
+        </Heading>
+        {mayEdit && <Button size="small" ref={editButton} aria-label="Edit title" className="mt-1" onClick={() => { setText(title); }}>Edit</Button>}
+      </div>
+    );
+  }
+  const t = text.trim();
+  const save = () => {
+    if (!t) return;
+    close();
+    if (t !== title) {
       runInAction(() => {
         intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: t, base: title});
       });
     }
   };
   return (
-    <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!text.trim() ? {validationStatus: 'error' as const} : {})} onBlur={save} onChange={(e) => {
-      setText(e.target.value);
-    }} onKeyDown={(e) => {
-      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-        e.preventDefault();
-        save();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        setText(undefined);
-      }
-    }}/>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!t ? {validationStatus: 'error' as const} : {})} onChange={(e) => {
+          setText(e.target.value);
+        }} onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            save();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+          }
+        }}/>
+      </div>
+      <Button size="small" type="button" inactive={!t} onClick={save}>Save</Button>
+      <Button variant="invisible" size="small" type="button" onClick={close}>Cancel</Button>
+    </div>
   );
 });

@@ -25,15 +25,14 @@ import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
 import {openPicker} from '../issues/actions.ts';
 import {readThreadWhileOpen} from '../inbox/actions.ts';
-import {isMerged, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
+import {isMerged, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {Missing} from '../../app/Missing.tsx';
-import {BodySection, CommentComposer, Overrides, TitleSection} from './Editing.tsx';
-import {Reactions} from './Reactions.tsx';
+import {CommentComposer, Overrides, TitleSection} from './Editing.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
-import {Timeline} from './Timeline.tsx';
+import {DescriptionItem, Timeline} from './Timeline.tsx';
 import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
 import {Button, StateLabel, UnderlineNav} from '@primer/react';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
@@ -179,16 +178,20 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
   return (
     <div className="flex min-h-full flex-col @xl:flex-row">
       <article className="conversation-markdown flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6">
-        <TitleSection issue={issue}/>
-        <Byline issue={issue}/>
+        <header className="flex flex-col gap-2 border-b border-default pb-4">
+          <TitleSection issue={issue}/>
+          <Byline issue={issue}/>
+        </header>
         <PropertiesSummary issue={issue}/>
         <Overrides issueId={issue.id}/>
-        <BodySection issue={issue}/>
-        <Reactions issueId={issue.id} commentId={0}/>
-        <div className="mt-4 border-t border-muted pt-2">
-          <Timeline issueId={issue.id} scroller={scroller}/>
-          {issue.get('is_pull') && issue.id > 0 && <MergeBox issue={issue}/>}
-          <Composer issue={issue}/>
+        {/* The conversation's gutter holds the avatars where the column is wide enough. */}
+        <div className="@container/conversation">
+          <div className="flex flex-col @md/conversation:pl-14">
+            <DescriptionItem issue={issue}/>
+            <Timeline issueId={issue.id} scroller={scroller}/>
+            {issue.get('is_pull') && issue.id > 0 && <MergeBox issue={issue}/>}
+            <Composer issue={issue}/>
+          </div>
         </div>
       </article>
       {/* Bound the sticky sidebar to the page body so it scrolls independently of the conversation. */}
@@ -208,10 +211,11 @@ const Composer = observer(function Composer({issue}: {issue: Entity<'Issue'>}) {
   const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-muted"><LockIcon size={12} className="shrink-0"/>{text}</p>;
   if (locked && !canWrite(session, issue.get('repo_id'))) return note('This conversation is locked: only collaborators can comment.');
   return (
-    <>
+    <div className="relative mt-2">
+      <span className="absolute top-3 -left-14 hidden @md/conversation:block"><UserAvatar id={session.userId} size="lg" linked/></span>
       {locked && note('This conversation is locked: only collaborators, like you, can comment.')}
       <CommentComposer issueId={issue.id} repoId={issue.get('repo_id')}/>
-    </>
+    </div>
   );
 });
 

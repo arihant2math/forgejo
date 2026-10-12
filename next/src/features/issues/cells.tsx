@@ -121,7 +121,7 @@ export function stateLook(state: string, pull: boolean, merged: boolean): StateL
     if (merged) return {icon: GitMergeIcon, tone: 'merged', label: 'Merged'};
     return state === 'open' ? {icon: GitPullRequestIcon, tone: 'open', label: 'Open'} : {icon: GitPullRequestClosedIcon, tone: 'closed', label: 'Closed'};
   }
-  return state === 'open' ? {icon: IssueOpenedIcon, tone: 'open', label: 'Open'} : {icon: CheckCircleIcon, tone: 'done', label: 'Closed'};
+  return state === 'open' ? {icon: IssueOpenedIcon, tone: 'open', label: 'Open'} : {icon: IssueClosedIcon, tone: 'done', label: 'Closed'};
 }
 
 export function StateGlyph({look}: {look: StateLook}) {

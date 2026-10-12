@@ -51,8 +51,7 @@
     "mobx-react-lite": "5.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-is": "19.3.0",
-    "react-virtuoso": "4.18.15"
+    "react-is": "19.3.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

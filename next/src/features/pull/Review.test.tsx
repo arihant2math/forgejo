@@ -283,7 +283,7 @@ test('a single line comment\'s review (COMMENT, empty summary) shows its comment
   const activity = await screen.findByRole('region', {name: 'Activity'});
   expect(await within(activity).findAllByText('This swallows every error.')).toHaveLength(1);
   expect(within(activity).queryByText('No text.')).toBeNull();
-  expect(within(activity).getAllByRole('article')).toHaveLength(2); // the review's card and the comment's
+  expect(within(activity).getAllByRole('article')).toHaveLength(1); // the comment's card; the review is a timeline entry, not a card around it
   expect(within(activity).getAllByRole('button', {name: 'Reply'})).toHaveLength(1);
 });
 

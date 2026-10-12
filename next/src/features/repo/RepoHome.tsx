@@ -70,7 +70,7 @@ const RepoHomePage = observer(function RepoHomePage({owner, repo, repoId}: {owne
                 }}>New issue</Button></Tooltip>
               </div>
             </div>
-            {repository?.fork && <Contribute owner={owner} repo={repo}/>}
+            {repository?.fork && <Contribute owner={owner} repo={repo} repoId={repoId}/>}
             <Files owner={owner} repo={repo} repoId={repoId}/>
           </PageColumn>
           <aside aria-label="About" className="shrink-0 border-t border-default p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
